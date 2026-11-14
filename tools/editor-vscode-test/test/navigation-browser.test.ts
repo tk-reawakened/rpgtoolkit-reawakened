@@ -229,7 +229,8 @@ test("the layout is kept as identifiers and restored by a new workbench on the s
   await key(separator, "ArrowRight", { shiftKey: true });
   equal(element.querySelector('[role="separator"][aria-label="Resize Files"]')?.getAttribute("aria-valuenow"), "304");
   const saved = first.saveLayout();
-  deepEqual(saved.panels.map((panel) => Object.keys(panel).sort().join()), ["id,side,size,visible", "id,side,size,visible"]);
+  ok(saved.panels.every((panel) => Object.keys(panel).sort().join() === "id,side,size,visible"), "saved layout contains only the serialisable panel fields");
+  deepEqual(JSON.parse(JSON.stringify(saved)), saved, "saved layout round-trips through JSON");
   first.dispose();
   const stored = await web.services.settings.get("user", "workbench.layout");
   ok(stored.ok && typeof stored.value === "string" && stored.value.includes("304"), "the layout is in the user's settings");

@@ -3,9 +3,10 @@ import { vscodeCapabilities } from "./capabilities.ts";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
+import { createVscodeServices } from "./services.ts";
+import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
-import { createVscodeServices } from "./services.ts";
 import { DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
 
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
@@ -18,7 +19,11 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
   return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${stylesheet}"><title>RPG Toolkit editor</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
 }
 
-export function registerGameSettings(context: vscode.ExtensionContext): void {
+/** Registers the editors and the run commands; returns the count of document changes, which the other commands compare across a save. */
+export function registerGameSettings(context: vscode.ExtensionContext): () => number {
+  let generation = 0;
+  registerVscodeGameRunner(context, () => generation, (root) => createVscodeServices(root, context, () => generation).run!);
+  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
@@ -52,7 +57,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): void {
     }),
     quickPick: async (items, placeholder) => (await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, id: item.id, ...(item.description === undefined ? {} : { description: item.description }) })), { placeHolder: placeholder, ignoreFocusOut: true }))?.id,
   };
-  const core = createGameEditorProvider(port, (event: GameEditEvent<vscode.Uri>) => changes.fire(event));
+  const core = createGameEditorProvider(port, (event: GameEditEvent<vscode.Uri>) => {
+    generation += 1;
+    changes.fire(event);
+  });
   const provider: vscode.CustomEditorProvider<GameDocument<vscode.Uri>> = {
     onDidChangeCustomDocument: changes.event,
     openCustomDocument: (uri, openContext) => core.openCustomDocument(uri, openContext.backupId),
@@ -75,10 +83,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): void {
   for (const viewType of VIEW_TYPES) {
     context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: false }, supportsMultipleEditorsPerDocument: true }));
   }
+  return () => generation;
 }
 
 /** The new-board command (T-20): the questions are VS Code's own input boxes and pick lists, one after another. */
-export function registerNewBoard(context: vscode.ExtensionContext): void {
+export function registerNewBoard(context: vscode.ExtensionContext, generation: () => number): void {
   const ui: NewBoardUi = {
     input: (question) => Promise.resolve(vscode.window.showInputBox({
       title: question.title,
@@ -101,7 +110,7 @@ export function registerNewBoard(context: vscode.ExtensionContext): void {
     // One workspace folder is one project (ADR 0022 D1.1); a multi-root workspace asks which.
     const folder = folders.length === 1 ? folders[0]! : await pickFolder(folders);
     if (folder === undefined) return;
-    const services = createVscodeServices(folder.uri);
+    const services = createVscodeServices(folder.uri, context, generation);
     const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui });
     if (!outcome.ok) {
       if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);

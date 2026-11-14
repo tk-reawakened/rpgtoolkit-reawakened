@@ -1,7 +1,9 @@
 import { createSessionCopy, createWorkbench, listRecentWebProjects, openWebProject, reopenWebProject, type WebProject, type Workbench } from "@tk-reawakened/host-web";
-import { createDocumentIdentity, type AnyDocument } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
+/** Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). */
+const playerOptions = { playerUrl: "/packages/runner-web/app/index.html" };
 const status = document.querySelector<HTMLElement>("#host-status")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
 const folderButton = document.querySelector<HTMLButtonElement>("#open-project")!;
@@ -13,6 +15,7 @@ const recentLabel = document.querySelector<HTMLLabelElement>("#recent-project-la
 const recentSelect = document.querySelector<HTMLSelectElement>("#recent-project")!;
 const reopenButton = document.querySelector<HTMLButtonElement>("#reopen-project")!;
 const actions = document.querySelector<HTMLElement>("#document-actions")!;
+
 /** The one project this page shows: its workspace, tabs and mounted workbench. */
 interface Shown {
   readonly project: WebProject;
@@ -124,7 +127,7 @@ async function serializeCommit(commit: () => Promise<void>): Promise<void> {
 folderButton.addEventListener("click", () => {
   const request = ++openRequest;
   void (async () => {
-    const project = await openWebProject();
+    const project = await openWebProject(playerOptions);
     if (request !== openRequest) {
       if (project) retireProjectIfUnowned(project);
       return;
@@ -139,7 +142,7 @@ folderButton.addEventListener("click", () => {
 reopenButton.addEventListener("click", () => {
   const request = ++openRequest;
   void (async () => {
-    const project = await reopenWebProject(recentSelect.value);
+    const project = await reopenWebProject(recentSelect.value, playerOptions);
     if (request !== openRequest) {
       if (project) retireProjectIfUnowned(project);
       return;
@@ -274,7 +277,7 @@ async function showProject(project: WebProject, path: string, request: number): 
   const element = document.createElement("section");
   element.hidden = true;
   settings.append(element);
-  const workbench = createWorkbench(project, element);
+  const workbench = createWorkbench(project, element, { projectLayout: await projectLayoutOfMain(project.services.fs, project.project.id, path) });
   let candidate!: Shown;
   const unsubscribeTabs = workbench.tabs.subscribe(() => updateActions(candidate));
   candidate = { project, workbench, element, unsubscribeTabs };

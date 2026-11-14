@@ -54,6 +54,8 @@ await build({
   alias: {
     ...bundleOptions.alias,
     "@tk-reawakened/host-web": join(root, "packages/host-web/src/index.ts"),
+    "@tk-reawakened/editor-model": join(root, "packages/editor-model/src/index.ts"),
+    "@tk-reawakened/editor-ui": join(root, "packages/editor-ui/src/index.ts"),
   },
 });
 console.log("built tools/browser/editor-web/dist/editor-web.js");

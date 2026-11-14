@@ -4,6 +4,7 @@
 // run is the same every time (G3).
 import { bindProjectFileSystem, type DirectoryEntry, type FileChange, type FileKind, type FileStat } from "./fs.ts";
 import { platformError, platformOk, type Disposable, type PlatformError, type PlatformResult } from "./result.ts";
+import { createRunHandle, LAUNCH_CAPABILITY, launchUnavailable, prepareRun, type Launch, type PrepareRunOptions, type RunHandle, type RunSnapshot, type RunStartGuard, type RunStatus } from "./run.ts";
 import type {
   Capability,
   DialogQuestion,
@@ -46,6 +47,24 @@ export interface MemoryPlatformServices extends PlatformServices {
   readonly questions: readonly DialogQuestion<string>[];
   /** Every `dialogs.pickSavePath` request, in order. */
   readonly savePathRequests: readonly SavePathRequest[];
+  /** Every run the double started, in order, with the frozen files it was given. */
+  readonly runs: readonly MemoryRun[];
+}
+
+/**
+ * One run of the double. It runs no engine: a test plays the runner, moving the run through `report` (a tick, a board, a
+ * stall, the end) the way a host's runner would, and reads `files` to see exactly what the run was given.
+ */
+export interface MemoryRun {
+  readonly launch: Launch;
+  readonly snapshot: RunSnapshot;
+  /** The bytes the run was given, frozen at launch: later writes to the project never change them (ADR 0022 D8.4). */
+  readonly files: ReadonlyMap<string, Uint8Array>;
+  readonly handle: RunHandle;
+  /** Change the run's status as its runner would; a finished run ignores it. */
+  report(status: Partial<RunStatus>): void;
+  /** Whether `handle.stop()` was called. */
+  stopped(): boolean;
 }
 
 /** What the double starts with. */
@@ -54,8 +73,18 @@ export interface MemoryPlatformOptions {
   readonly project?: ProjectHandle;
   /** Files present at the start, by project-relative path. */
   readonly files?: Readonly<Record<string, Uint8Array>>;
-  /** Capabilities the double declares; default all but `fileAssociation` and `scm`. */
+  /**
+   * Capabilities the double declares; default `folderWrite`, `fileWatch`, `stableProjectHandle`, `conflictReload` and
+   * `conflictAutoSave`. A test that runs games names `runGame`, `runBoard` or `runProgram`.
+   */
   readonly capabilities?: readonly Capability[];
+  /** Why the double cannot do a launch whose capability it was made without; a fixed sentence by default. */
+  readonly runRefusal?: string;
+  /**
+   * The coordinate unit `prepareRun` reads from a start board (see `PrepareRunOptions.startUnit`). The double reads no
+   * board format, so every start board uses one-based tile coordinates unless a test supplies a reader.
+   */
+  readonly startUnit?: PrepareRunOptions["startUnit"];
 }
 
 const DEFAULT_PROJECT: ProjectHandle = { id: "memory-project", name: "Memory project" };
@@ -252,6 +281,25 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
 
   const settingKey = (layer: SettingsLayer, id: string): string => `${layer}\u0000${id}`;
 
+  const runs: MemoryRun[] = [];
+  const refusal = options.runRefusal ?? "the memory host was made without that capability.";
+  const unavailable: Partial<Record<Launch["kind"], string>> = {};
+  for (const kind of ["game", "board", "program"] as const) if (!capabilities.has(LAUNCH_CAPABILITY[kind])) unavailable[kind] = refusal;
+  const start = async (launch: Launch, guard?: RunStartGuard): Promise<PlatformResult<RunHandle>> => {
+    const reason = unavailable[launch.kind];
+    if (reason !== undefined) return launchUnavailable(launch.kind, reason);
+    const prepared = await prepareRun(fs, launch, { projectId: project.id, runner: "memory-runner", startUnit: options.startUnit ?? (() => "tile") });
+    if (!prepared.ok) return prepared;
+    const allowed = guard?.();
+    if (allowed !== undefined && !allowed.ok) return allowed;
+    let stopped = false;
+    const { handle, report } = createRunHandle(prepared.value.snapshot, () => { stopped = true; });
+    runs.push({ launch, snapshot: handle.snapshot, files: prepared.value.files, handle, report, stopped: () => stopped });
+    report({ state: "running" });
+    return platformOk(handle);
+  };
+  const runsAnything = Object.keys(unavailable).length < 3;
+
   return {
     capabilities,
     fs,
@@ -302,6 +350,7 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
         return Promise.resolve(platformOk(undefined));
       },
     },
+    ...(runsAnything ? { run: { unavailable, startGame: start, startProgram: start } } : {}),
     seed: (path, bytes) => {
       put(path, bytes);
     },
@@ -324,5 +373,6 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
     openedExternally,
     questions,
     savePathRequests,
+    runs,
   };
 }
