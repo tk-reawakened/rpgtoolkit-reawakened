@@ -377,8 +377,12 @@ function normalizeWithSourceMap(source: string, lookup: Tk2CommandLookup | undef
   for (let line = 0; line < normalizedLines.length; line += 1) {
     const original = sourceLines[line] ?? "";
     const normalized = normalizedLines[line]!;
+    const isDialogueWrapper = (literals?.has(line + 1) ?? false) || original.replace(/\r$/, "").trim() === "@";
     let i = 0;
     let j = 0;
+    if (isDialogueWrapper) {
+      j = normalized.length;
+    }
     while (j < normalized.length) {
       if (i < original.length && normalized[j] === original[i]) {
         offsets[normalizedBase + j] = sourceBase + i;
@@ -386,9 +390,17 @@ function normalizeWithSourceMap(source: string, lookup: Tk2CommandLookup | undef
         j += 1;
         continue;
       }
-      if (original.slice(i, i + "method".length).toLowerCase() === "method" && normalized.startsWith("function", j)) {
-        j += "function".length;
-        i += "method".length;
+      const originalLower = original.slice(i).toLowerCase();
+      const keywordLength = originalLower.startsWith("returnmethod") ? "returnmethod".length
+        : originalLower.startsWith("method") ? "method".length : 0;
+      const replacement = keywordLength === "returnmethod".length ? "return" : "function";
+      if (keywordLength > 0 && normalized.startsWith(replacement, j)) {
+        offsets[normalizedBase + j] = sourceBase + i;
+        for (let replacementIndex = 1; replacementIndex < replacement.length; replacementIndex += 1) {
+          offsets[normalizedBase + j + replacementIndex] = sourceBase + i + Math.min(replacementIndex, keywordLength - 1);
+        }
+        i += keywordLength;
+        j += replacement.length;
         continue;
       }
       if (i < original.length && /\s/.test(original[i]!) && !/\s/.test(normalized[j]!)) {
@@ -399,17 +411,10 @@ function normalizeWithSourceMap(source: string, lookup: Tk2CommandLookup | undef
         i += 1;
         continue;
       }
-      let sourceSkip = -1;
-      let normalizedSkip = -1;
-      for (let distance = 1; distance <= 8; distance += 1) {
-        if (sourceSkip < 0 && i + distance < original.length && normalized[j] === original[i + distance]) sourceSkip = distance;
-        if (normalizedSkip < 0 && j + distance < normalized.length && normalized[j + distance] === original[i]) normalizedSkip = distance;
-      }
-      if (sourceSkip >= 0 && (normalizedSkip < 0 || sourceSkip <= normalizedSkip)) i += sourceSkip;
-      else {
-        offsets[normalizedBase + j] = undefined;
-        j += 1;
-      }
+      // Generated output has no source owner. Never guess a nearby matching
+      // character: doing so can assign a synthetic wrapper the next token's span.
+      offsets[normalizedBase + j] = undefined;
+      j += 1;
     }
     offsets[normalizedBase + normalized.length] = sourceBase + original.length - (original.endsWith("\r") ? 1 : 0);
     sourceBase += original.length + 1;
@@ -437,6 +442,13 @@ function sourceCoordinates(source: string): { readonly lines: readonly number[];
   return { lines, columns };
 }
 
+function tokenWithoutSourceSpan(token: Token): Token {
+  const synthetic = { ...token } as { col?: number; endCol?: number; [key: string]: unknown };
+  delete synthetic.col;
+  delete synthetic.endCol;
+  return synthetic as unknown as Token;
+}
+
 function mapTk2Tokens(source: string, mapped: Tk2SourceMap): Token[] {
   const coordinates = sourceCoordinates(source);
   const normalizedStarts: number[] = [];
@@ -453,7 +465,7 @@ function mapTk2Tokens(source: string, mapped: Tk2SourceMap): Token[] {
   }
   return tokens.map((token) => {
     const start = normalizedStarts[token.line - 1];
-    if (start === undefined) return { ...token, col: 0, endCol: 0 };
+    if (start === undefined) return tokenWithoutSourceSpan(token);
     const tokenStart = start + token.col - 1;
     let first: number | undefined;
     let last: number | undefined;
@@ -464,7 +476,7 @@ function mapTk2Tokens(source: string, mapped: Tk2SourceMap): Token[] {
         last = sourceOffset;
       }
     }
-    if (first === undefined || last === undefined) return { ...token, col: 0, endCol: 0 };
+    if (first === undefined || last === undefined) return tokenWithoutSourceSpan(token);
     const suffix = source[last + 1];
     const nextOutputOffset = mapped.offsets[start + token.endCol];
     if (token.kind === "identifier" && (suffix === "!" || suffix === "$") && nextOutputOffset !== last + 1) last += 1;
@@ -510,87 +522,6 @@ function remapTk2Error(error: unknown, source: string, mapped: Tk2SourceMap): ne
   throw error;
 }
 
-function declaredNameToken(tokens: readonly Token[], keyword: string, name: string): Token | undefined {
-  const foldedName = name.toLowerCase();
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index]!;
-    if (token.kind !== "identifier" || token.name !== keyword) continue;
-    let nextIndex = index + 1;
-    while (tokens[nextIndex]?.kind === "end") nextIndex += 1;
-    const next = tokens[nextIndex];
-    if (next?.kind === "identifier" && next.name.toLowerCase() === foldedName) return next;
-  }
-  return undefined;
-}
-
-function methodNameAt(tokens: readonly Token[], index: number, name: string): Token | undefined {
-  const first = tokens[index];
-  if (first?.kind === "identifier" && first.name.toLowerCase() === name.toLowerCase()) return first;
-  if (name.startsWith("operator") && first?.kind === "identifier" && first.name === "operator") {
-    const suffix = name.slice("operator".length);
-    const operator = tokens[index + 1];
-    const close = tokens[index + 2];
-    if (operator?.kind === "op" && operator.text === suffix) return { ...first, endCol: operator.endCol };
-    if (suffix === "[]" && operator?.kind === "op" && operator.text === "[" && close?.kind === "op" && close.text === "]") {
-      return { ...first, endCol: close.endCol };
-    }
-  }
-  if (name.startsWith("~") && first?.kind === "op" && first.text === "~") {
-    const destructor = tokens[index + 1];
-    if (destructor?.kind === "identifier" && `~${destructor.name}`.toLowerCase() === name.toLowerCase()) return { ...first, endCol: destructor.endCol };
-  }
-  return undefined;
-}
-
-function methodNameToken(tokens: readonly Token[], owner: string, name: string): Token | undefined {
-  const foldedOwner = owner.toLowerCase();
-  for (let index = 0; index + 3 < tokens.length; index += 1) {
-    const keyword = tokens[index];
-    const ownerToken = tokens[index + 1];
-    const separator = tokens[index + 2];
-    if (keyword?.kind !== "identifier" || keyword.name !== "method") continue;
-    if (ownerToken?.kind !== "identifier" || ownerToken.name.toLowerCase() !== foldedOwner) continue;
-    if (separator?.kind !== "op" || separator.text !== "::") continue;
-    const method = methodNameAt(tokens, index + 3, name);
-    if (method !== undefined) return method;
-  }
-  for (let index = 0; index + 1 < tokens.length; index += 1) {
-    const keyword = tokens[index];
-    const ownerToken = tokens[index + 1];
-    if (keyword?.kind !== "identifier" || keyword.name !== "class") continue;
-    if (ownerToken?.kind !== "identifier" || ownerToken.name.toLowerCase() !== foldedOwner) continue;
-    let open = index + 2;
-    while (open < tokens.length) {
-      const token = tokens[open]!;
-      if (token.kind === "op" && token.text === "{") break;
-      open += 1;
-    }
-    let depth = 0;
-    for (let cursor = open; cursor < tokens.length; cursor += 1) {
-      const token = tokens[cursor]!;
-      if (token.kind === "op" && token.text === "{") depth += 1;
-      else if (token.kind === "op" && token.text === "}") {
-        depth -= 1;
-        if (depth === 0) break;
-      } else if (depth === 1 && token.kind === "identifier" && token.name === "method") {
-        const method = methodNameAt(tokens, cursor + 1, name);
-        if (method !== undefined) return method;
-      }
-    }
-  }
-  return undefined;
-}
-
-function omitSyntheticSpans<T>(value: T): T {
-  if (Array.isArray(value)) return value.map(omitSyntheticSpans) as T;
-  if (value === null || typeof value !== "object") return value;
-  const result: Record<string, unknown> = {};
-  for (const [key, child] of Object.entries(value)) {
-    if ((key === "col" || key === "endCol") && child === 0) continue;
-    result[key] = omitSyntheticSpans(child);
-  }
-  return result as T;
-}
 
 function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
   return normalizeTk2Text(text, lookup, literals);
@@ -601,67 +532,84 @@ export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
   return normaliseTk2Internal(text, lookup, null);
 }
 
-function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>, tokens: readonly Token[]): Ast {
-  const rewriteExpression = (expr: Expr): Expr => {
-    if (expr.kind === "methodCall") {
-      return { ...expr, receiver: rewriteExpression(expr.receiver), args: expr.args.map(rewriteExpression) };
-    }
-    if (expr.kind === "call") return { ...expr, args: expr.args.map(rewriteExpression) };
-    if (expr.kind === "callIndirect") return { ...expr, callee: rewriteExpression(expr.callee), args: expr.args.map(rewriteExpression) };
-    if (expr.kind === "member") return { ...expr, receiver: rewriteExpression(expr.receiver) };
-    if (expr.kind === "binary") return { ...expr, left: rewriteExpression(expr.left), right: rewriteExpression(expr.right) };
-    if (expr.kind === "unary" || expr.kind === "postfix") return { ...expr, operand: rewriteExpression(expr.operand) };
-    if (expr.kind === "assign") return { ...expr, target: rewriteExpression(expr.target), value: rewriteExpression(expr.value) };
-    if (expr.kind === "index") return { ...expr, base: rewriteExpression(expr.base), index: rewriteExpression(expr.index) };
-    if (expr.kind === "ternary") return { ...expr, cond: rewriteExpression(expr.cond), then: rewriteExpression(expr.then), else: rewriteExpression(expr.else) };
-    if (expr.kind === "lambda") return { ...expr, body: expr.body.map(rewriteStatement) };
-    if (expr.kind === "object") return { ...expr, entries: expr.entries.map((entry) => ({ ...entry, value: rewriteExpression(entry.value) })) };
-    return expr;
-  };
-  const rewriteStatement = (statement: Ast["statements"][number]): Ast["statements"][number] => {
-    if (statement.kind === "expr") {
-      const literal = literals.get(statement.line);
-      if (literal !== undefined && statement.expr.kind === "call") {
-        const arg = statement.expr.args[0];
-        if (arg === undefined || arg.kind !== "literal") throw new Error("invalid TK2 dialogue placeholder");
-        return { ...statement, expr: { ...statement.expr, args: [{ ...arg, value: literal }, ...statement.expr.args.slice(1).map(rewriteExpression)] } };
+function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>): Ast {
+  type Statement = Ast["statements"][number];
+  const rewriteBlock = (block: Ast["statements"]): Ast["statements"] => {
+    let changed = false;
+    const result: Statement[] = [];
+    for (const statement of block) {
+      let replacement = statement;
+      if (statement.kind === "expr") {
+        const literal = literals.get(statement.line);
+        if (literal !== undefined && statement.expr.kind === "call") {
+          const arg = statement.expr.args[0];
+          if (arg === undefined || arg.kind !== "literal") throw new Error("invalid TK2 dialogue placeholder");
+          replacement = { ...statement, expr: { ...statement.expr, args: [{ ...arg, value: literal }, ...statement.expr.args.slice(1)] } };
+        }
+      } else if (statement.kind === "if") {
+        const branches = statement.branches.map((branch) => {
+          const body = rewriteBlock(branch.body);
+          if (body === branch.body) return branch;
+          changed = true;
+          return { ...branch, body };
+        });
+        const elseBody = statement.elseBody === null ? null : rewriteBlock(statement.elseBody);
+        if (branches.some((branch, index) => branch !== statement.branches[index]) || elseBody !== statement.elseBody) {
+          replacement = { ...statement, branches, elseBody };
+        }
+      } else if (statement.kind === "while" || statement.kind === "until" || statement.kind === "for") {
+        const body = rewriteBlock(statement.body);
+        if (body !== statement.body) replacement = { ...statement, body };
+      } else if (statement.kind === "switch") {
+        const cases = statement.cases.map((item) => {
+          const body = rewriteBlock(item.body);
+          if (body === item.body) return item;
+          changed = true;
+          return { ...item, body };
+        });
+        const defaultBody = statement.defaultBody === null ? null : rewriteBlock(statement.defaultBody);
+        if (cases.some((item, index) => item !== statement.cases[index]) || defaultBody !== statement.defaultBody) {
+          replacement = { ...statement, cases, defaultBody };
+        }
       }
-      return { ...statement, expr: rewriteExpression(statement.expr) };
+      if (replacement !== statement) changed = true;
+      result.push(replacement);
     }
-    if (statement.kind === "if") return { ...statement, branches: statement.branches.map((branch) => ({ ...branch, cond: rewriteExpression(branch.cond), body: branch.body.map(rewriteStatement) })), elseBody: statement.elseBody?.map(rewriteStatement) ?? null };
-    if (statement.kind === "while" || statement.kind === "until") return { ...statement, cond: rewriteExpression(statement.cond), body: statement.body.map(rewriteStatement) };
-    if (statement.kind === "for") return { ...statement, init: statement.init ? rewriteExpression(statement.init) : null, cond: statement.cond ? rewriteExpression(statement.cond) : null, step: statement.step ? rewriteExpression(statement.step) : null, body: statement.body.map(rewriteStatement) };
-    if (statement.kind === "switch") return { ...statement, value: rewriteExpression(statement.value), cases: statement.cases.map((item) => ({ ...item, value: rewriteExpression(item.value), body: item.body.map(rewriteStatement) })), defaultBody: statement.defaultBody?.map(rewriteStatement) ?? null };
-    if (statement.kind === "return") return { ...statement, value: statement.value ? rewriteExpression(statement.value) : null };
-    return statement;
+    return changed ? result : block;
   };
+  const statements = rewriteBlock(ast.statements);
+  let functions: (typeof ast.functions[number])[] | undefined;
+  for (let index = 0; index < ast.functions.length; index += 1) {
+    const fn = ast.functions[index]!;
+    const body = rewriteBlock(fn.body);
+    if (body !== fn.body) {
+      functions ??= ast.functions.slice(0, index);
+      functions.push({ ...fn, body });
+    } else if (functions !== undefined) functions.push(fn);
+  }
+  let classes: (typeof ast.classes[number])[] | undefined;
+  for (let index = 0; index < ast.classes.length; index += 1) {
+    const cls = ast.classes[index]!;
+    let methods: (typeof cls.methods[number])[] | undefined;
+    for (let methodIndex = 0; methodIndex < cls.methods.length; methodIndex += 1) {
+      const method = cls.methods[methodIndex]!;
+      const body = method.body === null ? null : rewriteBlock(method.body);
+      if (body !== method.body) {
+        methods ??= cls.methods.slice(0, methodIndex);
+        methods.push({ ...method, body });
+      } else if (methods !== undefined) methods.push(method);
+    }
+    if (methods !== undefined) {
+      classes ??= ast.classes.slice(0, index);
+      classes.push({ ...cls, methods });
+    } else if (classes !== undefined) classes.push(cls);
+  }
+  if (statements === ast.statements && functions === undefined && classes === undefined) return ast;
   return {
-    statements: ast.statements.map(rewriteStatement),
-    functions: ast.functions.map((fn) => {
-      const nameToken = declaredNameToken(tokens, "function", fn.name);
-      return {
-        ...fn,
-        ...(nameToken === undefined ? {} : { line: nameToken.line, col: nameToken.col, endCol: nameToken.endCol }),
-        body: fn.body.map(rewriteStatement),
-      };
-    }),
-    classes: ast.classes.map((cls) => {
-      const nameToken = declaredNameToken(tokens, "class", cls.name);
-      return {
-        ...cls,
-        ...(nameToken === undefined ? {} : { line: nameToken.line, col: nameToken.col, endCol: nameToken.endCol }),
-        members: cls.members,
-        methods: cls.methods.map((method) => {
-          const methodToken = methodNameToken(tokens, cls.name, method.name);
-          return {
-            ...method,
-            ...(methodToken === undefined ? {} : { line: methodToken.line, col: methodToken.col, endCol: methodToken.endCol }),
-            body: method.body?.map(rewriteStatement) ?? null,
-          };
-        }),
-      };
-    }),
-    includes: ast.includes,
+    ...ast,
+    statements,
+    ...(functions === undefined ? {} : { functions }),
+    ...(classes === undefined ? {} : { classes }),
   };
 }
 
@@ -682,8 +630,9 @@ export function parseTk2(text: string, lookup?: Tk2CommandLookup): Ast {
     }
     throw error;
   }
-  return omitSyntheticSpans(rewriteAst(ast, literals, tokens));
+  return rewriteAst(ast, literals);
 }
+
 
 /** Compile TK2 source into the shared flat Step IR without modifying its input. */
 export function compileTk2(text: string, file = "<tk2>", lookup?: Tk2CommandLookup): Program {

@@ -220,8 +220,8 @@ test("definitions: functions with arity, a class with members and methods, label
     ],
   );
 });
-test("Toolkit 2 and 3.1 index ranges slice original identifiers", () => {
-  const tk2Source = "\t#Method Show(value) {\n\t  #Mwin(value)\n}\n\t#Show(1)\n";
+test("Toolkit 2 declaration ranges use keyword anchors and calls keep identifier spans", () => {
+  const tk2Source = "\t#METHOD Show(value) {\n\t  #Mwin(value)\n}\n\t#Show(1)\n";
   const tk2 = buildIndex([
     { name: "tk2.prg", ref: { kind: "inline", text: tk2Source, ir: "1", dialect: "tk2" } },
   ]);
@@ -229,8 +229,8 @@ test("Toolkit 2 and 3.1 index ranges slice original identifiers", () => {
   ok(tk2Program);
   const method = tk2Program.functions.find((fn) => fn.name === "show");
   ok(method);
-  ok(method.col !== undefined && method.endCol !== undefined);
-  equal(tk2Source.split("\n")[method.line - 1]?.slice(method.col - 1, method.endCol), "Show");
+  equal(tk2Source.split("\n")[method.line - 1]?.slice(method.col - 1, method.endCol), "METHOD");
+  deepEqual([method.line, method.col, method.endCol], [1, 3, 8]);
   const call = tk2Program.calls.find((site) => site.name === "mwin");
   ok(call);
   ok(call.pos.col !== undefined && call.pos.endCol !== undefined);
@@ -254,6 +254,26 @@ test("Toolkit 2 ranges count UTF-16 code units through inline statements and CRL
   const call = index.programs[0]?.calls.find((site) => site.name === "mwin");
   ok(call && call.pos.col !== undefined && call.pos.endCol !== undefined);
   equal(source.split("\n")[call.pos.line - 1]?.slice(call.pos.col - 1, call.pos.endCol), "Mwin");
+});
+
+test("Toolkit 2 overloaded and class methods retain each declaration keyword range", () => {
+  const source = "#METHOD Run(a) {\n}\n#METHOD Run(a, b) {\n}\n#CLASS Box { public: METHOD Move() { return 1 } METHOD operator _\n#+ (other) { return 2 } }\n";
+  const index = buildIndex([{ name: "methods.prg", ref: { kind: "inline", text: source, ir: "1", dialect: "tk2" } }]);
+  const program = index.programs[0];
+  ok(program);
+  const runs = program.functions.filter((fn) => fn.name === "run");
+  equal(runs.length, 2);
+  for (const fn of runs) {
+    equal(source.split("\n")[fn.line - 1]?.slice(fn.col - 1, fn.endCol), "METHOD");
+  }
+  const box = program.classes.find((cls) => cls.name === "box");
+  ok(box);
+  equal(box.methods.length, 2);
+  for (const method of box.methods) {
+    const line = source.split("\n")[method.line - 1]!;
+    equal(line.slice(method.col - 1, method.endCol), "METHOD");
+    ok(method.endCol >= method.col, "a multiline operator declaration must not reverse its anchor columns");
+  }
 });
 
 

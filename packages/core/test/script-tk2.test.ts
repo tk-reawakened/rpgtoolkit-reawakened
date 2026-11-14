@@ -417,35 +417,44 @@ test("TK2 source maps identifiers, sigils and inserted raw quotes to original sp
   equal(source.split("\r\n")[2]!.slice(rawText.col - 1, rawText.endCol), "\u{1F600} hello");
   deepEqual([rawText.line, rawText.col, rawText.endCol], [3, 9, 16]);
 });
-test("TK2 method declarations point at the original name, not the rewritten keyword", () => {
-  const ast = parseTk2("#method Show() {\n#return 1\n}");
+
+test("TK2 inserted call whitespace preserves original token positions", () => {
+  const source = "#f(0,1 + 1)";
+  const call = parseTk2(source).statements[0];
+  if (call?.kind !== "expr" || call.expr.kind !== "call") throw new Error("expected source call");
+  const expression = call.expr.args[1];
+  if (expression?.kind !== "binary") throw new Error("expected binary argument");
+  deepEqual([call.expr.line, call.expr.col, call.expr.endCol], [1, 2, 2]);
+  deepEqual([expression.line, expression.col, expression.endCol], [1, 8, 8]);
+  equal(source.slice(expression.col! - 1, expression.endCol), "+");
+  deepEqual([expression.left.line, expression.left.col, expression.left.endCol], [1, 6, 6]);
+  deepEqual([expression.right.line, expression.right.col, expression.right.endCol], [1, 10, 10]);
+});
+test("TK2 method declarations retain the original keyword anchor", () => {
+  const ast = parseTk2("#METHOD Show() {\n#return 1\n}");
   const fn = ast.functions[0];
   if (fn === undefined) throw new Error("expected method declaration");
-  deepEqual([fn.name, fn.line, fn.col, fn.endCol], ["show", 1, 9, 12]);
+  deepEqual([fn.name, fn.line, fn.col, fn.endCol], ["show", 1, 2, 7]);
 });
 
-test("TK2 class, method, operator and destructor declarations use name spans", () => {
-  const source = "#class Box { public: method value() { return 42 } method operator+(other) { return 1 } method ~Box() { return 0 } }\n#class Other { public: method value() { return 0 } }";
-  const cls = parseTk2(source).classes[0];
-  if (cls === undefined) throw new Error("expected class declaration");
-  if (cls.col === undefined || cls.endCol === undefined) throw new Error("expected original class name span");
-  const sourceSpan = (node: { readonly col?: number; readonly endCol?: number }): string => {
+test("TK2 class and method declarations retain keyword anchors", () => {
+  const source = "#CLASS Box { public: METHOD value() { return 42 } METHOD operator+ (other) { return 1 } METHOD ~Box() { return 0 } }\n#CLASS Other { public: METHOD value() { return 0 } }";
+  const classes = parseTk2(source).classes;
+  const first = classes[0];
+  const second = classes[1];
+  if (first === undefined || second === undefined) throw new Error("expected class declarations");
+  const span = (node: { readonly line: number; readonly col?: number; readonly endCol?: number }): string => {
     if (node.col === undefined || node.endCol === undefined) throw new Error("expected original declaration span");
-    return source.slice(node.col - 1, node.endCol);
+    return source.split("\n")[node.line - 1]!.slice(node.col - 1, node.endCol);
   };
-  equal(sourceSpan(cls), "Box");
-  const ordinary = cls.methods.find((method) => method.name === "value");
-  const operator = cls.methods.find((method) => method.name === "operator+");
-  const destructor = cls.methods.find((method) => method.name === "~box");
-  if (ordinary === undefined || operator === undefined || destructor === undefined) throw new Error("expected method declarations");
-  equal(sourceSpan(ordinary), "value");
-  equal(sourceSpan(operator), "operator+");
-  equal(sourceSpan(destructor), "~Box");
-  const other = parseTk2(source).classes[1];
-  const otherMethod = other?.methods.find((method) => method.name === "value");
-  if (otherMethod === undefined) throw new Error("expected second class method");
-  deepEqual([otherMethod.line, otherMethod.col, otherMethod.endCol], [2, 31, 35]);
+  equal(span(first), "CLASS");
+  const methods = first.methods;
+  equal(methods.length, 3);
+  for (const method of methods) equal(span(method), "METHOD");
+  equal(span(second.methods[0]!), "METHOD");
+  deepEqual([second.methods[0]!.line, second.methods[0]!.col, second.methods[0]!.endCol], [2, 24, 29]);
 });
+
 
 test("TK2 parser and lexical errors retain original token positions", () => {
   throws(
