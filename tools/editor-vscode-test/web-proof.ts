@@ -1,3 +1,5 @@
+import { combineProofErrors } from "./lifecycle.ts";
+
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
 type Page = import("@playwright/test").Page;
@@ -261,7 +263,7 @@ export async function runVscodeWebProof(
   await expect.poll(() => frameCspViolations(page, finalEditor, consoleViolations)).toEqual([]);
 
   // Story 11.3: the document lifecycle in real VS Code, and the ADR 0022 D11.6 measurement.
-  await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes);
+  await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
 }
 
 /**
@@ -273,7 +275,7 @@ export async function runVscodeWebProof(
  * * `files.autoSave: afterDelay` drives `saveCustomDocument`: the file reaches the edited bytes with no Save pressed,
  *   which is the proof the ADR left unverified. Whatever the outcome, autosave is turned off again.
  */
-async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array): Promise<void> {
+async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array, host: ProofHost): Promise<void> {
   const hiddenTitle = "Still here after hiding";
   let editor = await waitForEditorFrame(page, "lifecycle settings editor");
   const field = editor.getByLabel("Game title");
@@ -305,16 +307,34 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await autosaveField.fill(autosaveTitle);
   await autosaveField.press("Enter");
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
-  await runCommand(page, expect, "Test: Turn Autosave On");
+  const expectAutosave = async (value: string): Promise<void> => {
+    await expect.poll(async () => {
+      const settings = JSON.parse(new TextDecoder().decode(await host.readBacking(".vscode/settings.json"))) as Record<string, unknown>;
+      return settings["files.autoSave"];
+    }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
+  };
+  let failure: unknown;
+  const cleanupErrors: unknown[] = [];
   try {
+    await runCommand(page, expect, "Test: Turn Autosave On");
+    await expectAutosave("afterDelay");
     await expect.poll(async () => bytesEqual(await readWorkspaceBytes(page, expect), autosaveBytes), {
       timeout: 30_000,
       intervals: [3_000],
       message: "VS Code's files.autoSave did not save this custom document (ADR 0022 D11.6)",
     }).toBe(true);
+  } catch (error) {
+    failure = error;
   } finally {
-    await runCommand(page, expect, "Test: Turn Autosave Off");
+    try {
+      await runCommand(page, expect, "Test: Turn Autosave Off");
+      await expectAutosave("off");
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
   }
+  const combined = combineProofErrors(failure, cleanupErrors);
+  if (combined !== undefined) throw combined;
 }
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
@@ -326,13 +346,13 @@ async function runCommand(page: Page, expect: Expect, title: string): Promise<vo
   await runCommandMatching(page, expect, title, title);
 }
 
-/** Run the first command the palette offers for `search`; `label` names it in a failure. */
+/** Accept the focused command with Enter, without waiting for a moving quick-pick row to become mouse-stable. */
 async function runCommandMatching(page: Page, expect: Expect, search: string, label: string): Promise<void> {
   const commandInput = await commandPalette(page, expect);
   await commandInput.fill(`>${search}`);
-  const command = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: search }).first();
-  await expect(command, `VS Code offers ${label}`).toBeVisible();
-  await command.click();
+  const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+  await expect(command, `VS Code selects ${label}`).toBeVisible();
+  await commandInput.press("Enter");
   await expect(page.locator(".quick-input-widget")).toBeHidden();
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {
