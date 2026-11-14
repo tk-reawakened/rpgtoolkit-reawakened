@@ -309,6 +309,14 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
   const expectAutosave = async (value: string): Promise<void> => {
     await expect.poll(async () => {
+      try {
+        return new TextDecoder().decode(await host.readBacking(".vscode/tkr-autosave-command-complete"));
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+        throw error;
+      }
+    }, { message: `VS Code completed the autosave ${value} command` }).toBe(value);
+    await expect.poll(async () => {
       const settings = JSON.parse(new TextDecoder().decode(await host.readBacking(".vscode/settings.json"))) as Record<string, unknown>;
       return settings["files.autoSave"];
     }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
@@ -561,10 +569,16 @@ async function findBytesPanelFrame(page: Page, selector: string): Promise<Frame 
 
 async function openGame(page: Page, gamePath: string, expect: Expect): Promise<void> {
   await focusWorkbench(page);
-  const gameFile = page.getByRole("treeitem", { name: gamePath.split("/").at(-1)!, exact: true });
+  const segments = gamePath.split("/");
+  for (const folder of segments.slice(0, -1)) {
+    const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
+    await expect(folderItem).toBeVisible();
+    if (await folderItem.getAttribute("aria-expanded") !== "true") await folderItem.click();
+  }
+  const gameFile = page.getByRole("treeitem", { name: segments.at(-1)!, exact: true });
   await expect(gameFile).toBeVisible();
   await gameFile.dblclick();
-  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! }).first()).toBeVisible();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: segments.at(-1)! }).first()).toBeVisible();
   await expect(page.locator("iframe.webview")).toBeVisible({ timeout: 30_000 });
 }
 
