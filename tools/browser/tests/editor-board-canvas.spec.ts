@@ -16,7 +16,7 @@ import {
   type Viewport,
 } from "@tk-reawakened/editor-model";
 
-// Story 12.10 in the production browser host: the real `host-web` workbench in Chromium, under the page's strict CSP,
+// Story 12.10 in the shipped browser editor page (`tools/browser/editor-web/index.html`): the real `host-web` workbench in Chromium, under the page's strict CSP,
 // creates a board in each coordinate layout through its own "New board…" dialog, then draws on the real canvas with the
 // real mouse, navigates it with the real wheel, hides a layer, undoes and redoes, saves to the project folder, and
 // reads the bytes back from the folder. Nothing here is a host shim: the folder is the browser's own origin-private
@@ -24,11 +24,9 @@ import {
 
 const tileset = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/tileset/tileset_detail1.tst", import.meta.url)));
 const VIEW = { width: 640, height: 384 };
-/**
- * The page that hosts the workbench. This is the proof page `workbench.html`, not yet the shipped `index.html`, which shows
- * settings only (#2355). When the shipped page hosts the shared workbench, point this at its URL.
- */
-const WORKBENCH_URL = "/tools/browser/editor-web/workbench.html";
+/** The shipped editor page: it opens the project's game and mounts the shared workbench (Files, tabs, board editors). */
+const EDITOR_URL = "/tools/browser/editor-web/index.html";
+const validMain = Array.from(readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url)));
 
 /** A one-cell tile bitmap of the second tile with a red-and-blue-shifting tint: stamping it over that tile changes only the shading. */
 const tintStamp = (() => {
@@ -110,8 +108,8 @@ for (const system of SYSTEMS) {
         (target.__tkrCspViolations ??= []).push(event.effectiveDirective);
       });
     });
-    const folder = await installFolder(page, [{ path: "Tiles/village.tst", bytes: tileset }, { path: "Bitmap/tint.tbm", bytes: tintStamp }]);
-    await page.goto(WORKBENCH_URL);
+    const folder = await installFolder(page, [{ path: "Game/example.gam", bytes: validMain }, { path: "Tiles/village.tst", bytes: tileset }, { path: "Bitmap/tint.tbm", bytes: tintStamp }]);
+    await page.goto(EDITOR_URL);
     await page.getByRole("button", { name: "Open project folder" }).click();
 
     // The board is made through the workbench's own dialog.
@@ -170,7 +168,7 @@ for (const system of SYSTEMS) {
     await expect(state(page)).toHaveText("Unsaved changes");
     await expect(tileButtons(page, "village.tst2")).toHaveCount(1);
     await expect(cellButton(page, target!, "village.tst2")).toBeVisible();
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await page.getByRole("toolbar", { name: "Board view" }).getByRole("button", { name: "Undo", exact: true }).click();
     await expect(tileButtons(page, "village.tst2")).toHaveCount(0);
     await expect(state(page)).toHaveText("All changes saved");
 
@@ -207,10 +205,10 @@ for (const system of SYSTEMS) {
     const drawnPixel = await pixel();
 
     // One Undo takes the whole drag back, one Redo puts it back; Ctrl+Z and Ctrl+Shift+Z do the same.
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await page.getByRole("toolbar", { name: "Board view" }).getByRole("button", { name: "Undo", exact: true }).click();
     await expect(tileButtons(page, "village.tst2")).toHaveCount(0);
     await expect.poll(pixel, { message: "the canvas shows the undo" }).toBe(emptyPixel);
-    await page.getByRole("button", { name: "Redo", exact: true }).click();
+    await page.getByRole("toolbar", { name: "Board view" }).getByRole("button", { name: "Redo", exact: true }).click();
     await expect(tileButtons(page, "village.tst2")).toHaveCount(drawn);
     await expect.poll(pixel, { message: "the canvas shows the redo" }).toBe(drawnPixel);
     await canvas.focus();

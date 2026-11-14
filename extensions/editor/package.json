@@ -45,6 +45,12 @@
         "selector": [
           {
             "filenamePattern": "*.gam"
+          },
+          {
+            "filenamePattern": "*.tem"
+          },
+          {
+            "filenamePattern": "*.itm"
           }
         ],
         "priority": "default"

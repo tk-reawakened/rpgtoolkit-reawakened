@@ -2,11 +2,11 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { DEFAULT_EDITOR_PREFERENCES, asMainDocument, createDocumentIdentity, openMainDocument, type MainDocumentSnapshot } from "@tk-reawakened/editor-model";
-import { createVscodeFileSystemWithPort, handleEditorHostRequest, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
+import { DEFAULT_EDITOR_PREFERENCES, asMainDocument, createDocumentIdentity, openMainDocument, openSpriteDocument, type MainDocumentSnapshot, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { createVscodeFileSystemWithPort, handleEditorHostRequest, isSpriteSnapshot, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import type { ViewDocument } from "@tk-reawakened/editor-ui";
+import type { SpriteViewDocument, ViewDocument } from "@tk-reawakened/editor-ui";
 
 let mount: typeof import("@tk-reawakened/editor-ui").mount;
 const gamePath = "Main/example.gam";
@@ -65,6 +65,7 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
+    readProject: (path: string) => vscodeFs.readProject("file:///project", path),
     saveThroughWorkbench: () => vscodeOpened.document.save(),
     resolveConflict: async (choice: "keep-local" | "reload") => vscodeOpened.document.resolveConflict(choice),
   };
@@ -75,10 +76,139 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     setState: () => undefined,
   };
   remote = new RemoteDocument("main", vscodeOpened.document.getSnapshot(), browserSession.getSnapshot(), api);
+  const bridgedRead = await remote.readProject("file:///project", gamePath);
+  ok(bridgedRead.ok);
+  deepEqual(bridgedRead.value, original, "the webview reads project assets through the extension-host filesystem bridge");
   const vscodeElement = document.createElement("div");
   document.body.append(vscodeElement);
   await assertFailedMountedSave(remote as unknown as ViewDocument, vscodeElement);
   deepEqual(vscodeBytes, original);
+});
+test("VS Code bridge accepts pre-battle character snapshots", async () => {
+  const path = "Chrs/older.tem";
+  const bytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/character/character_minor4.tem", import.meta.url)));
+  const opened = await openSpriteDocument("character", createVscodeFileSystemWithPort({ path: "/project" }, {
+    isDirectory: (type) => (type & 2) !== 0,
+    joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
+    parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),
+    async readDirectory() { return []; },
+    async readFile() { return bytes; },
+    async createDirectory() {},
+    async writeFile() {},
+    async stat() { return { type: 1, size: bytes.length, mtime: 1 }; },
+    async delete() {},
+    async rename() {},
+    async watch() { return { dispose() {} }; },
+    errorCode() { return undefined; },
+  }, "file:///project"), createDocumentIdentity("file:///project", path));
+  ok(opened.ok);
+  equal(opened.document.getSnapshot().battleAnimations.length, 0);
+  ok(isSpriteSnapshot(opened.document.getSnapshot(), "character"));
+});
+test("the VS Code sprite bridge previews project GIFs and saves edits that survive reopening", async () => {
+  const actorPath = "Chrs/hero.tem";
+  const actorFile = "/project/Chrs/hero.tem";
+  const animationPath = "Misc/waterfall.gif";
+  const files = new Map<string, Uint8Array>([
+    [actorFile, new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/character/character_minor8.tem", import.meta.url)))],
+    ["/project/Misc/waterfall.gif", new Uint8Array(readFileSync(new URL("../../../packages/core/test/fixtures/authored/gif-anim89a.gif", import.meta.url)))],
+  ]);
+  const root = { path: "/project" };
+  const port: VscodeFileSystemPort<typeof root> = {
+    isDirectory: (type) => (type & 2) !== 0,
+    joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
+    parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),
+    async readDirectory() { return []; },
+    async readFile(uri) {
+      const bytes = files.get(uri.path);
+      if (bytes === undefined) throw Object.assign(new Error("missing"), { code: "FileNotFound" });
+      return bytes.slice();
+    },
+    async createDirectory() {},
+    async writeFile(uri, bytes) { files.set(uri.path, bytes.slice()); },
+    async stat(uri) {
+      const bytes = files.get(uri.path);
+      if (bytes === undefined) throw Object.assign(new Error("missing"), { code: "FileNotFound" });
+      return { type: 1, size: bytes.length, mtime: 1 };
+    },
+    async delete() {},
+    async rename() {},
+    async watch() { return { dispose() {} }; },
+    errorCode(error) { return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined; },
+  };
+  const fs = createVscodeFileSystemWithPort(root, port, "file:///project");
+  const identity = createDocumentIdentity("file:///project", actorPath);
+  const opened = await openSpriteDocument("character", fs, identity);
+  ok(opened.ok);
+  const model = opened.document;
+  const browserSession = createBrowserSession();
+  const hostDocument = {
+    model,
+    capabilities: vscodeCapabilities(true),
+    browserSession,
+    browserList: (path: string) => fs.list(path),
+    browserRead: (path: string) => fs.read(path),
+    didEdit: () => undefined,
+    saveThroughWorkbench: () => model.save(),
+    resolveConflict: async (choice: "keep-local" | "reload") => model.resolveConflict(choice),
+    preview: async () => ({ ok: false as const, message: "A sprite document has no board picture." }),
+    visit: async () => ({ ok: false as const, message: "not used" }),
+    returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
+    pickAsset: async () => ({ chosen: false as const }),
+    readProject: (path: string) => fs.readProject(identity.projectId, path),
+  };
+  let remote!: RemoteDocument;
+  const api: VscodeApi = {
+    postMessage: (request) => {
+      void handleEditorHostRequest(hostDocument, structuredClone(request), (reply) => remote.receive(structuredClone(reply)));
+    },
+    getState: () => undefined,
+    setState: () => undefined,
+  };
+  remote = new RemoteDocument("character", model.getSnapshot(), browserSession.getSnapshot(), api);
+  const viewDocument: SpriteViewDocument = {
+    kind: "character",
+    identity: remote.identity,
+    getSnapshot: () => remote.getSnapshot() as SpriteDocumentSnapshot,
+    subscribe: (listener) => remote.subscribe(listener),
+    apply: (command) => remote.apply(command),
+    save: () => remote.save(),
+    resolveConflict: (choice) => remote.resolveConflict(choice),
+  };
+  const element = document.createElement("div");
+  document.body.append(element);
+  let handle: ReturnType<typeof mount> | undefined;
+  await act(() => { handle = mount(element, {
+    document: viewDocument,
+    services: {
+      document: { edited: () => undefined },
+      capabilities: new Set(vscodeCapabilities(true)),
+      fs: { readProject: (projectId, path) => remote.readProject(projectId, path) },
+    },
+  }); });
+  const animation = element.querySelector<HTMLInputElement>('input[aria-label="South animation file"]');
+  ok(animation !== null);
+  await act(() => {
+    animation.value = animationPath;
+    animation.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => { animation.dispatchEvent(new Event("blur", { bubbles: true })); });
+  for (let round = 0; round < 100 && !element.textContent?.includes("Animated GIF preview"); round += 1) await new Promise((resolve) => setTimeout(resolve, 1));
+  ok(element.textContent?.includes("Animated GIF preview"), "the VS Code bridge returns project GIF bytes to the shared preview");
+  equal(element.querySelectorAll('canvas[role="img"]').length, 1);
+  const save = [...element.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save sprite");
+  ok(save !== undefined);
+  await act(() => { save.click(); });
+  for (let round = 0; round < 100 && model.getSnapshot().dirty; round += 1) await new Promise((resolve) => setTimeout(resolve, 1));
+  equal(model.getSnapshot().dirty, false);
+  handle?.dispose();
+  element.remove();
+  const saved = files.get(actorFile);
+  ok(saved !== undefined);
+  const reopened = await openSpriteDocument("character", fs, identity);
+  ok(reopened.ok);
+  equal(reopened.document.getSnapshot().movementAnimations[0], animationPath);
+  deepEqual(reopened.document.serialize(), saved);
 });
 
 test("web and VS Code adapters persist identical edited bytes through the workbench save lifecycle (#2092)", async () => {
@@ -148,6 +278,7 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
+    readProject: (path: string) => vscodeFs.readProject("file:///project", path),
     saveThroughWorkbench: async () => {
       workbenchSaveCalls += 1;
       return vscodeOpened.document.save();
@@ -348,6 +479,7 @@ test("two rejected recovery choices never discard local work when disk first mat
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
+    readProject: async () => storage.readProject(),
     saveThroughWorkbench: () => recovered.document.save(),
     resolveConflict: (choice: "keep-local" | "reload") => resolveRecoveryConflict(recovered.document, choice),
   };

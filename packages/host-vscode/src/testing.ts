@@ -4,6 +4,7 @@ export type { VscodeFileSystemPort, VscodeUriLike } from "./filesystem-core.ts";
 export { createGameEditorProvider, GameDocument } from "./custom-editor.ts";
 export type { GameEditEvent, GameEditorPort, GameEditorProvider, UriLike, WebviewPort, WorkspaceFolderLike } from "./custom-editor.ts";
 export { handleEditorHostRequest, isEditorHostRequest, RemoteDocument } from "./document-bridge.js";
+export { isSpriteSnapshot } from "./document-bridge.js";
 export { recoverDocument, recoverMainDocument, resolveRecoveryConflict } from "./document-backup.ts";
 export type { BackupRecoveryResult } from "./document-backup.ts";
 export type { AssetPickRequest, BridgedDocument, ReturnOutcome, VisitOutcome, BridgeMessage, EditorHostRequest, VscodeApi } from "./document-bridge.js";

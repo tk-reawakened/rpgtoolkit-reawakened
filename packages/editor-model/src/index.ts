@@ -107,8 +107,39 @@ export {
   type PendingGesture,
   type PictureRequest,
 } from "./board-editor.ts";
+export {
+  characterSpriteCodec,
+  createSpriteDocument,
+  itemSpriteCodec,
+  openSpriteDocument,
+  spriteAnimationPreview,
+  spriteAnimationCanvasPreview,
+  spriteGifPreview,
+  spriteTileAnimationFirstFrame,
+  spriteProjectAssetPath,
+  spriteTileFrameFromReference,
+  spriteTileBitmapPreviewFromAssets,
+  type SpriteGifPreview,
+  spriteBasesFromFile,
+  spritePicturePreview,
+  spriteTileBitmapPreview,
+  spriteTileBitmapReferences,
+  spriteTilePreview,
+  classifyImageReference,
+  type SpriteActor,
+  type ActorBase,
+  type ActorPoint,
+  type SpriteActorKind,
+  type SpriteCommand,
+  type SpriteDocument,
+  type SpriteDocumentFields,
+  type SpriteDocumentSnapshot,
+  type SpriteGroup,
+  type SpritePreviewFrame,
+  type SpriteOpenResult,
+} from "./sprite-document.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
-export { asBoardDocument, asMainDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asBoardDocument, asMainDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   createMainDocument,

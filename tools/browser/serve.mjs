@@ -97,7 +97,7 @@ createServer((request, response) => {
   const size = statSync(full).size;
   const header = request.headers.range;
   const extraHeaders = {};
-  if (["tools/browser/editor-web/index.html", "tools/browser/editor-web/workbench.html"].includes(relative.toLowerCase())) {
+  if (relative.toLowerCase() === "tools/browser/editor-web/index.html") {
     // `frame-ancestors` is ignored in meta-delivered CSP; keep this page's framing restriction in a response header.
     extraHeaders["content-security-policy"] = "frame-ancestors 'none'";
     extraHeaders["x-frame-options"] = "DENY";
