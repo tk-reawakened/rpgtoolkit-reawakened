@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -7,6 +9,7 @@ interface ProofWindow extends Window {
   __tkrCspViolations?: string[];
   __tkrTestFolder?: FileSystemDirectoryHandle;
   __tkrSlowReadStarted?: boolean;
+  __tkrReleaseSlowRead?: () => void;
 }
 type PickerInput = { readonly path: string; readonly bytes: readonly number[] };
 
@@ -80,10 +83,16 @@ test("a newer browser open wins over a slow folder document read", async ({ page
   await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await page.waitForFunction(() => (window as ProofWindow).__tkrSlowReadStarted === true);
-  await page.getByLabel("Open .gam session copy").setInputFiles("docs/spec/examples/versions/main/main_minor4.gam");
-  await expect(page.getByLabel("Game title")).toBeVisible();
-  await expect(page.locator("#host-status")).toContainText("main_minor4.gam");
+  try {
+    await page.getByLabel("Open .gam session copy").setInputFiles("docs/spec/examples/versions/main/main_minor4.gam");
+    await expect(page.getByLabel("Game title")).toBeVisible();
+    await expect(page.locator("#host-status")).toContainText("main_minor4.gam");
+    await expect(page.getByRole("region", { name: "Editor workbench" })).toHaveCount(1);
+  } finally {
+    await page.evaluate(() => (window as ProofWindow).__tkrReleaseSlowRead?.());
+  }
   await expect(page.locator("#settings > section")).toHaveCount(1);
+  await expect(page.locator("#host-status")).toContainText("main_minor4.gam");
 });
 
 test("browser folder handle and identity survive reload and re-selection", async ({ page }) => {
@@ -178,12 +187,8 @@ test("browser editor response header refuses cross-origin framing", async ({ pag
   } else {
     expect(alias.status()).toBe(404);
   }
-  await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute(
-    "content",
-    "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'",
-  );
 
-  // The embedding page must not itself forbid frames: the editor's meta CSP defaults to frame-src 'none'.
+  // The embedding page must allow cross-origin frames, so the editor's response policy is what refuses the load.
   const port = new URL(page.url()).port;
   await page.goto("/health");
   const target = `http://localhost:${port}`;
@@ -206,6 +211,217 @@ test("browser editor response header refuses cross-origin framing", async ({ pag
   await expect.poll(() => consoleErrors.some((message) => message.includes(`frame-ancestors 'none'`))).toBe(true);
 });
 
+// This browser integration crosses a real WebGL/audio player boundary; a unit test cannot prove a live game reaches its board.
+test("a saved folder game launches in the live player from the editor", async ({ page }) => {
+  const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
+  const files: PickerInput[] = [];
+  const collect = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: Array.from(readFileSync(path)) });
+    }
+  };
+  collect(root);
+  const startup = files.findIndex((file) => file.path === "Game/Example/Prg/start.prg");
+  expect(startup).toBeGreaterThanOrEqual(0);
+  files[startup] = { path: "Game/Example/Prg/start.prg", bytes: Array.from(new TextEncoder().encode('mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nSave("editor-proof")\nwait()\n')) };
+  // Observe the exact ArrayBuffer handed to IndexedDB before its transaction, independently of the later host read.
+  await page.addInitScript(() => {
+    const original = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === "blobs" && typeof key === "string" && key.includes("editor-proof") && value instanceof ArrayBuffer) {
+        const size = value.byteLength;
+        const digest = crypto.subtle.digest("SHA-256", value).then((result) => ({
+          size,
+          sha256: [...new Uint8Array(result)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+        }));
+        Reflect.set(window, "__tkrPreSaveDigest", digest);
+      }
+      return original.call(this, value, key);
+    };
+  });
+  await installFolderPicker(page, files);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByLabel("Game title").fill("Saved launch proof");
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  await expect(frame.getByLabel("Game screen")).toBeVisible();
+  const live = async () => frame.locator("#screen").evaluate(() => Reflect.get(window, "__live") as { tick: number; board: string | null; player: unknown; stateHash: string } | undefined);
+  await expect.poll(async () => (await live())?.tick ?? 0, { timeout: 30000 }).toBeGreaterThan(30);
+  await frame.locator("#screen").press("Enter");
+  await expect.poll(async () => (await live())?.board, { timeout: 30000 }).toContain("village.brd");
+  const playing = await live();
+  expect(playing?.player).not.toBeNull();
+  expect(playing?.stateHash).toBeTruthy();
+  await expect(page.getByLabel("Run snapshot").locator("dd").filter({ hasText: /^[0-9a-f]{16}$/ })).toHaveCount(1);
+  await expect(page.getByLabel("Current run")).toContainText("village.brd");
+  await expect(page.getByLabel("Run snapshot")).toContainText("Main/example.gam");
+  const saved = async () => frame.locator("#screen").evaluate(async () => {
+    const host = Reflect.get(window, "__blobHost") as { list(area: string, id: string): Promise<readonly string[]>; read(area: string, id: string, path: string): Promise<Uint8Array | null> } | undefined;
+    const session = Reflect.get(window, "__session") as { gameId: string } | undefined;
+    if (host === undefined || session === undefined) return null;
+    const path = (await host.list("saves", session.gameId)).find((name) => name.includes("editor-proof"));
+    if (path === undefined) return null;
+    const bytes = await host.read("saves", session.gameId, path);
+    if (bytes === null) return null;
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes)));
+    return { gameId: session.gameId, path, size: bytes.length, sha256: [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("") };
+  });
+  await expect.poll(async () => (await saved())?.size ?? 0, { timeout: 30000 }).toBeGreaterThan(0);
+  const firstSave = await saved();
+  const preSave = await frame.locator("#screen").evaluate(async () => await Reflect.get(window, "__tkrPreSaveDigest") as { size: number; sha256: string } | undefined);
+  expect(preSave).toBeDefined();
+  expect(firstSave).toMatchObject(preSave!);
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+  // Do not execute Save in the next run: reading the same bytes proves they survived closing the first player.
+  await page.evaluate(async () => {
+    const picker = Reflect.get(window, "showDirectoryPicker") as () => Promise<FileSystemDirectoryHandle>;
+    const root = await picker();
+    const game = await (await root.getDirectoryHandle("Game")).getDirectoryHandle("Example");
+    const programs = await game.getDirectoryHandle("Prg");
+    const file = await programs.getFileHandle("start.prg");
+    const writer = await file.createWritable();
+    await writer.write(new TextEncoder().encode("wait()\n"));
+    await writer.close();
+  });
+  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  await expect(frame.getByLabel("Game screen")).toBeVisible();
+  await expect.poll(async () => await saved(), { timeout: 30000 }).toEqual(firstSave);
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+});
+
+test("a board-backed program runs its declared fixture in the real browser player", async ({ page }) => {
+  const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
+  const files: PickerInput[] = [];
+  const collect = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: Array.from(readFileSync(path)) });
+    }
+  };
+  collect(root);
+  files.push({ path: "Game/Example/Bitmap/window.png", bytes: Array.from(readFileSync(new URL("../../../media/cursors/tkr-arrow.png", import.meta.url))) });
+  const startup = files.findIndex((file) => file.path === "Game/Example/Prg/start.prg");
+  expect(startup).toBeGreaterThanOrEqual(0);
+  files[startup] = { path: "Game/Example/Prg/start.prg", bytes: Array.from(new TextEncoder().encode('mwin("FIXTURE PROGRAM PROOF")\nwait()\n')) };
+  await installFolderPicker(page, files);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("combobox", { name: "Program", exact: true }).selectOption("Game/Example/Prg/start.prg");
+  await page.getByRole("combobox", { name: "Start board" }).selectOption("Game/Example/Boards/village.brd");
+  await page.getByRole("listbox", { name: "Party", exact: true }).nth(1).selectOption("Game/Example/Chrs/ada.tem");
+  await page.getByRole("textbox", { name: "Font", exact: true }).fill("Liberation Sans");
+  await page.getByRole("spinbutton", { name: "Font size" }).fill("18");
+  await page.getByRole("combobox", { name: "Message window picture" }).selectOption("Game/Example/Bitmap/window.png");
+  await page.getByRole("button", { name: "Test program", exact: true }).click();
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  const scene = async () => frame.locator("#screen").evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; font?: { size: number }; source?: { asset?: string } }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    const all = session?.engine.drawList().commands ?? [];
+    const commands = all.filter((command) => command.kind === "text");
+    return { live, text: commands.map((command) => command.text), sizes: commands.map((command) => command.font?.size),
+      assets: all.filter((command) => command.kind === "blit").map((command) => command.source?.asset) };
+  });
+  await expect.poll(async () => (await scene()).text?.join(" ") ?? "", { timeout: 30_000 }).toContain("FIXTURE PROGRAM PROOF");
+  const result = await scene();
+  expect(result.live?.board).toContain("village.brd");
+  expect(result.live?.player).toEqual({ x: 16, y: 31 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.sizes).toContain(18);
+  expect(result.assets).toContain("game/example/bitmap/window.png");
+  await expect(page.getByLabel("Run snapshot").locator("dd").filter({ hasText: /^[0-9a-f]{16}$/ })).toHaveCount(1);
+  await expect(page.getByLabel("Run snapshot")).toContainText("Liberation Sans");
+  await expect(page.getByLabel("Run snapshot")).toContainText("Game/Example/Bitmap/window.png");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
+test("a board test starts a fresh selected board, party and position in the real browser player", async ({ page }) => {
+  const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
+  const files: PickerInput[] = [];
+  const collect = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: Array.from(readFileSync(path)) });
+    }
+  };
+  collect(root);
+  const ada = files.find((file) => file.path === "Game/Example/Chrs/ada.tem");
+  expect(ada).toBeDefined();
+  files.push({ path: "Game/Example/Chrs/companion.tem", bytes: [...ada!.bytes] });
+  const startup = files.findIndex((file) => file.path === "Game/Example/Prg/start.prg");
+  expect(startup).toBeGreaterThanOrEqual(0);
+  files[startup] = { path: "Game/Example/Prg/start.prg", bytes: Array.from(new TextEncoder().encode('mwin("SAVED STARTUP MUST NOT RUN")\n')) };
+  await installFolderPicker(page, files);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("spinbutton", { name: "Column" }).fill("2");
+  await page.getByRole("spinbutton", { name: "Row" }).fill("2");
+  const party = page.getByRole("listbox", { name: "Party", exact: true }).first();
+  await party.selectOption("Game/Example/Chrs/companion.tem");
+  await party.selectOption(["Game/Example/Chrs/ada.tem", "Game/Example/Chrs/companion.tem"]);
+  await page.getByRole("spinbutton", { name: "Seed" }).fill("23");
+  await page.getByRole("button", { name: "Test board", exact: true }).click();
+
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  await expect(frame.getByLabel("Game screen")).toBeVisible();
+  const scene = async () => frame.locator("#screen").evaluate(() => {
+    const live = Reflect.get(window, "__live") as { board: string | null; player: unknown; stateHash: string } | undefined;
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
+    return { live, text: (session?.engine.drawList().commands ?? []).filter((command) => command.kind === "text").map((command) => command.text) };
+  });
+  await expect.poll(async () => (await scene()).live?.board ?? "", { timeout: 30_000 }).toContain("village.brd");
+  const result = await scene();
+  expect(result.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.text.join(" ")).not.toContain("SAVED STARTUP MUST NOT RUN");
+  await expect(page.getByLabel("Run snapshot").locator("dd").filter({ hasText: /^[0-9a-f]{16}$/ })).toHaveCount(1);
+  await expect(page.getByLabel("Run snapshot")).toContainText("Game/Example/Chrs/companion.tem, Game/Example/Chrs/ada.tem");
+  await expect(page.getByLabel("Run snapshot")).toContainText("23");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
+// The real browser page is held at the player load boundary to prove an edit during the handoff cannot start stale bytes.
+test("an edit before the player handshake prevents a stale game from starting", async ({ page }) => {
+  await installFolderPicker(page, [{ path: "Main/example.gam", bytes: validMain }]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  let observed!: () => void;
+  let release!: () => void;
+  const requested = new Promise<void>((resolve) => { observed = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/packages/runner-web/app/index.html?editor=1", async (route) => {
+    observed();
+    await gate;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  await requested;
+  await page.getByLabel("Game title").fill("Changed during player setup");
+  await page.getByLabel("Game title").press("Enter");
+  release();
+  await expect(page.getByLabel("Current run")).toContainText("changed while the run was being prepared");
+  await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+});
+
 type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean; readonly delayMainRead: boolean };
 
 async function installFolderPicker(page: Page, files: readonly PickerInput[], indexedDbAvailable = true, denyPermission = false, delayMainRead = false): Promise<void> {
@@ -215,11 +431,12 @@ async function installFolderPicker(page: Page, files: readonly PickerInput[], in
     let delayed = false;
     if (delay) {
       const originalGetFile = FileSystemFileHandle.prototype.getFile;
+      const gate = new Promise<void>((release) => { (window as ProofWindow).__tkrReleaseSlowRead = release; });
       FileSystemFileHandle.prototype.getFile = async function () {
         if (armed && !delayed && this.name.toLowerCase().endsWith(".gam")) {
           delayed = true;
           (window as ProofWindow).__tkrSlowReadStarted = true;
-          await new Promise((resolve) => setTimeout(resolve, 500));
+          await gate;
         }
         return originalGetFile.call(this);
       };
@@ -245,6 +462,7 @@ async function installFolderPicker(page: Page, files: readonly PickerInput[], in
     if (deny) {
       Object.defineProperty(FileSystemHandle.prototype, "requestPermission", { configurable: true, value: async () => "denied" });
     }
+    Reflect.set(window, "__tkrPickerReady", true);
   }, { files, indexedDbAvailable, denyPermission, delayMainRead, folderName });
 }
 

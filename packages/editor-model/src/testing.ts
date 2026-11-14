@@ -12,4 +12,5 @@ export {
   writeTileBitmap,
   type TileAnimation,
   type TileBitmap,
+  type TileBitmapCell,
 } from "@tk-reawakened/core";

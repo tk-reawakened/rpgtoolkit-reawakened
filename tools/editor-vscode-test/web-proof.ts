@@ -2,12 +2,51 @@ import { BinaryReader, readBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
+import { runVscodeArtProof } from "./art-proof.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
 type Expect = typeof playwrightExpect;
 type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean };
 type CspConsoleViolation = { text: string; url: string; lineNumber: number; columnNumber: number };
+type ProofRunSnapshot = { readonly stateHash: string | null };
+
+async function verifyHostRunHash(page: Page, frame: Frame, expect: Expect): Promise<void> {
+  let handleFrame: Frame | undefined;
+  await expect.poll(async () => {
+    for (const candidate of page.frames()) {
+      if (await candidate.locator("#tkr-run-handle-snapshot").count() > 0) { handleFrame = candidate; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  if (handleFrame === undefined) throw new Error("Run-handle proof panel was not found");
+  let lastObserved: { liveHash: string | undefined; liveTick: number | undefined; snapshotHash: string | null; status: unknown } =
+    { liveHash: undefined, liveTick: undefined, snapshotHash: null, status: null };
+  await expect.poll(async () => {
+    const player = await frame.evaluate(() => {
+      const live = Reflect.get(window, "__live") as { stateHash?: string; tick?: number } | undefined;
+      const history = Reflect.get(window, "__liveHistory") as { tick: number; stateHash: string }[] | undefined;
+      return { live, history };
+    });
+    const snapshot = JSON.parse(await handleFrame!.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+    const status = JSON.parse(await handleFrame!.locator("#tkr-run-handle-status").textContent() ?? "null") as { stateHash?: string; tick?: number };
+    lastObserved = { liveHash: player.live?.stateHash, liveTick: player.live?.tick, snapshotHash: snapshot.stateHash, status };
+    return typeof snapshot.stateHash === "string" && /^[a-f0-9]{16}$/.test(snapshot.stateHash)
+      && player.history?.some((entry) => entry.stateHash === snapshot.stateHash) === true;
+  }, { timeout: 30_000 }).toBe(true).catch((error: unknown) => {
+    throw new Error(`RunHandle hash never matched a player live hash: ${JSON.stringify(lastObserved)}`, { cause: error });
+  });
+  await handleFrame.locator("#tkr-stop-run-handle").click();
+  await expect.poll(async () => {
+    const snapshot = JSON.parse(await handleFrame!.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+    const status = JSON.parse(await handleFrame!.locator("#tkr-run-handle-status").textContent() ?? "null") as { state?: string };
+    return { state: status.state, stateHash: snapshot.stateHash };
+  }, { timeout: 30_000 }).toMatchObject({ state: "ended" });
+  const retained = JSON.parse(await handleFrame.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+  const stoppedHash = JSON.parse(await handleFrame.locator("#tkr-run-handle-stopped-hash").textContent() ?? "null") as string | null;
+  expect(stoppedHash).toMatch(/^[a-f0-9]{16}$/);
+  expect(retained.stateHash).toBe(stoppedHash);
+}
 type ProofHost = {
   restart(page: Page, offlineBytes?: Uint8Array): Promise<Page>;
   readBacking(path?: string): Promise<Uint8Array>;
@@ -20,9 +59,184 @@ type ProofHost = {
   choice: "cancel" | "keep";
   boardPath: string;
   otherBoardPath: string;
+  artPath: string;
+  otherArtPath: string;
+  writeBacking(path: string, bytes: Uint8Array): Promise<void>;
+  withBackingWriteRefused(path: string, check: () => Promise<void>): Promise<void>;
+  /** A fully drawn 2 × 2 tile bitmap over `Tiles/village.tst`: tile 1 everywhere except a shaded (10, -20, 30) tile 2 at column 2, row 1. */
+  bitmapPath: string;
+  /** A 3 × 1 tile bitmap of shaded tile 2, which the browser's Edit tile bitmap action must open. */
+  otherBitmapPath: string;
+  /** The pixels the core compositor makes of the proof bitmap, before (`false`) and after (`true`) the proof's edits. */
+  bitmapPicture(edited: boolean): { width: number; height: number; data: number[] };
+  /** What the file must hold after the proof's two edits and Save, written by hand from the stored layout. */
+  bitmapSaved: Uint8Array;
   /** Boards of each coordinate layout (`coordType` 0, 1, 2), each 8 × 8 with two layers, for the canvas scenario. */
   canvasBoards: { path: string; label: string; coordType: number }[];
 };
+
+/** Launch the real saved example through the VS Code web extension, not a mocked adapter. */
+export async function runVscodeLaunchProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
+  readBacking: () => Promise<Uint8Array>, expectedBytes: Uint8Array,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Main", exact: true }).click();
+  await openGame(page, gamePath, expect);
+  const editor = await waitForEditorFrame(page, "VS Code launch editor");
+  const title = editor.getByLabel("Game title");
+  await expect(title).toBeVisible();
+  await title.fill("VS Code launch proof");
+  await title.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Run Example Game");
+  await expect.poll(readBacking, { timeout: 30_000 }).toEqual(expectedBytes);
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const playerFrame = player as Frame | undefined;
+  if (playerFrame === undefined) throw new Error("Player frame was not found");
+  const live = async () => await playerFrame.evaluate(() => Reflect.get(window, "__live") as {
+    tick: number; board: string | null; player: unknown; stateHash: string;
+  } | undefined);
+  await expect.poll(async () => (await live())?.tick ?? 0, { timeout: 30_000 }).toBeGreaterThan(30);
+  await playerFrame.locator("#screen").press("Enter");
+  await expect.poll(async () => (await live())?.board, { timeout: 30_000 }).toContain("village.brd");
+  const playing = await live();
+  expect(playing?.player).not.toBeNull();
+  expect(playing?.stateHash).toBeTruthy();
+}
+
+/** Exercise a saved program and fixture through the real VS Code web extension and packaged player. */
+export async function runVscodeProgramProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "Test: Run Example Program");
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const frame = player as Frame | undefined;
+  if (frame === undefined) throw new Error("Program player frame was not found");
+  const scene = async () => await frame.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; font?: { size: number }; source?: { asset?: string } }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    const all = session?.engine.drawList().commands ?? [];
+    const commands = all.filter((command) => command.kind === "text");
+    return { live, text: commands.map((command) => command.text), sizes: commands.map((command) => command.font?.size),
+      assets: all.filter((command) => command.kind === "blit").map((command) => command.source?.asset) };
+  });
+  await expect.poll(async () => (await scene()).text?.join(" ") ?? "", { timeout: 30_000 }).toContain("VS CODE FIXTURE PROOF");
+  const result = await scene();
+  expect(result.live?.board).toContain("village.brd");
+  expect(result.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.sizes).toContain(18);
+  expect(result.assets).toContain("game/example/bitmap/window.png");
+  const snapshot = JSON.parse(await frame.locator("#run-snapshot pre").textContent() ?? "null") as {
+    kind: string; fixtureSettings: { font: string; fontSize: number; windowGraphic: string; party: string[] };
+    targets: Array<{ path: string; sha256: string }>;
+  };
+  expect(snapshot.kind).toBe("program");
+  expect(snapshot.fixtureSettings).toMatchObject({
+    font: "Liberation Sans", fontSize: 18, windowGraphic: "Game/Example/Bitmap/window.png",
+    party: ["Game/Example/Chrs/ada.tem"],
+  });
+  expect(snapshot.targets.find((target) => target.path === "Game/Example/Prg/start.prg")?.sha256).toMatch(/^[a-f0-9]{64}$/);
+  await verifyHostRunHash(page, frame, expect);
+}
+
+/** Exercise a fresh board launch through the real VS Code web extension and packaged player. */
+export async function runVscodeBoardProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "Test: Run Example Board");
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const frame = player as Frame | undefined;
+  if (frame === undefined) throw new Error("Board player frame was not found");
+  const scene = async () => await frame.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    return { live, text: (session?.engine.drawList().commands ?? []).filter((command) => command.kind === "text").map((command) => command.text) };
+  });
+  await expect.poll(async () => (await scene()).live?.board ?? "", { timeout: 30_000 }).toContain("village.brd");
+  const snapshotDetails = frame.locator("#run-snapshot");
+  await snapshotDetails.locator("summary").click();
+  await expect(snapshotDetails).toHaveAttribute("open", "");
+  await expect(snapshotDetails.locator("pre")).toContainText(/"stateHash":\s*"[^"]+"/);
+  const result = await frame.evaluate(() => {
+    const live = Reflect.get(window, "__live") as { stateHash: string } | undefined;
+    const snapshotText = document.querySelector("#run-snapshot pre")?.textContent ?? "null";
+    const snapshot = JSON.parse(snapshotText) as {
+      kind: string; stateHash: string | null;
+      start: { board: string; x: number; y: number; layer: number };
+      party: string[]; seed: number;
+    };
+    return {
+      liveStateHash: live?.stateHash,
+      snapshot,
+      stateHashMatches: snapshot.stateHash === live?.stateHash,
+    };
+  });
+  const sceneResult = await scene();
+  expect(sceneResult.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.liveStateHash).toBeTruthy();
+  expect(result.stateHashMatches).toBe(true);
+  expect(sceneResult.text.join(" ")).not.toContain("VS CODE FIXTURE PROOF");
+  expect(result.snapshot.kind).toBe("board");
+  expect(result.snapshot.start).toEqual({ board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 });
+  expect(result.snapshot.party).toEqual(["Game/Example/Chrs/ada.tem"]);
+  expect(result.snapshot.seed).toBe(23);
+  await verifyHostRunHash(page, frame, expect);
+}
+
+/** Refused saves and edits during snapshot preparation must prevent launching a player. */
+export async function runVscodeGuardProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
+  readBacking: () => Promise<Uint8Array>, original: Uint8Array, raced: Uint8Array,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Main", exact: true }).click();
+  await openGame(page, gamePath, expect);
+  const editor = await waitForEditorFrame(page, "VS Code guard editor");
+  const title = editor.getByLabel("Game title");
+  await title.fill("Save must fail");
+  await title.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Fail Saves");
+  await runCommand(page, expect, "Test: Run Example Program");
+  await expect(page.getByText(/Program launch refused:.*save/i)).toBeVisible({ timeout: 30_000 });
+  expect(await readBacking()).toEqual(original);
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+  await runCommand(page, expect, "Test: Allow Saves");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.getByRole("status")).toHaveText("All changes saved");
+  await runCommand(page, expect, "Test: Pause Program Read");
+  await runCommand(page, expect, "Test: Run Example Program");
+  await expect(page.getByText("Fixture read paused")).toBeVisible({ timeout: 30_000 });
+  await title.fill("Race saved");
+  await title.press("Enter");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(readBacking, { timeout: 30_000 }).toEqual(raced);
+  await runCommand(page, expect, "Test: Resume Program Read");
+  await expect(page.getByText(/Program launch refused:.*changed/i)).toBeVisible({ timeout: 30_000 });
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+}
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
 export async function runVscodeSpriteWebProof(
@@ -293,6 +507,7 @@ export async function runVscodeWebProof(
   }
   await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
   await recoveredEditor.getByRole("button", { name: "Keep my version" }).click();
+  await runCommand(page, expect, "Notifications: Clear All Notifications");
   await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
   expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
   expect(await host.readBacking()).toEqual(externalAfterRestart);
@@ -333,6 +548,18 @@ export async function runVscodeWebProof(
   await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
   // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
   await runBoardBrowserScenario(page, expect, host);
+  const artFrame = await runVscodeArtProof(page, expect, host, {
+    focusWorkbench: () => focusWorkbench(page),
+    command: (title) => runCommand(page, expect, title),
+    closeEditor: () => closeActiveEditor(page, expect),
+    backupStored: (bytes) => backupIsStored(page, bytes),
+    instrument: (frame) => instrumentCspFrame(frame),
+  });
+  await expect.poll(() => frameCspViolations(page, artFrame, consoleViolations)).toEqual([]);
+  await assertCspListenerCountsBlockedAction(artFrame, expect, consoleViolations);
+  // The same packaged extension edits a tile bitmap through the shared browser and persists it through the same provider.
+  await runBitmapBrowserScenario(page, expect, host);
+  await runBitmapSelectionRetentionScenario(page, expect, host);
   // Story 12.10: the real canvas, mouse, wheel, keyboard and the workbench's own undo, on all three coordinate layouts.
   await runBoardCanvasScenario(page, expect, host);
 }
@@ -356,6 +583,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     const state = frame.locator(".tkr-board-state");
     const tile2 = frame.locator('.tkr-board-cell[aria-label$=": village.tst2"]');
     await expect(state).toHaveText("All changes saved");
+    await frame.getByLabel("Source", { exact: true }).selectOption({ label: "village.tst (tst)" });
     const rock = frame.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source');
     await rock.click();
     await expect(rock).toHaveAttribute("aria-pressed", "true");
@@ -500,6 +728,32 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
   }
 }
 
+/**
+ * #2501 in the packaged VS Code web UI: a brush chosen in the shared browser is retained when the tab that chose it is
+ * closed straight after the choice (no waiting between the click and the close), and the next bitmap opened shows it.
+ * The first cycle chooses a whole stamp, the second a single tile, so a stale or lost selection cannot pass for either.
+ * This observes the real workbench at the speed of a scripted user. VS Code does not guarantee delivery of a webview
+ * message still in flight when its panel is disposed, so no faster close is promised.
+ */
+async function runBitmapSelectionRetentionScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
+  // The previous scenario left the 2 × 2 `house.tbm` stamp chosen, so this one chooses the 3 × 1 `other.tbm` stamp: losing
+  // the new choice leaves the old one showing, which fails the first check below.
+  const otherName = host.otherBitmapPath.split("/").at(-1)!;
+  const house = await openProjectFile(page, host.bitmapPath, expect, ".tkr-bitmap");
+  await house.locator(".tkr-tileset-browser select").selectOption({ value: host.otherBitmapPath });
+  await expect(house.locator(`[data-browser-reference="${otherName}"]`)).toBeVisible();
+  await house.getByRole("button", { name: "Select stamp brush" }).click();
+  await closeActiveEditor(page, expect);
+  const other = await openProjectFile(page, host.otherBitmapPath, expect, ".tkr-bitmap");
+  await expect(other.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (3 × 1 tiles) is chosen");
+  await other.locator(".tkr-tileset-browser select").selectOption({ value: "Tiles/village.tst" });
+  await other.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source').click();
+  await closeActiveEditor(page, expect);
+  const again = await openProjectFile(page, host.bitmapPath, expect, ".tkr-bitmap");
+  await expect(again.locator(".tkr-bitmap-brush")).toContainText("Brush: village.tst tile 2");
+  await closeActiveEditor(page, expect);
+}
+
 async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
   const firstPath = host.boardPath;
   const secondPath = host.otherBoardPath;
@@ -508,6 +762,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   const first = await openProjectBoard(page, firstPath, expect);
   await expect(first.getByRole("grid")).toBeVisible();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst2"]');
   await expect(tile).toBeVisible();
   const source = tile.locator(".tkr-tileset-browser-source");
@@ -553,19 +808,110 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   await closeActiveEditor(page, expect);
 }
 
+/** The story 12.8 proof in the real workbench: draw with a browser tile, shade a cell, save, reopen, and choose the whole bitmap as a stamp. */
+async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
+  const path = host.bitmapPath;
+  const before = await host.readBacking(path);
+  const otherBefore = await host.readBacking(host.otherBitmapPath);
+  const first = await openProjectFile(page, path, expect, ".tkr-bitmap");
+  await expect(first.getByRole("heading", { name: "Tile bitmap" })).toBeVisible();
+  await expect(first.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles, 64 × 64 pixels");
+  await expect(first.locator("canvas.tkr-bitmap-canvas")).toBeVisible();
+  // What the webview's canvas holds is read back and compared with the compositor's own picture of the file.
+  await expectCanvasPixels(first, expect, host.bitmapPicture(false));
+  await expect(first.getByRole("button", { name: "Column 2, row 1: village.tst2, shade 10, -20, 30" })).toBeVisible();
+  // The grid is laid out as a grid: the second column is to the right on the same line, the second row below.
+  const box = async (name: string | RegExp) => {
+    const found = await first.getByRole("button", { name }).boundingBox();
+    if (found === null) throw new Error(`${name} has no layout box`);
+    return found;
+  };
+  const topLeft = await box(/^Column 1, row 1:/);
+  const topRight = await box(/^Column 2, row 1:/);
+  const bottomLeft = await box(/^Column 1, row 2:/);
+  expect(Math.abs(topRight.y - topLeft.y)).toBeLessThan(2);
+  expect(topRight.x).toBeGreaterThanOrEqual(topLeft.x + topLeft.width);
+  expect(Math.abs(bottomLeft.x - topLeft.x)).toBeLessThan(2);
+  expect(bottomLeft.y).toBeGreaterThanOrEqual(topLeft.y + topLeft.height);
+  // Choosing a tile in the shared browser edits nothing; Draw puts it on the clicked cell.
+  await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
+  const tile = first.locator('[data-browser-reference="village.tst1"] .tkr-tileset-browser-source');
+  await expect(tile).toBeVisible();
+  await tile.click();
+  await expect(tile).toHaveAttribute("aria-pressed", "true");
+  expect(await host.readBacking(path)).toEqual(before);
+  await first.getByRole("button", { name: "Draw", exact: true }).click();
+  await first.getByRole("button", { name: /^Column 2, row 1:/ }).click();
+  await expect(first.getByRole("button", { name: "Column 2, row 1: village.tst1, shade 10, -20, 30" })).toBeVisible();
+  await first.getByRole("button", { name: /^Column 1, row 1:/ }).click();
+  const red = first.getByLabel("Red", { exact: true });
+  await red.fill("-255");
+  await expect(red).toHaveValue("-255");
+  await red.press("Enter");
+  await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1, shade -255, 0, 0" })).toBeVisible();
+  await expectCanvasPixels(first, expect, host.bitmapPicture(true));
+  await expect(first.locator(".tkr-bitmap-state")).toHaveText("Unsaved changes");
+  expect(await host.readBacking(path)).toEqual(before);
+  await first.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(first.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
+  expect(await host.readBacking(path)).toEqual(host.bitmapSaved);
+  await closeActiveEditor(page, expect);
+
+  const reopened = await openProjectFile(page, path, expect, ".tkr-bitmap");
+  await expect(reopened.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles");
+  await expect(reopened.getByRole("button", { name: "Column 1, row 1: village.tst1, shade -255, 0, 0" })).toBeVisible();
+  await expect(reopened.getByRole("button", { name: "Column 2, row 1: village.tst1, shade 10, -20, 30" })).toBeVisible();
+  // The whole bitmap is a stamp brush: choosing it carries its size and changes nothing.
+  await reopened.locator(".tkr-tileset-browser select").selectOption({ value: path });
+  await reopened.getByRole("button", { name: "Select stamp brush" }).click();
+  await expect(reopened.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (2 × 2 tiles) is chosen");
+  await expect(reopened.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
+  expect(await host.readBacking(path)).toEqual(host.bitmapSaved);
+  await expectCanvasPixels(reopened, expect, host.bitmapPicture(true));
+
+  // Edit tile bitmap opens exactly the chosen file in its own editor, and shows that file, not this one.
+  const otherName = host.otherBitmapPath.split("/").at(-1)!;
+  await reopened.locator(".tkr-tileset-browser select").selectOption({ value: host.otherBitmapPath });
+  const item = reopened.locator(`[data-browser-reference="${otherName}"]`);
+  await expect(item).toBeVisible();
+  await item.getByRole("button", { name: "More actions" }).click();
+  await item.getByRole("button", { name: "Edit tile bitmap" }).click();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: otherName }).first()).toBeVisible();
+  const other = await waitForCustomEditorFrame(page, host.otherBitmapPath, ".tkr-bitmap-summary:has-text('3 × 1 tiles')");
+  await expect(other.getByRole("button", { name: "Column 3, row 1: village.tst2, shade 1, 2, 3" })).toBeVisible();
+  expect(await host.readBacking(host.otherBitmapPath)).toEqual(otherBefore);
+  await closeActiveEditor(page, expect);
+  await closeActiveEditor(page, expect);
+}
+
+/** Wait until the frame's tile bitmap canvas holds exactly `expected` (RGBA, row by row). */
+async function expectCanvasPixels(frame: Frame, expect: Expect, expected: { width: number; height: number; data: number[] }): Promise<void> {
+  await expect.poll(async () => await frame.locator("canvas.tkr-bitmap-canvas").evaluate((element, want) => {
+    const canvas = element as HTMLCanvasElement;
+    if (canvas.width !== want.width || canvas.height !== want.height) return false;
+    const seen = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    return seen.length === want.data.length && want.data.every((value, index) => seen[index] === value);
+  }, expected), { message: "the webview's canvas shows the pixels the compositor makes of the file" }).toBe(true);
+}
+
 async function openProjectBoard(page: Page, path: string, expect: Expect): Promise<Frame> {
+  return openProjectFile(page, path, expect, ".tkr-board");
+}
+
+/** Open the project file at `path` from the Explorer and return the custom editor frame whose content contains `selector`. */
+async function openProjectFile(page: Page, path: string, expect: Expect, selector: string): Promise<Frame> {
   await focusWorkbench(page);
-  const folder = page.getByRole("treeitem", { name: "Boards", exact: true });
+  const folder = page.getByRole("treeitem", { name: path.split("/")[0]!, exact: true });
   await expect(folder).toBeVisible();
   if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
   const item = page.getByRole("treeitem", { name: path.split("/").at(-1)!, exact: true });
   await expect(item).toBeVisible();
   await item.dblclick();
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
-  return await waitForBoardFrame(page, path);
+  return await waitForCustomEditorFrame(page, path, selector);
 }
 
-async function waitForBoardFrame(page: Page, label: string): Promise<Frame> {
+async function waitForCustomEditorFrame(page: Page, label: string, selector: string): Promise<Frame> {
   const deadline = Date.now() + 30_000;
   let pause = 100;
   while (Date.now() < deadline) {
@@ -573,13 +919,13 @@ async function waitForBoardFrame(page: Page, label: string): Promise<Frame> {
     if (outer) {
       const outerFrame = await outer.contentFrame().catch(() => null);
       const content = outerFrame?.childFrames().find((frame) => frame.name() === "pending-frame");
-      if (content && await content.locator(".tkr-board").count().catch(() => 0) > 0) return content;
+      if (content && await content.locator(selector).count().catch(() => 0) > 0) return content;
     }
     await page.waitForTimeout(pause);
     pause = Math.min(pause * 2, 1_000);
   }
-  await logFrameDiagnostics(page, `packaged board custom editor not found for ${label}`);
-  throw new Error(`Timed out waiting for actual VS Code board custom editor for ${label}`);
+  await logFrameDiagnostics(page, `packaged custom editor not found for ${label}`);
+  throw new Error(`Timed out waiting for actual VS Code custom editor (${selector}) for ${label}`);
 }
 
 /**
@@ -663,6 +1009,9 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
     let acknowledgementFailed = false;
     try {
       await runCommand(page, expect, "Test: Pause Autosave Off");
+      await expect.poll(() => readMarker("armed"), {
+        message: "VS Code armed the autosave-off completion barrier before Off is dispatched",
+      }).toBe("off");
       await runCommand(page, expect, "Test: Turn Autosave Off");
       let autosaveAcknowledged = false;
       acknowledgement = expectAutosave("off").then(
@@ -719,8 +1068,20 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
         await commandInput.press("Escape");
         await expect(widget).toBeHidden();
       }
-      const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-      await expect(command, `VS Code selects ${label}`).toBeVisible();
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const exact = page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) });
+      if (search === label) {
+        await expect(exact, `VS Code offers exactly one ${label}`).toHaveCount(1);
+        const choices = await page.getByRole("option").count();
+        for (let index = 0; index < choices; index += 1) {
+          if (await exact.evaluate((element) => element.classList.contains("focused"))) break;
+          await commandInput.press("ArrowDown");
+        }
+        await expect(exact).toHaveClass(/(?:^|\s)focused(?:\s|$)/);
+      } else {
+        const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+        await expect(command, `VS Code selects ${label}`).toBeVisible();
+      }
       break;
     } catch (error) {
       if (attempt === 2 || await widget.isVisible()) throw error;
@@ -888,7 +1249,12 @@ async function openPersistedBytesPanel(page: Page, expect: Expect): Promise<{ ta
   const panelTabs = page.getByRole("tab").filter({ hasText: /Persisted Main File Bytes #[0-9a-f-]+/i });
   const existingCount = await panelTabs.count();
   await runCommand(page, expect, copyBytesCommand);
-  await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+  try {
+    await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+  } catch (cause) {
+    const tabs = await page.getByRole("tab").allTextContents();
+    throw new Error(`The byte probe did not open a new tab; current tabs: ${JSON.stringify(tabs)}`, { cause });
+  }
   const panelTab = panelTabs.nth(existingCount);
   await expect(panelTab).toBeVisible({ timeout: 15_000 });
   const panelId = /Persisted Main File Bytes #([0-9a-f-]+)/i.exec(await panelTab.innerText())?.[1];
@@ -942,26 +1308,28 @@ async function findBytesPanelFrame(page: Page, selector: string): Promise<Frame 
 
 async function openGame(page: Page, gamePath: string, expect: Expect): Promise<void> {
   await focusWorkbench(page);
-  const gameFile = page.getByRole("treeitem", { name: gamePath.split("/").at(-1)!, exact: true });
+  const segments = gamePath.split("/");
+  for (const folder of segments.slice(0, -1)) {
+    const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
+    await expect(folderItem).toBeVisible();
+    if (await folderItem.getAttribute("aria-expanded") !== "true") await folderItem.click();
+  }
+  const gameFile = page.getByRole("treeitem", { name: segments.at(-1)!, exact: true });
   await expect(gameFile).toBeVisible();
   await gameFile.dblclick();
-  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! }).first()).toBeVisible();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: segments.at(-1)! }).first()).toBeVisible();
   await expect(page.locator("iframe.webview")).toBeVisible({ timeout: 30_000 });
 }
 
 async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
-  const commandInput = await commandPalette(page, expect);
-  await commandInput.fill(">View: Close Editor");
-  const closeCommand = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "View: Close Editor" }).first();
-  await expect(closeCommand).toBeVisible();
-  await closeCommand.click();
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
+  await runCommand(page, expect, "View: Close Editor");
 }
 
-async function commandPalette(page: Page, expect: Expect): Promise<import("@playwright/test").Locator> {
+async function commandPalette(page: Page, expect: Expect): Promise<Locator> {
   await focusWorkbench(page);
   await page.keyboard.press("ControlOrMeta+Shift+P");
-  const input = page.locator(".quick-input-widget input").last();
+  const input = page.locator(".quick-input-widget input:visible");
+  await expect(input).toHaveCount(1);
   await expect(input).toBeVisible();
   return input;
 }

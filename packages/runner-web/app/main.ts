@@ -32,6 +32,7 @@ declare global {
   interface Window {
     __report?: unknown;
     __live?: LiveReport;
+    __liveHistory?: { tick: number; stateHash: string }[];
     /** The package load's state, kept current while it runs and after. */
     __load?: LoadState;
     /** A lane's clock for stall timing and the spinner; the page uses `performance.now` when it is absent. */
@@ -47,6 +48,11 @@ declare global {
   }
 }
 
+/** The VS Code webview injects this API; the ordinary browser player never accesses it. */
+declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
+const vscodeApi = document.body.dataset.tkrHost === "vscode" ? acquireVsCodeApi() : null;
+
+let editorChannel: MessagePort | null = null;
 const canvas = document.querySelector<HTMLCanvasElement>("#screen");
 const output = document.querySelector<HTMLPreElement>("#report");
 if (canvas === null || output === null) throw new Error("player: the page is missing its canvas or report");
@@ -54,6 +60,10 @@ const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: f
 if (gl === null) {
   output.textContent = "player: this browser has no WebGL2 context";
   window.__report = { error: "no-webgl2" };
+  vscodeApi?.postMessage({ type: "status", status: { state: "failed", tick: 0, board: null, stalledOn: null, diagnostics: [], message: "This browser has no WebGL2 context." } });
+  if (new URLSearchParams(location.search).has("editor") && window.parent !== window) {
+    window.parent.postMessage({ type: "tkr-player-error", message: "This browser has no WebGL2 context." }, location.origin);
+  }
 } else {
   void boot(gl, canvas, output);
 }
@@ -73,6 +83,14 @@ function describeLoad(name: string, state: LoadState): string {
 async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, report: HTMLPreElement): Promise<void> {
   try {
     const params = new URLSearchParams(location.search);
+    if (vscodeApi !== null) {
+      await bootEditorGame(context, screen, report, vscodeApi);
+      return;
+    }
+    if (params.has("editor")) {
+      await bootEditorGame(context, screen, report);
+      return;
+    }
     const pack = params.get("package");
     const parity = params.has("parity");
     const tracer = params.has("tracer");
@@ -108,6 +126,7 @@ async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, 
   } catch (error) {
     window.__report = { error: String(error) };
     report.textContent = `player: ${String(error)}`;
+    editorChannel?.postMessage({ state: "failed", tick: 0, board: null, stalledOn: null, diagnostics: [], message: String(error) });
   }
 }
 
@@ -167,10 +186,10 @@ async function loadPackage(params: URLSearchParams, report: HTMLPreElement, pack
  * controlled page hits the service worker's precache and runs identically online and offline.
  */
 // A worker factory retained across restarts, with one page-lifetime object URL.
-async function prepareDecode(): Promise<{ readonly create: (outputRateHz: number) => DecodeAhead | null; readonly dispose: () => void }> {
+async function prepareDecode(workerUrl = DECODE_WORKER_URL): Promise<{ readonly create: (outputRateHz: number) => DecodeAhead | null; readonly dispose: () => void }> {
   let blobUrl: string | null = null;
   try {
-    const response = await fetch(DECODE_WORKER_URL);
+    const response = await fetch(workerUrl);
     if (response.ok) blobUrl = URL.createObjectURL(await response.blob());
   } catch {
     blobUrl = null;
@@ -311,6 +330,172 @@ async function bootInteractive(
   void launch();
 }
 
+/**
+ * An editor launch uses the same live player as a distribution package, but receives one frozen set of saved files
+ * through a private MessagePort. Only the same-origin embedding parent may supply that port. Later editor saves cannot
+ * change the files in this session (ADR 0022 D8.4).
+ */
+async function bootEditorGame(
+  context: WebGL2RenderingContext,
+  screen: HTMLCanvasElement,
+  report: HTMLPreElement,
+  vscode: { postMessage(message: unknown): void } | null = null,
+): Promise<void> {
+  const channel = vscode === null ? await new Promise<MessagePort>((resolve) => {
+    if (window.parent === window) throw new Error("editor launch requires an embedding editor");
+    const receive = (event: MessageEvent): void => {
+      if (event.source !== window.parent || event.origin !== location.origin || event.data !== "tkr-editor-connect" || event.ports.length !== 1) return;
+      window.removeEventListener("message", receive);
+      resolve(event.ports[0]!);
+    };
+    window.addEventListener("message", receive);
+    window.parent.postMessage("tkr-player-ready", location.origin);
+  }) : (() => {
+    const pair = new MessageChannel();
+    window.addEventListener("message", (event: MessageEvent<unknown>) => pair.port2.postMessage(event.data));
+    pair.port2.onmessage = (event: MessageEvent<unknown>) => vscode.postMessage({ type: "status", status: event.data });
+    vscode.postMessage({ type: "ready" });
+    return pair.port1;
+  })();
+  editorChannel = channel;
+  const payload: unknown = await new Promise((resolve) => {
+    channel.onmessage = (event: MessageEvent<unknown>) => resolve(event.data);
+    channel.start();
+  });
+  if (typeof payload !== "object" || payload === null || !("main" in payload) || typeof payload.main !== "string"
+    || !("project" in payload) || typeof payload.project !== "string"
+    || !("projectFolder" in payload) || typeof payload.projectFolder !== "string"
+    || !("seed" in payload) || typeof payload.seed !== "number"
+    || !("files" in payload) || !(payload.files instanceof Map || Array.isArray(payload.files))) throw new Error("invalid editor launch");
+  const toFiles = (entries: Iterable<unknown>): Map<string, Uint8Array> => {
+    const result = new Map<string, Uint8Array>();
+    for (const entry of entries) {
+      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string" || !(entry[1] instanceof Uint8Array)) {
+        throw new Error("invalid editor launch file");
+      }
+      result.set(entry[0], entry[1]);
+    }
+    return result;
+  };
+  const files = toFiles(payload.files);
+  let scene: { board: string; program: string } | undefined;
+  if ("scene" in payload) {
+    if (typeof payload.scene !== "object" || payload.scene === null || !("board" in payload.scene)
+      || typeof payload.scene.board !== "string" || !("program" in payload.scene) || typeof payload.scene.program !== "string") {
+      throw new Error("invalid isolated scene launch");
+    }
+    scene = { board: payload.scene.board, program: payload.scene.program };
+  }
+  const snapshotDetails = document.querySelector<HTMLDetailsElement>("#run-snapshot");
+  const snapshotOutput = snapshotDetails?.querySelector("pre") ?? null;
+  const snapshot: unknown = snapshotOutput === null ? null : JSON.parse(snapshotOutput.textContent ?? "null");
+  if (snapshotOutput !== null && (typeof snapshot !== "object" || snapshot === null || !("stateHash" in snapshot)
+    || !(snapshot.stateHash === null || typeof snapshot.stateHash === "string"))) throw new Error("invalid run snapshot");
+  const renderSnapshot = (): void => {
+    if (snapshotOutput !== null && snapshotDetails?.open) snapshotOutput.textContent = JSON.stringify(snapshot, null, 2);
+  };
+  snapshotDetails?.addEventListener("toggle", renderSnapshot);
+  const folder = payload.projectFolder.replace(/^\/+|\/+$/g, "");
+  if (folder !== "" && !folder.toLowerCase().startsWith("game/")) throw new Error("the game folder must be under Game/");
+  const assetRoot = folder === "" ? { kind: "package" as const } : { kind: "game" as const, projectPath: folder.slice(5) };
+  const stage = document.querySelector<HTMLElement>("#stage");
+  if (stage === null) throw new Error("player: the page is missing its viewport stage");
+  let bundled: ReadonlyMap<string, Uint8Array>;
+  let audioWorkletUrl: string | undefined;
+  let decodeWorkerUrl: string | undefined;
+  if (vscode === null) {
+    const listing = await fetch("/apps/browser/bundled.json");
+    if (!listing.ok) throw new Error(`bundled assets unavailable: ${listing.status}`);
+    const listed = await listing.json() as { readonly files: readonly string[] };
+    bundled = await fetchBundledFiles("", listed.files);
+  } else {
+    if (!("bundled" in payload) || !Array.isArray(payload.bundled)
+      || !("workletUrl" in payload) || typeof payload.workletUrl !== "string"
+      || !("decodeWorkerUrl" in payload) || typeof payload.decodeWorkerUrl !== "string") throw new Error("invalid VS Code player assets");
+    bundled = toFiles(payload.bundled);
+    audioWorkletUrl = payload.workletUrl;
+    decodeWorkerUrl = payload.decodeWorkerUrl;
+  }
+  const blobs = await durableBlobs(report);
+  if (blobs !== null) window.__blobHost = blobs;
+  const decode = await prepareDecode(decodeWorkerUrl);
+  const hostViewport: HostViewport = { canvas: screen, viewport: stage };
+  const clock = (): number => performance.now();
+  let dispose: (() => void) | null = null;
+  let sessionForQuit: LiveSession | null = null;
+  let quitBeforeReady = false;
+  const rememberLiveHash = (tick: number, stateHash: string): void => {
+    if (stateHash === "") return;
+    const history = window.__liveHistory ?? [];
+    history.push({ tick, stateHash });
+    if (history.length > 256) history.shift();
+    window.__liveHistory = history;
+  };
+  const updateSnapshotHash = (stateHash: string): void => {
+    if (typeof snapshot === "object" && snapshot !== null && "stateHash" in snapshot
+      && stateHash !== "" && snapshot.stateHash !== stateHash) {
+      snapshot.stateHash = stateHash;
+      renderSnapshot();
+    }
+  };
+  const onQuit = (): void => {
+    if (sessionForQuit === null) {
+      quitBeforeReady = true;
+      return;
+    }
+    const stateHash = sessionForQuit.stateHash();
+    const tick = sessionForQuit.tick();
+    const board = sessionForQuit.boardKey();
+    const diagnostics = sessionForQuit.diagnostics();
+    const live = { ...(window.__live ?? { drawHash: "", player: null }), tick, board, stateHash,
+      player: sessionForQuit.playerPosition(), diagnostics };
+    window.__live = live;
+    window.__report = live;
+    rememberLiveHash(tick, stateHash);
+    updateSnapshotHash(stateHash);
+    channel.postMessage({ state: "ended", tick, board, stateHash, stalledOn: null,
+      diagnostics, message: "The game ended." });
+    dispose?.();
+  };
+  const session = await createLiveSession({
+    interactive: true, files, mainFile: payload.main, gameIdentity: payload.project, assetRoot, seed: payload.seed,
+    ...(scene === undefined ? {} : { scene }),
+    bundled, gl: context, hostViewport, clock,
+    decode: decode.create,
+    ...(audioWorkletUrl === undefined ? {} : { audioWorkletUrl }),
+    ...(blobs === null ? {} : { blobs }),
+    onQuit,
+  });
+  sessionForQuit = session;
+  if (quitBeforeReady) {
+    onQuit();
+    decode.dispose();
+    return;
+  }
+  window.__session = session;
+  const spinner = document.querySelector<HTMLElement>("#spinner");
+  const overlay = spinner === null ? null : createStallOverlay({ element: spinner, state: session.loadState, clock });
+  const load: LoadState = {
+    phase: "ready", mode: "whole", progress: { received: 0, total: null },
+    storage: { persisted: "not-requested", quota: "not-needed", kept: false, error: null }, error: null,
+  };
+  dispose = startLiveLoop(session, screen, report, overlay, () => load, hostViewport, (live) => {
+    updateSnapshotHash(live.stateHash);
+    rememberLiveHash(live.tick, live.stateHash);
+    channel.postMessage({ state: live.error ? "failed" : live.stalls?.blocking ? "stalled" : "running",
+      tick: live.tick, board: live.board, stateHash: live.stateHash, stalledOn: live.stalls?.blocking ?? null,
+      diagnostics: live.diagnostics ?? [], message: live.error ?? null });
+  });
+  const stop = (): void => {
+    dispose?.();
+    decode.dispose();
+    channel.close();
+    snapshotDetails?.removeEventListener("toggle", renderSnapshot);
+  };
+  channel.onmessage = (event) => { if (event.data === "stop") stop(); };
+  window.addEventListener("pagehide", stop, { once: true });
+}
+
 async function runParity(session: LiveSession, report: HTMLPreElement, game: string, pack: string | null, extra: () => object = () => ({})): Promise<void> {
   await session.advance(0);
   let inputs: InputRecord[] = [];
@@ -348,6 +533,7 @@ function startLiveLoop(
   overlay: StallOverlay | null,
   loadState: () => LoadState,
   hostViewport: HostViewport,
+  onLive?: (report: LiveReport) => void,
 ): () => void {
   const stepMs = 1000 / 60;
   let previous = performance.now();
@@ -496,6 +682,7 @@ function startLiveLoop(
           };
           window.__live = live;
           window.__report = live;
+          onLive?.(live);
           report.textContent = [
             `live ${location.search.includes("package=") ? "package" : "game"} — tick ${live.tick}`,
             `state ${live.stateHash}`,
@@ -508,6 +695,7 @@ function startLiveLoop(
           advancing = false;
           if (disposed) return;
           window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error), stalls: summary(false) };
+          onLive?.(window.__live);
           report.textContent = `player: ${String(error)}`;
           dispose();
         });
