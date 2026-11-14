@@ -287,7 +287,7 @@ Within an explicitly authorized isolated evaluation—not a silent production de
 
 A 16×8 control exercises rectangular handling; a 32×32 tile proves the real legacy route; a representative multi-cell sheet examines the proposed product rather than just a toy canvas. They are different evidence needs, not interchangeable benchmarks. Desktop-specific claims additionally require the packaged Electron surface before being advertised.
 
-This report supplies desk-research input only. It does **not** close 13.2: human approval, locked dependency evidence and working host-integration findings are still owed. [R9]
+This report supplies the desk-research baseline. Fresh package, provenance and browser evidence is recorded in [the 13.2 candidate evaluation](story-13.2-candidate-evidence.md); it does **not** close 13.2 because the working shared-host/history integration, strict-CSP/offline host evidence and person-reviewed component or specific in-house implementation decision are still owed. [R9]
 
 ### Storage and scope decision
 
