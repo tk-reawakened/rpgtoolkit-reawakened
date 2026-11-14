@@ -103,7 +103,7 @@ The current editor model has a shared `EditorDocument` lifecycle (`getSnapshot`,
 
 Existing-host browser proof is real but limited to the current `.gam` settings editor: the focused Playwright run passed 10 cases across session-copy editing, folder/lifecycle behavior, save/undo/revert/conflict, framing and CSP. The actual `@vscode/test-web` proof ran the built extension in VS Code Web and passed both `cancel` and `keep` recovery paths, including save/reopen and webview CSP assertions. These exercise actual host UI/workbench surfaces, not either art candidate; the browser folder picker is supplied by a test API shim.
 
-No art-specific native document kind or view/history adapter exists to test. The isolated model test demonstrates that current `BoardDocument` refuses a pixel command, so no art stroke has been accepted, shared across art views, or persisted/reopened. Art-specific two-view/external-model edit/undo/redo, hide/recreate/reload, gesture cancel/release/blur/active-board switching, failed save/conflict, keyboard drawing, and rendering a saved art tile in both hosts remain unproved.
+No art-document/view/history adapter was tested. No art stroke has been accepted, shared across art views, or persisted/reopened. Art-specific two-view/external-model edit/undo/redo, hide/recreate/reload, gesture cancel/release/blur/active-board switching, failed save/conflict, keyboard drawing, and rendering a saved art tile in both hosts remain unproved.
 
 The browser editor route is not in the PWA precache manifest (`tools/browser/build.mjs` precaches the player shell/assets only), and the VS Code run was not made with network disabled. Thus offline art-editor assets are **not** proven. Current strict CSP/webview tests establish only existing host surfaces, not an embedded candidate or an art editor.
 
@@ -128,17 +128,11 @@ This is the complete T-36 operation inventory and ownership assessment for 13.2.
 | Save/append to new or existing tileset; overwrite an explicit reviewed slot | No shared-model or destination workflow; PNG download is not a tileset save. | Candidate serialization is its own pixel-document format; no shared-model or staged destination workflow. | Shared platform-services/document ownership and staged destination workflow; explicit slot review, cancel and overwrite safety. |
 | Persistent layers/frames/recipes and source/output separation (owner direction beyond the T-36 list) | Layer manipulation APIs exist, but no persistence or shared-source integration was demonstrated. | UV regions/slots are not persistent authoring layers, frames or recipes. | Owned editor model/authoring modules; 13.2 must not invent a new native storage/timing contract. |
 
-ADR 0031 already approves the owned-editor direction and ordinary reversible framework-free modules. Evidence now recommends JollyPixel 7.0.0 only as the leading reversible staging-canvas adapter candidate, supplemented by in-house missing operations; this is a recommendation, not production dependency admission. The test-only model harness and actual `.gam` host runs below do not prove art-document acceptance. The 13.2 exit still needs person review of the reproducible findings and real art-document/shared-host behavior; routine in-house modules require no new product-direction vote. Any exact candidate, copied/adapted code or shipped assets still needs its specific G6, source/provenance/notice review and person approval before production admission. Full T-36 implementation belongs to 13.3.
-
-## Isolated operation and existing-document boundary harness
-
-`tools/editor-vscode-test/conformance/pixel-operations.ts` is a test-only, framework-free RGBA line operation. It returns a single serializable stroke command containing before/after pixel patches, and applies or reverses the command atomically. It is not a production module, editor view, persistence format, or registered document kind.
-
-`tools/editor-vscode-test/test/pixel-operation-evidence.test.ts` checks that the stroke preserves dimensions/alpha and its source, is reversible, and that the existing `BoardDocument` refuses the pixel command without mutation. The same test applies one valid board command through the real `EditorDocument` implementation, verifies one `editId`/history entry and two subscribers, then exercises undo/redo/save/reopen. This proves shared-model semantics for an existing `.brd` document and, importantly, that `.brd` does not accept art pixels. It is not an art document or a host-provider acceptance; browser and VS Code tests below are separately required for actual host behavior.
+ADR 0031 already approves the owned-editor direction and ordinary reversible framework-free modules. Evidence now recommends JollyPixel 7.0.0 only as the leading reversible staging-canvas adapter candidate, supplemented by in-house missing operations; this is a recommendation, not production dependency admission. Existing `.gam` host runs do not prove art-document acceptance. The 13.2 exit still needs person review of the reproducible findings and real art-document/shared-host behavior; routine in-house modules require no new product-direction vote. Any exact candidate, copied/adapted code or shipped assets still needs its specific G6, source/provenance/notice review and person approval before production admission. Full T-36 implementation belongs to 13.3.
 
 ## Focused verification (2026-11-14)
 
-The added test-only operation ran against the existing editor model, and the actual existing `.gam` hosts were exercised separately:
+The actual existing `.gam` hosts were exercised separately from the candidate probe:
 
 ```text
 $ pnpm build
@@ -147,14 +141,6 @@ Lockfile supply chain verified
 tsc -b
 ✓ exit 0
 
-$ pnpm --dir tools/editor-vscode-test typecheck:tests
-tsc -p tsconfig.test.json
-✓ exit 0
-
-$ node --test tools/editor-vscode-test/test/pixel-operation-evidence.test.ts
-tests 2
-pass 2
-fail 0
 
 $ PLAYWRIGHT_PORT=45671 pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts tools/browser/tests/editor-lifecycle.spec.ts tools/browser/tests/editor-ui-csp.spec.ts
 10 passed (5.4s)
@@ -176,5 +162,5 @@ The Playwright command first failed to start because the default `127.0.0.1:4173
 
 1. Reproduced package trees, integrity/licence metadata, signature/provenance results, candidate browser evidence, and host proof are recorded above. These exact candidate versions were installed only in throwaway `/tmp` directories. Re-run candidate reproduction only if a version changes or a result is challenged; do not add either candidate to the product from this evidence alone.
 2. The smallest reversible adapter candidate is JollyPixel 7.0.0 as a mutable canvas/tool staging surface: inject a `PixelDocument` with `history.enabled:false`, map each post-mutation `onBufferUpdated` event to one host edit, and resynchronize from host snapshots on undo/redo, external edits and rejected writes. Use targeted framework-free modules for missing T-36 operations. This is a research recommendation, not production admission; Dotting is rejected for direct use under ADR 0025's current runtime, not as a source of permissively adaptable algorithms. If the Jolly adapter cannot preserve host semantics at acceptable cost, the approved in-house route remains the fallback.
-3. The remaining story evidence is an actual art-document integration on the shared model and both actual host surfaces: accepted gesture as one host `editId`; two-view plus external edit/undo/redo; hide/recreate/reload; release outside, cancel, blur, active-board switch; save/reopen and render the saved tile in browser and VS Code webview; strict CSP, keyboard drawing, dirty state across failed save/conflict and local offline assets. Existing `.gam` proofs and the test-only `.brd` refusal do not satisfy this art-specific proof. This is an acceptance gap; do not fake it with a preview/provider or change the document contract here.
+3. The remaining story evidence is an actual art-document integration on the shared model and both actual host surfaces: accepted gesture as one host `editId`; two-view plus external edit/undo/redo; hide/recreate/reload; release outside, cancel, blur, active-board switch; save/reopen and render the saved tile in browser and VS Code webview; strict CSP, keyboard drawing, dirty state across failed save/conflict and local offline assets. Existing `.gam` proofs do not satisfy this art-specific proof. This is an acceptance gap; do not fake it with a preview/provider or change the document contract here.
 4. The full T-36 coverage/ownership matrix is supplied above; implementation of those operations belongs to 13.3. A person must review this story's evidence and the actual art-host findings before 13.2 can close. No new specific in-house module approval is required by the already-approved route. If a production external component, copied/adapted source, or bundled assets are later proposed, perform the exact-version G6/notice/asset/provenance review and obtain the required person approval before admission.
