@@ -3,7 +3,7 @@
 // saved files with a snapshot that identifies them by SHA-256.
 import { test } from "node:test";
 import { createHash } from "node:crypto";
-import { deepEqual, equal, notEqual, ok } from "node:assert/strict";
+import { deepEqual, equal, notDeepEqual, notEqual, ok } from "node:assert/strict";
 import { prepareRun, type GameLaunch, type ProgramLaunch, type RunStatus } from "../src/index.ts";
 import { createMemoryPlatformServices } from "../src/testing.ts";
 
@@ -67,6 +67,23 @@ test("game, board and program launches are distinct: each records its own kind, 
   equal(tested.value.snapshot.fixture, "editor test settings");
   equal(tested.value.snapshot.manifestFiles, 4);
   notEqual(board.value.snapshot.manifest, tested.value.snapshot.manifest, "different targets leave different files in the manifest");
+});
+
+test("program snapshots retain the complete fixture, including every setting that changes execution", async () => {
+  const host = createMemoryPlatformServices({ files: FILES, capabilities: ALL_RUNS });
+  const first = await host.run!.startProgram(program);
+  ok(first.ok);
+  deepEqual(first.value.snapshot.fixtureSettings, program.fixture);
+  for (const fixture of [
+    { ...program.fixture, font: "Another Font" },
+    { ...program.fixture, fontSize: 18 },
+    { id: program.fixture.id, font: "Arial", fontSize: 14, party: program.fixture.party, start: program.fixture.start! },
+  ]) {
+    const other = await host.run!.startProgram({ ...program, fixture });
+    ok(other.ok);
+    notDeepEqual(other.value.snapshot, first.value.snapshot);
+    equal(other.value.snapshot.fixture, first.value.snapshot.fixture, "the reference is preserved even when its contents change");
+  }
 });
 
 test("a launch the host does not declare is refused with its reason, and nothing runs", async () => {

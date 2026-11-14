@@ -65,6 +65,30 @@ test("a document still unsaved after saving stops the launch", async () => {
   equal(host.runs.length, 0);
 });
 
+test("an edit saved during snapshot preparation prevents the stale snapshot from starting", async () => {
+  const { host, document, launcher } = await setUp();
+  const originalRead = host.fs.readProject.bind(host.fs);
+  let resume!: () => void;
+  let observed!: () => void;
+  const blocked = new Promise<void>((resolve) => { observed = resolve; });
+  const release = new Promise<void>((resolve) => { resume = resolve; });
+  let first = true;
+  Object.defineProperty(host.fs, "readProject", { configurable: true, value: async (project: string, path: string) => {
+    const result = await originalRead(project, path);
+    if (first) { first = false; observed(); await release; }
+    return result;
+  } });
+  const pending = launcher.launch(game);
+  await blocked;
+  ok(document.apply({ type: "set-game-title", title: "Changed during preparation" }).ok);
+  ok((await document.save()).ok, "even a clean newer revision must invalidate the older snapshot");
+  resume();
+  const outcome = await pending;
+  ok(!outcome.ok);
+  equal(outcome.reason, "unsaved");
+  equal(host.runs.length, 0);
+});
+
 test("a launch the host cannot do is refused with the host's reason, before anything is saved (D8.6)", async () => {
   const { host, document, launcher } = await setUp(["folderWrite", "runGame"]);
   equal(launcher.unavailable("game"), null);

@@ -121,6 +121,15 @@ export interface RunSnapshot {
   readonly seed: number;
   /** The fixture's `id` for a program test; `null` otherwise. */
   readonly fixture: string | null;
+  /** Full saved test settings, so equal snapshots represent equal executable fixture inputs. */
+  readonly fixtureSettings: {
+    readonly id: string;
+    readonly font: string | null;
+    readonly fontSize: number | null;
+    readonly windowGraphic: string | null;
+    readonly party: readonly string[];
+    readonly start: BoardStart | null;
+  } | null;
   /** The runner build that ran it, as the host names it. */
   readonly runner: string;
 }
@@ -164,6 +173,13 @@ export interface RunHandle {
 }
 
 /**
+ * The editor's last check after a host has read and hashed the saved files, immediately before it starts a runner. It is
+ * synchronous so no editor command can run between the check and the start in that host turn. A host must abort on a
+ * failure; it must not start the runner and then stop it (ADR 0022 D8.2).
+ */
+export type RunStartGuard = () => PlatformResult<void>;
+
+/**
  * The `run` surface of AD-20. Present only with at least one of the `runGame`, `runBoard` and `runProgram` capabilities;
  * a launch whose capability the host does not declare answers `unavailable` with the reason. A file the launch names that
  * the project does not hold answers `not-found` naming it. Nothing is started from unsaved editor memory.
@@ -175,14 +191,13 @@ export interface RunService {
    */
   readonly unavailable: Readonly<Partial<Record<LaunchKind, string>>>;
   /** A game run from its configured start-up (`kind: "game"`), or a board test (`kind: "board"`). */
-  startGame(launch: GameLaunch | BoardLaunch): Promise<PlatformResult<RunHandle>>;
+  startGame(launch: GameLaunch | BoardLaunch, guard?: RunStartGuard): Promise<PlatformResult<RunHandle>>;
   /** A program test under its fixture. */
-  startProgram(launch: ProgramLaunch): Promise<PlatformResult<RunHandle>>;
+  startProgram(launch: ProgramLaunch, guard?: RunStartGuard): Promise<PlatformResult<RunHandle>>;
 }
 
 /** The capability each launch kind needs. */
 export const LAUNCH_CAPABILITY = { game: "runGame", board: "runBoard", program: "runProgram" } as const;
-
 /** What a host runs: the snapshot and the frozen bytes it identifies, by project-relative path as stored. */
 export interface PreparedRun {
   readonly snapshot: RunSnapshot;
@@ -365,6 +380,14 @@ export async function prepareRun(
       party: party.map((path) => byKey.get(fold(path)) ?? path),
       seed,
       fixture: launch.kind === "program" ? launch.fixture.id : null,
+      fixtureSettings: launch.kind !== "program" ? null : {
+        id: launch.fixture.id,
+        font: launch.fixture.font ?? null,
+        fontSize: launch.fixture.fontSize ?? null,
+        windowGraphic: launch.fixture.windowGraphic === undefined ? null : byKey.get(fold(launch.fixture.windowGraphic)) ?? launch.fixture.windowGraphic,
+        party: party.map((path) => byKey.get(fold(path)) ?? path),
+        start: start === null ? null : { ...start, board: byKey.get(fold(start.board)) ?? start.board },
+      },
       runner: options.runner,
     },
   });

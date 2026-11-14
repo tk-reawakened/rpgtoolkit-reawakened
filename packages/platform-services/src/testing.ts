@@ -4,7 +4,7 @@
 // run is the same every time (G3).
 import { bindProjectFileSystem, type DirectoryEntry, type FileChange, type FileKind, type FileStat } from "./fs.ts";
 import { platformError, platformOk, type Disposable, type PlatformError, type PlatformResult } from "./result.ts";
-import { createRunHandle, LAUNCH_CAPABILITY, launchUnavailable, prepareRun, type Launch, type RunHandle, type RunSnapshot, type RunStatus } from "./run.ts";
+import { createRunHandle, LAUNCH_CAPABILITY, launchUnavailable, prepareRun, type Launch, type RunHandle, type RunSnapshot, type RunStartGuard, type RunStatus } from "./run.ts";
 import type {
   Capability,
   DialogQuestion,
@@ -280,11 +280,13 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
   const refusal = options.runRefusal ?? "the memory host was made without that capability.";
   const unavailable: Partial<Record<Launch["kind"], string>> = {};
   for (const kind of ["game", "board", "program"] as const) if (!capabilities.has(LAUNCH_CAPABILITY[kind])) unavailable[kind] = refusal;
-  const start = async (launch: Launch): Promise<PlatformResult<RunHandle>> => {
+  const start = async (launch: Launch, guard?: RunStartGuard): Promise<PlatformResult<RunHandle>> => {
     const reason = unavailable[launch.kind];
     if (reason !== undefined) return launchUnavailable(launch.kind, reason);
     const prepared = await prepareRun(fs, launch, { projectId: project.id, runner: "memory-runner" });
     if (!prepared.ok) return prepared;
+    const allowed = guard?.();
+    if (allowed !== undefined && !allowed.ok) return allowed;
     let stopped = false;
     const { handle, report } = createRunHandle(prepared.value.snapshot, () => { stopped = true; });
     runs.push({ launch, snapshot: prepared.value.snapshot, files: prepared.value.files, handle, report, stopped: () => stopped });

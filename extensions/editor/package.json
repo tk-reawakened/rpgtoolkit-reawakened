@@ -11,7 +11,8 @@
   "activationEvents": [
     "onCustomEditor:tkr.gameSettings",
     "onCustomEditor:tkr.board",
-    "onView:tkr.game"
+    "onView:tkr.game",
+    "onCommand:tkr.runGame"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -32,6 +33,10 @@
       {
         "command": "tkr.refreshGame",
         "title": "RPG Toolkit: Refresh the Game view"
+      },
+      {
+        "command": "tkr.runGame",
+        "title": "RPG Toolkit: Run Game"
       }
     ],
     "customEditors": [

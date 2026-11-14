@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
-import { access, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, cp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeLaunchProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -45,7 +45,9 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
   createWebAdapterBytes(gameFiles[0], "__tkr_sentinel.gam", sentinelTitle),
 ]);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
-for (const choice of ["cancel", "keep"]) {
+const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
+if (launchProof && game !== "Main/example.gam") throw new Error("The launch proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of launchProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
   let browser;
   let persistentFs;
@@ -54,6 +56,10 @@ for (const choice of ["cancel", "keep"]) {
   let cleanupErrors = [];
   const browserDiagnostics = [];
   try {
+    if (launchProof) {
+      await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
+      await writeFile(resolve(proofWorkspace, "Game/Example/Prg/start.prg"), 'mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nwait()\n');
+    }
     persistentFs = await startPersistentFs(proofWorkspace, `http://localhost:${port}`);
     const workbenchUrl = `http://localhost:${port}/`;
     const readinessUrl = `http://127.0.0.1:${port}/`;
@@ -168,8 +174,14 @@ for (const choice of ["cancel", "keep"]) {
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice });
-    console.log(`vscode.dev settings proof passed (${choice})`);
+    if (launchProof) {
+      const launchBytes = await createWebAdapterBytes(gameFiles[0], game, "VS Code launch proof");
+      await runVscodeLaunchProof(page, expect, workbenchUrl, game, readBacking, launchBytes);
+      console.log("vscode.dev live player launch proof passed");
+    } else {
+      await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice });
+      console.log(`vscode.dev settings proof passed (${choice})`);
+    }
   } catch (error) {
     failure = error;
   } finally {

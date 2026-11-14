@@ -3,6 +3,7 @@ import { vscodeCapabilities } from "./capabilities.ts";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
+import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
@@ -15,6 +16,9 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
 }
 
 export function registerGameSettings(context: vscode.ExtensionContext): void {
+  let generation = 0;
+  registerVscodeGameRunner(context, () => generation);
+  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
@@ -38,7 +42,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): void {
     openEditor: async (uri) => { await vscode.commands.executeCommand("vscode.open", uri); },
     quickPick: async (items, placeholder) => (await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, id: item.id, ...(item.description === undefined ? {} : { description: item.description }) })), { placeHolder: placeholder, ignoreFocusOut: true }))?.id,
   };
-  const core = createGameEditorProvider(port, (event: GameEditEvent<vscode.Uri>) => changes.fire(event));
+  const core = createGameEditorProvider(port, (event: GameEditEvent<vscode.Uri>) => {
+    generation += 1;
+    changes.fire(event);
+  });
   const provider: vscode.CustomEditorProvider<GameDocument<vscode.Uri>> = {
     onDidChangeCustomDocument: changes.event,
     openCustomDocument: (uri, openContext) => core.openCustomDocument(uri, openContext.backupId),

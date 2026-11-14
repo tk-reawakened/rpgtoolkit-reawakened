@@ -47,6 +47,10 @@ declare global {
   }
 }
 
+/** The VS Code webview injects this API; the ordinary browser player never accesses it. */
+declare function acquireVsCodeApi(): { postMessage(message: unknown): void };
+const vscodeApi = document.body.dataset.tkrHost === "vscode" ? acquireVsCodeApi() : null;
+
 let editorChannel: MessagePort | null = null;
 const canvas = document.querySelector<HTMLCanvasElement>("#screen");
 const output = document.querySelector<HTMLPreElement>("#report");
@@ -55,6 +59,7 @@ const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: f
 if (gl === null) {
   output.textContent = "player: this browser has no WebGL2 context";
   window.__report = { error: "no-webgl2" };
+  vscodeApi?.postMessage({ type: "status", status: { state: "failed", tick: 0, board: null, stalledOn: null, diagnostics: [], message: "This browser has no WebGL2 context." } });
   if (new URLSearchParams(location.search).has("editor") && window.parent !== window) {
     window.parent.postMessage({ type: "tkr-player-error", message: "This browser has no WebGL2 context." }, location.origin);
   }
@@ -77,6 +82,10 @@ function describeLoad(name: string, state: LoadState): string {
 async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, report: HTMLPreElement): Promise<void> {
   try {
     const params = new URLSearchParams(location.search);
+    if (vscodeApi !== null) {
+      await bootEditorGame(context, screen, report, vscodeApi);
+      return;
+    }
     if (params.has("editor")) {
       await bootEditorGame(context, screen, report);
       return;
@@ -116,7 +125,7 @@ async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, 
   } catch (error) {
     window.__report = { error: String(error) };
     report.textContent = `player: ${String(error)}`;
-    editorChannel?.postMessage({ state: "failed", message: String(error) });
+    editorChannel?.postMessage({ state: "failed", tick: 0, board: null, stalledOn: null, diagnostics: [], message: String(error) });
   }
 }
 
@@ -176,10 +185,10 @@ async function loadPackage(params: URLSearchParams, report: HTMLPreElement, pack
  * controlled page hits the service worker's precache and runs identically online and offline.
  */
 // A worker factory retained across restarts, with one page-lifetime object URL.
-async function prepareDecode(): Promise<{ readonly create: (outputRateHz: number) => DecodeAhead | null; readonly dispose: () => void }> {
+async function prepareDecode(workerUrl = DECODE_WORKER_URL): Promise<{ readonly create: (outputRateHz: number) => DecodeAhead | null; readonly dispose: () => void }> {
   let blobUrl: string | null = null;
   try {
-    const response = await fetch(DECODE_WORKER_URL);
+    const response = await fetch(workerUrl);
     if (response.ok) blobUrl = URL.createObjectURL(await response.blob());
   } catch {
     blobUrl = null;
@@ -325,9 +334,14 @@ async function bootInteractive(
  * through a private MessagePort. Only the same-origin embedding parent may supply that port. Later editor saves cannot
  * change the files in this session (ADR 0022 D8.4).
  */
-async function bootEditorGame(context: WebGL2RenderingContext, screen: HTMLCanvasElement, report: HTMLPreElement): Promise<void> {
-  if (window.parent === window) throw new Error("editor launch requires an embedding editor");
-  const channel = await new Promise<MessagePort>((resolve) => {
+async function bootEditorGame(
+  context: WebGL2RenderingContext,
+  screen: HTMLCanvasElement,
+  report: HTMLPreElement,
+  vscode: { postMessage(message: unknown): void } | null = null,
+): Promise<void> {
+  const channel = vscode === null ? await new Promise<MessagePort>((resolve) => {
+    if (window.parent === window) throw new Error("editor launch requires an embedding editor");
     const receive = (event: MessageEvent): void => {
       if (event.source !== window.parent || event.origin !== location.origin || event.data !== "tkr-editor-connect" || event.ports.length !== 1) return;
       window.removeEventListener("message", receive);
@@ -335,7 +349,13 @@ async function bootEditorGame(context: WebGL2RenderingContext, screen: HTMLCanva
     };
     window.addEventListener("message", receive);
     window.parent.postMessage("tkr-player-ready", location.origin);
-  });
+  }) : (() => {
+    const pair = new MessageChannel();
+    window.addEventListener("message", (event: MessageEvent<unknown>) => pair.port2.postMessage(event.data));
+    pair.port2.onmessage = (event: MessageEvent<unknown>) => vscode.postMessage({ type: "status", status: event.data });
+    vscode.postMessage({ type: "ready" });
+    return pair.port1;
+  })();
   editorChannel = channel;
   const payload: unknown = await new Promise((resolve) => {
     channel.onmessage = (event: MessageEvent<unknown>) => resolve(event.data);
@@ -345,32 +365,54 @@ async function bootEditorGame(context: WebGL2RenderingContext, screen: HTMLCanva
     || !("project" in payload) || typeof payload.project !== "string"
     || !("projectFolder" in payload) || typeof payload.projectFolder !== "string"
     || !("seed" in payload) || typeof payload.seed !== "number"
-    || !("files" in payload) || !(payload.files instanceof Map)) throw new Error("invalid editor launch");
-  const files = new Map<string, Uint8Array>();
-  for (const [path, bytes] of payload.files) {
-    if (typeof path !== "string" || !(bytes instanceof Uint8Array)) throw new Error("invalid editor launch file");
-    files.set(path, bytes);
-  }
+    || !("files" in payload) || !(payload.files instanceof Map || Array.isArray(payload.files))) throw new Error("invalid editor launch");
+  const toFiles = (entries: Iterable<unknown>): Map<string, Uint8Array> => {
+    const result = new Map<string, Uint8Array>();
+    for (const entry of entries) {
+      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string" || !(entry[1] instanceof Uint8Array)) {
+        throw new Error("invalid editor launch file");
+      }
+      result.set(entry[0], entry[1]);
+    }
+    return result;
+  };
+  const files = toFiles(payload.files);
   const folder = payload.projectFolder.replace(/^\/+|\/+$/g, "");
   if (folder !== "" && !folder.toLowerCase().startsWith("game/")) throw new Error("the game folder must be under Game/");
   const assetRoot = folder === "" ? { kind: "package" as const } : { kind: "game" as const, projectPath: folder.slice(5) };
   const stage = document.querySelector<HTMLElement>("#stage");
   if (stage === null) throw new Error("player: the page is missing its viewport stage");
-  const listing = await fetch("/apps/browser/bundled.json");
-  if (!listing.ok) throw new Error(`bundled assets unavailable: ${listing.status}`);
-  const listed = await listing.json() as { readonly files: readonly string[] };
-  const bundled = await fetchBundledFiles("", listed.files);
+  let bundled: ReadonlyMap<string, Uint8Array>;
+  let audioWorkletUrl: string | undefined;
+  let decodeWorkerUrl: string | undefined;
+  if (vscode === null) {
+    const listing = await fetch("/apps/browser/bundled.json");
+    if (!listing.ok) throw new Error(`bundled assets unavailable: ${listing.status}`);
+    const listed = await listing.json() as { readonly files: readonly string[] };
+    bundled = await fetchBundledFiles("", listed.files);
+  } else {
+    if (!("bundled" in payload) || !Array.isArray(payload.bundled)
+      || !("workletUrl" in payload) || typeof payload.workletUrl !== "string"
+      || !("decodeWorkerUrl" in payload) || typeof payload.decodeWorkerUrl !== "string") throw new Error("invalid VS Code player assets");
+    bundled = toFiles(payload.bundled);
+    audioWorkletUrl = payload.workletUrl;
+    decodeWorkerUrl = payload.decodeWorkerUrl;
+  }
   const blobs = await durableBlobs(report);
-  const decode = await prepareDecode();
+  if (blobs !== null) window.__blobHost = blobs;
+  const decode = await prepareDecode(decodeWorkerUrl);
   const hostViewport: HostViewport = { canvas: screen, viewport: stage };
   const clock = (): number => performance.now();
   let dispose: (() => void) | null = null;
   const session = await createLiveSession({
     interactive: true, files, mainFile: payload.main, gameIdentity: payload.project, assetRoot, seed: payload.seed,
-    bundled, gl: context, hostViewport, clock, decode: decode.create,
+    bundled, gl: context, hostViewport, clock,
+    decode: decode.create,
+    ...(audioWorkletUrl === undefined ? {} : { audioWorkletUrl }),
     ...(blobs === null ? {} : { blobs }),
-    onQuit: () => { channel.postMessage({ state: "ended", message: "The game ended." }); dispose?.(); },
+    onQuit: () => { channel.postMessage({ state: "ended", tick: 0, board: null, stalledOn: null, diagnostics: [], message: "The game ended." }); dispose?.(); },
   });
+  window.__session = session;
   const spinner = document.querySelector<HTMLElement>("#spinner");
   const overlay = spinner === null ? null : createStallOverlay({ element: spinner, state: session.loadState, clock });
   const load: LoadState = {

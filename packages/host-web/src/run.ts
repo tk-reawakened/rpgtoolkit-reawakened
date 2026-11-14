@@ -16,13 +16,15 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
   } as const;
   return {
     unavailable,
-    async startGame(launch) {
+    async startGame(launch, guard) {
       if (launch.kind !== "game") return launchUnavailable("board", unavailable.board);
       const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web" });
       if (!prepared.ok) return prepared;
       const url = new URL(playerUrl, window.location.href);
       if (url.origin !== window.location.origin) return platformError("unavailable", "The game player must be hosted on the editor's origin.");
       url.searchParams.set("editor", "1");
+      const allowed = guard?.();
+      if (allowed !== undefined && !allowed.ok) return allowed;
       const frame = document.createElement("iframe");
       frame.title = "Running game";
       frame.width = "800";
@@ -47,6 +49,13 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
         }
         if (event.data !== "tkr-player-ready") return;
         window.removeEventListener("message", onReady);
+        const stillAllowed = guard?.();
+        if (stillAllowed !== undefined && !stillAllowed.ok) {
+          report({ state: "failed", message: stillAllowed.error.message });
+          channel.port1.close();
+          frame.remove();
+          return;
+        }
         frame.contentWindow?.postMessage("tkr-editor-connect", url.origin, [channel.port2]);
         channel.port1.postMessage({ main: launch.main, project: projectId, projectFolder: launch.projectFolder, seed: launch.seed ?? 0, files: prepared.value.files });
       };

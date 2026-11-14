@@ -107,6 +107,8 @@ type LiveSessionBase = {
   readonly bundled: ClosingFiles;
   /** Selects the host-owned AudioWorklet artifact; only the browser lane may use the default. */
   readonly audioArtifactHost?: AudioArtifactHost;
+  /** Host-resolved worklet URI where the player runs outside the browser's root URL (for example a VS Code webview). */
+  readonly audioWorkletUrl?: string;
   readonly gl: WebGL2RenderingContext;
   readonly blobs?: LiveBlobHost;
   /** Milliseconds, for stall timing. Defaults to `performance.now`; a test injects its own. */
@@ -381,7 +383,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       } else if (event.kind === "bank.substitution") console.warn(describePatchGap(event)); // playback continues; not game state
     },
   });
-  const graph = await connectSinkToGraph(audioContext, sink, { workletUrl: defaultWorkletUrl(options.audioArtifactHost) });
+  const graph = await connectSinkToGraph(audioContext, sink, { workletUrl: options.audioWorkletUrl ?? defaultWorkletUrl(options.audioArtifactHost) });
   player = new CuePlayer({
     send: (message) => graph.send(message),
     readAsset: (key) => assets.peek(key) ?? bundled.get(key) ?? null,

@@ -15,6 +15,43 @@ type ProofHost = {
   choice: "cancel" | "keep";
 };
 
+/** Launch the real saved example through the VS Code web extension, not a mocked adapter. */
+export async function runVscodeLaunchProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
+  readBacking: () => Promise<Uint8Array>, expectedBytes: Uint8Array,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Main", exact: true }).click();
+  await openGame(page, gamePath, expect);
+  const editor = await waitForEditorFrame(page, "VS Code launch editor");
+  const title = editor.getByLabel("Game title");
+  await expect(title).toBeVisible();
+  await title.fill("VS Code launch proof");
+  await title.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Run Example Game");
+  await expect.poll(readBacking, { timeout: 30_000 }).toEqual(expectedBytes);
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const playerFrame = player as Frame | undefined;
+  if (playerFrame === undefined) throw new Error("Player frame was not found");
+  const live = async () => await playerFrame.evaluate(() => Reflect.get(window, "__live") as {
+    tick: number; board: string | null; player: unknown; stateHash: string;
+  } | undefined);
+  await expect.poll(async () => (await live())?.tick ?? 0, { timeout: 30_000 }).toBeGreaterThan(30);
+  await playerFrame.locator("#screen").press("Enter");
+  await expect.poll(async () => (await live())?.board, { timeout: 30_000 }).toContain("village.brd");
+  const playing = await live();
+  expect(playing?.player).not.toBeNull();
+  expect(playing?.stateHash).toBeTruthy();
+}
+
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
 export async function runVscodeWebProof(
   page: Page,

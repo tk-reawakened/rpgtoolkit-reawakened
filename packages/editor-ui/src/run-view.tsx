@@ -75,6 +75,16 @@ function Snapshot({ snapshot }: { readonly snapshot: RunSnapshot }) {
           <dd>{snapshot.party.join(", ")}</dd>
         </>
       )}
+      {snapshot.fixtureSettings === null ? null : (
+        <>
+          <dt>Fixture font</dt>
+          <dd>{snapshot.fixtureSettings.font ?? "not specified"}</dd>
+          <dt>Fixture font size</dt>
+          <dd>{snapshot.fixtureSettings.fontSize ?? "not specified"}</dd>
+          <dt>Fixture window graphic</dt>
+          <dd>{snapshot.fixtureSettings.windowGraphic ?? "not specified"}</dd>
+        </>
+      )}
       <dt>Seed</dt>
       <dd>{snapshot.seed}</dd>
       <dt>Runner</dt>

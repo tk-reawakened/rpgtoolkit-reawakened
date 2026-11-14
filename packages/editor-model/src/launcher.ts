@@ -1,4 +1,4 @@
-import { LAUNCH_CAPABILITY, type Launch, type LaunchKind, type PlatformServices, type RunHandle } from "@tk-reawakened/platform-services";
+import { LAUNCH_CAPABILITY, platformError, platformOk, type Launch, type LaunchKind, type PlatformServices, type RunHandle } from "@tk-reawakened/platform-services";
 import type { DocumentWorkspace } from "./workspace.ts";
 
 /**
@@ -72,8 +72,20 @@ export function createLauncher({ services, workspace }: LauncherOptions): Launch
         const document = dirty.identity.path;
         return { ok: false, reason: "unsaved", document, message: `${document} changed while it was being saved, so nothing was run. Save it and run again.` };
       }
-      const started = launch.kind === "program" ? await run.startProgram(launch) : await run.startGame(launch);
+      const saved = workspace.documents().map((document) => ({ document, snapshot: document.getSnapshot() }));
+      let changed: string | null = null;
+      const guard = () => {
+        const current = workspace.documents();
+        const difference = saved.find(({ document, snapshot }) => !current.includes(document) || document.getSnapshot() !== snapshot);
+        const newlyDirty = current.find((document) => document.getSnapshot().dirty);
+        changed = difference?.document.identity.path ?? newlyDirty?.identity.path ?? null;
+        return changed === null
+          ? platformOk(undefined)
+          : platformError("unavailable", `${changed} changed while the run was being prepared, so nothing was run. Save it and run again.`);
+      };
+      const started = launch.kind === "program" ? await run.startProgram(launch, guard) : await run.startGame(launch, guard);
       if (!started.ok) {
+        if (changed !== null) return { ok: false, reason: "unsaved", document: changed, message: started.error.message };
         return started.error.code === "unavailable"
           ? { ok: false, reason: "unavailable", message: started.error.message }
           : { ok: false, reason: "refused", message: started.error.message };

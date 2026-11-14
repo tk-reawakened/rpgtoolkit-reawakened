@@ -4,6 +4,13 @@ const proofSecret = "__TKR_PROOF_SECRET__";
 function activate(context) {
   console.info("[vscode-web-proof-probe] activated");
   context.subscriptions.push(vscode.workspace.registerFileSystemProvider("tkr-testfs", new PersistentFileSystem(), { isCaseSensitive: true }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleGame", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.commands.executeCommand("tkr.runGame",
+      vscode.Uri.joinPath(workspace.uri, "Main", "example.gam"),
+      vscode.Uri.joinPath(workspace.uri, "Game", "Example"));
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.copyMainFileBytes", async () => {
     console.info("[vscode-web-proof-probe] copy command invoked");
     const workspace = vscode.workspace.workspaceFolders?.[0];

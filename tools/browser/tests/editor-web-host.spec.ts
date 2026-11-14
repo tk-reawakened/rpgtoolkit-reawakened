@@ -123,6 +123,24 @@ test("a saved folder game launches in the live player from the editor", async ({
     }
   };
   collect(root);
+  const startup = files.findIndex((file) => file.path === "Game/Example/Prg/start.prg");
+  expect(startup).toBeGreaterThanOrEqual(0);
+  files[startup] = { path: "Game/Example/Prg/start.prg", bytes: Array.from(new TextEncoder().encode('mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nSave("editor-proof")\nwait()\n')) };
+  // Observe the exact ArrayBuffer handed to IndexedDB before its transaction, independently of the later host read.
+  await page.addInitScript(() => {
+    const original = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (this: IDBObjectStore, value: unknown, key?: IDBValidKey) {
+      if (this.name === "blobs" && typeof key === "string" && key.includes("editor-proof") && value instanceof ArrayBuffer) {
+        const size = value.byteLength;
+        const digest = crypto.subtle.digest("SHA-256", value).then((result) => ({
+          size,
+          sha256: [...new Uint8Array(result)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+        }));
+        Reflect.set(window, "__tkrPreSaveDigest", digest);
+      }
+      return original.call(this, value, key);
+    };
+  });
   await installFolderPicker(page, files);
   await page.goto("/tools/browser/editor-web/index.html");
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
@@ -141,7 +159,64 @@ test("a saved folder game launches in the live player from the editor", async ({
   expect(playing?.stateHash).toBeTruthy();
   await expect(page.getByLabel("Current run")).toContainText("village.brd");
   await expect(page.getByLabel("Run snapshot")).toContainText("Main/example.gam");
+  const saved = async () => frame.locator("#screen").evaluate(async () => {
+    const host = Reflect.get(window, "__blobHost") as { list(area: string, id: string): Promise<readonly string[]>; read(area: string, id: string, path: string): Promise<Uint8Array | null> } | undefined;
+    const session = Reflect.get(window, "__session") as { gameId: string } | undefined;
+    if (host === undefined || session === undefined) return null;
+    const path = (await host.list("saves", session.gameId)).find((name) => name.includes("editor-proof"));
+    if (path === undefined) return null;
+    const bytes = await host.read("saves", session.gameId, path);
+    if (bytes === null) return null;
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes)));
+    return { gameId: session.gameId, path, size: bytes.length, sha256: [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("") };
+  });
+  await expect.poll(async () => (await saved())?.size ?? 0, { timeout: 30000 }).toBeGreaterThan(0);
+  const firstSave = await saved();
+  const preSave = await frame.locator("#screen").evaluate(async () => await Reflect.get(window, "__tkrPreSaveDigest") as { size: number; sha256: string } | undefined);
+  expect(preSave).toBeDefined();
+  expect(firstSave).toMatchObject(preSave!);
   await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+  // Do not execute Save in the next run: reading the same bytes proves they survived closing the first player.
+  await page.evaluate(async () => {
+    const picker = Reflect.get(window, "showDirectoryPicker") as () => Promise<FileSystemDirectoryHandle>;
+    const root = await picker();
+    const game = await (await root.getDirectoryHandle("Game")).getDirectoryHandle("Example");
+    const programs = await game.getDirectoryHandle("Prg");
+    const file = await programs.getFileHandle("start.prg");
+    const writer = await file.createWritable();
+    await writer.write(new TextEncoder().encode("wait()\n"));
+    await writer.close();
+  });
+  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  await expect(frame.getByLabel("Game screen")).toBeVisible();
+  await expect.poll(async () => await saved(), { timeout: 30000 }).toEqual(firstSave);
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+});
+
+// The real browser page is held at the player load boundary to prove an edit during the handoff cannot start stale bytes.
+test("an edit before the player handshake prevents a stale game from starting", async ({ page }) => {
+  await installFolderPicker(page, [{ path: "Main/example.gam", bytes: validMain }]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  let observed!: () => void;
+  let release!: () => void;
+  const requested = new Promise<void>((resolve) => { observed = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/packages/runner-web/app/index.html?editor=1", async (route) => {
+    observed();
+    await gate;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  await requested;
+  await page.getByLabel("Game title").fill("Changed during player setup");
+  await page.getByLabel("Game title").press("Enter");
+  release();
+  await expect(page.getByLabel("Current run")).toContainText("changed while the run was being prepared");
   await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
 });
 
