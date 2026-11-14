@@ -3116,6 +3116,48 @@ function audioBoot(game: AuthoredGame, onAudioPhase?: AudioPhaseRun, onReset?: R
   } };
 }
 
+test("main-file movement settings survive boot and reset, then change with MainFile (#1967)", () => {
+  const game = authorGame({ boards: { "start.brd": {} }, programs: {} });
+  const main = unwrap(readMainFile(new BinaryReader(game.files.get(assetKey(game.main))!, game.main)));
+  game.files.set(assetKey(game.main), unwrap(writeMainFile({
+    ...main, movementControls: 1, movementScanCodes: [0x26, 0, 0, 0, 0, 0, 0, 0],
+  })));
+  const files = new Map(game.files);
+  files.set(assetKey("replacement.gam"), unwrap(writeMainFile({
+    ...main, movementControls: 1, movementScanCodes: [0x39, 0, 0, 0, 0, 0, 0, 0],
+  })));
+  let request: "reset" | "mainFile" | null = null;
+  let resets = 0;
+  const host = audioBoot(game, (_state, postEffect) => {
+    if (request === null) return;
+    const name = request;
+    request = null;
+    postEffect?.("engine", { thread: 0, name, kind: "state-write", args: name === "mainFile" ? [null, "replacement.gam"] : [], out: {}, result: null, patch: null, wait: null, request: null });
+  }, () => { resets += 1; }, createAssetIndex([...files.keys()]));
+  const initial = run(host.engine, files, 2);
+  equal(initial.ticksRun, 2);
+  const key = (code: string, name: string): string[] => {
+    const tick = host.state().time.tick;
+    const pressed = host.engine.advance(1, [{ tick, event: { kind: "key", code, name, char: name, down: true } }]);
+    equal(pressed.ticksRun, 1);
+    const actions = host.state().input.keys.at(-1)?.resolvedActions ?? [];
+    const released = host.engine.advance(1, [{ tick: host.state().time.tick, event: { kind: "key", code, name, char: name, down: false } }]);
+    equal(released.ticksRun, 1);
+    return actions;
+  };
+  deepEqual(key("KeyL", "L"), ["right"]);
+  deepEqual(key("Space", " "), ["confirm"]);
+  request = "reset";
+  equal(run(host.engine, files, 3).ticksRun, 3);
+  equal(resets, 1);
+  deepEqual(key("KeyL", "L"), ["right"]);
+  request = "mainFile";
+  equal(run(host.engine, files, 4).ticksRun, 4);
+  equal(resets, 2);
+  deepEqual(key("KeyL", "L"), []);
+  deepEqual(key("Space", " "), ["right", "confirm"]);
+});
+
 test("boot applies authored tracks and SoundFont before emitting exactly one initial bank cue", () => {
   const game = authorGame({ boards: { "start.brd": {} }, programs: {}, audioSettings: AUTHORED_AUDIO, soundFonts: ["town.sf2"] });
   const host = audioBoot(game);
