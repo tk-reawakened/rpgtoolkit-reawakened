@@ -5,6 +5,15 @@ type Expect = typeof import("@playwright/test").expect;
 type Frame = import("@playwright/test").Frame;
 type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean };
 type CspConsoleViolation = { text: string; url: string; lineNumber: number; columnNumber: number };
+type ProofHost = {
+  restart(page: Page, offlineBytes?: Uint8Array): Promise<Page>;
+  readBacking(path?: string): Promise<Uint8Array>;
+  readHostEvents(): { kind: "command" | "save" | "revert"; value: string }[];
+  externalBytes: Uint8Array;
+  sentinelTitle: string;
+  sentinelBytes: Uint8Array;
+  choice: "cancel" | "keep";
+};
 
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
 export async function runVscodeWebProof(
@@ -18,20 +27,24 @@ export async function runVscodeWebProof(
   recoveredBytes: Uint8Array,
   autosaveTitle: string,
   autosaveBytes: Uint8Array,
+  host: ProofHost,
 ): Promise<void> {
   const consoleViolations: CspConsoleViolation[] = [];
   const backupTrackerLogs: string[] = [];
-  page.on("console", (message) => {
-    const text = message.text();
-    if (/backup tracker|No editors found for resource|Backup requires a valid storage path|Cannot backup in this state/i.test(text)) {
-      backupTrackerLogs.push(`[console:${message.type()}] ${text}`);
-    }
-    if (message.type() !== "error" || !/Content Security Policy|security policy|script-src/i.test(text)) return;
-    consoleViolations.push({ text, ...message.location() });
-  });
-  page.on("pageerror", (error) => {
-    if (/backup|working copy|hot exit|storage path/i.test(error.message)) backupTrackerLogs.push(`[pageerror] ${error.message}`);
-  });
+  const observePage = (observed: Page) => {
+    observed.on("console", (message) => {
+      const text = message.text();
+      if (/backup tracker|CommandService#executeCommand|No editors found for resource|Backup requires a valid storage path|Cannot backup in this state/i.test(text)) {
+        backupTrackerLogs.push(`[console:${message.type()}] ${text}`);
+      }
+      if (message.type() !== "error" || !/Content Security Policy|security policy|script-src/i.test(text)) return;
+      consoleViolations.push({ text, ...message.location() });
+    });
+    observed.on("pageerror", (error) => {
+      if (/backup|working copy|hot exit|storage path/i.test(error.message)) backupTrackerLogs.push(`[pageerror] ${error.message}`);
+    });
+  };
+  observePage(page);
   await page.context().addInitScript(() => {
     const target = window as ProofWindow;
     target.__tkrCspViolations = [];
@@ -62,17 +75,41 @@ export async function runVscodeWebProof(
   const saved = await readWorkspaceBytes(page, expect);
   expect(saved).not.toEqual(before);
   expect(saved).toEqual(expectedBytes);
+  expect(host.readHostEvents()).toContainEqual({ kind: "save", value: `/${gamePath}` });
+  expect(host.readHostEvents()).toContainEqual({ kind: "command", value: "workbench.action.files.save" });
   await expect.poll(() => frameCspViolations(page, editor, consoleViolations)).toEqual([]);
+  expect(await host.readBacking()).toEqual(saved);
+  page = await host.restart(page);
+  await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
+  expect(await host.readBacking()).toEqual(saved);
 
-  await closeActiveEditor(page, expect);
   await openGame(page, gamePath, expect);
-  const reopenedEditor = await waitForEditorFrame(page, "reopened Game settings editor");
+  let reopenedEditor = await waitForEditorFrame(page, "reopened Game settings editor");
   assertNoCspConsoleViolations(consoleViolations, "before installing the reopened settings-document CSP listener");
   await instrumentCspFrame(reopenedEditor);
   await expectValueWithFrameDiagnostics(page, reopenedEditor.getByLabel("Game title"), title, expect);
+  await enableWorkbenchTraceLogging(page, expect);
   const reopened = await readWorkspaceBytes(page, expect);
   expect(reopened).toEqual(saved);
   await expect.poll(() => frameCspViolations(page, reopenedEditor, consoleViolations)).toEqual([]);
+  const sentinelPath = "__tkr_sentinel.gam";
+  const sentinelBacking = await host.readBacking(sentinelPath);
+  await openGame(page, sentinelPath, expect);
+  await expect.poll(async () => {
+    const active = await waitForEditorFrame(page, "sentinel editor activation");
+    return await active.getByLabel("Game title").inputValue();
+  }).not.toBe(title);
+  let sentinelEditor = await waitForEditorFrame(page, "unrelated sentinel editor");
+  const sentinelField = sentinelEditor.getByLabel("Game title");
+  await sentinelField.click();
+  await sentinelField.fill(host.sentinelTitle);
+  await sentinelField.press("Enter");
+  await expect(sentinelEditor.getByRole("status")).toHaveText("Unsaved changes");
+  const sentinelTab = page.getByRole("tab").filter({ hasText: sentinelPath }).first();
+  await expect(sentinelTab).toHaveClass(/dirty/);
+  await expect.poll(() => backupIsStored(page, host.sentinelBytes), { timeout: 15_000 }).toBe(true);
+  await page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first().click();
+  reopenedEditor = await waitForTitledEditor(page, title, expect);
   const backupTraceStart = backupTrackerLogs.length;
   const recoveredTitleField = reopenedEditor.getByLabel("Game title");
   await recoveredTitleField.click();
@@ -96,21 +133,14 @@ export async function runVscodeWebProof(
     await logFrameDiagnostics(page, "backup tracker did not begin creating the final dirty document's backup");
     throw new Error(`VS Code did not attempt a custom-document backup. Final editor status: ${status}; editor tab class: ${tabClass}\n${details}`, { cause: error });
   }
+  await expect.poll(() => backupIsStored(page, recoveredBytes), {
+    timeout: 15_000,
+    message: "The exact recovered document was not committed to VS Code's independent IndexedDB backup store",
+  }).toBe(true);
 
 
-  const reloadInput = await commandPalette(page, expect);
-  await reloadInput.fill(">Developer: Reload Window");
-  const reloadCommand = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Developer: Reload Window" }).first();
-  await expect(reloadCommand).toBeVisible();
-  const reloaded = page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 60_000 });
-  await reloadCommand.click();
-  try {
-    await reloaded;
-  } catch (error) {
-    const details = await backupDiagnostics(page, expect, backupTrackerLogs);
-    await logFrameDiagnostics(page, "hot-exit reload failed; custom-editor backup logs follow");
-    throw new Error(`Hot-exit reload failed. VS Code backup-tracker diagnostics:\n${details}`, { cause: error });
-  }
+  page = await host.restart(page, host.externalBytes);
+  expect(await host.readBacking()).toEqual(host.externalBytes);
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
 
   let recoveredEditor: Frame;
@@ -131,6 +161,7 @@ export async function runVscodeWebProof(
     await logFrameDiagnostics(page, "hot-exit recovery did not restore the dirty custom document");
     throw new Error(`VS Code did not restore the dirty custom document through hot exit. Backup-tracker diagnostics:\n${details}`, { cause: error });
   }
+  await enableWorkbenchTraceLogging(page, expect);
 
 
   await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
@@ -139,23 +170,50 @@ export async function runVscodeWebProof(
   await expect(recoveredEditor.getByRole("button", { name: "Use the version on disk" })).toHaveCount(0);
   await expect(recoveredEditor.getByText(/cannot safely reload/i)).toBeVisible();
   await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
-  // vscode-test-web's server-backed provider keeps writes in memory, so reloading its extension host reinitializes the
-  // mounted file from the original fixture. Compare against that actual post-restart version, not the earlier save.
   const externalAfterRestart = await readWorkspaceBytes(page, expect);
-  expect(externalAfterRestart).toEqual(before);
-  await recoveredEditor.getByRole("button", { name: "Cancel" }).click();
-  await expect(recoveredEditor.getByRole("button", { name: "Review conflict" })).toBeVisible();
-  await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
-  expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
-  await recoveredEditor.getByRole("button", { name: "Review conflict" }).click();
+  expect(externalAfterRestart).toEqual(host.externalBytes);
+  expect(await host.readBacking()).toEqual(host.externalBytes);
+  const verifySentinel = async () => {
+    await expect(sentinelTab).toHaveClass(/dirty/);
+    await sentinelTab.click();
+    sentinelEditor = await waitForTitledEditor(page, host.sentinelTitle, expect);
+    await expect(sentinelEditor.getByRole("status")).toHaveText("Unsaved changes");
+    expect(await host.readBacking(sentinelPath)).toEqual(sentinelBacking);
+    await page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first().click();
+    recoveredEditor = await waitForTitledEditor(page, recoveredTitle, expect);
+  };
+  await verifySentinel();
+  expect(backupTrackerLogs.some((entry) => entry.includes("CommandService#executeCommand workbench.action.files.save"))).toBe(true);
+  const choiceTraceStart = backupTrackerLogs.length;
+  const hostEventsStart = host.readHostEvents().length;
+  if (host.choice === "cancel") {
+    await recoveredEditor.getByRole("button", { name: "Cancel" }).click();
+    await expect(recoveredEditor.getByRole("button", { name: "Review conflict" })).toBeVisible();
+    await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+    expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
+    expect(await host.readBacking()).toEqual(externalAfterRestart);
+    await verifySentinel();
+    const review = recoveredEditor.getByRole("button", { name: "Review conflict" });
+    if (await review.isVisible()) await review.click();
+  }
   await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
   await recoveredEditor.getByRole("button", { name: "Keep my version" }).click();
   await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
   expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
+  expect(await host.readBacking()).toEqual(externalAfterRestart);
+  await verifySentinel();
+  const forbiddenCommands = backupTrackerLogs.slice(choiceTraceStart).filter((entry) =>
+    /CommandService#executeCommand workbench\.action\.files\.(?:save|revert)/i.test(entry));
+  expect(forbiddenCommands).toEqual([]);
+  expect(host.readHostEvents().slice(hostEventsStart).filter((event) =>
+    event.kind === "save" || event.kind === "revert"
+      || (event.kind === "command" && /^workbench\.action\.files\.(?:save|revert)/i.test(event.value)))).toEqual([]);
   await recoveredEditor.getByRole("button", { name: "Save" }).click();
   await expect(recoveredEditor.getByRole("status")).toHaveText("All changes saved");
   const recovered = await readWorkspaceBytes(page, expect);
   expect(recovered).toEqual(recoveredBytes);
+  expect(await host.readBacking()).toEqual(recoveredBytes);
+  await verifySentinel();
   await closeActiveEditor(page, expect);
   await openGame(page, gamePath, expect);
   const finalEditor = await waitForEditorFrame(page, "hot-exit recovered save reopened Game settings editor");
@@ -206,11 +264,11 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
 
-  await runCommand(page, expect, "Test: Turn Autosave On");
   const autosaveField = editor.getByLabel("Game title");
   await autosaveField.fill(autosaveTitle);
   await autosaveField.press("Enter");
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Turn Autosave On");
   try {
     await expect.poll(async () => bytesEqual(await readWorkspaceBytes(page, expect), autosaveBytes), {
       timeout: 30_000,
@@ -310,11 +368,11 @@ async function waitForEditorFrame(page: Page, label: string): Promise<Frame> {
   const deadline = Date.now() + 30_000;
   let pause = 100;
   while (Date.now() < deadline) {
-    const outer = await page.locator("iframe.webview").first().elementHandle({ timeout: 250 }).catch(() => null);
+    const outer = await page.locator("iframe.webview:visible").first().elementHandle({ timeout: 250 }).catch(() => null);
     if (outer) {
       const outerFrame = await outer.contentFrame().catch(() => null);
-      const content = page.frame({ name: "pending-frame" });
-      if (outerFrame && content?.parentFrame() === outerFrame) return content;
+      const content = outerFrame?.childFrames().find((frame) => frame.name() === "pending-frame");
+      if (content) return content;
     }
     await page.waitForTimeout(pause);
     pause = Math.min(pause * 2, 1_000);
@@ -449,6 +507,7 @@ async function openGame(page: Page, gamePath: string, expect: Expect): Promise<v
   const gameFile = page.getByRole("treeitem", { name: gamePath.split("/").at(-1)!, exact: true });
   await expect(gameFile).toBeVisible();
   await gameFile.dblclick();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! }).first()).toBeVisible();
   await expect(page.locator("iframe.webview")).toBeVisible({ timeout: 30_000 });
 }
 
@@ -472,4 +531,38 @@ async function commandPalette(page: Page, expect: Expect): Promise<import("@play
 async function focusWorkbench(page: Page): Promise<void> {
   await page.bringToFront();
   await page.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
+}
+
+/** Inspect VS Code's browser storage independently of the workspace provider. */
+async function backupIsStored(page: Page, expected: Uint8Array): Promise<boolean> {
+  return await page.evaluate(async (bytes) => {
+    const deferred = Promise as PromiseConstructor & {
+      withResolvers<T>(): { promise: Promise<T>; resolve(value: T): void; reject(reason: unknown): void };
+    };
+    const opened = deferred.withResolvers<IDBDatabase>();
+    const request = indexedDB.open("vscode-web-db");
+    request.onsuccess = () => opened.resolve(request.result);
+    request.onerror = () => opened.reject(request.error);
+    const db = await opened.promise;
+    try {
+      const read = deferred.withResolvers<unknown[]>();
+      const values = db.transaction("vscode-userdata-store", "readonly").objectStore("vscode-userdata-store").getAll();
+      values.onsuccess = () => read.resolve(values.result as unknown[]);
+      values.onerror = () => read.reject(values.error);
+      return (await read.promise).some((value) =>
+        value instanceof Uint8Array && value.length === bytes.length && value.every((byte, index) => byte === bytes[index]));
+    } finally {
+      db.close();
+    }
+  }, Array.from(expected));
+}
+
+async function waitForTitledEditor(page: Page, title: string, expect: Expect): Promise<Frame> {
+  let found: Frame | undefined;
+  await expect.poll(async () => {
+    found = await waitForEditorFrame(page, "selected editor");
+    return await found.getByLabel("Game title").inputValue();
+  }, { timeout: 30_000 }).toBe(title);
+  if (!found) throw new Error("Selected editor did not become available");
+  return found;
 }
