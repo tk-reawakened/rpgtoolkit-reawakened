@@ -196,6 +196,20 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
   const dragCoordinate = useRef<ActorPoint | null>(null);
   const suppressClick = useRef(false);
   const blockedPointerId = useRef<number | null>(null);
+  const baseCanvas = useRef<SVGSVGElement>(null);
+  const blockedPointerCleanup = useRef<(() => void) | null>(null);
+  const finishBlockedPointer = (pointerId: number, suppress: boolean): void => {
+    if (blockedPointerId.current !== pointerId) return;
+    blockedPointerId.current = null;
+    suppressClick.current = suppress;
+    blockedPointerCleanup.current?.();
+    blockedPointerCleanup.current = null;
+  };
+  useEffect(() => () => {
+    blockedPointerCleanup.current?.();
+    blockedPointerCleanup.current = null;
+    blockedPointerId.current = null;
+  }, []);
   const newCustomStanceKey = (): string => `${formId}-custom-${++customStancesMade}`;
   const customStanceKeys = useRef<string[] | null>(null);
   const stanceHistory = useRef(new Map<string, StanceHistoryIdentity>());
@@ -203,16 +217,17 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
   const pendingStanceDeletes = useRef<PendingStanceIdentity[]>([]);
   const pendingCustomStanceOperations = useRef(0);
   const observedEdits = useRef(new Map(snapshot.edits.map((edit) => [edit.editId, edit] as const)));
+  const observedStances = useRef(snapshot.customStances);
   if (customStanceKeys.current === null) {
     customStanceKeys.current = snapshot.customStances.map(() => newCustomStanceKey());
   } else {
     const currentEdits = new Map(snapshot.edits.map((edit) => [edit.editId, edit] as const));
     const addedEdits = snapshot.edits.filter((edit) => !observedEdits.current.has(edit.editId));
     const removedEdits = [...observedEdits.current.values()].filter((edit) => !currentEdits.has(edit.editId)).reverse();
-    const removeIdentity = (identity: StanceHistoryIdentity): void => {
-      const index = customStanceKeys.current!.indexOf(identity.key);
-      if (index < 0) return;
-      customStanceKeys.current!.splice(index, 1);
+    const removeIdentity = (identity: StanceHistoryIdentity, fallbackIndex = identity.index): void => {
+      const keyIndex = customStanceKeys.current!.indexOf(identity.key);
+      const index = keyIndex >= 0 ? keyIndex : fallbackIndex;
+      if (keyIndex >= 0) customStanceKeys.current!.splice(keyIndex, 1);
       identity.index = index;
     };
     const insertIdentity = (identity: StanceHistoryIdentity): void => {
@@ -221,63 +236,47 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
       customStanceKeys.current!.splice(index, 0, identity.key);
       identity.index = index;
     };
-    while (customStanceKeys.current.length > snapshot.customStances.length) {
-      const appliedDelete = addedEdits.find((edit) => edit.command.type === "delete-custom-stance");
-      if (appliedDelete?.command.type === "delete-custom-stance") {
-        let identity = stanceHistory.current.get(appliedDelete.editId);
+
+    for (const edit of removedEdits) {
+      if (edit.command.type === "delete-custom-stance") {
+        const identity = stanceHistory.current.get(edit.editId);
+        if (identity !== undefined) insertIdentity(identity);
+      } else if (edit.command.type === "add-custom-stance") {
+        const identity = stanceHistory.current.get(edit.editId);
+        if (identity !== undefined) removeIdentity(identity);
+      }
+    }
+    for (const edit of addedEdits) {
+      if (edit.command.type === "add-custom-stance") {
+        let identity = stanceHistory.current.get(edit.editId);
         if (identity === undefined) {
-          const index = appliedDelete.command.index;
+          const pending = pendingStanceAdds.current.shift();
+          identity = {
+            key: pending?.key ?? newCustomStanceKey(), index: customStanceKeys.current.length,
+            editId: edit.editId, kind: "add", handle: pending?.handle ?? edit.command.name,
+            animation: pending?.animation ?? edit.command.file,
+          };
+          stanceHistory.current.set(identity.editId, identity);
+        }
+        if (!customStanceKeys.current.includes(identity.key)) insertIdentity(identity);
+      } else if (edit.command.type === "delete-custom-stance") {
+        let identity = stanceHistory.current.get(edit.editId);
+        if (identity === undefined) {
+          const index = edit.command.index;
           const pendingIndex = pendingStanceDeletes.current.findIndex((pending) => pending.index === index);
           const pending = pendingIndex < 0 ? undefined : pendingStanceDeletes.current.splice(pendingIndex, 1)[0];
+          const stance = observedStances.current[index];
           const key = pending?.key ?? customStanceKeys.current[index];
-          const stance = snapshot.customStances[index];
           if (key !== undefined && (pending !== undefined || stance !== undefined)) {
             identity = {
-              key, index, editId: appliedDelete.editId, kind: "delete",
+              key, index, editId: edit.editId, kind: "delete",
               handle: pending?.handle ?? stance!.handle, animation: pending?.animation ?? stance!.animation,
             };
             stanceHistory.current.set(identity.editId, identity);
           }
         }
-        if (identity !== undefined) removeIdentity(identity);
-        addedEdits.splice(addedEdits.indexOf(appliedDelete), 1);
-        continue;
+        if (identity !== undefined) removeIdentity(identity, edit.command.index);
       }
-      const undoneAdd = removedEdits.find((edit) => edit.command.type === "add-custom-stance");
-      if (undoneAdd !== undefined) {
-        const identity = stanceHistory.current.get(undoneAdd.editId);
-        if (identity !== undefined) removeIdentity(identity);
-        removedEdits.splice(removedEdits.indexOf(undoneAdd), 1);
-        continue;
-      }
-      const key = customStanceKeys.current.pop();
-      if (key === undefined) break;
-    }
-    while (customStanceKeys.current.length < snapshot.customStances.length) {
-      const appliedAdd = addedEdits.find((edit) => edit.command.type === "add-custom-stance");
-      if (appliedAdd?.command.type === "add-custom-stance") {
-        let identity = stanceHistory.current.get(appliedAdd.editId);
-        if (identity === undefined) {
-          const pending = pendingStanceAdds.current.shift();
-          const index = pending?.index ?? customStanceKeys.current.length;
-          identity = {
-            key: pending?.key ?? newCustomStanceKey(), index, editId: appliedAdd.editId, kind: "add",
-            handle: pending?.handle ?? appliedAdd.command.name, animation: pending?.animation ?? appliedAdd.command.file,
-          };
-          stanceHistory.current.set(identity.editId, identity);
-        }
-        insertIdentity(identity);
-        addedEdits.splice(addedEdits.indexOf(appliedAdd), 1);
-        continue;
-      }
-      const undoneDelete = removedEdits.find((edit) => edit.command.type === "delete-custom-stance");
-      if (undoneDelete !== undefined) {
-        const identity = stanceHistory.current.get(undoneDelete.editId);
-        if (identity !== undefined) insertIdentity(identity);
-        removedEdits.splice(removedEdits.indexOf(undoneDelete), 1);
-        continue;
-      }
-      customStanceKeys.current.push(newCustomStanceKey());
     }
     if (pendingCustomStanceOperations.current === 0 && customStanceKeys.current.length !== snapshot.customStances.length) {
       customStanceKeys.current = snapshot.customStances.map(() => newCustomStanceKey());
@@ -286,6 +285,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
       pendingStanceDeletes.current = [];
     }
     observedEdits.current = currentEdits;
+    observedStances.current = snapshot.customStances;
   }
   const stanceKeySignature = customStanceKeys.current.join(",");
   const liveCustomDrafts = new Set(customStanceKeys.current.flatMap((id) => [`custom-name:${id}`, `custom-animation:${id}`]));
@@ -582,7 +582,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           <button type="button" aria-pressed={selectedBase === 1} onClick={() => setSelectedBase(1)}>Activation polygon</button>
         </div>
         <button type="button" onClick={() => appendBasePoint(selectedBase, { x: 0, y: 0 })} disabled={baseStructureDisabled}>Add polygon point at origin</button>
-        <svg class="tkr-sprite-base-canvas" viewBox="-40 -40 80 60" role="img" aria-label={`Sprite origin and ${selectedBase === 0 ? "collision" : "activation"} polygon. Click to add a point; drag a point to move it.`} onClick={(event) => {
+        <svg ref={baseCanvas} class="tkr-sprite-base-canvas" viewBox="-40 -40 80 60" role="img" aria-label={`Sprite origin and ${selectedBase === 0 ? "collision" : "activation"} polygon. Click to add a point; drag a point to move it.`} onClick={(event) => {
           if (suppressClick.current) {
             suppressClick.current = false;
             return;
@@ -592,7 +592,26 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
         }} onPointerDown={(event) => {
           if (baseStructureDisabled || pendingBaseStructureCommands.current > 0) {
             event.preventDefault();
-            blockedPointerId.current = event.pointerId;
+            blockedPointerCleanup.current?.();
+            const pointerId = event.pointerId;
+            blockedPointerId.current = pointerId;
+            const onPointerUp = (nativeEvent: PointerEvent): void => {
+              if (nativeEvent.pointerId === pointerId) finishBlockedPointer(pointerId, baseCanvas.current?.contains(nativeEvent.target as Node) ?? false);
+            };
+            const onPointerCancel = (nativeEvent: PointerEvent): void => {
+              if (nativeEvent.pointerId === pointerId) finishBlockedPointer(pointerId, false);
+            };
+            window.addEventListener("pointerup", onPointerUp, true);
+            window.addEventListener("pointercancel", onPointerCancel, true);
+            blockedPointerCleanup.current = () => {
+              window.removeEventListener("pointerup", onPointerUp, true);
+              window.removeEventListener("pointercancel", onPointerCancel, true);
+            };
+            try {
+              event.currentTarget.setPointerCapture(pointerId);
+            } catch {
+              // Window listeners still clear the gesture if this host cannot capture synthetic pointers.
+            }
             return;
           }
           const indexValue = (event.target as Element).getAttribute("data-point-index");
@@ -602,7 +621,11 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           draggingPoint.current = index;
           dragCoordinate.current = selected.points[index] ?? null;
           setDragPreview({ index, point: selected.points[index]! });
-          event.currentTarget.setPointerCapture(event.pointerId);
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId);
+          } catch {
+            // Keep the in-SVG drag usable in hosts that do not implement pointer capture.
+          }
         }} onPointerMove={(event) => {
           const index = draggingPoint.current;
           if (index === null) return;
@@ -612,8 +635,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           setDragPreview({ index, point });
         }} onPointerUp={(event) => {
           if (blockedPointerId.current === event.pointerId) {
-            blockedPointerId.current = null;
-            suppressClick.current = true;
+            finishBlockedPointer(event.pointerId, baseCanvas.current?.contains(event.target as Node) ?? true);
             return;
           }
           const index = draggingPoint.current;
@@ -625,11 +647,13 @@ export function SpriteView({ doc, fs, capabilities, onEdited }: SpriteViewProps)
           setDragPreview(null);
           suppressClick.current = true;
         }} onPointerCancel={(event) => {
-          if (blockedPointerId.current === event.pointerId) blockedPointerId.current = null;
+          if (blockedPointerId.current === event.pointerId) finishBlockedPointer(event.pointerId, false);
           suppressClick.current = false;
           draggingPoint.current = null;
           dragCoordinate.current = null;
           setDragPreview(null);
+        }} onLostPointerCapture={(event) => {
+          if (blockedPointerId.current === event.pointerId) finishBlockedPointer(event.pointerId, false);
         }}>
           <line x1="0" y1="-40" x2="0" y2="20" aria-hidden="true" />
           <line x1="-40" y1="0" x2="40" y2="0" aria-hidden="true" />

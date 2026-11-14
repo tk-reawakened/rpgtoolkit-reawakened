@@ -344,6 +344,89 @@ test("delete undo redo undo preserves the surviving duplicate stance identity", 
   s.el.remove();
 });
 
+test("separately acknowledged stance additions append keys in applied order", async () => {
+  const s = await setup("character", "Chrs/pending-add-order.tem", exampleCharacter());
+  const apply = s.doc.apply.bind(s.doc);
+  let releaseFirst!: () => void;
+  let startFirst!: () => void;
+  let releaseSecond!: () => void;
+  let startSecond!: () => void;
+  const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve; });
+  const firstStarted = new Promise<void>((resolve) => { startFirst = resolve; });
+  const secondStarted = new Promise<void>((resolve) => { startSecond = resolve; });
+  let additions = 0;
+  replaceApply(s.doc, async (command) => {
+    if (command.type === "add-custom-stance") {
+      if (additions++ === 0) {
+        startFirst();
+        await firstGate;
+      } else {
+        startSecond();
+        await secondGate;
+      }
+    }
+    return apply(command);
+  });
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  const form = s.el.querySelector<HTMLFormElement>("form");
+  ok(form !== null);
+  const nameInput = form.querySelector<HTMLInputElement>('input[name="stance-name"]');
+  ok(nameInput !== null);
+  const requestAdd = (name: string): void => {
+    nameInput.value = name;
+    nameInput.dispatchEvent(new Event("input", { bubbles: true }));
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  };
+  await act(() => { requestAdd("First pending"); requestAdd("Second pending"); });
+  await act(async () => { await Promise.all([firstStarted, secondStarted]); });
+  releaseFirst();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const firstAnimation = rows().at(-1)?.querySelectorAll<HTMLInputElement>("input")[1];
+  ok(firstAnimation !== undefined);
+  await act(() => {
+    firstAnimation.value = "first-pending.anm";
+    firstAnimation.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  releaseSecond();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  equal(rows().at(-2)?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "first-pending.anm", "the first acknowledgement keeps its draft in the first added row");
+  equal(rows().at(-1)?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "", "the second acknowledgement appends a separate fresh identity");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("coalesced delete and add reconcile stance keys when the row count is unchanged", async () => {
+  const s = await setup("character", "Chrs/coalesced-stance-edits.tem", exampleCharacter());
+  const handle = await show(s);
+  const rows = () => [...s.el.querySelectorAll<HTMLElement>(".tkr-sprite-custom")];
+  await act(() => {
+    ok(s.doc.apply({ type: "add-custom-stance", name: "X1", file: "" }).ok);
+    ok(s.doc.apply({ type: "add-custom-stance", name: "X2", file: "" }).ok);
+  });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  const x1 = rows()[1]?.querySelectorAll<HTMLInputElement>("input")[1];
+  const x2 = rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1];
+  ok(x1 !== undefined);
+  ok(x2 !== undefined);
+  await act(() => {
+    x1.value = "x1-draft.anm";
+    x1.dispatchEvent(new Event("input", { bubbles: true }));
+    x2.value = "x2-draft.anm";
+    x2.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => {
+    ok(s.doc.apply({ type: "delete-custom-stance", index: 1 }).ok);
+    ok(s.doc.apply({ type: "add-custom-stance", name: "Y", file: "" }).ok);
+  });
+  equal(s.doc.getSnapshot().customStances.length, 3, "delete and add leave the custom-stance row count unchanged");
+  equal(rows()[1]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "x2-draft.anm", "the surviving X2 row keeps its draft after coalesced history changes");
+  equal(rows()[2]?.querySelectorAll<HTMLInputElement>("input")[1]?.value, "", "new Y does not inherit the deleted X1 draft");
+  handle.dispose();
+  s.el.remove();
+});
+
 test("Remove point rebases on the acknowledged coordinate edit", async () => {
   const s = await setup("character", "Chrs/queued-remove-point.tem", exampleCharacter());
   const original = s.doc.getSnapshot().vectorBases![1]!.points.map((point) => ({ ...point }));
@@ -436,7 +519,7 @@ test("deferred double removal waits for fresh point indices", async () => {
   s.el.remove();
 });
 
-test("blocked pointer gesture cannot add a vertex after structural acknowledgement", async () => {
+test("blocked pointer release outside does not poison the next drag", async () => {
   const s = await setup("character", "Chrs/blocked-pointer.tem", exampleCharacter());
   const bases = s.doc.getSnapshot().vectorBases!.map((base) => ({ points: base.points.map((point) => ({ ...point })) }));
   bases[1] = { points: [{ x: 1, y: 1 }, { x: 2, y: 2 }, { x: 3, y: 3 }, { x: 4, y: 4 }, { x: 5, y: 5 }] };
@@ -462,22 +545,34 @@ test("blocked pointer gesture cannot add a vertex after structural acknowledgeme
   const svg = s.el.querySelector<SVGSVGElement>(".tkr-sprite-base-canvas");
   ok(svg !== null);
   Object.defineProperty(svg, "getScreenCTM", { value: () => ({ inverse: () => ({}) }) });
-  Object.defineProperty(svg, "createSVGPoint", { value: () => ({ x: 0, y: 0, matrixTransform: () => ({ x: 0, y: 0 }) }) });
-  const vertex = svg.querySelector('[data-point-index="2"]');
-  ok(vertex !== null);
-  const pointer = (type: string): Event => {
+  Object.defineProperty(svg, "createSVGPoint", { value: () => ({
+    x: 0,
+    y: 0,
+    matrixTransform() { return { x: this.x, y: this.y }; },
+  }) });
+  const pointer = (type: string, x = 0, y = 0): Event => {
     const event = new Event(type, { bubbles: true });
     Object.defineProperty(event, "pointerId", { value: 73 });
+    Object.defineProperty(event, "clientX", { value: x });
+    Object.defineProperty(event, "clientY", { value: y });
     return event;
   };
-  await act(() => { vertex.dispatchEvent(pointer("pointerdown")); });
+  const blockedVertex = svg.querySelector('[data-point-index="2"]');
+  ok(blockedVertex !== null);
+  await act(() => { blockedVertex.dispatchEvent(pointer("pointerdown")); });
   release();
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  await act(() => { document.body.dispatchEvent(pointer("pointerup")); });
+
+  const nextDragVertex = svg.querySelector('[data-point-index="1"]');
+  ok(nextDragVertex !== null);
+  await act(() => { nextDragVertex.dispatchEvent(pointer("pointerdown", 2, 3)); });
   await act(() => {
-    svg.dispatchEvent(pointer("pointerup"));
-    svg.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    svg.dispatchEvent(pointer("pointermove", 12, 13));
+    svg.dispatchEvent(pointer("pointerup", 12, 13));
   });
-  equal(s.doc.getSnapshot().vectorBases![1]!.points.length, 4, "the blocked down/up/click sequence adds no vertex after the prior removal is acknowledged");
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  deepEqual(s.doc.getSnapshot().vectorBases![1]!.points, [{ x: 2, y: 2 }, { x: 12, y: 13 }, { x: 4, y: 4 }, { x: 5, y: 5 }], "outside release clears the blocked pointer id so the next drag with the same id applies");
   handle.dispose();
   s.el.remove();
 });
