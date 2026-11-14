@@ -9,7 +9,9 @@ type CspConsoleViolation = { text: string; url: string; lineNumber: number; colu
 type ProofHost = {
   restart(page: Page, offlineBytes?: Uint8Array): Promise<Page>;
   readBacking(path?: string): Promise<Uint8Array>;
-  readHostEvents(): { kind: "command" | "save" | "revert"; value: string }[];
+  readHostEvents(): { kind: "save-request" | "save" | "revert"; value: string }[];
+  pauseSave(): void;
+  resumeSave(): void;
   externalBytes: Uint8Array;
   sentinelTitle: string;
   sentinelBytes: Uint8Array;
@@ -82,7 +84,7 @@ export async function runVscodeWebProof(
   expect(saved).not.toEqual(before);
   expect(saved).toEqual(expectedBytes);
   expect(host.readHostEvents()).toContainEqual({ kind: "save", value: `/${gamePath}` });
-  expect(host.readHostEvents()).toContainEqual({ kind: "command", value: "workbench.action.files.save" });
+  expect(host.readHostEvents()).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
   await expect.poll(() => frameCspViolations(page, editor, consoleViolations)).toEqual([]);
   expect(await host.readBacking()).toEqual(saved);
   await expect(savedTab).not.toHaveClass(/dirty/);
@@ -190,7 +192,7 @@ export async function runVscodeWebProof(
     recoveredEditor = await waitForTitledEditor(page, recoveredTitle, expect);
   };
   await verifySentinel();
-  expect(backupTrackerLogs.some((entry) => entry.includes("CommandService#executeCommand workbench.action.files.save"))).toBe(true);
+  expect(host.readHostEvents()).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
   const choiceTraceStart = backupTrackerLogs.length;
   const hostEventsStart = host.readHostEvents().length;
   if (host.choice === "cancel") {
@@ -212,10 +214,22 @@ export async function runVscodeWebProof(
   const forbiddenCommands = backupTrackerLogs.slice(choiceTraceStart).filter((entry) =>
     /CommandService#executeCommand workbench\.action\.files\.(?:save|revert)/i.test(entry));
   expect(forbiddenCommands).toEqual([]);
-  expect(host.readHostEvents().slice(hostEventsStart).filter((event) =>
-    event.kind === "save" || event.kind === "revert"
-      || (event.kind === "command" && /^workbench\.action\.files\.(?:save|revert)/i.test(event.value)))).toEqual([]);
-  await recoveredEditor.getByRole("button", { name: "Save" }).click();
+  expect(host.readHostEvents().slice(hostEventsStart)).toEqual([]);
+  // Hold the real extension at its save API boundary, change focus to another dirty editor,
+  // then let the save proceed. Only the originating document may be written.
+  host.pauseSave();
+  const saveStart = host.readHostEvents().length;
+  try {
+    await recoveredEditor.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => host.readHostEvents().slice(saveStart)).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
+    await sentinelTab.click();
+    await expect(sentinelTab).toHaveClass(/dirty/);
+  } finally {
+    host.resumeSave();
+  }
+  // Keep the other editor active until the original document's bytes really reach disk.
+  await expect.poll(async () => Array.from(await host.readBacking()), { timeout: 30_000 }).toEqual(Array.from(recoveredBytes));
+  await verifySentinel();
   await expect(recoveredEditor.getByRole("status")).toHaveText("All changes saved");
   const recovered = await readWorkspaceBytes(page, expect);
   expect(recovered).toEqual(recoveredBytes);
