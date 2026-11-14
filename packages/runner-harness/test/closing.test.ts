@@ -17,7 +17,7 @@ import {
   type ClosingPlan,
 } from "../src/closing.ts";
 import { encodeRgbaPng } from "../src/png.ts";
-import { compareClosingTickHashes } from "../src/closing-ticks.ts";
+import { compareClosingBatchTickHashes } from "../src/closing-ticks.ts";
 
 /** `assert.ok` for the repository's minimal assertion declarations. */
 function ok(condition: boolean, message?: string): void {
@@ -204,22 +204,32 @@ test("a plan is validated before any game runs", () => {
   }
 });
 
-test("closing batching detects state and draw drift between scheduled checkpoints", () => {
-  const reference = Array.from({ length: 10 }, (_, index) => ({
-    tick: index + 1,
-    stateHash: `state-${index + 1}`,
-    drawHash: `draw-${index + 1}`,
-  }));
-  const checkpoints = [5, 10];
-  const divergent = reference.map((entry) =>
-    entry.tick === 7 ? { ...entry, stateHash: "state-diverged", drawHash: "draw-diverged" } : entry,
-  );
+test("actual per-tick traces detect state-only and draw-only cross-batch drift between checkpoints", () => {
+  const run = runClosingGame(PLAN, GAME, authoredFiles(), bundled);
+  const traces = run.batchTickHashes;
+  const reference = traces[0];
+  if (reference === undefined) throw new Error("missing actual tick observations");
+  equal(reference.ticks.length, run.record.ticks);
+  equal(reference.ticks[6]?.tick, 7);
+  equal(run.record.checkpoints.some((checkpoint) => checkpoint.tick === 7), false);
+  deepEqual(traces.map((trace) => trace.batch), PLAN.batches);
 
-  equal(checkpoints.includes(7), false);
-  deepEqual(compareClosingTickHashes(7, 10, reference, divergent), [
-    "batch 7: per-tick hashes differ at tick 7: state state-diverged / draw draw-diverged, reference state state-7 / draw draw-7",
-  ]);
-  deepEqual(compareClosingTickHashes(7, 10, reference, reference.slice(0, 9)), [
-    "batch 7: trace has 9 per-tick hashes, reference has 10 ticks",
-  ]);
+  const stateOnly = traces.map((trace) => trace.batch === 7
+    ? { ...trace, ticks: trace.ticks.map((tick) => tick.tick === 7 ? { ...tick, stateHash: "state-only-divergence" } : tick) }
+    : trace);
+  const stateProblems = compareClosingBatchTickHashes(traces, stateOnly);
+  ok(stateProblems.some((problem) => problem.includes("batch 7: per-tick hashes differ at tick 7")), stateProblems.join("\n"));
+  equal(stateOnly[1]?.ticks[6]?.drawHash, reference.ticks[6]?.drawHash);
+
+  const drawOnly = traces.map((trace) => trace.batch === 1
+    ? { ...trace, ticks: trace.ticks.map((tick) => tick.tick === 7 ? { ...tick, drawHash: "draw-only-divergence" } : tick) }
+    : trace);
+  const drawProblems = compareClosingBatchTickHashes(traces, drawOnly);
+  ok(drawProblems.some((problem) => problem.includes("batch 1: per-tick hashes differ at tick 7")), drawProblems.join("\n"));
+  equal(drawOnly[2]?.ticks[6]?.stateHash, reference.ticks[6]?.stateHash);
+
+  const skippedTick = traces.map((trace) => trace.batch === 7
+    ? { ...trace, ticks: trace.ticks.map((tick) => tick.tick === 7 ? { ...tick, tick: 8 } : tick) }
+    : trace);
+  ok(compareClosingBatchTickHashes(traces, skippedTick).some((problem) => problem.includes("tick sequence")), "duplicate or skipped tick IDs must fail");
 });

@@ -34,7 +34,7 @@ import type { AssetKind } from "../formats/main-file/layout.ts";
 import type { AssetIndex, AssetRoot } from "../formats/resolver/model.ts";
 import type { DrawCommand, DrawList, Rgb, Tint } from "../ports/draw.ts";
 import type { InputRecord } from "../ports/input.ts";
-import type { Engine, Diagnostic, Breakpoint, DrawListInclude, RecoveryStatus, ResumeMode, SurfacePixels } from "../ports/engine.ts";
+import type { Engine, Diagnostic, Breakpoint, DrawListInclude, RecoveryStatus, ResumeMode, SurfacePixels, TickObservation } from "../ports/engine.ts";
 import type { HostDisplayGeometry, HostFeatures, NormalizedHostFeatures } from "../ports/host.ts";
 import type { InputConfig } from "../input/input.ts";
 import type { RegisteredAction } from "../save/sections/input.ts";
@@ -199,6 +199,8 @@ type EngineCommonInit = {
   readonly resetRegistrations?: readonly EngineResetRegistration[];
   readonly phaseRegistrations?: readonly EnginePhaseRegistration[];
   readonly effectAppliers?: readonly { readonly section: SectionKey; readonly applier: EffectApplier }[];
+  /** Optional observation-only hashes (docs/spec/engine/main-loop-and-startup.md#completed-tick-observation-test-and-diagnostic-runners). */
+  readonly tickObserver?: (observation: TickObservation) => void;
   readonly cameraTarget?: CameraTarget;
   readonly spriteRuntime?: SpriteRuntime;
   /** The author's default SoundFont (docs/spec/engine/audio-media.md#soundfont-layers rank 3); `null` or absent for none. */
@@ -446,6 +448,7 @@ export function createEngine(init: EngineInit): Engine {
   let recoveryInitialized = false;
   let recoveryResumed = false;
   const diagnostics: Diagnostic[] = [];
+  let observingTick = false;
   let activeMovement: { file: AssetKey; revision: number; settings: MainFileMovementSettings } | null = null;
   const reportedMovementCollisions = new Set<string>();
   function reportMovementCollisions(): void {
@@ -1691,7 +1694,7 @@ export function createEngine(init: EngineInit): Engine {
     [MENU_HAND_EFFECT]: true,
   };
   function imageTexture(key: AssetKey): DecodedTexture | null {
-    deferredRestoreDecode.delete(key);
+    if (!observingTick) deferredRestoreDecode.delete(key);
     const cached = decodedImages.get(key);
     if (cached !== undefined) return cached;
     // A tile bitmap is an image like any other for `bitmap` and the `setimage*` family
@@ -1702,16 +1705,18 @@ export function createEngine(init: EngineInit): Engine {
     if (bytes === undefined) return null;
     const decoded = decodeTexture(bytes, key);
     if (!decoded.ok) {
-      diagnostics.push({ code: "asset.invalid", file: key, line: decoded.error.offset, message: decoded.error.message });
-      failed = true;
+      if (!observingTick) {
+        diagnostics.push({ code: "asset.invalid", file: key, line: decoded.error.offset, message: decoded.error.message });
+        failed = true;
+      }
       return null;
     }
-    decodedImages.set(key, decoded.value);
+    if (!observingTick) decodedImages.set(key, decoded.value);
     return decoded.value;
   }
   /**
    * Decode a tile bitmap to one texture (docs/spec/formats/tiles.md#tile-bitmap-tbm), or null while one of its tiles
-   * is still being fetched — the caller keeps the effect queued and the picture lands when the reply arrives.
+   * is still being fetched — the caller keeps the effect queued and the picture lands when the reply lands.
    *
    * The cells name tiles from other files (a tileset, a single tile, an animated tile), so each reference is resolved
    * through the same resolver and decoded through the same readers the boards use
@@ -1721,34 +1726,38 @@ export function createEngine(init: EngineInit): Engine {
   function tileBitmapTexture(key: AssetKey): DecodedTexture | null {
     const bytes = cache.get(key);
     if (bytes === undefined) {
-      request(key, "image");
+      if (!observingTick) request(key, "image");
       return null;
     }
     const parsed = readTileBitmap(new BinaryReader(bytes, key));
     if (!parsed.ok) {
-      diagnostics.push({ code: "asset.invalid", file: key, line: parsed.error.offset, message: parsed.error.message });
-      failed = true;
+      if (!observingTick) {
+        diagnostics.push({ code: "asset.invalid", file: key, line: parsed.error.offset, message: parsed.error.message });
+        failed = true;
+      }
       return null;
     }
     return composeTilePicture(key, parsed.value);
   }
   /** Convert the text background's x-major grid to the ordinary tile-picture layout. */
   function battleBackgroundTexture(key: AssetKey): DecodedTexture | null {
-    deferredRestoreDecode.delete(key);
+    if (!observingTick) deferredRestoreDecode.delete(key);
     const cached = decodedImages.get(key);
     if (cached !== undefined) return cached;
     const bytes = cache.get(key);
     const pendingPicture = pendingBattlePictures.get(key);
     if (pendingPicture !== undefined) return composeTilePicture(key, pendingPicture);
     if (bytes === undefined) {
-      request(key, "image");
+      if (!observingTick) request(key, "image");
       return null;
     }
     const parsed = readBattleBackground(new BinaryReader(bytes, key));
     if (!parsed.ok || parsed.value.tiles === undefined || parsed.value.tints === undefined) {
-      diagnostics.push({ code: "asset.invalid", file: key, line: parsed.ok ? 0 : parsed.error.offset,
-        message: parsed.ok ? "battle background has no tile grid" : parsed.error.message });
-      failed = true;
+      if (!observingTick) {
+        diagnostics.push({ code: "asset.invalid", file: key, line: parsed.ok ? 0 : parsed.error.offset,
+          message: parsed.ok ? "battle background has no tile grid" : parsed.error.message });
+        failed = true;
+      }
       return null;
     }
     const cells = [];
@@ -1761,7 +1770,7 @@ export function createEngine(init: EngineInit): Engine {
       }
     }
     const bitmap: TileBitmap = { magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 19, height: 11, cells, residue: new Uint8Array(0) };
-    pendingBattlePictures.set(key, bitmap);
+    if (!observingTick) pendingBattlePictures.set(key, bitmap);
     return composeTilePicture(key, bitmap);
   }
   function composeTilePicture(key: AssetKey, bitmap: TileBitmap): DecodedTexture | null {
@@ -1783,7 +1792,7 @@ export function createEngine(init: EngineInit): Engine {
         if (tile.kind === "animatedTile") {
           const bytes = cache.get(tile.asset);
           if (bytes === undefined) {
-            request(tile.asset, requestKindFor(tile.asset));
+            if (!observingTick) request(tile.asset, requestKindFor(tile.asset));
             waiting = true;
             continue;
           }
@@ -1794,7 +1803,7 @@ export function createEngine(init: EngineInit): Engine {
           tile = frame.value;
         }
         if (!cache.has(tile.asset)) {
-          request(tile.asset, requestKindFor(tile.asset));
+          if (!observingTick) request(tile.asset, requestKindFor(tile.asset));
           waiting = true;
         }
       }
@@ -1807,8 +1816,10 @@ export function createEngine(init: EngineInit): Engine {
         const tile = tileCellPixels(cell.tile);
         if (tile === null) return null;
         if (!tile.ok) {
-          diagnostics.push({ code: "asset.invalid", file: key, line: tile.error.offset, message: tile.error.message });
-          failed = true;
+          if (!observingTick) {
+            diagnostics.push({ code: "asset.invalid", file: key, line: tile.error.offset, message: tile.error.message });
+            failed = true;
+          }
           return null;
         }
         tiles.set(cell.tile, tile.value);
@@ -1816,12 +1827,16 @@ export function createEngine(init: EngineInit): Engine {
     }
     const composed = compositeTileBitmap(bitmap, tiles);
     if (!composed.ok) {
-      diagnostics.push({ code: "asset.invalid", file: key, line: composed.error.offset, message: composed.error.message });
-      failed = true;
+      if (!observingTick) {
+        diagnostics.push({ code: "asset.invalid", file: key, line: composed.error.offset, message: composed.error.message });
+        failed = true;
+      }
       return null;
     }
-    decodedImages.set(key, composed.value);
-    pendingBattlePictures.delete(key);
+    if (!observingTick) {
+      decodedImages.set(key, composed.value);
+      pendingBattlePictures.delete(key);
+    }
     return composed.value;
   }
   /**
@@ -1848,7 +1863,7 @@ export function createEngine(init: EngineInit): Engine {
       const animationBytes = cache.get(kind.asset);
       if (animationBytes === undefined) {
         if (optional && missingLegacySpriteAssets.has(kind.asset)) return missingLegacyTile(reference);
-        request(kind.asset, optional ? "legacy-sprite" : requestKindFor(kind.asset));
+        if (!observingTick) request(kind.asset, optional ? "legacy-sprite" : requestKindFor(kind.asset));
         return null;
       }
       const animation = readTileAnimation(new BinaryReader(animationBytes, kind.asset));
@@ -1874,7 +1889,7 @@ export function createEngine(init: EngineInit): Engine {
     }
     if (!cache.has(kind.asset)) {
       if (optional && missingLegacySpriteAssets.has(kind.asset)) return missingLegacyTile(reference);
-      request(kind.asset, optional ? "legacy-sprite" : requestKindFor(kind.asset));
+      if (!observingTick) request(kind.asset, optional ? "legacy-sprite" : requestKindFor(kind.asset));
       return null;
     }
     const strip = tileTexture(kind.asset);
@@ -1905,7 +1920,7 @@ export function createEngine(init: EngineInit): Engine {
     });
   }
   function tileTexture(key: AssetKey): DecodedTexture | null {
-    deferredRestoreDecode.delete(key);
+    if (!observingTick) deferredRestoreDecode.delete(key);
     const cached = decodedTiles.get(key);
     if (cached !== undefined) return cached;
     const bytes = cache.get(key);
@@ -1913,13 +1928,13 @@ export function createEngine(init: EngineInit): Engine {
     const decoded = decodeTileTexture(key, bytes);
     if (!decoded.ok) {
       // A key that is not a tile file is not an error; a tile file the reader refused is, and says where.
-      if (decoded.error !== null) {
+      if (!observingTick && decoded.error !== null) {
         diagnostics.push({ code: "asset.invalid", file: key, line: decoded.error.offset, message: decoded.error.message });
         failed = true;
       }
       return null;
     }
-    decodedTiles.set(key, decoded.texture);
+    if (!observingTick) decodedTiles.set(key, decoded.texture);
     return decoded.texture;
   }
   function battlePictureName(file: unknown): string | null {
@@ -2198,6 +2213,22 @@ export function createEngine(init: EngineInit): Engine {
     if (state.engine.transition !== undefined) next.transition = state.engine.transition;
     if (state.engine.pendingEnterThread !== undefined) next.pendingEnterThread = state.engine.pendingEnterThread;
     state.engine = next;
+  }
+  /** Sample after drive and state synchronization without committing the deferred presented frame. */
+  function observeCompletedTick(): void {
+    const observer = init.tickObserver;
+    if (observer === undefined) return;
+    syncEngineState();
+    settlePostQuitWriteFailures();
+    syncEngineState();
+    let drawHash: string;
+    observingTick = true;
+    try {
+      drawHash = hashDrawList(currentDrawList(0, init.include ?? { shading: false, images: false, sprites: false }));
+    } finally {
+      observingTick = false;
+    }
+    observer({ tick: state.time.tick, stateHash: hashGameState(state), drawHash });
   }
   function finalizeBlobRequests(): void {
     for (const entry of pendingBlobs.values()) {
@@ -5181,6 +5212,7 @@ export function createEngine(init: EngineInit): Engine {
         resume = "continue";
         drive();
         markPresentedFrameDirty();
+        observeCompletedTick();
       }
       syncEngineState();
       settlePostQuitWriteFailures();

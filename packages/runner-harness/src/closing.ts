@@ -19,7 +19,6 @@ import {
   derivePackageIdentity,
   fnv1a64,
   hashDrawList,
-  hashGameState,
   PACKAGE_ROOT,
   placeplayerPixel,
   writeMainFile,
@@ -42,7 +41,8 @@ import type {
 import { createNullAudio } from "./audio.ts";
 import { compareRgbaWithPng } from "./png.ts";
 import { createExecutionCensus, type ExecutionCensus } from "./execution-census.ts";
-import { compareClosingTickHashes, type ClosingTickHash } from "./closing-ticks.ts";
+import { compareClosingBatchTickHashes, compareClosingTickHashes, type ClosingBatchTrace, type ClosingTickHash } from "./closing-ticks.ts";
+export type { ClosingBatchTrace } from "./closing-ticks.ts";
 
 /** What the suite must find for a game: it boots clean, or it is a known failure that names the epic that fixes it. */
 export type ClosingExpectation =
@@ -114,6 +114,7 @@ export type ClosingBaseline = {
   readonly games: Readonly<Record<string, ClosingGameRecord>>;
 };
 
+
 /** One game's result: its record plus the pixels of every frame that owns a PNG (in record order). */
 export type ClosingGameRun = {
   readonly census?: ExecutionCensus;
@@ -122,7 +123,10 @@ export type ClosingGameRun = {
   readonly images: ReadonlyMap<string, DecodedTexture>;
   readonly batchProblems: readonly string[];
   readonly audioCues: readonly AudioCue[];
+  /** Per-tick state and draw hashes from each planned advance batch; deliberately outside the saved baseline record. */
+  readonly batchTickHashes: readonly ClosingBatchTrace[];
 };
+
 
 const INCLUDE: DrawListInclude = { shading: true, images: true, sprites: true };
 const PNG_DIRECTORY = "golden/regression/closing";
@@ -272,22 +276,7 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
   const doubles = createBootDoubles(options);
   const census = options.trace === true ? createExecutionCensus() : undefined;
   const tickHashes: ClosingTickHash[] = [];
-  let engineForObservation: Engine | null = null;
   const phaseRegistrations: EnginePhaseRegistration[] = [...doubles.options.phaseRegistrations];
-  if (observeTicks) {
-    phaseRegistrations.push({
-      phase: "time",
-      run(state) {
-        const activeEngine = engineForObservation;
-        if (activeEngine === null) throw new Error("closing: tick observed before engine creation");
-        tickHashes.push({
-          tick: state.time.tick,
-          stateHash: hashGameState(state),
-          drawHash: hashDrawList(activeEngine.drawList(0, INCLUDE)),
-        });
-      },
-    });
-  }
   if (census !== undefined) phaseRegistrations.push({ phase: "input", run: census.beforeTick });
   const engine = createEngine({
     seed: plan.seed,
@@ -302,10 +291,14 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
     include: INCLUDE,
     bundled: bundledFiles,
     ...doubles.options,
+    ...(observeTicks ? {
+      tickObserver: (observation: { readonly tick: number; readonly stateHash: string; readonly drawHash: string }) => {
+        tickHashes.push(observation);
+      },
+    } : {}),
     phaseRegistrations,
     ...(census === undefined ? {} : { scriptObservers: census.observers }),
   });
-  engineForObservation = engine;
   const nullAudio = options.captureAudio === true ? createNullAudio() : null;
   const diagnostics: ClosingDiagnostic[] = [];
   const queued: InputRecord[] = [];
@@ -505,6 +498,11 @@ export function runClosingGame(plan: ClosingPlan, game: ClosingGamePlan, files: 
     name: game.name,
     ...(traced?.census === undefined ? {} : { census: traced.census }),
     batchProblems,
+    batchTickHashes: traces.map((trace, position) => {
+      const batch = plan.batches[position];
+      if (batch === undefined) throw new Error(`closing: batch ${position} has no plan entry`);
+      return { batch, ticks: trace.tickHashes };
+    }),
     audioCues: reference.audioCues,
     images,
     record: {
