@@ -101,12 +101,12 @@ for (const choice of ["cancel", "keep"]) {
       const token = persistentFs.token;
       const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
       // The bundler numbers the `vscode` namespace by how many modules import it, so the name is read from the build.
-      const namespace = /executeCommand: async \(command2\) => await (vscode\d*)\.commands\.executeCommand\(command2\)/.exec(source)?.[1];
+      const namespace = /saveEditor: async \(uri\) => await (vscode\d*)\.workspace\.save\(uri\)/.exec(source)?.[1];
       if (namespace === undefined) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
       const probes = [
         [
-          `executeCommand: async (command2) => await ${namespace}.commands.executeCommand(command2)`,
-          `executeCommand: async (command2) => { await (${trace})("command", command2); return await ${namespace}.commands.executeCommand(command2); }`,
+          `saveEditor: async (uri) => await ${namespace}.workspace.save(uri)`,
+          `saveEditor: async (uri) => { await (${trace})("save-request", uri.path); return await ${namespace}.workspace.save(uri); }`,
         ],
         [
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
@@ -176,7 +176,7 @@ for (const choice of ["cancel", "keep"]) {
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath });
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath });
     console.log(`vscode.dev settings and board proof passed (${choice})`);
   } catch (error) {
     failure = error;
