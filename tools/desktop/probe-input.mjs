@@ -21,7 +21,7 @@ import { judgeMovement } from "./probe-judge.mjs";
 import { electronBinary } from "./electron-binary.mjs";
 import { probeDesktopCsp } from "./probe-csp.mjs";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { BinaryReader, deriveGameId, derivePackageIdentity, loadPackage, readDistributionManifest, readMainFile, writeDistributionPackage, writeMainFile } from "@tk-reawakened/core";
 
@@ -90,17 +90,58 @@ function hostMetricsPackagePath() {
   return packageFile;
 }
 
+function copyDirectoryContents(source, destination) {
+  mkdirSync(destination, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const sourcePath = join(source, entry.name);
+    const destinationPath = join(destination, entry.name);
+    if (entry.isDirectory()) {
+      copyDirectoryContents(sourcePath, destinationPath);
+    } else if (entry.isFile()) {
+      writeFileSync(destinationPath, readFileSync(sourcePath));
+    } else {
+      throw new Error(`authored package source contains an unsupported entry: ${sourcePath}`);
+    }
+  }
+}
+
+function authoredGrassTerrainColors() {
+  const tileSet = readFileSync(join(root, "docs", "spec", "examples", "game", "Game", "Example", "Tiles", "village.tst"));
+  const headerBytes = 6;
+  if (tileSet.readUInt16LE(0) !== 20 || tileSet.readUInt16LE(2) < 1 || tileSet.readUInt16LE(4) !== 1) {
+    throw new Error("the authored village grass tile no longer uses a detail-1 .tst tileset");
+  }
+  const colors = new Map();
+  for (let x = 4; x < 28; x += 1) {
+    for (let y = 4; y < 28; y += 1) {
+      const offset = headerBytes + x * 32 * 3 + y * 3;
+      const color = [tileSet[offset], tileSet[offset + 1], tileSet[offset + 2]];
+      const key = color.join(",");
+      if (key !== "0,1,2") colors.set(key, color);
+    }
+  }
+  if (colors.size < 8) throw new Error("the authored village grass tile no longer contains its expected varied terrain pixels");
+  return [...colors.values()].slice(0, 8);
+}
+
 function authoredBoardPackagePath() {
   temporaryPackageDirectory = mkdtempSync(join(tmpdir(), "tkr-authored-board-"));
   process.once("exit", () => {
     if (temporaryPackageDirectory !== null) rmSync(temporaryPackageDirectory, { recursive: true, force: true });
   });
+  const sourceRoot = join(root, "docs", "spec", "examples", "game");
+  const projectRoot = join(temporaryPackageDirectory, "project");
   const packageFile = join(temporaryPackageDirectory, "authored-example.tpk");
+  // Distribution packages place Main/ and project asset directories at their root.
+  // Stage the example's authored project files from Game/Example at that root.
+  copyDirectoryContents(join(sourceRoot, "Game", "Example"), projectRoot);
+  mkdirSync(join(projectRoot, "Main"), { recursive: true });
+  writeFileSync(join(projectRoot, "Main", "example.gam"), readFileSync(join(sourceRoot, "Main", "example.gam")));
   execFileSync(
     process.execPath,
     [
       join(root, "tools", "make-package", "run.mjs"),
-      join(root, "docs", "spec", "examples", "game"),
+      projectRoot,
       "--out", packageFile,
       "--title", "Authored example village",
       "--version", "1",
@@ -588,11 +629,13 @@ async function main() {
 
     let authoredBoardProof = null;
     if (process.argv.includes("--authored-board")) {
+      const expectedGrassColors = JSON.stringify(authoredGrassTerrainColors());
       const boardPixels = await evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
         const canvas = document.querySelector("#screen");
+        const session = window.__session;
         const gl = canvas?.getContext("webgl2");
-        if (canvas === null || !document.contains(canvas) || gl === null || gl === undefined) {
-          resolve({ error: "the authored board has no attached WebGL2 canvas" });
+        if (canvas === null || !document.contains(canvas) || session === undefined || gl === null || gl === undefined) {
+          resolve({ error: "the authored board has no attached WebGL2 canvas or live session" });
           return;
         }
         const pixels = new Uint8Array(canvas.width * canvas.height * 4);
@@ -603,14 +646,42 @@ async function main() {
           frameHash = Math.imul(frameHash ^ pixels[index], 16777619);
           if (index % 4 === 0 && (pixels[index] !== 0 || pixels[index + 1] !== 0 || pixels[index + 2] !== 0)) nonBlack += 1;
         }
-        resolve({ width: canvas.width, height: canvas.height, nonBlack, frameHash });
+        const view = session.viewSize();
+        const geometry = session.displayGeometry();
+        const terrainLeft = (view.width - 16 * 32) / 2;
+        const terrainTop = (view.height - 12 * 32) / 2;
+        const scaleX = canvas.width / geometry.content.width;
+        const scaleY = canvas.height / geometry.content.height;
+        const x0 = Math.max(0, Math.floor((geometry.game.x - geometry.content.x + terrainLeft) * scaleX));
+        const y0 = Math.max(0, Math.floor((geometry.game.y - geometry.content.y + terrainTop) * scaleY));
+        const x1 = Math.min(canvas.width, Math.ceil((geometry.game.x - geometry.content.x + terrainLeft + 32 * geometry.game.width / view.width) * scaleX));
+        const y1 = Math.min(canvas.height, Math.ceil((geometry.game.y - geometry.content.y + terrainTop + 32 * geometry.game.height / view.height) * scaleY));
+        const observed = new Set();
+        for (let y = y0; y < y1; y += 1) {
+          for (let x = x0; x < x1; x += 1) {
+            const offset = ((canvas.height - 1 - y) * canvas.width + x) * 4;
+            observed.add([pixels[offset], pixels[offset + 1], pixels[offset + 2]].join(","));
+          }
+        }
+        const expected = ${expectedGrassColors};
+        const matched = expected.filter(color => observed.has(color.join(",")));
+        resolve({
+          width: canvas.width,
+          height: canvas.height,
+          nonBlack,
+          frameHash,
+          grassTileRegion: { x0, y0, x1, y1 },
+          expectedGrassColors: expected.length,
+          matchedGrassColors: matched.length,
+          observedGrassColors: observed.size,
+        });
       })))`);
       if (typeof enteredBoard.board !== "string" || !enteredBoard.board.toLowerCase().includes("village")) {
         throw new Error(`authored package did not enter its own village board: ${JSON.stringify(enteredBoard.board)}`);
       }
       if (boardPixels.error !== undefined || boardPixels.width < 1 || boardPixels.height < 1
-        || boardPixels.nonBlack <= 1000 || boardPixels.frameHash === 0) {
-        throw new Error(`authored village pixels were not presented on the Electron canvas: ${JSON.stringify(boardPixels)}`);
+        || boardPixels.nonBlack <= 1000 || boardPixels.frameHash === 0 || boardPixels.matchedGrassColors < 4) {
+        throw new Error(`authored village terrain pixels were not presented on the Electron canvas: ${JSON.stringify(boardPixels)}`);
       }
       authoredBoardProof = {
         packageTitle: "Authored example village",

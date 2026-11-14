@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- The desktop CI lane now builds the repository's authored example package and proves Electron enters `village.brd` and presents non-black pixels on its attached WebGL2 canvas; the existing demo movement probe remains unchanged (#2412, #1018).
+- The authored Electron board proof now stages the example's assets at package root so its indexed startup program, character and board resolve; it checks multiple grass-tile RGB values from the actual canvas framebuffer, rejecting blank or uniformly colored output (#2412, #2428, #2429).
 - Desktop CSP probes no longer overwrite the shared audio worklet while testing decoder failures, so concurrent probes keep their own generated assets (#2345).
 - Each desktop input probe now uses its own Electron profile, so overlapping runs do not share the single-instance lock (#2003). Temporary-profile cleanup retries Windows file locks without masking the probe result (#2344).
 - Browser document-switch cleanup now scopes pending acquisitions to workspace instances, releases stale candidate views immediately, and defers workspace-level document closure until same-identity opens mount or fail. A rejected cleanup remains queued for retry, and workspace closure preserves documents still owned by active views. Consumer regressions check shared-document ownership, failed-open cleanup, workspace inventory and preservation of the shown document's unsaved edit (#2224; [ADR 0022](docs/adr/0022-shared-editor-authoring-contracts.md) D1.2, D3.6–D3.7).
