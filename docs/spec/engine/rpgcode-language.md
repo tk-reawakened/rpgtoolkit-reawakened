@@ -240,6 +240,8 @@ A thread is a whole program run in the background, a slice of instructions per f
 - A finished thread stays registered until it is killed or its board is left.
 - Threads are saved with their full execution state ([../formats/save-game.md](../formats/save-game.md#program-state-inside-each-thread-field-46)).
 
+**Reawakened rule — thread load failures.** The selected file or inline text is compiled before the thread is registered. If loading or compilation fails, the engine reports the failure once, continues the caller, returns `0` (including the optional output), and registers no thread. The legacy behavior for these failures is not established here.
+
 The sleep unit, the per-thread `source`/`target` handles, the preemption budget and the blocking-command rule are in [errors and threads](rpgcode-errors-and-threads.md).
 
 <a id="e-93"></a>

@@ -2,7 +2,7 @@
 title: 'Rule the request counter participation in simulation hashes'
 type: 'feature'
 ticket: '40'
-status: 'draft'
+status: 'done'
 tracker_id: '#1047'
 risk: 'high'
 ---

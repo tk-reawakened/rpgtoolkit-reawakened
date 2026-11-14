@@ -118,6 +118,7 @@ import {
   type ProgramRef,
   type StatementRange,
 } from "./program.ts";
+import { resolveProgram } from "./loader.ts";
 import {
   assembleCommands,
   bindingOf,
@@ -3548,8 +3549,38 @@ function dispatchResolved(
         }
       }
       if (action === "thread") {
+        const file = effect.args?.[1] as string;
+        const loader = services.loader;
+        const indexed = loader !== undefined && resolveProgram(loader, file) !== undefined;
+        let ref: ProgramRef;
+        try {
+          ref = withRedirects(
+            indexed && loader !== undefined
+              ? fileProgramRef(loader, file, vm.redirects)
+              : { kind: "inline", text: file, ir: IR_VERSION },
+            vm.redirects,
+          );
+          services.programs.get(ref);
+        } catch (error) {
+          if (!(error instanceof ScriptError) ||
+              (error.code !== "program.missing" && failureClass(error.code) !== null)) throw error;
+          services.diagnostics.push({
+            code: error.code,
+            file: error.pos?.file || (indexed ? file : "<inline>"),
+            line: error.pos?.line ?? 0,
+            message: error.message,
+          });
+          result = {
+            ...result,
+            value: 0,
+            ...(result.out === undefined ? {} : {
+              out: result.out.map(([index, value]) => [index, index === 2 ? 0 : value] as const),
+            }),
+          };
+          continue;
+        }
         startThread(vm, {
-          ref: { kind: "inline", text: effect.args?.[1] as string, ir: IR_VERSION },
+          ref,
           kind: effect.args?.[2] === true ? "persistent" : "board",
           owner: "script",
         });

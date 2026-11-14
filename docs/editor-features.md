@@ -68,7 +68,7 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 "Near" means within about 16 px.
 
-**T-24 Selected brush.** Pick a tile from a `.tst`, `.iso`, `.tan` (animated) or `.tbm` (stamp). A pop-up tileset browser opens with **L**.
+**T-24 Selected brush.** The retained-context browser lists `.tst`, `.iso`, `.gph`, `.tan` and `.tbm` sources. Press **L** from the focused board cell to focus the browser. Selecting a tile or animation chooses a brush without painting; the board's explicit paint action changes only the active board. Tile bitmaps are previewed here but remain browse-only until the P1 placement provider exists; source editing is unavailable until the P1 tile editor provider exists.
 
 **T-25 Auto-tiler.** With an *auto-tile tileset* loaded and auto-tiling switched on, painting picks each tile automatically from its 8 neighbours. Corners only count when both adjacent edges are filled (standard "blob" rules), giving about 50 variants laid out in a fixed order in the auto-tile set. Neighbouring tiles re-evaluate when you paint. A rebuild must reproduce the variant ordering to stay compatible with community auto-tile sets. Rebuild that ordering from sample sets, not from the legacy table.
 
