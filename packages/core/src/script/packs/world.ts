@@ -92,12 +92,28 @@ const SCAN_MEM_PARAMS = [
 ] as const;
 const SCAN: BuiltinSpec = {
   name: "scan", aliases: [], params: SCAN_MEM_PARAMS,
-  doc: docs("Save a board tile in a scan buffer.", "Copy the visible layer-one tile at one-based board coordinates x,y into the independent buffer identified by pos. The call does not wait."),
+  doc: {
+    ...docs(
+      "Save a board tile in a scan buffer.",
+      "Copy the visible layer-one tile at one-based board coordinates x,y into the independent buffer identified by pos. The call does not wait.",
+      ["legacy", "deprecated"],
+    ),
+    replacedBy: { kind: "syntax", text: "No direct replacement is documented." },
+    reason: "This command is part of the legacy tile-buffer pair. The position argument identifies the saved tile for mem.",
+  },
   call: (view, args) => { board(view); if (args.length !== 3) throw new ScriptError("builtin.bad-arg", '"scan" expects x,y,pos'); return effect(args); },
 };
 const MEM: BuiltinSpec = {
   name: "mem", aliases: [], params: SCAN_MEM_PARAMS,
-  doc: docs("Restore a scanned board tile.", "Replace the visible layer-one tile at one-based board coordinates x,y with the saved value in buffer pos; an empty tile is restored as empty, and an unset buffer does nothing. The call does not wait."),
+  doc: {
+    ...docs(
+      "Restore a scanned board tile.",
+      "Replace the visible layer-one tile at one-based board coordinates x,y with the saved value in buffer pos; an empty tile is restored as empty, and an unset buffer does nothing. The call does not wait.",
+      ["legacy", "deprecated"],
+    ),
+    replacedBy: { kind: "syntax", text: "No direct replacement is documented." },
+    reason: "This command is part of the legacy tile-buffer pair. The position argument identifies the tile saved by scan.",
+  },
   call: (view, args) => { board(view); if (args.length !== 3) throw new ScriptError("builtin.bad-arg", '"mem" expects x,y,pos'); return effect(args); },
 };
 const LAYER_PUT: BuiltinSpec = {
