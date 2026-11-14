@@ -2,7 +2,7 @@
 type: feature
 title: "Trace a real game settings document through both hosts"
 ticket: 2
-status: draft
+status: done
 ---
 
 ## Scope
@@ -16,6 +16,8 @@ Both adapters exercise identical editor-ui behavior and persisted bytes, includi
 ## Verification
 
 A real authored .gam opens in web and VS Code including vscode.dev, an edited field saves and reopens without loss, and the runner reads the saved file.
+
+Completion: #1700 is closed; its [acceptance audit](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1700#issuecomment-6839135286) maps each clause to evidence at `0872e406`. At `4dce26b4`, `tools/editor-vscode-test/test/editor-host-adapters.test.ts` also passed the persisted-byte and failed-save checks.
 
 ## Decisions and prerequisites
 
