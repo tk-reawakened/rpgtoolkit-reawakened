@@ -387,6 +387,7 @@ async function main() {
         `--user-data-dir=${userDataDirectory}`,
         ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
         dist,
+        "--user-data-dir", userDataDirectory,
         "--serve", root,
         "--game", pkg,
         "--page", "packages/runner-desktop/app/player.html",
@@ -462,6 +463,19 @@ async function main() {
     const opened = await status();
     if (opened === null) throw new Error("the live page published no status");
     if (opened.error !== undefined) throw new Error(String(opened.error));
+
+    const ownershipResult = await mainDebugger.send("Runtime.evaluate", {
+      expression: `({ pid: process.pid, userDataDirectory: process.mainModule.require("electron").app.getPath("userData") })`,
+      returnByValue: true,
+    });
+    const ownership = ownershipResult.result.value;
+    if (ownership?.pid !== child.pid || ownership?.userDataDirectory !== userDataDirectory) {
+      throw new Error(`desktop debugger attached to the wrong Electron process/profile: ${JSON.stringify({
+        expectedPid: child.pid,
+        expectedUserDataDirectory: userDataDirectory,
+        actual: ownership,
+      })}`);
+    }
 
     const overlay = async () => evaluate(`({ hidden: document.querySelector("#live-status").hidden,
       width: document.querySelector("#viewport").clientWidth, height: document.querySelector("#viewport").clientHeight,
