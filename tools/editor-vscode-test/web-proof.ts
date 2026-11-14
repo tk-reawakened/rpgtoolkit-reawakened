@@ -1,10 +1,9 @@
+import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors } from "./lifecycle.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
-type Page = import("@playwright/test").Page;
-type Expect = typeof import("@playwright/test").expect;
-type Frame = import("@playwright/test").Frame;
+type Expect = typeof playwrightExpect;
 type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean };
 type CspConsoleViolation = { text: string; url: string; lineNumber: number; columnNumber: number };
 type ProofHost = {
@@ -73,6 +72,9 @@ export async function runVscodeWebProof(
   await assertCspListenerCountsBlockedAction(editor, expect, consoleViolations);
   const before = await readWorkspaceBytes(page, expect);
   await titleField.fill(title);
+  await titleField.press("Enter");
+  const savedTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
+  await expect(savedTab).toHaveClass(/dirty/);
   await editor.getByRole("button", { name: "Save" }).click();
   const saved = await readWorkspaceBytes(page, expect);
   expect(saved).not.toEqual(before);
@@ -81,6 +83,7 @@ export async function runVscodeWebProof(
   expect(host.readHostEvents()).toContainEqual({ kind: "command", value: "workbench.action.files.save" });
   await expect.poll(() => frameCspViolations(page, editor, consoleViolations)).toEqual([]);
   expect(await host.readBacking()).toEqual(saved);
+  await expect(savedTab).not.toHaveClass(/dirty/);
   page = await host.restart(page);
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   expect(await host.readBacking()).toEqual(saved);
@@ -350,7 +353,6 @@ async function backupDiagnostics(page: Page, expect: Expect, browserLogs: readon
   return `${browser}\nVS Code Window Log (matching working-copy/backup lines):\n${relevant.length === 0 ? "(no matching lines in visible log output)" : relevant.join("\n")}`;
 }
 
-type Locator = import("@playwright/test").Locator;
 
 async function expectVisibleWithFrameDiagnostics(page: Page, locator: Locator, expect: Expect, label: string): Promise<void> {
   try {
@@ -470,22 +472,27 @@ async function assertCspListenerCountsBlockedAction(frame: Frame, expect: Expect
 
 
 
-async function readWorkspaceBytes(page: Page, expect: Expect): Promise<Uint8Array> {
-  const commandInput = await commandPalette(page, expect);
+async function openPersistedBytesPanel(page: Page, expect: Expect): Promise<{ tab: Locator; frame: Frame; id: string }> {
   const panelTabs = page.getByRole("tab").filter({ hasText: /Persisted Main File Bytes #[0-9a-f-]+/i });
   const existingCount = await panelTabs.count();
-  await commandInput.fill(`>${copyBytesCommand}`);
-  const commandResult = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: copyBytesCommand }).first();
-  await expect(commandResult).toBeVisible();
-  await commandResult.click();
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
-
+  await runCommand(page, expect, copyBytesCommand);
   await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
   const panelTab = panelTabs.nth(existingCount);
   await expect(panelTab).toBeVisible({ timeout: 15_000 });
   const panelId = /Persisted Main File Bytes #([0-9a-f-]+)/i.exec(await panelTab.innerText())?.[1];
   if (panelId === undefined) throw new Error("The byte probe did not publish a unique panel identifier");
   const panelFrame = await waitForBytesPanelFrame(page, panelId);
+  return { tab: panelTab, frame: panelFrame, id: panelId };
+}
+
+/** Invoke VS Code's real orderly reload through one allowlisted, script-free probe control. */
+export async function requestNativeReload(page: Page, expect: Expect): Promise<void> {
+  const { frame } = await openPersistedBytesPanel(page, expect);
+  await frame.getByRole("link", { name: "Reload workbench", exact: true }).click({ noWaitAfter: true });
+}
+
+async function readWorkspaceBytes(page: Page, expect: Expect): Promise<Uint8Array> {
+  const { tab: panelTab, frame: panelFrame, id: panelId } = await openPersistedBytesPanel(page, expect);
   const encoded = (await panelFrame.locator(`#tkr-proof-persisted-bytes-${panelId}`).innerText()).trim();
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error(`Probe panel ${panelId} did not contain a valid Base64 persisted-byte payload`);
 

@@ -4,7 +4,7 @@ import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { runVscodeWebProof } from "./web-proof.ts";
+import { requestNativeReload, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -115,7 +115,11 @@ for (const choice of ["cancel", "keep"]) {
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const newPage = async () => {
       const page = await browser.newPage();
-      page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
+      page.on("console", (message) => {
+        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow|\[vscode-web-proof-probe\] requesting native reload/.test(message.text())) {
+          recordBrowserDiagnostic(`[console] ${message.text()}`);
+        }
+      });
       page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
       page.on("requestfailed", (request) => recordBrowserDiagnostic(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`));
       return page;
@@ -140,14 +144,7 @@ for (const choice of ["cancel", "keep"]) {
       };
       await currentPage.route(script, holdBootstrap);
       try {
-        await currentPage.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
-        await currentPage.keyboard.press("ControlOrMeta+Shift+P");
-        const input = currentPage.locator(".quick-input-widget input").last();
-        await expect(input).toBeVisible();
-        await input.fill(">Developer: Reload Window");
-        const command = currentPage.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: "Developer: Reload Window" }).first();
-        await expect(command).toBeVisible();
-        await input.press("Enter");
+        await requestNativeReload(currentPage, expect);
         const timeout = Promise.withResolvers();
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
