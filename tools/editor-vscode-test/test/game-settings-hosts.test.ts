@@ -7,6 +7,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, describe, test } from "node:test";
+import { BinaryReader, readMainFile, writeMainFile } from "@tk-reawakened/core";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { createDocumentIdentity, createMainDocument, type MainSettingsChanges } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
@@ -15,11 +16,24 @@ import { GAME } from "../conformance/suite.ts";
 import { settle, type Act } from "../conformance/view.ts";
 
 const gameRoot = fileURLToPath(new URL("../../../docs/spec/examples/game/", import.meta.url));
-const ascii = (text: string): number[] => Array.from(text, (char) => char.charCodeAt(0));
-/** Unknown data after the last legacy row: a package list naming one package, then bytes no reader knows (`#tkr-package-list-extension`). */
-const TRAILING = Uint8Array.from([...ascii("TKRPLUG"), 0, 1, 0, ...ascii("stock_battle"), 0, 0xde, 0xad, 0xbe, 0xef]);
 const OPAQUE = Uint8Array.from([0xde, 0xad, 0xbe, 0xef]);
-const gam = Uint8Array.from([...readFileSync(join(gameRoot, "Main", "example.gam")), ...TRAILING]);
+
+/** Put the package list before the example's TRKINP block, then keep unknown bytes after every known extension. */
+function gameMain(): Uint8Array {
+  const source = new Uint8Array(readFileSync(join(gameRoot, "Main", "example.gam")));
+  const decoded = readMainFile(new BinaryReader(source, "Main/example.gam"));
+  if (!decoded.ok) throw new Error(decoded.error.message);
+  const encoded = writeMainFile({
+    ...decoded.value,
+    packagePlugins: ["stock_battle"],
+    packagePluginsExtension: true,
+    residue: OPAQUE,
+  });
+  if (!encoded.ok) throw new Error(encoded.error.message);
+  return encoded.value;
+}
+
+const gam = gameMain();
 
 /** The example game's project files (not its main file or saves), plus a second board for the settings to choose. */
 function projectFiles(): Record<string, Uint8Array> {
