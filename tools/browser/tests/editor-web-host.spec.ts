@@ -65,7 +65,7 @@ test("browser workbench opens, edits, saves, and reopens character and item spri
   await authoring.getByLabel("Maximum level (0 disables progression)").blur();
   await expect(authoring.getByLabel("Character edit status")).toHaveText("Character change recorded. Save the document to keep it.");
   // #2609: the character editor cannot open linked .prg or .spc files, so it discloses that limitation rather than offering actions that fail.
-  await expect(authoring.getByLabel("Linked authoring availability")).toContainText("not available");
+  await expect(authoring.getByLabel("Linked authoring availability")).toContainText("cannot open linked");
   await expect(authoring.getByRole("button", { name: /^Open (level-up program|special-move file)$/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Save all", exact: true }).click();
   await expect(page.locator("#host-status")).toContainText(`Saved ${characterPath}.`);

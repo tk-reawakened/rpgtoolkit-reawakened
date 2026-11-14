@@ -158,13 +158,13 @@ for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
       ok(same(await proof.disk(PATH), ORIGINAL));
     });
 
-    test("the character view says that linked .prg and .spc files cannot be opened from it, and offers no action that would fail (#2609)", async () => {
+    test("the character view says it cannot open linked .prg and .spc files, and offers no Open action (#2609)", async () => {
       const proof = host();
       const tab = await openReady(proof);
       equal(tab.element.querySelector('button[aria-label="Open level-up program"]'), null);
       equal(tab.element.querySelector('button[aria-label="Open special-move file"]'), null);
       const notice = tab.element.querySelector('[aria-label="Linked authoring availability"]')?.textContent ?? "";
-      ok(notice.includes(".prg") && notice.includes(".spc") && notice.includes("not available"), notice);
+      ok(notice.includes("cannot open linked") && notice.includes(".prg") && notice.includes(".spc"), notice);
       await tab.close("discard");
     });
   });

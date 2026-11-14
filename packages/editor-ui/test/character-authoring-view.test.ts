@@ -213,11 +213,11 @@ test("project asset pickers leave cancelled references unchanged, and no linked 
     await settle();
     equal(setupView.doc.getSnapshot().character?.specialMoves[12]?.file, "meteor.spc");
 
-    // Neither host has a program or special-move editor, so no Open action exists to fail, and the view says why.
+    // References remain available, but this view cannot open the linked files and offers no broken Open action.
     equal(setupView.el.querySelector('button[aria-label="Open level-up program"]'), null);
     equal(setupView.el.querySelector('button[aria-label="Open special-move file"]'), null);
     const notice = setupView.el.querySelector('[aria-label="Linked authoring availability"]')?.textContent ?? "";
-    ok(notice.includes(".prg") && notice.includes(".spc") && notice.includes("not available"), notice);
+    ok(notice.includes("cannot open linked") && notice.includes(".prg") && notice.includes(".spc"), notice);
 
     deepEqual(requests.map(({ kind, extensions }) => ({ kind, extensions })), [
       { kind: "bitmaps", extensions: [".bmp", ".png", ".jpg", ".gif", ".tbm"] },

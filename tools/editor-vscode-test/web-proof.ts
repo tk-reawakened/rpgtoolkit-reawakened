@@ -58,9 +58,9 @@ export async function runVscodeSpriteWebProof(
   const north = view.getByRole("group", { name: "Directional walk animations" }).getByLabel("North animation file");
   await north.fill("Misc/vscode-web-proof.gif");
   await north.press("Tab");
-  // #2609: no host has a .prg or .spc editor, so the view says so rather than offering links that fail.
+  // #2609: the character editor cannot open linked files; keep the disclosure and omit Open actions.
   const authoring = editor.getByRole("region", { name: "Character authoring" });
-  await expect(authoring.getByLabel("Linked authoring availability")).toContainText("not available");
+  await expect(authoring.getByLabel("Linked authoring availability")).toContainText("cannot open linked");
   await expect(authoring.getByRole("button", { name: /^Open (level-up program|special-move file)$/ })).toHaveCount(0);
   // #2613: the last edit is submitted by leaving its field; the view's Save, like VS Code's, includes it.
   await authoring.getByLabel("Character name", { exact: true }).fill("Vscode proof");
