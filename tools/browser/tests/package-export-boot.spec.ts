@@ -1,75 +1,99 @@
 import { readdirSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
-import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { createDocumentWorkspace, prepareGamePackage } from "../../../packages/editor-model/src/index.ts";
-import { createMemoryPlatformServices } from "../../../packages/platform-services/src/testing.ts";
-import { platformOk } from "../../../packages/platform-services/src/result.ts";
-type RunnerWindow = Window & { __live?: { readonly board: string | null } };
 
-function addSampleFiles(directory: string, prefix: string, files: Record<string, Uint8Array>): void {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const sourcePath = join(directory, entry.name);
-    const projectPath = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) addSampleFiles(sourcePath, projectPath, files);
-    else if (entry.isFile()) files[projectPath] = new Uint8Array(readFileSync(sourcePath));
-  }
-}
+type RunnerWindow = Window & { __live?: { readonly board: string | null }; __tkrTestFolder?: FileSystemDirectoryHandle };
+type ProjectInput = { readonly path: string; readonly bytes: readonly number[] };
 
-async function generatedPackage() {
-  const files: Record<string, Uint8Array> = {
-    "Main/example.gam": new Uint8Array(readFileSync(resolve("docs/spec/examples/game/Main/example.gam"))),
+function editorProjectFiles(): ProjectInput[] {
+  const files: ProjectInput[] = [{
+    path: "Main/example.gam",
+    bytes: Array.from(readFileSync(resolve("docs/spec/examples/game/Main/example.gam"))),
+  }];
+  const walk = (directory: string, prefix: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const sourcePath = join(directory, entry.name);
+      const path = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) walk(sourcePath, path);
+      else if (entry.isFile()) files.push({ path, bytes: Array.from(readFileSync(sourcePath)) });
+    }
   };
-  addSampleFiles(resolve("docs/spec/examples/game/Game/Example"), "", files);
-  const host = createMemoryPlatformServices({ files });
-  const workspace = createDocumentWorkspace({ projectId: "runner-smoke", services: host });
-  try {
-    const services = {
-      fs: host.fs,
-      packageExport: {
-        async sha256(bytes: Uint8Array) {
-          return platformOk(createHash("sha256").update(bytes).digest("hex"));
-        },
-        async downloadFile() {
-          return platformOk(undefined);
-        },
-      },
-    };
-    const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/example.gam", version: "1.0.0" });
-    if (!prepared.ok) throw new Error(prepared.message);
-    return prepared.value;
-  } finally {
-    workspace.dispose();
-  }
+  walk(resolve("docs/spec/examples/game/Game/Example"), "");
+  return files;
 }
 
-test("exported package boots in the real interactive web runner without its source folder", async ({ page }) => {
-  const prepared = await generatedPackage();
-  const packageName = prepared.package.fileName;
-  const archiveBytes = Buffer.from(prepared.package.bytes);
+test("the reviewed editor download boots in the real web runner without its source folder", async ({ page }) => {
+  const files = editorProjectFiles();
+  const folderName = `TkrPackageBoot-${randomUUID()}`;
+  await page.addInitScript(async ({ inputs, name }: { readonly inputs: readonly ProjectInput[]; readonly name: string }) => {
+    const storage = await navigator.storage.getDirectory();
+    const root = await storage.getDirectoryHandle(name, { create: true });
+    for (const input of inputs) {
+      const parts = input.path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part, { create: true });
+      const file = await parent.getFileHandle(parts.at(-1)!, { create: true });
+      const writable = await file.createWritable();
+      await writable.write(new Uint8Array(input.bytes));
+      await writable.close();
+    }
+    (window as RunnerWindow).__tkrTestFolder = root;
+    Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: async () => root });
+  }, { inputs: files, name: folderName });
+
+  await page.goto("/tools/browser/editor-web/index.html");
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Package game…", exact: true }).click();
+  await page.getByLabel("Release version").fill("1.0.0");
+  await page.getByRole("button", { name: "Prepare package", exact: true }).click();
+  await expect(page.locator(".tkr-files-package-status")).toContainText("Preflight passed");
+  await page.getByLabel("I reviewed the included and excluded files.").check();
+
+  const archiveDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: /^Download .+\.tpk$/ }).click();
+  const archiveDownload = await archiveDownloadPromise;
+  const archiveBytes = readFileSync(await archiveDownload.path());
+  const packageName = archiveDownload.suggestedFilename();
+  const descriptorDownloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: `Download ${packageName}.json`, exact: true }).click();
+  const descriptorDownload = await descriptorDownloadPromise;
+  const descriptorBytes = readFileSync(await descriptorDownload.path());
+  const descriptor = JSON.parse(descriptorBytes.toString("utf8")) as { file: string; sha256: string; size: number };
+  expect(descriptor).toMatchObject({
+    file: packageName,
+    size: archiveBytes.byteLength,
+    sha256: await page.evaluate(async (bytes) => {
+      const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes));
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    }, [...archiveBytes]),
+  });
+
+  const archive = Buffer.from(archiveBytes);
   await page.route(`**/${packageName}`, (route) => {
     const range = /^bytes=(\d+)-(\d+)$/.exec(route.request().headers()["range"] ?? "");
     if (range === null) {
-      return route.fulfill({ status: 200, headers: { "accept-ranges": "bytes" }, contentType: "application/octet-stream", body: archiveBytes });
+      return route.fulfill({ status: 200, headers: { "accept-ranges": "bytes" }, contentType: "application/octet-stream", body: archive });
     }
     const start = Number(range[1]);
     const end = Number(range[2]);
-    if (start >= archiveBytes.length || end < start) {
-      return route.fulfill({ status: 416, headers: { "content-range": `bytes */${archiveBytes.length}` } });
+    if (start >= archive.length || end < start) {
+      return route.fulfill({ status: 416, headers: { "content-range": `bytes */${archive.length}` } });
     }
-    const last = Math.min(end, archiveBytes.length - 1);
+    const last = Math.min(end, archive.length - 1);
     return route.fulfill({
       status: 206,
       headers: {
         "accept-ranges": "bytes",
-        "content-range": `bytes ${start}-${last}/${archiveBytes.length}`,
+        "content-range": `bytes ${start}-${last}/${archive.length}`,
         "content-length": String(last - start + 1),
       },
       contentType: "application/octet-stream",
-      body: archiveBytes.subarray(start, last + 1),
+      body: archive.subarray(start, last + 1),
     });
   });
-  await page.route(`**/${packageName}.json`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: Buffer.from(prepared.descriptor.bytes) }));
+  await page.route(`**/${packageName}.json`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: descriptorBytes }));
 
   await page.goto(`/packages/runner-web/app/index.html?package=${packageName}&mode=whole`);
   await page.waitForFunction(() => (window as RunnerWindow).__live !== undefined, undefined, { timeout: 45_000 });

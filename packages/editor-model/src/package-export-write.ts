@@ -56,40 +56,16 @@ async function checkAbsent(
   return null;
 }
 
-async function publishWithoutRename(
-  services: Pick<PlatformServices, "fs" | "dialogs">,
-  selected: string,
-  descriptorPath: string,
-  packageBytes: Uint8Array,
-  descriptorBytes: Uint8Array,
-): Promise<PublishPackageOutcome> {
-  const warning = await services.dialogs.ask({
-    message: "This project folder cannot rename package files atomically.",
-    detail: "If writing is interrupted, a partial package or install descriptor may remain. Continue?",
-    choices: [
-      { id: "continue", label: "Continue" },
-      { id: "cancel", label: "Cancel" },
-    ],
-    cancel: "cancel",
-  });
-  if (warning !== "continue") return { ok: false, message: "Package export was cancelled; the project was not changed." };
-
-  const packageWrite = await services.fs.write(selected, packageBytes);
-  if (!packageWrite.ok) {
-    const remaining = await cleanup(services.fs, [selected]);
-    return existsError(`Could not write the package: ${packageWrite.error.message}. This host cannot rename; an interrupted write may leave a partial file.${cleanupMessage(remaining)}`);
-  }
-  const descriptorWrite = await services.fs.write(descriptorPath, descriptorBytes);
-  if (!descriptorWrite.ok) {
-    const remaining = await cleanup(services.fs, [descriptorPath, selected]);
-    return existsError(`Could not write the install descriptor: ${descriptorWrite.error.message}. This host cannot rename; an interrupted write may leave a partial file.${cleanupMessage(remaining)}`);
-  }
-  return { ok: true, path: selected };
+function publishWithoutRename(selected: string): PublishPackageOutcome {
+  return existsError(
+    `Cannot safely publish ${selected}: this host cannot atomically rename or reserve both output files. Download the package and install descriptor instead; the project was not changed.`,
+  );
 }
 
 /**
  * Save the package and its sibling install descriptor through the project filesystem (ADR 0022 D5). Hosts with rename
- * stage both files under unique names before publishing; hosts without it warn before writing directly.
+ * stage both files under unique names before publishing; without rename and a host-level exclusive reservation, publication
+ * is refused rather than risk replacing files created after the preflight check.
  */
 export async function publishGamePackage(
   services: Pick<PlatformServices, "fs" | "dialogs">,
@@ -130,7 +106,7 @@ export async function publishGamePackage(
 
     const renameProbe = await services.fs.rename(packageTempPath, descriptorTempPath);
     if (!renameProbe.ok && renameProbe.error.code === "unavailable") {
-      return publishWithoutRename(services, selected, descriptorPath, prepared.package.bytes, descriptorBytes);
+      return publishWithoutRename(selected);
     }
     if (renameProbe.ok || renameProbe.error.code !== "not-found") {
       return existsError(`Could not determine whether package output can be renamed: ${renameProbe.ok ? "the host unexpectedly moved a nonexistent probe file" : renameProbe.error.message}`);
@@ -151,7 +127,7 @@ export async function publishGamePackage(
     if (!packageRename.ok) {
       const remaining = await cleanup(services.fs, [packageTempPath, descriptorTempPath]);
       if (packageRename.error.code === "unavailable" && remaining.length === 0) {
-        return publishWithoutRename(services, selected, descriptorPath, prepared.package.bytes, descriptorBytes);
+        return publishWithoutRename(selected);
       }
       return existsError(`Could not publish the package: ${packageRename.error.message}.${cleanupMessage(remaining)}`);
     }

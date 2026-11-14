@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { autosaveSetting, combineProofErrors } from "./lifecycle.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
@@ -101,6 +102,38 @@ export async function runVscodeWebProof(
   page = await host.restart(page);
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   expect(await host.readBacking()).toEqual(saved);
+
+  // Publish through the registered package command in the real VS Code web workbench, then inspect the host's persisted
+  // workspace files independently of the command UI.
+  const publishCommand = await commandPalette(page, expect);
+  await publishCommand.fill(">Test: Execute Package Game");
+  const publishEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  await expect(publishEntry).toBeVisible();
+  await publishEntry.click();
+  await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
+  const inventoryDialog = page.getByRole("dialog");
+  await expect(inventoryDialog.getByText(/Included \(\d+\):/)).toBeVisible();
+  await inventoryDialog.getByRole("button", { name: "Publish package…", exact: true }).click();
+  const packageBase = title.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "game";
+  const packageName = `${packageBase}.tpk`;
+  const savePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(savePath).toHaveValue(`/${packageName}`);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByText(/Package and install descriptor saved to/).first()).toBeVisible({ timeout: 15_000 });
+  const packageBytes = await host.readBacking(packageName);
+  const descriptorBytes = await host.readBacking(`${packageName}.json`);
+  const descriptor = JSON.parse(new TextDecoder().decode(descriptorBytes)) as {
+    file: string;
+    sha256: string;
+    size: number;
+    title: string;
+    version: string;
+  };
+  expect(descriptor.file).toBe(packageName);
+  expect(descriptor.sha256).toBe(createHash("sha256").update(packageBytes).digest("hex"));
+  expect(descriptor.size).toBe(packageBytes.byteLength);
+  expect(descriptor.title).toBe(title);
+  expect(descriptor.version).toBe("1.0.0");
 
   await openGame(page, gamePath, expect);
   let reopenedEditor = await waitForEditorFrame(page, "reopened Game settings editor");

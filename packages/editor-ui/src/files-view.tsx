@@ -237,6 +237,7 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
             type="text"
             required
             maxLength={128}
+            value={packageVersion}
             onInput={(event) => {
               setPackageVersion(event.currentTarget.value);
               setPrepared(null);
@@ -281,12 +282,11 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
                   </label>
                   {canWriteFolder ? (
                     <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={publish}>Save package and descriptor…</button>
-                  ) : (
-                    <div class="tkr-files-package-downloads">
-                      <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.package)}>Download {prepared.package.fileName}</button>
-                      <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.descriptor)}>Download {prepared.descriptor.fileName}</button>
-                    </div>
-                  )}
+                  ) : null}
+                  <div class="tkr-files-package-downloads">
+                    <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.package)}>Download {prepared.package.fileName}</button>
+                    <button type="button" disabled={packageBusy || !inventoryReviewed} onClick={() => download(prepared.descriptor)}>Download {prepared.descriptor.fileName}</button>
+                  </div>
                 </>
               ) : null}
             </div>

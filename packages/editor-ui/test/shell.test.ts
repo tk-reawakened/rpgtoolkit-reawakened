@@ -343,6 +343,19 @@ test("changing the release version invalidates the prepared inventory and its co
   match(s.el.querySelector(".tkr-files-package-status")?.textContent ?? "", /Release version changed\. Prepare and review the package again\./);
 });
 
+test("package release version remains visible and actionable after closing and reopening the panel", async () => {
+  const s = await setup();
+  await click(button(s.el, "Package game…"));
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  await act(() => { version.value = "2.3.4"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Close"));
+  equal(s.el.querySelector(".tkr-files-package-panel"), null);
+  await click(button(s.el, "Package game…"));
+  const reopened = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  equal(reopened.value, "2.3.4");
+  equal(button(s.el, "Prepare package").disabled, false);
+});
+
 
 test("the shell writes no style attribute and no inline handler attribute (strict CSP, ADR 0025 decision 6)", async () => {
   const s = await setup();
