@@ -646,7 +646,8 @@ jobs:
           cp docs/spec/examples/game/Main/example.gam "$workspace/Main/example.gam"
           printf '{\n  "files.autoSave": "off"\n}\n' > "$workspace/.vscode/settings.json"
           # Keep the replaceable VS Code cache beside, not inside, the source fixture: later proof iterations copy that fixture as a project.
-          export TKR_VSCODE_TEST_DATA_DIR="$RUNNER_TEMP/tkr-vscode-builds"
+          cache_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-cache.XXXXXX")"
+          export TKR_VSCODE_TEST_DATA_DIR="$cache_root/builds"
           # Root's DAC override defeats the chmod-based physical write-refusal proof (#2659).
           # Drop only those capabilities for this proof, retaining the same workspace and real filesystem.
           set --
