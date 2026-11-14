@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { compareClosingBatchTickHashes, parseClosingPlan, runClosingGame, type ClosingBatchTrace } from "@tk-reawakened/runner-harness";
-import { loadGameFiles } from "../../../packages/runner-headless/src/closing.ts";
+import { loadGameFiles } from "@tk-reawakened/runner-headless";
 
 /**
  * Entry 9.14's browser limb: every planned game runs through the real engine in Chromium at all three tick batchings.
@@ -32,7 +32,7 @@ declare global {
   }
 }
 
-function baseline(): { readonly games: Readonly<Record<string, Record_>> } {
+function baseline(): { readonly games: Readonly<Record<string, GameRecord>> } {
   return JSON.parse(readFileSync(resolve("golden/regression/closing.json"), "utf8")) as { games: Record<string, GameRecord> };
 }
 function nodeBatchTickHashes(): ReadonlyMap<string, readonly ClosingBatchTrace[]> {

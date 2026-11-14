@@ -8,5 +8,5 @@
     "types": ["node"],
     "rootDir": "../.."
   },
-  "include": ["tests/editor-web-host.spec.ts", "tests/editor-lifecycle.spec.ts"]
+  "include": ["tests/editor-web-host.spec.ts", "tests/editor-lifecycle.spec.ts", "tests/closing.spec.ts"]
 }
