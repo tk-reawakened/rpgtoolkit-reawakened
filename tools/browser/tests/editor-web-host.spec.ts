@@ -108,6 +108,46 @@ test("browser recent projects do not open after the user denies restored-folder 
   await expect(page.locator("#host-status")).toContainText("could not be reopened");
   await expect(page.getByLabel("Game title")).toHaveCount(0);
 });
+test("browser editor response header refuses cross-origin framing", async ({ page }) => {
+  const response = await page.goto("/tools/browser/editor-web/index.html");
+  expect(response).not.toBeNull();
+  expect(response!.headers()["content-security-policy"]).toBe("frame-ancestors 'none'");
+  expect(response!.headers()["x-frame-options"]).toBe("DENY");
+  // Case-insensitive filesystems may serve the same editor under differently cased path segments.
+  const alias = await page.request.get("/tools/browser/EDITOR-WEB/index.html");
+  if (alias.ok()) {
+    expect(alias.headers()["content-security-policy"]).toBe("frame-ancestors 'none'");
+    expect(alias.headers()["x-frame-options"]).toBe("DENY");
+  } else {
+    expect(alias.status()).toBe(404);
+  }
+  await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveAttribute(
+    "content",
+    "default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'",
+  );
+
+  // The embedding page must not itself forbid frames: the editor's meta CSP defaults to frame-src 'none'.
+  const port = new URL(page.url()).port;
+  await page.goto("/health");
+  const target = `http://localhost:${port}`;
+  await page.evaluate((url) => {
+    const iframe = document.createElement("iframe");
+    iframe.id = "control";
+    iframe.src = `${url}/health`;
+    document.body.append(iframe);
+  }, target);
+  await expect(page.frameLocator("#control").locator("body")).toHaveText("ok");
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.evaluate((url) => {
+    const iframe = document.createElement("iframe");
+    iframe.src = `${url}/tools/browser/editor-web/index.html`;
+    document.body.append(iframe);
+  }, target);
+  await expect.poll(() => consoleErrors.some((message) => message.includes(`frame-ancestors 'none'`))).toBe(true);
+});
 
 type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean };
 
