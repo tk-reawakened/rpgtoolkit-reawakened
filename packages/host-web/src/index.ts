@@ -1,9 +1,10 @@
 import { createDocumentWorkspace, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PlatformServices, ProjectHandle, SettingValue, SettingsLayer } from "@tk-reawakened/platform-services";
+import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { mount, type BoardViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
+import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 
 /**
@@ -24,6 +25,8 @@ export interface WebProject {
 /** What a browser project is made with; `dialogs` defaults to the page's own modal dialogs. */
 export interface WebProjectOptions {
   readonly dialogs?: DialogService;
+  /** Where the user layer of the editor settings is kept; the page's `localStorage` by default, memory when there is none. */
+  readonly userSettings?: UserSettingsStorage | null;
 }
 
 type DirectoryPickerWindow = Window & {
@@ -72,10 +75,14 @@ function pageDialogs(): DialogService {
   };
 }
 
+function webUserStorage(options: WebProjectOptions): UserSettingsStorage | null {
+  if (options.userSettings !== undefined) return options.userSettings;
+  return typeof localStorage === "undefined" ? null : localStorage;
+}
+
 /** A project over a folder handle the host has already registered under `project` (or a test's own handle). */
 export function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle, options: WebProjectOptions = {}): WebProject {
   let active = true;
-  const values = new Map<string, SettingValue>();
   const capabilities = new Set(FOLDER_CAPABILITIES);
   const fs = bindProjectFileSystem(project.id, createWebFileSystem(root, project.id), () => active);
   const dialogs = options.dialogs ?? pageDialogs();
@@ -93,14 +100,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
         return recent ? platformOk(recent) : platformError("unavailable", "Browser project persistence is unavailable.");
       },
     },
-    settings: {
-      get: async (layer, id) => platformOk(values.get(`${layer}:${id}`) ?? null),
-      set: async (layer: SettingsLayer, id: string, value) => {
-        const key = `${layer}:${id}`;
-        if (value === null) values.delete(key); else values.set(key, value);
-        return platformOk(undefined);
-      },
-    },
+    settings: createWebSettings(fs, webUserStorage(options), capabilities.has("folderWrite")),
     document: workspace.document,
     dialogs,
   };
@@ -156,7 +156,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     capabilities,
     fs,
     project: { open: async () => platformOk(project), recent: async () => platformOk([project]) },
-    settings: { get: async () => platformOk(null), set: async () => platformError("unavailable", "Settings are unavailable in a session copy.") },
+    settings: createWebSettings(fs, webUserStorage(options), false),
     document: workspace.document,
     dialogs,
   };
@@ -263,3 +263,4 @@ export const mountGameSettings = mountEditor;
 export { createPageDialogs } from "./dialogs.ts";
 export { createWorkbench, type Workbench, type WorkbenchOptions } from "./workbench.ts";
 export { createWebFileSystem } from "./filesystem.ts";
+export { createWebSettings, PROJECT_SETTINGS_PATH, type UserSettingsStorage } from "./settings.ts";
