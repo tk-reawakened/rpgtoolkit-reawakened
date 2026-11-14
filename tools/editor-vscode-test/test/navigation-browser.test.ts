@@ -44,6 +44,19 @@ before(async () => {
 
 after(() => GlobalRegistrator.unregister());
 
+/**
+ * The user layer of the settings for one test: its own storage. The page's `localStorage` is shared by every test in the
+ * process, so a layout one test saved would be restored into the next test's first workbench.
+ */
+function userStorage(): { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void } {
+  const items = new Map<string, string>();
+  return {
+    getItem: (key) => items.get(key) ?? null,
+    setItem: (key, value) => void items.set(key, value),
+    removeItem: (key) => void items.delete(key),
+  };
+}
+
 function project() {
   const control: WriteControl = { refuse: false, hold: null, tick: 0 };
   const root = new MemoryDirectory("project", control);
@@ -52,7 +65,7 @@ function project() {
   root.put("Boards/caves/mine.brd", board);
   root.put("Misc/readme.txt", new Uint8Array([2]));
   const dialogs = new ScriptedDialogs();
-  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:navigation", name: "Navigation" }, { dialogs });
+  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:navigation", name: "Navigation" }, { dialogs, userSettings: userStorage() });
   document.body.replaceChildren();
   const element = document.createElement("div");
   document.body.append(element);
