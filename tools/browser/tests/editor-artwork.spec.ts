@@ -107,12 +107,14 @@ async function expectPixel(page: Page, canvas: Locator, x: number, y: number, rg
   await expect.poll(() => canvasPixel(page, canvas, x, y, size)).toEqual(visible);
 }
 
-async function beginStroke(page: Page, canvas: Locator, x: number, y: number, endX = x, endY = y): Promise<void> {
+async function beginStroke(page: Page, canvas: Locator, x: number, y: number, endX = x, endY = y): Promise<{ x: number; y: number }> {
   const box = await canvas.boundingBox();
   if (box === null) throw new Error("The actual pixel canvas has no bounds");
   await page.mouse.move(box.x + (x + 0.5) * box.width / 32, box.y + (y + 0.5) * box.height / 32);
   await page.mouse.down();
-  await page.mouse.move(box.x + (endX + 0.5) * box.width / 32, box.y + (endY + 0.5) * box.height / 32);
+  const end = { x: box.x + (endX + 0.5) * box.width / 32, y: box.y + (endY + 0.5) * box.height / 32 };
+  await page.mouse.move(end.x, end.y);
+  return end;
 }
 
 async function openFile(page: Page, path: string): Promise<void> {
@@ -252,7 +254,10 @@ test("actual browser art gestures stay private until accepted, share history, an
 
   await main.getByLabel("Brush color").fill("#31c098");
   await canvas.scrollIntoViewIfNeeded();
-  await beginStroke(page, canvas, 14, 15);
+  const pointer = await beginStroke(page, canvas, 14, 15);
+  // Scrolling under a stationary captured pointer must not paint another part of the tile.
+  await page.evaluate(() => window.scrollBy(0, 16));
+  await page.mouse.move(pointer.x, pointer.y);
   await expectPixel(page, canvas, 14, 15, green);
   await page.keyboard.press("ControlOrMeta+s");
   await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(accepted);

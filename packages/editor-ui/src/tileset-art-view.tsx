@@ -26,6 +26,8 @@ interface Gesture {
   readonly changes: Set<number>;
   lastX: number;
   lastY: number;
+  lastClientX: number;
+  lastClientY: number;
 }
 
 interface RenderCache {
@@ -366,7 +368,7 @@ export function TilesetArtView({ doc, capabilities, onEdited }: TilesetArtViewPr
             if (!canPaint || event.button !== 0 || active === undefined || gesture.current !== null) return;
             event.currentTarget.focus({ preventScroll: true });
             const point = coordinateAt(event.clientX, event.clientY, active.width, active.height);
-            const current: Gesture = { pointerId: event.pointerId, tile: selectedTile, baseTiles: tiles, rgba: brushRgba(color, erase), changes: new Set(), lastX: point.x, lastY: point.y };
+            const current: Gesture = { pointerId: event.pointerId, tile: selectedTile, baseTiles: tiles, rgba: brushRgba(color, erase), changes: new Set(), lastX: point.x, lastY: point.y, lastClientX: event.clientX, lastClientY: event.clientY };
             gesture.current = current;
             event.currentTarget.setPointerCapture(event.pointerId);
             stage(current, point.x, point.y);
@@ -378,6 +380,10 @@ export function TilesetArtView({ doc, capabilities, onEdited }: TilesetArtViewPr
               cancelGesture();
               return;
             }
+            // Scrolling/reflow can emit a pointermove without physical movement.
+            if (event.clientX === current.lastClientX && event.clientY === current.lastClientY) return;
+            current.lastClientX = event.clientX;
+            current.lastClientY = event.clientY;
             const point = coordinateAt(event.clientX, event.clientY, active.width, active.height);
             stage(current, point.x, point.y);
           }}
