@@ -1,5 +1,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
+import { publishGamePackage } from "@tk-reawakened/editor-model";
+import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createWebFileSystem } from "../src/filesystem.ts";
 
 type FakeFile = { bytes: Uint8Array; denyWrite?: boolean };
@@ -91,4 +93,45 @@ test("web filesystem reports a refused durable write and preserves the prior byt
   ok(!result.ok);
   equal(result.error.code, "permission-denied");
   deepEqual([...file.bytes], [1, 2, 3]);
+});
+
+test("web filesystem publishes package and descriptor without rename after warning about partial writes", async () => {
+  const { root, fs } = fixture();
+  const host = createMemoryPlatformServices();
+  const prepared = {
+    package: { fileName: "game.tpk", bytes: new Uint8Array([1, 2, 3]) },
+    descriptor: {
+      fileName: "game.tpk.json",
+      bytes: new TextEncoder().encode(JSON.stringify({
+        schema: 1,
+        file: "game.tpk",
+        sha256: "0".repeat(64),
+        size: 3,
+        gameId: "game-id",
+        title: "Game",
+        version: "1.0.0",
+      })),
+    },
+    includedFiles: [],
+    excludedFiles: [],
+  };
+  host.answerSavePaths("Build/cancelled.tpk");
+  host.answerQuestions("cancel");
+  const cancelled = await publishGamePackage({ fs, dialogs: host.dialogs }, "Main/game.gam", prepared);
+  equal(cancelled.ok, false);
+  ok(!root.children.has("Build"), "cancelling the no-rename warning writes nothing");
+
+  host.answerSavePaths("Build/game.tpk");
+  host.answerQuestions("continue");
+  const published = await publishGamePackage({ fs, dialogs: host.dialogs }, "Main/game.gam", prepared);
+  ok(published.ok, published.ok ? "" : published.message);
+  const archive = await fs.read("Build/game.tpk");
+  const descriptor = await fs.read("Build/game.tpk.json");
+  ok(archive.ok);
+  ok(descriptor.ok);
+  deepEqual([...archive.value], [1, 2, 3]);
+  equal(JSON.parse(new TextDecoder().decode(descriptor.value)).file, "game.tpk");
+  const listing = await fs.list("Build");
+  ok(listing.ok);
+  deepEqual(listing.value.map(({ name }) => name).sort(), ["game.tpk", "game.tpk.json"]);
 });

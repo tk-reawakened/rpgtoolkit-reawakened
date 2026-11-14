@@ -90,6 +90,7 @@ class Disk {
 function fileSystemPort(disk: Disk): VscodeFileSystemPort<Uri> {
   const missing = (uri: Uri) => Object.assign(new Error(`${uri.path} was not found`), { code: "FileNotFound" });
   return {
+    isSymbolicLink: (type) => (type & 64) !== 0,
     isDirectory: (type) => (type & 2) !== 0,
     joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
     parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),

@@ -1,4 +1,4 @@
-import { utf8Decode, utf8Encode } from "@tk-reawakened/core";
+import { foldPath, utf8Decode, utf8Encode } from "@tk-reawakened/core";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
 import type { PreparedGamePackage } from "./package-export.ts";
 
@@ -10,9 +10,86 @@ function existsError(message: string): PublishPackageOutcome {
   return { ok: false, message };
 }
 
+const publicationTails = new Map<string, Promise<void>>();
+
+async function serializePublication<T>(path: string, action: () => Promise<T>): Promise<T> {
+  const previous = publicationTails.get(path) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.then(() => current);
+  publicationTails.set(path, queued);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (publicationTails.get(path) === queued) publicationTails.delete(path);
+  }
+}
+
+async function cleanup(fs: PlatformServices["fs"], paths: readonly string[]): Promise<string[]> {
+  const remaining: string[] = [];
+  for (const path of paths) {
+    try {
+      const result = await fs.delete(path);
+      if (!result.ok && result.error.code !== "not-found") remaining.push(`${path}: ${result.error.message}`);
+    } catch (error) {
+      remaining.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return remaining;
+}
+
+function cleanupMessage(remaining: readonly string[]): string {
+  return remaining.length === 0 ? "" : ` Cleanup failed; partial output remains at ${remaining.join("; ")}.`;
+}
+
+async function checkAbsent(
+  fs: PlatformServices["fs"],
+  paths: readonly string[],
+): Promise<PublishPackageOutcome | null> {
+  for (const path of paths) {
+    const stat = await fs.stat(path);
+    if (stat.ok) return existsError(`${path} already exists; choose a different output name so existing files are not changed.`);
+    if (stat.error.code !== "not-found") return existsError(`Could not check ${path}: ${stat.error.message}`);
+  }
+  return null;
+}
+
+async function publishWithoutRename(
+  services: Pick<PlatformServices, "fs" | "dialogs">,
+  selected: string,
+  descriptorPath: string,
+  packageBytes: Uint8Array,
+  descriptorBytes: Uint8Array,
+): Promise<PublishPackageOutcome> {
+  const warning = await services.dialogs.ask({
+    message: "This project folder cannot rename package files atomically.",
+    detail: "If writing is interrupted, a partial package or install descriptor may remain. Continue?",
+    choices: [
+      { id: "continue", label: "Continue" },
+      { id: "cancel", label: "Cancel" },
+    ],
+    cancel: "cancel",
+  });
+  if (warning !== "continue") return { ok: false, message: "Package export was cancelled; the project was not changed." };
+
+  const packageWrite = await services.fs.write(selected, packageBytes);
+  if (!packageWrite.ok) {
+    const remaining = await cleanup(services.fs, [selected]);
+    return existsError(`Could not write the package: ${packageWrite.error.message}. This host cannot rename; an interrupted write may leave a partial file.${cleanupMessage(remaining)}`);
+  }
+  const descriptorWrite = await services.fs.write(descriptorPath, descriptorBytes);
+  if (!descriptorWrite.ok) {
+    const remaining = await cleanup(services.fs, [descriptorPath, selected]);
+    return existsError(`Could not write the install descriptor: ${descriptorWrite.error.message}. This host cannot rename; an interrupted write may leave a partial file.${cleanupMessage(remaining)}`);
+  }
+  return { ok: true, path: selected };
+}
+
 /**
- * Save the package and its sibling install descriptor through the project filesystem (ADR 0022 D5). Existing output is
- * never overwritten; both temporary writes complete before either final name appears.
+ * Save the package and its sibling install descriptor through the project filesystem (ADR 0022 D5). Hosts with rename
+ * stage both files under unique names before publishing; hosts without it warn before writing directly.
  */
 export async function publishGamePackage(
   services: Pick<PlatformServices, "fs" | "dialogs">,
@@ -26,63 +103,64 @@ export async function publishGamePackage(
   }
   const packageName = selected.slice(selected.lastIndexOf("/") + 1);
   const descriptorPath = `${selected}.json`;
-  const packageTempPath = `${selected}.tkr-package-tmp`;
-  const descriptorTempPath = `${descriptorPath}.tkr-package-tmp`;
-  for (const path of [selected, descriptorPath, packageTempPath, descriptorTempPath]) {
-    const stat = await services.fs.stat(path);
-    if (stat.ok) return existsError(`${path} already exists; choose a different output name so existing files are not changed.`);
-    if (stat.error.code !== "not-found") return existsError(`Could not check ${path}: ${stat.error.message}`);
-  }
-  let descriptorValue: unknown;
-  try {
-    descriptorValue = JSON.parse(utf8Decode(prepared.descriptor.bytes));
-  } catch {
-    return existsError("The install descriptor is not valid UTF-8 JSON.");
-  }
-  const descriptorFields = ["schema", "file", "sha256", "size", "gameId", "title", "version"];
-  if (
-    typeof descriptorValue !== "object" ||
-    descriptorValue === null ||
-    Object.keys(descriptorValue).length !== descriptorFields.length ||
-    !descriptorFields.every((field) => Object.hasOwn(descriptorValue, field))
-  ) {
-    return existsError("The install descriptor does not match the seven-field contract.");
-  }
-  const descriptorRecord = descriptorValue as Record<string, unknown>;
-  descriptorRecord["file"] = packageName;
-  const descriptorBytes = utf8Encode(`${JSON.stringify(descriptorRecord, null, 2)}\n`);
+  return serializePublication(foldPath(selected), async () => {
+    let descriptorValue: unknown;
+    try {
+      descriptorValue = JSON.parse(utf8Decode(prepared.descriptor.bytes));
+    } catch {
+      return existsError("The install descriptor is not valid UTF-8 JSON.");
+    }
+    const descriptorFields = ["schema", "file", "sha256", "size", "gameId", "title", "version"];
+    if (
+      typeof descriptorValue !== "object" ||
+      descriptorValue === null ||
+      Object.keys(descriptorValue).length !== descriptorFields.length ||
+      !descriptorFields.every((field) => Object.hasOwn(descriptorValue, field))
+    ) {
+      return existsError("The install descriptor does not match the seven-field contract.");
+    }
+    const descriptorRecord = descriptorValue as Record<string, unknown>;
+    descriptorRecord["file"] = packageName;
+    const descriptorBytes = utf8Encode(`${JSON.stringify(descriptorRecord, null, 2)}\n`);
+    const suffix = (globalThis as typeof globalThis & { readonly crypto: { randomUUID(): string } }).crypto.randomUUID();
+    const packageTempPath = `${selected}.${suffix}.tkr-package-tmp`;
+    const descriptorTempPath = `${descriptorPath}.${suffix}.tkr-package-tmp`;
+    const absent = await checkAbsent(services.fs, [selected, descriptorPath, packageTempPath, descriptorTempPath]);
+    if (absent !== null) return absent;
 
+    const renameProbe = await services.fs.rename(packageTempPath, descriptorTempPath);
+    if (!renameProbe.ok && renameProbe.error.code === "unavailable") {
+      return publishWithoutRename(services, selected, descriptorPath, prepared.package.bytes, descriptorBytes);
+    }
+    if (renameProbe.ok || renameProbe.error.code !== "not-found") {
+      return existsError(`Could not determine whether package output can be renamed: ${renameProbe.ok ? "the host unexpectedly moved a nonexistent probe file" : renameProbe.error.message}`);
+    }
 
-  const packageTemp = await services.fs.write(packageTempPath, prepared.package.bytes);
-  if (!packageTemp.ok) return existsError(`Could not write the temporary package: ${packageTemp.error.message}`);
-  const descriptorTemp = await services.fs.write(descriptorTempPath, descriptorBytes);
-  if (!descriptorTemp.ok) {
-    const cleanup = await services.fs.delete(packageTempPath);
-    const detail = cleanup.ok ? "" : ` The temporary package remains at ${packageTempPath}: ${cleanup.error.message}`;
-    return existsError(`Could not write the temporary install descriptor: ${descriptorTemp.error.message}.${detail}`);
-  }
+    const packageTemp = await services.fs.write(packageTempPath, prepared.package.bytes);
+    if (!packageTemp.ok) {
+      const remaining = await cleanup(services.fs, [packageTempPath, descriptorTempPath]);
+      return existsError(`Could not write the temporary package: ${packageTemp.error.message}.${cleanupMessage(remaining)}`);
+    }
+    const descriptorTemp = await services.fs.write(descriptorTempPath, descriptorBytes);
+    if (!descriptorTemp.ok) {
+      const remaining = await cleanup(services.fs, [packageTempPath, descriptorTempPath]);
+      return existsError(`Could not write the temporary install descriptor: ${descriptorTemp.error.message}.${cleanupMessage(remaining)}`);
+    }
 
-  const packageRename = await services.fs.rename(packageTempPath, selected);
-  if (!packageRename.ok) {
-    const packageCleanup = await services.fs.delete(packageTempPath);
-    const descriptorCleanup = await services.fs.delete(descriptorTempPath);
-    const remaining = [
-      packageCleanup.ok ? null : `${packageTempPath}: ${packageCleanup.error.message}`,
-      descriptorCleanup.ok ? null : `${descriptorTempPath}: ${descriptorCleanup.error.message}`,
-    ].filter((path): path is string => path !== null);
-    const detail = remaining.length === 0 ? "" : ` Temporary output remains at ${remaining.join(" and ")}.`;
-    return existsError(`Could not publish the package: ${packageRename.error.message}.${detail}`);
-  }
+    const packageRename = await services.fs.rename(packageTempPath, selected);
+    if (!packageRename.ok) {
+      const remaining = await cleanup(services.fs, [packageTempPath, descriptorTempPath]);
+      if (packageRename.error.code === "unavailable" && remaining.length === 0) {
+        return publishWithoutRename(services, selected, descriptorPath, prepared.package.bytes, descriptorBytes);
+      }
+      return existsError(`Could not publish the package: ${packageRename.error.message}.${cleanupMessage(remaining)}`);
+    }
 
-  const descriptorRename = await services.fs.rename(descriptorTempPath, descriptorPath);
-  if (!descriptorRename.ok) {
-    const rollback = await services.fs.delete(selected);
-    const descriptorCleanup = await services.fs.delete(descriptorTempPath);
-    const details = [
-      rollback.ok ? "The incomplete package was removed." : `The package remains at ${selected} because rollback failed: ${rollback.error.message}`,
-      descriptorCleanup.ok ? null : `The temporary descriptor remains at ${descriptorTempPath}: ${descriptorCleanup.error.message}`,
-    ].filter((detail): detail is string => detail !== null);
-    return existsError(`Could not publish the install descriptor: ${descriptorRename.error.message}. ${details.join(" ")}`);
-  }
-  return { ok: true, path: selected };
+    const descriptorRename = await services.fs.rename(descriptorTempPath, descriptorPath);
+    if (!descriptorRename.ok) {
+      const rollback = await cleanup(services.fs, [selected, descriptorTempPath]);
+      return existsError(`Could not publish the install descriptor: ${descriptorRename.error.message}.${cleanupMessage(rollback)}`);
+    }
+    return { ok: true, path: selected };
+  });
 }

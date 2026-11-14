@@ -8,6 +8,7 @@ import {
   createVisits,
   prepareGamePackage,
   publishGamePackage,
+  type PreparedGamePackage,
   type AnyDocument,
   type LayoutModel,
   type PickOutcome,
@@ -24,6 +25,19 @@ import { mountDocumentView, type DocumentView, type WebProject } from "./index.t
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
 const LAYOUT_SETTING = "workbench.layout";
+function samePackageProposal(a: PreparedGamePackage, b: PreparedGamePackage): boolean {
+  const sameBytes = (left: Uint8Array, right: Uint8Array): boolean => {
+    if (left.byteLength !== right.byteLength) return false;
+    for (let index = 0; index < left.byteLength; index += 1) if (left[index] !== right[index]) return false;
+    return true;
+  };
+  const samePaths = (left: readonly string[], right: readonly string[]): boolean =>
+    left.length === right.length && left.every((path, index) => path === right[index]);
+  return sameBytes(a.package.bytes, b.package.bytes)
+    && sameBytes(a.descriptor.bytes, b.descriptor.bytes)
+    && samePaths(a.includedFiles, b.includedFiles)
+    && samePaths(a.excludedFiles, b.excludedFiles);
+}
 
 export interface WorkbenchOptions {
   /** Where the project's type folders are; the project root by default. */
@@ -163,8 +177,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
       return prepared.ok ? { ok: true, prepared: prepared.value } : prepared;
     },
-    onPublish: async (mainPath, prepared) => {
-      const published = await publishGamePackage(services, mainPath, prepared);
+    onPublish: async (mainPath, releaseVersion, reviewed) => {
+      const fresh = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
+      if (!fresh.ok) return fresh;
+      if (!samePackageProposal(reviewed, fresh.value)) {
+        return { ok: false, message: "Project files or release version changed since preflight. Prepare and review the package again." };
+      }
+      const published = await publishGamePackage(services, mainPath, fresh.value);
       return published.ok ? { ok: true, destination: published.path } : published;
     },
     onDownload: async (artifact) => {

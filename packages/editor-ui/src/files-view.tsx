@@ -17,7 +17,7 @@ export interface FilesViewProps {
   readonly fs: Pick<FileSystemService, "list">;
   readonly canWriteFolder: boolean;
   readonly onPackage: (mainPath: string, version: string) => Promise<PackageActionOutcome>;
-  readonly onPublish: (mainPath: string, prepared: PreparedGamePackage) => Promise<PackagePublishOutcome>;
+  readonly onPublish: (mainPath: string, version: string, prepared: PreparedGamePackage) => Promise<PackagePublishOutcome>;
   readonly onDownload: (artifact: PackageArtifact) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   /** Called after a file opens, so the host can show its editor (a Toolkit document) in a tab. */
   readonly onOpened?: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
@@ -124,7 +124,7 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
     if (prepared === null) return;
     setPackageBusy(true);
     setPackageMessage("Publishing the reviewed package and descriptor…");
-    void onPublish(mainPath, prepared).then((outcome) => {
+    void onPublish(mainPath, packageVersion, prepared).then((outcome) => {
       if (!outcome.ok) {
         setPackageMessage(outcome.message);
         return;
@@ -216,7 +216,19 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
           <h3>Package game</h3>
           <p>Creates a playable TPK archive and its sibling install descriptor. Saved/, other Main files, editor-only assets, test-only programs, and .tkr-history/ are excluded.</p>
           <label for={`${ids}-main`}>Main game file</label>
-          <select id={`${ids}-main`} value={mainPath} onChange={(event) => setMainPath(event.currentTarget.value)} disabled={packageBusy || mainFiles.length === 0}>
+          <select
+            id={`${ids}-main`}
+            value={mainPath}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              setMainPath(next);
+              setPrepared(null);
+              setPackageDestination(null);
+              setInventoryReviewed(false);
+              if (prepared !== null) setPackageMessage("Main file changed. Prepare and review the package again.");
+            }}
+            disabled={packageBusy || mainFiles.length === 0}
+          >
             {mainFiles.map((path) => <option key={path} value={path}>{path}</option>)}
           </select>
           <label for={`${ids}-version`}>Release version</label>
@@ -225,8 +237,13 @@ export function FilesView({ tree, fs, onOpened, onPackage, onPublish, onDownload
             type="text"
             required
             maxLength={128}
-            value={packageVersion}
-            onInput={(event) => setPackageVersion(event.currentTarget.value)}
+            onInput={(event) => {
+              setPackageVersion(event.currentTarget.value);
+              setPrepared(null);
+              setPackageDestination(null);
+              setInventoryReviewed(false);
+              if (prepared !== null) setPackageMessage("Release version changed. Prepare and review the package again.");
+            }}
             disabled={packageBusy}
           />
           <div class="tkr-files-package-actions">

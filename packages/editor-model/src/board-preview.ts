@@ -72,7 +72,7 @@ async function projectPaths(storage: PreviewStorage): Promise<string[] | string>
     for (const entry of listed.value) {
       const path = folder === "" ? entry.name : `${folder}/${entry.name}`;
       if (entry.kind === "directory") folders.push(path);
-      else paths.push(path);
+      else if (entry.kind === "file") paths.push(path);
     }
     if (paths.length > MAX_FILES) return `The project holds more than ${MAX_FILES} files; the board preview reads no further.`;
   }

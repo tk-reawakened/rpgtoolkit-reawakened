@@ -57,13 +57,15 @@ Provide one export workflow on the shared editor model for a saved game. It inve
 - Given a saved authored game, when export completes, then the `.tpk` contains its project-root files and valid manifest and the sibling JSON has exactly the specified descriptor fields and matching name, size, SHA-256, title, version and game identity.
 - Given test specs, `.tkrscn`, `.tkrtile`, `.tkrpack` or `.tkr-history/` in the project, when export completes, then none appears in the archive and the inventory proof confirms each exclusion.
 - Given unsafe paths, folded duplicates, malformed/incomplete main data, missing startup files, read failures or package limits exceeded, when preflight runs, then export is refused with the offending path/reason and no output is reported as successful.
-- Given a host without project-folder writes or a user cancellation, when export is requested, then the host offers its supported download path or leaves both project and existing outputs untouched and reports the outcome.
+- Given a host with folder writes but no atomic rename, when export is requested, then the host warns that publication is non-atomic and requires confirmation before writing the package and descriptor directly; cancellation leaves both outputs untouched. Hosts without folder writes use their supported download path.
 - Given a successful preflight, when the author reviews the included/excluded inventory and output names and confirms, then the package and descriptor are published; without confirmation neither is written or downloaded.
 Given the produced archive without access to the source folder, when loaded through the canonical distribution-package reader used by the web runner, then it exposes the packaged main file and indexed game assets.
 
 ## Implementation Notes
 
 Owner authorization: select a reserved editor-history path and a complete cross-host export behavior without an intermediate checkpoint. D12.7 does not name the folder; `.tkr-history/` is the chosen explicit reserved path. The descriptor remains a sibling artifact, and the archive manifest keeps its existing contract. The release version is explicitly entered by the author because the main format carries no such field.
+
+The exporter refuses symbolic links at both enumeration and stat boundaries so recursive inventory cannot escape the selected project. It checks file size before reading and rechecks returned byte lengths, uses randomized temporary paths with collision checks, serializes concurrent publication to the same destination, and reports cleanup failures for attempted temporary writes. Web File System Access providers that cannot rename publish directly after an explicit warning and confirmation. The preflight proposal is invalidated after main-file/version edits and compared against a fresh inventory immediately before publication; a declared initial character is required to exist.
 
 ## Verification
 

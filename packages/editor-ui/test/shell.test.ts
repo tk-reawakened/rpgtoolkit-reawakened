@@ -331,6 +331,17 @@ test("package preflight displays its inventory and requires review before publis
   deepEqual(s.publishCalls, ["Main/example.gam"]);
   match(s.el.querySelector('[role="status"]')?.textContent ?? "", /saved to Build\/game\.tpk/);
 });
+test("changing the release version invalidates the prepared inventory and its confirmation", async () => {
+  const s = await setup();
+  await click(button(s.el, "Package game…"));
+  const version = s.el.querySelector<HTMLInputElement>('input[type="text"][maxlength="128"]')!;
+  await act(() => { version.value = "1.2.3"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click(button(s.el, "Prepare package"));
+  equal(s.el.querySelector(".tkr-files-package-result")?.textContent?.includes("game.tpk"), true);
+  await act(() => { version.value = "2.0.0"; version.dispatchEvent(new Event("input", { bubbles: true })); });
+  equal(s.el.querySelector(".tkr-files-package-result"), null);
+  match(s.el.querySelector(".tkr-files-package-status")?.textContent ?? "", /Release version changed\. Prepare and review the package again\./);
+});
 
 
 test("the shell writes no style attribute and no inline handler attribute (strict CSP, ADR 0025 decision 6)", async () => {

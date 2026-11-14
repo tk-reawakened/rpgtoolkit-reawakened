@@ -12,7 +12,8 @@
     "onCommand:tkr.editorWebProof.copyMainFileBytes",
     "onCommand:tkr.editorWebProof.writeGameBytes",
     "onCommand:tkr.editorWebProof.enableAutosave",
-    "onCommand:tkr.editorWebProof.disableAutosave"
+    "onCommand:tkr.editorWebProof.disableAutosave",
+    "onCommand:tkr.editorWebProof.invokePackageCommand"
   ],
   "contributes": {
     "commands": [
@@ -31,6 +32,10 @@
       {
         "command": "tkr.editorWebProof.disableAutosave",
         "title": "Test: Turn Autosave Off"
+      },
+      {
+        "command": "tkr.editorWebProof.invokePackageCommand",
+        "title": "Test: Execute Package Game"
       }
     ]
   }

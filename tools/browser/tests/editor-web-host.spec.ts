@@ -1,12 +1,28 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-interface ProofWindow extends Window { __tkrCspViolations?: string[] }
+interface ProofWindow extends Window {
+  __tkrCspViolations?: string[];
+  __tkrTestFolder?: FileSystemDirectoryHandle;
+}
 type PickerInput = { readonly path: string; readonly bytes: readonly number[] };
 
 const validMain = Array.from(readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url)));
+function sampleProjectFiles(): PickerInput[] {
+  const files: PickerInput[] = [{ path: "Main/example.gam", bytes: validMain }];
+  const walk = (directory: URL, prefix: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const child = new URL(`${entry.name}${entry.isDirectory() ? "/" : ""}`, directory);
+      const path = `${prefix}${entry.name}`;
+      if (entry.isDirectory()) walk(child, `${path}/`);
+      else if (entry.isFile()) files.push({ path, bytes: Array.from(readFileSync(child)) });
+    }
+  };
+  walk(new URL("../../../docs/spec/examples/game/Game/Example/", import.meta.url), "");
+  return files;
+}
 
 test("browser host mounts the shared settings view and keeps CSP quiet while editing a session copy", async ({ page }) => {
   await page.addInitScript(() => {
@@ -16,7 +32,7 @@ test("browser host mounts the shared settings view and keeps CSP quiet while edi
     });
   });
   await page.goto("/tools/browser/editor-web/index.html");
-  await expect(page.getByRole("heading", { name: "RPG Toolkit game settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "RPG Toolkit editor" })).toBeVisible();
   await page.locator("#open-session").setInputFiles("docs/spec/examples/game/Main/example.gam");
   const title = page.getByLabel("Game title");
   await expect(title).toBeVisible();
@@ -29,9 +45,71 @@ test("browser host mounts the shared settings view and keeps CSP quiet while edi
   await expect.poll(() => page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
 });
 
+test("browser workbench opens registered assets and packages a project through the reviewed UI", async ({ page }) => {
+  await installFolderPicker(page, sampleProjectFiles());
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+
+  const boards = page.getByRole("treeitem", { name: "Boards, folder, closed", exact: true });
+  await boards.press("ArrowRight");
+  const board = page.getByRole("treeitem", { name: "village.brd, board editor", exact: true });
+  await board.dblclick();
+  await expect(page.getByRole("tab", { name: "Boards/village.brd", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Package game…", exact: true }).click();
+  await page.getByLabel("Release version").fill("1.0.0");
+  await page.getByRole("button", { name: "Prepare package", exact: true }).click();
+  const packageStatus = page.locator(".tkr-files-package-status");
+  await expect(packageStatus).toContainText("Preflight passed");
+  await page.getByText("Included and excluded file inventory", { exact: true }).click();
+  const inventory = page.locator(".tkr-files-package-result");
+  await expect(inventory).toContainText("Main/example.gam");
+  await expect(inventory).toContainText("Chrs/ada.tem");
+  await page.getByRole("tab", { name: "Main/example.gam", exact: true }).click();
+  await page.getByLabel("Game title").fill("Changed after package review");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
+  await page.getByLabel("I reviewed the included and excluded files.").check();
+  await page.getByRole("button", { name: "Save package and descriptor…", exact: true }).click();
+  await expect(packageStatus).toContainText("Project files or release version changed since preflight.");
+  await page.getByRole("button", { name: "Prepare package", exact: true }).click();
+  await expect(packageStatus).toContainText("Preflight passed");
+  await expect(page.getByText("Included and excluded file inventory", { exact: true })).toBeVisible();
+  await page.getByLabel("I reviewed the included and excluded files.").check();
+  await page.getByRole("button", { name: "Save package and descriptor…", exact: true }).click();
+  const saveDialog = page.getByRole("dialog");
+  await saveDialog.getByRole("textbox").fill("Build/browser-game.tpk");
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(packageStatus).toContainText("Package and install descriptor saved to Build/browser-game.tpk.");
+
+  const output = await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The browser folder test handle is missing.");
+    const build = await root.getDirectoryHandle("Build");
+    const archive = await (await build.getFileHandle("browser-game.tpk")).getFile();
+    const descriptorFile = await (await build.getFileHandle("browser-game.tpk.json")).getFile();
+    return {
+      archiveSize: archive.size,
+      descriptor: JSON.parse(await descriptorFile.text()) as { file: string; size: number; sha256: string; title: string; version: string },
+    };
+  });
+  expect(output.archiveSize).toBeGreaterThan(0);
+  expect(output.descriptor).toMatchObject({
+    file: "browser-game.tpk",
+    size: output.archiveSize,
+    title: "Changed after package review",
+    version: "1.0.0",
+  });
+  expect(output.descriptor.sha256).toMatch(/^[0-9a-f]{64}$/);
+});
+
 test("browser folder handle and identity survive reload and re-selection", async ({ page }) => {
   await installFolderPicker(page, [{ path: "Games/Only.gam", bytes: validMain }]);
   await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
   await page.getByRole("button", { name: "Open project folder" }).click();
   const title = page.getByLabel("Game title");
   await expect(title).toBeVisible();
@@ -42,6 +120,7 @@ test("browser folder handle and identity survive reload and re-selection", async
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
   await page.reload();
+  await waitForFolderPicker(page);
   await expect(page.getByLabel("Recent project")).toBeVisible();
   await page.getByRole("button", { name: "Reopen project" }).click();
   await expect(page.getByLabel("Game title")).toHaveValue("Stable browser project");
@@ -58,6 +137,7 @@ test("browser folder open requires explicit selection when multiple nested games
     { path: "Nested/Second.gam", bytes: validMain },
   ]);
   await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
   await page.getByRole("button", { name: "Open project folder" }).click();
   const selector = page.getByLabel("Game in project");
   await expect(selector).toBeVisible();
@@ -91,6 +171,7 @@ test("opening another session replaces only the old view and a failed open prese
 test("browser storage failure never exposes the picked folder as writable", async ({ page }) => {
   await installFolderPicker(page, [{ path: "Only.gam", bytes: validMain }], false);
   await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.locator("#host-status")).toContainText("could not be registered");
   await page.getByLabel("Open .gam session copy").setInputFiles("docs/spec/examples/game/Main/example.gam");
@@ -100,6 +181,7 @@ test("browser storage failure never exposes the picked folder as writable", asyn
 test("browser recent projects do not open after the user denies restored-folder permission", async ({ page }) => {
   await installFolderPicker(page, [{ path: "Only.gam", bytes: validMain }], true, true);
   await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
   await page.reload();
@@ -166,13 +248,18 @@ async function installFolderPicker(page: Page, files: readonly PickerInput[], in
       await writable.write(new Uint8Array(input.bytes));
       await writable.close();
     }
-    Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: async () => root });
     if (!canPersist) {
       Object.defineProperty(indexedDB, "open", { configurable: true, value: () => { throw new DOMException("Storage blocked", "SecurityError"); } });
     }
     if (deny) {
       Object.defineProperty(FileSystemHandle.prototype, "requestPermission", { configurable: true, value: async () => "denied" });
     }
+    Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: async () => root });
+    (window as ProofWindow).__tkrTestFolder = root;
   }, { files, indexedDbAvailable, denyPermission, folderName });
+}
+
+async function waitForFolderPicker(page: Page): Promise<void> {
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
 }
 

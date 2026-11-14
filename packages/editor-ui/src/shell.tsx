@@ -21,7 +21,7 @@ export interface ShellProps {
   /** The Files panel preflights and constructs an immutable package proposal without publishing it. */
   readonly onPackage: (mainPath: string, version: string) => Promise<PackageActionOutcome>;
   /** Publishes only after the author has reviewed the complete preflight inventory. */
-  readonly onPublish: (mainPath: string, prepared: PreparedGamePackage) => Promise<PackagePublishOutcome>;
+  readonly onPublish: (mainPath: string, version: string, prepared: PreparedGamePackage) => Promise<PackagePublishOutcome>;
   /** Downloads an already prepared artifact following an explicit user click. */
   readonly onDownload: (artifact: PackageArtifact) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
   /** Called once with the element the active editor is mounted into, and with `null` when the shell goes away. */

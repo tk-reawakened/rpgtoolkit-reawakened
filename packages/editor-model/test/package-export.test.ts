@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { exampleBoard } from "./fixtures.ts";
 import { createDocumentWorkspace, prepareGamePackage, publishGamePackage } from "../src/index.ts";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { platformOk } from "@tk-reawakened/platform-services";
-import { loadPackage, newProjectMainFile, readDistributionManifest, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
+import { platformError, platformOk } from "@tk-reawakened/platform-services";
+import { PACKAGE_LIMITS, loadPackage, newProjectMainFile, readDistributionManifest, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
 
-function authoredMain(startupPrg = "start.prg", initBoard = "start.brd"): Uint8Array {
-  const result = writeMainFile({ ...newProjectMainFile(), gameTitle: "A Test Game", startupPrg, initBoard });
+function authoredMain(startupPrg = "start.prg", initBoard = "start.brd", initChar = ""): Uint8Array {
+  const result = writeMainFile({ ...newProjectMainFile(), gameTitle: "A Test Game", startupPrg, initBoard, initChar });
   if (!result.ok) throw new Error(result.error.message);
   return result.value;
 }
@@ -75,6 +75,7 @@ test("preflight refuses a missing startup program or initial board", async () =>
   for (const [files, missingLabel] of [
     [authoredFiles("missing.prg"), "startup program"],
     [authoredFiles("start.prg", "missing.brd"), "initial board"],
+    [{ ...authoredFiles(), "Main/demo.gam": authoredMain("start.prg", "start.brd", "missing.tem") }, "initial character"],
   ] as const) {
     const { workspace, services } = packageHost(files);
     const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
@@ -82,6 +83,91 @@ test("preflight refuses a missing startup program or initial board", async () =>
     if (!outcome.ok) ok(outcome.message.includes(missingLabel), outcome.message);
     workspace.dispose();
   }
+});
+test("preflight checks a declared initial character and includes it when present", async () => {
+  const files = {
+    ...authoredFiles(),
+    "Main/demo.gam": authoredMain("start.prg", "start.brd", "hero.tem"),
+    "Chrs/hero.tem": utf8Encode("character"),
+  };
+  const { workspace, services } = packageHost(files);
+  const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+  ok(outcome.ok, outcome.ok ? "" : outcome.message);
+  ok(outcome.value.includedFiles.includes("Chrs/hero.tem"));
+  workspace.dispose();
+});
+
+test("preflight refuses symbolic links before reading through them", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const reads: string[] = [];
+  const fs = {
+    ...host.fs,
+    async list(path: string) {
+      return path === "" ? platformOk([{ name: "external", kind: "link" as const }]) : host.fs.list(path);
+    },
+    async read(path: string) {
+      reads.push(path);
+      return host.fs.read(path);
+    },
+  };
+  const result = await prepareGamePackage({
+    workspace,
+    services: { ...services, fs },
+    mainPath: "Main/demo.gam",
+    version: "1",
+  });
+  equal(result.ok, false);
+  if (!result.ok) match(result.message, /symbolic link.*L23/);
+  deepEqual(reads, []);
+  workspace.dispose();
+});
+
+test("preflight checks listed file sizes before reading and rechecks the bytes returned", async () => {
+  const first = packageHost(authoredFiles());
+  let startupReads = 0;
+  const tooLargeStatFs = {
+    ...first.host.fs,
+    async stat(path: string) {
+      return path === "Prg/start.prg"
+        ? platformOk({ kind: "file" as const, size: PACKAGE_LIMITS.maxEntryUncompressedBytes + 1, modifiedMs: 0 })
+        : first.host.fs.stat(path);
+    },
+    async read(path: string) {
+      if (path === "Prg/start.prg") startupReads += 1;
+      return first.host.fs.read(path);
+    },
+  };
+  const beforeRead = await prepareGamePackage({
+    workspace: first.workspace,
+    services: { ...first.services, fs: tooLargeStatFs },
+    mainPath: "Main/demo.gam",
+    version: "1",
+  });
+  equal(beforeRead.ok, false);
+  equal(startupReads, 0, "the host-reported oversized file is not read");
+  first.workspace.dispose();
+
+  const second = packageHost(authoredFiles());
+  const reportedLength = new Proxy(new Uint8Array(), {
+    get(target, property) {
+      return property === "byteLength" ? PACKAGE_LIMITS.maxEntryUncompressedBytes + 1 : Reflect.get(target, property, target);
+    },
+  }) as Uint8Array;
+  const tooLargeReadFs = {
+    ...second.host.fs,
+    async read(path: string) {
+      return path === "Prg/start.prg" ? platformOk(reportedLength) : second.host.fs.read(path);
+    },
+  };
+  const afterRead = await prepareGamePackage({
+    workspace: second.workspace,
+    services: { ...second.services, fs: tooLargeReadFs },
+    mainPath: "Main/demo.gam",
+    version: "1",
+  });
+  equal(afterRead.ok, false);
+  if (!afterRead.ok) match(afterRead.message, /Prg\/start\.prg exceeds the per-file package limit/);
+  second.workspace.dispose();
 });
 
 test("project publication writes a sibling descriptor without replacing existing outputs", async () => {
@@ -107,5 +193,83 @@ test("project publication writes a sibling descriptor without replacing existing
   const cancelled = await publishGamePackage(services, "Main/demo.gam", prepared.value);
   equal(cancelled.ok, false);
   equal(host.bytesOf("Build/renamed-game.tpk")?.byteLength, archive.byteLength);
+  workspace.dispose();
+});
+test("concurrent exports to the same destination serialize and never replace the first package", async () => {
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+  ok(prepared.ok, prepared.ok ? "" : prepared.message);
+  host.answerSavePaths("Build/concurrent.tpk", "Build/concurrent.tpk");
+  const outcomes = await Promise.all([
+    publishGamePackage(services, "Main/demo.gam", prepared.value),
+    publishGamePackage(services, "Main/demo.gam", prepared.value),
+  ]);
+  equal(outcomes.filter((outcome) => outcome.ok).length, 1);
+  equal(outcomes.filter((outcome) => !outcome.ok && outcome.message.includes("already exists")).length, 1);
+  ok(host.bytesOf("Build/concurrent.tpk") !== undefined);
+  ok(host.bytesOf("Build/concurrent.tpk.json") !== undefined);
+  workspace.dispose();
+});
+
+test("failed temporary writes clean every attempted file and report cleanup failures", async () => {
+  for (const failedWrite of ["package", "descriptor"] as const) {
+    const { host, workspace, services } = packageHost(authoredFiles());
+    const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+    ok(prepared.ok, prepared.ok ? "" : prepared.message);
+    const writes: string[] = [];
+    const deletes: string[] = [];
+    const fs = {
+      ...host.fs,
+      async write(path: string, bytes: Uint8Array) {
+        writes.push(path);
+        const shouldFail = failedWrite === "package"
+          ? writes.length === 1
+          : path.includes(".json.") && path.endsWith(".tkr-package-tmp");
+        if (shouldFail) {
+          const partial = await host.fs.write(path, bytes.subarray(0, Math.min(1, bytes.byteLength)));
+          ok(partial.ok);
+          return platformError("io-error", `simulated partial ${failedWrite} write`);
+        }
+        return host.fs.write(path, bytes);
+      },
+      async delete(path: string) {
+        deletes.push(path);
+        return host.fs.delete(path);
+      },
+    };
+    host.answerSavePaths(`Build/${failedWrite}.tpk`);
+    const failed = await publishGamePackage({ ...services, fs }, "Main/demo.gam", prepared.value);
+    equal(failed.ok, false);
+    equal(deletes.length, 2);
+    for (const path of writes) {
+      const read = await host.fs.read(path);
+      ok(!read.ok, `partial temporary file ${path} was removed`);
+    }
+    workspace.dispose();
+  }
+
+  const { host, workspace, services } = packageHost(authoredFiles());
+  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+  ok(prepared.ok, prepared.ok ? "" : prepared.message);
+  let partialPath = "";
+  const failingFs = {
+    ...host.fs,
+    async write(path: string, bytes: Uint8Array) {
+      partialPath = path;
+      const partial = await host.fs.write(path, bytes.subarray(0, 1));
+      ok(partial.ok);
+      return platformError("io-error", "simulated partial package write");
+    },
+    async delete(path: string) {
+      return path === partialPath ? platformError("permission-denied", "cleanup denied") : host.fs.delete(path);
+    },
+  };
+  host.answerSavePaths("Build/left-behind.tpk");
+  const failed = await publishGamePackage({ ...services, fs: failingFs }, "Main/demo.gam", prepared.value);
+  equal(failed.ok, false);
+  if (!failed.ok) {
+    match(failed.message, /Cleanup failed/);
+    match(failed.message, new RegExp(partialPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
   workspace.dispose();
 });

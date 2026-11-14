@@ -4,7 +4,7 @@ import { createVscodeServices } from "./services.ts";
 
 /** Register the Explorer/command-palette entry that packages the selected project's main game. */
 export function registerPackageGameCommand(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.commands.registerCommand("tkr.packageGame", async (resource?: vscode.Uri) => {
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.packageGame", async (resource?: vscode.Uri, suppliedVersion?: string) => {
     const mainUri = resource ?? (await vscode.window.showOpenDialog({
       canSelectMany: false,
       canSelectFiles: true,
@@ -21,7 +21,7 @@ export function registerPackageGameCommand(context: vscode.ExtensionContext): vo
     }
     const rootPath = folder.uri.path.replace(/\/$/, "");
     const mainPath = mainUri.path.slice(rootPath.length).replace(/^\/+/, "");
-    const releaseVersion = await vscode.window.showInputBox({
+    const releaseVersion = suppliedVersion ?? await vscode.window.showInputBox({
       title: "Package RPG Toolkit game",
       prompt: "Enter the release version for the install descriptor.",
       placeHolder: "1.0.0",

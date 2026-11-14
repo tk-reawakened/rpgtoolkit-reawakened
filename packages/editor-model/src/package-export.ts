@@ -86,12 +86,22 @@ async function collectFiles(fs: FileSystemService, mainPath: string): Promise<Fi
       if (entriesSeen > PACKAGE_LIMITS.maxEntries) return failure(`The project exceeds the package entry limit (${PACKAGE_LIMITS.maxEntries}, L2).`);
       if (!safeEntryName(entry.name)) return failure(`The project contains an unsafe path entry in ${folder.path || "the project root"}.`);
       const path = folder.path === "" ? entry.name : `${folder.path}/${entry.name}`;
+      if (entry.kind === "link") return failure(`The project contains a symbolic link at ${path}; loose-folder links are refused (L23).`);
       const excluded = folder.excluded || isExcluded(path, mainPath);
       if (entry.kind === "directory") {
         pending.push({ path, excluded });
       } else if (excluded) {
         excludedFiles.push(path);
       } else {
+        const stat = await fs.stat(path);
+        if (!stat.ok) return failure(`Could not check ${path} before reading it: ${stat.error.message}`);
+        if (stat.value.kind === "link") return failure(`The project contains a symbolic link at ${path}; loose-folder links are refused (L23).`);
+        if (stat.value.kind !== "file") return failure(`${path} changed from a file while the package inventory was being read.`);
+        if (!Number.isSafeInteger(stat.value.size) || stat.value.size < 0) return failure(`The host returned an invalid size for ${path}.`);
+        if (stat.value.size > PACKAGE_LIMITS.maxEntryUncompressedBytes) return failure(`${path} exceeds the per-file package limit (${PACKAGE_LIMITS.maxEntryUncompressedBytes} bytes, L3).`);
+        if (totalBytes + stat.value.size > PACKAGE_LIMITS.maxTotalUncompressedBytes) {
+          return failure(`The project exceeds the total package size limit (${PACKAGE_LIMITS.maxTotalUncompressedBytes} bytes, L4).`);
+        }
         const read = await fs.read(path);
         if (!read.ok) return failure(`Could not read ${path}: ${read.error.message}`);
         if (read.value.byteLength > PACKAGE_LIMITS.maxEntryUncompressedBytes) return failure(`${path} exceeds the per-file package limit (${PACKAGE_LIMITS.maxEntryUncompressedBytes} bytes, L3).`);
@@ -106,8 +116,8 @@ async function collectFiles(fs: FileSystemService, mainPath: string): Promise<Fi
   return { ok: true, files, excludedFiles };
 }
 
-function requiredAssetPath(folder: "Prg" | "Boards", reference: string): string | null {
-  const kind = folder === "Prg" ? "programs" : "boards";
+function requiredAssetPath(folder: "Prg" | "Boards" | "Chrs", reference: string): string | null {
+  const kind = folder === "Prg" ? "programs" : folder === "Boards" ? "boards" : "characters";
   const stripped = stripTypeFolder(kind, reference).replaceAll(String.fromCharCode(92), "/");
   if (stripped.length === 0 || stripped.startsWith("/") || stripped.split("/").some((part) => part === ".." || part === "")) return null;
   return `${folder}/${stripped}`;
@@ -145,10 +155,12 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   if (main.initBoard.trim().length === 0) return failure("Set an initial board in the main file before packaging.");
 
   const available = new Set(collected.files.map(({ path }) => foldPath(path)));
-  for (const [label, folder, reference] of [
+  const requiredAssets: readonly (readonly [string, "Prg" | "Boards" | "Chrs", string])[] = [
     ["startup program", "Prg", main.startupPrg],
     ["initial board", "Boards", main.initBoard],
-  ] as const) {
+    ...(main.initChar.trim().length === 0 ? [] : [["initial character", "Chrs", main.initChar] as const]),
+  ];
+  for (const [label, folder, reference] of requiredAssets) {
     const expected = requiredAssetPath(folder, reference);
     if (expected === null || !available.has(foldPath(expected))) {
       return failure(`The ${label} “${reference}” is missing from the package inventory.`);
