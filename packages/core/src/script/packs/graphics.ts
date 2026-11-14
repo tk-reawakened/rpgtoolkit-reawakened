@@ -159,7 +159,7 @@ function params(names: readonly string[], optionalFrom = names.length): ParamSpe
   return names.map((name, index) => ({ name, optional: index >= optionalFrom, byRef: false, variadic: false }));
 }
 const NATIVE_SUMMARY_BY_NAME: Record<string, string> = {
-  clear: "Clear a surface. clear() blanks the screen.",
+  clear: "Clear a surface. `clear()` blanks the screen's script drawing, including earlier screen text.",
   setpixel: "Set a pixel in the current colour.",
   drawline: "Draw a line.",
   drawrect: "Draw a rectangle.",
