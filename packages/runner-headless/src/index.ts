@@ -4,6 +4,8 @@ import { goldenJob, parseClosingPlan, runAudioGoldens, runFetchedCorpus, type Au
 import { loadGameFiles, runClosing } from "./closing.ts";
 import { runDump } from "./dump/cli.ts";
 
+export { loadGameFiles } from "./closing.ts";
+
 function readFileOrUndefined(filePath: string): string | undefined {
   try {
     return readFileSync(filePath, "utf8");

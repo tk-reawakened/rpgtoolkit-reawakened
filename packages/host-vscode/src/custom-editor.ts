@@ -36,8 +36,8 @@ export interface GameEditorPort<Uri extends UriLike> {
   readBackup(id: string): Promise<Uint8Array>;
   writeBackup(destination: Uri, bytes: Uint8Array): Promise<string>;
   deleteBackup(destination: Uri): Promise<void>;
-  /** Run a workbench command on the active editor: `workbench.action.files.save` or `workbench.action.files.revert`. */
-  executeCommand(command: "workbench.action.files.save" | "workbench.action.files.revert"): Promise<unknown>;
+  /** Ask VS Code to save the editor for this URI, regardless of which editor has focus. */
+  saveEditor(uri: Uri): Promise<Uri | undefined>;
   /** The URI of the project-relative `path` in `folder`. */
   uriFor(folder: WorkspaceFolderLike<Uri>, path: string): Uri;
   /**
@@ -175,8 +175,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   async saveThroughWorkbench(): Promise<SaveResult> {
     const path = this.model.identity.path;
     const before = this.#saves;
+    let accepted = false;
     try {
-      await this.#port.executeCommand("workbench.action.files.save");
+      accepted = (await this.#port.saveEditor(this.uri)) !== undefined;
     } catch (error) {
       // The provider's own failure when it ran (a refused write, or edits that kept outrunning it); otherwise VS Code's.
       if (this.#saves !== before && !this.#lastSave.ok) return this.#lastSave;
@@ -188,7 +189,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         message: `Could not save ${path}: ${error instanceof Error ? error.message : String(error)}`,
       } };
     }
-    if (this.#saves === before) {
+    if (!accepted && this.#saves !== before && !this.#lastSave.ok) return this.#lastSave;
+    if (!accepted || this.#saves === before) {
       return { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: VS Code did not save this custom document.` } };
     }
     return this.#lastSave;

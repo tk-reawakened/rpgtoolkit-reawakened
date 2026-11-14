@@ -12,6 +12,7 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   const workspaceId = randomBytes(16).toString("hex");
   const workbench = new URL(allowedOrigin);
   const events = [];
+  let pausedSave;
   const server = createServer(async (request, response) => {
     const origin = request.headers.origin;
     let allowed = origin === allowedOrigin;
@@ -42,8 +43,9 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       const input = JSON.parse(await readRequestBody(request, maxBodyBytes));
       let result;
       if (input.op === "trace") {
-        if (!["command", "save", "revert"].includes(input.kind) || typeof input.value !== "string") throw Object.assign(new Error("Invalid trace event"), { code: "EINVAL" });
+        if (!["save-request", "save", "revert"].includes(input.kind) || typeof input.value !== "string") throw Object.assign(new Error("Invalid trace event"), { code: "EINVAL" });
         events.push({ kind: input.kind, value: input.value });
+        if (input.kind === "save-request" && pausedSave) await pausedSave.promise;
         result = null;
       } else {
         result = await perform(root, input);
@@ -60,6 +62,13 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
     authority: `${workspaceId}.${address.port}`,
     token,
     events: () => events.slice(),
+    pauseSave: () => {
+      if (pausedSave) throw new Error("A save is already paused");
+      let release;
+      const promise = new Promise((resolveGate) => { release = resolveGate; });
+      pausedSave = { promise, release };
+    },
+    resumeSave: () => { pausedSave?.release(); pausedSave = undefined; },
     close: () => new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose())),
   };
 }

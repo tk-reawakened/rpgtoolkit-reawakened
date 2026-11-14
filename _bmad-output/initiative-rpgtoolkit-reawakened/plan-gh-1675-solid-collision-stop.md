@@ -1,7 +1,7 @@
 ---
 title: 'Stop blocked actor steps and stale-position jitter'
 type: 'bugfix'
-ticket: '#1675'
+ticket: 1675
 tracker_id: '#1675'
 created: '2026-11-07'
 status: 'built'
