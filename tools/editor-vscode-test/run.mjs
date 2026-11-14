@@ -140,14 +140,30 @@ for (const choice of ["cancel", "keep"]) {
       };
       await currentPage.route(script, holdBootstrap);
       try {
-        await currentPage.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
-        await currentPage.keyboard.press("ControlOrMeta+Shift+P");
-        const input = currentPage.locator(".quick-input-widget input").last();
-        await expect(input).toBeVisible();
-        await input.fill(">Developer: Reload Window");
-        const command = currentPage.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Developer: Reload Window" }).first();
-        await expect(command).toBeVisible();
-        await command.click();
+        const widget = currentPage.locator(".quick-input-widget");
+        let input;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            await currentPage.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
+            await currentPage.keyboard.press("ControlOrMeta+Shift+P");
+            input = currentPage.locator(".quick-input-widget input").last();
+            await expect(input).toBeVisible();
+            await input.fill(">Developer: Reload Window");
+            // Prove recovery from the palette disappearing before the command is dispatched.
+            if (attempt === 0) {
+              await input.press("Escape");
+              await expect(widget).toBeHidden();
+            }
+            const command = currentPage.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: "Developer: Reload Window" }).first();
+            await expect(command).toBeVisible({ timeout: 3_000 });
+            break;
+          } catch (error) {
+            if (attempt === 2 || await widget.isVisible()) throw error;
+            input = undefined;
+          }
+        }
+        if (input === undefined) throw new Error("VS Code did not select Reload Window");
+        await input.press("Enter");
         const timeout = Promise.withResolvers();
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
