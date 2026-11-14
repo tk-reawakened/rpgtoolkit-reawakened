@@ -483,7 +483,14 @@ class Workbench {
         script.opened.push(path);
         await this.focusOrOpen(path);
       },
-      ...(host.settleTimeoutMs === undefined ? {} : { settleTimeoutMs: host.settleTimeoutMs }),
+      ...(host.settleTimers === undefined ? {} : {
+        startSettleTimer: (onExpire: () => void) => {
+          const timers = host.settleTimers!;
+          const expire = (): void => onExpire();
+          timers.push(expire);
+          return { cancel: () => { const at = timers.indexOf(expire); if (at >= 0) timers.splice(at, 1); } };
+        },
+      }),
       quickPick: async (items, placeholder) => {
         script.pickLists.push({ placeholder, labels: items.map((item) => item.label) });
         return script.picks.shift();
@@ -694,17 +701,17 @@ class VscodeHost implements ConformanceHost {
   /** The provider's bound, as ADR 0022 D14.6 states it (written here, not imported, so the test checks the provider). */
   readonly saveWrites = 3;
   readonly drive = new Disk();
-  /** The port's bound on waiting for a webview's edits, when a proof sets one. */
-  readonly settleTimeoutMs: number | undefined;
+  /** Timers the provider started for a save's wait on a webview, when a proof controls them: expired by hand, never by elapsed time. */
+  readonly settleTimers: Array<() => void> | undefined;
   readonly backups = new Map<string, Uint8Array>();
   readonly #backupIdsByDocument = new Map<string, string>();
   revertCommands = 0;
   readonly act: Act;
   #workbench: Workbench;
 
-  constructor(desktop: boolean, fixture: Uint8Array, act: Act, files: Readonly<Record<string, Uint8Array>> = {}, settleTimeoutMs?: number) {
+  constructor(desktop: boolean, fixture: Uint8Array, act: Act, files: Readonly<Record<string, Uint8Array>> = {}, settleTimers?: Array<() => void>) {
     this.name = desktop ? "VS Code desktop" : "VS Code for the Web";
-    this.settleTimeoutMs = settleTimeoutMs;
+    this.settleTimers = settleTimers;
     const capabilities = vscodeCapabilities(desktop);
     this.capabilities = new Set(capabilities);
     this.act = act;
@@ -940,9 +947,10 @@ export function createVscodeCharacterProofHost(
   gam: Uint8Array,
   files: Readonly<Record<string, Uint8Array>>,
   act: Act,
-  options: { readonly settleTimeoutMs?: number } = {},
+  options: { readonly controlSettleTimers?: boolean } = {},
 ): CharacterProofHost {
-  const host = new VscodeHost(desktop, gam, act, files, options.settleTimeoutMs);
+  const timers: Array<() => void> = [];
+  const host = new VscodeHost(desktop, gam, act, files, options.controlSettleTimers === true ? timers : undefined);
   return {
     name: host.name,
     async open(path): Promise<CharacterProofTab> {
@@ -957,6 +965,7 @@ export function createVscodeCharacterProofHost(
       };
     },
     disk: (path) => host.disk(path),
+    expireSettleTimers: () => { for (const expire of timers.splice(0)) expire(); },
     settle: () => host.settle(),
   };
 }

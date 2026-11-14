@@ -17,6 +17,11 @@ const SAVE_ROUNDS = 3;
 /** How long a save waits for a webview to hand over edits it has accepted before it refuses to save (see `GameDocument.settleViews`). */
 const DEFAULT_SETTLE_TIMEOUT_MS = 10_000;
 
+function defaultSettleTimer(onExpire: () => void): { cancel(): void } {
+  const timer = setTimeout(onExpire, DEFAULT_SETTLE_TIMEOUT_MS);
+  return { cancel: () => clearTimeout(timer) };
+}
+
 export interface UriLike {
   readonly path: string;
 }
@@ -53,8 +58,12 @@ export interface GameEditorPort<Uri extends UriLike> {
   boardPreferences?(folder: WorkspaceFolderLike<Uri>): EditorPreferences;
   /** Call `listener` when the settings that make `boardPreferences` change; the returned handle stops it. */
   watchBoardPreferences?(folder: WorkspaceFolderLike<Uri>, listener: () => void): { dispose(): void };
-  /** How long, in milliseconds, a save waits for a webview to hand over the edits it has accepted; ten seconds when the port gives none (#2613). */
-  readonly settleTimeoutMs?: number;
+  /**
+   * Start the bound on a save's wait for a webview to hand over the edits it has accepted (#2613): `onExpire` is called
+   * when the wait has lasted too long, and `cancel` stops it. A ten-second timer when the port gives none; a test
+   * supplies a timer it expires by hand, so no proof depends on elapsed time.
+   */
+  startSettleTimer?(onExpire: () => void): { cancel(): void };
   /** Show a pick list and resolve with the chosen item's id, or `undefined` when the user dismisses it. */
   quickPick(items: readonly { readonly id: string; readonly label: string; readonly description?: string }[], placeholder: string): Promise<string | undefined>;
 }
@@ -135,7 +144,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * Ask every webview of this document to hand over the edits it has accepted but not yet sent (a character edit queued
    * behind an unacknowledged one), and wait until each has. A webview answers after all of them, and its messages arrive
    * in the order it sent them, so every edit is in the model when this resolves. `null` when they all answered; the
-   * reason when one did not within `settleTimeoutMs`, in which case a save must not go ahead, since it would leave that
+   * reason when one did not in time (`startSettleTimer`), in which case a save must not go ahead, since it would leave that
    * edit out while VS Code marks the document saved (#2613).
    *
    * What this cannot reach: an edit still in transit from a webview that VS Code has not delivered when the workbench
@@ -143,12 +152,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * messages, so that window is not closed here (it is a known gap in ADR 0022, #2613).
    */
   async settleViews(): Promise<string | null> {
-    const timeout = this.#port.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
+    const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
     const answers = [...this.#views].map((view) => new Promise<boolean>((resolve) => {
       const requestId = `settle-${++this.#nextSettle}`;
-      const timer = setTimeout(() => answer(false), timeout);
+      const timer = startTimer(() => answer(false));
       const answer = (settled: boolean): void => {
-        clearTimeout(timer);
+        timer.cancel();
         view.waiting.delete(requestId);
         resolve(settled);
       };
@@ -156,7 +165,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
       void view.post(requestId).then((delivered) => { if (!delivered) answer(true); }, () => answer(true));
     }));
     if ((await Promise.all(answers)).every((settled) => settled)) return null;
-    return `the editor has not handed over edits it accepted within ${timeout / 1000} seconds`;
+    return "the editor did not hand over the edits it had accepted in time";
   }
 
   /** The board-editor preferences the webview reads (T-33). */

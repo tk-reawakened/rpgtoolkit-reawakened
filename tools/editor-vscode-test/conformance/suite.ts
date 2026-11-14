@@ -126,6 +126,8 @@ export interface CharacterProofHost {
   open(path: string): Promise<CharacterProofTab>;
   disk(path: string): Promise<Uint8Array | null>;
   settle(): Promise<void>;
+  /** VS Code hosts started with `controlSettleTimers`: end every wait the provider has started on a webview, as the bound running out would. */
+  expireSettleTimers?(): void;
 }
 
 export interface ConformanceCase {

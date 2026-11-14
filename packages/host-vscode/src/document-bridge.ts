@@ -262,7 +262,7 @@ export class RemoteDocument {
   readonly identity: BridgedSnapshot["identity"];
   readonly browserSession: BrowserSession;
   private readonly listeners = new Set<() => void>();
-  private readonly pendingEdits = new Map<string, (result: ApplyResult) => void>();
+  private readonly pendingEditResults = new Map<string, (result: ApplyResult) => void>();
   private readonly pendingSaves = new Map<string, (result: SaveResult) => void>();
   private readonly pendingResolutions = new Map<string, (result: ConflictResult) => void>();
   private readonly pendingPreviews = new Map<string, (picture: BoardPicture) => void>();
@@ -308,7 +308,7 @@ export class RemoteDocument {
   apply(command: unknown): Promise<ApplyResult> {
     const requestId = `edit-${++this.nextRequest}`;
     return new Promise((resolve) => {
-      this.pendingEdits.set(requestId, resolve);
+      this.pendingEditResults.set(requestId, resolve);
       this.vscode.postMessage({ type: "edit", command, requestId });
     });
   }
@@ -433,7 +433,7 @@ export class RemoteDocument {
     this.snapshot = message.type === "save-result" && !message.result.ok && message.snapshot.saveError === null
       ? { ...message.snapshot, saving: false, saveError: message.result.failure }
       : message.snapshot;
-    if (message.type === "edit-result") this.settle(this.pendingEdits, message.requestId, message.result);
+    if (message.type === "edit-result") this.settle(this.pendingEditResults, message.requestId, message.result);
     else if (message.type === "save-result") this.settle(this.pendingSaves, message.requestId, message.result);
     else if (message.type === "conflict-result") this.settle(this.pendingResolutions, message.requestId, message.result);
     this.notify();

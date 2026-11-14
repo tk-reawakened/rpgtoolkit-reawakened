@@ -17,7 +17,7 @@ const FILES = { [PATH]: ORIGINAL };
 
 interface Entry {
   readonly name: string;
-  make(settleTimeoutMs?: number): CharacterProofHost;
+  make(controlSettleTimers?: boolean): CharacterProofHost;
 }
 
 let act: Act;
@@ -37,8 +37,8 @@ before(async () => {
   const { createVscodeCharacterProofHost } = await import("../conformance/vscode-host.ts");
   entries = [
     { name: "browser host", make: () => createWebCharacterProofHost(gam, FILES, act) },
-    { name: "VS Code desktop", make: (timeout) => createVscodeCharacterProofHost(true, gam, FILES, act, timeout === undefined ? {} : { settleTimeoutMs: timeout }) },
-    { name: "VS Code for the Web", make: (timeout) => createVscodeCharacterProofHost(false, gam, FILES, act, timeout === undefined ? {} : { settleTimeoutMs: timeout }) },
+    { name: "VS Code desktop", make: (controlled) => createVscodeCharacterProofHost(true, gam, FILES, act, { controlSettleTimers: controlled === true }) },
+    { name: "VS Code for the Web", make: (controlled) => createVscodeCharacterProofHost(false, gam, FILES, act, { controlSettleTimers: controlled === true }) },
   ];
 });
 
@@ -91,11 +91,11 @@ async function holdTwoEdits(tab: CharacterProofTab): Promise<{ release(): void }
 
 for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
   describe(`character edits through the host's own save and close: ${name}`, () => {
-    const host = (timeout?: number): CharacterProofHost => {
+    const host = (controlSettleTimers?: boolean): CharacterProofHost => {
       const found = entries.find((candidate) => candidate.name === name);
       if (found === undefined) throw new Error(`no ${name} driver`);
       document.body.replaceChildren();
-      return found.make(timeout);
+      return found.make(controlSettleTimers);
     };
 
     test("the host's save waits for an edit queued behind a held acknowledgement, writes both, and the reopened view shows them", async () => {
@@ -172,11 +172,11 @@ for (const name of ["browser host", "VS Code desktop", "VS Code for the Web"]) {
 
 for (const name of ["VS Code desktop", "VS Code for the Web"]) {
   describe(`character edits through VS Code's backup and a webview that does not answer: ${name}`, () => {
-    const host = (timeout?: number): CharacterProofHost => {
+    const host = (controlSettleTimers?: boolean): CharacterProofHost => {
       const found = entries.find((candidate) => candidate.name === name);
       if (found === undefined) throw new Error(`no ${name} driver`);
       document.body.replaceChildren();
-      return found.make(timeout);
+      return found.make(controlSettleTimers);
     };
 
     test("a hot-exit backup includes an edit still queued in the view", async () => {
@@ -193,10 +193,16 @@ for (const name of ["VS Code desktop", "VS Code for the Web"]) {
     });
 
     test("a save refuses, with the edits kept unsaved, when the view cannot hand over its queued edit in time, and succeeds once it can", async () => {
-      const proof = host(5);
+      const proof = host(true);
+      const expire = proof.expireSettleTimers;
+      ok(expire !== undefined, "this host lets the proof end the wait by hand");
       const tab = await openReady(proof);
       const hold = await holdTwoEdits(tab);
-      equal(await tab.saveFromWorkbench(), false, "the save does not claim success for an edit it could not include");
+      const refused = tab.saveFromWorkbench();
+      // The save is waiting on the held edit; the bound running out is signalled by hand, not by elapsed time.
+      await settle(act);
+      expire();
+      equal(await refused, false, "the save does not claim success for an edit it could not include");
       ok(same(await proof.disk(PATH), ORIGINAL), "nothing was written");
       equal(tab.workbenchDirty(), true, "the document stays dirty");
 
