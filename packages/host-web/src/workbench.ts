@@ -136,7 +136,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container, projectLayout), shownIn: container };
+          entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -162,6 +162,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const openPath = async (path: string): Promise<void> => {
     const result = await tree.open(path);
     if (result.ok && result.via === "document") show(result.document);
+  };
+  /** What the tileset browser's "edit source" asks for: the file in a tab, or why it did not open. */
+  const openSource = async (path: string): Promise<string | null> => {
+    const result = await tree.open(path);
+    if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
+    if (result.via === "document") show(result.document);
+    return null;
   };
 
   const tell = (message: string): Promise<unknown> =>

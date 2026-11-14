@@ -247,7 +247,7 @@ test("brush choice is retained per project, never paints on selection, and paint
   const secondHandle = await show(second);
   const otherHandle = await show(otherProject);
   const before = boardTileAt(first.doc.getSnapshot(), 0, 0, 0);
-  await act(() => session.update({ selection: { kind: "tiles", path: "Tiles/village.tst", reference: "village.tst2", label: "village.tst tile 2", boardTile: "village.tst2" } }));
+  await act(() => session.update({ selection: { kind: "tiles", path: "Tiles/village.tst", reference: "village.tst2", label: "village.tst tile 2", boardTile: "village.tst2", stamp: null } }));
   equal(boardTileAt(first.doc.getSnapshot(), 0, 0, 0), before, "selection alone never changes either board");
   equal(boardTileAt(second.doc.getSnapshot(), 0, 0, 0), before);
   equal(otherProject.el.querySelector<HTMLButtonElement>(".tkr-board-brush")?.disabled, true, "another project does not inherit the brush");
@@ -359,7 +359,7 @@ test("a stale asset read cannot replace the selected source, and source plus scr
   equal(s.el.querySelector<HTMLSelectElement>(".tkr-tileset-browser select")?.value, fastPath, "the active source is restored when the board view remounts");
   equal(s.el.querySelector<HTMLElement>(".tkr-tileset-browser-list")?.scrollTop, 37, "the browser scroll position is restored");
 });
-test("animated tiles are selectable brushes while tile bitmaps stay browse-only with an explained edit limit", async () => {
+test("animated tiles are selectable brushes and tile bitmaps are whole stamp brushes that never paint a single board cell", async () => {
   const animation: TileAnimation = {
     magic: TILE_ANIMATION_MAGIC,
     major: 2,
@@ -411,14 +411,18 @@ test("animated tiles are selectable brushes while tile bitmaps stay browse-only 
     source.dispatchEvent(new Event("change", { bubbles: true }));
     await Promise.resolve();
   });
-  for (let turn = 0; turn < 100 && s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-select-brush")?.disabled !== true; turn += 1) {
+  for (let turn = 0; turn < 100 && s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-select-brush")?.textContent !== "Select stamp brush"; turn += 1) {
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
   const bitmapBrush = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-select-brush");
-  ok(bitmapBrush !== null && bitmapBrush.disabled, `a bitmap is available to browse but not as a board brush; source=${source.value}, options=${[...source.options].map((option) => option.value).join(",")}, item=${s.el.querySelector(".tkr-tileset-browser-item")?.textContent}, message=${s.el.querySelector(".tkr-tileset-browser-message")?.textContent}`);
-  match(s.el.querySelector(".tkr-tileset-browser-message")?.textContent ?? "", /Bitmap sources are browse-only/);
+  ok(bitmapBrush !== null && !bitmapBrush.disabled && bitmapBrush.textContent === "Select stamp brush", `a bitmap is a whole stamp brush; source=${source.value}, item=${s.el.querySelector(".tkr-tileset-browser-item")?.textContent}, message=${s.el.querySelector(".tkr-tileset-browser-message")?.textContent}`);
+  match(s.el.querySelector(".tkr-tileset-browser-message")?.textContent ?? "", /Tile bitmap, 1 × 1 tiles\. Select it as a whole stamp brush/);
   match(s.el.querySelector(".tkr-tileset-browser-note")?.textContent ?? "", /Source editing is unavailable until the P1 tile editor provider exists/);
-  equal(s.doc.getSnapshot().dirty, false);
+  await act(() => bitmapBrush.click());
+  deepEqual(s.browser.session.getSnapshot().selection, { kind: "bitmaps", path: "Bitmap/portrait.tbm", reference: "portrait.tbm", label: "portrait.tbm", boardTile: null, stamp: { width: 1, height: 1 } });
+  const paint = s.el.querySelector<HTMLButtonElement>(".tkr-board-brush");
+  ok(paint !== null && paint.disabled, "a stamp is not a single board tile, so the board's one-cell paint stays unavailable");
+  equal(s.doc.getSnapshot().dirty, false, "choosing a stamp edits nothing");
 });
 
 test("Shift+F10 opens the bitmap actions, gives them focus, and Escape restores the invoking control", async () => {
@@ -455,7 +459,9 @@ test("Shift+F10 opens the bitmap actions, gives them focus, and Escape restores 
   equal(shortcut.defaultPrevented, true, "Shift+F10 suppresses the browser-native context menu so the menu can return focus to its invoker");
   const close = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-menu button:last-child");
   ok(close !== null && close.textContent === "Close actions");
-  equal(document.activeElement, close, "the bitmap menu has an enabled focused action");
+  const first = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-menu button:not(:disabled)");
+  equal(first?.textContent, "Select as stamp brush");
+  equal(document.activeElement, first, "the bitmap menu moves focus to its first enabled action");
   await act(async () => {
     close.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await Promise.resolve();

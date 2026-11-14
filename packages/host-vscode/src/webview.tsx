@@ -20,12 +20,18 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
       mount(documentRoot(), { document: doc, services });
     } else {
       mount(documentRoot(), {
+        // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
         document: remote as unknown as ViewContext["document"],
         services,
         browser: {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
           layout: { projectFolder: "" },
+          // A linked visit: the extension host opens the file in its own editor and remembers the way back.
+          openSource: async (path) => {
+            const outcome = await remote.visit(path);
+            return outcome.ok ? null : outcome.message;
+          },
         },
         boardPreferences: remote.boardPreferences,
       });

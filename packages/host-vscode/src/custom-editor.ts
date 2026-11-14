@@ -1,4 +1,4 @@
-import { DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService, PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -137,8 +137,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     return this.#fs.read(path);
   }
 
-  /** The picture of a board, composed here from the project's files by the one board compositor (AD-29); a webview reads no files. */
+  /** The picture of a board or a tile bitmap, composed here from the project's files by the one compositor of its kind (AD-29); a webview reads no files. A board's request narrows it to the layers and background shown. */
   async preview(request?: BoardPreviewRequest): Promise<BoardPicture> {
+    if (this.model.kind === "tile-bitmap") return previewTileBitmap(this.#fs, this.model.identity.projectId, this.model.serialize());
     if (this.model.kind !== "board") return { ok: false, message: `A ${this.model.kind} document has no picture.` };
     const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize(), request);
     return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;

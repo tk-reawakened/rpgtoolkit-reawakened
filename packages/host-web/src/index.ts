@@ -1,7 +1,7 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type TileBitmapViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
@@ -210,6 +210,20 @@ export const openGameSettings = openEditor;
  * kind is what says which command and snapshot types it has.
  */
 function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContext["document"] {
+  if (document.kind === "tile-bitmap") {
+    const bitmap = document as unknown as Omit<TileBitmapViewDocument, "preview">;
+    const view: TileBitmapViewDocument = {
+      kind: bitmap.kind,
+      identity: bitmap.identity,
+      getSnapshot: () => bitmap.getSnapshot(),
+      subscribe: (listener) => bitmap.subscribe(listener),
+      apply: (command) => bitmap.apply(command),
+      save: () => bitmap.save(),
+      resolveConflict: (choice) => bitmap.resolveConflict(choice),
+      preview: () => previewTileBitmap(project.services.fs, project.project.id, document.serialize()),
+    };
+    return view;
+  }
   if (document.kind !== "board") return document as unknown as ViewDocument;
   const board = document as unknown as Omit<BoardViewDocument, "preview" | "undo" | "redo"> & Required<Pick<BoardViewDocument, "undo" | "redo">>;
   // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
@@ -252,7 +266,13 @@ export interface DocumentView extends ViewHandle {
 }
 
 /** Mount the view of `document`'s kind into `element`. It holds no lease: the caller (a tab, or `mountEditor`) does. */
-export function mountDocumentView(project: WebProject, document: AnyDocument, element: HTMLElement, projectLayout: ProjectLayout = { projectFolder: "" }): DocumentView {
+export function mountDocumentView(
+  project: WebProject,
+  document: AnyDocument,
+  element: HTMLElement,
+  projectLayout: ProjectLayout = { projectFolder: "" },
+  openSource?: (path: string) => Promise<string | null>,
+): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
@@ -268,7 +288,7 @@ export function mountDocumentView(project: WebProject, document: AnyDocument, el
     mounted = mount(container, {
       document: viewDocument,
       services: project.services,
-      browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout },
+      browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
     });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
