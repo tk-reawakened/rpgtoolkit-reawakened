@@ -322,7 +322,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       {STATS.map(([field, label]) => {
         const key = `stat:${field}`;
         const current = character.stats[field];
-        const minimum = field === "experience" || field === "level" ? 0 : INT32_MIN;
+        const minimum = field === "experience" || field === "level" || field === "maxHp" || field === "maxSmp" ? 0 : INT32_MIN;
         return <label key={field}>{label}<input aria-label={label} type="number" step="1" min={minimum} max={INT32_MAX} value={text(key, String(current))} onInput={(event) => editText(key, event.currentTarget.value)} onBlur={(event) => {
           const raw = event.currentTarget.value;
           const parsed = integerValue(raw, minimum, INT32_MAX);
