@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- RPGCode `thread()` now loads an existing project program before falling back to executing its argument as inline code (#2106).
 - The VS Code web proof retries settings observations while the file is being written, while still failing on persistent invalid JSON or the wrong autosave value (#2399).
 - Desktop CSP probes no longer overwrite the shared audio worklet while testing decoder failures, so concurrent probes keep their own generated assets (#2345).
 - Each desktop input probe now uses its own Electron profile, so overlapping runs do not share the single-instance lock (#2003). Temporary-profile cleanup retries Windows file locks without masking the probe result (#2344).
