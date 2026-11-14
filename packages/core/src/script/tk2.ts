@@ -288,7 +288,7 @@ function lowerInlineReturns(text: string): string {
       while (i < text.length && text[i] !== '"' && text[i] !== "\n") i += 1;
       if (text[i] === '"') i += 1;
       statement = false;
-    } else if (char === "/" && text[i + 1] === "/") {
+    } else if ((char === "/" && text[i + 1] === "/") || (char === "*" && text[i + 1] === "*")) {
       while (i < text.length && text[i] !== "\n") i += 1;
     } else if (char === "/" && text[i + 1] === "*") {
       i += 2;

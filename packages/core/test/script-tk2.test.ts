@@ -49,6 +49,15 @@ test("TK2 inline return lowering preserves string and comment text", () => {
   equal(converted.includes("return(7)"), true);
 });
 
+test("TK2 double-star comments cannot corrupt the following string (#2540)", () => {
+  const source = '#x = 0 ** /*\n#message = "*/; ReturnMethod(7)"';
+  const program = compileTk2(source, "commented-return.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.message, "*/; ReturnMethod(7)");
+});
+
 test("TK2 quoted dialogue inside a lambda retains its text", () => {
   const source = '#show = () => {\nHello "friend"\n}\n#show()';
   const program = compileTk2(source, "lambda-dialogue.prg");
