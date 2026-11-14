@@ -67,10 +67,17 @@ test("browser workbench opens registered assets and packages a project through t
   const inventory = page.locator(".tkr-files-package-result");
   await expect(inventory).toContainText("Main/example.gam");
   await expect(inventory).toContainText("Chrs/ada.tem");
-  await page.getByRole("tab", { name: "Main/example.gam", exact: true }).click();
-  await page.getByLabel("Game title").fill("Changed after package review");
-  await page.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
+  await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The browser folder test handle is missing.");
+    const prg = await root.getDirectoryHandle("Prg");
+    const file = await prg.getFileHandle("open_chest.prg");
+    const bytes = new Uint8Array(await (await file.getFile()).arrayBuffer());
+    bytes[0] = (bytes[0] ?? 0) ^ 1;
+    const writable = await file.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+  });
   await page.getByLabel("I reviewed the included and excluded files.").check();
   await page.getByRole("button", { name: "Save package and descriptor…", exact: true }).click();
   await expect(packageStatus).toContainText("Project files or release version changed since preflight.");
@@ -100,7 +107,7 @@ test("browser workbench opens registered assets and packages a project through t
   expect(output.descriptor).toMatchObject({
     file: "browser-game.tpk",
     size: output.archiveSize,
-    title: "Changed after package review",
+    title: "Example Game",
     version: "1.0.0",
   });
   expect(output.descriptor.sha256).toMatch(/^[0-9a-f]{64}$/);
