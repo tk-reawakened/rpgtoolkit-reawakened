@@ -4,12 +4,13 @@ import { createGameEditorProvider, type GameDocument, type GameEditEvent, type G
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 
-const VIEW_TYPE = "tkr.gameSettings";
+/** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
+const VIEW_TYPES = ["tkr.gameSettings", "tkr.board"] as const;
 
 function html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
   const bundle = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "webview.js"));
-  return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Game settings</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
+  return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><title>RPG Toolkit editor</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
 }
 
 export function registerGameSettings(context: vscode.ExtensionContext): void {
@@ -51,5 +52,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): void {
   };
   // A hidden webview is destroyed (`retainContextWhenHidden: false`); the document lives here in the extension host, and
   // the re-created view asks for it again (ADR 0022 D3.7).
-  context.subscriptions.push(vscode.window.registerCustomEditorProvider(VIEW_TYPE, provider, { webviewOptions: { retainContextWhenHidden: false }, supportsMultipleEditorsPerDocument: true }));
+  for (const viewType of VIEW_TYPES) {
+    context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: false }, supportsMultipleEditorsPerDocument: true }));
+  }
 }

@@ -1,7 +1,8 @@
 import { foldPath, toSlashes } from "@tk-reawakened/core";
 import type { Disposable, DocumentService, FileSystemService, PlatformError, PlatformServices } from "@tk-reawakened/platform-services";
 import { createDocumentIdentity } from "./identity.ts";
-import { openMainDocument, type HistoryResult, type MainDocument, type MainDocumentSnapshot, type OpenError, type RevertFailure, type SaveFailure, type SaveResult } from "./main-document.ts";
+import type { DocumentSnapshot, HistoryResult, OpenError, RevertFailure, SaveFailure, SaveResult } from "./binary-document.ts";
+import { kindById, kindForPath, type AnyDocument } from "./kinds.ts";
 
 /**
  * The documents a host has open in one project, and the lifecycle around them that ADR 0022 D3 promises in every host:
@@ -17,7 +18,7 @@ import { openMainDocument, type HistoryResult, type MainDocument, type MainDocum
  * and the same waiting external change. Save progress (`saving`, `saveError`, `dirty`) is not part of a revision, so a
  * save of the same revision finishing in between does not count as a change.
  */
-export function sameRevision(a: MainDocumentSnapshot, b: MainDocumentSnapshot): boolean {
+export function sameRevision(a: DocumentSnapshot, b: DocumentSnapshot): boolean {
   return a.edits.length === b.edits.length && a.edits.at(-1)?.editId === b.edits.at(-1)?.editId && a.conflict === b.conflict;
 }
 
@@ -63,10 +64,12 @@ export async function resolveDocumentPath(fs: Pick<FileSystemService, "list">, p
 
 export type WorkspaceOpenError =
   | OpenError
-  | { readonly kind: "case-conflict"; readonly document: string; readonly paths: readonly string[]; readonly message: string };
+  | { readonly kind: "case-conflict"; readonly document: string; readonly paths: readonly string[]; readonly message: string }
+  /** No registered kind claims the extension (ADR 0026 decision 1); nothing is read. */
+  | { readonly kind: "unsupported"; readonly document: string; readonly message: string };
 
 export type WorkspaceOpenResult =
-  | { readonly ok: true; readonly document: MainDocument }
+  | { readonly ok: true; readonly document: AnyDocument }
   | { readonly ok: false; readonly error: WorkspaceOpenError };
 
 /** One document's outcome in Save All: each document saves or fails on its own (D4.1). */
@@ -100,7 +103,7 @@ export interface SaveAsFailure {
 }
 
 export type SaveAsOutcome =
-  | { readonly ok: true; readonly document: MainDocument }
+  | { readonly ok: true; readonly document: AnyDocument }
   | { readonly ok: false; readonly reason: "cancelled" }
   | { readonly ok: false; readonly reason: "failed"; readonly failure: SaveAsFailure };
 
@@ -113,25 +116,25 @@ export interface DocumentWorkspace {
    * Make a document created outside `open` (a recovered backup) the one model of its identity. `false`, and nothing
    * registered, when another model already holds that identity (D1.2).
    */
-  adopt(document: MainDocument): boolean;
+  adopt(document: AnyDocument): boolean;
   /** The open documents, in the order they were opened. */
-  documents(): readonly MainDocument[];
+  documents(): readonly AnyDocument[];
   /** Undo the latest edit this host heard of that is still in force, by its `editId`. */
-  undo(document: MainDocument): HistoryResult;
+  undo(document: AnyDocument): HistoryResult;
   /** Redo the latest undone edit, by its `editId`. */
-  redo(document: MainDocument): HistoryResult;
+  redo(document: AnyDocument): HistoryResult;
   /** Save every dirty document, one after another, and report each (D4.1: there is no all-or-nothing save). */
   saveAll(): Promise<readonly SaveAllEntry[]>;
   /** Close a document with no attached views, asking before losing work; attached views close through their leases. */
-  close(document: MainDocument): Promise<CloseResult>;
+  close(document: AnyDocument): Promise<CloseResult>;
   /** Track a mounted view; close its lease to close that view without releasing models used by other views. */
-  attachView(document: MainDocument): DocumentViewLease;
+  attachView(document: AnyDocument): DocumentViewLease;
   /** Forget a document without asking: the host has already asked (VS Code's workbench), or nothing can be lost. */
-  release(document: MainDocument): void;
+  release(document: AnyDocument): void;
   /** Go back to the file on disk, asking first when that discards unsaved work (D3.6). */
-  revert(document: MainDocument): Promise<RevertOutcome>;
+  revert(document: AnyDocument): Promise<RevertOutcome>;
   /** Save a copy under a new name chosen through `dialogs`, open it as a new identity, and close the source (D1.3, D3.4). */
-  saveAs(document: MainDocument): Promise<SaveAsOutcome>;
+  saveAs(document: AnyDocument): Promise<SaveAsOutcome>;
   /** Stop watching and forget every document. */
   dispose(): void;
 }
@@ -142,6 +145,10 @@ export interface WorkspaceOptions {
   readonly services: Pick<PlatformServices, "fs" | "dialogs" | "capabilities">;
 }
 
+/** A Save As of a document whose kind is no longer registered cannot be reopened. */
+type ReopenFailure = { readonly ok: false; readonly error: { readonly document: string; readonly error: { readonly message: string } } };
+const UNKNOWN_KIND: ReopenFailure = { ok: false, error: { document: "", error: { message: "its kind is not registered" } } };
+
 interface HostHistory {
   readonly undo: string[];
   readonly redo: string[];
@@ -151,11 +158,11 @@ interface HostHistory {
 export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWorkspace {
   const { projectId, services } = options;
   const { fs, dialogs } = services;
-  const documents = new Map<string, MainDocument>();
+  const documents = new Map<string, AnyDocument>();
   const opening = new Map<string, Promise<WorkspaceOpenResult>>();
   const savingAs = new Map<string, Promise<void>>();
   const histories = new Map<string, HostHistory>();
-  const views = new Map<MainDocument, Set<DocumentViewLease>>();
+  const views = new Map<AnyDocument, Set<DocumentViewLease>>();
   let watch: Promise<Disposable | null> | null = null;
   let disposed = false;
 
@@ -205,7 +212,11 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     // Two opens of one document at once share one read and one model.
     const pending = opening.get(identity.key);
     if (pending !== undefined) return pending;
-    const reading = openMainDocument(fs, identity).then((opened): WorkspaceOpenResult => {
+    const kind = kindForPath(identity.path);
+    if (kind === null) {
+      return { ok: false, error: { kind: "unsupported", document: identity.path, message: `${identity.path} is not a file type the editor opens.` } };
+    }
+    const reading = kind.open(fs, identity).then((opened): WorkspaceOpenResult => {
       opening.delete(identity.key);
       if (!opened.ok || disposed) return opened;
       documents.set(identity.key, opened.document);
@@ -216,14 +227,14 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     return reading;
   };
 
-  const release = (document: MainDocument): void => {
+  const release = (document: AnyDocument): void => {
     const key = document.identity.key;
     if (documents.get(key) !== document) return;
     documents.delete(key);
     histories.delete(key);
   };
 
-  const closeDocument = async (document: MainDocument, view?: DocumentViewLease): Promise<CloseResult> => {
+  const closeDocument = async (document: AnyDocument, view?: DocumentViewLease): Promise<CloseResult> => {
     const attached = views.get(document);
     if (view !== undefined && !attached?.has(view)) return { closed: true };
     if (view !== undefined && attached !== undefined && attached.size > 1) {
@@ -400,7 +411,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         const written = await document.saveAs(fs, identity);
         if (!written.ok) return failed(resolved.path, written.failure.message);
         // Read the copy without registering it. A failed Save As must not strand an invisible open destination.
-        const reopened = await openMainDocument(fs, identity);
+        const reopened = await (kindById(document.kind)?.open(fs, identity) ?? Promise.resolve<ReopenFailure>(UNKNOWN_KIND));
         if (!reopened.ok) {
           return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reopened.error.document}: ${reopened.error.error.message}`);
         }

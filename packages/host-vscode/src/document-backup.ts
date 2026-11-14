@@ -1,12 +1,12 @@
-import { createMainDocument, markRecoveredDocumentDirty, type ApplyResult, type ConflictChoice, type ConflictResult, type DocumentIdentity, type DocumentStorage, type ExternalChange, type ExternalCheck, type HistoryResult, type MainCommand, type MainDocument, type MainDocumentSnapshot, type OpenError, type RevertResult, type SaveFailure, type SaveResult } from "@tk-reawakened/editor-model";
+import { kindById, markRecoveredDocumentDirty, type AnyDocument, type ApplyResult, type ConflictChoice, type ConflictResult, type DocumentIdentity, type DocumentKind, type DocumentSnapshot, type DocumentStorage, type ExternalChange, type ExternalCheck, type HistoryResult, type OpenError, type RevertResult, type SaveFailure, type SaveResult } from "@tk-reawakened/editor-model";
 import type { PlatformResult } from "@tk-reawakened/platform-services";
 
 export type BackupRecoveryResult =
-  | { readonly ok: true; readonly document: MainDocument }
+  | { readonly ok: true; readonly document: AnyDocument }
   | { readonly ok: false; readonly error: OpenError };
 
 /** A legacy hot-exit backup has no original disk baseline. Preserve it and require an explicit choice. */
-export async function recoverMainDocument(storage: DocumentStorage, identity: DocumentIdentity, backup: Uint8Array): Promise<BackupRecoveryResult> {
+export async function recoverDocument(kind: DocumentKind, storage: DocumentStorage, identity: DocumentIdentity, backup: Uint8Array): Promise<BackupRecoveryResult> {
   let lastRead: PlatformResult<Uint8Array> | undefined;
   let expected: Uint8Array | null | undefined;
   const recordingStorage: DocumentStorage = {
@@ -21,23 +21,38 @@ export async function recoverMainDocument(storage: DocumentStorage, identity: Do
     },
     writeProject: (project, path, bytes) => storage.writeProject(project, path, bytes),
   };
-  const recovered = createMainDocument(recordingStorage, identity, backup);
+  const recovered = kind.create(recordingStorage, identity, backup);
   if (!recovered.ok) return recovered;
-  const edit = recovered.document.apply({ type: "set-game-title", title: recovered.document.getSnapshot().gameTitle });
-  if (!edit.ok) throw new Error(`Could not restore backup for ${identity.path}: ${edit.rejection.message}`);
-  const guarded = new RecoveryDocument(recovered.document, storage, () => lastRead, (bytes) => { expected = bytes; });
+  // A kind with a harmless command recovers through it, so the recovered document has a history; one without is dirtied directly.
+  const marker = kind.recoveryMarker(recovered.document.getSnapshot());
+  if (marker === null) {
+    markRecoveredDocumentDirty(recovered.document);
+  } else {
+    const edit = recovered.document.apply(marker);
+    if (!edit.ok) throw new Error(`Could not restore backup for ${identity.path}: ${edit.rejection.message}`);
+  }
+  const guarded = new RecoveryDocument(kind, recovered.document, marker !== null, storage, () => lastRead, (bytes) => { expected = bytes; });
   await guarded.checkExternal();
   return { ok: true, document: guarded };
 }
 
+/** Recover a main-file backup: `recoverDocument` for the `.gam` kind. */
+export function recoverMainDocument(storage: DocumentStorage, identity: DocumentIdentity, backup: Uint8Array): Promise<BackupRecoveryResult> {
+  return recoverDocument(kindById("main")!, storage, identity, backup);
+}
+
 /** Resolve a recovery conflict with a fresh disk check; ordinary documents use the shared model's resolution. */
-export async function resolveRecoveryConflict(document: MainDocument, choice: ConflictChoice): Promise<ConflictResult> {
+export async function resolveRecoveryConflict(document: AnyDocument, choice: ConflictChoice): Promise<ConflictResult> {
   return document instanceof RecoveryDocument ? document.resolveRecovery(choice) : document.resolveConflict(choice);
 }
 
-class RecoveryDocument implements MainDocument {
+class RecoveryDocument implements AnyDocument {
+  readonly kind: string;
   readonly identity: DocumentIdentity;
-  readonly #document: MainDocument;
+  readonly #kind: DocumentKind;
+  /** Whether recovery added a marker edit to the history (a kind with no marker recovers through the dirty flag alone). */
+  readonly #marked: boolean;
+  readonly #document: AnyDocument;
   readonly #storage: DocumentStorage;
   readonly #lastRead: () => PlatformResult<Uint8Array> | undefined;
   readonly #listeners = new Set<() => void>();
@@ -46,10 +61,13 @@ class RecoveryDocument implements MainDocument {
   #observed: Uint8Array | null | undefined;
   #change: ExternalChange;
   #saveError: SaveFailure | null = null;
-  #snapshot: MainDocumentSnapshot;
+  #snapshot: DocumentSnapshot<unknown>;
   #resolution: Promise<unknown> = Promise.resolve();
 
-  constructor(document: MainDocument, storage: DocumentStorage, lastRead: () => PlatformResult<Uint8Array> | undefined, expectRead: (bytes: Uint8Array | null | undefined) => void) {
+  constructor(kind: DocumentKind, document: AnyDocument, marked: boolean, storage: DocumentStorage, lastRead: () => PlatformResult<Uint8Array> | undefined, expectRead: (bytes: Uint8Array | null | undefined) => void) {
+    this.#kind = kind;
+    this.#marked = marked;
+    this.kind = document.kind;
     this.#document = document;
     this.#storage = storage;
     this.#lastRead = lastRead;
@@ -59,13 +77,13 @@ class RecoveryDocument implements MainDocument {
     this.#snapshot = this.#makeSnapshot();
     document.subscribe(() => this.#publish());
   }
-  getSnapshot(): MainDocumentSnapshot { return this.#snapshot; }
+  getSnapshot(): DocumentSnapshot<unknown> { return this.#snapshot; }
   subscribe(listener: () => void): () => void { this.#listeners.add(listener); return () => { this.#listeners.delete(listener); }; }
-  apply(command: MainCommand): ApplyResult { return this.#document.apply(command); }
+  apply(command: unknown): ApplyResult { return this.#document.apply(command); }
   serialize(): Uint8Array { return this.#document.serialize(); }
   undo(editId?: string): HistoryResult {
     // The recovery marker is not a VS Code edit; it cannot be undone while the recovery choice is pending.
-    if (this.#pending && this.#document.getSnapshot().edits.length <= 1) return { ok: false, reason: "nothing-to-undo" };
+    if (this.#pending && this.#document.getSnapshot().edits.length <= (this.#marked ? 1 : 0)) return { ok: false, reason: "nothing-to-undo" };
     return this.#document.undo(editId);
   }
   redo(editId?: string): HistoryResult { return this.#document.redo(editId); }
@@ -147,15 +165,14 @@ class RecoveryDocument implements MainDocument {
   }
   #failure(): SaveFailure { return { document: this.identity.path, kind: "conflict", code: null, message: `${this.#change.message} Nothing was saved.` }; }
   #describe(bytes: Uint8Array | null | undefined): ExternalChange {
-    const read = bytes instanceof Uint8Array ? createMainDocument(this.#storage, this.identity, bytes) : null;
     return {
       document: this.identity.path,
       kind: bytes === null ? "deleted" : "changed",
-      externalTitle: read?.ok === true ? read.document.getSnapshot().gameTitle : null,
+      externalTitle: bytes instanceof Uint8Array ? this.#kind.summarise(bytes, this.identity.path) : null,
       message: bytes === undefined ? `${this.identity.path} was recovered without its original disk baseline. The disk version could not be checked; choose again to retry.` : `${this.identity.path} was recovered without its original disk baseline. Your recovered version and the version on disk are kept until you choose.`,
     };
   }
-  #makeSnapshot(): MainDocumentSnapshot {
+  #makeSnapshot(): DocumentSnapshot<unknown> {
     const snapshot = this.#document.getSnapshot();
     return this.#pending ? { ...snapshot, dirty: true, conflict: this.#change, saveError: this.#saveError } : snapshot;
   }

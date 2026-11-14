@@ -7,6 +7,11 @@ import { createDocumentIdentity, createDocumentWorkspace, createMainDocument, op
 import { resolveDocumentPath } from "../src/workspace.ts";
 import { exampleMain, titleOf, withTitle } from "./fixtures.ts";
 
+/** The game title of a document the workspace opened, which the workspace types by lifecycle only. */
+function titleOfDocument(document: { getSnapshot(): unknown }): string {
+  return (document.getSnapshot() as { readonly gameTitle: string }).gameTitle;
+}
+
 const PATH = "Main/example.gam";
 const identity = createDocumentIdentity("memory-project", PATH);
 
@@ -219,7 +224,7 @@ test("save then close keeps edits accepted during the write open and dirty (D3.3
   release();
   deepEqual(await closing, { closed: false, reason: "cancelled" });
   equal(titleOf(host.bytesOf(PATH)!), "Saved revision");
-  equal(doc.getSnapshot().gameTitle, "Later edit");
+  equal(titleOfDocument(doc), "Later edit");
   equal(doc.getSnapshot().dirty, true);
   deepEqual(workspace.documents(), [doc]);
   const reopened = await workspace.open(PATH);
@@ -239,7 +244,7 @@ test("Save As retains the source when its write misses a later edit (D3.4)", HEL
   ok(!result.ok);
   equal(result.reason, "failed");
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied revision");
-  equal(doc.getSnapshot().gameTitle, "Later edit");
+  equal(titleOfDocument(doc), "Later edit");
   equal(doc.getSnapshot().dirty, true);
   deepEqual(workspace.documents(), [doc], "the partially written copy is not silently registered");
   const reopened = await workspace.open(PATH);
@@ -249,7 +254,7 @@ test("Save As retains the source when its write misses a later edit (D3.4)", HEL
   host.answerQuestions("replace");
   const retried = await workspace.saveAs(doc);
   ok(retried.ok, "retrying the same destination is not blocked by an invisible open document");
-  equal(retried.document.getSnapshot().gameTitle, "Later edit");
+  equal(titleOfDocument(retried.document), "Later edit");
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Later edit");
 });
 
@@ -279,7 +284,7 @@ test("an edit while opening a written Save As copy does not register a hidden de
   ok(!result.ok);
   equal(result.reason, "failed");
   deepEqual(workspace.documents(), [opened.document]);
-  equal(opened.document.getSnapshot().gameTitle, "Later");
+  equal(titleOfDocument(opened.document), "Later");
   equal(opened.document.getSnapshot().dirty, true);
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Written");
 });
@@ -302,7 +307,7 @@ test("a Save As destination is reserved against competing saves and opens until 
   const opened = await opening;
   ok(opened.ok, "an open during the reservation waits for the copy");
   equal(opened.document, saved.document);
-  equal(opened.document.getSnapshot().gameTitle, "Copy");
+  equal(titleOfDocument(opened.document), "Copy");
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copy");
 });
 
@@ -317,7 +322,7 @@ test("Save As succeeds when a save of the same revision finishes during its writ
   release();
   const result = await saving;
   ok(result.ok, "finishing a save is not an edit, so Save As still succeeds");
-  equal(result.document.getSnapshot().gameTitle, "Copied and saved");
+  equal(titleOfDocument(result.document), "Copied and saved");
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied and saved");
 });
 
@@ -353,7 +358,7 @@ test("Save As keeps the source when an undo and a new edit during its write leav
   ok(!result.ok, "the copy does not hold the edit now in force");
   equal(result.reason, "failed");
   deepEqual(workspace.documents(), [doc]);
-  equal(doc.getSnapshot().gameTitle, "Replaced");
+  equal(titleOfDocument(doc), "Replaced");
   equal(doc.getSnapshot().dirty, true);
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied");
 });
@@ -373,7 +378,7 @@ test("a view attached while the last view's close is saving keeps the document o
   ok(doc.apply({ type: "set-game-title", title: "Edited in the new view" }).ok);
   host.answerQuestions("cancel");
   deepEqual(await added.close(), { closed: false, reason: "cancelled" }, "its close is now the last one, so it asks");
-  equal(doc.getSnapshot().gameTitle, "Edited in the new view");
+  equal(titleOfDocument(doc), "Edited in the new view");
   closing.dispose();
   added.dispose();
 });
@@ -390,7 +395,7 @@ test("Save As from one of two views opens the copy and keeps the source for the 
   host.answerSavePaths("Main/copy.gam");
   const result = await workspace.saveAs(doc);
   ok(result.ok);
-  equal(result.document.getSnapshot().gameTitle, "Shared then copied");
+  equal(titleOfDocument(result.document), "Shared then copied");
   deepEqual(workspace.documents(), [doc, result.document], "the other view's source stays open beside the copy");
   saving.dispose();
   equal(doc.getSnapshot().dirty, true, "the source keeps its unsaved edit (D1.3)");
@@ -410,7 +415,7 @@ test("concurrent view closes cannot both bypass the last dirty view's confirmati
   deepEqual(results, [{ closed: true }, { closed: false, reason: "cancelled" }]);
   equal(host.questions.length, 1);
   deepEqual(workspace.documents(), [doc]);
-  equal(doc.getSnapshot().gameTitle, "Still here");
+  equal(titleOfDocument(doc), "Still here");
   first.dispose();
   second.dispose();
 });

@@ -107,3 +107,10 @@ export function withTitleBytes(bytes: Uint8Array, title: Uint8Array): Uint8Array
   const { start, end } = titleSpan(bytes);
   return Uint8Array.from([...bytes.subarray(0, start), ...title, ...bytes.subarray(end)]);
 }
+
+const boards = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions", "board");
+
+/** The committed example board for `board_minor<minor>.brd` (minor 4 is a 4×3 board of two layers; 2 and 3 are the pre-vector layouts the editor refuses). */
+export function exampleBoard(minor: 2 | 3 | 4): Uint8Array {
+  return new Uint8Array(readFileSync(join(boards, `board_minor${minor}.brd`)));
+}

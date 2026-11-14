@@ -199,6 +199,7 @@ test("disposing the view removes its listener and its DOM and leaves the documen
   let live = 0;
   const counted: MainDocument = {
     identity: s.doc.identity,
+    kind: s.doc.kind,
     getSnapshot: () => s.doc.getSnapshot(),
     serialize: () => s.doc.serialize(),
     subscribe: (listener) => {
@@ -368,6 +369,7 @@ test("a newer title draft survives an earlier asynchronous apply", async () => {
   let releaseApply: () => void = () => undefined;
   const delayed: ViewDocument = {
     identity: s.doc.identity,
+    kind: s.doc.kind,
     getSnapshot: () => s.doc.getSnapshot(),
     subscribe: (listener) => s.doc.subscribe(listener),
     apply: (command) =>
@@ -400,6 +402,7 @@ test("Enter commits a newer title draft after an earlier asynchronous apply", as
   let firstApply = true;
   const delayed: ViewDocument = {
     identity: s.doc.identity,
+    kind: s.doc.kind,
     getSnapshot: () => s.doc.getSnapshot(),
     subscribe: (listener) => s.doc.subscribe(listener),
     apply: (command) => {
@@ -454,6 +457,7 @@ test("Save commits a newer title draft after an earlier asynchronous apply", asy
   });
   const delayed: ViewDocument = {
     identity: s.doc.identity,
+    kind: s.doc.kind,
     getSnapshot: () => s.doc.getSnapshot(),
     subscribe: (listener) => s.doc.subscribe(listener),
     apply: (command) => {
@@ -636,6 +640,7 @@ test("a failure that replaces another with the same words, with no clean state b
   const listeners = new Set<() => void>();
   const stub: MainDocument = {
     identity: s.doc.identity,
+    kind: s.doc.kind,
     getSnapshot: () => snapshot,
     serialize: () => s.doc.serialize(),
     subscribe: (listener) => {
@@ -738,6 +743,7 @@ test("a save that is rejected rather than answered leaves no unhandled rejection
   const s = await setup();
   const rejecting: MainDocument = {
     identity: s.doc.identity,
+    kind: s.doc.kind,
     getSnapshot: () => ({ ...s.doc.getSnapshot(), dirty: true }),
     serialize: () => s.doc.serialize(),
     subscribe: (listener) => s.doc.subscribe(listener),

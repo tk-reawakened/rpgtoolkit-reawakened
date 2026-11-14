@@ -16,8 +16,8 @@
 // The real-workbench proof (`web-proof.ts`, run in CI against `@vscode/test-web`) checks the same behaviours in VS Code
 // itself; this driver lets every conformance case run in under a second.
 import { posix } from "node:path";
-import type { MainDocument } from "@tk-reawakened/editor-model";
-import { mount, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { asMainDocument, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
+import { mount, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { Capability, DialogService, FileChange } from "@tk-reawakened/platform-services";
 import {
   createGameEditorProvider,
@@ -267,6 +267,13 @@ class Webview {
     return new MountedView(this.#page.element, this.#act);
   }
 
+  /** The board's picture, asked for through the webview's own bridge as the board view asks for it. */
+  async picture(): Promise<BoardPicture> {
+    const remote = this.#page?.remote;
+    if (remote === null || remote === undefined) throw new Error("the webview is not initialized");
+    return remote.preview();
+  }
+
   /** Send a hidden reload request as an old or compromised webview, through the real bridge. */
   async forgedReload(): Promise<void> {
     const remote = this.#page?.remote;
@@ -305,9 +312,9 @@ class Webview {
   #receive(page: Page, message: BridgeMessage): void {
     if (this.#page !== page) return;
     if (message.type === "initialize") {
-      page.remote = new RemoteDocument(message.snapshot, { postMessage: (request) => this.#send(request), getState: () => undefined, setState: () => undefined });
+      page.remote = new RemoteDocument(message.kind, message.snapshot, { postMessage: (request) => this.#send(request), getState: () => undefined, setState: () => undefined });
       page.handle = mount(page.element, {
-        document: page.remote,
+        document: page.remote as unknown as ViewContext["document"],
         services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities) },
       });
       return;
@@ -397,7 +404,6 @@ class Workbench {
 
 class VscodeEditor implements ConformanceEditor {
   readonly path: string;
-  readonly model: MainDocument;
   readonly #workbench: Workbench;
   readonly copy: WorkingCopy;
   readonly webview: Webview;
@@ -406,9 +412,11 @@ class VscodeEditor implements ConformanceEditor {
     this.#workbench = workbench;
     this.copy = copy;
     this.webview = webview;
-    this.model = copy.custom.model;
     this.path = copy.custom.model.identity.path;
   }
+
+  /** The main-file model; asking for it on a board's tab is a mistake in the test, so it throws. */
+  get model(): MainDocument { return asMainDocument(this.copy.custom.model); }
 
   get #act(): Act { return this.#workbench.host.act; }
 
@@ -539,13 +547,14 @@ class VscodeHost implements ConformanceHost {
   readonly act: Act;
   #workbench: Workbench;
 
-  constructor(desktop: boolean, fixture: Uint8Array, act: Act) {
+  constructor(desktop: boolean, fixture: Uint8Array, act: Act, files: Readonly<Record<string, Uint8Array>> = {}) {
     this.name = desktop ? "VS Code desktop" : "VS Code for the Web";
     const capabilities = vscodeCapabilities(desktop);
     this.capabilities = new Set(capabilities);
     this.act = act;
     this.drive.files.set(`${ROOT.path}/${GAME}`, fixture.slice());
     this.drive.files.set(`${ROOT.path}/${SECOND}`, retitled(fixture, "Second game"));
+    for (const [path, bytes] of Object.entries(files)) this.drive.files.set(`${ROOT.path}/${path}`, bytes.slice());
     this.#workbench = new Workbench(this, capabilities);
   }
 
@@ -658,4 +667,40 @@ class VscodeHost implements ConformanceHost {
 /** The VS Code host, as the desktop build (with live change detection) or the browser build (without it). */
 export function createVscodeConformanceHost(desktop: boolean, fixture: Uint8Array, act: Act): ConformanceHost {
   return new VscodeHost(desktop, fixture, act);
+}
+
+/** One open board tab as a person sees it: the mounted view, VS Code's dirty marker, and the picture the bridge gives. */
+export interface BoardProofTab {
+  readonly element: HTMLElement;
+  /** VS Code's working-copy dirty marker (the workbench's, not the model's). */
+  workbenchDirty(): boolean;
+  /** The picture the view asked the extension host for. */
+  picture(): Promise<BoardPicture>;
+  close(): Promise<void>;
+}
+
+export interface BoardProofHost {
+  readonly name: string;
+  open(path: string): Promise<BoardProofTab>;
+  disk(path: string): Promise<Uint8Array | null>;
+  settle(): Promise<void>;
+}
+
+/** The VS Code host holding `files` (project-relative paths) besides a `.gam`, for the board proof of story 12.1. */
+export function createVscodeBoardProofHost(desktop: boolean, gam: Uint8Array, files: Readonly<Record<string, Uint8Array>>, act: Act): BoardProofHost {
+  const host = new VscodeHost(desktop, gam, act, files);
+  return {
+    name: host.name,
+    async open(path) {
+      const editor = (await host.open(path)) as VscodeEditor;
+      return {
+        get element() { return editor.webview.view.element; },
+        workbenchDirty: () => editor.copy.dirty,
+        picture: () => editor.webview.picture(),
+        close: async () => { await editor.close("discard"); },
+      };
+    },
+    disk: (path) => host.disk(path),
+    settle: () => host.settle(),
+  };
 }
