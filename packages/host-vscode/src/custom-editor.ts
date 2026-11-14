@@ -130,8 +130,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.#views.add(target);
     return () => {
       this.#views.delete(target);
-      // A disposed webview can no longer answer; waiting for it would hang the save for nothing.
-      for (const answer of [...target.waiting.values()]) answer(true);
+      // The view may have accepted edits before it disappeared. Without its answer we cannot claim they reached the
+      // model, so a concurrent save/revert/backup must fail rather than proceed on a partial snapshot.
+      for (const answer of [...target.waiting.values()]) answer(false);
     };
   }
 
@@ -141,15 +142,15 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /**
-   * Ask every webview of this document to hand over the edits it has accepted but not yet sent (a character edit queued
-   * behind an unacknowledged one), and wait until each has. A webview answers after all of them, and its messages arrive
-   * in the order it sent them, so every edit is in the model when this resolves. `null` when they all answered; the
-   * reason when one did not in time (`startSettleTimer`), in which case a save must not go ahead, since it would leave that
-   * edit out while VS Code marks the document saved (#2613).
+   * Ask every live webview of this document to hand over the edits it has accepted but not yet sent (a character edit
+   * queued behind an unacknowledged one), and wait until each confirms. A successful answer means its earlier edit
+   * messages reached this model. A timed-out, failed or disposed view is not proof of delivery, so save, backup, revert
+   * and Save As refuse to proceed. `null` means every live view answered successfully.
    *
    * What this cannot reach: an edit still in transit from a webview that VS Code has not delivered when the workbench
    * asks this document to save, back up or close. VS Code gives no ordering between its own commands and a webview's
-   * messages, so that window is not closed here (it is a known gap in ADR 0022, #2613).
+   * messages, and a view destroyed before it can be asked is no longer tracked. Those windows remain known gaps in
+   * ADR 0022, #2613 and #2652.
    */
   async settleViews(): Promise<string | null> {
     const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
@@ -162,10 +163,10 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         resolve(settled);
       };
       view.waiting.set(requestId, answer);
-      void view.post(requestId).then((delivered) => { if (!delivered) answer(true); }, () => answer(true));
+      void view.post(requestId).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
     }));
     if ((await Promise.all(answers)).every((settled) => settled)) return null;
-    return "the editor did not hand over the edits it had accepted in time";
+    return "the editor could not confirm that it handed over its accepted edits";
   }
 
   /** The board-editor preferences the webview reads (T-33). */
@@ -466,15 +467,16 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     },
     async revertCustomDocument(document) {
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own
-      // edits after the save point, which `revert` mirrors (D3.6). Edits the webview still holds are in the model first,
-      // so the revert discards them with the rest instead of letting them re-dirty the document afterwards (#2613).
-      await document.settleViews();
+      // edits after the save point, which `revert` mirrors (D3.6). First require every live webview to hand over its
+      // accepted edits; if that cannot be confirmed, leave the model untouched.
+      const unsettled = await document.settleViews();
+      if (unsettled !== null) throw new Error(`Could not revert ${document.model.identity.path}: ${unsettled}. Nothing was reverted.`);
       const result = await document.model.revert();
       if (!result.ok) throw new Error(result.failure.message);
     },
     async backupCustomDocument(document, destination) {
-      // A backup that cannot reach a silent webview still backs up what the model holds: hot exit must not fail for it.
-      await document.settleViews();
+      const unsettled = await document.settleViews();
+      if (unsettled !== null) throw new Error(`Could not back up ${document.model.identity.path}: ${unsettled}. No backup was written.`);
       const id = await port.writeBackup(destination, document.model.serialize());
       return { id, delete: () => port.deleteBackup(destination) };
     },

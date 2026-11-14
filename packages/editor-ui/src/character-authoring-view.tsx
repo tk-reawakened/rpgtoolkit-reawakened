@@ -36,10 +36,10 @@ const INCREASES = [[0, "HP"], [1, "DP"], [2, "FP"], [3, "SMP"]] as const;
 const ACCESSORY_SLOTS = Array.from({ length: 10 }, (_, index) => `Accessory ${index + 1}`);
 const BODY_SLOTS = ["Head", "Neck", "Left hand", "Right hand", "Body", "Legs"] as const;
 /**
- * Neither host has an editor or text provider for `.prg` programs or `.spc` special-move files (#2609), so the level-up
- * program and special-move file references are chosen and typed here but cannot be opened from this editor.
+ * Linked program and special-move files have no authoring provider in this character editor (#2609). The references
+ * remain editable here, but opening those linked files is unavailable.
  */
-const LINKED_AUTHORING_NOTICE = "Opening level-up programs (.prg) and special-move files (.spc) from this editor is not available yet: neither host has an editor for them. Choose or type the reference here, and edit the file outside this editor.";
+const LINKED_AUTHORING_NOTICE = "This character editor cannot open linked level-up programs (.prg) or special-move files (.spc). You can choose or type their references here, then open and edit those files separately.";
 const INT32_MIN = -2_147_483_648;
 const INT32_MAX = 2_147_483_647;
 const INT16_MIN = -32_768;
