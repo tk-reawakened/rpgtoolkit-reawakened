@@ -1,5 +1,6 @@
 import {
   createAssetPicker,
+  type AssetKind,
   createLayoutModel,
   createPreferences,
   createProjectTree,
@@ -16,7 +17,6 @@ import {
   type VisitResult,
   type Visits,
 } from "@tk-reawakened/editor-model";
-import type { AssetKind } from "@tk-reawakened/core";
 import { mountAssetPicker, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, type DocumentView, type WebProject } from "./index.ts";
 

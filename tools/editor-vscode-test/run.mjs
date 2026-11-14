@@ -89,10 +89,13 @@ for (const choice of ["cancel", "keep"]) {
       const [, bridgePort] = persistentFs.authority.split(".");
       const token = persistentFs.token;
       const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
+      // The bundler numbers the `vscode` namespace by how many modules import it, so the name is read from the build.
+      const namespace = /executeCommand: async \(command2\) => await (vscode\d*)\.commands\.executeCommand\(command2\)/.exec(source)?.[1];
+      if (namespace === undefined) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
       const probes = [
         [
-          "executeCommand: async (command2) => await vscode3.commands.executeCommand(command2)",
-          `executeCommand: async (command2) => { await (${trace})("command", command2); return await vscode3.commands.executeCommand(command2); }`,
+          `executeCommand: async (command2) => await ${namespace}.commands.executeCommand(command2)`,
+          `executeCommand: async (command2) => { await (${trace})("command", command2); return await ${namespace}.commands.executeCommand(command2); }`,
         ],
         [
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
