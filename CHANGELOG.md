@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- The VS Code web proof retries settings observations while the file is being written, while still failing on persistent invalid JSON or the wrong autosave value (#2399).
+- Desktop CSP probes no longer overwrite the shared audio worklet while testing decoder failures, so concurrent probes keep their own generated assets (#2345).
 - Each desktop input probe now uses its own Electron profile, so overlapping runs do not share the single-instance lock (#2003). Temporary-profile cleanup retries Windows file locks without masking the probe result (#2344).
 - The VS Code web recovery proof accepts the focused Reload Window command with Enter, using the same keyboard interaction as its other command-palette actions instead of racing a moving mouse target. Bootstrap-stop, persisted-byte and offline-recovery checks remain unchanged (#2365).
 - Browser document-switch cleanup now scopes pending acquisitions to workspace instances, releases stale candidate views immediately, and defers workspace-level document closure until same-identity opens mount or fail. A rejected cleanup remains queued for retry, and workspace closure preserves documents still owned by active views. Consumer regressions check shared-document ownership, failed-open cleanup, workspace inventory and preservation of the shown document's unsaved edit (#2224; [ADR 0022](docs/adr/0022-shared-editor-authoring-contracts.md) D1.2, D3.6–D3.7).
