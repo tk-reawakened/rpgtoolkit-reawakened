@@ -6,4 +6,4 @@ export type { GameEditEvent, GameEditorPort, GameEditorProvider, UriLike, Webvie
 export { handleEditorHostRequest, isEditorHostRequest, RemoteDocument } from "./document-bridge.js";
 export { recoverDocument, recoverMainDocument, resolveRecoveryConflict } from "./document-backup.ts";
 export type { BackupRecoveryResult } from "./document-backup.ts";
-export type { BridgedDocument, BridgeMessage, EditorHostRequest, VscodeApi } from "./document-bridge.js";
+export type { AssetPickRequest, BridgedDocument, ReturnOutcome, VisitOutcome, BridgeMessage, EditorHostRequest, VscodeApi } from "./document-bridge.js";

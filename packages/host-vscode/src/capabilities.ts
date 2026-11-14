@@ -8,7 +8,8 @@ import type { Capability } from "@tk-reawakened/platform-services";
  * when the document is saved.
  */
 export function vscodeCapabilities(desktop: boolean): readonly Capability[] {
+  // `pickFile`: `showOpenDialog` works in both builds (a browser build shows the browser's own picker).
   return desktop
-    ? ["folderWrite", "fileWatch", "stableProjectHandle", "backup"]
-    : ["folderWrite", "stableProjectHandle", "backup"];
+    ? ["folderWrite", "fileWatch", "stableProjectHandle", "backup", "pickFile"]
+    : ["folderWrite", "stableProjectHandle", "backup", "pickFile"];
 }

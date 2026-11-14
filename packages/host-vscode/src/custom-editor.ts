@@ -1,7 +1,7 @@
-import { createDocumentIdentity, createDocumentWorkspace, kindForPath, previewBoard, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type SaveResult } from "@tk-reawakened/editor-model";
+import { createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService } from "@tk-reawakened/platform-services";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
-import { handleEditorHostRequest, isEditorHostRequest, type BridgedDocument, type BridgeMessage } from "./document-bridge.ts";
+import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
 
 /**
  * The custom editor of every registered document kind (ADR 0026) without the `vscode` module: the provider methods VS Code's workbench calls, written
@@ -37,6 +37,16 @@ export interface GameEditorPort<Uri extends UriLike> {
   deleteBackup(destination: Uri): Promise<void>;
   /** Run a workbench command on the active editor: `workbench.action.files.save` or `workbench.action.files.revert`. */
   executeCommand(command: "workbench.action.files.save" | "workbench.action.files.revert"): Promise<unknown>;
+  /** The URI of the project-relative `path` in `folder`. */
+  uriFor(folder: WorkspaceFolderLike<Uri>, path: string): Uri;
+  /**
+   * Open the document at `uri` in an editor, as the workbench does for the file's own editor (a linked visit, a return,
+   * the Game view). The workbench then asks the provider for the custom document, so the provider never opens a model for
+   * a document the workbench is about to open (one model per identity, ADR 0022 D1.2).
+   */
+  openEditor(uri: Uri): Promise<void>;
+  /** Show a pick list and resolve with the chosen item's id, or `undefined` when the user dismisses it. */
+  quickPick(items: readonly { readonly id: string; readonly label: string; readonly description?: string }[], placeholder: string): Promise<string | undefined>;
 }
 
 /** One undoable edit, as VS Code's `CustomDocumentEditEvent` carries it. */
@@ -61,18 +71,20 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly capabilities: readonly Capability[];
   readonly #workspace: DocumentWorkspace;
   readonly #fs: FileSystemService;
+  readonly #navigation: DocumentNavigation<Uri>;
   readonly #port: GameEditorPort<Uri>;
   readonly #fire: (event: GameEditEvent<Uri>) => void;
   /** How many `saveCustomDocument` calls have finished, and the last one's result. */
   #saves = 0;
   #lastSave: SaveResult = { ok: true };
 
-  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void) {
+  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void) {
     this.uri = uri;
     this.model = model;
     this.capabilities = port.capabilities;
     this.#workspace = workspace;
     this.#fs = fs;
+    this.#navigation = navigation;
     this.#port = port;
     this.#fire = fire;
   }
@@ -86,6 +98,21 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** VS Code disposes a custom document when its last editor closes; the workbench has already asked about unsaved work. */
   dispose(): void {
     this.#workspace.release(this.model);
+  }
+
+  /** Follow a link from this document to the file at `path` in a new editor, remembering where it came from (story 11.4). */
+  visit(path: string): Promise<VisitOutcome> {
+    return this.#navigation.visit(this, path);
+  }
+
+  /** Go back to where the latest visit started. */
+  returnFromVisit(): Promise<ReturnOutcome> {
+    return this.#navigation.returnFromVisit(this);
+  }
+
+  /** Let the user choose an asset for a field of this document, through the host's own pick list and dialogs (T-05). */
+  pickAsset(request: AssetPickRequest): Promise<PickOutcome> {
+    return this.#navigation.pickAsset(this, request);
   }
 
   /** The picture of a board, composed here from the project's files by the one board compositor (AD-29); a webview reads no files. */
@@ -167,6 +194,13 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 }
 
+/** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
+interface DocumentNavigation<Uri extends UriLike> {
+  visit(origin: GameDocument<Uri>, path: string): Promise<VisitOutcome>;
+  returnFromVisit(origin: GameDocument<Uri>): Promise<ReturnOutcome>;
+  pickAsset(origin: GameDocument<Uri>, request: AssetPickRequest): Promise<PickOutcome>;
+}
+
 export interface GameEditorProvider<Uri extends UriLike> {
   openCustomDocument(uri: Uri, backupId: string | undefined): Promise<GameDocument<Uri>>;
   saveCustomDocument(document: GameDocument<Uri>): Promise<void>;
@@ -179,18 +213,91 @@ export interface GameEditorProvider<Uri extends UriLike> {
 
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
-  const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace }>();
-  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly path: string };
+  const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits }>();
+  type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly path: string };
   const projectIn = (folder: WorkspaceFolderLike<Uri>, uri: Uri): Project => {
     let project = workspaces.get(folder.key);
     if (project === undefined) {
       const fs = port.fileSystem(folder);
-      project = { fs, workspace: createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) } }) };
+      const workspace = createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) } });
+      project = { fs, workspace, visits: createVisits(workspace) };
       workspaces.set(folder.key, project);
     }
     return { ...project, path: uri.path.slice(folder.uri.path.replace(/\/$/, "").length + 1) };
   };
   const nameOf = (uri: Uri): string => uri.path.split("/").at(-1) ?? uri.path;
+  const folderOfDocument = (document: GameDocument<Uri>): WorkspaceFolderLike<Uri> => {
+    const folder = port.folderOf(document.uri);
+    if (folder === undefined) throw new Error(`${document.model.identity.path} is outside the open workspace`);
+    return folder;
+  };
+
+  const navigation: DocumentNavigation<Uri> = {
+    async visit(origin, path) {
+      const folder = folderOfDocument(origin);
+      const project = projectIn(folder, origin.uri);
+      const resolved = await resolveDocumentPath(project.fs, path);
+      if (!resolved.ok) return { ok: false, message: resolved.kind === "case-conflict" ? resolved.message : `Could not check ${path}: ${resolved.error.message}` };
+      if (!resolved.exists) return { ok: false, message: `${path} is not in the project, so there is nothing to visit.` };
+      if (kindForPath(resolved.path) === null) return { ok: false, message: `${resolved.path} is not a file type the editor opens.` };
+      project.visits.begin(origin.model.identity.path, resolved.path);
+      try {
+        await port.openEditor(port.uriFor(folder, resolved.path));
+      } catch (error) {
+        // The editor did not open: forget the visit, so a later return does not go back from a place never reached.
+        project.visits.end();
+        return { ok: false, message: `${resolved.path} could not be opened: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      return { ok: true, path: resolved.path };
+    },
+    async returnFromVisit(origin) {
+      const folder = folderOfDocument(origin);
+      const project = projectIn(folder, origin.uri);
+      const entry = project.visits.end();
+      if (entry === null) return { ok: false, message: "There is no visit to return from." };
+      const wasOpen = project.workspace.documents().some((document) => document.identity.path === entry.originPath);
+      try {
+        await port.openEditor(port.uriFor(folder, entry.originPath));
+      } catch (error) {
+        return { ok: false, message: `${entry.originPath} could not be opened again (${error instanceof Error ? error.message : String(error)}). Nothing was changed.` };
+      }
+      return {
+        ok: true,
+        path: entry.originPath,
+        message: wasOpen ? null : `${entry.originPath} had been closed, so it was opened again from its file. Edits that were not saved before it closed are not in it.`,
+      };
+    },
+    async pickAsset(origin, request) {
+      const folder = folderOfDocument(origin);
+      const project = projectIn(folder, origin.uri);
+      const picker = createAssetPicker({
+        services: { fs: project.fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) },
+        layout: { projectFolder: "" },
+        kind: request.kind,
+        extensions: request.extensions,
+        field: request.field,
+      });
+      await picker.refresh();
+      // The host's own pick list stands in for the picker view: the model decides, the list only shows and asks.
+      for (;;) {
+        const snapshot = picker.getSnapshot();
+        const items = [
+          ...snapshot.candidates.map((candidate) => ({ id: `file:${candidate.reference}`, label: candidate.reference })),
+          { id: "outside", label: "Choose a file from outside the project…", ...(snapshot.outsideUnavailable === null ? {} : { description: "not available on this host" }) },
+        ];
+        const choice = await port.quickPick(items, snapshot.message ?? `Choose ${request.field} (files in ${snapshot.folder}, including its folders)`);
+        if (choice === undefined) return picker.cancel();
+        if (choice === "outside") {
+          const outcome = await picker.pickOutside();
+          if (outcome.chosen) return outcome;
+          continue;
+        }
+        picker.select(choice.slice("file:".length));
+        const outcome = await picker.confirm();
+        if (outcome.chosen) return outcome;
+      }
+    },
+  };
 
   return {
     async openCustomDocument(uri, backupId) {
@@ -206,7 +313,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const recovered = await recoverDocument(kind, fs, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
-        return new GameDocument(uri, recovered.document, workspace, fs, port, fire);
+        return new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire);
       }
       const known = new Set(workspace.documents());
       const opened = await workspace.open(path);
@@ -218,7 +325,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (known.has(opened.document)) {
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
-      return new GameDocument(uri, opened.document, workspace, fs, port, fire);
+      return new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire);
     },
     async saveCustomDocument(document) {
       const result = await document.save();

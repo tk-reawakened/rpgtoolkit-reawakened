@@ -1,5 +1,18 @@
-import { kindById, type AnyDocument, type ApplyResult, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type SaveResult } from "@tk-reawakened/editor-model";
+import { ASSET_FOLDERS, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type PickOutcome, type SaveResult } from "@tk-reawakened/editor-model";
 import type { Capability } from "@tk-reawakened/platform-services";
+
+/** What a view asks to choose: an asset of `kind` for a field, accepting `extensions` (lower-case with the dot; empty accepts any). */
+export interface AssetPickRequest {
+  readonly kind: AssetKind;
+  readonly extensions: readonly string[];
+  /** What the field is called, in words for the confirmation. */
+  readonly field: string;
+}
+
+/** The result of following a link to another document. */
+export type VisitOutcome = { readonly ok: true; readonly path: string } | { readonly ok: false; readonly message: string };
+/** The result of going back from a visit; `message` says when the origin had to be opened again. */
+export type ReturnOutcome = { readonly ok: true; readonly path: string; readonly message: string | null } | { readonly ok: false; readonly message: string };
 
 /** A snapshot as it crosses the bridge: plain data, whatever the kind (the kind says which fields it has). */
 export type BridgedSnapshot = DocumentSnapshot<unknown>;
@@ -10,14 +23,20 @@ export type BridgeMessage =
   | { readonly type: "edit-result"; readonly requestId: string; readonly result: ApplyResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "save-result"; readonly requestId: string; readonly result: SaveResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "conflict-result"; readonly requestId: string; readonly result: ConflictResult; readonly snapshot: BridgedSnapshot }
-  | { readonly type: "preview-result"; readonly requestId: string; readonly picture: BoardPicture };
+  | { readonly type: "preview-result"; readonly requestId: string; readonly picture: BoardPicture }
+  | { readonly type: "visit-result"; readonly requestId: string; readonly outcome: VisitOutcome }
+  | { readonly type: "return-result"; readonly requestId: string; readonly outcome: ReturnOutcome }
+  | { readonly type: "pick-result"; readonly requestId: string; readonly outcome: PickOutcome };
 
 export type EditorHostRequest =
   | { readonly type: "ready" }
   | { readonly type: "edit"; readonly command: unknown; readonly requestId: string }
   | { readonly type: "save"; readonly requestId: string }
   | { readonly type: "resolve-conflict"; readonly choice: ConflictChoice; readonly requestId: string }
-  | { readonly type: "preview"; readonly requestId: string };
+  | { readonly type: "preview"; readonly requestId: string }
+  | { readonly type: "visit"; readonly requestId: string; readonly path: string }
+  | { readonly type: "return-visit"; readonly requestId: string }
+  | { readonly type: "pick-asset"; readonly requestId: string; readonly request: AssetPickRequest };
 
 export type VscodeApi = { postMessage(message: EditorHostRequest): void; getState(): unknown; setState(state: unknown): void };
 
@@ -30,6 +49,9 @@ export interface BridgedDocument {
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult>;
   /** The picture of the board as the one compositor draws it from the project's files; only a board has one. */
   preview(): Promise<BoardPicture>;
+  visit(path: string): Promise<VisitOutcome>;
+  returnFromVisit(): Promise<ReturnOutcome>;
+  pickAsset(request: AssetPickRequest): Promise<PickOutcome>;
 }
 
 /** Extension-host document actions are authoritative; UI saves enter VS Code's custom-editor lifecycle. */
@@ -52,17 +74,33 @@ export async function handleEditorHostRequest(
     await postMessage({ type: "save-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   } else if (request.type === "preview") {
     await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview() });
+  } else if (request.type === "visit") {
+    await postMessage({ type: "visit-result", requestId: request.requestId, outcome: await document.visit(request.path) });
+  } else if (request.type === "return-visit") {
+    await postMessage({ type: "return-result", requestId: request.requestId, outcome: await document.returnFromVisit() });
+  } else if (request.type === "pick-asset") {
+    await postMessage({ type: "pick-result", requestId: request.requestId, outcome: await document.pickAsset(request.request) });
   } else {
     const result = await document.resolveConflict(request.choice);
     await postMessage({ type: "conflict-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   }
 }
 
+/** Whether a value from a webview is an asset request: a known asset kind, text extensions and a field name. Never trust a webview. */
+function isAssetPickRequest(value: unknown): value is AssetPickRequest {
+  return typeof value === "object" && value !== null
+    && "kind" in value && typeof value.kind === "string" && Object.prototype.hasOwnProperty.call(ASSET_FOLDERS, value.kind)
+    && "extensions" in value && Array.isArray(value.extensions) && value.extensions.every((extension) => typeof extension === "string")
+    && "field" in value && typeof value.field === "string" && value.field !== "";
+}
+
 export function isEditorHostRequest(value: unknown): value is EditorHostRequest {
   if (typeof value !== "object" || value === null || !("type" in value)) return false;
   if (value.type === "ready") return true;
   if (!("requestId" in value) || typeof value.requestId !== "string") return false;
-  if (value.type === "save" || value.type === "preview") return true;
+  if (value.type === "save" || value.type === "preview" || value.type === "return-visit") return true;
+  if (value.type === "visit") return "path" in value && typeof value.path === "string" && value.path !== "";
+  if (value.type === "pick-asset") return "request" in value && isAssetPickRequest(value.request);
   if (value.type === "resolve-conflict") return "choice" in value && (value.choice === "keep-local" || value.choice === "reload");
   // The command's own shape is checked against the document's kind when it is applied.
   return value.type === "edit" && "command" in value && typeof value.command === "object" && value.command !== null;
@@ -78,6 +116,9 @@ export class RemoteDocument {
   private readonly pendingSaves = new Map<string, (result: SaveResult) => void>();
   private readonly pendingResolutions = new Map<string, (result: ConflictResult) => void>();
   private readonly pendingPreviews = new Map<string, (picture: BoardPicture) => void>();
+  private readonly pendingVisits = new Map<string, (outcome: VisitOutcome) => void>();
+  private readonly pendingReturns = new Map<string, (outcome: ReturnOutcome) => void>();
+  private readonly pendingPicks = new Map<string, (outcome: PickOutcome) => void>();
   private nextRequest = 0;
   private readonly vscode: VscodeApi;
 
@@ -118,6 +159,32 @@ export class RemoteDocument {
     });
   }
 
+  /** Follow a link to the document at `path`; the extension host opens it in its own editor and remembers the way back. */
+  visit(path: string): Promise<VisitOutcome> {
+    const requestId = `visit-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingVisits.set(requestId, resolve);
+      this.vscode.postMessage({ type: "visit", requestId, path });
+    });
+  }
+
+  returnFromVisit(): Promise<ReturnOutcome> {
+    const requestId = `return-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingReturns.set(requestId, resolve);
+      this.vscode.postMessage({ type: "return-visit", requestId });
+    });
+  }
+
+  /** Let the user choose an asset for a field, through the extension host's own pick list. */
+  pickAsset(request: AssetPickRequest): Promise<PickOutcome> {
+    const requestId = `pick-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingPicks.set(requestId, resolve);
+      this.vscode.postMessage({ type: "pick-asset", requestId, request });
+    });
+  }
+
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult> {
     const requestId = `resolve-${++this.nextRequest}`;
     return new Promise((resolve) => {
@@ -131,6 +198,9 @@ export class RemoteDocument {
       this.settle(this.pendingPreviews, message.requestId, message.picture);
       return;
     }
+    if (message.type === "visit-result") return void this.settle(this.pendingVisits, message.requestId, message.outcome);
+    if (message.type === "return-result") return void this.settle(this.pendingReturns, message.requestId, message.outcome);
+    if (message.type === "pick-result") return void this.settle(this.pendingPicks, message.requestId, message.outcome);
     if (message.type === "initialize") return;
     this.snapshot = message.type === "save-result" && !message.result.ok && message.snapshot.saveError === null
       ? { ...message.snapshot, saving: false, saveError: message.result.failure }

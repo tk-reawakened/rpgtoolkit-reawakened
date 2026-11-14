@@ -18,7 +18,7 @@
 import { posix } from "node:path";
 import { asMainDocument, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
 import { mount, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
-import type { Capability, DialogService, FileChange } from "@tk-reawakened/platform-services";
+import type { Capability, DialogQuestion, DialogService, FileChange, OutsideFile } from "@tk-reawakened/platform-services";
 import {
   createGameEditorProvider,
   createVscodeFileSystemWithPort,
@@ -267,6 +267,13 @@ class Webview {
     return new MountedView(this.#page.element, this.#act);
   }
 
+  /** The webview's document proxy, for a proof that drives what a view would call. */
+  remoteDocument(): RemoteDocument {
+    const remote = this.#page?.remote;
+    if (remote === null || remote === undefined) throw new Error("the webview is not initialized");
+    return remote;
+  }
+
   /** The board's picture, asked for through the webview's own bridge as the board view asks for it. */
   async picture(): Promise<BoardPicture> {
     const remote = this.#page?.remote;
@@ -338,9 +345,18 @@ class Workbench {
 
   constructor(host: VscodeHost, capabilities: readonly Capability[]) {
     this.host = host;
+    const script = host.script;
     const never: DialogService = {
-      ask: () => Promise.reject(new Error("the provider asked a question; in VS Code the workbench asks")),
+      ask: async <Id extends string>(question: DialogQuestion<Id>): Promise<Id> => {
+        const answer = script.answers.shift();
+        if (answer === undefined) throw new Error("the provider asked a question; in VS Code the workbench asks");
+        script.asked.push(question.message);
+        const chosen = question.choices.find((choice) => choice.id === answer);
+        if (chosen === undefined) throw new Error(`"${answer}" is not an answer to "${question.message}"`);
+        return chosen.id;
+      },
       pickSavePath: () => Promise.reject(new Error("the provider asked for a path; in VS Code the workbench asks")),
+      pickFile: async () => script.files.shift() ?? null,
     };
     this.provider = createGameEditorProvider<Uri>({
       capabilities,
@@ -357,6 +373,17 @@ class Workbench {
         return destination.path;
       },
       deleteBackup: async (destination) => void host.backups.delete(destination.path),
+      uriFor: (_folder, path) => ({ path: posix.normalize(`${ROOT.path}/${path}`) }),
+      // The workbench opens the editor for the file: it asks the provider for the custom document, as VS Code does.
+      openEditor: async (uri) => {
+        const path = posix.relative(ROOT.path, uri.path);
+        script.opened.push(path);
+        await this.focusOrOpen(path);
+      },
+      quickPick: async (items, placeholder) => {
+        script.pickLists.push({ placeholder, labels: items.map((item) => item.label) });
+        return script.picks.shift();
+      },
       executeCommand: async (command) => {
         const target = this.active?.copy;
         if (target === undefined) return;
@@ -369,6 +396,16 @@ class Workbench {
     }, (event) => {
       for (const copy of this.copies.values()) if (copy.custom === event.document) copy.record(event);
     });
+  }
+
+  /** `vscode.open`: an editor already showing the file comes to the front; otherwise one opens. */
+  async focusOrOpen(path: string): Promise<VscodeEditor> {
+    const existing = this.copies.get(posix.normalize(`${ROOT.path}/${path}`))?.tabs.values().next().value;
+    if (existing !== undefined) {
+      this.active = existing;
+      return existing;
+    }
+    return this.open(path);
   }
 
   async open(path: string, backupId?: string): Promise<VscodeEditor> {
@@ -535,8 +572,23 @@ class VscodeEditor implements ConformanceEditor {
   }
 }
 
+/**
+ * VS Code's own questions and pick lists, answered here as a user would. With no answer queued a question is refused
+ * loudly, as before: the provider must not ask by itself, because in VS Code the workbench asks (story 11.3).
+ */
+class ScriptedWorkbench {
+  readonly answers: string[] = [];
+  readonly files: (OutsideFile | null)[] = [];
+  readonly picks: (string | undefined)[] = [];
+  readonly asked: string[] = [];
+  readonly pickLists: { readonly placeholder: string; readonly labels: readonly string[] }[] = [];
+  /** The project-relative paths the provider asked the workbench to open, in order. */
+  readonly opened: string[] = [];
+}
+
 class VscodeHost implements ConformanceHost {
   readonly name: string;
+  readonly script = new ScriptedWorkbench();
   readonly capabilities: ReadonlySet<Capability>;
   /** The provider's bound, as ADR 0022 D14.6 states it (written here, not imported, so the test checks the provider). */
   readonly saveWrites = 3;
@@ -560,6 +612,11 @@ class VscodeHost implements ConformanceHost {
 
   open(path: string): Promise<ConformanceEditor> {
     return this.#workbench.open(path);
+  }
+
+  /** What Explorer's open and the Game view's open do: `vscode.open`. */
+  openLikeVscode(path: string): Promise<VscodeEditor> {
+    return this.#workbench.focusOrOpen(path);
   }
 
   async saveAll(): Promise<ReadonlyMap<string, boolean>> {
@@ -662,6 +719,11 @@ class VscodeHost implements ConformanceHost {
   modelsOpen(): number {
     return this.#workbench.copies.size;
   }
+
+  /** The project-relative paths of the documents open now, in the order they were opened. */
+  openPaths(): readonly string[] {
+    return [...this.#workbench.copies.values()].map((copy) => copy.custom.model.identity.path);
+  }
 }
 
 /** The VS Code host, as the desktop build (with live change detection) or the browser build (without it). */
@@ -701,6 +763,55 @@ export function createVscodeBoardProofHost(desktop: boolean, gam: Uint8Array, fi
       };
     },
     disk: (path) => host.disk(path),
+    settle: () => host.settle(),
+  };
+}
+
+/** One open editor tab, as a navigation proof sees it: the webview's own bridge, and the document's place in the workbench. */
+export interface NavigationTab {
+  readonly path: string;
+  /** The webview's side of the bridge: what a view calls to follow a link or choose an asset. */
+  remote(): { visit(path: string): Promise<import("@tk-reawakened/host-vscode/testing").VisitOutcome>; returnFromVisit(): Promise<import("@tk-reawakened/host-vscode/testing").ReturnOutcome>; pickAsset(request: import("@tk-reawakened/host-vscode/testing").AssetPickRequest): Promise<import("@tk-reawakened/editor-model").PickOutcome> };
+  close(): Promise<void>;
+}
+
+export interface NavigationHost {
+  readonly name: string;
+  readonly script: ScriptedWorkbench;
+  readonly capabilities: ReadonlySet<Capability>;
+  /** Open `path` the way Explorer does: the workbench asks the provider for the file's custom document. */
+  open(path: string): Promise<NavigationTab>;
+  /** The files, case-sensitively, as `listGame` and the provider read them. */
+  fileSystem(): ReturnType<typeof createVscodeFileSystemWithPort>;
+  disk(path: string): Promise<Uint8Array | null>;
+  /** How many documents (models) the workbench has open. */
+  modelsOpen(): number;
+  openPaths(): readonly string[];
+  settle(): Promise<void>;
+}
+
+/** The VS Code host holding `files` besides a `.gam`, for the navigation proof of story 11.4. */
+export function createVscodeNavigationHost(desktop: boolean, gam: Uint8Array, files: Readonly<Record<string, Uint8Array>>, act: Act): NavigationHost {
+  const host = new VscodeHost(desktop, gam, act, files);
+  const tabOf = (editor: VscodeEditor): NavigationTab => ({
+    path: editor.path,
+    remote: () => {
+      const remote = editor.webview.remoteDocument();
+      return remote;
+    },
+    close: async () => { await editor.close("discard"); },
+  });
+  return {
+    name: host.name,
+    script: host.script,
+    capabilities: host.capabilities,
+    async open(path) {
+      return tabOf(await host.openLikeVscode(path));
+    },
+    fileSystem: () => createVscodeFileSystemWithPort(ROOT, fileSystemPort(host.drive), FOLDER.key),
+    disk: (path) => host.disk(path),
+    modelsOpen: () => host.modelsOpen(),
+    openPaths: () => host.openPaths(),
     settle: () => host.settle(),
   };
 }
