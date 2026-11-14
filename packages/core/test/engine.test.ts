@@ -1,7 +1,7 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
-import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyCharacter, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashGameState, PACKAGE_ROOT, rasterizePresentation, readSurfacePixels, TILE_BITMAP_MAGIC, writeBoard, writeCharacter, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type DrawCommand, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type RasterSurfaces, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
+import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyCharacter, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashDrawList, hashGameState, PACKAGE_ROOT, rasterizePresentation, readSurfacePixels, snapshotGameSave, TILE_BITMAP_MAGIC, writeBoard, writeCharacter, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type DrawCommand, type DrawList, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type RasterSurfaces, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
 import { applyUiEffect } from "../src/script/packs/ui.ts";
 import { resetUiForProgramStart } from "../src/save/sections/ui.ts";
 import { resolveManifestPlugins } from "../src/engine/boot.ts";
@@ -56,6 +56,7 @@ function loadedEngine(
   input?: Parameters<typeof createEngine>[0]["input"],
   displayGeometry?: Parameters<typeof createEngine>[0]["displayGeometry"],
   program?: string,
+  tickObserver?: Parameters<typeof createEngine>[0]["tickObserver"],
 ) {
   const board = createEmptyBoard();
   const encoded = writeBoard(board);
@@ -72,6 +73,7 @@ function loadedEngine(
     ...(input === undefined ? {} : { input }),
     ...(displayGeometry === undefined ? {} : { displayGeometry }),
     ...(program === undefined ? {} : { program }),
+    ...(tickObserver === undefined ? {} : { tickObserver }),
   });
   const first = engine.advance(0, []);
   const request = first.requests[0];
@@ -80,6 +82,148 @@ function loadedEngine(
   if (loaded.loading) throw new Error("expected authored board to load");
   return engine;
 }
+
+test("completed-tick observation preserves saved state, diagnostics and host requests", () => {
+  const plainCapture = captureState();
+  const observedCapture = captureState();
+  const plain = loadedEngine([plainCapture.registration]);
+  const observations: { readonly tick: number; readonly stateHash: string; readonly drawHash: string }[] = [];
+  const observed = loadedEngine([observedCapture.registration], undefined, undefined, undefined, (entry) => {
+    observations.push(entry);
+  });
+
+  const plainReport = plain.advance(3, []);
+  const observedReport = observed.advance(3, []);
+  deepEqual(observations.map((entry) => entry.tick), [1, 2, 3]);
+  equal(observations[2]?.stateHash, observedReport.stateHash);
+  equal(plainReport.stateHash, observedReport.stateHash);
+  deepEqual(plainReport.diagnostics, observedReport.diagnostics);
+  deepEqual(plainReport.requests, observedReport.requests);
+  const plainState = plainCapture.state();
+  const observedState = observedCapture.state();
+  if (plainState === undefined || observedState === undefined) throw new Error("expected captured engine states");
+  equal(snapshotGameSave(plainState), snapshotGameSave(observedState));
+});
+
+test("tick draw observation preserves unresolved authored message-art behavior", () => {
+  const builtBoard = boardBytes(createEmptyBoard());
+  const renderGraphic: EnginePhaseRegistration = {
+    phase: "animation",
+    run: (state) => { state.ui.message = { ...state.ui.message, graphic: "broken.png" }; },
+  };
+  const create = (tickObserver?: Parameters<typeof createEngine>[0]["tickObserver"]) => {
+    const engine = createEngine({
+      seed: 7,
+      assetIndex: createAssetIndex(["Boards/test.brd", "Bitmaps/broken.png"]),
+      assetRoot: PACKAGE_ROOT,
+      initialBoard: "test.brd",
+      width: 32,
+      height: 32,
+      maxTicks: 60,
+      bundled: new Map([[assetKey("bitmaps/broken.png"), Uint8Array.of(0)]]),
+      phaseRegistrations: [renderGraphic],
+      ...(tickObserver === undefined ? {} : { tickObserver }),
+    });
+    const request = engine.advance(0, []).requests[0];
+    if (request?.kind !== "asset") throw new Error("expected test board asset request");
+    const loaded = engine.advance(0, [{ tick: 0, event: { kind: "asset", reqId: request.reqId, bytes: builtBoard } }]);
+    if (loaded.loading) throw new Error("expected authored board to load");
+    return engine;
+  };
+  const plain = create();
+  const observations: { readonly tick: number; readonly stateHash: string; readonly drawHash: string }[] = [];
+  const observed = create((entry) => { observations.push(entry); });
+  const plainReport = plain.advance(3, []);
+  const observedReport = observed.advance(3, []);
+
+  equal(observations.length, 3);
+  equal(plainReport.stateHash, observedReport.stateHash);
+  deepEqual(plainReport.diagnostics, observedReport.diagnostics);
+  deepEqual(plainReport.requests, observedReport.requests);
+});
+test("batched tick observation does not expose synchronized engine projection to later phases", () => {
+  const bytes = boardBytes(createEmptyBoard());
+  const create = (
+    reads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] | null }>,
+    tickObserver?: Parameters<typeof createEngine>[0]["tickObserver"],
+  ) => {
+    const reader: EnginePhaseRegistration = {
+      phase: "animation",
+      run: (state) => {
+        reads.push({
+          pending: (state.engine.pending ?? []).map(({ reqId, key, kind }) => ({ reqId, key, kind })),
+          cacheKeys: state.engine.cacheKeys === null ? null : [...state.engine.cacheKeys],
+        });
+      },
+    };
+    const engine = createEngine({
+      seed: 7,
+      assetIndex: createAssetIndex(["Boards/test.brd"]),
+      assetRoot: PACKAGE_ROOT,
+      initialBoard: "test.brd",
+      width: 32,
+      height: 32,
+      maxTicks: 60,
+      phaseRegistrations: [reader],
+      ...(tickObserver === undefined ? {} : { tickObserver }),
+    });
+    const first = engine.advance(0, []);
+    const request = first.requests[0];
+    if (request?.kind !== "asset") throw new Error("expected initial board request");
+    return { engine, request };
+  };
+  const plainReads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] | null }> = [];
+  const observedReads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] | null }> = [];
+  const plain = create(plainReads);
+  const observations: { readonly tick: number; readonly stateHash: string; readonly drawHash: string }[] = [];
+  const observed = create(observedReads, (entry) => { observations.push(entry); });
+  const reply = (reqId: number) => [{ tick: 0, event: { kind: "asset" as const, reqId, bytes } }];
+  const plainReport = plain.engine.advance(3, reply(plain.request.reqId));
+  const observedReport = observed.engine.advance(3, reply(observed.request.reqId));
+
+  equal(plainReport.ticksRun, 3);
+  equal(observedReport.ticksRun, 3);
+  equal(plainReads.length, 3);
+  deepEqual(observedReads, plainReads);
+  equal(plainReads[0]?.pending.length, 1);
+  equal((plainReads[0]?.pending[0] as { readonly reqId: number } | undefined)?.reqId, plain.request.reqId);
+  equal(plainReads[0]?.cacheKeys?.includes("boards/test.brd"), false);
+  equal(observations[2]?.stateHash, observedReport.stateHash);
+  equal(plainReport.stateHash, observedReport.stateHash);
+});
+
+test("batched tick hashes match independent advancing references for changing board background", () => {
+  const make = (tickObserver?: Parameters<typeof createEngine>[0]["tickObserver"]) => {
+    let drawSequence = 0;
+    const changeDraw: EnginePhaseRegistration = {
+      phase: "animation",
+      run: (state) => {
+        drawSequence += 1;
+        const board = state.world.board;
+        if (board == null) throw new Error("expected loaded test board");
+        state.world = { ...state.world, board: { ...board, background: { r: drawSequence * 40, g: 0, b: 0 } } };
+      },
+    };
+    return loadedEngine([changeDraw], undefined, undefined, undefined, tickObserver);
+  };
+  const reference = make();
+  const expected: { readonly tick: number; readonly stateHash: string; readonly drawHash: string }[] = [];
+  const drawLists: DrawList[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    const report = reference.advance(1, []);
+    const drawList = reference.drawList();
+    drawLists.push(drawList);
+    expected.push({ tick: report.tickAfter, stateHash: report.stateHash, drawHash: hashDrawList(drawList) });
+  }
+  const actual: typeof expected = [];
+  const observed = make((entry) => { actual.push(entry); });
+  observed.advance(3, []);
+
+  deepEqual(actual, expected);
+  equal(new Set(expected.map((entry) => entry.stateHash)).size, 3);
+  equal(new Set(expected.map((entry) => entry.drawHash)).size, 3);
+  equal(new Set(drawLists.map((list) => hashDrawList({ ...list, tick: 0 }))).size, 3);
+});
 
 test("pointer cancellation before a focus-loss tick cannot activate a button slot", () => {
   const capture = captureState();

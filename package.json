@@ -99,6 +99,7 @@
     "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/editor-model": "workspace:*",
     "@tk-reawakened/runner-harness": "workspace:*",
+    "@tk-reawakened/runner-headless": "workspace:*",
     "@tk-reawakened/runner-web": "workspace:*",
     "@types/node": "24.0.0",
     "@tk-reawakened/script-tools": "workspace:*",

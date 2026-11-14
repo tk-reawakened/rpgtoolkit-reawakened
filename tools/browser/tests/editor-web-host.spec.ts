@@ -8,6 +8,9 @@ type PickerInput = { readonly path: string; readonly bytes: readonly number[] };
 
 const validMain = Array.from(readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url)));
 
+// Keep the action timeline when this intermittently stalls in CI (#2550).
+test.use({ trace: "retain-on-failure" });
+
 test("browser host mounts the shared settings view and keeps CSP quiet while editing a session copy", async ({ page }) => {
   await page.addInitScript(() => {
     window.addEventListener("securitypolicyviolation", (event) => {

@@ -337,7 +337,7 @@ def main() -> None:
         value:{singleSelectOptionId:$option}
       }) { projectV2Item { id } }
     }"""
-    if project_item_status(project_item) != project_option(epic_state):
+    if project_item_status(project_item) != STATE_TO_STATUS[epic_state]:
         graphql(status_query, {
             "project": PROJECT_ID,
             "item": project_item["id"],
