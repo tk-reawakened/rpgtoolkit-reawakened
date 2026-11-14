@@ -12,6 +12,8 @@ import type {
 } from "@tk-reawakened/editor-model";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, render } from "preact";
+import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
+import { Shell, type ShellProps } from "./shell.tsx";
 import { BoardView } from "./board-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 
@@ -74,4 +76,26 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       render(null, el);
     },
   };
+}
+
+function mountElement(el: HTMLElement, vnode: Parameters<typeof render>[0]): ViewHandle {
+  render(vnode, el);
+  let disposed = false;
+  return {
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      render(null, el);
+    },
+  };
+}
+
+/** Render the browser and desktop shell (workbench, panels, tabs) into `el`. */
+export function mountShell(el: HTMLElement, props: ShellProps): ViewHandle {
+  return mountElement(el, createElement(Shell, props));
+}
+
+/** Render a folder-aware asset picker into `el`. */
+export function mountAssetPicker(el: HTMLElement, props: AssetPickerViewProps): ViewHandle {
+  return mountElement(el, createElement(AssetPickerView, props));
 }

@@ -17,11 +17,18 @@ export interface PanelDefinition {
   readonly title: string;
   readonly side: DockSide;
   readonly visible: boolean;
-  /** Size in pixels along the dock's own axis (width for left and right, height for bottom). */
+  /**
+   * Size in pixels along the dock's own axis (width for left and right, height for bottom), in whole `PANEL_SIZE_STEP`s:
+   * a size is shown by a class (`tkr-size-<size / 16>`), never a style attribute, which the strict policy forbids
+   * (ADR 0025 decision 6). A size that is not a multiple is rounded to the nearest one.
+   */
   readonly size: number;
   readonly minSize: number;
   readonly maxSize: number;
 }
+
+/** The unit every panel size is a multiple of, in pixels. */
+export const PANEL_SIZE_STEP = 16;
 
 export interface PanelState {
   readonly id: string;
@@ -63,9 +70,18 @@ function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value));
 }
 
+/** The nearest multiple of the size step. */
+function snap(value: number): number {
+  return Math.round(value / PANEL_SIZE_STEP) * PANEL_SIZE_STEP;
+}
+
 export function createLayoutModel(definitions: readonly PanelDefinition[]): LayoutModel {
   const listeners = new Set<() => void>();
-  let panels: readonly PanelState[] = definitions.map((definition) => ({ ...definition, size: clamp(definition.size, definition.minSize, definition.maxSize) }));
+  let panels: readonly PanelState[] = definitions.map((definition) => {
+    const minSize = Math.ceil(definition.minSize / PANEL_SIZE_STEP) * PANEL_SIZE_STEP;
+    const maxSize = Math.max(minSize, Math.floor(definition.maxSize / PANEL_SIZE_STEP) * PANEL_SIZE_STEP);
+    return { ...definition, minSize, maxSize, size: clamp(snap(definition.size), minSize, maxSize) };
+  });
   const publish = (next: readonly PanelState[]): void => {
     panels = next;
     for (const listener of [...listeners]) {
@@ -94,7 +110,7 @@ export function createLayoutModel(definitions: readonly PanelDefinition[]): Layo
     toggle: (id) => change(id, (panel) => ({ ...panel, visible: !panel.visible })),
     resize: (id, delta) =>
       change(id, (panel) => {
-        const size = clamp(panel.size + Math.trunc(delta), panel.minSize, panel.maxSize);
+        const size = clamp(snap(panel.size + delta), panel.minSize, panel.maxSize);
         return size === panel.size ? panel : { ...panel, size };
       }),
     move: (id, side) => change(id, (panel) => (panel.side === side || !SIDES.includes(side) ? panel : { ...panel, side })),
@@ -109,7 +125,7 @@ export function createLayoutModel(definitions: readonly PanelDefinition[]): Layo
         const current = next[at]!;
         const side = "side" in entry && typeof entry.side === "string" && (SIDES as readonly string[]).includes(entry.side) ? (entry.side as DockSide) : current.side;
         const visible = "visible" in entry && typeof entry.visible === "boolean" ? entry.visible : current.visible;
-        const size = "size" in entry && typeof entry.size === "number" && Number.isFinite(entry.size) ? clamp(Math.trunc(entry.size), current.minSize, current.maxSize) : current.size;
+        const size = "size" in entry && typeof entry.size === "number" && Number.isFinite(entry.size) ? clamp(snap(entry.size), current.minSize, current.maxSize) : current.size;
         next = next.map((panel, index) => (index === at ? { ...panel, side, visible, size } : panel));
       }
       publish(next);

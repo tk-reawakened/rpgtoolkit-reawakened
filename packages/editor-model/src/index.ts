@@ -98,6 +98,7 @@ export {
 export { createVisits, type ReturnResult, type VisitEntry, type VisitResult, type VisitSnapshot, type Visits } from "./visits.ts";
 export {
   createLayoutModel,
+  PANEL_SIZE_STEP,
   type DockSide,
   type LayoutModel,
   type PanelDefinition,
