@@ -418,6 +418,20 @@ test("TK2 source maps identifiers, sigils and inserted raw quotes to original sp
   deepEqual([rawText.line, rawText.col, rawText.endCol], [3, 9, 16]);
 });
 
+test("TK2 dialogue text owns its original span rather than the synthetic call", () => {
+  for (const source of ["m", 'x "y"']) {
+    const statement = parseTk2(source).statements[0];
+    if (statement?.kind !== "expr" || statement.expr.kind !== "call" || statement.expr.args[0]?.kind !== "literal") {
+      throw new Error("expected dialogue call");
+    }
+    const arg = statement.expr.args[0];
+    equal(statement.expr.col, undefined, "the synthetic mwin call has no original column");
+    deepEqual([arg.line, arg.col, arg.endCol], [1, 1, source.length]);
+    equal(source.slice(arg.col! - 1, arg.endCol), source);
+    equal(arg.value, source);
+  }
+});
+
 test("TK2 inserted call whitespace preserves original token positions", () => {
   const source = "#f(0,1 + 1)";
   const call = parseTk2(source).statements[0];
@@ -429,6 +443,14 @@ test("TK2 inserted call whitespace preserves original token positions", () => {
   equal(source.slice(expression.col! - 1, expression.endCol), "+");
   deepEqual([expression.left.line, expression.left.col, expression.left.endCol], [1, 6, 6]);
   deepEqual([expression.right.line, expression.right.col, expression.right.endCol], [1, 10, 10]);
+});
+
+test("TK2 dropped empty arguments do not consume later source positions", () => {
+  const statement = parseTk2("#f(a,,b)").statements[0];
+  if (statement?.kind !== "expr" || statement.expr.kind !== "call") throw new Error("expected a call");
+  const second = statement.expr.args[1];
+  if (second?.kind !== "variable") throw new Error("expected second argument");
+  deepEqual([second.line, second.col, second.endCol], [1, 7, 7]);
 });
 test("TK2 method declarations retain the original keyword anchor", () => {
   const ast = parseTk2("#METHOD Show() {\n#return 1\n}");

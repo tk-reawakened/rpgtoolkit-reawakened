@@ -189,10 +189,13 @@ function removeTrailingStarComment(line: string): string {
   return close >= 0 && /^[ \t]+\*/.test(line.slice(close + 1)) ? line.slice(0, close + 1) : line;
 }
 
-function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, literal: (value: string) => void, continuedCode = false): string {
+function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, literal: (value: string) => void, continuedCode = false, dialogue?: () => void): string {
   let line = raw.replace(/\r$/, "").trim();
   if (line.length === 0 || line.startsWith("*")) return "";
-  if (line === "@") return 'mwin("")';
+  if (line === "@") {
+    dialogue?.();
+    return 'mwin("")';
+  }
   if (line.startsWith("#")) {
     line = line.slice(1).trimStart();
     line = removeTrailingStarComment(line);
@@ -200,6 +203,7 @@ function normaliseLine(raw: string, lookup: Tk2CommandLookup | undefined, litera
   line = line.replace(/^returnmethod\b/i, "return").replace(/^method\b/i, "function");
   if (line.length === 0) return "";
   if (!continuedCode && !raw.trimStart().startsWith("#") && !/^(if|while|until|for|switch|case|default|else|function|return|[:{}])(?:\b|$)/i.test(line) && !line.endsWith("{") && !isExpressionWithEquals(line, lookup)) {
+    dialogue?.();
     if (line.includes('"')) {
       literal(line);
       return 'mwin("")';
@@ -342,7 +346,7 @@ function sourceOffsetWithoutQuotedText(source: string, visibleOffset: number): n
   }
   return sourceOffset;
 }
-function normalizeTk2Text(source: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
+function normalizeTk2Text(source: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null, dialogueRows?: Set<number>): string {
   const codeWithoutStrings = source.replace(/"[^"\n]*"/g, "");
   const unsupported = /^\s*#?\s*if\b[^\n]*\bthen\s*<|^\s*<(?=[#\s]|$)|^\s*>\s*$/im.exec(codeWithoutStrings);
   if (unsupported !== null) {
@@ -364,11 +368,12 @@ function normalizeTk2Text(source: string, lookup: Tk2CommandLookup | undefined, 
       throw new ScriptError("syntax.unsupported", "Cannot convert loose dialogue containing a double quote: 3.1 has no unshadowable quote literal encoding (LEX-8).", { file: "", line: index + 1, col: column, endCol: column });
     }
     literals.set(index + 1, _value);
-  }, continued.has(index))).join("\n"));
+  }, continued.has(index), () => dialogueRows?.add(index))).join("\n"));
 }
 
 function normalizeWithSourceMap(source: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): Tk2SourceMap {
-  const text = normalizeTk2Text(source, lookup, literals);
+  const dialogueRows = new Set<number>();
+  const text = normalizeTk2Text(source, lookup, literals, dialogueRows);
   const sourceLines = source.split("\n");
   const offsets: (number | undefined)[] = new Array(text.length + 1);
   const normalizedLines = text.split("\n");
@@ -377,10 +382,20 @@ function normalizeWithSourceMap(source: string, lookup: Tk2CommandLookup | undef
   for (let line = 0; line < normalizedLines.length; line += 1) {
     const original = sourceLines[line] ?? "";
     const normalized = normalizedLines[line]!;
-    const isDialogueWrapper = (literals?.has(line + 1) ?? false) || original.replace(/\r$/, "").trim() === "@";
+    const isDialogueWrapper = dialogueRows.has(line);
     let i = 0;
     let j = 0;
     if (isDialogueWrapper) {
+      const value = original.replace(/\r$/, "").trim();
+      const first = original.indexOf(value);
+      if (value !== "@") {
+        if (literals?.has(line + 1)) {
+          offsets[normalizedBase + 5] = sourceBase + first;
+          offsets[normalizedBase + 6] = sourceBase + first + value.length - 1;
+        } else {
+          for (let index = 0; index < value.length; index += 1) offsets[normalizedBase + 6 + index] = sourceBase + first + index;
+        }
+      }
       j = normalized.length;
     }
     while (j < normalized.length) {
@@ -390,7 +405,7 @@ function normalizeWithSourceMap(source: string, lookup: Tk2CommandLookup | undef
         j += 1;
         continue;
       }
-      const originalLower = original.slice(i).toLowerCase();
+      const originalLower = original.slice(i, i + "returnmethod".length).toLowerCase();
       const keywordLength = originalLower.startsWith("returnmethod") ? "returnmethod".length
         : originalLower.startsWith("method") ? "method".length : 0;
       const replacement = keywordLength === "returnmethod".length ? "return" : "function";
@@ -533,7 +548,75 @@ export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
 }
 
 function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>): Ast {
+  if (literals.size === 0) return ast;
   type Statement = Ast["statements"][number];
+  function mapChanged<T>(items: readonly T[], transform: (item: T) => T): readonly T[] {
+    let changed: T[] | undefined;
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index]!;
+      const next = transform(item);
+      if (next !== item) changed ??= items.slice(0, index);
+      if (changed !== undefined) changed.push(next);
+    }
+    return changed ?? items;
+  }
+  function rewriteExpression(expr: Expr): Expr {
+    if (expr.kind === "lambda") {
+      const body = rewriteBlock(expr.body);
+      return body === expr.body ? expr : { ...expr, body };
+    }
+    if (expr.kind === "methodCall") {
+      const receiver = rewriteExpression(expr.receiver);
+      const args = mapChanged(expr.args, rewriteExpression);
+      return receiver === expr.receiver && args === expr.args ? expr : { ...expr, receiver, args };
+    }
+    if (expr.kind === "call") {
+      const args = mapChanged(expr.args, rewriteExpression);
+      return args === expr.args ? expr : { ...expr, args };
+    }
+    if (expr.kind === "callIndirect") {
+      const callee = rewriteExpression(expr.callee);
+      const args = mapChanged(expr.args, rewriteExpression);
+      return callee === expr.callee && args === expr.args ? expr : { ...expr, callee, args };
+    }
+    if (expr.kind === "member") {
+      const receiver = rewriteExpression(expr.receiver);
+      return receiver === expr.receiver ? expr : { ...expr, receiver };
+    }
+    if (expr.kind === "binary") {
+      const left = rewriteExpression(expr.left);
+      const right = rewriteExpression(expr.right);
+      return left === expr.left && right === expr.right ? expr : { ...expr, left, right };
+    }
+    if (expr.kind === "unary" || expr.kind === "postfix") {
+      const operand = rewriteExpression(expr.operand);
+      return operand === expr.operand ? expr : { ...expr, operand };
+    }
+    if (expr.kind === "assign") {
+      const target = rewriteExpression(expr.target);
+      const value = rewriteExpression(expr.value);
+      return target === expr.target && value === expr.value ? expr : { ...expr, target, value };
+    }
+    if (expr.kind === "index") {
+      const base = rewriteExpression(expr.base);
+      const index = rewriteExpression(expr.index);
+      return base === expr.base && index === expr.index ? expr : { ...expr, base, index };
+    }
+    if (expr.kind === "ternary") {
+      const cond = rewriteExpression(expr.cond);
+      const then = rewriteExpression(expr.then);
+      const otherwise = rewriteExpression(expr.else);
+      return cond === expr.cond && then === expr.then && otherwise === expr.else ? expr : { ...expr, cond, then, else: otherwise };
+    }
+    if (expr.kind === "object") {
+      const entries = mapChanged(expr.entries, (entry) => {
+        const value = rewriteExpression(entry.value);
+        return value === entry.value ? entry : { ...entry, value };
+      });
+      return entries === expr.entries ? expr : { ...expr, entries };
+    }
+    return expr;
+  }
   const rewriteBlock = (block: Ast["statements"]): Ast["statements"] => {
     let changed = false;
     const result: Statement[] = [];
@@ -544,33 +627,47 @@ function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>): Ast {
         if (literal !== undefined && statement.expr.kind === "call") {
           const arg = statement.expr.args[0];
           if (arg === undefined || arg.kind !== "literal") throw new Error("invalid TK2 dialogue placeholder");
-          replacement = { ...statement, expr: { ...statement.expr, args: [{ ...arg, value: literal }, ...statement.expr.args.slice(1)] } };
+          replacement = { ...statement, expr: { ...statement.expr, args: [{ ...arg, value: literal }, ...statement.expr.args.slice(1).map(rewriteExpression)] } };
+        } else {
+          const expr = rewriteExpression(statement.expr);
+          if (expr !== statement.expr) replacement = { ...statement, expr };
         }
       } else if (statement.kind === "if") {
         const branches = statement.branches.map((branch) => {
+          const cond = rewriteExpression(branch.cond);
           const body = rewriteBlock(branch.body);
-          if (body === branch.body) return branch;
-          changed = true;
-          return { ...branch, body };
+          return body === branch.body && cond === branch.cond ? branch : { ...branch, cond, body };
         });
         const elseBody = statement.elseBody === null ? null : rewriteBlock(statement.elseBody);
         if (branches.some((branch, index) => branch !== statement.branches[index]) || elseBody !== statement.elseBody) {
           replacement = { ...statement, branches, elseBody };
         }
-      } else if (statement.kind === "while" || statement.kind === "until" || statement.kind === "for") {
+      } else if (statement.kind === "while" || statement.kind === "until") {
+        const cond = rewriteExpression(statement.cond);
         const body = rewriteBlock(statement.body);
-        if (body !== statement.body) replacement = { ...statement, body };
+        if (cond !== statement.cond || body !== statement.body) replacement = { ...statement, cond, body };
+      } else if (statement.kind === "for") {
+        const init = statement.init === null ? null : rewriteExpression(statement.init);
+        const cond = statement.cond === null ? null : rewriteExpression(statement.cond);
+        const step = statement.step === null ? null : rewriteExpression(statement.step);
+        const body = rewriteBlock(statement.body);
+        if (init !== statement.init || cond !== statement.cond || step !== statement.step || body !== statement.body) {
+          replacement = { ...statement, init, cond, step, body };
+        }
       } else if (statement.kind === "switch") {
         const cases = statement.cases.map((item) => {
+          const value = rewriteExpression(item.value);
           const body = rewriteBlock(item.body);
-          if (body === item.body) return item;
-          changed = true;
-          return { ...item, body };
+          return body === item.body && value === item.value ? item : { ...item, value, body };
         });
+        const value = rewriteExpression(statement.value);
         const defaultBody = statement.defaultBody === null ? null : rewriteBlock(statement.defaultBody);
-        if (cases.some((item, index) => item !== statement.cases[index]) || defaultBody !== statement.defaultBody) {
-          replacement = { ...statement, cases, defaultBody };
+        if (value !== statement.value || cases.some((item, index) => item !== statement.cases[index]) || defaultBody !== statement.defaultBody) {
+          replacement = { ...statement, value, cases, defaultBody };
         }
+      } else if (statement.kind === "return" && statement.value !== null) {
+        const value = rewriteExpression(statement.value);
+        if (value !== statement.value) replacement = { ...statement, value };
       }
       if (replacement !== statement) changed = true;
       result.push(replacement);
