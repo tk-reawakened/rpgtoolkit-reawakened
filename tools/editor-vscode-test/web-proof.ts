@@ -633,6 +633,7 @@ async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofH
   expect(Math.abs(bottomLeft.x - topLeft.x)).toBeLessThan(2);
   expect(bottomLeft.y).toBeGreaterThanOrEqual(topLeft.y + topLeft.height);
   // Choosing a tile in the shared browser edits nothing; Draw puts it on the clicked cell.
+  await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst1"] .tkr-tileset-browser-source');
   await expect(tile).toBeVisible();
   await tile.click();
