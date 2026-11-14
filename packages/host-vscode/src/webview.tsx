@@ -17,7 +17,14 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
     if (event.data.kind === "character" || event.data.kind === "item") {
       const doc = spriteViewDocument(remote);
       if (doc === null) throw new Error(`The ${event.data.kind} editor received an invalid sprite snapshot.`);
-      mount(documentRoot(), { document: doc, services });
+      mount(documentRoot(), {
+        document: doc,
+        services,
+        navigation: {
+          pickAsset: (request) => remote.pickAsset(request),
+          visit: (path) => remote.visit(path),
+        },
+      });
     } else {
       mount(documentRoot(), {
         document: remote as unknown as ViewContext["document"],

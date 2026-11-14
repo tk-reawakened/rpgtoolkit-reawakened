@@ -11,13 +11,14 @@ import type {
   SaveResult,
 } from "@tk-reawakened/editor-model";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
-import { createElement, render } from "preact";
+import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
 import { BoardView } from "./board-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
+import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
@@ -50,6 +51,8 @@ export interface ViewContext {
   readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> };
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
+  /** Workbench navigation is available in full hosts, but not in standalone document mounts. */
+  readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset" | "visit">;
 }
 /** The handle a host keeps to a mounted view. */
 export interface ViewHandle {
@@ -76,7 +79,9 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     isBoardView(document)
       ? createElement(BoardView, { doc: document, capabilities, onEdited, ...(ctx.browser === undefined ? {} : { browser: ctx.browser }) })
       : isSpriteView(document)
-        ? createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited })
+        ? createElement(Fragment, null,
+          createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited }),
+          document.kind === "character" ? createElement(CharacterAuthoringView, { doc: document, fs: fs!, capabilities, onEdited, ...ctx.navigation }) : null)
         : createElement(SettingsView, { doc: document, capabilities, onEdited }),
     el,
   );

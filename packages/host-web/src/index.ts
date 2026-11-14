@@ -227,7 +227,7 @@ export interface DocumentView extends ViewHandle {
 }
 
 /** Mount the view of `document`'s kind into `element`. It holds no lease: the caller (a tab, or `mountEditor`) does. */
-export function mountDocumentView(project: WebProject, document: AnyDocument, element: HTMLElement, projectLayout: ProjectLayout = { projectFolder: "" }): DocumentView {
+export function mountDocumentView(project: WebProject, document: AnyDocument, element: HTMLElement, projectLayout: ProjectLayout = { projectFolder: "" }, navigation?: ViewContext["navigation"]): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
@@ -244,6 +244,7 @@ export function mountDocumentView(project: WebProject, document: AnyDocument, el
       document: viewDocument,
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout },
+      ...(navigation === undefined ? {} : { navigation }),
     });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
     if (notice) {

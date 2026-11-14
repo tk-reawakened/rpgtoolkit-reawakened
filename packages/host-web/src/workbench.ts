@@ -117,7 +117,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container, projectLayout), shownIn: container };
+          entry = { document, view: mountDocumentView(project, document, container, projectLayout, {
+            pickAsset: (request) => workbench.pickAsset(request),
+            visit: async (path) => {
+              const result = await workbench.visit(document, path);
+              return result.ok ? { ok: true, path } : { ok: false, message: result.error.kind === "read" ? result.error.error.message : result.error.message };
+            },
+          }), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -162,7 +168,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     },
   });
 
-  return {
+  const workbench: Workbench = {
     tree,
     tabs,
     layout,
@@ -254,4 +260,5 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       tree.dispose();
     },
   };
+  return workbench;
 }
