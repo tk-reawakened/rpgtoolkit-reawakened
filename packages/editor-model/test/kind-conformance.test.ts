@@ -5,7 +5,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyDocument } from "../src/index.ts";
-import { exampleBoard, exampleMain } from "./fixtures.ts";
+import { exampleBoard, exampleCharacter, exampleItem, exampleMain } from "./fixtures.ts";
 
 interface KindCase {
   readonly kind: string;
@@ -31,6 +31,20 @@ const CASES: readonly KindCase[] = [
     bytes: exampleBoard(4),
     accepted: { type: "set-tile", layer: 0, x: 1, y: 1, tile: "village.tst8" },
     rejected: { type: "set-tile", layer: 0, x: 9, y: 9, tile: "village.tst8" },
+  },
+  {
+    kind: "character",
+    path: "Chrs/hero.tem",
+    bytes: exampleCharacter(),
+    accepted: { type: "set-sprite-animation", group: "walk", index: 7, file: "Misc/hero_walk_se.anm" },
+    rejected: { type: "set-sprite-animation", group: "walk", index: 8, file: "Misc/hero_walk_invalid.anm" },
+  },
+  {
+    kind: "item",
+    path: "Item/chest.itm",
+    bytes: exampleItem(),
+    accepted: { type: "set-sprite-animation", group: "idle", index: 7, file: "Misc/chest_idle_se.anm" },
+    rejected: { type: "set-sprite-animation", group: "battle", index: 0, file: "Misc/chest_battle.anm" },
   },
 ];
 

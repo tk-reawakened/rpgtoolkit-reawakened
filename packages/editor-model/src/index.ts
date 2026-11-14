@@ -18,6 +18,26 @@ export {
   type BoardOpenResult,
   type SetTileCommand,
 } from "./board-document.ts";
+export {
+  characterSpriteCodec,
+  createSpriteDocument,
+  itemSpriteCodec,
+  openSpriteDocument,
+  spriteAnimationPreview,
+  spriteGifPreview,
+  spritePicturePreview,
+  type SpriteActor,
+  type ActorBase,
+  type ActorPoint,
+  type SpriteActorKind,
+  type SpriteCommand,
+  type SpriteDocument,
+  type SpriteDocumentFields,
+  type SpriteDocumentSnapshot,
+  type SpriteGroup,
+  type SpritePreviewFrame,
+  type SpriteOpenResult,
+} from "./sprite-document.ts";
 export { previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type PreviewStorage } from "./board-preview.ts";
 export { asBoardDocument, asMainDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";

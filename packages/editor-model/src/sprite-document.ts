@@ -1,0 +1,303 @@
+import {
+  BinaryReader,
+  decodeGif,
+  decodeTexture,
+  readAnimation,
+  readCharacter,
+  readItem,
+  writeCharacter,
+  writeItem,
+  type ActorBase,
+  type ActorPoint,
+  type ActorStance,
+  type Character,
+  type Item,
+} from "@tk-reawakened/core";
+export type { ActorBase, ActorPoint } from "@tk-reawakened/core";
+import {
+  createBinaryDocument,
+  openBinaryDocument,
+  type DocumentCodec,
+  type DocumentSnapshot,
+  type DocumentStorage,
+  type EditorDocument,
+  type OpenResult as GenericOpenResult,
+  type ReadOnlyReason,
+  type Rejection,
+} from "./binary-document.ts";
+import type { DocumentIdentity } from "./identity.ts";
+
+/** The two actor asset kinds that use the shared T-52 graphics editor. */
+export type SpriteActor = Character | Item;
+export type SpriteActorKind = "character" | "item";
+export type SpriteGroup = "walk" | "idle" | "battle" | "custom";
+
+export type SpriteCommand =
+  | { readonly type: "set-sprite-animation"; readonly group: SpriteGroup; readonly index: number; readonly file: string }
+  | { readonly type: "add-custom-stance"; readonly name: string; readonly file: string }
+  | { readonly type: "rename-custom-stance"; readonly index: number; readonly name: string }
+  | { readonly type: "delete-custom-stance"; readonly index: number }
+  | { readonly type: "set-sprite-timing"; readonly speed: number; readonly idleTime: number }
+  | { readonly type: "set-sprite-bases"; readonly bases: readonly ActorBase[] };
+
+export interface SpriteDocumentFields {
+  readonly actorType: SpriteActorKind;
+  readonly actorName: string;
+  readonly minor: number;
+  readonly movementAnimations: readonly string[];
+  readonly idleAnimations: readonly string[];
+  readonly battleAnimations: readonly string[];
+  readonly customStances: readonly ActorStance[];
+  readonly speed: number | null;
+  readonly idleTime: number | null;
+  readonly vectorBases: readonly ActorBase[] | null;
+  readonly graphicsUnavailable: string | null;
+}
+
+export type SpriteDocumentSnapshot = DocumentSnapshot<SpriteCommand> & SpriteDocumentFields;
+export type SpriteDocument = EditorDocument<SpriteDocumentSnapshot, SpriteCommand>;
+export type SpriteOpenResult = GenericOpenResult<SpriteDocument>;
+
+const DIRECTION_COUNT = 8;
+const DEFAULT_COLLISION: ActorBase = { points: [{ x: -15, y: -15 }, { x: 15, y: -15 }, { x: 15, y: 0 }, { x: -15, y: 0 }] };
+const DEFAULT_ACTIVATION: ActorBase = { points: [{ x: -24, y: -24 }, { x: 24, y: -24 }, { x: 24, y: 8 }, { x: -24, y: 8 }] };
+const MIN_COLLISION_POINTS = 3;
+
+function isCharacter(model: SpriteActor): model is Character {
+  return model.magic === "RPGTLKIT CHAR";
+}
+
+function actorType(model: SpriteActor): SpriteActorKind {
+  return isCharacter(model) ? "character" : "item";
+}
+
+/** Version gates follow character.md and item.md; never write a newer minor implicitly. */
+function supports(model: SpriteActor, command: SpriteCommand): boolean {
+  switch (command.type) {
+    case "set-sprite-animation":
+      if (command.group === "walk") return model.minor >= (actorType(model) === "character" ? 5 : 4);
+      if (command.group === "idle") return model.minor >= (actorType(model) === "character" ? 6 : 5);
+      if (command.group === "battle") return actorType(model) === "character" && model.minor >= 5;
+      return model.minor >= (actorType(model) === "character" ? 5 : 4);
+    case "add-custom-stance":
+    case "rename-custom-stance":
+    case "delete-custom-stance":
+      return model.minor >= (actorType(model) === "character" ? 5 : 4);
+    case "set-sprite-timing":
+      return model.minor >= (actorType(model) === "character" ? 7 : 5);
+    case "set-sprite-bases":
+      return model.minor >= (actorType(model) === "character" ? 8 : 7);
+  }
+}
+
+function withGroup(model: SpriteActor, group: SpriteGroup, index: number, file: string): SpriteActor {
+  if (group === "walk") {
+    const movementAnimations = [...(model.movementAnimations ?? Array(DIRECTION_COUNT).fill(""))];
+    movementAnimations[index] = file;
+    return { ...model, movementAnimations };
+  }
+  if (group === "idle") {
+    const idleAnimations = [...(model.idleAnimations ?? Array(DIRECTION_COUNT).fill(""))];
+    idleAnimations[index] = file;
+    return { ...model, idleAnimations };
+  }
+  if (group === "custom") {
+    const customStances = [...(model.customStances ?? [])];
+    const old = customStances[index];
+    if (old === undefined) return model;
+    customStances[index] = { ...old, animation: file };
+    return { ...model, customStances };
+  }
+  if (isCharacter(model)) {
+    const battleStances = [...(model.battleStances ?? Array(6).fill(""))];
+    battleStances[index] = file;
+    return { ...model, battleStances };
+  }
+  return { ...model, battleAnimation: file };
+}
+
+function apply(model: SpriteActor, command: SpriteCommand): SpriteActor {
+  if (command.type === "set-sprite-animation") return withGroup(model, command.group, command.index, command.file);
+  if (command.type === "add-custom-stance") return { ...model, customStances: [...(model.customStances ?? []), { handle: command.name, animation: command.file }] };
+  if (command.type === "rename-custom-stance") {
+    const customStances = [...(model.customStances ?? [])];
+    const old = customStances[command.index];
+    if (old !== undefined) customStances[command.index] = { ...old, handle: command.name };
+    return { ...model, customStances };
+  }
+  if (command.type === "delete-custom-stance") return { ...model, customStances: (model.customStances ?? []).filter((_stance, index) => index !== command.index) };
+  if (command.type === "set-sprite-timing") return { ...model, speed: command.speed, idleTime: command.idleTime };
+  return { ...model, vectorBases: command.bases.map((base) => ({ points: base.points.map((point) => ({ ...point })) })) };
+}
+
+function fieldSnapshot(model: SpriteActor): SpriteDocumentFields {
+  const character = isCharacter(model);
+  const rawBases = model.vectorBases;
+  return {
+    actorType: character ? "character" : "item",
+    actorName: model.name,
+    minor: model.minor,
+    movementAnimations: model.movementAnimations ?? Array(DIRECTION_COUNT).fill(""),
+    idleAnimations: model.idleAnimations ?? Array(DIRECTION_COUNT).fill(""),
+    battleAnimations: character ? (model.battleStances ?? []).slice(0, 5) : [model.battleAnimation],
+    customStances: model.customStances ?? [],
+    speed: model.speed ?? null,
+    idleTime: model.idleTime ?? null,
+    vectorBases: rawBases ?? [DEFAULT_COLLISION, DEFAULT_ACTIVATION],
+    graphicsUnavailable: model.minor < (character ? 8 : 7) ? `This ${character ? "character" : "item"} file version does not store editable collision and activation bases. The file version is preserved; upgrade it with the format conversion workflow before editing bases.` : null,
+  };
+}
+
+function isBase(value: unknown): value is ActorBase {
+  if (typeof value !== "object" || value === null || !("points" in value) || !Array.isArray(value.points) || value.points.length < MIN_COLLISION_POINTS) return false;
+  return value.points.every((point: unknown) =>
+    typeof point === "object" && point !== null && "x" in point && "y" in point
+    && typeof point.x === "number" && Number.isInteger(point.x)
+    && typeof point.y === "number" && Number.isInteger(point.y));
+}
+
+function isCommand(value: unknown): value is SpriteCommand {
+  if (typeof value !== "object" || value === null || !("type" in value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.type === "set-sprite-animation") return ["walk", "idle", "battle", "custom"].includes(String(record.group)) && Number.isInteger(record.index) && typeof record.file === "string";
+  if (record.type === "add-custom-stance") return typeof record.name === "string" && record.name.trim() !== "" && typeof record.file === "string";
+  if (record.type === "rename-custom-stance") return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0 && typeof record.name === "string" && record.name.trim() !== "";
+  if (record.type === "delete-custom-stance") return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0;
+  if (record.type === "set-sprite-timing") return typeof record.speed === "number" && Number.isFinite(record.speed) && record.speed > 0 && typeof record.idleTime === "number" && Number.isFinite(record.idleTime) && record.idleTime >= 0;
+  if (record.type === "set-sprite-bases") {
+    return Array.isArray(record.bases) && record.bases.length === 2 && record.bases.every((base: unknown) => isBase(base));
+  }
+  return false;
+}
+
+function invalidValue(model: SpriteActor, command: SpriteCommand): string | null {
+  if (!supports(model, command)) return `This ${actorType(model)} file version ${model.minor} does not store this graphics field; the editor will not upgrade it on open.`;
+  if (command.type === "set-sprite-animation") {
+    const max = command.group === "walk" || command.group === "idle" ? 8 : command.group === "battle" ? (actorType(model) === "character" ? 5 : 1) : (model.customStances ?? []).length;
+    if (!Number.isInteger(command.index) || command.index < 0 || command.index >= max) return "Choose an existing stance slot.";
+    if (command.group === "battle" && actorType(model) === "item") return "Items do not have character battle stances.";
+  }
+  if (command.type === "rename-custom-stance" || command.type === "delete-custom-stance") {
+    if (command.index >= (model.customStances ?? []).length) return "That custom stance no longer exists.";
+  }
+  if (command.type === "set-sprite-timing" && (command.speed <= 0 || command.idleTime < 0)) return "Speed must be greater than zero and idle delay cannot be negative.";
+  if (command.type === "set-sprite-bases") {
+    if (command.bases.length !== 2 || command.bases.some((base) => base.points.length < MIN_COLLISION_POINTS)) return "Collision and activation bases each need at least three points.";
+    if (command.bases.some((base) => base.points.some((point) => !Number.isInteger(point.x) || !Number.isInteger(point.y) || point.x < -2147483648 || point.x > 2147483647 || point.y < -2147483648 || point.y > 2147483647))) return "Base coordinates must be whole pixels in the signed 32-bit range.";
+  }
+  return null;
+}
+
+function sameStances(left: readonly ActorStance[], right: readonly ActorStance[]): boolean {
+  return left.length === right.length && left.every((stance, index) =>
+    stance.handle === right[index]?.handle && stance.animation === right[index]?.animation);
+}
+
+function sameBases(left: readonly ActorBase[] | undefined, right: readonly ActorBase[] | undefined): boolean {
+  return left !== undefined && right !== undefined
+    && left.length === right.length
+    && left.every((base, baseIndex) => {
+      const other = right[baseIndex];
+      return other !== undefined && base.points.length === other.points.length
+        && base.points.every((point, pointIndex) => {
+          const candidate = other.points[pointIndex];
+          return candidate !== undefined && point.x === candidate.x && point.y === candidate.y;
+        });
+    });
+}
+
+function commandSurvivedWriteback(actual: SpriteActor, next: SpriteActor, command: SpriteCommand): boolean {
+  if (command.type === "set-sprite-animation") {
+    const animations = command.group === "walk" ? actual.movementAnimations
+      : command.group === "idle" ? actual.idleAnimations
+        : command.group === "custom" ? actual.customStances?.map((stance) => stance.animation)
+          : isCharacter(actual) ? actual.battleStances : [actual.battleAnimation];
+    return animations?.[command.index] === command.file;
+  }
+  if (command.type === "set-sprite-timing") return actual.speed === next.speed && actual.idleTime === next.idleTime;
+  if (command.type === "set-sprite-bases") return sameBases(actual.vectorBases, next.vectorBases);
+  return sameStances(actual.customStances ?? [], next.customStances ?? []);
+}
+
+function makeCodec(kind: SpriteActorKind): DocumentCodec<SpriteActor, SpriteCommand, SpriteDocumentFields> {
+  const read = (bytes: Uint8Array, path: string) => kind === "character" ? readCharacter(new BinaryReader(bytes, path)) : readItem(new BinaryReader(bytes, path));
+  const write = (model: SpriteActor) => kind === "character" ? writeCharacter(model as Character) : writeItem(model as Item);
+  return {
+    kind,
+    read,
+    write,
+    readOnlyReason(model, bytes): ReadOnlyReason | null {
+      const encoded = write(model);
+      if (!encoded.ok) return { code: "no-same-version-writer", message: encoded.error.message };
+      const first = encoded.value.findIndex((byte, index) => bytes[index] !== byte);
+      if (first < 0 && encoded.value.length === bytes.length) return null;
+      return { code: "no-same-version-writer", message: `The writer does not reproduce this ${kind} file byte for byte; the first difference is at offset ${first < 0 ? Math.min(encoded.value.length, bytes.length) : first}.` };
+    },
+    isCommand,
+    apply,
+    label(command) {
+      if (command.type === "set-sprite-animation") return `Set ${command.group} animation`;
+      if (command.type === "add-custom-stance") return `Add custom stance ${command.name}`;
+      if (command.type === "rename-custom-stance") return `Rename custom stance ${command.name}`;
+      if (command.type === "delete-custom-stance") return "Delete custom stance";
+      if (command.type === "set-sprite-timing") return "Change sprite timing";
+      return "Edit collision and activation bases";
+    },
+    refuse(next, command, previous): Rejection | null {
+      const error = invalidValue(previous, command);
+      if (error !== null) return { reason: "invalid", message: error };
+      const encoded = write(next);
+      if (!encoded.ok) return { reason: "invalid", message: encoded.error.message };
+      const reread = read(encoded.value, "");
+      if (!reread.ok) return { reason: "invalid", message: reread.error.message };
+      if (!commandSurvivedWriteback(reread.value, next, command)) return { reason: "invalid", message: "The file writer cannot store that graphics value exactly as entered." };
+      return null;
+    },
+    summary: (model) => `${kind === "character" ? "Character" : "Item"}: ${model.name}`,
+    fields: fieldSnapshot,
+  };
+}
+
+export const characterSpriteCodec = makeCodec("character");
+export const itemSpriteCodec = makeCodec("item");
+
+export function openSpriteDocument(kind: SpriteActorKind, storage: DocumentStorage, identity: DocumentIdentity): Promise<SpriteOpenResult> {
+  return openBinaryDocument(kind === "character" ? characterSpriteCodec : itemSpriteCodec, storage, identity);
+}
+
+export function createSpriteDocument(kind: SpriteActorKind, storage: DocumentStorage, identity: DocumentIdentity, bytes: Uint8Array): SpriteOpenResult {
+  return createBinaryDocument(kind === "character" ? characterSpriteCodec : itemSpriteCodec, storage, identity, bytes);
+}
+
+
+export function spriteAnimationPreview(bytes: Uint8Array, path: string): { readonly images: readonly string[]; readonly delay: number } | null {
+  const animation = readAnimation(new BinaryReader(bytes, path));
+  if (!animation.ok) return null;
+  return {
+    images: animation.value.frames.map((frame) => frame.image).filter((image) => image !== ""),
+    delay: animation.value.delay,
+  };
+}
+
+/** An already-decoded picture frame for the shared sprite editor preview (AD-28, images.md#the-shared-decode-contract). */
+export interface SpritePreviewFrame {
+  readonly width: number;
+  readonly height: number;
+  readonly rgba: Uint8Array;
+}
+
+/** Decode an ordinary picture with the core image provider; no browser-specific image decoder is used. */
+export function spritePicturePreview(bytes: Uint8Array, path: string): SpritePreviewFrame | null {
+  const image = decodeTexture(bytes, path);
+  return image.ok ? { width: image.value.w, height: image.value.h, rgba: image.value.rgba } : null;
+}
+
+/** Decode every GIF page with the same shared provider used by animation playback (AD-28, images.md#gif). */
+export function spriteGifPreview(bytes: Uint8Array, path: string): { readonly frames: readonly SpritePreviewFrame[]; readonly delay: number } | null {
+  const gif = decodeGif(bytes, path);
+  if (!gif.ok || gif.value.frames.length === 0) return null;
+  return {
+    frames: gif.value.frames.map((frame) => ({ width: gif.value.w, height: gif.value.h, rgba: frame.rgba })),
+    delay: gif.value.frames[0]?.delay ?? 0,
+  };
+}
