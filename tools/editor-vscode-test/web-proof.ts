@@ -9,6 +9,44 @@ const copyBytesCommand = "Test: Copy Main File Bytes";
 type Expect = typeof playwrightExpect;
 type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean };
 type CspConsoleViolation = { text: string; url: string; lineNumber: number; columnNumber: number };
+type ProofRunSnapshot = { readonly stateHash: string | null };
+
+async function verifyHostRunHash(page: Page, frame: Frame, expect: Expect): Promise<void> {
+  let handleFrame: Frame | undefined;
+  await expect.poll(async () => {
+    for (const candidate of page.frames()) {
+      if (await candidate.locator("#tkr-run-handle-snapshot").count() > 0) { handleFrame = candidate; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  if (handleFrame === undefined) throw new Error("Run-handle proof panel was not found");
+  let lastObserved: { liveHash: string | undefined; liveTick: number | undefined; snapshotHash: string | null; status: unknown } =
+    { liveHash: undefined, liveTick: undefined, snapshotHash: null, status: null };
+  await expect.poll(async () => {
+    const player = await frame.evaluate(() => {
+      const live = Reflect.get(window, "__live") as { stateHash?: string; tick?: number } | undefined;
+      const history = Reflect.get(window, "__liveHistory") as { tick: number; stateHash: string }[] | undefined;
+      return { live, history };
+    });
+    const snapshot = JSON.parse(await handleFrame!.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+    const status = JSON.parse(await handleFrame!.locator("#tkr-run-handle-status").textContent() ?? "null") as { stateHash?: string; tick?: number };
+    lastObserved = { liveHash: player.live?.stateHash, liveTick: player.live?.tick, snapshotHash: snapshot.stateHash, status };
+    return typeof snapshot.stateHash === "string" && /^[a-f0-9]{16}$/.test(snapshot.stateHash)
+      && player.history?.some((entry) => entry.stateHash === snapshot.stateHash) === true;
+  }, { timeout: 30_000 }).toBe(true).catch((error: unknown) => {
+    throw new Error(`RunHandle hash never matched a player live hash: ${JSON.stringify(lastObserved)}`, { cause: error });
+  });
+  await handleFrame.locator("#tkr-stop-run-handle").click();
+  await expect.poll(async () => {
+    const snapshot = JSON.parse(await handleFrame!.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+    const status = JSON.parse(await handleFrame!.locator("#tkr-run-handle-status").textContent() ?? "null") as { state?: string };
+    return { state: status.state, stateHash: snapshot.stateHash };
+  }, { timeout: 30_000 }).toMatchObject({ state: "ended" });
+  const retained = JSON.parse(await handleFrame.locator("#tkr-run-handle-snapshot").textContent() ?? "null") as ProofRunSnapshot;
+  const stoppedHash = JSON.parse(await handleFrame.locator("#tkr-run-handle-stopped-hash").textContent() ?? "null") as string | null;
+  expect(stoppedHash).toMatch(/^[a-f0-9]{16}$/);
+  expect(retained.stateHash).toBe(stoppedHash);
+}
 type ProofHost = {
   restart(page: Page, offlineBytes?: Uint8Array): Promise<Page>;
   readBacking(path?: string): Promise<Uint8Array>;
@@ -36,6 +74,169 @@ type ProofHost = {
   /** Boards of each coordinate layout (`coordType` 0, 1, 2), each 8 × 8 with two layers, for the canvas scenario. */
   canvasBoards: { path: string; label: string; coordType: number }[];
 };
+
+/** Launch the real saved example through the VS Code web extension, not a mocked adapter. */
+export async function runVscodeLaunchProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
+  readBacking: () => Promise<Uint8Array>, expectedBytes: Uint8Array,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Main", exact: true }).click();
+  await openGame(page, gamePath, expect);
+  const editor = await waitForEditorFrame(page, "VS Code launch editor");
+  const title = editor.getByLabel("Game title");
+  await expect(title).toBeVisible();
+  await title.fill("VS Code launch proof");
+  await title.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Run Example Game");
+  await expect.poll(readBacking, { timeout: 30_000 }).toEqual(expectedBytes);
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const playerFrame = player as Frame | undefined;
+  if (playerFrame === undefined) throw new Error("Player frame was not found");
+  const live = async () => await playerFrame.evaluate(() => Reflect.get(window, "__live") as {
+    tick: number; board: string | null; player: unknown; stateHash: string;
+  } | undefined);
+  await expect.poll(async () => (await live())?.tick ?? 0, { timeout: 30_000 }).toBeGreaterThan(30);
+  await playerFrame.locator("#screen").press("Enter");
+  await expect.poll(async () => (await live())?.board, { timeout: 30_000 }).toContain("village.brd");
+  const playing = await live();
+  expect(playing?.player).not.toBeNull();
+  expect(playing?.stateHash).toBeTruthy();
+}
+
+/** Exercise a saved program and fixture through the real VS Code web extension and packaged player. */
+export async function runVscodeProgramProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "Test: Run Example Program");
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const frame = player as Frame | undefined;
+  if (frame === undefined) throw new Error("Program player frame was not found");
+  const scene = async () => await frame.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; font?: { size: number }; source?: { asset?: string } }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    const all = session?.engine.drawList().commands ?? [];
+    const commands = all.filter((command) => command.kind === "text");
+    return { live, text: commands.map((command) => command.text), sizes: commands.map((command) => command.font?.size),
+      assets: all.filter((command) => command.kind === "blit").map((command) => command.source?.asset) };
+  });
+  await expect.poll(async () => (await scene()).text?.join(" ") ?? "", { timeout: 30_000 }).toContain("VS CODE FIXTURE PROOF");
+  const result = await scene();
+  expect(result.live?.board).toContain("village.brd");
+  expect(result.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.sizes).toContain(18);
+  expect(result.assets).toContain("game/example/bitmap/window.png");
+  const snapshot = JSON.parse(await frame.locator("#run-snapshot pre").textContent() ?? "null") as {
+    kind: string; fixtureSettings: { font: string; fontSize: number; windowGraphic: string; party: string[] };
+    targets: Array<{ path: string; sha256: string }>;
+  };
+  expect(snapshot.kind).toBe("program");
+  expect(snapshot.fixtureSettings).toMatchObject({
+    font: "Liberation Sans", fontSize: 18, windowGraphic: "Game/Example/Bitmap/window.png",
+    party: ["Game/Example/Chrs/ada.tem"],
+  });
+  expect(snapshot.targets.find((target) => target.path === "Game/Example/Prg/start.prg")?.sha256).toMatch(/^[a-f0-9]{64}$/);
+  await verifyHostRunHash(page, frame, expect);
+}
+
+/** Exercise a fresh board launch through the real VS Code web extension and packaged player. */
+export async function runVscodeBoardProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "Test: Run Example Board");
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const frame = player as Frame | undefined;
+  if (frame === undefined) throw new Error("Board player frame was not found");
+  const scene = async () => await frame.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    return { live, text: (session?.engine.drawList().commands ?? []).filter((command) => command.kind === "text").map((command) => command.text) };
+  });
+  await expect.poll(async () => (await scene()).live?.board ?? "", { timeout: 30_000 }).toContain("village.brd");
+  const snapshotDetails = frame.locator("#run-snapshot");
+  await snapshotDetails.locator("summary").click();
+  await expect(snapshotDetails).toHaveAttribute("open", "");
+  await expect(snapshotDetails.locator("pre")).toContainText(/"stateHash":\s*"[^"]+"/);
+  const result = await frame.evaluate(() => {
+    const live = Reflect.get(window, "__live") as { stateHash: string } | undefined;
+    const snapshotText = document.querySelector("#run-snapshot pre")?.textContent ?? "null";
+    const snapshot = JSON.parse(snapshotText) as {
+      kind: string; stateHash: string | null;
+      start: { board: string; x: number; y: number; layer: number };
+      party: string[]; seed: number;
+    };
+    return {
+      liveStateHash: live?.stateHash,
+      snapshot,
+      stateHashMatches: snapshot.stateHash === live?.stateHash,
+    };
+  });
+  const sceneResult = await scene();
+  expect(sceneResult.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.liveStateHash).toBeTruthy();
+  expect(result.stateHashMatches).toBe(true);
+  expect(sceneResult.text.join(" ")).not.toContain("VS CODE FIXTURE PROOF");
+  expect(result.snapshot.kind).toBe("board");
+  expect(result.snapshot.start).toEqual({ board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 });
+  expect(result.snapshot.party).toEqual(["Game/Example/Chrs/ada.tem"]);
+  expect(result.snapshot.seed).toBe(23);
+  await verifyHostRunHash(page, frame, expect);
+}
+
+/** Refused saves and edits during snapshot preparation must prevent launching a player. */
+export async function runVscodeGuardProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
+  readBacking: () => Promise<Uint8Array>, original: Uint8Array, raced: Uint8Array,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Main", exact: true }).click();
+  await openGame(page, gamePath, expect);
+  const editor = await waitForEditorFrame(page, "VS Code guard editor");
+  const title = editor.getByLabel("Game title");
+  await title.fill("Save must fail");
+  await title.press("Enter");
+  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await runCommand(page, expect, "Test: Fail Saves");
+  await runCommand(page, expect, "Test: Run Example Program");
+  await expect(page.getByText(/Program launch refused:.*save/i)).toBeVisible({ timeout: 30_000 });
+  expect(await readBacking()).toEqual(original);
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+  await runCommand(page, expect, "Test: Allow Saves");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.getByRole("status")).toHaveText("All changes saved");
+  await runCommand(page, expect, "Test: Pause Program Read");
+  await runCommand(page, expect, "Test: Run Example Program");
+  await expect(page.getByText("Fixture read paused")).toBeVisible({ timeout: 30_000 });
+  await title.fill("Race saved");
+  await title.press("Enter");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(readBacking, { timeout: 30_000 }).toEqual(raced);
+  await runCommand(page, expect, "Test: Resume Program Read");
+  await expect(page.getByText(/Program launch refused:.*changed/i)).toBeVisible({ timeout: 30_000 });
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+}
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
 export async function runVscodeSpriteWebProof(
@@ -1104,10 +1305,16 @@ async function findBytesPanelFrame(page: Page, selector: string): Promise<Frame 
 
 async function openGame(page: Page, gamePath: string, expect: Expect): Promise<void> {
   await focusWorkbench(page);
-  const gameFile = page.getByRole("treeitem", { name: gamePath.split("/").at(-1)!, exact: true });
+  const segments = gamePath.split("/");
+  for (const folder of segments.slice(0, -1)) {
+    const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
+    await expect(folderItem).toBeVisible();
+    if (await folderItem.getAttribute("aria-expanded") !== "true") await folderItem.click();
+  }
+  const gameFile = page.getByRole("treeitem", { name: segments.at(-1)!, exact: true });
   await expect(gameFile).toBeVisible();
   await gameFile.dblclick();
-  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! }).first()).toBeVisible();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: segments.at(-1)! }).first()).toBeVisible();
   await expect(page.locator("iframe.webview")).toBeVisible({ timeout: 30_000 });
 }
 

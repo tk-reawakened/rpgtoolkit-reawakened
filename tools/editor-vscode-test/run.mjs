@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { access, chmod, copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader } from "@tk-reawakened/core";
 import { buildNewBoard } from "@tk-reawakened/editor-model";
-import { requestNativeReload, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { requestNativeReload, runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -54,7 +54,12 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
   createWebAdapterBytes(gameFiles[0], "__tkr_sentinel.gam", sentinelTitle),
 ]);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
-for (const choice of ["cancel", "keep"]) {
+const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
+const boardProof = process.env.TKR_VSCODE_BOARD_PROOF === "1";
+const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
+const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
+if ((launchProof || boardProof || programProof || guardProof) && game !== "Main/example.gam") throw new Error("The launch proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of launchProof || boardProof || programProof || guardProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game);
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
@@ -96,6 +101,13 @@ for (const choice of ["cancel", "keep"]) {
   const browserDiagnostics = [];
   const probeDiagnostics = [];
   try {
+    if (launchProof || boardProof || programProof || guardProof) {
+      await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
+      if (programProof || guardProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
+      await writeFile(resolve(proofWorkspace, "Game/Example/Prg/start.prg"), boardProof || programProof || guardProof
+        ? 'mwin("VS CODE FIXTURE PROOF")\nwait()\n'
+        : 'mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nwait()\n');
+    }
     persistentFs = await startPersistentFs(proofWorkspace, `http://localhost:${port}`);
     const workbenchUrl = `http://localhost:${port}/`;
     const readinessUrl = `http://127.0.0.1:${port}/`;
@@ -237,18 +249,34 @@ for (const choice of ["cancel", "keep"]) {
       const combined = combineProofErrors(failure, cleanupErrors);
       if (combined !== undefined) throw combined;
     };
-    if (choice === "cancel") {
-      await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
-      console.log("vscode.dev sprite save/reopen proof passed");
+    if (guardProof) {
+      await runVscodeGuardProof(page, expect, workbenchUrl, game, readBacking,
+        new Uint8Array(await readFile(gameFiles[0])), await createWebAdapterBytes(gameFiles[0], game, "Race saved"));
+      console.log("vscode.dev save and concurrent-edit guard proof passed");
+    } else if (boardProof) {
+      await runVscodeBoardProof(page, expect, workbenchUrl);
+      console.log("vscode.dev fresh board launch proof passed");
+    } else if (programProof) {
+      await runVscodeProgramProof(page, expect, workbenchUrl);
+      console.log("vscode.dev fixture program proof passed");
+    } else if (launchProof) {
+      const launchBytes = await createWebAdapterBytes(gameFiles[0], game, "VS Code launch proof");
+      await runVscodeLaunchProof(page, expect, workbenchUrl, game, readBacking, launchBytes);
+      console.log("vscode.dev live player launch proof passed");
+    } else {
+      if (choice === "cancel") {
+        await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
+        console.log("vscode.dev sprite save/reopen proof passed");
+      }
+      await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, {
+        restart, readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
+        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes,
+        choice, boardPath, otherBoardPath, artPath, otherArtPath, bitmapPath, otherBitmapPath,
+        bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)),
+        canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
+      });
+      console.log(`vscode.dev settings, board, art and bitmap proof passed (${choice})`);
     }
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, {
-      restart, readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
-      pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes,
-      choice, boardPath, otherBoardPath, artPath, otherArtPath, bitmapPath, otherBitmapPath,
-      bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)),
-      canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
-    });
-    console.log(`vscode.dev settings, board, art and bitmap proof passed (${choice})`);
   } catch (error) {
     failure = error;
   } finally {

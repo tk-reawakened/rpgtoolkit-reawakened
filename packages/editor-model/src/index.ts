@@ -232,6 +232,7 @@ export {
   copyIntoReservedFolder,
   linkFor,
   listCandidates,
+  projectLayoutOfMain,
   referencePath,
   reservedFolder,
   unusableName,
@@ -264,6 +265,7 @@ export {
 } from "./layout.ts";
 export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
+export { boardStartUnit, createLauncher, type Launcher, type LauncherOptions, type LaunchOutcome, type LaunchRefusal } from "./launcher.ts";
 export {
   createPreferences,
   PREFERENCE_CATALOGUE,

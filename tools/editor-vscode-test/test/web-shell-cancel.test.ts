@@ -2,19 +2,19 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { transform } from "esbuild";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 test("cancelling a browser document switch unregisters only its candidate and preserves the dirty shown document", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tkr-shell-cancel-"));
+  const shellPath = join(resolve("packages/host-web/dist"), `${basename(dir)}-shell.mjs`);
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
     document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
-    const modelUrl = pathToFileURL(resolve("packages/editor-model/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
 import * as real from ${JSON.stringify(hostUrl)};
@@ -41,10 +41,9 @@ export function createWorkbench(project, element) {
 `);
     const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
     const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(join(dir, "shell.mjs"), transformed.code
-      .replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href))
-      .replace('"@tk-reawakened/editor-model"', JSON.stringify(modelUrl)));
-    await import(pathToFileURL(join(dir, "shell.mjs")).href);
+    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    // Runtime-generated modules live beside the built host so all workspace imports resolve normally.
+    await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {
         if (condition()) return;
@@ -86,6 +85,7 @@ export function createWorkbench(project, element) {
     for (const workbench of cleanup.workbenches ?? []) workbench.dispose();
     cleanup.A?.deactivate();
     await GlobalRegistrator.unregister();
+    await rm(shellPath, { force: true });
     await rm(dir, { recursive: true, force: true });
   }
 });

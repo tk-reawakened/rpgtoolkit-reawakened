@@ -13,7 +13,11 @@
     "onCustomEditor:tkr.board",
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
-    "onView:tkr.game"
+    "onView:tkr.game",
+    "onCommand:tkr.runGame",
+    "onCommand:tkr.startProgram",
+    "onCommand:tkr.startBoard",
+    "onCommand:tkr.testProgram"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -34,6 +38,14 @@
       {
         "command": "tkr.refreshGame",
         "title": "RPG Toolkit: Refresh the Game view"
+      },
+      {
+        "command": "tkr.runGame",
+        "title": "RPG Toolkit: Run Game"
+      },
+      {
+        "command": "tkr.testProgram",
+        "title": "RPG Toolkit: Test Program"
       },
       {
         "command": "tkr.newBoard",
