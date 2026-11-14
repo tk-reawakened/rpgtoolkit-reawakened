@@ -5,6 +5,7 @@ import { mount, type BoardViewDocument, type ViewContext, type ViewDocument, typ
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
+import { createWebRunService } from "./run.ts";
 
 /**
  * A project open in the browser host. Its `workspace` is the host's workbench: one model per document, undo by `editId`,
@@ -24,6 +25,8 @@ export interface WebProject {
 /** What a browser project is made with; `dialogs` defaults to the page's own modal dialogs. */
 export interface WebProjectOptions {
   readonly dialogs?: DialogService;
+  /** URL of this deployment's same-origin runner-web player page. Without it, launching is unavailable. */
+  readonly playerUrl?: string;
 }
 
 type DirectoryPickerWindow = Window & {
@@ -34,13 +37,13 @@ type DirectoryPickerWindow = Window & {
 const FOLDER_CAPABILITIES: readonly Capability[] = ["folderWrite", "stableProjectHandle", "conflictReload", "conflictAutoSave"];
 
 /** Open a directory with the browser's native picker; stable identity requires successful IndexedDB registration. */
-export async function openWebProject(): Promise<WebProject | null> {
+export async function openWebProject(options: WebProjectOptions = {}): Promise<WebProject | null> {
   const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
   if (typeof picker !== "function") return null;
   try {
     const root = await picker.call(window, { mode: "readwrite" });
     const project = await registerWebProject(root);
-    return project ? createFolderProject(root, project) : null;
+    return project ? createFolderProject(root, project, options) : null;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return null;
     throw error;
@@ -48,9 +51,9 @@ export async function openWebProject(): Promise<WebProject | null> {
 }
 
 /** Restore a recent folder only from an explicit user action, allowing permission prompts at that point. */
-export async function reopenWebProject(id: string): Promise<WebProject | null> {
+export async function reopenWebProject(id: string, options: WebProjectOptions = {}): Promise<WebProject | null> {
   const restored = await restoreWebProject(id);
-  return restored ? createFolderProject(restored.root, restored.handle) : null;
+  return restored ? createFolderProject(restored.root, restored.handle, options) : null;
 }
 
 /** Read recent projects without prompting; null means browser persistence is unavailable. */
@@ -82,6 +85,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
   // file tree says so instead of pretending (T-03).
   if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
+  if (options.playerUrl !== undefined) capabilities.add("runGame");
   const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
   const services: PlatformServices = {
     capabilities,
@@ -103,6 +107,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     },
     document: workspace.document,
     dialogs,
+    ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl) }),
   };
   return { services, project, sessionCopy: false, workspace, deactivate: () => { active = false; workspace.dispose(); } };
 }

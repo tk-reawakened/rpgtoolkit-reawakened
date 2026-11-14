@@ -24,6 +24,7 @@ import {
   readMainFile,
   writeMainFile,
   type AssetKey,
+  type AssetRoot,
   type BattleState,
   type Diagnostic,
   type DrawList,
@@ -136,7 +137,7 @@ export type LiveSessionOptions = LiveSessionBase & { readonly debug?: LiveSessio
   /** An interactive session over a validated package source: assets arrive on demand through the tiered source. */
   | { readonly interactive: true; readonly source: PackageSource }
   /** An interactive session over a fully populated file map (the desktop and mobile players). */
-  | { readonly interactive: true; readonly files: ClosingFiles; readonly mainFile: string; readonly gameIdentity: string }
+  | { readonly interactive: true; readonly files: ClosingFiles; readonly mainFile: string; readonly gameIdentity: string; readonly assetRoot?: AssetRoot; readonly seed?: number }
   | { readonly interactive?: false; readonly files: ClosingFiles; readonly planText: string; readonly gameName: string }
   /**
    * The closing-plan recipe over a package source: the plan supplies the seed, size and tick cap, the package supplies
@@ -227,13 +228,14 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     ...(options.onLoadChange === undefined ? {} : { onChange: options.onLoadChange }),
   });
   const spriteRuntime = interactive ? createSpriteRuntime() : undefined;
+  const assetRoot = "assetRoot" in options ? options.assetRoot ?? PACKAGE_ROOT : PACKAGE_ROOT;
   let hasPlayer = false;
   let cameraPosition: { x: number; y: number } | null = null;
   let latest: GameState | null = null;
   let lastBattle: GameState["battle"] = null;
   const triggerProgramLoader = {
     index,
-    root: PACKAGE_ROOT,
+    root: assetRoot,
     dialect: mainInput.ok ? projectScriptDialect(mainInput.value) : "tk3" as const,
     read: (key: AssetKey) => files.get(key),
   };
@@ -280,9 +282,9 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   const initialGeometry = displayGeometry;
   const initialFeatures: HostFeatures = hostFeatures ?? { touch: false, pointer: "none", keyboard: false, gamepad: false, haptics: false, orientation: null };
   const engine = createEngine({
-    seed: plan?.seed ?? 0,
+    seed: "seed" in options ? options.seed ?? 0 : plan?.seed ?? 0,
     assetIndex: index,
-    assetRoot: PACKAGE_ROOT,
+    assetRoot,
     mainFile,
     gameIdentity,
     startup: {

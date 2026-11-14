@@ -47,6 +47,7 @@ declare global {
   }
 }
 
+let editorChannel: MessagePort | null = null;
 const canvas = document.querySelector<HTMLCanvasElement>("#screen");
 const output = document.querySelector<HTMLPreElement>("#report");
 if (canvas === null || output === null) throw new Error("player: the page is missing its canvas or report");
@@ -54,6 +55,9 @@ const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: f
 if (gl === null) {
   output.textContent = "player: this browser has no WebGL2 context";
   window.__report = { error: "no-webgl2" };
+  if (new URLSearchParams(location.search).has("editor") && window.parent !== window) {
+    window.parent.postMessage({ type: "tkr-player-error", message: "This browser has no WebGL2 context." }, location.origin);
+  }
 } else {
   void boot(gl, canvas, output);
 }
@@ -73,6 +77,10 @@ function describeLoad(name: string, state: LoadState): string {
 async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, report: HTMLPreElement): Promise<void> {
   try {
     const params = new URLSearchParams(location.search);
+    if (params.has("editor")) {
+      await bootEditorGame(context, screen, report);
+      return;
+    }
     const pack = params.get("package");
     const parity = params.has("parity");
     const tracer = params.has("tracer");
@@ -108,6 +116,7 @@ async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, 
   } catch (error) {
     window.__report = { error: String(error) };
     report.textContent = `player: ${String(error)}`;
+    editorChannel?.postMessage({ state: "failed", message: String(error) });
   }
 }
 
@@ -311,6 +320,72 @@ async function bootInteractive(
   void launch();
 }
 
+/**
+ * An editor launch uses the same live player as a distribution package, but receives one frozen set of saved files
+ * through a private MessagePort. Only the same-origin embedding parent may supply that port. Later editor saves cannot
+ * change the files in this session (ADR 0022 D8.4).
+ */
+async function bootEditorGame(context: WebGL2RenderingContext, screen: HTMLCanvasElement, report: HTMLPreElement): Promise<void> {
+  if (window.parent === window) throw new Error("editor launch requires an embedding editor");
+  const channel = await new Promise<MessagePort>((resolve) => {
+    const receive = (event: MessageEvent): void => {
+      if (event.source !== window.parent || event.origin !== location.origin || event.data !== "tkr-editor-connect" || event.ports.length !== 1) return;
+      window.removeEventListener("message", receive);
+      resolve(event.ports[0]!);
+    };
+    window.addEventListener("message", receive);
+    window.parent.postMessage("tkr-player-ready", location.origin);
+  });
+  editorChannel = channel;
+  const payload: unknown = await new Promise((resolve) => {
+    channel.onmessage = (event: MessageEvent<unknown>) => resolve(event.data);
+    channel.start();
+  });
+  if (typeof payload !== "object" || payload === null || !("main" in payload) || typeof payload.main !== "string"
+    || !("project" in payload) || typeof payload.project !== "string"
+    || !("projectFolder" in payload) || typeof payload.projectFolder !== "string"
+    || !("seed" in payload) || typeof payload.seed !== "number"
+    || !("files" in payload) || !(payload.files instanceof Map)) throw new Error("invalid editor launch");
+  const files = new Map<string, Uint8Array>();
+  for (const [path, bytes] of payload.files) {
+    if (typeof path !== "string" || !(bytes instanceof Uint8Array)) throw new Error("invalid editor launch file");
+    files.set(path, bytes);
+  }
+  const folder = payload.projectFolder.replace(/^\/+|\/+$/g, "");
+  if (folder !== "" && !folder.toLowerCase().startsWith("game/")) throw new Error("the game folder must be under Game/");
+  const assetRoot = folder === "" ? { kind: "package" as const } : { kind: "game" as const, projectPath: folder.slice(5) };
+  const stage = document.querySelector<HTMLElement>("#stage");
+  if (stage === null) throw new Error("player: the page is missing its viewport stage");
+  const listing = await fetch("/apps/browser/bundled.json");
+  if (!listing.ok) throw new Error(`bundled assets unavailable: ${listing.status}`);
+  const listed = await listing.json() as { readonly files: readonly string[] };
+  const bundled = await fetchBundledFiles("", listed.files);
+  const blobs = await durableBlobs(report);
+  const decode = await prepareDecode();
+  const hostViewport: HostViewport = { canvas: screen, viewport: stage };
+  const clock = (): number => performance.now();
+  let dispose: (() => void) | null = null;
+  const session = await createLiveSession({
+    interactive: true, files, mainFile: payload.main, gameIdentity: payload.project, assetRoot, seed: payload.seed,
+    bundled, gl: context, hostViewport, clock, decode: decode.create,
+    ...(blobs === null ? {} : { blobs }),
+    onQuit: () => { channel.postMessage({ state: "ended", message: "The game ended." }); dispose?.(); },
+  });
+  const spinner = document.querySelector<HTMLElement>("#spinner");
+  const overlay = spinner === null ? null : createStallOverlay({ element: spinner, state: session.loadState, clock });
+  const load: LoadState = {
+    phase: "ready", mode: "whole", progress: { received: 0, total: null },
+    storage: { persisted: "not-requested", quota: "not-needed", kept: false, error: null }, error: null,
+  };
+  dispose = startLiveLoop(session, screen, report, overlay, () => load, hostViewport, (live) => {
+    channel.postMessage({ state: live.error ? "failed" : live.stalls?.blocking ? "stalled" : "running",
+      tick: live.tick, board: live.board, stalledOn: live.stalls?.blocking ?? null,
+      diagnostics: live.diagnostics ?? [], message: live.error ?? null });
+  });
+  channel.onmessage = (event) => { if (event.data === "stop") { dispose?.(); decode.dispose(); channel.close(); } };
+  window.addEventListener("pagehide", () => { dispose?.(); decode.dispose(); channel.close(); }, { once: true });
+}
+
 async function runParity(session: LiveSession, report: HTMLPreElement, game: string, pack: string | null, extra: () => object = () => ({})): Promise<void> {
   await session.advance(0);
   let inputs: InputRecord[] = [];
@@ -348,6 +423,7 @@ function startLiveLoop(
   overlay: StallOverlay | null,
   loadState: () => LoadState,
   hostViewport: HostViewport,
+  onLive?: (report: LiveReport) => void,
 ): () => void {
   const stepMs = 1000 / 60;
   let previous = performance.now();
@@ -496,6 +572,7 @@ function startLiveLoop(
           };
           window.__live = live;
           window.__report = live;
+          onLive?.(live);
           report.textContent = [
             `live ${location.search.includes("package=") ? "package" : "game"} — tick ${live.tick}`,
             `state ${live.stateHash}`,
@@ -508,6 +585,7 @@ function startLiveLoop(
           advancing = false;
           if (disposed) return;
           window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error), stalls: summary(false) };
+          onLive?.(window.__live);
           report.textContent = `player: ${String(error)}`;
           dispose();
         });

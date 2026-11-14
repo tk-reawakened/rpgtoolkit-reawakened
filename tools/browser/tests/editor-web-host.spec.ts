@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
@@ -109,6 +111,40 @@ test("browser recent projects do not open after the user denies restored-folder 
   await expect(page.getByLabel("Game title")).toHaveCount(0);
 });
 
+// This browser integration crosses a real WebGL/audio player boundary; a unit test cannot prove a live game reaches its board.
+test("a saved folder game launches in the live player from the editor", async ({ page }) => {
+  const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
+  const files: PickerInput[] = [];
+  const collect = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: Array.from(readFileSync(path)) });
+    }
+  };
+  collect(root);
+  await installFolderPicker(page, files);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByLabel("Game title").fill("Saved launch proof");
+  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  await expect(frame.getByLabel("Game screen")).toBeVisible();
+  const live = async () => frame.locator("#screen").evaluate(() => Reflect.get(window, "__live") as { tick: number; board: string | null; player: unknown; stateHash: string } | undefined);
+  await expect.poll(async () => (await live())?.tick ?? 0, { timeout: 30000 }).toBeGreaterThan(30);
+  await frame.locator("#screen").press("Enter");
+  await expect.poll(async () => (await live())?.board, { timeout: 30000 }).toContain("village.brd");
+  const playing = await live();
+  expect(playing?.player).not.toBeNull();
+  expect(playing?.stateHash).toBeTruthy();
+  await expect(page.getByLabel("Current run")).toContainText("village.brd");
+  await expect(page.getByLabel("Run snapshot")).toContainText("Main/example.gam");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
+});
+
 type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean };
 
 async function installFolderPicker(page: Page, files: readonly PickerInput[], indexedDbAvailable = true, denyPermission = false): Promise<void> {
@@ -133,6 +169,7 @@ async function installFolderPicker(page: Page, files: readonly PickerInput[], in
     if (deny) {
       Object.defineProperty(FileSystemHandle.prototype, "requestPermission", { configurable: true, value: async () => "denied" });
     }
+    Reflect.set(window, "__tkrPickerReady", true);
   }, { files, indexedDbAvailable, denyPermission, folderName });
 }
 

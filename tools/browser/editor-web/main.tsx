@@ -1,5 +1,7 @@
 import { createSessionCopy, listRecentWebProjects, mountGameSettings, openGameSettings, openWebProject, reopenWebProject, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web";
-import type { MainDocument } from "@tk-reawakened/editor-model";
+import { createLauncher, type MainDocument } from "@tk-reawakened/editor-model";
+import { BinaryReader, projectFolder, readMainFile } from "@tk-reawakened/core";
+import { mountRun, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
 const status = document.querySelector<HTMLElement>("#host-status")!;
@@ -13,6 +15,9 @@ const recentLabel = document.querySelector<HTMLLabelElement>("#recent-project-la
 const recentSelect = document.querySelector<HTMLSelectElement>("#recent-project")!;
 const reopenButton = document.querySelector<HTMLButtonElement>("#reopen-project")!;
 const actions = document.querySelector<HTMLElement>("#document-actions")!;
+const runElement = document.querySelector<HTMLElement>("#run")!;
+const playerOptions = { playerUrl: "/packages/runner-web/app/index.html" };
+let runView: ViewHandle | null = null;
 /** The one document this page shows: its project, its model and the view mounted over it. */
 interface Shown {
   readonly project: WebProject;
@@ -28,7 +33,7 @@ let openRequest = 0;
 folderButton.addEventListener("click", () => {
   const request = ++openRequest;
   void (async () => {
-    const project = await openWebProject();
+    const project = await openWebProject(playerOptions);
     if (request !== openRequest) return;
     if (!project) {
       status.textContent = "A persistent project folder could not be registered. Open a .gam session copy instead; folder changes will not be saved.";
@@ -40,7 +45,7 @@ folderButton.addEventListener("click", () => {
 reopenButton.addEventListener("click", () => {
   const request = ++openRequest;
   void (async () => {
-    const project = await reopenWebProject(recentSelect.value);
+    const project = await reopenWebProject(recentSelect.value, playerOptions);
     if (request !== openRequest) return;
     if (!project) {
       status.textContent = "This project could not be reopened. Select its folder again or open a .gam session copy.";
@@ -191,6 +196,18 @@ async function show(project: WebProject, path: string, request: number): Promise
   openedProject = project;
   replaceShown({ project, document: result.document, view: result.view, element: candidateElement });
   status.textContent = `${project.project.name}: ${result.document.identity.path}${project.sessionCopy ? " (session copy; changes stay in memory)" : " (project folder; changes write to disk)"}`;
+  const bytes = await project.services.fs.readProject(project.project.id, path);
+  if (request !== openRequest || !bytes.ok) return;
+  const main = readMainFile(new BinaryReader(bytes.value, path));
+  const candidate = main.ok ? projectFolder("", main.value).replace(/\/$/, "") : "";
+  const folder = candidate === "" ? null : await project.services.fs.list(candidate);
+  if (request !== openRequest) return;
+  runView?.dispose();
+  runView = mountRun(runElement, {
+    launcher: createLauncher({ services: project.services, workspace: project.workspace }),
+    fs: project.services.fs,
+    layout: { projectFolder: folder?.ok ? candidate : "" },
+  });
 }
 
 function replaceShown(next: Shown | null): void {
@@ -199,6 +216,7 @@ function replaceShown(next: Shown | null): void {
   if (next !== null) next.element.hidden = false;
   previous?.view.dispose();
   previous?.element.remove();
+  if (next === null) { runView?.dispose(); runView = null; }
   actions.hidden = next === null;
 }
 
