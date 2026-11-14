@@ -2,11 +2,19 @@
 import { deepEqual, equal, notDeepEqual, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import { BinaryReader, readBoard, type Board } from "@tk-reawakened/core";
 import { boardTileAt, createBoardDocument, createDocumentIdentity, createDocumentWorkspace, openBoardDocument } from "../src/index.ts";
 import { exampleBoard } from "./fixtures.ts";
 
 const PATH = "Boards/village.brd";
 const identity = createDocumentIdentity("memory-project", PATH);
+
+/** The full model a document would save: what the snapshot leaves out (runs, vectors, residue) is checked through the bytes. */
+function modelOf(doc: { serialize(): Uint8Array }): Board {
+  const read = readBoard(new BinaryReader(doc.serialize()));
+  ok(read.ok);
+  return read.value;
+}
 
 async function open(bytes = exampleBoard(4)) {
   const host = createMemoryPlatformServices({ files: { [PATH]: bytes } });
@@ -19,21 +27,23 @@ test("a board opens with its grid, layers and tiles", async () => {
   const { doc } = await open();
   const snapshot = doc.getSnapshot();
   deepEqual(snapshot.grid, { width: 4, height: 3 });
-  equal(snapshot.board.sizeL, 2);
-  equal(boardTileAt(snapshot.board, 0, 0, 0), "village.tst1");
-  equal(boardTileAt(snapshot.board, 1, 3, 2), "");
-  equal(boardTileAt(snapshot.board, 2, 0, 0), null, "a layer the board does not have");
+  equal(snapshot.layers, 2);
+  equal(boardTileAt(snapshot, 0, 0, 0), "village.tst1");
+  equal(boardTileAt(snapshot, 1, 3, 2), "");
+  equal(boardTileAt(snapshot, 2, 0, 0), null, "a layer the board does not have");
 });
 
 test("one tile changes, saves and reopens; the other cells, the table's old entries and the unmodelled data are kept", async () => {
   const { host, doc } = await open();
-  const before = doc.getSnapshot().board;
+  const before = doc.getSnapshot();
+  const modelBefore = modelOf(doc);
   ok(doc.apply({ type: "set-tile", layer: 0, x: 1, y: 1, tile: "village.tst8" }).ok);
-  equal(boardTileAt(doc.getSnapshot().board, 0, 1, 1), "village.tst8");
+  equal(boardTileAt(doc.getSnapshot(), 0, 1, 1), "village.tst8");
   ok((await doc.save()).ok);
   const reopened = await openBoardDocument(host.fs, identity);
   ok(reopened.ok);
-  const after = reopened.document.getSnapshot().board;
+  const after = reopened.document.getSnapshot();
+  const modelAfter = modelOf(reopened.document);
   equal(boardTileAt(after, 0, 1, 1), "village.tst8");
   for (let layer = 0; layer < 2; layer += 1) {
     for (let y = 0; y < 3; y += 1) {
@@ -43,14 +53,14 @@ test("one tile changes, saves and reopens; the other cells, the table's old entr
       }
     }
   }
-  deepEqual({ ...after, tileMatrix: [], tileRuns: [] }, { ...before, tileMatrix: [], tileRuns: [] }, "everything but the tile matrix is as it was");
+  deepEqual({ ...modelAfter, tileMatrix: [], tileRuns: [] }, { ...modelBefore, tileMatrix: [], tileRuns: [] }, "everything but the tile matrix is as it was");
 });
 
 test("only the run that held the cell is split; every other run is kept verbatim", async () => {
   const { doc } = await open();
-  const before = doc.getSnapshot().board.tileRuns;
+  const before = modelOf(doc).tileRuns;
   ok(doc.apply({ type: "set-tile", layer: 0, x: 1, y: 0, tile: "village.tst8" }).ok);
-  const after = doc.getSnapshot().board.tileRuns;
+  const after = modelOf(doc).tileRuns;
   deepEqual(after.slice(0, 3), [
     { lutIndex: 1, count: 1, marker: true },
     { lutIndex: 2, count: 1, marker: false },
@@ -61,10 +71,10 @@ test("only the run that held the cell is split; every other run is kept verbatim
 
 test("a tile the board has not used is added to its table, and the old entries keep their places", async () => {
   const { doc } = await open();
-  const lutBefore = doc.getSnapshot().board.lut;
+  const lutBefore = doc.getSnapshot().lut;
   ok(doc.apply({ type: "set-tile", layer: 1, x: 0, y: 0, tile: "town.tst2" }).ok);
-  deepEqual(doc.getSnapshot().board.lut, [...lutBefore, "town.tst2"]);
-  equal(boardTileAt(doc.getSnapshot().board, 1, 0, 0), "town.tst2");
+  deepEqual(doc.getSnapshot().lut, [...lutBefore, "town.tst2"]);
+  equal(boardTileAt(doc.getSnapshot(), 1, 0, 0), "town.tst2");
 });
 
 test("a command that names a cell outside the board, or the tile already there, is refused whole", async () => {

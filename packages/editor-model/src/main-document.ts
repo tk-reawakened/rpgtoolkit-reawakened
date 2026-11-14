@@ -108,6 +108,8 @@ export const mainCodec: DocumentCodec<MainFile, MainCommand, MainDocumentFields>
   read: (bytes, path) => readMainFile(new BinaryReader(bytes, path)),
   write: writeMainFile,
   readOnlyReason,
+  isCommand: (value): value is MainCommand =>
+    typeof value === "object" && value !== null && "type" in value && value.type === "set-game-title" && "title" in value && typeof value.title === "string",
   apply: (model, command) => ({ ...model, gameTitle: command.title }),
   label: (command) => `Set game title to "${command.title}"`,
   refuse: refusalOf,

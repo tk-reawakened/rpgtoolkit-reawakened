@@ -33,14 +33,26 @@ export interface SetTileCommand {
 /** Every command a board document accepts. Plain data, so a stack of them can be stored and replayed. */
 export type BoardCommand = SetTileCommand;
 
-/** What a board adds to the shared snapshot. */
+/**
+ * What a board adds to the shared snapshot: plain JSON a view can draw a grid from and a host can post to a webview
+ * (no byte arrays, no vectors or programs: a view that needs more asks for it by name in a later story). The arrays are
+ * the model's own and are never changed, so an unchanged board gives the same references.
+ */
 export interface BoardDocumentFields {
-  /** The board as the model holds it now, saved or not. Immutable: a command makes a new object. */
-  readonly board: Board;
   /** The minor version the file was opened at and is saved at (AD-18). */
   readonly minor: number;
   /** The stored grid of every layer (`sizeX × sizeY`, or the rotated square of an iso-rotated board). */
   readonly grid: BoardGrid;
+  /** How many tile layers the board has. */
+  readonly layers: number;
+  /** The board's `coordType`: 0 is top-down; other values are the isometric systems. */
+  readonly coordType: number;
+  /** The layer titles, as stored. */
+  readonly layerTitles: readonly string[];
+  /** The tile lookup table: `tileMatrix` holds indices into it, and `""` is the empty cell. */
+  readonly lut: readonly string[];
+  /** One lookup-table index per cell, layer-major then row-major (`docs/spec/formats/board.md#vector-layout-minor-4-and-later`). */
+  readonly tileMatrix: readonly number[];
 }
 
 export type BoardDocumentSnapshot = DocumentSnapshot<BoardCommand> & BoardDocumentFields;
@@ -50,19 +62,27 @@ export type BoardOpenResult = GenericOpenResult<BoardDocument>;
 /** The most lookup-table entries a board can index: the stored index is a non-negative `i16`. */
 const MAX_LUT_ENTRIES = 32768;
 
-/** The tile reference on one cell: `lut[tileMatrix[cell]]`, or `null` when the cell is outside the board. */
-export function boardTileAt(board: Board, layer: number, x: number, y: number): string | null {
-  const cell = cellIndex(board, layer, x, y);
+/** The tile reference on one cell of a board snapshot or model, or `null` when the cell is outside the board. */
+export function boardTileAt(
+  board: { readonly grid: BoardGrid; readonly layers: number; readonly lut: readonly string[]; readonly tileMatrix: readonly number[] },
+  layer: number,
+  x: number,
+  y: number,
+): string | null {
+  const cell = cellOf(board.grid, board.layers, layer, x, y);
   if (cell === null) return null;
   const index = board.tileMatrix[cell];
   return index === undefined ? null : (board.lut[index] ?? null);
 }
 
-function cellIndex(board: Board, layer: number, x: number, y: number): number | null {
-  const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
+function cellOf(grid: BoardGrid, layers: number, layer: number, x: number, y: number): number | null {
   if (![layer, x, y].every(Number.isInteger)) return null;
-  if (layer < 0 || layer >= board.sizeL || x < 0 || x >= grid.width || y < 0 || y >= grid.height) return null;
+  if (layer < 0 || layer >= layers || x < 0 || x >= grid.width || y < 0 || y >= grid.height) return null;
   return layer * grid.width * grid.height + y * grid.width + x;
+}
+
+function cellIndex(board: Board, layer: number, x: number, y: number): number | null {
+  return cellOf(boardGrid(board.sizeX, board.sizeY, board.coordType), board.sizeL, layer, x, y);
 }
 
 /**
@@ -139,11 +159,23 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
   read: (bytes, path) => readBoard(new BinaryReader(bytes, path)),
   write: writeBoard,
   readOnlyReason,
+  isCommand: (value): value is BoardCommand =>
+    typeof value === "object" && value !== null && "type" in value && value.type === "set-tile"
+    && "layer" in value && typeof value.layer === "number" && "x" in value && typeof value.x === "number"
+    && "y" in value && typeof value.y === "number" && "tile" in value && typeof value.tile === "string",
   apply: setTile,
   label: (command) => `Put ${command.tile === "" ? "an empty cell" : `"${command.tile}"`} at layer ${command.layer}, column ${command.x}, row ${command.y}`,
   refuse,
   summary: (model) => `${model.sizeX}×${model.sizeY} board, ${model.sizeL} layers`,
-  fields: (model) => ({ board: model, minor: model.minor, grid: boardGrid(model.sizeX, model.sizeY, model.coordType) }),
+  fields: (model) => ({
+    minor: model.minor,
+    grid: boardGrid(model.sizeX, model.sizeY, model.coordType),
+    layers: model.sizeL,
+    coordType: model.coordType,
+    layerTitles: model.layerTitles,
+    lut: model.lut,
+    tileMatrix: model.tileMatrix,
+  }),
 };
 
 /** Read the board at `identity.path` through `storage` and open it. */

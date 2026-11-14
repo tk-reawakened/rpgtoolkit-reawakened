@@ -1,8 +1,8 @@
 import { foldPath } from "@tk-reawakened/core";
-import { openBoardDocument } from "./board-document.ts";
+import { boardCodec, createBoardDocument, openBoardDocument } from "./board-document.ts";
 import type { DocumentSnapshot, DocumentStorage, EditorDocument, OpenResult } from "./binary-document.ts";
 import type { DocumentIdentity } from "./identity.ts";
-import { openMainDocument } from "./main-document.ts";
+import { createMainDocument, mainCodec, openMainDocument } from "./main-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -30,6 +30,17 @@ export interface DocumentKind {
   readonly storage: StorageClass;
   /** Read the file at `identity.path` through `storage` and open it. */
   open(storage: DocumentStorage, identity: DocumentIdentity): Promise<OpenResult<AnyDocument>>;
+  /** Open a document over bytes already in hand (a recovered backup, a copy). */
+  create(storage: DocumentStorage, identity: DocumentIdentity, bytes: Uint8Array): OpenResult<AnyDocument>;
+  /** A short name for the version of the file in `bytes`, to set beside a conflict; `null` when this kind does not read them. */
+  summarise(bytes: Uint8Array, path: string): string | null;
+  /** Whether a value that arrived from a webview has the shape of this kind's commands (never trust it past this). */
+  isCommand(value: unknown): boolean;
+  /**
+   * A command that changes nothing the writer stores, which recovery applies once so the recovered document is dirty
+   * and has a history; `null` when the kind recovers through the dirty flag alone. `snapshot` is the recovered one.
+   */
+  recoveryMarker(snapshot: DocumentSnapshot<unknown>): unknown;
 }
 
 export const DOCUMENT_KINDS: readonly DocumentKind[] = [
@@ -40,6 +51,13 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     extensions: [".gam"],
     storage: "legacy-binary",
     open: openMainDocument,
+    create: createMainDocument,
+    summarise: (bytes, path) => {
+      const read = mainCodec.read(bytes, path);
+      return read.ok ? mainCodec.summary(read.value) : null;
+    },
+    isCommand: mainCodec.isCommand,
+    recoveryMarker: (snapshot) => ({ type: "set-game-title", title: (snapshot as unknown as { readonly gameTitle: string }).gameTitle }),
   },
   {
     id: "board",
@@ -48,6 +66,13 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     extensions: [".brd"],
     storage: "legacy-binary",
     open: openBoardDocument,
+    create: createBoardDocument,
+    summarise: (bytes, path) => {
+      const read = boardCodec.read(bytes, path);
+      return read.ok ? boardCodec.summary(read.value) : null;
+    },
+    isCommand: boardCodec.isCommand,
+    recoveryMarker: () => null,
   },
 ];
 

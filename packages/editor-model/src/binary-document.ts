@@ -189,6 +189,8 @@ export interface DocumentCodec<Model, Command, Fields extends object = Record<ne
   write(model: Model): Result<Uint8Array>;
   /** `null` when the writer reproduces `bytes` exactly, which is what a same-version writer means (ADR 0022 D2.1). */
   readOnlyReason(model: Model, bytes: Uint8Array): ReadOnlyReason | null;
+  /** Whether `value`, which arrived from a webview or a script, has the shape of this kind's commands; a value that does not is never applied. */
+  isCommand(value: unknown): value is Command;
   /** Apply one command. Pure, and total: a command `refuse` does not reject always produces a model. */
   apply(model: Model, command: Command): Model;
   /** The words an undo menu shows for `command` (AD-19). */

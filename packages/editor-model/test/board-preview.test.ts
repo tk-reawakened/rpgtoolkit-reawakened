@@ -85,7 +85,7 @@ test("the editor's preview is the engine's viewbrd pixels for the same board, be
   ok(opened.ok);
   const doc = opened.document;
 
-  const before = await previewBoard(host.fs, "memory-project", doc.getSnapshot().board);
+  const before = await previewBoard(host.fs, "memory-project", doc.serialize());
   ok(before.ok, before.ok ? "" : before.message);
   equal(before.width, 64);
   equal(before.height, 64);
@@ -93,7 +93,7 @@ test("the editor's preview is the engine's viewbrd pixels for the same board, be
   deepEqual(before.rgba, engineView(doc.serialize(), 64));
 
   ok(doc.apply({ type: "set-tile", layer: 0, x: 0, y: 0, tile: "village.tst2" }).ok);
-  const after = await previewBoard(host.fs, "memory-project", doc.getSnapshot().board);
+  const after = await previewBoard(host.fs, "memory-project", doc.serialize());
   ok(after.ok, after.ok ? "" : after.message);
   notDeepEqual(after.rgba, before.rgba, "the changed tile changes the picture");
   deepEqual(after.rgba, engineView(doc.serialize(), 64), "unsaved edits preview as the engine would draw them once saved");
@@ -103,15 +103,16 @@ test("a board whose tileset the project lacks has no preview and says which file
   const host = createMemoryPlatformServices({ files: { "Boards/village.brd": FILES["Boards/village.brd"] } });
   const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/village.brd"), FILES["Boards/village.brd"]);
   ok(opened.ok);
-  const preview = await previewBoard(host.fs, "memory-project", opened.document.getSnapshot().board);
+  const preview = await previewBoard(host.fs, "memory-project", opened.document.serialize());
   ok(!preview.ok);
   ok(preview.message.includes("village.tst"), preview.message);
 });
 
 test("an isometric board is refused by the top-down preview with a reason", async () => {
   const host = createMemoryPlatformServices({ files: FILES });
-  const iso = { ...createEmptyBoard(), coordType: 1 };
-  const preview = await previewBoard(host.fs, "memory-project", iso);
+  const written = writeBoard({ ...createEmptyBoard(), coordType: 1 });
+  ok(written.ok);
+  const preview = await previewBoard(host.fs, "memory-project", written.value);
   ok(!preview.ok);
   ok(preview.message.includes("isometric"));
 });

@@ -9,10 +9,10 @@ import {
   rasterize,
   type AssetKey,
   type AssetRoot,
-  type Board,
   type DecodedTexture,
   type DrawList,
-  writeBoard,
+  BinaryReader,
+  readBoard,
 } from "@tk-reawakened/core";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
@@ -48,6 +48,8 @@ export type BoardPreview =
 
 /** The cell size of the top-down compositor (`docs/spec/formats/tiles.md`). */
 const TILE_PIXELS = 32;
+/** The most pixels a preview draws (about 62×62 tiles), so one picture stays a few megabytes. */
+const MAX_PREVIEW_PIXELS = 4_000_000;
 /** The most files a project listing walk reads, so a preview over a huge project stays bounded. */
 const MAX_FILES = 20000;
 
@@ -72,20 +74,24 @@ async function projectPaths(storage: PreviewStorage): Promise<string[] | string>
 }
 
 /**
- * Compose the board `board` (the model a document holds now, saved or not) over the assets of the project `projectId`.
+ * Compose the board in `boardBytes` (`document.serialize()`: what the document holds now, saved or not) over the assets of the project `projectId`.
  * Only a top-down board (`coordType` 0) is composed here; the isometric views are a later story.
  */
 export async function previewBoard(
   storage: PreviewStorage,
   projectId: string,
-  board: Board,
+  boardBytes: Uint8Array,
   options: BoardPreviewOptions = {},
 ): Promise<BoardPreview> {
+  const read = readBoard(new BinaryReader(boardBytes, "preview.brd"));
+  if (!read.ok) return { ok: false, message: `The board cannot be previewed: ${read.error.message}` };
+  const board = read.value;
   if (board.coordType !== 0) {
     return { ok: false, message: "The preview shows top-down boards only; this board uses an isometric coordinate system." };
   }
-  const encoded = writeBoard(board);
-  if (!encoded.ok) return { ok: false, message: `The board cannot be previewed: ${encoded.error.message}` };
+  if (board.sizeX * board.sizeY * TILE_PIXELS * TILE_PIXELS > MAX_PREVIEW_PIXELS) {
+    return { ok: false, message: `This board is larger than the ${MAX_PREVIEW_PIXELS / 1_000_000} million pixels the preview draws; edit it in the grid.` };
+  }
   const paths = await projectPaths(storage);
   if (typeof paths === "string") return { ok: false, message: paths };
   const index = createAssetIndex(paths);
@@ -97,7 +103,7 @@ export async function previewBoard(
   const warnings: string[] = [];
   // Reads are repeated until the board hydrates: each round names one file the hydrator needs and does not yet hold.
   for (;;) {
-    const hydrated = hydrateBoard(key, encoded.value, index, root, bytes, options.tick ?? 0);
+    const hydrated = hydrateBoard(key, boardBytes, index, root, bytes, options.tick ?? 0);
     if (hydrated.error !== null) return { ok: false, message: `${hydrated.error.path}: ${hydrated.error.message}` };
     if (hydrated.missing !== null) {
       const path = pathOf.get(hydrated.missing);
