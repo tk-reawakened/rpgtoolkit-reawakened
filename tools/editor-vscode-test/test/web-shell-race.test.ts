@@ -2,16 +2,17 @@ import { test } from "node:test";
 import { strict as assert } from "node:assert";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { transform } from "esbuild";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
 test("a stale shell open cannot replace the newer project", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tkr-shell-race-"));
+  const shellPath = join(resolve("packages/host-web/dist"), `${basename(dir)}-shell.mjs`);
   GlobalRegistrator.register();
   try {
-    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="run"></section><section id="settings"></section>`;
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
@@ -36,14 +37,15 @@ export async function openGameSettings(project, path, element) {
 }`);
     const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
     const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(join(dir, "shell.mjs"), transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
-    await import(pathToFileURL(join(dir, "shell.mjs")).href);
+    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    // Import this generated module dynamically from the package's build directory to exercise normal workspace resolution.
+    await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {
         if (condition()) return;
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
-      throw new Error("shell did not reach expected state");
+      throw new Error(`shell did not reach expected state; status=${byId("host-status").textContent}; settings=${byId("settings").textContent}`);
     };
     const byId = (id: string) => document.getElementById(id)!;
     byId("open-project").click();
@@ -69,6 +71,7 @@ export async function openGameSettings(project, path, element) {
     await until(() => byId("settings").textContent?.includes("All changes saved") === true);
   } finally {
     GlobalRegistrator.unregister();
+    await rm(shellPath, { force: true });
     await rm(dir, { recursive: true, force: true });
   }
 });
