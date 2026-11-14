@@ -68,7 +68,8 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 "Near" means within about 16 px.
 
-**T-24 Selected brush.** The retained-context browser lists `.tst`, `.iso`, `.gph`, `.tan` and `.tbm` sources. Press **L** from the focused board cell to focus the browser. Selecting a tile or animation chooses a brush without painting; the board's explicit paint action changes only the active board. Tile bitmaps are previewed here but remain browse-only until the P1 placement provider exists; source editing is unavailable until the P1 tile editor provider exists.
+<a id="t-24-selected-brush"></a>
+**T-24 Selected brush.** The retained-context browser lists `.tst`, `.iso`, `.gph`, `.tan` and `.tbm` sources. Press **L** from the focused board cell to focus the browser. Selecting a tile or animation chooses a brush without painting; the board's explicit paint action changes only the active board. Selecting a tile bitmap chooses a **whole stamp brush**: the selection names the `.tbm` file and carries its size in tiles, so the Draw tool can stamp the whole grid ([T-62](#t-62-tile-bitmap-editor)). Choosing a stamp changes no file and paints nothing, and a board's single-cell paint action ignores a stamp. Source editing opens the tile bitmap editor for a `.tbm`; the other source kinds stay read-only here until the P1 tile editor provider exists.
 
 **T-25 Auto-tiler.** With an *auto-tile tileset* loaded and auto-tiling switched on, painting picks each tile automatically from its 8 neighbours. Corners only count when both adjacent edges are filled (standard "blob" rules), giving about 50 variants laid out in a fixed order in the auto-tile set. Neighbouring tiles re-evaluate when you paint. A rebuild must reproduce the variant ordering to stay compatible with community auto-tile sets. Rebuild that ordering from sample sets, not from the legacy table.
 
@@ -171,7 +172,17 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 **T-61 Animation wizard.** (a) From image files: multi-select, alphabetical order, insert at a position. (b) From tiles: set the frame count, then compose each frame on a 4×4 tile grid from the tileset browser. Multi-tile frames generate `.tbm` files from a name template. After the wizard, the animation size is set from frame 1 and the transparency from frame 1's top-left pixel.
 
+<a id="t-62-tile-bitmap-editor"></a>
 **T-62 Tile bitmap editor.** Set width and height in tiles. Draw and erase tiles from the tileset. **Per-tile shading** (RGB −255…+255 with hue picker and lightness slider). Grid and redraw.
+
+In Reawakened, a [tile bitmap](spec/formats/tiles.md#tile-bitmap-tbm) (`.tbm`) opens in its own editor in every host. It shows the grid of cells, a preview of the composed picture, and one selected cell.
+
+* **Size.** Width and height are whole numbers from 1 to 40 tiles (the editor's limit, not the file's). Growing adds empty cells on the right and bottom; shrinking removes cells from there. Cells that stay inside the new size keep their tile and shade. The extra row and column the file stores beyond the drawn grid, any trailing bytes and the version stamp are written back as they were read.
+* **Draw and erase.** Two tools, **Draw** and **Erase**. With Draw, clicking a cell, or pressing Enter or Space on it, puts the tile chosen in the shared browser ([T-24](#t-24-selected-brush)) on that cell, as the browser names it (a tileset tile, a single tile or an animated tile); with Erase the same action empties the cell. Each cell change is one undoable edit and neither tool changes the cell's shade, so a shaded cell can be re-drawn without losing it. Choosing a source in the browser changes no bitmap by itself. A whole stamp brush is not a tile, so Draw explains that it needs a single tile instead of changing the cell.
+* **Per-cell shading.** The selected cell has three number fields, Red, Green and Blue, each −255 to +255; the saved file holds exactly those numbers. Two shortcuts set them. The **hue picker** is a colour chooser: mid-grey (128, 128, 128) means no shade, a lighter channel adds to that channel and a darker one subtracts, so a chosen channel value *c* gives the shade 2 × (*c* − 128), limited to −255…+255. The **lightness slider** (−255…+255) shows the average of the three numbers and moves all three together by the change, each limited to −255…+255. These shortcuts are editor controls only; the file stores nothing about them.
+* **Grid and redraw.** The grid switch draws 32-pixel lines over the preview; it is a view setting and is never saved. **Redraw** composes the preview again from the document as it is now. The preview is the picture the engine composes from the cells, [one `width · 32 × height · 32` picture with each cell's shade applied](spec/formats/tiles.md#tile-bitmap-tbm), not a second renderer.
+* **Lifecycle.** Edits use the project's ordinary undo, redo, save, conflict and revert workflow. A file the editor's writer cannot reproduce byte for byte opens read-only with the reason. A tile reference the project does not hold stays in the file and is drawn empty in the preview, with a warning.
+* **Keyboard.** The cell grid is one tab stop and moves with the arrow keys; Enter or Space applies the current tool, Delete or Backspace erases, and every other control is a native field or button.
 
 **T-63 Background (battle) editor.** Image (picture or tile bitmap), battle music, four menu sounds (move, choose, ready, can't-do).
 
