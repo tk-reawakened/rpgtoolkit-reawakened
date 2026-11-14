@@ -172,9 +172,9 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
   return <div class="tkr-sprite-preview" id={id} aria-label={`Preview for ${file || "unassigned stance"}; the origin crosshair is at the bottom centre.`}>
     {visible === undefined
       ? <p role="status">{message}</p>
-      : <div style={{ position: "relative", display: "inline-block" }}>
+      : <div class="tkr-sprite-preview-stage">
           <canvas ref={canvas} role="img" aria-label={`${file} frame ${frame + 1} of ${frames.length}; origin crosshair at bottom centre`} />
-          <svg viewBox={`0 0 ${visible.width} ${visible.height}`} aria-hidden="true" style={{ position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none" }}>
+          <svg class="tkr-sprite-preview-overlay" viewBox={`0 0 ${visible.width} ${visible.height}`} aria-hidden="true">
             <path d={`M ${visible.width / 2 - 4} ${visible.height - 1} h 8 M ${visible.width / 2} ${visible.height - 5} v 5`} stroke="red" stroke-width="1" />
           </svg>
         </div>}
