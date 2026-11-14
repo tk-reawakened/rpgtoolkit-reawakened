@@ -12,6 +12,7 @@ const selection = {
   reference: "Tiles/village.tst2",
   label: "village tile 2",
   boardTile: "Tiles/village.tst2",
+  stamp: null,
 };
 
 test("asynchronous split-view patches merge independently and preserve unknown session fields", async () => {
@@ -68,3 +69,12 @@ function applyPatch(session: ReturnType<typeof createBrowserSession>, changes: B
   }
   session.update(update);
 }
+
+test("the bridge accepts a stamp selection only with a positive whole size, so the browser never offers an empty bitmap as one", () => {
+  const stamp = (value: unknown) => isEditorHostRequest({ type: "browser-context", changes: [{ field: "selection", value: { ...selection, kind: "bitmaps", boardTile: null, stamp: value } }] });
+  ok(stamp({ width: 2, height: 1 }));
+  ok(stamp(null));
+  for (const bad of [{ width: 0, height: 0 }, { width: 2, height: 0 }, { width: -1, height: 1 }, { width: 1.5, height: 1 }, { width: "2", height: 1 }, {}, 2]) {
+    equal(stamp(bad), false, JSON.stringify(bad));
+  }
+});

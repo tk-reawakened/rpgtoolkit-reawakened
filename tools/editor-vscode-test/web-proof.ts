@@ -20,6 +20,14 @@ type ProofHost = {
   choice: "cancel" | "keep";
   boardPath: string;
   otherBoardPath: string;
+  /** A fully drawn 2 × 2 tile bitmap over `Tiles/village.tst`: tile 1 everywhere except a shaded (10, -20, 30) tile 2 at column 2, row 1. */
+  bitmapPath: string;
+  /** A 3 × 1 tile bitmap of shaded tile 2, which the browser's Edit tile bitmap action must open. */
+  otherBitmapPath: string;
+  /** The pixels the core compositor makes of the proof bitmap, before (`false`) and after (`true`) the proof's edits. */
+  bitmapPicture(edited: boolean): { width: number; height: number; data: number[] };
+  /** What the file must hold after the proof's two edits and Save, written by hand from the stored layout. */
+  bitmapSaved: Uint8Array;
   /** Boards of each coordinate layout (`coordType` 0, 1, 2), each 8 × 8 with two layers, for the canvas scenario. */
   canvasBoards: { path: string; label: string; coordType: number }[];
 };
@@ -333,6 +341,9 @@ export async function runVscodeWebProof(
   await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
   // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
   await runBoardBrowserScenario(page, expect, host);
+  // The same packaged extension edits a tile bitmap through the shared browser and persists it through the same provider.
+  await runBitmapBrowserScenario(page, expect, host);
+  await runBitmapSelectionRetentionScenario(page, expect, host);
   // Story 12.10: the real canvas, mouse, wheel, keyboard and the workbench's own undo, on all three coordinate layouts.
   await runBoardCanvasScenario(page, expect, host);
 }
@@ -500,6 +511,32 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
   }
 }
 
+/**
+ * #2501 in the packaged VS Code web UI: a brush chosen in the shared browser is retained when the tab that chose it is
+ * closed straight after the choice (no waiting between the click and the close), and the next bitmap opened shows it.
+ * The first cycle chooses a whole stamp, the second a single tile, so a stale or lost selection cannot pass for either.
+ * This observes the real workbench at the speed of a scripted user. VS Code does not guarantee delivery of a webview
+ * message still in flight when its panel is disposed, so no faster close is promised.
+ */
+async function runBitmapSelectionRetentionScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
+  // The previous scenario left the 2 × 2 `house.tbm` stamp chosen, so this one chooses the 3 × 1 `other.tbm` stamp: losing
+  // the new choice leaves the old one showing, which fails the first check below.
+  const otherName = host.otherBitmapPath.split("/").at(-1)!;
+  const house = await openProjectFile(page, host.bitmapPath, expect, ".tkr-bitmap");
+  await house.locator(".tkr-tileset-browser select").selectOption({ value: host.otherBitmapPath });
+  await expect(house.locator(`[data-browser-reference="${otherName}"]`)).toBeVisible();
+  await house.getByRole("button", { name: "Select stamp brush" }).click();
+  await closeActiveEditor(page, expect);
+  const other = await openProjectFile(page, host.otherBitmapPath, expect, ".tkr-bitmap");
+  await expect(other.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (3 × 1 tiles) is chosen");
+  await other.locator(".tkr-tileset-browser select").selectOption({ value: "Tiles/village.tst" });
+  await other.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source').click();
+  await closeActiveEditor(page, expect);
+  const again = await openProjectFile(page, host.bitmapPath, expect, ".tkr-bitmap");
+  await expect(again.locator(".tkr-bitmap-brush")).toContainText("Brush: village.tst tile 2");
+  await closeActiveEditor(page, expect);
+}
+
 async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
   const firstPath = host.boardPath;
   const secondPath = host.otherBoardPath;
@@ -553,19 +590,109 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   await closeActiveEditor(page, expect);
 }
 
+/** The story 12.8 proof in the real workbench: draw with a browser tile, shade a cell, save, reopen, and choose the whole bitmap as a stamp. */
+async function runBitmapBrowserScenario(page: Page, expect: Expect, host: ProofHost): Promise<void> {
+  const path = host.bitmapPath;
+  const before = await host.readBacking(path);
+  const otherBefore = await host.readBacking(host.otherBitmapPath);
+  const first = await openProjectFile(page, path, expect, ".tkr-bitmap");
+  await expect(first.getByRole("heading", { name: "Tile bitmap" })).toBeVisible();
+  await expect(first.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles, 64 × 64 pixels");
+  await expect(first.locator("canvas.tkr-bitmap-canvas")).toBeVisible();
+  // What the webview's canvas holds is read back and compared with the compositor's own picture of the file.
+  await expectCanvasPixels(first, expect, host.bitmapPicture(false));
+  await expect(first.getByRole("button", { name: "Column 2, row 1: village.tst2, shade 10, -20, 30" })).toBeVisible();
+  // The grid is laid out as a grid: the second column is to the right on the same line, the second row below.
+  const box = async (name: string | RegExp) => {
+    const found = await first.getByRole("button", { name }).boundingBox();
+    if (found === null) throw new Error(`${name} has no layout box`);
+    return found;
+  };
+  const topLeft = await box(/^Column 1, row 1:/);
+  const topRight = await box(/^Column 2, row 1:/);
+  const bottomLeft = await box(/^Column 1, row 2:/);
+  expect(Math.abs(topRight.y - topLeft.y)).toBeLessThan(2);
+  expect(topRight.x).toBeGreaterThanOrEqual(topLeft.x + topLeft.width);
+  expect(Math.abs(bottomLeft.x - topLeft.x)).toBeLessThan(2);
+  expect(bottomLeft.y).toBeGreaterThanOrEqual(topLeft.y + topLeft.height);
+  // Choosing a tile in the shared browser edits nothing; Draw puts it on the clicked cell.
+  const tile = first.locator('[data-browser-reference="village.tst1"] .tkr-tileset-browser-source');
+  await expect(tile).toBeVisible();
+  await tile.click();
+  await expect(tile).toHaveAttribute("aria-pressed", "true");
+  expect(await host.readBacking(path)).toEqual(before);
+  await first.getByRole("button", { name: "Draw", exact: true }).click();
+  await first.getByRole("button", { name: /^Column 2, row 1:/ }).click();
+  await expect(first.getByRole("button", { name: "Column 2, row 1: village.tst1, shade 10, -20, 30" })).toBeVisible();
+  await first.getByRole("button", { name: /^Column 1, row 1:/ }).click();
+  const red = first.getByLabel("Red", { exact: true });
+  await red.fill("-255");
+  await expect(red).toHaveValue("-255");
+  await red.press("Enter");
+  await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1, shade -255, 0, 0" })).toBeVisible();
+  await expectCanvasPixels(first, expect, host.bitmapPicture(true));
+  await expect(first.locator(".tkr-bitmap-state")).toHaveText("Unsaved changes");
+  expect(await host.readBacking(path)).toEqual(before);
+  await first.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(first.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
+  expect(await host.readBacking(path)).toEqual(host.bitmapSaved);
+  await closeActiveEditor(page, expect);
+
+  const reopened = await openProjectFile(page, path, expect, ".tkr-bitmap");
+  await expect(reopened.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles");
+  await expect(reopened.getByRole("button", { name: "Column 1, row 1: village.tst1, shade -255, 0, 0" })).toBeVisible();
+  await expect(reopened.getByRole("button", { name: "Column 2, row 1: village.tst1, shade 10, -20, 30" })).toBeVisible();
+  // The whole bitmap is a stamp brush: choosing it carries its size and changes nothing.
+  await reopened.locator(".tkr-tileset-browser select").selectOption({ value: path });
+  await reopened.getByRole("button", { name: "Select stamp brush" }).click();
+  await expect(reopened.locator(".tkr-bitmap-brush")).toContainText("A whole stamp (2 × 2 tiles) is chosen");
+  await expect(reopened.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
+  expect(await host.readBacking(path)).toEqual(host.bitmapSaved);
+  await expectCanvasPixels(reopened, expect, host.bitmapPicture(true));
+
+  // Edit tile bitmap opens exactly the chosen file in its own editor, and shows that file, not this one.
+  const otherName = host.otherBitmapPath.split("/").at(-1)!;
+  await reopened.locator(".tkr-tileset-browser select").selectOption({ value: host.otherBitmapPath });
+  const item = reopened.locator(`[data-browser-reference="${otherName}"]`);
+  await expect(item).toBeVisible();
+  await item.getByRole("button", { name: "More actions" }).click();
+  await item.getByRole("button", { name: "Edit tile bitmap" }).click();
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: otherName }).first()).toBeVisible();
+  const other = await waitForCustomEditorFrame(page, host.otherBitmapPath, ".tkr-bitmap-summary:has-text('3 × 1 tiles')");
+  await expect(other.getByRole("button", { name: "Column 3, row 1: village.tst2, shade 1, 2, 3" })).toBeVisible();
+  expect(await host.readBacking(host.otherBitmapPath)).toEqual(otherBefore);
+  await closeActiveEditor(page, expect);
+  await closeActiveEditor(page, expect);
+}
+
+/** Wait until the frame's tile bitmap canvas holds exactly `expected` (RGBA, row by row). */
+async function expectCanvasPixels(frame: Frame, expect: Expect, expected: { width: number; height: number; data: number[] }): Promise<void> {
+  await expect.poll(async () => await frame.locator("canvas.tkr-bitmap-canvas").evaluate((element, want) => {
+    const canvas = element as HTMLCanvasElement;
+    if (canvas.width !== want.width || canvas.height !== want.height) return false;
+    const seen = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    return seen.length === want.data.length && want.data.every((value, index) => seen[index] === value);
+  }, expected), { message: "the webview's canvas shows the pixels the compositor makes of the file" }).toBe(true);
+}
+
 async function openProjectBoard(page: Page, path: string, expect: Expect): Promise<Frame> {
+  return openProjectFile(page, path, expect, ".tkr-board");
+}
+
+/** Open the project file at `path` from the Explorer and return the custom editor frame whose content contains `selector`. */
+async function openProjectFile(page: Page, path: string, expect: Expect, selector: string): Promise<Frame> {
   await focusWorkbench(page);
-  const folder = page.getByRole("treeitem", { name: "Boards", exact: true });
+  const folder = page.getByRole("treeitem", { name: path.split("/")[0]!, exact: true });
   await expect(folder).toBeVisible();
   if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
   const item = page.getByRole("treeitem", { name: path.split("/").at(-1)!, exact: true });
   await expect(item).toBeVisible();
   await item.dblclick();
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
-  return await waitForBoardFrame(page, path);
+  return await waitForCustomEditorFrame(page, path, selector);
 }
 
-async function waitForBoardFrame(page: Page, label: string): Promise<Frame> {
+async function waitForCustomEditorFrame(page: Page, label: string, selector: string): Promise<Frame> {
   const deadline = Date.now() + 30_000;
   let pause = 100;
   while (Date.now() < deadline) {
@@ -573,13 +700,13 @@ async function waitForBoardFrame(page: Page, label: string): Promise<Frame> {
     if (outer) {
       const outerFrame = await outer.contentFrame().catch(() => null);
       const content = outerFrame?.childFrames().find((frame) => frame.name() === "pending-frame");
-      if (content && await content.locator(".tkr-board").count().catch(() => 0) > 0) return content;
+      if (content && await content.locator(selector).count().catch(() => 0) > 0) return content;
     }
     await page.waitForTimeout(pause);
     pause = Math.min(pause * 2, 1_000);
   }
-  await logFrameDiagnostics(page, `packaged board custom editor not found for ${label}`);
-  throw new Error(`Timed out waiting for actual VS Code board custom editor for ${label}`);
+  await logFrameDiagnostics(page, `packaged custom editor not found for ${label}`);
+  throw new Error(`Timed out waiting for actual VS Code custom editor (${selector}) for ${label}`);
 }
 
 /**

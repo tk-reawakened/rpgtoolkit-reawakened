@@ -9,7 +9,7 @@ import { createVscodeServices } from "./services.ts";
 import { DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
 
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
-const VIEW_TYPES = ["tkr.gameSettings", "tkr.board"] as const;
+const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileBitmap"] as const;
 
 function html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
