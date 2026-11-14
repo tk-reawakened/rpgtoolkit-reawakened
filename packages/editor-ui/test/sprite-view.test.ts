@@ -643,9 +643,10 @@ test("blocked pointer release inside suppresses the following click", async () =
   await act(() => { blockedVertex.dispatchEvent(pointer("pointerdown")); });
   release();
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-  await act(() => {
+  await act(async () => {
     svg.dispatchEvent(pointer("pointerup"));
-    svg.dispatchEvent(new Event("click", { bubbles: true }));
+    svg.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 6, clientY: 6 }));
+    await Promise.resolve();
   });
   equal(s.doc.getSnapshot().vectorBases![1]!.points.length, 4, "the inside release followed by its click does not append a point");
   handle.dispose();
