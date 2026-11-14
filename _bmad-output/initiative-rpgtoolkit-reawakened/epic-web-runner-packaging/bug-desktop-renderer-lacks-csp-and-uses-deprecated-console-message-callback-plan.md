@@ -2,7 +2,7 @@
 title: 'Desktop renderer lacks CSP and uses deprecated console-message callback'
 type: 'bugfix'
 ticket: '19'
-status: in-review
+status: done
 tracker_id: '#1049'
 risk: 'high'
 ---

@@ -2,7 +2,7 @@
 title: 'surfacePixels screen read mutates hashed surface state'
 type: 'bugfix'
 ticket: '41'
-status: 'in-review'
+status: 'done'
 tracker_id: '#1048'
 risk: 'high'
 ---
