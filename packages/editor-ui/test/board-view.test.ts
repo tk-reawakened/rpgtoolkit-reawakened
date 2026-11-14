@@ -5,6 +5,7 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import { selectBrowserSource } from "../dist/brush.js";
 import type { BoardViewDocument } from "../src/mount.ts";
 import { exampleBoard, exampleTileset } from "./fixtures.ts";
 
@@ -229,4 +230,22 @@ test("disposing the view removes it and its subscription", async () => {
   equal(s.el.childNodes.length, 0);
   await s.doc.apply({ type: "set-tile", layer: 0, x: 0, y: 0, tile: "village.tst2" });
   equal(s.el.childNodes.length, 0, "a change after dispose draws nothing");
+});
+test("brush choice does not paint and an explicit action edits only the board view receiving it", async () => {
+  const first = await setup();
+  const second = await setup();
+  const firstHandle = await show(first);
+  const secondHandle = await show(second);
+  const before = boardTileAt(first.doc.getSnapshot(), 0, 0, 0);
+  await act(() => selectBrowserSource({ kind: "tiles", path: "Tiles/village.tst", reference: "village.tst2", label: "village.tst tile 2", boardTile: "village.tst2" }));
+  equal(boardTileAt(first.doc.getSnapshot(), 0, 0, 0), before, "selection alone never changes either board");
+  equal(boardTileAt(second.doc.getSnapshot(), 0, 0, 0), before);
+  const paint = second.el.querySelector<HTMLButtonElement>(".tkr-board-brush");
+  ok(paint !== null);
+  ok(!paint.disabled, `brush action should be enabled: ${paint.textContent}`);
+  await act(async () => { paint.click(); await Promise.resolve(); });
+  equal(boardTileAt(second.doc.getSnapshot(), 0, 0, 0), "village.tst2");
+  equal(boardTileAt(first.doc.getSnapshot(), 0, 0, 0), before, "painting targets only the board whose action was invoked");
+  firstHandle.dispose();
+  secondHandle.dispose();
 });

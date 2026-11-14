@@ -1,6 +1,7 @@
 import { boardTileAt, type ApplyResult, type BoardPicture, type ConflictChoice, type SaveFailure } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { getBrowserSelection, subscribeBrowserSelection, type BrowserSelection } from "./brush.ts";
 import type { BoardViewDocument } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 
@@ -22,10 +23,10 @@ function cellText(tile: string | null): string {
 }
 
 /**
- * The board view of the first P0 tracer (story 12.1): a picture of the board as the engine draws it, the tile grid of one
- * layer, and one tile field that puts a tile on the selected cell. It is a proof of the document path, not the board
- * editor: the brush, tools, vectors and the rest are later stories. Every action is reachable from the keyboard: the
- * grid is one tab stop and moves with the arrow keys, and Enter on a cell goes to the tile field.
+ * The board view of the first P0 tracer (story 12.1): a picture of the board as the engine draws it, a tile grid, a tile
+ * field, and the retained-context brush from story 12.2. Choosing a brush changes no document; the explicit paint action
+ * applies it to one cell of this board. Every action is reachable from the keyboard: the grid is one tab stop and moves
+ * with the arrow keys, and Enter on a cell goes to the tile field.
  * Only classes and ARIA attributes are used, never a `style` attribute (ADR 0025 decision 6).
  */
 export function BoardView({ doc, capabilities, onEdited }: BoardViewProps) {
@@ -43,10 +44,12 @@ export function BoardView({ doc, capabilities, onEdited }: BoardViewProps) {
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [brush, setBrush] = useState<BrowserSelection | null>(getBrowserSelection());
   const canvas = useRef<HTMLCanvasElement>(null);
   const tileField = useRef<HTMLInputElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const focusCell = useRef(false);
+  useEffect(() => subscribeBrowserSelection(() => setBrush(getBrowserSelection())), []);
 
   const { grid: size, layers } = snapshot;
   const readOnly = snapshot.readOnly !== null;
@@ -97,8 +100,8 @@ export function BoardView({ doc, capabilities, onEdited }: BoardViewProps) {
     setSelected({ x: Math.max(0, Math.min(size.width - 1, x + dx)), y: Math.max(0, Math.min(size.height - 1, y + dy)) });
   };
 
-  const put = (): Promise<boolean> => {
-    if (draft === tile) return Promise.resolve(true);
+  const put = (tileToPut = draft): Promise<boolean> => {
+    if (tileToPut === tile) return Promise.resolve(true);
     const failed = (message: string): boolean => {
       setRefusal(message);
       return false;
@@ -111,7 +114,7 @@ export function BoardView({ doc, capabilities, onEdited }: BoardViewProps) {
       return true;
     };
     try {
-      return Promise.resolve(doc.apply({ type: "set-tile", layer: currentLayer, x, y, tile: draft })).then(finish, (error: unknown) =>
+      return Promise.resolve(doc.apply({ type: "set-tile", layer: currentLayer, x, y, tile: tileToPut })).then(finish, (error: unknown) =>
         failed(error instanceof Error ? error.message : String(error)));
     } catch (error) {
       return Promise.resolve(failed(error instanceof Error ? error.message : String(error)));
@@ -269,6 +272,15 @@ export function BoardView({ doc, capabilities, onEdited }: BoardViewProps) {
             if (event.key === "Enter") void put();
           }}
         />
+      <button
+        type="button"
+        class="tkr-board-brush"
+        disabled={readOnly || layers === 0 || brush === null || brush.boardTile === null}
+        onClick={() => { if (brush !== null && brush.boardTile !== null) void put(brush.boardTile); }}
+      >
+        {brush?.boardTile === null || brush === null ? "No board brush selected" : `Paint ${brush.label} here`}
+      </button>
+      <p class="tkr-board-brush-note" role="note">Choosing a brush only changes the retained selection. This action paints one cell on this board only.</p>
       </div>
       {refusal === null ? null : (
         <p id={`${ids}-error`} class="tkr-board-error" role="alert">

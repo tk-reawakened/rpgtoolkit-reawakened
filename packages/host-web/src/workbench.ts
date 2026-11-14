@@ -75,6 +75,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const layout = createLayoutModel([
     { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
     { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
+    { id: "tileset", title: "Tileset", side: "right", visible: true, size: 240, minSize: 128, maxSize: 480 },
   ]);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
