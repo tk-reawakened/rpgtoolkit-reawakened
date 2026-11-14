@@ -1,18 +1,19 @@
 import { BinaryReader, readBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
+import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors } from "./lifecycle.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
-type Page = import("@playwright/test").Page;
-type Expect = typeof import("@playwright/test").expect;
-type Frame = import("@playwright/test").Frame;
+type Expect = typeof playwrightExpect;
 type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean };
 type CspConsoleViolation = { text: string; url: string; lineNumber: number; columnNumber: number };
 type ProofHost = {
   restart(page: Page, offlineBytes?: Uint8Array): Promise<Page>;
   readBacking(path?: string): Promise<Uint8Array>;
-  readHostEvents(): { kind: "command" | "save" | "revert"; value: string }[];
+  readHostEvents(): { kind: "save-request" | "save" | "revert"; value: string }[];
+  pauseSave(): void;
+  resumeSave(): void;
   externalBytes: Uint8Array;
   sentinelTitle: string;
   sentinelBytes: Uint8Array;
@@ -161,14 +162,18 @@ export async function runVscodeWebProof(
   await assertCspListenerCountsBlockedAction(editor, expect, consoleViolations);
   const before = await readWorkspaceBytes(page, expect);
   await titleField.fill(title);
+  await titleField.press("Enter");
+  const savedTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
+  await expect(savedTab).toHaveClass(/dirty/);
   await editor.getByRole("button", { name: "Save" }).click();
   const saved = await readWorkspaceBytes(page, expect);
   expect(saved).not.toEqual(before);
   expect(saved).toEqual(expectedBytes);
   expect(host.readHostEvents()).toContainEqual({ kind: "save", value: `/${gamePath}` });
-  expect(host.readHostEvents()).toContainEqual({ kind: "command", value: "workbench.action.files.save" });
+  expect(host.readHostEvents()).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
   await expect.poll(() => frameCspViolations(page, editor, consoleViolations)).toEqual([]);
   expect(await host.readBacking()).toEqual(saved);
+  await expect(savedTab).not.toHaveClass(/dirty/);
   page = await host.restart(page);
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   expect(await host.readBacking()).toEqual(saved);
@@ -273,7 +278,7 @@ export async function runVscodeWebProof(
     recoveredEditor = await waitForTitledEditor(page, recoveredTitle, expect);
   };
   await verifySentinel();
-  expect(backupTrackerLogs.some((entry) => entry.includes("CommandService#executeCommand workbench.action.files.save"))).toBe(true);
+  expect(host.readHostEvents()).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
   const choiceTraceStart = backupTrackerLogs.length;
   const hostEventsStart = host.readHostEvents().length;
   if (host.choice === "cancel") {
@@ -295,10 +300,22 @@ export async function runVscodeWebProof(
   const forbiddenCommands = backupTrackerLogs.slice(choiceTraceStart).filter((entry) =>
     /CommandService#executeCommand workbench\.action\.files\.(?:save|revert)/i.test(entry));
   expect(forbiddenCommands).toEqual([]);
-  expect(host.readHostEvents().slice(hostEventsStart).filter((event) =>
-    event.kind === "save" || event.kind === "revert"
-      || (event.kind === "command" && /^workbench\.action\.files\.(?:save|revert)/i.test(event.value)))).toEqual([]);
-  await recoveredEditor.getByRole("button", { name: "Save" }).click();
+  expect(host.readHostEvents().slice(hostEventsStart)).toEqual([]);
+  // Hold the real extension at its save API boundary, change focus to another dirty editor,
+  // then let the save proceed. Only the originating document may be written.
+  host.pauseSave();
+  const saveStart = host.readHostEvents().length;
+  try {
+    await recoveredEditor.getByRole("button", { name: "Save" }).click();
+    await expect.poll(() => host.readHostEvents().slice(saveStart)).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
+    await sentinelTab.click();
+    await expect(sentinelTab).toHaveClass(/dirty/);
+  } finally {
+    host.resumeSave();
+  }
+  // Keep the other editor active until the original document's bytes really reach disk.
+  await expect.poll(async () => Array.from(await host.readBacking()), { timeout: 30_000 }).toEqual(Array.from(recoveredBytes));
+  await verifySentinel();
   await expect(recoveredEditor.getByRole("status")).toHaveText("All changes saved");
   const recovered = await readWorkspaceBytes(page, expect);
   expect(recovered).toEqual(recoveredBytes);
@@ -584,7 +601,8 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
 
   // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
-  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor");
+  // Exercise recovery from a real palette dismissal before dispatch.
+  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
   await closeActiveEditor(page, expect);
   editor = await waitForEditorFrame(page, "settings editor shown again");
@@ -606,7 +624,23 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await autosaveField.fill(autosaveTitle);
   await autosaveField.press("Enter");
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  const readMarker = async (name: string): Promise<string | undefined> => {
+    try {
+      return new TextDecoder().decode(await host.readBacking(`.vscode/tkr-autosave-command-${name}`));
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+      throw error;
+    }
+  };
+  let observedOffWhileCommandPending = false;
   const expectAutosave = async (value: string): Promise<void> => {
+    await expect.poll(async () => {
+      const marker = await readMarker("complete");
+      if (value === "off" && marker !== "off" && autosaveSetting(await host.readBacking(".vscode/settings.json")) === "off") {
+        observedOffWhileCommandPending = true;
+      }
+      return marker;
+    }, { message: `VS Code completed the autosave ${value} command`, timeout: 30_000 }).toBe(value);
     await expect.poll(async () => {
       return autosaveSetting(await host.readBacking(".vscode/settings.json"));
     }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
@@ -624,11 +658,40 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   } catch (error) {
     failure = error;
   } finally {
+    let acknowledgement: Promise<void> | undefined;
+    let acknowledgementError: unknown;
+    let acknowledgementFailed = false;
     try {
+      await runCommand(page, expect, "Test: Pause Autosave Off");
       await runCommand(page, expect, "Test: Turn Autosave Off");
-      await expectAutosave("off");
+      let autosaveAcknowledged = false;
+      acknowledgement = expectAutosave("off").then(
+        () => { autosaveAcknowledged = true; },
+        (error: unknown) => { acknowledgementFailed = true; acknowledgementError = error; },
+      );
+      await expect.poll(() => readMarker("paused")).toBe("off");
+      await expect.poll(async () => autosaveSetting(await host.readBacking(".vscode/settings.json"))).toBe("off");
+      await expect.poll(() => observedOffWhileCommandPending, {
+        message: "the completion observer saw persisted off while the command was paused",
+      }).toBe(true);
+      await expect.poll(() => readMarker("complete")).toBe("afterDelay");
+      if (autosaveAcknowledged) throw new Error("The autosave proof acknowledged a command before its completion barrier");
+      console.info("vscode.dev autosave guard negative control passed: files.autoSave=off while command completion remained pending");
     } catch (error) {
       cleanupErrors.push(error);
+    } finally {
+      try {
+        await runCommand(page, expect, "Test: Release Autosave Off");
+        await expect.poll(() => readMarker("released"),
+          { message: "VS Code released the autosave completion barrier" }).toBe("off");
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+      if (acknowledgement !== undefined) {
+        await acknowledgement;
+        if (acknowledgementFailed) cleanupErrors.push(acknowledgementError);
+        else console.info("vscode.dev autosave completion acknowledged and persisted: off");
+      }
     }
   }
   const combined = combineProofErrors(failure, cleanupErrors);
@@ -645,13 +708,29 @@ async function runCommand(page: Page, expect: Expect, title: string): Promise<vo
 }
 
 /** Accept the focused command with Enter, without waiting for a moving quick-pick row to become mouse-stable. */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string): Promise<void> {
-  const commandInput = await commandPalette(page, expect);
-  await commandInput.fill(`>${search}`);
-  const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-  await expect(command, `VS Code selects ${label}`).toBeVisible();
+async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false): Promise<void> {
+  const widget = page.locator(".quick-input-widget");
+  let commandInput: Locator | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      commandInput = await commandPalette(page, expect);
+      await commandInput.fill(`>${search}`);
+      if (dismissFirstAttempt && attempt === 0) {
+        await commandInput.press("Escape");
+        await expect(widget).toBeHidden();
+      }
+      const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+      await expect(command, `VS Code selects ${label}`).toBeVisible();
+      break;
+    } catch (error) {
+      if (attempt === 2 || await widget.isVisible()) throw error;
+      commandInput = undefined;
+    }
+  }
+  if (commandInput === undefined) throw new Error(`VS Code did not select ${label}`);
+  // Retry only before dispatch; once Enter is pressed, never execute the command again.
   await commandInput.press("Enter");
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
+  await expect(widget).toBeHidden();
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {
   // Use VS Code's built-in logger controls so working-copy and backup-tracker trace events are captured.
@@ -686,7 +765,6 @@ async function backupDiagnostics(page: Page, expect: Expect, browserLogs: readon
   return `${browser}\nVS Code Window Log (matching working-copy/backup lines):\n${relevant.length === 0 ? "(no matching lines in visible log output)" : relevant.join("\n")}`;
 }
 
-type Locator = import("@playwright/test").Locator;
 
 async function expectVisibleWithFrameDiagnostics(page: Page, locator: Locator, expect: Expect, label: string): Promise<void> {
   try {
@@ -806,22 +884,27 @@ async function assertCspListenerCountsBlockedAction(frame: Frame, expect: Expect
 
 
 
-async function readWorkspaceBytes(page: Page, expect: Expect): Promise<Uint8Array> {
-  const commandInput = await commandPalette(page, expect);
+async function openPersistedBytesPanel(page: Page, expect: Expect): Promise<{ tab: Locator; frame: Frame; id: string }> {
   const panelTabs = page.getByRole("tab").filter({ hasText: /Persisted Main File Bytes #[0-9a-f-]+/i });
   const existingCount = await panelTabs.count();
-  await commandInput.fill(`>${copyBytesCommand}`);
-  const commandResult = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: copyBytesCommand }).first();
-  await expect(commandResult).toBeVisible();
-  await commandResult.click();
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
-
+  await runCommand(page, expect, copyBytesCommand);
   await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
   const panelTab = panelTabs.nth(existingCount);
   await expect(panelTab).toBeVisible({ timeout: 15_000 });
   const panelId = /Persisted Main File Bytes #([0-9a-f-]+)/i.exec(await panelTab.innerText())?.[1];
   if (panelId === undefined) throw new Error("The byte probe did not publish a unique panel identifier");
   const panelFrame = await waitForBytesPanelFrame(page, panelId);
+  return { tab: panelTab, frame: panelFrame, id: panelId };
+}
+
+/** Invoke VS Code's real orderly reload through one allowlisted, script-free probe control. */
+export async function requestNativeReload(page: Page, expect: Expect): Promise<void> {
+  const { frame } = await openPersistedBytesPanel(page, expect);
+  await frame.getByRole("link", { name: "Reload workbench", exact: true }).click({ noWaitAfter: true });
+}
+
+async function readWorkspaceBytes(page: Page, expect: Expect): Promise<Uint8Array> {
+  const { tab: panelTab, frame: panelFrame, id: panelId } = await openPersistedBytesPanel(page, expect);
   const encoded = (await panelFrame.locator(`#tkr-proof-persisted-bytes-${panelId}`).innerText()).trim();
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error(`Probe panel ${panelId} did not contain a valid Base64 persisted-byte payload`);
 

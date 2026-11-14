@@ -512,7 +512,7 @@ test("a v3 ledger checkpoint remains selectable and can be promoted with its v4 
   const validateVersions: RecoveryValidate = (candidateBytes) => {
     const parsed = JSON.parse(utf8Decode(candidateBytes)) as { tick?: unknown };
     if (parsed.tick !== 73) throw new Error("candidate shape");
-    return { tick: parsed.tick, ledgerHash: hashGameLedger(ledger), compatibleLedgerHashes: [hashGameLedgerV3(ledger)] };
+    return { tick: 73, ledgerHash: hashGameLedger(ledger), compatibleLedgerHashes: [hashGameLedgerV3(ledger, null)] };
   };
 
   store.write(generationFile(1, "candidate.bin"), bytes);

@@ -1,7 +1,7 @@
 ---
 title: 'Fix PR 2288 navigation and autosave proof flakes'
 type: 'bugfix'
-ticket: ''
+ticket: 2294
 created: '2026-11-13'
 status: 'built'
 baseline_revision: '067b79b2ec9ce3b2dbfa020fdeb0aec2ed44db65'

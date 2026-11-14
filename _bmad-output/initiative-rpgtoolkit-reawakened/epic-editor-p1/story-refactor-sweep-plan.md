@@ -20,4 +20,4 @@ Review maps each change to completed work and focused regression cases exercise 
 
 ## Dependencies and decisions
 
-Prerequisites: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16. Apply the epic Notes, format specs, AD-18/19/20/22/29 and connected-authoring direction; CAP-16 maps to CAP-16. Preserve version and residue, use the existing shared model and browser, and route host access through platform-services. Where provider or host capability is unavailable, preserve data and report the limitation; do not simulate it.
+Prerequisites: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30. Apply the epic Notes and existing preservation, history, native-data and host-service contracts. Entry 19 alone follows the sweep; retired entry 17 is not a prerequisite.

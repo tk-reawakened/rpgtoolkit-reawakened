@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { createEmptyBoard, writeBoard } from "@tk-reawakened/core";
 import { buildNewBoard } from "@tk-reawakened/editor-model";
-import { runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { requestNativeReload, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -119,12 +119,12 @@ for (const choice of ["cancel", "keep"]) {
       const token = persistentFs.token;
       const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
       // The bundler numbers the `vscode` namespace by how many modules import it, so the name is read from the build.
-      const namespace = /executeCommand: async \(command2\) => await (vscode\d*)\.commands\.executeCommand\(command2\)/.exec(source)?.[1];
+      const namespace = /saveEditor: async \(uri\) => await (vscode\d*)\.workspace\.save\(uri\)/.exec(source)?.[1];
       if (namespace === undefined) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
       const probes = [
         [
-          `executeCommand: async (command2) => await ${namespace}.commands.executeCommand(command2)`,
-          `executeCommand: async (command2) => { await (${trace})("command", command2); return await ${namespace}.commands.executeCommand(command2); }`,
+          `saveEditor: async (uri) => await ${namespace}.workspace.save(uri)`,
+          `saveEditor: async (uri) => { await (${trace})("save-request", uri.path); return await ${namespace}.workspace.save(uri); }`,
         ],
         [
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
@@ -144,7 +144,11 @@ for (const choice of ["cancel", "keep"]) {
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const newPage = async () => {
       const page = await browser.newPage();
-      page.on("console", (message) => { if (message.type() === "error") recordBrowserDiagnostic(`[console] ${message.text()}`); });
+      page.on("console", (message) => {
+        if (message.type() === "error" || /CommandService#executeCommand workbench\.action\.reloadWindow|\[vscode-web-proof-probe\] requesting native reload/.test(message.text())) {
+          recordBrowserDiagnostic(`[console] ${message.text()}`);
+        }
+      });
       page.on("pageerror", (error) => recordBrowserDiagnostic(`[pageerror] ${error.stack ?? error.message}`));
       page.on("requestfailed", (request) => recordBrowserDiagnostic(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`));
       return page;
@@ -169,14 +173,7 @@ for (const choice of ["cancel", "keep"]) {
       };
       await currentPage.route(script, holdBootstrap);
       try {
-        await currentPage.locator(".monaco-workbench").click({ position: { x: 5, y: 5 } });
-        await currentPage.keyboard.press("ControlOrMeta+Shift+P");
-        const input = currentPage.locator(".quick-input-widget input").last();
-        await expect(input).toBeVisible();
-        await input.fill(">Developer: Reload Window");
-        const command = currentPage.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Developer: Reload Window" }).first();
-        await expect(command).toBeVisible();
-        await command.click();
+        await requestNativeReload(currentPage, expect);
         const timeout = Promise.withResolvers();
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
@@ -201,7 +198,7 @@ for (const choice of ["cancel", "keep"]) {
       await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
       console.log("vscode.dev sprite save/reopen proof passed");
     }
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })) });
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })) });
     console.log(`vscode.dev settings and board proof passed (${choice})`);
   } catch (error) {
     failure = error;
