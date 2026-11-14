@@ -1,7 +1,52 @@
+@import "./tileset-art.css";
+
 .tkr-tileset-browser-list {
   max-height: min(40vh, 24rem);
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+/* The tile bitmap editor's cell grid (T-62): one row of cells per grid row, so a 2 × 2 bitmap is a square and the arrow
+   keys move where the eye expects. Shipped with this stylesheet because both hosts already load it. */
+.tkr-bitmap-grid {
+  display: grid;
+  gap: 2px;
+  overflow: auto;
+  max-width: 100%;
+  max-height: 60vh;
+}
+
+.tkr-bitmap-grid [role="row"] {
+  display: flex;
+  gap: 2px;
+}
+
+.tkr-bitmap-grid [role="gridcell"] {
+  flex: 0 0 auto;
+}
+
+.tkr-bitmap-cell {
+  box-sizing: border-box;
+  width: 5.5rem;
+  height: 2.75rem;
+  padding: 0.125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tkr-bitmap-cell-selected {
+  outline: 2px solid currentcolor;
+  outline-offset: -2px;
+}
+
+.tkr-bitmap-cell-shaded {
+  font-style: italic;
+}
+
+.tkr-bitmap-canvas {
+  max-width: 100%;
+  image-rendering: pixelated;
 }
 
 .tkr-sprite-preview-stage {

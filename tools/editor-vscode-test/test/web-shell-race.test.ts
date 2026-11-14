@@ -2,7 +2,7 @@ import { describe, test } from "node:test";
 import { strict as assert } from "node:assert";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { transform } from "esbuild";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
@@ -12,22 +12,28 @@ type BrowserShellCleanup = typeof globalThis & {
   B?: { deactivate(): void };
 };
 
-async function cleanupBrowserShell(): Promise<void> {
+async function cleanupBrowserShell(shellPath?: string): Promise<void> {
   const cleanup = globalThis as BrowserShellCleanup;
   for (const workbench of cleanup.workbenches ?? []) workbench.dispose();
   cleanup.A?.deactivate();
   cleanup.B?.deactivate();
   await GlobalRegistrator.unregister();
+  if (shellPath !== undefined) await rm(shellPath, { force: true });
+}
+/** Put generated shells under the host package so Node resolves workspace dependencies as it does in production. */
+function shellModulePath(dir: string): string {
+  return join(resolve("packages/host-web/dist"), `${basename(dir)}-shell.mjs`);
 }
 
 describe("browser shell lifecycle races", { concurrency: false }, () => {
-test("a stale candidate cannot retire a project with a newer same-project open pending", async () => {
+  test("a stale candidate cannot retire a project with a newer same-project open pending", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tkr-shell-race-"));
+  const shellPath = shellModulePath(dir);
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
-    const modelUrl = pathToFileURL(resolve("packages/editor-model/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
 import * as real from ${JSON.stringify(hostUrl)};
@@ -40,6 +46,7 @@ export const openWebProject = async () => A;
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountDocumentView = real.mountDocumentView;
 const workbenches = [];
 globalThis.workbenches = workbenches;
 let count = 0;
@@ -71,10 +78,9 @@ export function createWorkbench(project, element) {
 `);
     const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
     const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(join(dir, "shell.mjs"), transformed.code
-      .replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href))
-      .replace('"@tk-reawakened/editor-model"', JSON.stringify(modelUrl)));
-    await import(pathToFileURL(join(dir, "shell.mjs")).href);
+    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    // Import this generated module dynamically from the package's build directory to exercise normal workspace resolution.
+    await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {
         if (condition()) return;
@@ -121,18 +127,19 @@ export function createWorkbench(project, element) {
     button.click();
     await until(() => byId("settings").textContent?.includes("All changes saved") === true);
   } finally {
-    await cleanupBrowserShell();
+    await cleanupBrowserShell(shellPath);
     await rm(dir, { recursive: true, force: true });
   }
 });
 
 test("failed and later opens clean stale documents only after same-workspace acquisition settles", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tkr-shell-open-failure-"));
+  const shellPath = shellModulePath(dir);
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
-    const modelUrl = pathToFileURL(resolve("packages/editor-model/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
 import * as real from ${JSON.stringify(hostUrl)};
@@ -154,6 +161,7 @@ export const openWebProject = async () => {
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountDocumentView = real.mountDocumentView;
 const workbenches = [];
 globalThis.workbenches = workbenches;
 let count = 0;
@@ -208,10 +216,8 @@ export function createWorkbench(project, element) {
 `);
     const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
     const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(join(dir, "shell.mjs"), transformed.code
-      .replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href))
-      .replace('"@tk-reawakened/editor-model"', JSON.stringify(modelUrl)));
-    await import(pathToFileURL(join(dir, "shell.mjs")).href);
+    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {
         if (condition()) return;
@@ -304,19 +310,19 @@ export function createWorkbench(project, element) {
     await until(() => byId("host-status").textContent?.includes(": game.gam") === true);
     assert.deepEqual(controls.A!.workspace.documents().map((item) => item.identity.path), ["game.gam"], "the later open acquires its own live document after cleanup");
   } finally {
-    await cleanupBrowserShell();
+    await cleanupBrowserShell(shellPath);
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-
 test("a stale same-project candidate cannot activate after the newer open fails", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tkr-shell-stale-active-"));
+  const shellPath = shellModulePath(dir);
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
-    const modelUrl = pathToFileURL(resolve("packages/editor-model/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
     await writeFile(join(dir, "host.mjs"), `
 import * as real from ${JSON.stringify(hostUrl)};
@@ -335,6 +341,7 @@ export const openWebProject = async () => A;
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountDocumentView = real.mountDocumentView;
 export function createWorkbench(project, element) {
   const workbench = real.createWorkbench(project, element);
   workbenches.push(workbench);
@@ -356,10 +363,8 @@ export function createWorkbench(project, element) {
 `);
     const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
     const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(join(dir, "shell.mjs"), transformed.code
-      .replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href))
-      .replace('"@tk-reawakened/editor-model"', JSON.stringify(modelUrl)));
-    await import(pathToFileURL(join(dir, "shell.mjs")).href);
+    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {
         if (condition()) return;
@@ -400,15 +405,17 @@ export function createWorkbench(project, element) {
     assert.deepEqual(controls.workbenches![0]!.tabs.getSnapshot().tabs.map((tab) => tab.path), ["A.gam"]);
     assert.match(byId("host-status").textContent ?? "", /simulated newer open failure/);
   } finally {
-    await cleanupBrowserShell();
+    await cleanupBrowserShell(shellPath);
     await rm(dir, { recursive: true, force: true });
   }
 });
 test("same stable project id in separate workspaces does not share pending-open ownership", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tkr-shell-workspace-scope-"));
+  const shellPath = shellModulePath(dir);
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const platformUrl = pathToFileURL(resolve("packages/platform-services/dist/index.js")).href;
     const modelUrl = pathToFileURL(resolve("packages/editor-model/dist/index.js")).href;
@@ -422,7 +429,6 @@ const data = new Uint8Array(readFileSync(new URL(${JSON.stringify(fixtureUrl)}))
 export const A = real.createSessionCopy('game.gam', data);
 export const B = real.createSessionCopy('game.gam', data);
 B.project.id = A.project.id;
-const oldWorkspace = B.workspace;
 const deactivateB = B.deactivate;
 const baseFs = B.services.fs;
 const fs = bindProjectFileSystem(A.project.id, {
@@ -450,6 +456,7 @@ export const openWebProject = async () => ++projectCount === 1 ? A : B;
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const createSessionCopy = real.createSessionCopy;
+export const mountDocumentView = real.mountDocumentView;
 const workbenches = [];
 globalThis.workbenches = workbenches;
 export function createWorkbench(project, element) {
@@ -472,10 +479,8 @@ export function createWorkbench(project, element) {
 `);
     const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
     const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(join(dir, "shell.mjs"), transformed.code
-      .replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href))
-      .replace('"@tk-reawakened/editor-model"', JSON.stringify(modelUrl)));
-    await import(pathToFileURL(join(dir, "shell.mjs")).href);
+    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {
         if (condition()) return;
@@ -505,8 +510,9 @@ export function createWorkbench(project, element) {
     assert.deepEqual(controls.A!.workspace.documents(), []);
     assert.deepEqual(controls.B!.workspace.documents().map((item) => item.identity.path), ["game.gam"]);
   } finally {
-    await cleanupBrowserShell();
+    await cleanupBrowserShell(shellPath);
     await rm(dir, { recursive: true, force: true });
   }
 });
+
 });

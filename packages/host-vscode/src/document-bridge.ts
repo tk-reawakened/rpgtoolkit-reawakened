@@ -81,7 +81,7 @@ export interface BridgedDocument {
   didEdit(editId: string): void;
   saveThroughWorkbench(): Promise<SaveResult>;
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult>;
-  /** The picture of the board as the one compositor draws it from the project's files, with only the layers and background the request shows; only a board has one. */
+  /** The picture of the board or tile bitmap as the one compositor draws it from the project's files, a board with only the layers and background the request shows; only those two have one. */
   preview(request?: BoardPreviewRequest): Promise<BoardPicture>;
   /** The board-editor preferences in force for this document's project (T-33). */
   boardPreferences(): EditorPreferences;
@@ -169,7 +169,15 @@ function isBrowserSelection(value: unknown): boolean {
     && "path" in selection && isProjectPath(selection.path)
     && "reference" in selection && typeof selection.reference === "string" && selection.reference !== ""
     && "label" in selection && typeof selection.label === "string"
-    && "boardTile" in selection && (selection.boardTile === null || typeof selection.boardTile === "string");
+    && "boardTile" in selection && (selection.boardTile === null || typeof selection.boardTile === "string")
+    && "stamp" in selection && (selection.stamp === null || isStamp(selection.stamp));
+}
+
+/** A stamp is a tile bitmap's size in whole tiles; a webview's value is never trusted past this. */
+function isStamp(value: unknown): boolean {
+  return typeof value === "object" && value !== null
+    && "width" in value && typeof value.width === "number" && Number.isInteger(value.width) && value.width > 0
+    && "height" in value && typeof value.height === "number" && Number.isInteger(value.height) && value.height > 0;
 }
 
 

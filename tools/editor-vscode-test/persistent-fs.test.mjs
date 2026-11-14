@@ -79,6 +79,8 @@ test("the VS Code provider reports creation and later changes", async () => {
     let provider;
     const vscode = {
       FileChangeType: { Created: 1, Changed: 2, Deleted: 3 },
+      StatusBarAlignment: { Left: 1 },
+      window: { createStatusBarItem() { return { text: "", show() {}, dispose() {} }; } },
       EventEmitter: class { event() {} fire(changes) { events.push(...changes); } },
       workspace: { registerFileSystemProvider(_scheme, value) { provider = value; return {}; } },
       commands: { registerCommand() { return {}; } },

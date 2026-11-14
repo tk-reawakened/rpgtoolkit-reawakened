@@ -132,3 +132,7 @@ export function exampleAnimation(): Uint8Array {
 export function examplePicture(): Uint8Array {
   return new Uint8Array(readFileSync(join(actorExamples, "tileset", "tileset_detail1.png")));
 }
+
+export function exampleTileset(detail: 1 | 2 | 3 | 4 | 5 | 6): Uint8Array {
+  return new Uint8Array(readFileSync(join(actorExamples, "tileset", `tileset_detail${detail}.tst`)));
+}

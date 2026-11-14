@@ -1,7 +1,7 @@
 {
   "name": "editor",
   "displayName": "RPG Toolkit Editor",
-  "description": "Game settings and board editor for RPG Toolkit projects.",
+  "description": "Game settings, boards, tile bitmap editing and experimental tileset artwork for Reawakened projects.",
   "version": "0.0.1",
   "publisher": "tk-reawakened",
   "license": "MIT",
@@ -11,7 +11,13 @@
   "activationEvents": [
     "onCustomEditor:tkr.gameSettings",
     "onCustomEditor:tkr.board",
-    "onView:tkr.game"
+    "onCustomEditor:tkr.tileset",
+    "onCustomEditor:tkr.tileBitmap",
+    "onView:tkr.game",
+    "onCommand:tkr.runGame",
+    "onCommand:tkr.startProgram",
+    "onCommand:tkr.startBoard",
+    "onCommand:tkr.testProgram"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -32,6 +38,14 @@
       {
         "command": "tkr.refreshGame",
         "title": "RPG Toolkit: Refresh the Game view"
+      },
+      {
+        "command": "tkr.runGame",
+        "title": "RPG Toolkit: Run Game"
+      },
+      {
+        "command": "tkr.testProgram",
+        "title": "RPG Toolkit: Test Program"
       },
       {
         "command": "tkr.newBoard",
@@ -61,6 +75,26 @@
         "selector": [
           {
             "filenamePattern": "*.brd"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.tileset",
+        "displayName": "Reawakened Tileset Artwork Prototype",
+        "selector": [
+          {
+            "filenamePattern": "*.tst"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.tileBitmap",
+        "displayName": "RPG Toolkit Tile Bitmap Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.tbm"
           }
         ],
         "priority": "default"

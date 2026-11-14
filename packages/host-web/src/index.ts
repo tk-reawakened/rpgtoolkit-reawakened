@@ -1,11 +1,12 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type SpriteViewDocument, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
+import { createWebRunService } from "./run.ts";
 
 /**
  * A project open in the browser host. Its `workspace` is the host's workbench: one model per document, undo by `editId`,
@@ -27,6 +28,8 @@ export interface WebProject {
 /** What a browser project is made with; `dialogs` defaults to the page's own modal dialogs. */
 export interface WebProjectOptions {
   readonly dialogs?: DialogService;
+  /** URL of this deployment's same-origin runner-web player page. Without it, launching is unavailable. */
+  readonly playerUrl?: string;
   /** Where the user layer of the editor settings is kept; the page's `localStorage` by default, memory when there is none. */
   readonly userSettings?: UserSettingsStorage | null;
 }
@@ -39,13 +42,13 @@ type DirectoryPickerWindow = Window & {
 const FOLDER_CAPABILITIES: readonly Capability[] = ["folderWrite", "stableProjectHandle", "conflictReload", "conflictAutoSave"];
 
 /** Open a directory with the browser's native picker; stable identity requires successful IndexedDB registration. */
-export async function openWebProject(): Promise<WebProject | null> {
+export async function openWebProject(options: WebProjectOptions = {}): Promise<WebProject | null> {
   const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
   if (typeof picker !== "function") return null;
   try {
     const root = await picker.call(window, { mode: "readwrite" });
     const project = await registerWebProject(root);
-    return project ? createFolderProject(root, project) : null;
+    return project ? createFolderProject(root, project, options) : null;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") return null;
     throw error;
@@ -53,9 +56,9 @@ export async function openWebProject(): Promise<WebProject | null> {
 }
 
 /** Restore a recent folder only from an explicit user action, allowing permission prompts at that point. */
-export async function reopenWebProject(id: string): Promise<WebProject | null> {
+export async function reopenWebProject(id: string, options: WebProjectOptions = {}): Promise<WebProject | null> {
   const restored = await restoreWebProject(id);
-  return restored ? createFolderProject(restored.root, restored.handle) : null;
+  return restored ? createFolderProject(restored.root, restored.handle, options) : null;
 }
 
 /** Read recent projects without prompting; null means browser persistence is unavailable. */
@@ -91,6 +94,11 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
   // file tree says so instead of pretending (T-03).
   if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
+  if (options.playerUrl !== undefined) {
+    capabilities.add("runGame");
+    capabilities.add("runBoard");
+    capabilities.add("runProgram");
+  }
   const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
   const services: PlatformServices = {
     capabilities,
@@ -105,6 +113,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     settings: createWebSettings(fs, webUserStorage(options), capabilities.has("folderWrite")),
     document: workspace.document,
     dialogs,
+    ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl) }),
   };
   return { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), deactivate: () => { active = false; workspace.dispose(); } };
 }
@@ -201,7 +210,24 @@ export const openGameSettings = openEditor;
  * kind is what says which command and snapshot types it has.
  */
 function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContext["document"] {
-  if (document.kind !== "board") return document as unknown as ViewDocument;
+  if (document.kind === "main") return document as unknown as ViewDocument;
+  if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
+  if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
+  if (document.kind === "tile-bitmap") {
+    const bitmap = document as unknown as Omit<TileBitmapViewDocument, "preview">;
+    const view: TileBitmapViewDocument = {
+      kind: bitmap.kind,
+      identity: bitmap.identity,
+      getSnapshot: () => bitmap.getSnapshot(),
+      subscribe: (listener) => bitmap.subscribe(listener),
+      apply: (command) => bitmap.apply(command),
+      save: () => bitmap.save(),
+      resolveConflict: (choice) => bitmap.resolveConflict(choice),
+      preview: () => previewTileBitmap(project.services.fs, project.project.id, document.serialize()),
+    };
+    return view;
+  }
+  if (document.kind !== "board") throw new Error(`No browser view is registered for document kind "${document.kind}".`);
   const board = document as unknown as Omit<BoardViewDocument, "preview" | "undo" | "redo"> & Required<Pick<BoardViewDocument, "undo" | "redo">>;
   // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
   const view: BoardViewDocument = {
@@ -243,7 +269,13 @@ export interface DocumentView extends ViewHandle {
 }
 
 /** Mount the view of `document`'s kind into `element`. It holds no lease: the caller (a tab, or `mountEditor`) does. */
-export function mountDocumentView(project: WebProject, document: AnyDocument, element: HTMLElement, projectLayout: ProjectLayout = { projectFolder: "" }): DocumentView {
+export function mountDocumentView(
+  project: WebProject,
+  document: AnyDocument,
+  element: HTMLElement,
+  projectLayout: ProjectLayout = { projectFolder: "" },
+  openSource?: (path: string) => Promise<string | null>,
+): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
@@ -259,7 +291,7 @@ export function mountDocumentView(project: WebProject, document: AnyDocument, el
     mounted = mount(container, {
       document: viewDocument,
       services: project.services,
-      browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout },
+      browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
     });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;

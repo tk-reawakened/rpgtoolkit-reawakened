@@ -2,6 +2,7 @@ import {
   asksBeforeCreating,
   createAssetPicker,
   createBoardFile,
+  createLauncher,
   type AssetKind,
   createLayoutModel,
   createPreferences,
@@ -91,6 +92,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const layout = createLayoutModel([
     { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
     { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
+    { id: "run", title: "Run", side: "bottom", visible: false, size: 240, minSize: 128, maxSize: 480 },
   ]);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
@@ -134,7 +136,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container, projectLayout), shownIn: container };
+          entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -160,6 +162,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const openPath = async (path: string): Promise<void> => {
     const result = await tree.open(path);
     if (result.ok && result.via === "document") show(result.document);
+  };
+  /** What the tileset browser's "edit source" asks for: the file in a tab, or why it did not open. */
+  const openSource = async (path: string): Promise<string | null> => {
+    const result = await tree.open(path);
+    if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
+    if (result.via === "document") show(result.document);
+    return null;
   };
 
   const tell = (message: string): Promise<unknown> =>
@@ -224,12 +233,14 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     });
   };
 
+  const launcher = createLauncher({ services, workspace });
   const shell: ViewHandle = mountShell(element, {
     layout,
     tabs,
     tree,
     projectLayout,
     fs: services.fs,
+    launcher,
     version,
     onOpened: (result) => {
       if (result.via === "document") show(result.document);
@@ -327,6 +338,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       openPrefs?.();
       openNewBoard?.();
       disposed = true;
+      launcher.dispose();
       unsubscribeTabs();
       unsubscribeLayout();
       for (const entry of views.values()) entry.view.dispose();

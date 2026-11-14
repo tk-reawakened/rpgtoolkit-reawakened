@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'">
     <link rel="stylesheet" href="./dist/tileset-browser.css">
     <title>RPG Toolkit editor</title>
   </head>
@@ -21,6 +21,7 @@
       <select id="project-game" hidden></select>
       <button id="open-selected-game" type="button" hidden>Open selected game</button>
       <div id="document-actions" role="toolbar" aria-label="Document" hidden>
+        <button id="mirror-view" type="button" aria-pressed="false">Second view</button>
         <button id="undo" type="button">Undo</button>
         <button id="redo" type="button">Redo</button>
         <button id="save-as" type="button">Save as…</button>
@@ -30,6 +31,7 @@
       </div>
       <p id="host-status" role="status" aria-live="polite">No document open.</p>
       <section id="settings" aria-label="Editor workbench"></section>
+      <section id="mirror" aria-label="Second document view" hidden></section>
     </main>
     <script src="./dist/editor-web.js"></script>
   </body>

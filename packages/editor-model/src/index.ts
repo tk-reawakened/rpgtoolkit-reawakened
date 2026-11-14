@@ -23,6 +23,19 @@ export {
   type TileGesture,
 } from "./board-document.ts";
 export {
+  createTilesetArtDocument,
+  openTilesetArtDocument,
+  tilesetArtCodec,
+  type PaintTilesetPixelsCommand,
+  type TilesetArtCommand,
+  type TilesetArtDocument,
+  type TilesetArtFields,
+  type TilesetArtOpenResult,
+  type TilesetArtSnapshot,
+  type TilesetArtTile,
+  type TilesetPixelChange,
+} from "./tileset-art-document.ts";
+export {
   BOARD_COORD_SYSTEMS,
   DEFAULT_NEW_BOARD,
   NEW_BOARD_MAX_LAYERS,
@@ -138,8 +151,32 @@ export {
   type SpritePreviewFrame,
   type SpriteOpenResult,
 } from "./sprite-document.ts";
+export {
+  colourOfShade,
+  createTileBitmapDocument,
+  lightnessOfShade,
+  openTileBitmapDocument,
+  shadeOfColour,
+  shadeWithLightness,
+  tileBitmapCellAt,
+  tileBitmapCodec,
+  TILE_BITMAP_MAX_TILES,
+  TILE_BITMAP_MIN_TILES,
+  TILE_SHADE_MAX,
+  TILE_SHADE_MIN,
+  type SetBitmapCellCommand,
+  type SetBitmapShadeCommand,
+  type SetBitmapSizeCommand,
+  type TileBitmapCommand,
+  type TileBitmapDocument,
+  type TileBitmapDocumentFields,
+  type TileBitmapDocumentSnapshot,
+  type TileBitmapOpenResult,
+  type TileShade,
+} from "./tile-bitmap-document.ts";
+export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
-export { asBoardDocument, asMainDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asBoardDocument, asMainDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   applyMainSettings,
@@ -225,6 +262,7 @@ export {
   copyIntoReservedFolder,
   linkFor,
   listCandidates,
+  projectLayoutOfMain,
   referencePath,
   reservedFolder,
   unusableName,
@@ -257,6 +295,7 @@ export {
 } from "./layout.ts";
 export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
+export { boardStartUnit, createLauncher, type Launcher, type LauncherOptions, type LaunchOutcome, type LaunchRefusal } from "./launcher.ts";
 export {
   createPreferences,
   PREFERENCE_CATALOGUE,
