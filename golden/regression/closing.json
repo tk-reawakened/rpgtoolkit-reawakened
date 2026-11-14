@@ -315,19 +315,19 @@
         },
         {
           "tick": 60,
-          "stateHash": "cf1d9ee487c5eea8"
+          "stateHash": "c740b7edd84335e5"
         },
         {
           "tick": 90,
-          "stateHash": "e4f0e88b76436580"
+          "stateHash": "da012a83ec8149ad"
         },
         {
           "tick": 120,
-          "stateHash": "b04b1d700435b7fb"
+          "stateHash": "e714f4453f3711c2"
         },
         {
           "tick": 600,
-          "stateHash": "a7accdd66140b6ee"
+          "stateHash": "4da3d94b0c81f9fb"
         }
       ],
       "frames": [
@@ -345,21 +345,21 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "b04b1d700435b7fb",
-          "drawHash": "9bb16b404c01451d",
-          "pixelHash": "df198df5b88a1294",
-          "commands": 7,
+          "stateHash": "e714f4453f3711c2",
+          "drawHash": "ee7d36c77a013bc2",
+          "pixelHash": "34c22af21ba36325",
+          "commands": 5,
           "width": 640,
           "height": 480,
-          "png": "golden/regression/closing/FinalDestiny-board.png"
+          "sameAs": "title"
         },
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "a7accdd66140b6ee",
-          "drawHash": "e568c250dd9562dc",
-          "pixelHash": "a8bb372f024e43dd",
-          "commands": 4,
+          "stateHash": "4da3d94b0c81f9fb",
+          "drawHash": "5369ad48b27d6e8d",
+          "pixelHash": "fb889ece99ba5019",
+          "commands": 2,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/FinalDestiny-later.png"
@@ -399,19 +399,19 @@
         },
         {
           "tick": 60,
-          "stateHash": "c851eecf02660992"
+          "stateHash": "2a8d92b725685ae2"
         },
         {
           "tick": 90,
-          "stateHash": "3ae2434dbc18025a"
+          "stateHash": "ff90ba87a8f1be8a"
         },
         {
           "tick": 120,
-          "stateHash": "c3a3fd15c695b9a1"
+          "stateHash": "e617d43e22124147"
         },
         {
           "tick": 600,
-          "stateHash": "e906cb8428cffa39"
+          "stateHash": "74299b226b67764d"
         }
       ],
       "frames": [
@@ -429,21 +429,21 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "c3a3fd15c695b9a1",
-          "drawHash": "9d335f2ed2688e95",
-          "pixelHash": "84c40b82dcb4afb1",
-          "commands": 7,
+          "stateHash": "e617d43e22124147",
+          "drawHash": "ee7d36c77a013bc2",
+          "pixelHash": "34c22af21ba36325",
+          "commands": 5,
           "width": 640,
           "height": 480,
-          "png": "golden/regression/closing/School2Demo-board.png"
+          "sameAs": "title"
         },
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "e906cb8428cffa39",
-          "drawHash": "52bbf3804fa0e4c9",
-          "pixelHash": "a5387a1749c25e09",
-          "commands": 4,
+          "stateHash": "74299b226b67764d",
+          "drawHash": "29240653a58e8f84",
+          "pixelHash": "8ea518b81fcece35",
+          "commands": 2,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/School2Demo-later.png"
