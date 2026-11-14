@@ -258,3 +258,36 @@ test("uncompilable or unsupported input never gets an edit", () => {
     deepEqual(legacyFixes(source, "tk2"), []);
   }
 });
+
+/** How many times the whole offered file is split into lines while converting `lines` bare-index lines (#2146). */
+function wholeFileSplits(lines: number): number {
+  const source = Array(lines).fill("#m[key] = 1").join("\n");
+  const original = String.prototype.split;
+  let count = 0;
+  String.prototype.split = function (this: string, ...args: Parameters<typeof original>) {
+    if (this.length >= source.length / 2) count += 1; // the converted text is shorter than the source: its `#` marks are gone
+    return original.apply(this, args);
+  } as typeof original;
+  try {
+    equal(legacyFixes(source, "tk2")[0]!.reviews?.length, lines, "every bare index is still flagged");
+  } finally {
+    String.prototype.split = original;
+  }
+  return count;
+}
+
+test("bare-index review does no whole-file work per index (#2146)", () => {
+  const few = wholeFileSplits(100);
+  const many = wholeFileSplits(400);
+  equal(many, few, "four times the indices splits the file the same number of times");
+  ok(few <= 6, `the file is split a small constant number of times, not once per index (saw ${few})`);
+});
+
+test("several bare indices on one line and many lines keep their order and text (#2146)", () => {
+  const source = Array.from({ length: 50 }, (_, line) => `#m[a${line}][b${line}] = n[c${line}]`).join("\r\n");
+  const reviews = legacyFixes(source, "tk2")[0]!.reviews!;
+  equal(reviews.length, 150);
+  deepEqual(reviews.slice(0, 3).map((item) => [item.line, item.index]), [[1, "a0"], [1, "b0"], [1, "c0"]]);
+  deepEqual(reviews.slice(-3).map((item) => [item.line, item.index]), [[50, "a49"], [50, "b49"], [50, "c49"]]);
+  equal(sameLowering(source, applyEdits(source, legacyFixes(source, "tk2")[0]!.edits)), true, "CRLF input keeps its lowering");
+});

@@ -141,13 +141,17 @@ function isDialogue(trimmed: string, converted: string): boolean {
 function bareIndices(fixed: string): Map<number, string[]> {
   const found = new Map<number, string[]>();
   const tokens = tokenizeObjects(fixed);
+  // Split once: re-splitting the whole file for every index made conversion quadratic (#2146).
+  const lines = fixed.split("\n");
   for (let index = 1; index + 1 < tokens.length; index++) {
     const open = tokens[index - 1]!;
     const word = tokens[index]!;
     const close = tokens[index + 1]!;
     if (open.kind !== "op" || open.text !== "[" || word.kind !== "identifier" || close.kind !== "op" || close.text !== "]") continue;
-    const written = fixed.split("\n")[word.line - 1]!.slice(word.col - 1, word.endCol);
-    found.set(word.line, [...(found.get(word.line) ?? []), written]);
+    const written = lines[word.line - 1]!.slice(word.col - 1, word.endCol);
+    const onLine = found.get(word.line);
+    if (onLine === undefined) found.set(word.line, [written]);
+    else onLine.push(written);
   }
   return found;
 }
