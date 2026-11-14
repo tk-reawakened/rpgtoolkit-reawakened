@@ -144,7 +144,7 @@ test("tick draw observation preserves unresolved authored message-art behavior",
 test("batched tick observation does not expose synchronized engine projection to later phases", () => {
   const bytes = boardBytes(createEmptyBoard());
   const create = (
-    reads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] }>,
+    reads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] | null }>,
     tickObserver?: Parameters<typeof createEngine>[0]["tickObserver"],
   ) => {
     const reader: EnginePhaseRegistration = {
@@ -152,7 +152,7 @@ test("batched tick observation does not expose synchronized engine projection to
       run: (state) => {
         reads.push({
           pending: (state.engine.pending ?? []).map(({ reqId, key, kind }) => ({ reqId, key, kind })),
-          cacheKeys: [...state.engine.cacheKeys],
+          cacheKeys: state.engine.cacheKeys === null ? null : [...state.engine.cacheKeys],
         });
       },
     };
@@ -172,8 +172,8 @@ test("batched tick observation does not expose synchronized engine projection to
     if (request?.kind !== "asset") throw new Error("expected initial board request");
     return { engine, request };
   };
-  const plainReads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] }> = [];
-  const observedReads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] }> = [];
+  const plainReads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] | null }> = [];
+  const observedReads: Array<{ readonly pending: readonly unknown[]; readonly cacheKeys: readonly string[] | null }> = [];
   const plain = create(plainReads);
   const observations: { readonly tick: number; readonly stateHash: string; readonly drawHash: string }[] = [];
   const observed = create(observedReads, (entry) => { observations.push(entry); });
@@ -187,7 +187,7 @@ test("batched tick observation does not expose synchronized engine projection to
   deepEqual(observedReads, plainReads);
   equal(plainReads[0]?.pending.length, 1);
   equal((plainReads[0]?.pending[0] as { readonly reqId: number } | undefined)?.reqId, plain.request.reqId);
-  equal(plainReads[0]?.cacheKeys.includes("boards/test.brd"), false);
+  equal(plainReads[0]?.cacheKeys?.includes("boards/test.brd"), false);
   equal(observations[2]?.stateHash, observedReport.stateHash);
   equal(plainReport.stateHash, observedReport.stateHash);
 });
@@ -200,8 +200,8 @@ test("batched tick hashes match independent advancing references for changing bo
       run: (state) => {
         drawSequence += 1;
         const board = state.world.board;
-        if (board === null) throw new Error("expected loaded test board");
-        state.world.board = { ...board, background: { r: drawSequence * 40, g: 0, b: 0 } };
+        if (board == null) throw new Error("expected loaded test board");
+        state.world = { ...state.world, board: { ...board, background: { r: drawSequence * 40, g: 0, b: 0 } } };
       },
     };
     return loadedEngine([changeDraw], undefined, undefined, undefined, tickObserver);
