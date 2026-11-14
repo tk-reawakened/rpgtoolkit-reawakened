@@ -7,31 +7,39 @@
     <link rel="stylesheet" href="./dist/tileset-browser.css">
     <title>RPG Toolkit editor</title>
   </head>
-  <body>
-    <main>
-      <h1>RPG Toolkit editor</h1>
-      <p>Open a project folder for direct writes and package publication, or open one game as a session copy. Use the Files panel to open other project documents.</p>
-      <button id="open-project" type="button">Open project folder</button>
-      <label for="open-session">Open .gam session copy</label>
-      <input id="open-session" type="file" accept=".gam">
-      <label id="recent-project-label" for="recent-project" hidden>Recent project</label>
-      <select id="recent-project" hidden></select>
-      <button id="reopen-project" type="button" hidden>Reopen project</button>
-      <label id="project-game-label" for="project-game" hidden>Game in project</label>
-      <select id="project-game" hidden></select>
-      <button id="open-selected-game" type="button" hidden>Open selected game</button>
-      <div id="document-actions" role="toolbar" aria-label="Document" hidden>
-        <button id="mirror-view" type="button" aria-pressed="false">Second view</button>
-        <button id="undo" type="button">Undo</button>
-        <button id="redo" type="button">Redo</button>
-        <button id="save-as" type="button">Save as…</button>
-        <button id="save-all" type="button">Save all</button>
-        <button id="revert" type="button">Revert</button>
-        <button id="close" type="button">Close</button>
+  <body class="tkr-web-body">
+    <main class="tkr-web-shell">
+      <header class="tkr-web-topbar">
+        <div class="tkr-web-brand">
+          <h1>RPG Toolkit editor</h1>
+          <p class="tkr-web-subtitle">Open a project folder for direct writes and package publication, or open one game as a session copy. Use the Files panel to open other project documents.</p>
+        </div>
+        <div class="tkr-web-project-bar">
+          <button id="open-project" type="button">Open project folder</button>
+          <label for="open-session">Open .gam session copy</label>
+          <input id="open-session" type="file" accept=".gam">
+          <label id="recent-project-label" for="recent-project" hidden>Recent project</label>
+          <select id="recent-project" hidden></select>
+          <button id="reopen-project" type="button" hidden>Reopen project</button>
+          <label id="project-game-label" for="project-game" hidden>Game in project</label>
+          <select id="project-game" hidden></select>
+          <button id="open-selected-game" type="button" hidden>Open selected game</button>
+        </div>
+        <div id="document-actions" class="tkr-web-doc-actions" role="toolbar" aria-label="Document" hidden>
+          <button id="mirror-view" type="button" aria-pressed="false">Second view</button>
+          <button id="undo" type="button">Undo</button>
+          <button id="redo" type="button">Redo</button>
+          <button id="save-as" type="button">Save as…</button>
+          <button id="save-all" type="button">Save all</button>
+          <button id="revert" type="button">Revert</button>
+          <button id="close" type="button">Close</button>
+        </div>
+        <p id="host-status" class="tkr-web-status" role="status" aria-live="polite">No document open.</p>
+      </header>
+      <div class="tkr-web-workspace">
+        <section id="settings" aria-label="Editor workbench"></section>
+        <section id="mirror" aria-label="Second document view" hidden></section>
       </div>
-      <p id="host-status" role="status" aria-live="polite">No document open.</p>
-      <section id="settings" aria-label="Editor workbench"></section>
-      <section id="mirror" aria-label="Second document view" hidden></section>
     </main>
     <script src="./dist/editor-web.js"></script>
   </body>

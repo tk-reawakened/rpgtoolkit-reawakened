@@ -331,7 +331,9 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
         </div>
       )}
 
-      <div class="tkr-bitmap-row">
+      <div class="tkr-bitmap-workspace">
+      <div class="tkr-bitmap-main">
+      <div class="tkr-bitmap-row tkr-bitmap-size-row">
         <label for={`${ids}-width`}>Width in tiles</label>
         <input
           id={`${ids}-width`}
@@ -427,7 +429,7 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
         </div>
       )}
 
-      <div class="tkr-bitmap-row">
+      <div class="tkr-bitmap-row tkr-bitmap-cell-row">
         <label for={`${ids}-tile`}>
           Tile for column {x + 1}, row {y + 1}
         </label>
@@ -501,7 +503,7 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
       )}
 
       <div class="tkr-bitmap-picture">
-        <div class="tkr-bitmap-row">
+        <div class="tkr-bitmap-row tkr-bitmap-picture-bar">
           <label class="tkr-bitmap-grid-switch">
             <input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.currentTarget.checked)} />
             Show grid
@@ -541,7 +543,9 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
       {failure === null || (failure.kind === "conflict" && conflict !== null) ? null : (
         <p class="tkr-bitmap-error" role="alert">{failure.message}</p>
       )}
-      {browser === undefined ? null : <TilesetBrowser context={browser} />}
+      </div>
+      {browser === undefined ? null : <div class="tkr-bitmap-browser"><TilesetBrowser context={browser} /></div>}
+      </div>
     </section>
   );
 }

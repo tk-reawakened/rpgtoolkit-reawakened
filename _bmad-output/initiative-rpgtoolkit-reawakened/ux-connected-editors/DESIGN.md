@@ -1,14 +1,14 @@
 ---
 name: Connected Game Workshop
 description: Proposed editor workbench; game-making first, specialist depth within reach.
-status: proposal
-updated: 2026-11-08
+status: implemented-tokens
+updated: 2026-11-14
 colors:
-  surface: '#ffffff'
-  surface-secondary: '#f3f4f5'
-  ink: '#202124'
-  muted: '#53565a'
-  border: '#777b80'
+  surface: '#18181b'
+  surface-secondary: '#1e1e22'
+  ink: '#e4e4e7'
+  muted: '#a1a1aa'
+  border: '#2e2e36'
 typography:
   body:
     font-family: system-ui, sans-serif
@@ -99,3 +99,59 @@ Small corner radii and visible separators express work areas. No decorative card
 ## Visual coverage
 
 The atlas has ten concrete compositions: workspace, board, artwork, animation, database, effects, events/code, settings, delivery/recovery, appearance/audio. Each shows a different authoring problem inside the same layout grammar. Character/item/enemy/move variations, cursor details, import steps, plugin-loss states and specialist recovery states are specified in EXPERIENCE.md rather than individually mocked. Flow coverage identifies those variants; the proposal is not a pixel-complete screen inventory.
+
+## Annotated Board-Workbench Mock & Shared Editor Design System (#2703)
+
+The shared editor workbench (`packages/editor-ui`) implements an IDE layout inspired by Figma, VS Code, and the classic RPG Toolkit 3 workbench, keeping project navigation, the active document tab strip, editing tools, the central canvas stage, and the contextual inspector/palette simultaneously visible at desktop sizes while collapsing cleanly at narrow viewports.
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ [Top Command Bar]  RPG Toolkit Editor · Project: demo.gam   [Open folder…] [Save] [Run] [Preferences]  Status  │
+├──────────────────────┬───────────────────────────────────────────────────────────────┬─────────────────────────┤
+│ [Left Dock: 224px]   │ [Tab Strip: 34px]  [start.brd • ×] [tiles.tst ×] [demo.gam ×] │ [Right Inspector: 280px]│
+│ ▾ Files (Tree)       ├───────────────────────────────────────────────────────────────┤ ▾ Tileset Browser       │
+│   ▸ Boards           │ [Board Header]  Board · 12 × 10 cells, 2 layers   [Save] ✓    │   Set: [village.tst ▾]  │
+│     • start.brd      ├───────────────────────────────────────────────────────────────┤   Filter: [Search…   ]  │
+│   ▸ Tilesets         │ [Toolstrip] [Select][Draw*][Erase][Fill][Line][Rect][Dropper] │   ┌─────────┬─────────┐ │
+│   ▸ Characters       │             | [Undo][Redo] | [-] 100% [+] [Grid*] | Layer [1▾]│   │ [Tile1] │ [Tile2] │ │
+│                      ├───────────────────────────────────────────────────────────────┤   │  #1     │  #2     │ │
+│ ▾ Game (Records)     │                                                               │   ├─────────┼─────────┤ │
+│   Boards (2)         │         ┌───────────────────────────────────────────┐         │   │ [Tile3] │ [Tile4] │ │
+│   Characters (1)     │         │                                           │         │   │  #3     │  #4     │ │
+│   Items (4)          │         │          BOARD CANVAS STAGE               │         │   └─────────┴─────────┘ │
+│                      │         │      (Checkerboard + Crisp Pixel Art)     │         ├─────────────────────────┤
+│                      │         │                                           │         │ ▾ Visible Layers        │
+│                      │         └───────────────────────────────────────────┘         │   [x] Layer 1 – Floor   │
+│                      │                                                               │   [x] Layer 2 – Roof    │
+│                      ├───────────────────────────────────────────────────────────────┤   [x] Background (B)    │
+│                      │ [Active Cell & Matrix]  Col 3, Row 4: [village.tst1] [Paint]  │   [Only curr] [Show all]│
+│                      │   [1,1] [2,1] [3,1*] ... (compact keyboard-navigable grid)    │                         │
+└──────────────────────┴───────────────────────────────────────────────────────────────┴─────────────────────────┘
+```
+
+### Shared CSS Custom Properties (`--tkr-*` with `--vscode-*` & `light-dark()` Fallbacks)
+
+| Token | Role | VS Code Bridge | Browser Default (`light-dark()`) |
+|---|---|---|---|
+| `--tkr-bg-app` | Outer workbench & chrome | `var(--vscode-sideBar-background)` | `light-dark(#f3f4f6, #18181b)` |
+| `--tkr-bg-panel` | Docked panels & inspector cards | `var(--vscode-editorWidget-background)` | `light-dark(#f8fafc, #1e1e22)` |
+| `--tkr-bg-surface` | Document surface | `var(--vscode-editor-background)` | `light-dark(#ffffff, #141417)` |
+| `--tkr-bg-stage` | Artwork / board canvas stage | `var(--vscode-editor-background)` | `light-dark(#e2e8f0, #0c0c0e)` |
+| `--tkr-bg-control` | Buttons, inputs, selects | `var(--vscode-input-background)` | `light-dark(#ffffff, #27272a)` |
+| `--tkr-fg-primary` | Primary labels & values | `var(--vscode-foreground)` | `light-dark(#18181b, #e4e4e7)` |
+| `--tkr-fg-muted` | Secondary captions & units | `var(--vscode-descriptionForeground)` | `light-dark(#52525b, #a1a1aa)` |
+| `--tkr-border-subtle` | Panel & card dividers (`1px`) | `var(--vscode-panel-border)` | `light-dark(#e4e4e7, #2e2e36)` |
+| `--tkr-accent` | Active tool, selected cell, primary CTA | `var(--vscode-focusBorder)` | `light-dark(#2563eb, #3b82f6)` |
+| `--tkr-dirty` | Unsaved edit badge (`•`) | `var(--vscode-gitDecoration-modifiedResourceForeground)` | `light-dark(#d97706, #f59e0b)` |
+| `--tkr-danger` | Refusal / conflict / invalid state | `var(--vscode-errorForeground)` | `light-dark(#dc2626, #f87171)` |
+
+### Control & State Matrix
+
+| State | Visual Contract |
+|---|---|
+| **Keyboard Focus (`:focus-visible`)** | `2px solid var(--tkr-focus-ring)` with `outline-offset: 2px` (`-2px` inside dense grid cells). |
+| **Selected / Pressed (`[aria-pressed="true"]`, `[aria-selected="true"]`)** | Tinted accent surface (`--tkr-accent-subtle`), `1px solid var(--tkr-accent)` border, semibold label (`font-weight: 600`). |
+| **Disabled (`:disabled`, `[aria-disabled="true"]`)** | `opacity: 0.48`, `cursor: not-allowed`, muted border; hatched cell pattern for off-board isometric cells. |
+| **Unsaved Edits (Dirty)** | Amber dot (`•`) in tab strip + status pill (`Unsaved changes`) next to enabled primary `Save` button. |
+| **Errors & Conflicts (`[role="alert"]`, `[aria-invalid="true"]`)** | Danger border (`--tkr-danger`), tinted alert banner (`--tkr-danger-subtle`), and parent `<fieldset>:has([aria-invalid="true"])` highlight. |
+| **Forced Colors (`@media (forced-colors: active)`)** | System keywords (`Canvas`, `CanvasText`, `Highlight`, `HighlightText`, `GrayText`, `ButtonBorder`) preserve all state distinctions without relying on background fills. |
