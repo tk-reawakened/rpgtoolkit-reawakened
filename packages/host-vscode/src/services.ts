@@ -28,9 +28,13 @@ export function createVscodeServices(root: vscode.Uri): PlatformServices {
         return platformOk(undefined);
       },
     },
+    document: { edited: () => undefined },
+    dialogs: createVscodeDialogs(root),
     packageExport: {
       sha256: async (bytes) => {
-        const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+        const input = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(input).set(bytes);
+        const digest = await globalThis.crypto.subtle.digest("SHA-256", input);
         return platformOk([...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""));
       },
       downloadFile: async () => platformError("unavailable", "VS Code package files are saved through Save As, not downloaded."),
