@@ -2,7 +2,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createBrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
-import { createDocumentIdentity, createBoardDocument } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createBoardDocument, createEditTracker } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { RemoteDocument, isEditorHostRequest, type EditorHostRequest } from "@tk-reawakened/host-vscode/testing";
 
@@ -77,4 +77,39 @@ test("the bridge accepts a stamp selection only with a positive whole size, so t
   for (const bad of [{ width: 0, height: 0 }, { width: 2, height: 0 }, { width: -1, height: 1 }, { width: 1.5, height: 1 }, { width: "2", height: 1 }, {}, 2]) {
     equal(stamp(bad), false, JSON.stringify(bad));
   }
+});
+
+test("a webview answers the extension host's settle request only after every edit it accepted has been handed over (#2613)", async () => {
+  const boardBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
+  const storage = createMemoryPlatformServices({ files: { "Boards/village.brd": boardBytes } });
+  const opened = createBoardDocument(storage.fs, createDocumentIdentity("shared-project", "Boards/village.brd"), boardBytes);
+  ok(opened.ok);
+  const outbound: EditorHostRequest[] = [];
+  const remote = new RemoteDocument("board", opened.document.getSnapshot(), { selection: null, path: null, scrollTop: 0 }, {
+    postMessage: (message) => { outbound.push(message); },
+    getState: () => undefined,
+    setState: () => undefined,
+  });
+  ok(isEditorHostRequest({ type: "settled", requestId: "settle-1" }));
+  equal(isEditorHostRequest({ type: "settled" }), false, "an answer names the request it answers");
+
+  // A view holds an edit it has not handed over yet.
+  const tracker = createEditTracker();
+  remote.pendingEdits.register(tracker);
+  const handed = tracker.begin();
+  remote.receive({ type: "settle", requestId: "settle-1" });
+  await Promise.resolve();
+  await Promise.resolve();
+  // `deepEqual` narrows its first argument, so the sent messages are read through a call.
+  const sent = (): readonly EditorHostRequest[] => [...outbound];
+  deepEqual(sent(), [], "the host is not told the webview is settled while an edit is still held");
+
+  handed();
+  for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+  deepEqual(sent(), [{ type: "settled", requestId: "settle-1" }]);
+
+  // With nothing held, the answer is immediate, once per request.
+  remote.receive({ type: "settle", requestId: "settle-2" });
+  for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
+  deepEqual(sent().map((message) => message.type === "settled" ? message.requestId : message.type), ["settle-1", "settle-2"]);
 });

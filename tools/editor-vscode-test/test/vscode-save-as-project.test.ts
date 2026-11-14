@@ -134,6 +134,33 @@ test("browser context is retained per project and cannot leak across workspace f
   equal(beta.browserSession.getSnapshot().selection, null, "alpha's brush is not inherited by beta");
 });
 
+test("save, revert and backup refuse when a webview cannot confirm its accepted edits", async () => {
+  const { files, provider } = workspace();
+  const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  const detach = document.attachWebview(() => Promise.resolve(false));
+
+  const save = await document.save();
+  equal(save.ok, false);
+  if (!save.ok) match(save.failure.message, /could not confirm that it handed over its accepted edits/);
+  await rejects(provider.revertCustomDocument(document), /Could not revert .*could not confirm.*Nothing was reverted/);
+  await rejects(provider.backupCustomDocument(document, { path: "/backup" }), /Could not back up .*could not confirm.*No backup was written/);
+  await rejects(provider.saveCustomDocumentAs(document, { path: "/alpha/copy.gam" }), /Could not save copy\.gam: .*could not confirm.*Nothing was written/);
+  equal(files.has("/alpha/copy.gam"), false);
+
+  detach();
+});
+
+test("disposing a webview while its accepted edits are unsettled does not count as a handoff", async () => {
+  const { provider } = workspace();
+  const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  const detach = document.attachWebview(() => new Promise<boolean>(() => {}));
+
+  const settling = document.settleViews();
+  detach();
+
+  match(await settling ?? "", /could not confirm that it handed over its accepted edits/);
+});
+
 test("Save As to a destination inside the source's own workspace folder writes the copy and leaves the source file", async () => {
   const { files, provider, openEdited } = workspace();
   const original = files.get(`/alpha/${GAME}`)!.slice();

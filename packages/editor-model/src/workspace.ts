@@ -3,6 +3,7 @@ import type { Disposable, DocumentService, FileSystemService, PlatformError, Pla
 import { createDocumentIdentity } from "./identity.ts";
 import type { DocumentSnapshot, HistoryResult, OpenError, RevertFailure, SaveFailure, SaveResult } from "./binary-document.ts";
 import { kindById, kindForPath, type AnyDocument } from "./kinds.ts";
+import { createPendingEdits, type PendingEdits } from "./pending-edits.ts";
 
 /**
  * The documents a host has open in one project, and the lifecycle around them that ADR 0022 D3 promises in every host:
@@ -119,6 +120,11 @@ export interface DocumentWorkspace {
   adopt(document: AnyDocument): boolean;
   /** The open documents, in the order they were opened. */
   documents(): readonly AnyDocument[];
+  /**
+   * What the views of `document` have submitted but not yet received results for (#2613). Views register their in-flight
+   * work here; Save All, close, revert and Save As wait for those requests before acting on the whole document.
+   */
+  pendingEdits(document: AnyDocument): PendingEdits;
   /** Undo the latest edit this host heard of that is still in force, by its `editId`. */
   undo(document: AnyDocument): HistoryResult;
   /** Redo the latest undone edit, by its `editId`. */
@@ -163,8 +169,18 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   const savingAs = new Map<string, Promise<void>>();
   const histories = new Map<string, HostHistory>();
   const views = new Map<AnyDocument, Set<DocumentViewLease>>();
+  const pendingByDocument = new Map<AnyDocument, PendingEdits>();
   let watch: Promise<Disposable | null> | null = null;
   let disposed = false;
+
+  const pendingEditsOf = (document: AnyDocument): PendingEdits => {
+    let edits = pendingByDocument.get(document);
+    if (edits === undefined) {
+      edits = createPendingEdits();
+      pendingByDocument.set(document, edits);
+    }
+    return edits;
+  };
 
   const historyOf = (key: string): HostHistory => {
     let history = histories.get(key);
@@ -232,6 +248,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     if (documents.get(key) !== document) return;
     documents.delete(key);
     histories.delete(key);
+    pendingByDocument.delete(document);
   };
 
   const closeDocument = async (document: AnyDocument, view?: DocumentViewLease): Promise<CloseResult> => {
@@ -243,6 +260,8 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     }
     // A document-level close cannot invalidate a model still owned by views.
     if (view === undefined && attached !== undefined && attached.size > 0) return { closed: false, reason: "cancelled" };
+    // Complete every submitted request before deciding whether this document is dirty and what to ask about.
+    await pendingEditsOf(document).settle();
     const snapshot = document.getSnapshot();
     if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
       const path = document.identity.path;
@@ -258,6 +277,8 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       });
       if (answer === "cancel") return { closed: false, reason: "cancelled" };
       if (answer === "save") {
+        // An edit accepted while the question was open is saved with the rest.
+        await pendingEditsOf(document).settle();
         const saved = await document.save();
         if (!saved.ok) return { closed: false, reason: "save-failed", failure: saved.failure };
         const current = document.getSnapshot();
@@ -291,6 +312,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       return true;
     },
     documents: () => [...documents.values()],
+    pendingEdits: pendingEditsOf,
     undo(document) {
       const history = historyOf(document.identity.key);
       // An id that is no longer in force (a revert dropped it, a reload started a new history) is skipped, never undone.
@@ -318,7 +340,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     async saveAll() {
       const results: SaveAllEntry[] = [];
+      // Every view's accepted requests must complete before any dirty flag is read.
+      await Promise.all([...documents.values()].map((document) => pendingEditsOf(document).settle()));
       for (const document of [...documents.values()]) {
+        await pendingEditsOf(document).settle();
         if (!document.getSnapshot().dirty) continue;
         results.push({ document: document.identity.path, result: await document.save() });
       }
@@ -349,6 +374,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     release,
     async revert(document) {
+      await pendingEditsOf(document).settle();
       const snapshot = document.getSnapshot();
       // The edit in force when the user answers: an edit accepted while the question was open is not silently dropped.
       let head = snapshot.edits.at(-1)?.editId ?? null;
@@ -369,6 +395,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       return reverted.ok ? reverted : { ok: false, reason: "failed", failure: reverted.failure };
     },
     async saveAs(document) {
+      await pendingEditsOf(document).settle();
       const source = document.identity.path;
       const requested = await dialogs.pickSavePath({ document: source, suggested: source });
       if (requested === null) return { ok: false, reason: "cancelled" };
@@ -438,6 +465,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       documents.clear();
       histories.clear();
       views.clear();
+      pendingByDocument.clear();
     },
   };
 }

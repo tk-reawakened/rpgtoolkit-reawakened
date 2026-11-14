@@ -19,7 +19,8 @@
     "onCommand:tkr.editorWebProof.writeGameBytes",
     "onCommand:tkr.editorWebProof.enableAutosave",
     "onCommand:tkr.editorWebProof.disableAutosave",
-    "onCommand:tkr.editorWebProof.invokePackageCommand"
+    "onCommand:tkr.editorWebProof.invokePackageCommand",
+    "onCommand:tkr.editorWebProof.saveAll"
   ],
   "contributes": {
     "commands": [
@@ -71,6 +72,10 @@
       {
         "command": "tkr.editorWebProof.invokePackageCommand",
         "title": "Test: Execute Package Game"
+      },
+      {
+        "command": "tkr.editorWebProof.saveAll",
+        "title": "Test: Save All Workbench Editors"
       }
     ]
   }
