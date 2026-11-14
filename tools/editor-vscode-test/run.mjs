@@ -35,6 +35,8 @@ if (gameFiles.length !== 1 || resolve(workspace, game) !== gameFiles[0]) {
 await access(gameFiles[0]);
 const spritePath = "Chrs/__tkr_sprite_proof.tem";
 const spriteFile = resolve(root, "docs/spec/examples/versions/character/character_minor8.tem");
+const spritePreviewGifFile = resolve(root, "packages/core/test/fixtures/authored/gif-anim89a.gif");
+await access(spritePreviewGifFile);
 await access(spriteFile);
 const spriteBytes = new Uint8Array(await readFile(spriteFile));
 const title = `VS Code web proof ${Date.now()}`;
@@ -55,6 +57,8 @@ for (const choice of ["cancel", "keep"]) {
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
   await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
+  await mkdir(resolve(proofWorkspace, "Misc"), { recursive: true });
+  await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
   const boardBytes = createBoardBytes();
