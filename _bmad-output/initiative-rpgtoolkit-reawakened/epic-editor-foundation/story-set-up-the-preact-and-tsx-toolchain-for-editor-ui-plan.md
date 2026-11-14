@@ -2,7 +2,7 @@
 type: feature
 title: "Set up the Preact and TSX toolchain for editor-ui"
 ticket: 16
-status: draft
+status: done
 ---
 
 ## Scope
@@ -28,3 +28,17 @@ A sample `.tsx` file type-checks under `tsc -b` and bundles under esbuild with t
 ADR 0025 (accepted) decides the framework; this story adds none. The strict-CSP probe of ADR 0025's follow-up list needs a mounted view, so it is part of 11.18, not here. A Preact version bump later is its own change and must pass the DOM and ARIA suite and the CSP probe (ADR 0025 decision 1).
 
 Prerequisites: 11.1 (the contracts, now closed).
+
+## Closure evidence
+
+GitHub #1831 was closed by merged PR #1836. Rechecked at `699522d2` on 2026-11-13; this reconciles the stale draft status, not new implementation.
+
+| Acceptance | Running evidence |
+|---|---|
+| TSX type-checks and bundles with matching JSX settings; Preact is pinned | `tools/editor-ui-toolchain/test/toolchain.test.mjs:49-78,104-119` |
+| Clean bundle passes; `eval` and `new Function` bundles fail | `tools/editor-ui-toolchain/test/toolchain.test.mjs:141-181` |
+| TSX host imports fail lint and the dependency graph; provenance scans TSX | `tools/editor-ui-toolchain/test/tsx-scopes.test.mjs:65-97`; `tools/deps/test/graph.test.mjs:400-426`; `tools/provenance/test/provenance.test.mjs:653-666` |
+| A component renders under the DOM shim | `tools/editor-ui-toolchain/test/dom-shim.test.mjs:27-57` |
+| Licence and provenance gates pass | `pnpm licence`; `pnpm provenance` |
+
+After `pnpm exec tsc -b packages/editor-ui`, the seven toolchain, graph, provenance, model and view test files listed in #1831's closure comment passed 163 tests in 15.36 seconds; both gates passed. This does not claim the later real-host or strict-CSP proof.
