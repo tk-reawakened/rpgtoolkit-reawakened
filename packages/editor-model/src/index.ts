@@ -48,6 +48,7 @@ export {
   type SpriteGroup,
   type SpritePreviewFrame,
   type SpriteOpenResult,
+  type CharacterAuthoringFields,
 } from "./sprite-document.ts";
 export { previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type PreviewStorage } from "./board-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";

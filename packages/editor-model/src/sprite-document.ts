@@ -40,13 +40,29 @@ export type SpriteActor = Character | Item;
 export type SpriteActorKind = "character" | "item";
 export type SpriteGroup = "walk" | "idle" | "battle" | "custom";
 
+export type CharacterAuthoringFields = Pick<Character,
+  | "name" | "variableNames" | "stats" | "profilePicture" | "specialMoves"
+  | "specialMoveCategory" | "hasSpecialMoves" | "accessorySlots" | "bodySlots"
+  | "firstLevelExp" | "experienceIncrease" | "maxLevel" | "levelIncreases"
+  | "levelUpProgram" | "levelUpType"
+>;
+
 export type SpriteCommand =
   | { readonly type: "set-sprite-animation"; readonly group: SpriteGroup; readonly index: number; readonly file: string }
   | { readonly type: "add-custom-stance"; readonly name: string; readonly file: string }
   | { readonly type: "rename-custom-stance"; readonly index: number; readonly name: string }
   | { readonly type: "delete-custom-stance"; readonly index: number }
   | { readonly type: "set-sprite-timing"; readonly speed: number; readonly idleTime: number }
-  | { readonly type: "set-sprite-bases"; readonly bases: readonly ActorBase[] };
+  | { readonly type: "set-sprite-bases"; readonly bases: readonly ActorBase[] }
+  | { readonly type: "set-character-text"; readonly field: "name" | "profilePicture" | "specialMoveCategory" | "levelUpProgram"; readonly value: string }
+  | { readonly type: "set-character-variable"; readonly index: number; readonly value: string }
+  | { readonly type: "set-character-stat"; readonly field: keyof Character["stats"]; readonly value: number }
+  | { readonly type: "set-character-move"; readonly index: number; readonly value: Character["specialMoves"][number] }
+  | { readonly type: "set-character-accessory"; readonly index: number; readonly value: string }
+  | { readonly type: "set-character-body-slot"; readonly index: number; readonly value: number }
+  | { readonly type: "set-character-growth"; readonly field: "firstLevelExp" | "experienceIncrease" | "maxLevel" | "levelUpProgram" | "levelUpType"; readonly value: number | string }
+  | { readonly type: "set-character-increase"; readonly index: number; readonly value: number }
+  | { readonly type: "set-character-moves-enabled"; readonly value: number };
 
 export interface SpriteDocumentFields {
   readonly actorType: SpriteActorKind;
@@ -60,7 +76,9 @@ export interface SpriteDocumentFields {
   readonly idleTime: number | null;
   readonly vectorBases: readonly ActorBase[] | null;
   readonly graphicsUnavailable: string | null;
+  readonly character: CharacterAuthoringFields | null;
 }
+
 
 export type SpriteDocumentSnapshot = DocumentSnapshot<SpriteCommand> & SpriteDocumentFields;
 export type SpriteDocument = EditorDocument<SpriteDocumentSnapshot, SpriteCommand>;
@@ -95,6 +113,8 @@ function supports(model: SpriteActor, command: SpriteCommand): boolean {
       return model.minor >= (actorType(model) === "character" ? 7 : 5);
     case "set-sprite-bases":
       return model.minor >= (actorType(model) === "character" ? 8 : 7);
+    default:
+      return isCharacter(model);
   }
 }
 
@@ -123,8 +143,49 @@ function withGroup(model: SpriteActor, group: SpriteGroup, index: number, file: 
   }
   return { ...model, battleAnimation: file };
 }
+function applyCharacter(model: Character, command: SpriteCommand): Character {
+  switch (command.type) {
+    case "set-character-text":
+      return { ...model, [command.field]: command.value };
+    case "set-character-variable": {
+      const variableNames = [...model.variableNames];
+      variableNames[command.index] = command.value;
+      return { ...model, variableNames };
+    }
+    case "set-character-stat":
+      return { ...model, stats: { ...model.stats, [command.field]: command.value } };
+    case "set-character-move": {
+      const specialMoves = [...model.specialMoves];
+      specialMoves[command.index] = { ...command.value };
+      return { ...model, specialMoves };
+    }
+    case "set-character-accessory": {
+      const accessorySlots = [...model.accessorySlots];
+      accessorySlots[command.index] = command.value;
+      return { ...model, accessorySlots };
+    }
+    case "set-character-body-slot": {
+      const bodySlots = [...model.bodySlots];
+      bodySlots[command.index] = command.value;
+      return { ...model, bodySlots };
+    }
+    case "set-character-growth":
+      return { ...model, [command.field]: command.value };
+    case "set-character-increase": {
+      const levelIncreases = [...model.levelIncreases];
+      levelIncreases[command.index] = command.value;
+      return { ...model, levelIncreases };
+    }
+    case "set-character-moves-enabled":
+      return { ...model, hasSpecialMoves: command.value };
+    default:
+      return model;
+  }
+}
+
 
 function apply(model: SpriteActor, command: SpriteCommand): SpriteActor {
+  if (command.type.startsWith("set-character-")) return isCharacter(model) ? applyCharacter(model, command) : model;
   if (command.type === "set-sprite-animation") return withGroup(model, command.group, command.index, command.file);
   if (command.type === "add-custom-stance") return { ...model, customStances: [...(model.customStances ?? []), { handle: command.name, animation: command.file }] };
   if (command.type === "rename-custom-stance") {
@@ -153,6 +214,23 @@ function fieldSnapshot(model: SpriteActor): SpriteDocumentFields {
     idleTime: model.idleTime ?? null,
     vectorBases: rawBases ?? [DEFAULT_COLLISION, DEFAULT_ACTIVATION],
     graphicsUnavailable: model.minor < (character ? 8 : 7) ? `This ${character ? "character" : "item"} file version does not store editable collision and activation bases. The file version is preserved; upgrade it with the format conversion workflow before editing bases.` : null,
+    character: isCharacter(model) ? {
+      name: model.name,
+      variableNames: model.variableNames,
+      stats: model.stats,
+      profilePicture: model.profilePicture,
+      specialMoves: model.specialMoves,
+      specialMoveCategory: model.specialMoveCategory,
+      hasSpecialMoves: model.hasSpecialMoves,
+      accessorySlots: model.accessorySlots,
+      bodySlots: model.bodySlots,
+      firstLevelExp: model.firstLevelExp,
+      experienceIncrease: model.experienceIncrease,
+      maxLevel: model.maxLevel,
+      levelIncreases: model.levelIncreases,
+      levelUpProgram: model.levelUpProgram,
+      levelUpType: model.levelUpType,
+    } : null,
   };
 }
 
@@ -175,11 +253,34 @@ function isCommand(value: unknown): value is SpriteCommand {
   if (record.type === "set-sprite-bases") {
     return Array.isArray(record.bases) && record.bases.length === 2 && record.bases.every((base: unknown) => isBase(base));
   }
+  if (record.type === "set-character-text") return ["name", "profilePicture", "specialMoveCategory", "levelUpProgram"].includes(String(record.field)) && typeof record.value === "string";
+  if (record.type === "set-character-variable" || record.type === "set-character-accessory") return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0 && typeof record.value === "string";
+  if (record.type === "set-character-stat") return ["experience", "hp", "maxHp", "dp", "fp", "smp", "maxSmp", "level"].includes(String(record.field)) && typeof record.value === "number" && Number.isInteger(record.value);
+  if (record.type === "set-character-move") {
+    const move = record.value as Record<string, unknown> | null;
+    return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0 && typeof move === "object" && move !== null
+      && typeof move.file === "string" && typeof move.minExp === "number" && Number.isInteger(move.minExp) && typeof move.minLevel === "number" && Number.isInteger(move.minLevel)
+      && typeof move.condVar === "string" && typeof move.condValue === "string";
+  }
+  if (record.type === "set-character-body-slot") return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0 && typeof record.value === "number" && Number.isInteger(record.value);
+  if (record.type === "set-character-growth") return ["firstLevelExp", "experienceIncrease", "maxLevel", "levelUpProgram", "levelUpType"].includes(String(record.field))
+    && (record.field === "levelUpProgram" ? typeof record.value === "string" : typeof record.value === "number" && Number.isInteger(record.value));
+  if (record.type === "set-character-increase") return typeof record.index === "number" && Number.isInteger(record.index) && record.index >= 0 && typeof record.value === "number" && Number.isInteger(record.value);
+  if (record.type === "set-character-moves-enabled") return typeof record.value === "number" && Number.isInteger(record.value);
   return false;
 }
 
 function invalidValue(model: SpriteActor, command: SpriteCommand): string | null {
   if (!supports(model, command)) return `This ${actorType(model)} file version ${model.minor} does not store this graphics field; the editor will not upgrade it on open.`;
+  if (command.type === "set-character-text" || command.type === "set-character-variable" || command.type === "set-character-accessory" || command.type === "set-character-growth" && command.field === "levelUpProgram") {
+    if (typeof command.value !== "string" || command.value.includes("\0")) return "Text fields cannot contain a null character.";
+  }
+  if (command.type === "set-character-variable" && command.index >= 9) return "Choose one of the nine RPGCode stat bindings.";
+  if (command.type === "set-character-accessory" && command.index >= 11) return "Choose one of the eleven accessory slots.";
+  if (command.type === "set-character-body-slot" && (command.index >= 7 || command.value < 0 || command.value > 1)) return "Body slot flags are 0 or 1 in one of seven stored slots.";
+  if (command.type === "set-character-move" && command.index >= 201) return "Choose one of the 201 stored special-move slots.";
+  if (command.type === "set-character-increase" && command.index >= 4) return "Choose one of the four level-increase fields.";
+  if (command.type === "set-character-moves-enabled" && command.value !== 0 && command.value !== 1) return "Special-move flag must be 0 or 1.";
   if (command.type === "set-sprite-animation") {
     const max = command.group === "walk" || command.group === "idle" ? 8 : command.group === "battle" ? (actorType(model) === "character" ? 5 : 1) : (model.customStances ?? []).length;
     if (!Number.isInteger(command.index) || command.index < 0 || command.index >= max) return "Choose an existing stance slot.";
@@ -224,6 +325,18 @@ function commandSurvivedWriteback(actual: SpriteActor, next: SpriteActor, comman
   }
   if (command.type === "set-sprite-timing") return actual.speed === next.speed && actual.idleTime === next.idleTime;
   if (command.type === "set-sprite-bases") return sameBases(actual.vectorBases, next.vectorBases);
+  if (command.type.startsWith("set-character-")) {
+    if (!isCharacter(actual) || !isCharacter(next)) return false;
+    if (command.type === "set-character-text") return actual[command.field] === next[command.field];
+    if (command.type === "set-character-variable") return actual.variableNames[command.index] === next.variableNames[command.index];
+    if (command.type === "set-character-stat") return actual.stats[command.field] === next.stats[command.field];
+    if (command.type === "set-character-move") return JSON.stringify(actual.specialMoves[command.index]) === JSON.stringify(next.specialMoves[command.index]);
+    if (command.type === "set-character-accessory") return actual.accessorySlots[command.index] === next.accessorySlots[command.index];
+    if (command.type === "set-character-body-slot") return actual.bodySlots[command.index] === next.bodySlots[command.index];
+    if (command.type === "set-character-growth") return actual[command.field] === next[command.field];
+    if (command.type === "set-character-increase") return actual.levelIncreases[command.index] === next.levelIncreases[command.index];
+    return actual.hasSpecialMoves === next.hasSpecialMoves;
+  }
   return sameStances(actual.customStances ?? [], next.customStances ?? []);
 }
 
@@ -249,6 +362,7 @@ function makeCodec(kind: SpriteActorKind): DocumentCodec<SpriteActor, SpriteComm
       if (command.type === "rename-custom-stance") return `Rename custom stance ${command.name}`;
       if (command.type === "delete-custom-stance") return "Delete custom stance";
       if (command.type === "set-sprite-timing") return "Change sprite timing";
+      if (command.type.startsWith("set-character-")) return `Edit character ${command.type.slice("set-character-".length)}`;
       return "Edit collision and activation bases";
     },
     refuse(next, command, previous): Rejection | null {
