@@ -284,6 +284,9 @@ importers:
 
   packages/editor-ui:
     dependencies:
+      '@tk-reawakened/core':
+        specifier: workspace:*
+        version: link:../core
       '@tk-reawakened/editor-model':
         specifier: workspace:*
         version: link:../editor-model
