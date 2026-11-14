@@ -84,3 +84,24 @@ export {
   type ListFailure,
   type ProjectLayout,
 } from "./reserved-folders.ts";
+export {
+  createProjectTree,
+  listGame,
+  type GameGroup,
+  type ProjectTree,
+  type ProjectTreeOptions,
+  type TreeOpenResult,
+  type TreeOperationResult,
+  type TreeRow,
+  type TreeSnapshot,
+} from "./project-tree.ts";
+export { createVisits, type ReturnResult, type VisitEntry, type VisitResult, type VisitSnapshot, type Visits } from "./visits.ts";
+export {
+  createLayoutModel,
+  type DockSide,
+  type LayoutModel,
+  type PanelDefinition,
+  type PanelState,
+  type SavedLayout,
+} from "./layout.ts";
+export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
