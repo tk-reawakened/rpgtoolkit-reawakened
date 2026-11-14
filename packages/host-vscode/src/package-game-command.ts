@@ -71,7 +71,7 @@ export function registerPackageGameCommand(context: vscode.ExtensionContext): vo
       return;
     }
 
-    const services = createVscodeServices(folder.uri);
+    const services = createVscodeServices(folder.uri, context, () => 0);
     const workspace = createDocumentWorkspace({ projectId: folder.uri.toString(), services });
     try {
       const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
