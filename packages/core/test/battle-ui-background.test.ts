@@ -6,11 +6,19 @@
 // read back from the engine, so a decoded picture, a wrong picture and the stock flat fallback are distinguishable.
 import { test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assetKey, expandTileToRgba, readTileset } from "../src/index.ts";
 import { awaitMenu, bootUiRig, tbmColourAt, type UiRig } from "./battle-ui-rig.ts";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const FINAL_DESTINY_FIXTURES = [
+  "Bkrounds/Background 1.bkg",
+  "Tiles/default.tst",
+  "Media/VIP - Boss2.mid",
+].map((path) => join(repoRoot, "fixtures", "legacy", "FinalDestiny", path));
+const missingFinalDestinyFixture = FINAL_DESTINY_FIXTURES.find((path) => !existsSync(path));
 
 /** The stock screen's flat fallback colour when the `.bkg` names no picture (BAT-11 item 3). */
 const FLAT_FALLBACK: readonly [number, number, number] = [20, 28, 56];
@@ -143,24 +151,28 @@ test("a cold text background requests all independent tiles in one batch", () =>
   }
 });
 
-test("Final Destiny's text background paints its stored tiles in a stock fight", () => {
-  const rig = bootUiRig({ background: "final-destiny" });
-  rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
-  rig.tick(8);
-  const frame = rig.frame();
-  deepEqual(rig.diagnostics, [], `requests: ${rig.requested.join(", ")}`);
-  const parsed = readTileset(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../../../fixtures/legacy/FinalDestiny/Tiles/default.tst")));
-  ok(parsed.ok);
-  for (const [column, row, tileNumber] of [[9, 2, 12], [12, 4, 12], [8, 4, 1]] as const) {
-    const x = Math.floor((column * 32 + 16) * 640 / 608);
-    const y = Math.floor((row * 32 + 16) * 480 / 352);
-    const sourceX = Math.floor(x * 608 / 640) % 32;
-    const sourceY = Math.floor(y * 352 / 480) % 32;
-    const expanded = expandTileToRgba(parsed.value, tileNumber - 1);
-    ok(expanded.ok);
-    const offset = (sourceX * 32 + sourceY) * 4;
-    deepEqual(pixel(frame, x, y), Array.from(expanded.value.slice(offset, offset + 3)), `tile ${tileNumber} at ${column},${row}`);
-  }
-  ok(rig.requested.includes(assetKey("Tiles/default.tst")));
-  deepEqual(rig.diagnostics, []);
-});
+test(
+  "Final Destiny's text background paints its stored tiles in a stock fight",
+  { skip: missingFinalDestinyFixture === undefined ? false : `run pnpm fixtures:fetch (missing ${missingFinalDestinyFixture})` },
+  () => {
+    const rig = bootUiRig({ background: "final-destiny" });
+    rig.until(() => Number(rig.ui()?.["backgroundcount"] ?? 0) > 0, 2000);
+    rig.tick(8);
+    const frame = rig.frame();
+    deepEqual(rig.diagnostics, [], `requests: ${rig.requested.join(", ")}`);
+    const parsed = readTileset(readFileSync(FINAL_DESTINY_FIXTURES[1]!));
+    ok(parsed.ok);
+    for (const [column, row, tileNumber] of [[9, 2, 12], [12, 4, 12], [8, 4, 1]] as const) {
+      const x = Math.floor((column * 32 + 16) * 640 / 608);
+      const y = Math.floor((row * 32 + 16) * 480 / 352);
+      const sourceX = Math.floor(x * 608 / 640) % 32;
+      const sourceY = Math.floor(y * 352 / 480) % 32;
+      const expanded = expandTileToRgba(parsed.value, tileNumber - 1);
+      ok(expanded.ok);
+      const offset = (sourceX * 32 + sourceY) * 4;
+      deepEqual(pixel(frame, x, y), Array.from(expanded.value.slice(offset, offset + 3)), `tile ${tileNumber} at ${column},${row}`);
+    }
+    ok(rig.requested.includes(assetKey("Tiles/default.tst")));
+    deepEqual(rig.diagnostics, []);
+  },
+);
