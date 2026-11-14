@@ -10,6 +10,7 @@ import {
   boardToScreen,
   buildNewBoard,
   cellCentre,
+  cellInGrid,
   cellNeighbours,
   cellOnBoard,
   createBoardDocument,
@@ -637,33 +638,28 @@ test("an iso-rotated board's keyboard cursor starts on the board and reaches eve
   equal(reached.size, onBoard.length, "the arrow keys reach every on-board cell");
 });
 
-test("a cursor that was on the board and is left off it by a change under the editor is brought back onto it", () => {
+test("a cursor that was on the board and is left off the picture by a change under the editor is brought back onto it", () => {
+  const supply = (target: Rig) => ({ board: () => current, apply: (command: Parameters<typeof target.doc.apply>[0]) => target.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
   const wide = rig("2d", 12, 12, 1);
-  const small = rig("2d", 6, 6, 1);
+  const rotated = rig("iso-rotated", 6, 5, 1);
   let current = wide.doc.getSnapshot();
-  const editor = createBoardEditor({ board: () => current, apply: (command) => wide.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
-  editor.setCursor({ x: 10, y: 9 });
-  deepEqual(editor.getState().cursor, { x: 10, y: 9 });
-  ok(cellOnBoard(current, 10, 9));
-  // The board under the editor is replaced by a smaller one (a reload): the cursor's cell is no longer on it.
-  current = small.doc.getSnapshot();
-  ok(!cellOnBoard(current, 10, 9), "the old cursor cell is now off the board");
+  const editor = createBoardEditor(supply(wide));
+  deepEqual(editor.getState().cursor, { x: 0, y: 0 }, "on a top-down board the first cell is on the board");
+  // The board under the editor becomes an iso-rotated 6 × 5 one, whose stored grid is 11 × 11. Cell 0,0 is still inside that
+  // grid but has no place on its picture: a guard that only asks whether the cell is in the grid would leave the cursor there.
+  current = rotated.doc.getSnapshot();
+  ok(cellInGrid(current, 0, 0), "the old cursor cell is still in the stored grid");
+  ok(!cellOnBoard(current, 0, 0), "but it is off the picture");
   editor.sync();
   const repaired = editor.getState().cursor;
-  ok(cellOnBoard(current, repaired.x, repaired.y), `the cursor is back on the board at ${repaired.x},${repaired.y}`);
-  // And on an iso-rotated board, whose stored grid has cells with no place on the picture.
-  const rotated = rig("iso-rotated", 6, 5, 1);
-  const bigRotated = rig("iso-rotated", 12, 12, 1);
-  current = bigRotated.doc.getSnapshot();
-  const rotatedEditor = createBoardEditor({ board: () => current, apply: (command) => bigRotated.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
-  const far = { x: 20, y: 15 };
-  ok(cellOnBoard(current, far.x, far.y));
-  rotatedEditor.setCursor(far);
+  ok(cellOnBoard(current, repaired.x, repaired.y), `the cursor is back on the picture at ${repaired.x},${repaired.y}`);
+  // The same with a cursor the author had moved: a cell in the grid of both boards, on the first and off the second.
+  current = wide.doc.getSnapshot();
+  editor.setCursor({ x: 10, y: 10 });
   current = rotated.doc.getSnapshot();
-  ok(!cellOnBoard(current, far.x, far.y));
-  rotatedEditor.sync();
-  const back = rotatedEditor.getState().cursor;
-  ok(cellOnBoard(current, back.x, back.y), "an iso-rotated cursor is brought onto the picture too");
+  ok(cellInGrid(current, 10, 10) && !cellOnBoard(current, 10, 10), "10,10 is in the 11 × 11 grid and off the rotated picture");
+  editor.sync();
+  ok(cellOnBoard(current, editor.getState().cursor.x, editor.getState().cursor.y));
 });
 
 test("finishing a rectangle with Ctrl+Space fills it even when it was started without Ctrl, and the middle was empty", async () => {
@@ -770,4 +766,67 @@ test("one command that tints the same cell on several layers sets every one of t
   deepEqual(s.doc.serialize(), before);
   ok(s.doc.redo().ok);
   deepEqual(s.doc.serialize(), once);
+});
+
+test("a multi-layer tint whose final shades are valid is accepted whatever order its assignments come in, and one Undo takes it back (#2551)", () => {
+  const built = buildNewBoard({ name: "t", coordSystem: "2d", pixelCoordinates: false, width: 6, height: 6, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  if (!built.ok) return;
+  const read = readBoard(new BinaryReader(built.bytes));
+  ok(read.ok);
+  if (!read.ok) return;
+  // Shades cast onto layer 1 (red +200) and onto layer 2 (red −200) at every cell: layer 1 alone shows 0, layer 2 alone −200.
+  const shaded = writeBoard({
+    ...read.value,
+    shadeLayers: [
+      { castLayer: 1, records: [{ runCount: 36, r: 200, g: 0, b: 0 }] },
+      { castLayer: 2, records: [{ runCount: 36, r: -200, g: 0, b: 0 }] },
+    ],
+  });
+  ok(shaded.ok);
+  if (!shaded.ok) return;
+  const cell = { x: 3, y: 2 };
+  const first = { layer: 0, ...cell, r: 255, g: 0, b: 0 };
+  const second = { layer: 1, ...cell, r: 255, g: 0, b: 0 };
+  const outcomes: Uint8Array[] = [];
+  for (const shades of [[first, second], [second, first]]) {
+    const host = createMemoryPlatformServices({ files: { "Boards/t.brd": shaded.value } });
+    const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), shaded.value);
+    ok(opened.ok);
+    if (!opened.ok) return;
+    const doc = opened.document;
+    const accepted = doc.apply({ type: "set-tiles", gesture: "stamp", cells: [], shades });
+    ok(accepted.ok, `${shades[0] === first ? "layer 1 then layer 2" : "layer 2 then layer 1"}: ${accepted.ok ? "" : accepted.rejection.message}`);
+    const after = readBoard(new BinaryReader(doc.serialize()));
+    ok(after.ok);
+    if (!after.ok) return;
+    const castRed = (castLayer: number): number => {
+      const layer = after.value.shadeLayers.find((candidate) => candidate.castLayer === castLayer)!;
+      let at = 0;
+      for (const record of layer.records) {
+        const count = record.runCount > 1 ? record.runCount : 1;
+        if (6 * cell.y + cell.x < at + count) return record.r;
+        at += count;
+      }
+      throw new Error("the cell is not covered");
+    };
+    deepEqual([castRed(1), castRed(2)], [0, 255], "the final casts are 0 and 255");
+    outcomes.push(doc.serialize());
+    ok(doc.undo().ok);
+    deepEqual(doc.serialize(), shaded.value, "one Undo restores both layers' shading");
+    ok(doc.redo().ok);
+    deepEqual(doc.serialize(), outcomes.at(-1));
+  }
+  deepEqual(outcomes[0], outcomes[1], "the order of the assignments does not change the result");
+  // A final value that is out of bounds is still refused, whatever the order.
+  const outOfBounds = [{ ...first, r: 255 }, { layer: 1, ...cell, r: -255, g: 0, b: 0 }];
+  for (const shades of [outOfBounds, [...outOfBounds].reverse()]) {
+    const host = createMemoryPlatformServices({ files: { "Boards/t.brd": shaded.value } });
+    const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), shaded.value);
+    ok(opened.ok);
+    if (!opened.ok) return;
+    const refused = opened.document.apply({ type: "set-tiles", gesture: "stamp", cells: [], shades });
+    equal(refused.ok, false, "layer 1 at 255 and layer 2 at −255 would need a cast of 510");
+    deepEqual(opened.document.serialize(), shaded.value);
+  }
 });

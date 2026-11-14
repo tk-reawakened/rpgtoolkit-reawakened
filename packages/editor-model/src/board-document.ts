@@ -264,6 +264,7 @@ function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonl
     return layers.length - 1;
   };
   const changed = new Set<number>();
+  const touched: [number, number][] = [];
   // One wanted tint per cell *and layer*: the same cell on two layers is two assignments, and a later one for the same layer wins.
   const final = new Map<number, ShadeAssignment>();
   for (const shade of shades) {
@@ -299,12 +300,17 @@ function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonl
       const index = castOnto(castLayer);
       const decodedLayer = values(index);
       if (decodedLayer === null) return { ok: false, message: "This board's shading covers more cells than its grid, which the editor does not rewrite." };
-      for (let channel = 0; channel < 3; channel += 1) {
-        const next = decodedLayer[edit.cell * 3 + channel]! + sign * edit.delta[channel]!;
-        if (next < SHADE_MIN || next > SHADE_MAX) return { ok: false, message: `The shading at column ${(edit.cell % grid.width) + 1}, row ${Math.floor(edit.cell / grid.width) + 1} cannot hold that tint: a shade is at most ${SHADE_MAX} either way.` };
-        decodedLayer[edit.cell * 3 + channel] = next;
-      }
+      // Every delta is added first and the bounds are checked on the final values, so the order of the assignments never decides.
+      for (let channel = 0; channel < 3; channel += 1) decodedLayer[edit.cell * 3 + channel] = decodedLayer[edit.cell * 3 + channel]! + sign * edit.delta[channel]!;
       changed.add(index);
+      touched.push([index, edit.cell]);
+    }
+  }
+  for (const [index, cell] of touched) {
+    const cast = decoded[index]!;
+    for (let channel = 0; channel < 3; channel += 1) {
+      const final = cast[cell * 3 + channel]!;
+      if (final < SHADE_MIN || final > SHADE_MAX) return { ok: false, message: `The shading at column ${(cell % grid.width) + 1}, row ${Math.floor(cell / grid.width) + 1} cannot hold that tint: a shade is at most ${SHADE_MAX} either way.` };
     }
   }
   if (changed.size === 0) return { ok: true, layers: board.shadeLayers };
