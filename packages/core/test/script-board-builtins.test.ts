@@ -109,9 +109,18 @@ test("scan and mem address the effective square grid of a rotated board", () => 
   };
   apply("scan", 3, 3, 7);
   const thread = programThread(state);
+  const services = createScriptServices(state, [{ definition: WORLD_PLUGIN }]);
+  const readTile = (name: "boardgettile" | "getboardtile"): unknown => services.commands.get(name)?.spec?.call(
+    services.view,
+    [3, 3, 1].map((value) => ({ value, ref: null })),
+    () => ({ value: null }),
+  ).value;
   putTile(state, thread, 3, 3, "tiles/changed.tst");
   putTile(state, thread, 4, 3, "tiles/out-of-bounds.tst");
+  equal(readTile("boardgettile"), "tiles/changed.tst");
+  equal(readTile("getboardtile"), "tiles/changed.tst");
   apply("mem", 3, 3, 7);
+  equal(readTile("boardgettile"), "tiles/rotated.tst");
 
   deepEqual(state.world.board?.layers[0]?.tiles[8], original);
   equal(state.world.board?.layers[0]?.tiles.length, 9);

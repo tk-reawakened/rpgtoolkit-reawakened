@@ -3,6 +3,7 @@
  * #items-placed-on-the-board-sprites and #animated-tiles). Format residue and
  * decoded pixels stay outside GameState.
  */
+import { boardGrid } from "../formats/board/model.ts";
 import type { AssetKey } from "../ports/keys.ts";
 import type { Tint } from "../ports/draw.ts";
 import type { PlainData } from "../ports/plain-data.ts";
@@ -151,3 +152,12 @@ export type WorldBoard = DataRecord & {
   readonly tilesets?: WorldTileset[];
   readonly runtime?: WorldRuntime;
 };
+
+/** Effective stored tile grid, shared by board reads and runtime tile edits. */
+export function worldBoardGrid(board: Pick<WorldBoard, "coordType" | "sizeX" | "sizeY" | "gridWidth" | "gridHeight">): { readonly width: number; readonly height: number } {
+  const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
+  return {
+    width: board.gridWidth ?? grid.width,
+    height: board.gridHeight ?? grid.height,
+  };
+}

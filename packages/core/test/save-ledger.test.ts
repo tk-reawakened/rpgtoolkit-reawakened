@@ -39,6 +39,7 @@ import {
   type WorldItem,
   type WorldTile,
 } from "../src/index.ts";
+import { installRecoveryBoard } from "../src/engine/recovery.ts";
 
 const BOARD_KEY = "start.brd";
 const ITEM_FILE = "Items/chest.itm";
@@ -1036,6 +1037,64 @@ test("program-scope tile edits and their expiry never reach the ledger", () => {
   equal(state.world.board!.runtime!.tileEdits[0]!.previous, null);
   equal(hashGameLedger(projectGameLedger(state)), ledgerBefore);
   differs(hashGameState(state), fullBefore);
+});
+
+test("world-v2 rotated tile edits migrate for expiry and recovery", () => {
+  const state = fixture();
+  const baseTile = tile("Tiles/base.tle", 0);
+  const durableTile = tile("Tiles/durable.tle", 1);
+  const transientTile = tile("Tiles/transient.tle", 2);
+  const baseLayers = [
+    { tiles: Array<WorldTile | null>(9).fill(null) },
+    { tiles: [baseTile, ...Array<WorldTile | null>(8).fill(null)] },
+  ];
+  const authored: WorldBoard = {
+    ...board(),
+    coordType: 2,
+    sizeX: 2,
+    sizeY: 1,
+    sizeL: 2,
+    gridWidth: 3,
+    gridHeight: 3,
+    width: 96,
+    height: 32,
+    layers: baseLayers,
+    runtime: { tileEdits: [], tileTypes: Array(18).fill("NORMAL"), tileBuffers: {} },
+  };
+  state.world = {
+    ...state.world,
+    board: {
+      ...authored,
+      layers: [baseLayers[0]!, { tiles: [transientTile, ...Array<WorldTile | null>(8).fill(null)] }],
+      runtime: {
+        ...authored.runtime!,
+        tileEdits: [
+          { index: 2, tile: durableTile, previous: baseTile, scope: "board" },
+          { index: 2, tile: transientTile, previous: durableTile, scope: "program", owner: 999 },
+        ],
+      },
+    },
+  };
+
+  const oldSave = JSON.parse(snapshot(state)) as { schema: { world: number } };
+  oldSave.schema.world = 2;
+  const restored = restoreGameState(JSON.stringify(oldSave));
+  equal(restored.schema.world, 3);
+  deepEqual(restored.world.board?.runtime?.tileEdits.map(({ index }) => index), [9, 9]);
+  equal(restored.world.board?.layers[1]?.tiles[0]?.asset, transientTile.asset);
+
+  expireProgramTileEdits(restored);
+  deepEqual(restored.world.board?.runtime?.tileEdits, [
+    { index: 9, tile: durableTile, previous: baseTile, scope: "board" },
+  ]);
+  equal(restored.world.board?.layers[1]?.tiles[0]?.asset, durableTile.asset);
+
+  const ledger = projectGameLedger(restored);
+  ok(ledger.world.board.state === "present");
+  ok(ledger.world.board.value.runtime.state === "present");
+  deepEqual(ledger.world.board.value.runtime.value.tileEdits.map(({ index }) => index), [9]);
+  const recovered = installRecoveryBoard(restored, authored, ledger);
+  equal(recovered.layers[1]?.tiles[0]?.asset, durableTile.asset);
 });
 
 test("saved encounter and trigger board names may lag the current board", () => {

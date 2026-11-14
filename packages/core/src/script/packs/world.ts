@@ -1,6 +1,6 @@
 /** Board reads and edits (E-14; docs/spec/engine/rpgcode-functions.md#e-14). */
 import type { Value } from "../../ports/value.ts";
-import type { WorldBoard, WorldProgram, WorldVector } from "../../world/model.ts";
+import { worldBoardGrid, type WorldBoard, type WorldProgram, type WorldVector } from "../../world/model.ts";
 import { ScriptError } from "../errors.ts";
 import type { Arg, BuiltinDoc, BuiltinSpec } from "../builtins.ts";
 import type { CommandEffect, CommandResult, PluginDefinition } from "../plugin.ts";
@@ -31,8 +31,9 @@ function location(current: WorldBoard, args: readonly Arg[], layerIndex: number)
   const y = numberArg(args, 1) - 1;
   const layer = layerIndex < 0 ? numberArg(args, 2, 1) : layerIndex;
   const layerOffset = layer - 1;
-  if (x < 0 || y < 0 || x >= current.sizeX || y >= current.sizeY || layerOffset < 0 || layerOffset >= current.layers.length) return null;
-  return { index: y * current.sizeX + x, layer: layerOffset };
+  const { width, height } = worldBoardGrid(current);
+  if (x < 0 || y < 0 || x >= width || y >= height || layerOffset < 0 || layerOffset >= current.layers.length) return null;
+  return { index: y * width + x, layer: layerOffset };
 }
 function tileName(current: WorldBoard, args: readonly Arg[]): string {
   const found = location(current, args, -1);
