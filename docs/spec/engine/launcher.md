@@ -15,8 +15,8 @@ application. The UI and storage services live in `runner-web` and are consumed i
   simulation state hashes.
 - **G2:** `core` remains strictly I/O-free. The launcher resolves an installed, fetched, or local package, verifies its
   descriptor, and feeds raw bytes to the engine asset source. `core` never learns of the launcher or registry.
-- **G6:** No copyleft or restricted dependencies. The launcher UI is built with standard web technologies (HTML, CSS,
-  TypeScript) bundled via esbuild (ADR 0015).
+- **G6:** Direct production dependencies meet Blue Oak Bronze-or-better; known transitive licences outside Blue Oak are allowed only when they permit redistribution and use and are neither copyleft nor restricted. Unknown/unlicensed terms are blocked. The launcher UI is built with standard web technologies (HTML, CSS,
+  TypeScript) bundled via esbuild (ADR 0015, ADR 0034).
 
 <a id="launch-resolution"></a>
 ## Launch resolution order

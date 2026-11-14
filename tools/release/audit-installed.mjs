@@ -10,6 +10,12 @@ const policy = {
   ...loadConfig(join(policyRoot, 'config.json')),
   blueOakList: loadBlueOakList(join(policyRoot, 'blue-oak-list.json')),
 };
+const rootManifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const directDependencies = new Set([
+  ...Object.keys(rootManifest.dependencies ?? {}),
+  ...Object.keys(rootManifest.optionalDependencies ?? {}),
+  ...Object.keys(rootManifest.peerDependencies ?? {}),
+]);
 const visited = new Set();
 let count = 0;
 let failures = 0;
@@ -26,8 +32,9 @@ function packages(directory) {
     if (visited.has(real)) continue;
     visited.add(real);
     const manifest = JSON.parse(readFileSync(join(real, 'package.json'), 'utf8'));
-    const result = evaluateLicense(manifest.license, policy);
-    console.log(`${manifest.name}@${manifest.version}: ${manifest.license ?? '<missing>'} ${result.pass ? 'OK' : result.reason}`);
+    const tier = directDependencies.has(manifest.name) ? 'direct' : 'transitive';
+    const result = evaluateLicense(manifest.license, policy, tier);
+    console.log(`${manifest.name}@${manifest.version} [${tier}]: ${manifest.license ?? '<missing>'} ${result.pass ? 'OK' : result.reason}`);
     count++;
     if (!result.pass) failures++;
     try { packages(join(real, 'node_modules')); }

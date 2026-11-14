@@ -3,6 +3,9 @@
   "blocked": [
     "MS-PL"
   ],
+  "transitiveNonCopyleft": [
+    "CC-BY-4.0"
+  ],
   "devExemptions": {
     "ovsx": {
       "license": "EPL-2.0",

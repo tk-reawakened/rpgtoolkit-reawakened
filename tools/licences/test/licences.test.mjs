@@ -132,6 +132,44 @@ test("evaluator: complex nested expression ((MIT OR GPL-3.0) AND Apache-2.0)", (
   assert.equal(res.pass, true);
 });
 
+test("evaluator: non-Blue-Oak non-copyleft license is only allowed transitively", () => {
+  assert.equal(evaluateLicense("CC-BY-4.0", defaultPolicy).pass, false);
+  assert.equal(evaluateLicense("CC-BY-4.0", defaultPolicy, "transitive").pass, true);
+  assert.equal(evaluateLicense("CC-BY-NC-4.0", defaultPolicy, "transitive").pass, false);
+  assert.equal(evaluateLicense("GPL-3.0", defaultPolicy, "transitive").pass, false);
+});
+
+test("production dependency tier applies the strict floor only to direct dependencies", () => {
+  withTempWorkspace((dir) => {
+    writeFileSync(join(dir, "THIRD_PARTY_NOTICES"), "codicons\n");
+    const packageRecord = { name: "codicons", versions: ["1.0.0"], license: "CC-BY-4.0" };
+    const licenses = { "CC-BY-4.0": [packageRecord] };
+    const transitive = checkLicences(dir, {
+      prodLicensesJson: licenses,
+      allLicensesJson: licenses,
+      directDependencies: [],
+    });
+    assert.deepEqual(transitive.productionDependencies, [
+      { package: "codicons", version: "1.0.0", tier: "transitive" },
+    ]);
+
+    const direct = checkLicences(dir, {
+      prodLicensesJson: licenses,
+      allLicensesJson: licenses,
+      directDependencies: ["codicons"],
+    });
+    assert.equal(direct.pass, false);
+    assert.deepEqual(direct.productionDependencies, [
+      { package: "codicons", version: "1.0.0", tier: "direct" },
+    ]);
+    assert.ok(direct.violations.some((violation) =>
+      violation.type === "unapproved-prod-license" &&
+      violation.package === "codicons" &&
+      violation.tier === "direct" &&
+      /Production direct dependency/.test(violation.message)));
+  });
+});
+
 // -------------------------------------------------------------
 // Workspace & Matrix Scenario tests
 // -------------------------------------------------------------

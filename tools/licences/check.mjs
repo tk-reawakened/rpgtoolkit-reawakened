@@ -44,7 +44,7 @@ export function loadConfig(configPath) {
  * - For A OR B: passes if at least one alternative passes.
  * - For A AND B: passes if all components pass.
  */
-export function evaluateLicense(expr, policy) {
+export function evaluateLicense(expr, policy, tier = "direct") {
   if (!expr || typeof expr !== "string" || expr.trim() === "") {
     return {
       pass: false,
@@ -144,7 +144,7 @@ export function evaluateLicense(expr, policy) {
         };
       }
 
-      // Check specifically for copyleft licences per G6
+      // Copyleft is blocked at every dependency tier.
       if (/^(GPL|AGPL|LGPL|MPL|EUPL|SSPL)(-[0-9.]+.*)?$/i.test(id)) {
         return {
           pass: false,
@@ -154,6 +154,28 @@ export function evaluateLicense(expr, policy) {
       }
 
       const rating = policy.blueOakList?.licenseMap.get(id);
+      if (tier === "transitive") {
+        if (rating) {
+          return {
+            pass: true,
+            rating,
+            license: id,
+          };
+        }
+        if (policy.transitiveNonCopyleft?.includes(id)) {
+          return {
+            pass: true,
+            license: id,
+            classification: "known non-copyleft",
+          };
+        }
+        return {
+          pass: false,
+          reason: `License '${id}' is not classified as a known non-copyleft transitive license`,
+          license: id,
+        };
+      }
+
       if (!rating) {
         return {
           pass: false,
@@ -257,6 +279,45 @@ export function queryPnpmLicenses(root, prodOnly = false) {
   }
   return JSON.parse(stdout);
 }
+
+function queryPnpmDirectDependencies(root) {
+  if (!existsSync(join(root, "pnpm-workspace.yaml"))) {
+    const manifestPath = join(root, "package.json");
+    if (!existsSync(manifestPath)) return new Set();
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    return new Set([
+      ...Object.keys(manifest.dependencies || {}),
+      ...Object.keys(manifest.optionalDependencies || {}),
+      ...Object.keys(manifest.peerDependencies || {}),
+    ]);
+  }
+
+  const args = ["-r", "list", "--prod", "--depth", "0", "--json"];
+  const result = spawnSync("pnpm", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (result.error) {
+    throw new Error(`Failed to execute 'pnpm ${args.join(" ")}': ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`pnpm list exited with status ${result.status}: ${result.stderr || result.stdout}`);
+  }
+
+  const projects = JSON.parse(result.stdout || "[]");
+  if (!Array.isArray(projects)) {
+    throw new Error("pnpm list did not return a workspace project array");
+  }
+  const direct = new Set();
+  for (const project of projects) {
+    for (const section of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+      for (const name of Object.keys(project[section] || {})) direct.add(name);
+    }
+  }
+  return direct;
+}
+
 
 /**
  * Extracts a map of package name -> Array<{ version, license }> from pnpm licenses output.
@@ -575,19 +636,28 @@ export function checkLicences(root = repoRoot, options = {}) {
   // 3. Query all dependencies (prod + dev)
   const allRaw = options.allLicensesJson ?? queryPnpmLicenses(root, false);
   const allPackages = normalizePackages(allRaw);
+  const directDependencies = options.directDependencies !== undefined
+    ? new Set(options.directDependencies)
+    : options.prodLicensesJson !== undefined
+      ? new Set(prodPackages.keys())
+      : queryPnpmDirectDependencies(root);
 
+  const productionDependencies = [];
+  
   // 4. Audit production dependencies
   for (const [pkgName, occurrences] of prodPackages) {
+    const tier = directDependencies.has(pkgName) ? "direct" : "transitive";
     for (const occ of occurrences) {
-      // Evaluate licence
-      const result = evaluateLicense(occ.license, policy);
+      productionDependencies.push({ package: pkgName, version: occ.version, tier });
+      const result = evaluateLicense(occ.license, policy, tier);
       if (!result.pass) {
         violations.push({
           type: "unapproved-prod-license",
           package: pkgName,
           version: occ.version,
+          tier,
           license: occ.license,
-          message: `Production dependency '${pkgName}@${occ.version}' with license '${occ.license}' rejected: ${result.reason}`,
+          message: `Production ${tier} dependency '${pkgName}@${occ.version}' with license '${occ.license}' rejected: ${result.reason}`,
         });
       }
 
@@ -684,6 +754,7 @@ export function checkLicences(root = repoRoot, options = {}) {
   return {
     pass: violations.length === 0,
     prodCount: prodPackages.size,
+    productionDependencies,
     allCount: allPackages.size,
     fontCount,
     soundfontCount,
@@ -738,6 +809,10 @@ if (isMain) {
   console.log(`Checking licences for workspace at: ${targetRoot}`);
   try {
     const result = checkLicences(targetRoot);
+    console.log(`  Production dependency tiers:`);
+    for (const dependency of result.productionDependencies) {
+      console.log(`    ${dependency.tier}: ${dependency.package}@${dependency.version}`);
+    }
     if (!result.pass) {
       console.error(`\nLicence check FAILED with ${result.violations.length} violation(s):\n`);
       for (const v of result.violations) {
