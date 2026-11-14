@@ -162,6 +162,8 @@ test("character authoring fields apply independently, undo and round-trip withou
   ok(runtimeCharacter.ok);
   const runtimeActor = actorInputFromCharacter(path, "party", runtimeCharacter.value);
   const actorRecord = createActorRecord(1, runtimeActor);
+  ok(runtimeActor.stats);
+  ok(runtimeActor.progression);
   equal(actorRecord.stats.maxHp, saved.stats.maxHp);
   equal(runtimeActor.stats.experience, saved.stats.experience);
   equal(runtimeActor.progression.levelType, saved.firstLevelExp);
