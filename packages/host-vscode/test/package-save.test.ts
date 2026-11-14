@@ -1,0 +1,59 @@
+import { deepEqual, equal, ok } from "node:assert/strict";
+import { test } from "node:test";
+import { utf8Encode } from "@tk-reawakened/core";
+import type { PreparedGamePackage } from "@tk-reawakened/editor-model";
+import { savePackageWithSaveAs, type PackageSavePort } from "../src/package-save.ts";
+
+function prepared(): PreparedGamePackage {
+  return {
+    package: { fileName: "game.tpk", bytes: utf8Encode("archive") },
+    descriptor: { fileName: "game.tpk.json", bytes: utf8Encode(JSON.stringify({ schema: 1, file: "game.tpk", sha256: "hash", size: 7, gameId: "id", title: "Game", version: "1" })) },
+    includedFiles: [], excludedFiles: [],
+  };
+}
+
+function port(overrides: Partial<PackageSavePort<string>> = {}) {
+  const writes: [string, Uint8Array][] = [];
+  let replaced: readonly string[] = [];
+  const value: PackageSavePort<string> = {
+    chooseDestination: async () => "out/game.tpk",
+    fileName: (path) => path.slice(path.lastIndexOf("/") + 1),
+    sibling: (path, name) => `${path.slice(0, path.lastIndexOf("/") + 1)}${name}`,
+    describe: (path) => path,
+    exists: async () => false,
+    confirmReplace: async (paths) => { replaced = paths; return false; },
+    write: async (path, bytes) => { writes.push([path, bytes]); },
+    ...overrides,
+  };
+  return { value, writes, replaced: () => replaced };
+}
+
+test("package Save As confirms both existing siblings before replacing and writes descriptor naming chosen archive", async () => {
+  let confirms = 0;
+  const fs = port({
+    exists: async (path) => path === "out/game.tpk" || path === "out/game.tpk.json",
+    confirmReplace: async (paths) => { confirms += 1; deepEqual(paths, ["out/game.tpk", "out/game.tpk.json"]); return true; },
+  });
+  const result = await savePackageWithSaveAs(fs.value, prepared());
+  ok(result.ok);
+  equal(confirms, 1);
+  equal(fs.writes.length, 2);
+  equal(fs.writes[0]?.[0], "out/game.tpk");
+  equal(new TextDecoder().decode(fs.writes[1]?.[1]), JSON.stringify({ schema: 1, file: "game.tpk", sha256: "hash", size: 7, gameId: "id", title: "Game", version: "1" }, null, 2) + "\n");
+});
+
+test("package Save As cancellation leaves existing files untouched", async () => {
+  const fs = port({ exists: async () => true, confirmReplace: async () => false });
+  const result = await savePackageWithSaveAs(fs.value, prepared());
+  equal(result.ok, false);
+  if (!result.ok) equal(result.cancelled, true);
+  equal(fs.writes.length, 0);
+});
+
+test("package Save As reports an incomplete pair when descriptor write fails", async () => {
+  const fs = port({ write: async (path, bytes) => { if (path.endsWith(".json")) throw new Error("disk full"); fs.writes.push([path, bytes]); } });
+  const result = await savePackageWithSaveAs(fs.value, prepared());
+  equal(result.ok, false);
+  if (!result.ok) ok(result.message.includes("export is incomplete"));
+  deepEqual(fs.writes.map(([path]) => path), ["out/game.tpk"]);
+});
