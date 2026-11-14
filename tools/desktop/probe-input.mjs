@@ -681,7 +681,6 @@ async function main() {
   } catch (error) {
     console.log(JSON.stringify({ package: pkg, error: String(error), log: log.join("") }, null, 2));
     process.exitCode = 1;
-  }
   } finally {
     mainDebugger.close();
     page.close();
