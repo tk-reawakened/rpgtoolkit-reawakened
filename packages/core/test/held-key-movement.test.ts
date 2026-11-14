@@ -696,10 +696,19 @@ test("a collision reports each binding and dispatches all actions in ACT-4 order
   deepEqual(movementBindingCollisions(state.input), [
     { code: "Space", actions: ["right", "down", "confirm", "game.z", "game.a"] },
   ]);
-  tick(state, 0, [{ kind: "key", code: "Space", name: " ", char: " ", down: true }]);
+  const transitions: string[] = [];
+  const event = { kind: "key", code: "Space", name: " ", char: " " } as const;
+  applyInputEvent(state.input, { ...event, down: true }, undefined, (action, down) => transitions.push(`${action}:${down}`));
+  tick(state, 0);
   equal(state.input.keys.length, 1);
   deepEqual(state.input.keys[0]!.resolvedActions, ["down", "right", "confirm", "game.z", "game.a"]);
   equal(state.sprites.players[0]!.movement.active?.facing, "E");
+  applyInputEvent(state.input, { ...event, down: false }, undefined, (action, down) => transitions.push(`${action}:${down}`));
+  deepEqual(transitions, [
+    "down:true", "right:true", "confirm:true", "game.z:true", "game.a:true",
+    "down:false", "right:false", "confirm:false", "game.z:false", "game.a:false",
+  ]);
+  equal(state.input.keys.length, 1, "release does not append another raw key");
 });
 
 test("a disabled pad contributes no movement, actions or active device state", () => {
