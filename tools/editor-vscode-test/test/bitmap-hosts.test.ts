@@ -255,6 +255,9 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       equal(control<HTMLButtonElement>(first, ".tkr-tileset-browser-select-brush").disabled, true, "no cells, no stamp");
       await act(() => { control<HTMLButtonElement>(first, ".tkr-tileset-browser-select-brush").click(); });
       match(first.element.querySelector(".tkr-bitmap-brush")?.textContent ?? "", /Brush: village\.tst tile 1/, "the chosen tile is still the brush");
+      // The item's own name button is the primary way to choose it: for a bitmap with no cells it chooses nothing.
+      await act(() => { control<HTMLButtonElement>(first, ".tkr-tileset-browser-source").click(); });
+      match(first.element.querySelector(".tkr-bitmap-brush")?.textContent ?? "", /Brush: village\.tst tile 1/, "clicking the empty bitmap does not replace the brush");
       if (host.openPaths !== undefined) {
         await act(() => { control<HTMLButtonElement>(first, ".tkr-tileset-browser-item button:last-of-type").click(); });
         const edit = [...first.element.querySelectorAll<HTMLButtonElement>(".tkr-tileset-browser-menu button")].find((button) => button.textContent === "Edit tile bitmap");

@@ -267,7 +267,11 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
               type="button"
               class={brush?.reference === item.reference ? "tkr-tileset-browser-source tkr-tileset-browser-source-selected" : "tkr-tileset-browser-source"}
               aria-pressed={brush?.reference === item.reference}
-              onClick={() => item.boardTile === null ? session.update({ selection: item }) : choose(item)}
+              onClick={() => {
+                // A source that is neither a board tile nor a stamp (a bitmap with no cells) is never a brush.
+                if (item.boardTile !== null) choose(item);
+                else if (item.stamp !== null) session.update({ selection: item });
+              }}
             >
               {previews.has(item.reference) ? (
                 <canvas

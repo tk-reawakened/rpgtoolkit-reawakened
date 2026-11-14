@@ -512,6 +512,8 @@ test("a tile bitmap with no cells is no stamp but keeps its edit action, and cho
   });
   await until(() => /no cells/.test(s.el.querySelector(".tkr-tileset-browser-message")?.textContent ?? ""));
   equal(control<HTMLButtonElement>(s.el, ".tkr-tileset-browser-select-brush").disabled, true);
+  await act(() => control<HTMLButtonElement>(s.el, ".tkr-tileset-browser-source").click());
+  equal(s.session.getSnapshot().selection, null, "the item's own name button chooses nothing either");
   await act(() => control<HTMLButtonElement>(s.el, ".tkr-tileset-browser-item button:last-of-type").click());
   const menu = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-tileset-browser-menu button")];
   equal(menu.find((button) => button.textContent === "Select as stamp brush")?.disabled, true);
