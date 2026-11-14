@@ -2,7 +2,7 @@
 type: feature
 title: "Board properties links and player start"
 ticket: 3
-status: draft
+status: blocked
 ---
 
 # Board properties links and player start
@@ -21,4 +21,4 @@ Use the shared document lifecycle and preserve same-version unknown data; exerci
 
 ## Dependencies and decision gate
 
-Prerequisites: 1, 11.4, 11.6. None newly identified; check the linked proposal and actual providers before implementation.
+Prerequisites: 1, 11.4, 11.6 and the actual shared program editor, 11.7 (#1705). The required program/thread Open-and-return path has no provider yet. Keep the full linked-program acceptance above; do not make it conditional or substitute a text-only preview. The expanded plan is preserved on pushed branch `feat/1714-board-properties` at `7a9310b0`; no implementation is claimed. This is a provider dependency, not a malicious-folder save restriction.

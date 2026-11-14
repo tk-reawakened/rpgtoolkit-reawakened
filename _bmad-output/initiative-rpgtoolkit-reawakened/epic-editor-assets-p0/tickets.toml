@@ -31,7 +31,7 @@ title = "Board properties links and player start"
 description = "Edit board properties, directional links, threads, battle settings and player start with explicit linked-file navigation and main-file ownership."
 verify = "A board properties edit and startup-marker change save and reopen with unrelated properties intact and linked board or program visits return to their origin."
 covers = ["CAP-15"]
-after = [1, "11.4", "11.6"]
+after = [1, "11.4", "11.6", "11.7"]
 hitl = false
 risk = "medium"
 
@@ -79,7 +79,7 @@ title = "Animation frames playback and creation wizard"
 description = "Edit animation frames, per-frame image transparency and sound, delay and size, including image and tile composition wizards using the shared browser."
 verify = "Image and multi-tile wizard results save and reopen with ordered frame-associated sound and transparency while cancellation leaves source and destination unchanged."
 covers = ["CAP-15"]
-after = [2, 8, "11.1"]
+after = [2, 8, "11.1", "11.14"]
 hitl = false
 risk = "high"
 

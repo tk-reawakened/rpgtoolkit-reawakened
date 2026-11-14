@@ -3,7 +3,7 @@ title: "Package game and install descriptor"
 type: feature
 ticket: 9
 created: 2026-11-13
-status: built
+status: done
 baseline_revision: 4dce26b4b57dad789c23248ef0533e66b08c4e7a
 route: full
 route_source: auto
@@ -77,13 +77,13 @@ Residual usability issue #2660: browsers download the two files separately and m
 
 ## Verification
 
-Status `built` is not merge approval. Independent review and verification are in progress; only results explicitly recorded on PR #2318 describe a verified revision.
+Independently reviewed final head `098e893c51c6a280aa7b0f76e859a694f5ceb9cd` passed every required CI job and gate in [run 43625515817](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/43625515817), including all eight strict unit shards, both golden lanes, native browser proof and all three desktop OSes. PR #2318 merged as `f66b3ebf0908ee2fe40fd85c365df817bbdaae41`.
 
-**Commands to run:**
-- `pnpm exec tsc -b packages/platform-services packages/editor-model packages/editor-ui packages/host-web packages/host-vscode && pnpm exec tsc -p packages/editor-model/tsconfig.test.json && pnpm exec tsc -p packages/editor-ui/tsconfig.test.json && pnpm exec tsc -p packages/host-web/tsconfig.test.json && pnpm exec tsc -p tools/browser/tsconfig.tests.json && pnpm exec tsc -p tools/editor-vscode-test/tsconfig.test.json`
-- `node --test packages/editor-model/test/package-export.test.ts packages/editor-ui/test/shell.test.ts packages/host-web/test/filesystem.test.ts tools/editor-vscode-test/test/vscode-adapter.test.ts`
-- `node --test tools/editor-vscode-test/proof-directories.test.mjs`
-- `pnpm run browser:build` and `pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts tools/browser/tests/package-export-boot.spec.ts --workers=1`
-- `pnpm --dir extensions/editor build`, then `node tools/editor-vscode-test/run.mjs --extension "$PWD/extensions/editor" --workspace "$workspace" --game Main/example.gam` with a complete authored fixture workspace. The proof checks preflight, Save As and persisted package/descriptor bytes.
+**Additional locally observed checks:**
+- `pnpm typecheck` passed after integration with merged character work.
+- `node --test packages/editor-model/test/package-export.test.ts packages/host-vscode/test/package-save.test.ts packages/editor-model/test/sprite-document.test.ts tools/editor-vscode-test/test/vscode-save-as-project.test.ts tools/editor-vscode-test/test/character-hosts.test.ts packages/editor-ui/test/character-authoring-view.test.ts` passed 64/64.
+- `node --test tools/editor-vscode-test/proof-directories.test.mjs` passed 4/4.
+- Actual Chromium Save As/source reopen, overlapping project opens and cancelled dirty-project switch passed 3/3 on an isolated `PLAYWRIGHT_PORT`.
+- The extension build and actual packaged VS Code web proof passed both Cancel and Keep flows after integration, including native character Save All/reopen, package preflight/Save As, persisted descriptor integrity and exact art/bitmap pixel checks (166 seconds). CI also proved the exported archive boots in the actual browser runner without its source folder.
 
 **Supported destinations:** browser = reviewed downloads of both files; VS Code desktop and web = reviewed Save As and sibling descriptor with detected-link refusal and existing-file consent; any unsupported host = a stated unavailable reason. Story closure requires review and passing checks at the final merged implementation, not hypothetical hostile-local-race guarantees.
