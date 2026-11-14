@@ -268,6 +268,13 @@ export function openSpriteDocument(kind: SpriteActorKind, storage: DocumentStora
 export function createSpriteDocument(kind: SpriteActorKind, storage: DocumentStorage, identity: DocumentIdentity, bytes: Uint8Array): SpriteOpenResult {
   return createBinaryDocument(kind === "character" ? characterSpriteCodec : itemSpriteCodec, storage, identity, bytes);
 }
+/** Read only the polygon pair for cross-sprite import; this never gives a view a save-capable source document. */
+export function spriteBasesFromFile(kind: SpriteActorKind, bytes: Uint8Array, path: string): { readonly bases: readonly ActorBase[] | null; readonly unavailable: string | null } | null {
+  const parsed = kind === "character" ? readCharacter(new BinaryReader(bytes, path)) : readItem(new BinaryReader(bytes, path));
+  if (!parsed.ok) return null;
+  const fields = fieldSnapshot(parsed.value);
+  return { bases: fields.vectorBases, unavailable: fields.graphicsUnavailable };
+}
 
 
 export function spriteAnimationPreview(bytes: Uint8Array, path: string): { readonly images: readonly string[]; readonly delay: number } | null {

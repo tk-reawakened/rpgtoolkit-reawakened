@@ -9,7 +9,6 @@ import type {
   MainDocument,
   MainDocumentSnapshot,
   SaveResult,
-  SpriteDocument,
 } from "@tk-reawakened/editor-model";
 import type { PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, render } from "preact";
@@ -18,7 +17,7 @@ import { Shell, type ShellProps } from "./shell.tsx";
 import { BoardView } from "./board-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
-import { SpriteView } from "./sprite-view.tsx";
+import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -42,8 +41,8 @@ export interface BoardViewDocument extends ViewDocument<BoardDocumentSnapshot, B
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | SpriteDocument;
-  readonly services: Pick<PlatformServices, "document" | "capabilities" | "fs">;
+  readonly document: ViewDocument | BoardViewDocument | SpriteViewDocument;
+  readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> };
 }
 /** The handle a host keeps to a mounted view. */
 export interface ViewHandle {
@@ -55,7 +54,7 @@ function isBoardView(document: ViewContext["document"]): document is BoardViewDo
   return document.kind === "board";
 }
 
-function isSpriteView(document: ViewContext["document"]): document is SpriteDocument {
+function isSpriteView(document: ViewContext["document"]): document is SpriteViewDocument {
   return document.kind === "character" || document.kind === "item";
 }
 
@@ -64,11 +63,13 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const onEdited = (event: Parameters<PlatformServices["document"]["edited"]>[0]): void => ctx.services.document.edited(event);
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
+  const fs = ctx.services.fs;
+  if (isSpriteView(document) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
   render(
     isBoardView(document)
       ? createElement(BoardView, { doc: document, capabilities, onEdited })
       : isSpriteView(document)
-        ? createElement(SpriteView, { doc: document, fs: ctx.services.fs, onEdited })
+        ? createElement(SpriteView, { doc: document, fs: fs!, onEdited })
         : createElement(SettingsView, { doc: document, capabilities, onEdited }),
     el,
   );

@@ -25,6 +25,7 @@ export {
   openSpriteDocument,
   spriteAnimationPreview,
   spriteGifPreview,
+  spriteBasesFromFile,
   spritePicturePreview,
   type SpriteActor,
   type ActorBase,
@@ -39,7 +40,7 @@ export {
   type SpriteOpenResult,
 } from "./sprite-document.ts";
 export { previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type PreviewStorage } from "./board-preview.ts";
-export { asBoardDocument, asMainDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asBoardDocument, asMainDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   createMainDocument,

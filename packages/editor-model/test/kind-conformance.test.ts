@@ -4,7 +4,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyDocument } from "../src/index.ts";
+import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyCommand, type AnyDocument } from "../src/index.ts";
 import { exampleBoard, exampleCharacter, exampleItem, exampleMain } from "./fixtures.ts";
 
 interface KindCase {
@@ -12,7 +12,7 @@ interface KindCase {
   readonly path: string;
   readonly bytes: Uint8Array;
   /** A command the kind accepts and that changes the document. */
-  readonly accepted: unknown;
+  readonly accepted: AnyCommand;
   /** A command the kind rejects whole. */
   readonly rejected: unknown;
 }
@@ -74,7 +74,7 @@ for (const entry of CASES) {
   test(`${entry.kind}: a rejected command leaves the snapshot unchanged and names its reason (ADR 0022 D3.1)`, async () => {
     const { doc } = await open(entry);
     const before = doc.getSnapshot();
-    const result = doc.apply(entry.rejected);
+    const result = doc.apply(entry.rejected as AnyCommand);
     ok(!result.ok);
     equal(result.rejection.reason, "invalid");
     ok(result.rejection.message.length > 0);

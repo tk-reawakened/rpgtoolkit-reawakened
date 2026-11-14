@@ -2,6 +2,6 @@
 // element and the document, the view owns only what it renders into `el`.
 export { mount, mountAssetPicker, mountPreferences, mountShell, type BoardViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "./mount.ts";
 export type { AssetPickerViewProps } from "./asset-picker-view.tsx";
-export { SpriteView, type SpriteViewProps } from "./sprite-view.tsx";
+export { SpriteView, type SpriteViewDocument, type SpriteViewProps } from "./sprite-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
 export type { ShellProps } from "./shell.tsx";

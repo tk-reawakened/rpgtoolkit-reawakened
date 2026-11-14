@@ -1,9 +1,9 @@
 import { BinaryReader, foldPath, readCharacter, readItem } from "@tk-reawakened/core";
-import { boardCodec, createBoardDocument, openBoardDocument, type BoardDocument } from "./board-document.ts";
+import { boardCodec, createBoardDocument, openBoardDocument, type BoardCommand, type BoardDocument } from "./board-document.ts";
 import type { DocumentSnapshot, DocumentStorage, EditorDocument, OpenResult } from "./binary-document.ts";
-import { characterSpriteCodec, createSpriteDocument, openSpriteDocument, type SpriteDocument } from "./sprite-document.ts";
+import { characterSpriteCodec, createSpriteDocument, openSpriteDocument, type SpriteCommand, type SpriteDocument } from "./sprite-document.ts";
 import type { DocumentIdentity } from "./identity.ts";
-import { createMainDocument, mainCodec, openMainDocument, type MainDocument } from "./main-document.ts";
+import { createMainDocument, mainCodec, openMainDocument, type MainCommand, type MainDocument } from "./main-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -13,8 +13,10 @@ import { createMainDocument, mainCodec, openMainDocument, type MainDocument } fr
  * The first release registers the main, board, character and item Toolkit 3 kinds. A kind's views are registered in `editor-ui`.
  */
 
-/** A document whose commands the caller does not know: the lifecycle surface every kind shares (ADR 0022 D1 to D3). */
-export type AnyDocument = EditorDocument<any, any>;
+/** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand;
+/** A document whose concrete kind is checked before commands are applied. */
+export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
 /** What Toolkit 3 file the kind stands for, and which row of ADR 0022 D2 it follows. */
 export type StorageClass = "legacy-binary";

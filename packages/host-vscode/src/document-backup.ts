@@ -28,12 +28,12 @@ export async function recoverDocument(kind: DocumentKind, storage: DocumentStora
   if (marker === null) {
     markRecoveredDocumentDirty(recovered.document);
   } else {
-    const edit = recovered.document.apply(marker);
+    const edit = recovered.document.apply(marker as never);
     if (!edit.ok) throw new Error(`Could not restore backup for ${identity.path}: ${edit.rejection.message}`);
   }
   const guarded = new RecoveryDocument(kind, recovered.document, marker !== null, storage, () => lastRead, (bytes) => { expected = bytes; });
   await guarded.checkExternal();
-  return { ok: true, document: guarded };
+  return { ok: true, document: guarded as unknown as AnyDocument };
 }
 
 /** Recover a main-file backup: `recoverDocument` for the `.gam` kind. */
@@ -46,7 +46,7 @@ export async function resolveRecoveryConflict(document: AnyDocument, choice: Con
   return document instanceof RecoveryDocument ? document.resolveRecovery(choice) : document.resolveConflict(choice);
 }
 
-class RecoveryDocument implements AnyDocument {
+class RecoveryDocument {
   readonly kind: string;
   readonly identity: DocumentIdentity;
   readonly #kind: DocumentKind;
@@ -79,7 +79,10 @@ class RecoveryDocument implements AnyDocument {
   }
   getSnapshot(): DocumentSnapshot<unknown> { return this.#snapshot; }
   subscribe(listener: () => void): () => void { this.#listeners.add(listener); return () => { this.#listeners.delete(listener); }; }
-  apply(command: unknown): ApplyResult { return this.#document.apply(command); }
+  apply(command: unknown): ApplyResult {
+    if (!this.#kind.isCommand(command)) return { ok: false, rejection: { reason: "invalid", message: "This recovery document does not accept that edit." } };
+    return this.#document.apply(command as never);
+  }
   serialize(): Uint8Array { return this.#document.serialize(); }
   undo(editId?: string): HistoryResult {
     // The recovery marker is not a VS Code edit; it cannot be undone while the recovery choice is pending.

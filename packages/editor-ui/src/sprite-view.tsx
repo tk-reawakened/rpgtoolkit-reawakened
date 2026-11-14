@@ -1,4 +1,4 @@
-import { createDocumentIdentity, kindForPath, openSpriteDocument, spriteAnimationPreview, spriteGifPreview, spritePicturePreview, type ActorBase, type ActorPoint, type SpriteActorKind, type SpriteCommand, type SpriteDocument, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
+import { kindForPath, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, type ActorBase, type ActorPoint, type ApplyResult, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
 import type { DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDocumentSnapshot } from "./use-document.ts";
@@ -7,9 +7,18 @@ const DIRECTIONS = ["South", "North", "East", "West", "North-west", "North-east"
 const DIRECTION_CODES = ["S", "N", "E", "W", "NW", "NE", "SW", "SE"] as const;
 let viewsMade = 0;
 
+export interface SpriteViewDocument {
+  readonly kind: string;
+  readonly identity: SpriteDocumentSnapshot["identity"];
+  getSnapshot(): SpriteDocumentSnapshot;
+  subscribe(listener: () => void): () => void;
+  apply(command: SpriteCommand): ApplyResult | Promise<ApplyResult>;
+  save(): Promise<SaveResult>;
+}
+
 export interface SpriteViewProps {
-  readonly doc: SpriteDocument;
-  readonly fs: FileSystemService;
+  readonly doc: SpriteViewDocument;
+  readonly fs: Pick<FileSystemService, "readProject">;
   readonly onEdited: (event: DocumentEdited) => void;
 }
 
@@ -39,7 +48,7 @@ function spritePoint(svg: SVGSVGElement, clientX: number, clientY: number): Acto
 }
 
 /** T-52 animation previews decode through editor-model and place the origin crosshair at bottom centre. */
-function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; readonly fs: FileSystemService; readonly projectId: string; readonly id: string }) {
+function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; readonly fs: Pick<FileSystemService, "readProject">; readonly projectId: string; readonly id: string }) {
   const [frames, setFrames] = useState<readonly SpritePreviewFrame[]>([]);
   const [frame, setFrame] = useState(0);
   const [message, setMessage] = useState("Choose an .anm or animated GIF to preview it.");
@@ -142,15 +151,20 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
   const bases = snapshot.vectorBases ?? [];
   const selected = bases[selectedBase] ?? { points: [] };
   const selectedPoints = selected.points.map((point, index) => dragPreview?.index === index ? dragPreview.point : point);
-  const submit = (command: SpriteCommand): boolean => {
-    const result = doc.apply(command);
-    if (!result.ok) {
-      setFeedback(result.rejection.message);
+  const submit = async (command: SpriteCommand): Promise<boolean> => {
+    try {
+      const result = await doc.apply(command);
+      if (!result.ok) {
+        setFeedback(result.rejection.message);
+        return false;
+      }
+      setFeedback("Graphics change recorded. Save the document to keep it.");
+      onEdited({ document: doc.identity.key, editId: result.editId, label: "Edit sprite graphics" });
+      return true;
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "The graphics edit could not be applied.");
       return false;
     }
-    setFeedback("Graphics change recorded. Save the document to keep it.");
-    onEdited({ document: doc.identity.key, editId: result.editId, label: "Edit sprite graphics" });
-    return true;
   };
   const field = (key: string, current: string, label: string, group: "walk" | "idle" | "battle" | "custom", index: number, supports: boolean) => {
     const value = drafts[key] ?? current;
@@ -158,7 +172,7 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
     return <div class="tkr-sprite-file" key={key}>
       <label for={inputId}>{label}
         <input id={inputId} type="text" value={value} placeholder="Misc/hero_walk_s.anm or hero.gif" aria-label={`${label} animation file`} disabled={disabled || !supports} onInput={(event) => setDrafts({ ...drafts, [key]: event.currentTarget.value })} onBlur={() => {
-          if (value !== current && supports) submit({ type: "set-sprite-animation", group, index, file: value.trim() });
+          if (value !== current && supports) void submit({ type: "set-sprite-animation", group, index, file: value.trim() });
         }} />
       </label>
       <small>Project-relative animation file (.anm or animated .gif).</small>
@@ -174,7 +188,7 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
     points[pointIndex] = { ...point, [axis]: value };
     const changed = [...next];
     changed[selectedBase] = { points };
-    if (changed[0] !== undefined && changed[1] !== undefined) submit({ type: "set-sprite-bases", bases: changed });
+    if (changed[0] !== undefined && changed[1] !== undefined) void submit({ type: "set-sprite-bases", bases: changed });
   };
   const movePoint = (pointIndex: number, point: ActorPoint): void => {
     if (disabled || snapshot.graphicsUnavailable !== null) return;
@@ -184,23 +198,23 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
     points[pointIndex] = point;
     const changed = [...next];
     changed[selectedBase] = { points };
-    if (changed[0] !== undefined && changed[1] !== undefined) submit({ type: "set-sprite-bases", bases: changed });
+    if (changed[0] !== undefined && changed[1] !== undefined) void submit({ type: "set-sprite-bases", bases: changed });
   };
   const replaceBase = (index: number, points: readonly ActorPoint[]): void => {
     if (disabled || snapshot.graphicsUnavailable !== null) return;
     const next = copiedBases(bases);
     const changed = [...next];
     changed[index] = { points };
-    if (changed[0] !== undefined && changed[1] !== undefined) submit({ type: "set-sprite-bases", bases: changed });
+    if (changed[0] !== undefined && changed[1] !== undefined) void submit({ type: "set-sprite-bases", bases: changed });
   };
-  const assignWalk = (): void => {
+  const assignWalk = async (): Promise<void> => {
     if (template.split("*").length !== 2) {
       setFeedback("Use exactly one * in the filename template for the direction code.");
       return;
     }
     for (let index = 0; index < DIRECTION_CODES.length; index += 1) {
       const file = template.replace("*", DIRECTION_CODES[index]!);
-      submit({ type: "set-sprite-animation", group: "walk", index, file });
+      if (!await submit({ type: "set-sprite-animation", group: "walk", index, file })) return;
     }
     setFeedback("Assigned all eight walk directions from the filename template.");
   };
@@ -212,18 +226,21 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
       setFeedback("Choose another character (.tem) or item (.itm) sprite.");
       return;
     }
-    const opened = await openSpriteDocument(kind.id as SpriteActorKind, fs, createDocumentIdentity(snapshot.identity.projectId, path));
-    if (!opened.ok) {
-      setFeedback(`Could not import bases: ${opened.error.error.message}`);
+    const read = await fs.readProject(snapshot.identity.projectId, path);
+    if (!read.ok) {
+      setFeedback(`Could not import bases: ${read.error.message}`);
       return;
     }
-    const source = opened.document.getSnapshot();
-    const imported = source.vectorBases;
-    if (source.graphicsUnavailable !== null || imported === null || imported.length !== 2) {
+    const imported = spriteBasesFromFile(kind.id, read.value, path);
+    if (imported === null) {
+      setFeedback("Could not read the selected sprite's collision and activation bases.");
+      return;
+    }
+    if (imported.unavailable !== null || imported.bases === null || imported.bases.length !== 2) {
       setFeedback("The selected sprite format does not store a collision and activation base pair.");
       return;
     }
-    submit({ type: "set-sprite-bases", bases: copiedBases(imported) });
+    void submit({ type: "set-sprite-bases", bases: copiedBases(imported.bases) });
   };
 
   return <section class="tkr-sprite-graphics" aria-label={`${snapshot.actorType} sprite graphics`}>
@@ -253,12 +270,12 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
       {snapshot.customStances.map((stance, index) => <div class="tkr-sprite-custom" key={`${stance.handle}-${index}`}>
         <label>Stance name<input value={drafts[`custom-name-${index}`] ?? stance.handle} disabled={snapshot.minor < (snapshot.actorType === "character" ? 5 : 4)} onInput={(event) => setDrafts({ ...drafts, [`custom-name-${index}`]: event.currentTarget.value })} onBlur={() => {
           const name = drafts[`custom-name-${index}`] ?? stance.handle;
-          if (name !== stance.handle) submit({ type: "rename-custom-stance", index, name: name.trim() });
+          if (name !== stance.handle) void submit({ type: "rename-custom-stance", index, name: name.trim() });
         }} /></label>
         {field(`custom-${index}`, stance.animation, `${stance.handle} animation`, "custom", index, snapshot.minor >= (snapshot.actorType === "character" ? 5 : 4))}
-        <button type="button" onClick={() => submit({ type: "delete-custom-stance", index })} disabled={disabled || snapshot.minor < (snapshot.actorType === "character" ? 5 : 4)}>Delete stance</button>
+        <button type="button" onClick={() => void submit({ type: "delete-custom-stance", index })} disabled={disabled || snapshot.minor < (snapshot.actorType === "character" ? 5 : 4)}>Delete stance</button>
       </div>)}
-      <form onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get("stance-name") ?? "").trim(); if (name !== "") submit({ type: "add-custom-stance", name, file: "" }); form.reset(); }}>
+      <form onSubmit={(event) => { event.preventDefault(); const form = event.currentTarget; const name = String(new FormData(form).get("stance-name") ?? "").trim(); if (name !== "") void submit({ type: "add-custom-stance", name, file: "" }); form.reset(); }}>
         <label>New custom stance name<input name="stance-name" required maxLength={128} disabled={snapshot.minor < (snapshot.actorType === "character" ? 5 : 4)} /></label>
         <button type="submit" disabled={disabled || snapshot.minor < (snapshot.actorType === "character" ? 5 : 4)}>Add custom stance</button>
       </form>
@@ -267,7 +284,7 @@ export function SpriteView({ doc, fs, onEdited }: SpriteViewProps) {
       <legend>Movement timing</legend>
       {snapshot.speed === null || snapshot.idleTime === null
         ? <p>This file version does not store movement speed and idle delay.</p>
-        : <form onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); submit({ type: "set-sprite-timing", speed: Number(form.get("speed")), idleTime: Number(form.get("idleTime")) }); }}>
+        : <form onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submit({ type: "set-sprite-timing", speed: Number(form.get("speed")), idleTime: Number(form.get("idleTime")) }); }}>
           <label>Speed (seconds per step)<input name="speed" type="number" min="0.000001" step="any" required defaultValue={snapshot.speed} /></label>
           <label>Idle delay (seconds)<input name="idleTime" type="number" min="0" step="any" required defaultValue={snapshot.idleTime} /></label>
           <button type="submit">Apply timing</button>
