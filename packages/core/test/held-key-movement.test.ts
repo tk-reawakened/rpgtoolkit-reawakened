@@ -688,6 +688,16 @@ test("an explicitly effective directional control walks while an unbound arrow r
   }
 });
 
+test("a remapped movement key leaves the old arrow available to Get", () => {
+  const state = withMovementPolicy(5, [0x26, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0]);
+  const thread = startProgram(state.vm, { kind: "inline", ir: "1", text: "answer = Get()" });
+  tick(state, 0, [key("ArrowRight", true)]);
+  runThreadsPhase(state.vm, createScriptServices(state), 100);
+  equal(thread.status, "finished");
+  equal(state.vm.globals.answer, "RIGHT");
+  equal(state.sprites.players[0]!.movement.active, null);
+});
+
 test("a collision reports each binding and dispatches all actions in ACT-4 order", () => {
   const state = withMovementPolicy(1, [0x39, 0, 0x39, 0, 0, 0, 0, 0]);
   for (const name of ["game.z", "game.a"]) {
