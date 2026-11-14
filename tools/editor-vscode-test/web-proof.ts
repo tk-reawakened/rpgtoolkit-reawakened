@@ -336,7 +336,8 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
 
   // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
-  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor");
+  // Exercise recovery from a real palette dismissal before dispatch.
+  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
   await closeActiveEditor(page, expect);
   editor = await waitForEditorFrame(page, "settings editor shown again");
@@ -358,7 +359,23 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await autosaveField.fill(autosaveTitle);
   await autosaveField.press("Enter");
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  const readMarker = async (name: string): Promise<string | undefined> => {
+    try {
+      return new TextDecoder().decode(await host.readBacking(`.vscode/tkr-autosave-command-${name}`));
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+      throw error;
+    }
+  };
+  let observedOffWhileCommandPending = false;
   const expectAutosave = async (value: string): Promise<void> => {
+    await expect.poll(async () => {
+      const marker = await readMarker("complete");
+      if (value === "off" && marker !== "off" && autosaveSetting(await host.readBacking(".vscode/settings.json")) === "off") {
+        observedOffWhileCommandPending = true;
+      }
+      return marker;
+    }, { message: `VS Code completed the autosave ${value} command`, timeout: 30_000 }).toBe(value);
     await expect.poll(async () => {
       return autosaveSetting(await host.readBacking(".vscode/settings.json"));
     }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
@@ -376,11 +393,40 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   } catch (error) {
     failure = error;
   } finally {
+    let acknowledgement: Promise<void> | undefined;
+    let acknowledgementError: unknown;
+    let acknowledgementFailed = false;
     try {
+      await runCommand(page, expect, "Test: Pause Autosave Off");
       await runCommand(page, expect, "Test: Turn Autosave Off");
-      await expectAutosave("off");
+      let autosaveAcknowledged = false;
+      acknowledgement = expectAutosave("off").then(
+        () => { autosaveAcknowledged = true; },
+        (error: unknown) => { acknowledgementFailed = true; acknowledgementError = error; },
+      );
+      await expect.poll(() => readMarker("paused")).toBe("off");
+      await expect.poll(async () => autosaveSetting(await host.readBacking(".vscode/settings.json"))).toBe("off");
+      await expect.poll(() => observedOffWhileCommandPending, {
+        message: "the completion observer saw persisted off while the command was paused",
+      }).toBe(true);
+      await expect.poll(() => readMarker("complete")).toBe("afterDelay");
+      if (autosaveAcknowledged) throw new Error("The autosave proof acknowledged a command before its completion barrier");
+      console.info("vscode.dev autosave guard negative control passed: files.autoSave=off while command completion remained pending");
     } catch (error) {
       cleanupErrors.push(error);
+    } finally {
+      try {
+        await runCommand(page, expect, "Test: Release Autosave Off");
+        await expect.poll(() => readMarker("released"),
+          { message: "VS Code released the autosave completion barrier" }).toBe("off");
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+      if (acknowledgement !== undefined) {
+        await acknowledgement;
+        if (acknowledgementFailed) cleanupErrors.push(acknowledgementError);
+        else console.info("vscode.dev autosave completion acknowledged and persisted: off");
+      }
     }
   }
   const combined = combineProofErrors(failure, cleanupErrors);
@@ -397,13 +443,29 @@ async function runCommand(page: Page, expect: Expect, title: string): Promise<vo
 }
 
 /** Accept the focused command with Enter, without waiting for a moving quick-pick row to become mouse-stable. */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string): Promise<void> {
-  const commandInput = await commandPalette(page, expect);
-  await commandInput.fill(`>${search}`);
-  const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-  await expect(command, `VS Code selects ${label}`).toBeVisible();
+async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false): Promise<void> {
+  const widget = page.locator(".quick-input-widget");
+  let commandInput: Locator | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      commandInput = await commandPalette(page, expect);
+      await commandInput.fill(`>${search}`);
+      if (dismissFirstAttempt && attempt === 0) {
+        await commandInput.press("Escape");
+        await expect(widget).toBeHidden();
+      }
+      const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+      await expect(command, `VS Code selects ${label}`).toBeVisible();
+      break;
+    } catch (error) {
+      if (attempt === 2 || await widget.isVisible()) throw error;
+      commandInput = undefined;
+    }
+  }
+  if (commandInput === undefined) throw new Error(`VS Code did not select ${label}`);
+  // Retry only before dispatch; once Enter is pressed, never execute the command again.
   await commandInput.press("Enter");
-  await expect(page.locator(".quick-input-widget")).toBeHidden();
+  await expect(widget).toBeHidden();
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {
   // Use VS Code's built-in logger controls so working-copy and backup-tracker trace events are captured.
