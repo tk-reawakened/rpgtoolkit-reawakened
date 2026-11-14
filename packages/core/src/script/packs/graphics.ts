@@ -28,7 +28,9 @@ import {
   renderNowCanvas,
   renderNowEnabled,
   restoreScreen,
+  restoreTileBuffer,
   saveScreen,
+  saveTileBuffer,
   surfaceCircleBounds,
   surfaceLineBounds,
   surfacePixelBounds,
@@ -185,10 +187,14 @@ const NATIVE_SUMMARY_BY_NAME: Record<string, string> = {
   canvasdrawpart: "Draw part of a canvas.",
   canvasgetscreen: "Copy the screen onto a canvas.",
   drawenemy: "Draw an enemy.",
+  scan: "Save the tile specified to a buffer identified by pos. There is no particular number to pick for pos; any will do.",
+  mem: "Lay a scanned tile on the screen at the specified position.",
 };
 const NATIVE_GROUP_BY_NAME: Record<string, string> = {
   viewbrd: "board-tiles-vectors-screen-effects-33",
   drawenemy: "battle-stats-menus-33",
+  scan: "board-tiles-vectors-screen-effects-33",
+  mem: "board-tiles-vectors-screen-effects-33",
 };
 function docs(summary: string, behaviour: string, waits = "The command completes in the current script turn."): BuiltinDoc {
   return { summary, behaviour, groups: ["graphics-canvases-animation-video-31"], waits: { kind: "never", summary: waits }, tags: ["legacy"] };
@@ -431,6 +437,50 @@ const RESTORE_SCREEN = command("restorescreen", [], params(["slot", "x1", "y1", 
 });
 const RESTORE_ARRAY = command("restorescreenarray", ["restorearrayscreen"], params(["slot", "x1", "y1", "x2", "y2", "xdest", "ydest"], 0), docs("Restore a numbered screen-array slot.", "Alias of restoreScreen: copies the selected saved slot or region into the screen immediately."), (view, args) => ({ value: restoreScreen(state(view).surfaces, Math.max(0, Math.trunc(numberArg(args, 0))), writingTarget(state(view), SCREEN)) ?? 0, effects: effects(args) }));
 
+/** A finite number argument cut toward zero; anything else is the catchable invalid-argument error (spec #reawakened-scan-mem). */
+function wholeArg(name: string, args: readonly Arg[], index: number, label: string): number {
+  const value = args[index]?.value;
+  if (typeof value !== "number" || !Number.isFinite(value)) throw new ScriptError("builtin.bad-arg", `"${name}": ${label} must be a finite number`);
+  return Math.trunc(value);
+}
+const TILE_BUFFER_DEPRECATION = "This command is part of the legacy tile-buffer pair. The position argument identifies the saved tile for mem.";
+const SCAN = command("scan", [], params(["x", "y", "pos"]), {
+  ...docs(
+    "Save the tile specified to a buffer identified by pos.",
+    "Takes a picture of one tile-sized square of the screen and files it under the number pos, so mem can paint it back later. Technically, cell (x, y) is a 32 by 32 pixel square counted from (1, 1) at the top left of the screen, with x and y cut toward zero. The call first refreshes the composed screen, copies that square's pixels into tile buffer pos (a whole number from 0 up, cut toward zero) and replaces anything already filed there. It does not wait. A cell that is not wholly inside the screen, a negative pos or a non-finite argument raises the catchable builtin.bad-arg error and changes nothing. Buffers are saved with the game, never share a slot with savescreen, and survive a board change.",
+  ),
+  tags: ["deprecated"],
+  reason: TILE_BUFFER_DEPRECATION,
+  replacedBy: { kind: "syntax", text: "No direct replacement is documented." },
+  see: ["docs/spec/engine/rpgcode-functions.md#reawakened-scan-mem"],
+}, (view, args) => {
+  const x = wholeArg("scan", args, 0, "x");
+  const y = wholeArg("scan", args, 1, "y");
+  const pos = wholeArg("scan", args, 2, "pos");
+  if (pos < 0) throw new ScriptError("builtin.bad-arg", '"scan": pos must be 0 or more');
+  view.refreshScreen?.();
+  if (saveTileBuffer(state(view).surfaces, pos, SCREEN, x, y) === null) throw new ScriptError("builtin.bad-arg", `"scan": cell (${x}, ${y}) is not wholly inside the screen`);
+  return { value: null, effects: effects(args) };
+});
+const MEM = command("mem", [], params(["x", "y", "pos"]), {
+  ...docs(
+    "Lay a scanned tile on the screen at the specified position.",
+    "Paints a picture saved by scan back onto the screen, covering whatever is there. Technically, it writes the 32 by 32 pixels filed under tile buffer pos onto the script-screen layer at cell (x, y), counted from (1, 1) at the top left with x and y cut toward zero. The pixels replace the layer's own, alpha included, and clip at the screen edge. It does not wait and takes effect for the very next command. A pos that was never scanned draws nothing and raises no error; a negative pos or a non-finite argument raises the catchable builtin.bad-arg error.",
+  ),
+  tags: ["deprecated"],
+  reason: TILE_BUFFER_DEPRECATION,
+  replacedBy: { kind: "syntax", text: "No direct replacement is documented." },
+  see: ["docs/spec/engine/rpgcode-functions.md#reawakened-scan-mem"],
+}, (view, args) => {
+  const x = wholeArg("mem", args, 0, "x");
+  const y = wholeArg("mem", args, 1, "y");
+  const pos = wholeArg("mem", args, 2, "pos");
+  if (pos < 0) throw new ScriptError("builtin.bad-arg", '"mem": pos must be 0 or more');
+  const current = state(view);
+  restoreTileBuffer(current.surfaces, pos, writingTarget(current, SCREEN), x, y);
+  return { value: null, effects: effects(args) };
+});
+
 const RENDER_NOW = command("rendernow", [], params(["draw"]), docs("Show or hide the render-now overlay canvas.", "When draw is true, creates the reserved canvas (cleared, screen-sized) if it does not exist or was killed and turns drawing on above board content; an existing canvas keeps its pixels. When draw is false it only turns drawing off: the canvas, its handle and its pixels persist."), (view, args) => {
   const current = state(view);
   const enabled = Boolean(args[0]?.value);
@@ -458,7 +508,7 @@ const DRAW_ENEMY = image("drawenemy", [], params(["file", "x", "y"], 3), "as a b
 export const GRAPHICS_COMMANDS: readonly BuiltinSpec[] = [
   CLEAR, SET_PIXEL, DRAW_LINE, DRAW_RECT, FILL_RECT, DRAW_CIRCLE, FILL_CIRCLE,
   BITMAP, SET_IMAGE, SET_IMAGE_TRANSPARENT, SET_IMAGE_TRANSLUCENT, SET_IMAGE_ADDITIVE,
-  GET_PIXEL, SAVE_SCREEN, RESTORE_SCREEN, RESTORE_ARRAY, RENDER_NOW, RENDER_NOW_ENABLED, VIEW_BRD, GET_RES, DRAW_ENEMY,
+  GET_PIXEL, SAVE_SCREEN, RESTORE_SCREEN, RESTORE_ARRAY, SCAN, MEM, RENDER_NOW, RENDER_NOW_ENABLED, VIEW_BRD, GET_RES, DRAW_ENEMY,
   CREATE_CANVAS, KILL_CANVAS, DRAW_CANVAS, DRAW_CANVAS_TRANSPARENT, CANVAS_DRAW_PART, CANVAS_GET_SCREEN,
 ];
 export const GRAPHICS_PLUGIN: PluginDefinition = { id: "graphics", version: "1.0.0", doc: { summary: "Deterministic canvases, drawing, image and screen-save commands.", groups: [] }, commands: GRAPHICS_COMMANDS };

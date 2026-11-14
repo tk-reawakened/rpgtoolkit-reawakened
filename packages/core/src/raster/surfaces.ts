@@ -563,7 +563,11 @@ export function saveScreen(state: SurfacesSection, slot: number, source: Surface
   if (sourceEntry === null || !Number.isInteger(slot) || slot < 0) return null;
   const region = copyRegion(state, source, rect ?? { x: 0, y: 0, w: sourceEntry.bitmap.w, h: sourceEntry.bitmap.h }, cache);
   if (region === null) return null;
-  const slotKey = String(slot);
+  return storeSlot(state, String(slot), region);
+}
+
+/** Put `region` in the surface filed under `slotKey`, reusing the surface id when the slot is already live. */
+function storeSlot(state: SurfacesSection, slotKey: string, region: { w: number; h: number; rgba: Uint8Array }): SurfaceId {
   const prior = state.slots[slotKey];
   if (prior !== undefined && entry(state, prior) !== null) {
     replaceSurface(state, prior, region.w, region.h, region.rgba);
@@ -572,6 +576,51 @@ export function saveScreen(state: SurfacesSection, slot: number, source: Surface
   const id = createSurface(state, region.w, region.h, region.rgba);
   state.slots[slotKey] = id;
   return id;
+}
+
+/** The side of one screen cell for `scan` and `mem`, in logical pixels (docs/spec/engine/rpgcode-functions.md#reawakened-scan-mem). */
+export const TILE_CELL_SIZE = 32;
+
+/** `scan` tile buffers live under their own prefix, so they never share a slot with a numbered `savescreen`. */
+function tileBufferKey(pos: number): string {
+  return `tile:${pos}`;
+}
+
+/**
+ * `scan`: copy the 32x32 pixels of one-based screen cell (`cellX`, `cellY`) from `source` into tile buffer `pos`,
+ * replacing what was filed there. Returns the buffer's surface id, or `null` (changing nothing) when the cell is
+ * not wholly inside `source` or the arguments are not whole numbers.
+ */
+export function saveTileBuffer(state: SurfacesSection, pos: number, source: SurfaceId, cellX: number, cellY: number, cache?: SurfacePixelCache): SurfaceId | null {
+  if (!Number.isInteger(pos) || pos < 0 || !Number.isInteger(cellX) || !Number.isInteger(cellY) || cellX < 1 || cellY < 1) return null;
+  const region = copyRegion(state, source, { x: (cellX - 1) * TILE_CELL_SIZE, y: (cellY - 1) * TILE_CELL_SIZE, w: TILE_CELL_SIZE, h: TILE_CELL_SIZE }, cache);
+  if (region === null) return null;
+  return storeSlot(state, tileBufferKey(pos), region);
+}
+
+/**
+ * `mem`: write the pixels filed under tile buffer `pos` onto `destination` at one-based screen cell (`cellX`, `cellY`),
+ * replacing what was there (alpha included) and clipping at the destination's edges. Returns `false` when nothing was
+ * filed under `pos` or the destination is not live; a cell wholly off the destination draws nothing and returns `true`.
+ */
+export function restoreTileBuffer(state: SurfacesSection, pos: number, destination: SurfaceId, cellX: number, cellY: number): boolean {
+  const filed = state.slots[tileBufferKey(pos)];
+  const sourceEntry = filed === undefined ? null : entry(state, filed);
+  if (sourceEntry === null || !Number.isInteger(cellX) || !Number.isInteger(cellY)) return false;
+  const pixels = decode(sourceEntry);
+  const sourceWidth = sourceEntry.bitmap.w;
+  const sourceHeight = sourceEntry.bitmap.h;
+  const originX = (cellX - 1) * TILE_CELL_SIZE;
+  const originY = (cellY - 1) * TILE_CELL_SIZE;
+  return editSurface(state, destination, (rgba, width, height) => {
+    const left = Math.max(0, originX);
+    const right = Math.min(width, originX + sourceWidth);
+    if (right <= left) return;
+    for (let y = Math.max(0, originY); y < Math.min(height, originY + sourceHeight); y += 1) {
+      const from = ((y - originY) * sourceWidth + (left - originX)) * 4;
+      rgba.set(pixels.subarray(from, from + (right - left) * 4), (y * width + left) * 4);
+    }
+  });
 }
 
 /** Read a pixel's RGB colour, or `null` outside its bounds (E-56). */
