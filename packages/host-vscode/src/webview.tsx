@@ -9,11 +9,17 @@ const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
   if (event.data.type === "initialize") {
-    remoteDocument = new RemoteDocument(event.data.kind, event.data.snapshot, api);
+    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api);
+    remoteDocument = remote;
     mount(documentRoot(), {
       // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
-      document: remoteDocument as unknown as ViewContext["document"],
+      document: remote as unknown as ViewContext["document"],
       services: { document: { edited: () => undefined }, capabilities: new Set(event.data.capabilities) },
+      browser: {
+        session: remote.browserSession,
+        fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
+        layout: { projectFolder: "" },
+      },
     });
     return;
   }

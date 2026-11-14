@@ -1,7 +1,7 @@
-import { createDocumentWorkspace, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, previewBoard, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { mount, type BoardViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type BoardViewDocument, type BrowserSession, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
@@ -18,6 +18,8 @@ export interface WebProject {
   readonly project: ProjectHandle;
   readonly sessionCopy: boolean;
   readonly workspace: DocumentWorkspace;
+  /** Browser selection and scroll are retained per this project, shared only by its mounted views. */
+  readonly browserSession: BrowserSession;
   /** Retire this project from its host session; accepted operations remain bound to their original project. */
   deactivate(): void;
 }
@@ -104,7 +106,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     document: workspace.document,
     dialogs,
   };
-  return { services, project, sessionCopy: false, workspace, deactivate: () => { active = false; workspace.dispose(); } };
+  return { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), deactivate: () => { active = false; workspace.dispose(); } };
 }
 
 
@@ -160,7 +162,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     document: workspace.document,
     dialogs,
   };
-  return { services, project, sessionCopy: true, workspace, deactivate: () => { active = false; workspace.dispose(); } };
+  return { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), deactivate: () => { active = false; workspace.dispose(); } };
 }
 
 /** One editor tab owns a lease even while its mounted view is hidden. */
@@ -225,7 +227,7 @@ export interface DocumentView extends ViewHandle {
 }
 
 /** Mount the view of `document`'s kind into `element`. It holds no lease: the caller (a tab, or `mountEditor`) does. */
-export function mountDocumentView(project: WebProject, document: AnyDocument, element: HTMLElement): DocumentView {
+export function mountDocumentView(project: WebProject, document: AnyDocument, element: HTMLElement, projectLayout: ProjectLayout = { projectFolder: "" }): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
@@ -238,7 +240,11 @@ export function mountDocumentView(project: WebProject, document: AnyDocument, el
   };
   const show = (container: HTMLElement): void => {
     if (disposed || mounted !== null) throw new Error("Cannot show a disposed or already mounted editor view.");
-    mounted = mount(container, { document: viewDocument, services: project.services });
+    mounted = mount(container, {
+      document: viewDocument,
+      services: project.services,
+      browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout },
+    });
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
     if (notice) {
       notice.setAttribute("role", "status");
