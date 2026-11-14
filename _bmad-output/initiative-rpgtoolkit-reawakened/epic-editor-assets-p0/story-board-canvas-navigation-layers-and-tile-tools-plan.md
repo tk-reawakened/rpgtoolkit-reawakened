@@ -23,11 +23,13 @@ Use the shared document lifecycle and preserve same-version unknown data; exerci
 
 Prerequisites: 12.2, 11.5 and 4.18. The isometric compositor must exist before either isometric layout is accepted; the 2D tracer alone is not its provider.
 
-## Delivered (built for review)
+## Implementation merged; stamp selection pending
 
 - **Model (`editor-model`).** `board-geometry` (cells, snapping, neighbours, viewport and zoom for the three layouts), `board-tools` (paint, flood, rectangle, move/copy, stamp from `.tbm`), `board-editor` (tool, layer, visibility, viewport, selection, gestures; one gesture is one `set-tiles` command), `board-creation` (blank and template boards, validation, no overwrite, remembered choices), `set-tiles` in the board document, and `previewBoard` over both isometric layouts with layer and background visibility.
 - **View (`editor-ui`).** The canvas, tool bar, visible-layers list, selection controls, Undo/Redo, the new-board dialog, and keyboard paths (cell grid with Space, tool shortcuts, numeric move/copy).
 - **Hosts.** Browser workbench: New board…, Undo and Redo, board preferences. VS Code: `tkr.newBoard`, picture requests and board preferences over the bridge; Undo and Redo stay the workbench's.
 - **Rules settled** in `docs/editor-features.md`: cells and on-board rule for iso-rotated, flood connectivity and "across layers", the iso-stacked picture rectangle, stamp semantics (tiles and per-cell tints placed as board shading), template contents.
 - **Proofs.** `tools/browser/tests/editor-board-canvas.spec.ts` drives the production workbench page in Chromium (real mouse, wheel and keyboard, all three layouts, canvas pixels, saved bytes read back from the folder); `tools/editor-vscode-test/web-proof.ts` (`runBoardCanvasScenario`) does the same in the packaged extension in VS Code for the Web, with VS Code's own Undo and Redo.
+- **Integration boundary.** Board stamping supports `.tbm` data, but choosing a bitmap stamp in the shared brush remains dependent on 12.8; tracked in #2509.
+- **Merged and verified.** PR #2538 merged after its GitHub gate passed. Local strict tests passed 4,575 tests without skips; the browser and packaged VS Code proofs exercised the shipped surfaces. The story is not done until bitmap selection is connected and verified end to end.
 - **Not in this story.** Vectors, programs, sprites and images (12.11); shading and lighting and the expanded clipboard (P1); the tile editor.
