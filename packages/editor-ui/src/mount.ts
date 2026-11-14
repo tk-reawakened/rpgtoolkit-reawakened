@@ -14,6 +14,7 @@ import type { PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
+import { RunView, type RunViewProps } from "./run-view.tsx";
 import { BoardView } from "./board-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 
@@ -98,4 +99,9 @@ export function mountShell(el: HTMLElement, props: ShellProps): ViewHandle {
 /** Render a folder-aware asset picker into `el`. */
 export function mountAssetPicker(el: HTMLElement, props: AssetPickerViewProps): ViewHandle {
   return mountElement(el, createElement(AssetPickerView, props));
+}
+
+/** Render the Run panel (T-07, T-41) into `el`, for a host page that shows it without the shell. */
+export function mountRun(el: HTMLElement, props: RunViewProps): ViewHandle {
+  return mountElement(el, createElement(RunView, props));
 }

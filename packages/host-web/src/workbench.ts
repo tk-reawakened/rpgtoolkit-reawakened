@@ -1,5 +1,6 @@
 import {
   createAssetPicker,
+  createLauncher,
   createLayoutModel,
   createProjectTree,
   createTabs,
@@ -68,6 +69,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const layout = createLayoutModel([
     { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
     { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
+    { id: "run", title: "Run", side: "bottom", visible: false, size: 240, minSize: 128, maxSize: 480 },
   ]);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
@@ -143,6 +145,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tree,
     projectLayout,
     fs: services.fs,
+    launcher: createLauncher({ services, workspace }),
     version,
     onOpened: (result) => {
       if (result.via === "document") show(result.document);

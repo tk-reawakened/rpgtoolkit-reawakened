@@ -23,6 +23,8 @@ export type PlatformErrorCode =
   | "unavailable"
   /** The path is not a project-relative `/`-separated path (see `FileSystemService`). */
   | "invalid-path"
+  /** The call's arguments are malformed (a launch position that is not a whole tile, a seed that is not an integer). */
+  | "invalid-request"
   /** Any other failure of the underlying storage. */
   | "io-error";
 
