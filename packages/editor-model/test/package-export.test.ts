@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { exampleBoard } from "./fixtures.ts";
-import { createDocumentWorkspace, packageDescriptorFor, prepareGamePackage } from "../src/index.ts";
+import { createDocumentWorkspace, prepareGamePackage } from "../src/index.ts";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { platformOk } from "@tk-reawakened/platform-services";
 import { PACKAGE_LIMITS, loadPackage, newProjectMainFile, readDistributionManifest, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
@@ -214,35 +214,4 @@ test("preflight checks listed file sizes before reading and rechecks the bytes r
   equal(afterRead.ok, false);
   if (!afterRead.ok) match(afterRead.message, /Prg\/start\.prg exceeds the per-file package limit/);
   second.workspace.dispose();
-});
-
-test("a package saved under an author-chosen name gets a descriptor that names that file and nothing else changes", async () => {
-  const { workspace, services } = packageHost(authoredFiles());
-  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "2.0" });
-  ok(prepared.ok, prepared.ok ? "" : prepared.message);
-  const renamed = packageDescriptorFor(prepared.value, "renamed-game.tpk");
-  ok(renamed.ok, renamed.ok ? "" : renamed.message);
-  const original = JSON.parse(utf8Decode(prepared.value.descriptor.bytes)) as Record<string, unknown>;
-  const descriptor = JSON.parse(utf8Decode(renamed.bytes)) as Record<string, unknown>;
-  deepEqual(Object.keys(descriptor), ["schema", "file", "sha256", "size", "gameId", "title", "version"]);
-  equal(descriptor["file"], "renamed-game.tpk");
-  for (const field of ["schema", "sha256", "size", "gameId", "title", "version"]) deepEqual(descriptor[field], original[field]);
-  equal(descriptor["sha256"], createHash("sha256").update(prepared.value.package.bytes).digest("hex"));
-
-  const sameName = packageDescriptorFor(prepared.value, prepared.value.package.fileName);
-  ok(sameName.ok, sameName.ok ? "" : sameName.message);
-  deepEqual(sameName.bytes, prepared.value.descriptor.bytes);
-  workspace.dispose();
-});
-
-test("a descriptor is refused for a name that is not a plain .tpk file name", async () => {
-  const { workspace, services } = packageHost(authoredFiles());
-  const prepared = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
-  ok(prepared.ok, prepared.ok ? "" : prepared.message);
-  for (const name of ["game.zip", ".tpk", "Build/game.tpk", "Build\\game.tpk", ""]) {
-    const refused = packageDescriptorFor(prepared.value, name);
-    equal(refused.ok, false, `${JSON.stringify(name)} should be refused`);
-    if (!refused.ok) match(refused.message, /\.tpk/);
-  }
-  workspace.dispose();
 });

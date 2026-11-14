@@ -143,13 +143,13 @@ export interface ShellService {
 
 /**
  * Package export host operations (AD-20 `export`, shaped by story 12.9). `sha256` supplies the descriptor's archive
- * digest. `downloadFile` is present only on a host that can hand the author an ordinary download of one file; it is
- * invoked by a direct user action and never writes into the project. A host without it saves the package its own way
- * (VS Code: Save As) or says that export is unavailable.
+ * digest. `downloadFile` hands the author an ordinary download of one file; it is invoked by a direct user action and
+ * never writes into the project. A host that cannot offer downloads does not provide this service, and package export
+ * is unavailable there (VS Code: its extension cannot save a package without a no-replace, link-safe write).
  */
 export interface PackageExportService {
   sha256(bytes: Uint8Array): Promise<PlatformResult<string>>;
-  downloadFile?(fileName: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
+  downloadFile(fileName: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
 }
 
 /**

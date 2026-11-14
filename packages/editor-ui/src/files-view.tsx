@@ -118,7 +118,9 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onPackage, onDownloa
     setPackageBusy(true);
     setPackageMessage(`Starting download for ${artifact.fileName}…`);
     void onDownload(artifact).then((result) => {
-      setPackageMessage(result.ok ? `Download started for ${artifact.fileName}.` : result.message);
+      setPackageMessage(result.ok
+        ? `Download started for ${artifact.fileName}. If your browser saved it under a different name (for example with " (1)" added because a file of that name already existed), rename it back to exactly ${artifact.fileName} before using it.`
+        : result.message);
     }).catch(() => setPackageMessage(`Could not start the download for ${artifact.fileName}.`))
       .finally(() => setPackageBusy(false));
   };
@@ -237,7 +239,9 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onPackage, onDownloa
             <div class="tkr-files-package-result">
               <p>{prepared.includedFiles.length} files included; {prepared.excludedFiles.length} excluded.</p>
               <p>Package output: <code>{prepared.package.fileName}</code>; install descriptor: <code>{prepared.descriptor.fileName}</code>.</p>
-              <p>This preflight uses the saved project files from the time it completed. The files are offered as ordinary downloads; this page does not write into the project folder, so nothing in the project is replaced. Keep both downloaded files together and unrenamed: the descriptor names the package file.</p>
+              <p>This preflight uses the saved project files from the time it completed, and the downloads carry exactly the bytes reviewed here. The files are offered as ordinary downloads; this page does not write into the project folder, so nothing in the project is replaced.</p>
+              <p>The package and its descriptor are two separate downloads, and the descriptor names the package file. Keep both together under exactly the names shown above. Your browser may rename a download when a file of that name already exists (for example "{prepared.package.fileName} (1)"); if it renames only one of the pair, or either differs from the names above, rename it back (or remove the older copy first) before installing, or the descriptor will not match the package.</p>
+              <p>This page cannot tell whether a folder entry is a link to somewhere else on your computer. Every file that will be packaged is listed in the inventory below; do not use the package if it lists files that do not belong to your game.</p>
               <details>
                 <summary>Included and excluded file inventory</summary>
                 <h4>Included</h4>

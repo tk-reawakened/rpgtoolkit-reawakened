@@ -257,7 +257,6 @@ export {
   type PrepareGamePackageOptions,
   type PreparedGamePackage,
 } from "./package-export.ts";
-export { packageDescriptorFor, type PackageDescriptorOutcome } from "./package-export-write.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
 export {
   createPreferences,

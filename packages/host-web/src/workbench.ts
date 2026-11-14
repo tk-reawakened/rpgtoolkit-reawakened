@@ -248,7 +248,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       return prepared.ok ? { ok: true, prepared: prepared.value } : prepared;
     },
     onDownload: async (artifact) => {
-      const result = await services.packageExport?.downloadFile?.(artifact.fileName, artifact.bytes);
+      const result = await services.packageExport?.downloadFile(artifact.fileName, artifact.bytes);
       return result === undefined ? { ok: false, message: "This host provides no way to save package files, so the package cannot be exported from here." }
         : result.ok ? { ok: true } : { ok: false, message: result.error.message };
     },

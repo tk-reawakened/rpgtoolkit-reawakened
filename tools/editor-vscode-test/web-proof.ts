@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { BinaryReader, readBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
@@ -176,8 +175,9 @@ export async function runVscodeWebProof(
   const packageCommandEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
   await expect(packageCommandEntry).toBeVisible();
   await packageCommandEntry.click();
-  await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText(/Included \(\d+\):/)).toBeVisible();
+  // VS Code cannot save the package without risking a silent overwrite or a followed swapped link, so the command
+  // explains that and writes nothing.
+  await expect(page.getByText(/Packaging a game is not available in VS Code/).first()).toBeVisible({ timeout: 15_000 });
   await page.keyboard.press("Escape");
 
   const editor = await waitForEditorFrame(page, "initial Game settings editor");
@@ -203,38 +203,6 @@ export async function runVscodeWebProof(
   page = await host.restart(page);
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   expect(await host.readBacking()).toEqual(saved);
-
-  // Save through the registered package command's Save As dialog in the real VS Code web workbench (the extension does not
-  // publish into the project folder itself), then inspect the host's persisted workspace files independently of the UI.
-  const publishCommand = await commandPalette(page, expect);
-  await publishCommand.fill(">Test: Execute Package Game");
-  const publishEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
-  await expect(publishEntry).toBeVisible();
-  await publishEntry.click();
-  await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
-  const inventoryDialog = page.getByRole("dialog");
-  await expect(inventoryDialog.getByText(/Included \(\d+\):/)).toBeVisible();
-  await inventoryDialog.getByRole("button", { name: "Choose where to save…", exact: true }).click();
-  const packageBase = title.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "game";
-  const packageName = `${packageBase}.tpk`;
-  const savePath = page.getByRole("textbox", { name: "Folder path" });
-  await expect(savePath).toHaveValue(`/${packageName}`);
-  await page.getByRole("button", { name: "OK", exact: true }).click();
-  await expect(page.getByText(/Package saved to .* and install descriptor saved to/).first()).toBeVisible({ timeout: 15_000 });
-  const packageBytes = await host.readBacking(packageName);
-  const descriptorBytes = await host.readBacking(`${packageName}.json`);
-  const descriptor = JSON.parse(new TextDecoder().decode(descriptorBytes)) as {
-    file: string;
-    sha256: string;
-    size: number;
-    title: string;
-    version: string;
-  };
-  expect(descriptor.file).toBe(packageName);
-  expect(descriptor.sha256).toBe(createHash("sha256").update(packageBytes).digest("hex"));
-  expect(descriptor.size).toBe(packageBytes.byteLength);
-  expect(descriptor.title).toBe(title);
-  expect(descriptor.version).toBe("1.0.0");
 
   await openGame(page, gamePath, expect);
   let reopenedEditor = await waitForEditorFrame(page, "reopened Game settings editor");
