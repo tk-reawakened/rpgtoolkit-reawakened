@@ -193,6 +193,9 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       await until(() => /A whole stamp \(2 × 1 tiles\) is chosen/.test(first.element.querySelector(".tkr-bitmap-brush")?.textContent ?? ""));
       equal(first.workbenchDirty(), false, "choosing a stamp edits nothing");
       deepEqual(await host.disk(PATH), ORIGINAL, "and leaves its file as it was");
+      // The webview reports the choice to the extension host in a message that arrives on a later turn, and closing the
+      // tab drops the webview's listener. A person cannot close in the same turn, so let the report be delivered first.
+      await settle(act, 4);
 
       await act(() => { control<HTMLButtonElement>(first, ".tkr-bitmap-tool-draw").click(); });
       await act(() => { cell(first, 1, 1).click(); });
