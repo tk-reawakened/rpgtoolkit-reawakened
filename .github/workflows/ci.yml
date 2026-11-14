@@ -123,11 +123,11 @@ jobs:
         with:
           node-version: 24.21.0
           cache: pnpm
+      # ADR numbering uses only Node built-ins, so keep the docs-only gate independent of dependency installation.
+      - run: node --test tools/adr-numbering.test.mjs && node tools/adr-numbering.mjs
       - run: pnpm install --frozen-lockfile
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm build:outputs:test && pnpm build:outputs:check
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - run: pnpm adr:numbering:test && pnpm adr:numbering:check
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm bmad:tickets:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
