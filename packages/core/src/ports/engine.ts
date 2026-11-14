@@ -143,6 +143,13 @@ export type SurfacePixels = {
   readonly rgba: Bytes;
 };
 
+/** Hashes at one completed simulation tick; delivered to an optional engine-init observer. */
+export type TickObservation = {
+  readonly tick: number;
+  readonly stateHash: string;
+  readonly drawHash: string;
+};
+
 /**
  * The result of one `advance` batch (AD-1, AD-14). `consumed` is the canonical
  * input log written by the core; `audioCues` are the cues emitted during the

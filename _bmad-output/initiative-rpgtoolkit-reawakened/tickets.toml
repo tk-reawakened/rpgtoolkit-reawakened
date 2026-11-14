@@ -85,7 +85,7 @@ tracker_id = "#491"
 slug = "epic-media-objects"
 title = "Media as objects and events: voices, tracks and the media object"
 covers = ["CAP-5", "CAP-7"]
-after = [{ epic = 2, needs = "the character, enemy, item and battle-data readers (2.6, 2.7)" }, { epic = 5, needs = "the unified actor runtime and board edges and transitions (5.3, 5.9)" }, { epic = 18, needs = "closure saving, which stays the only place callables are saved (18.6)" }, { epic = 19, needs = "objects, receivers, packages, registerPlugin, the plugins list, emitters and the step-budget spike (19.1, 19.2, 19.4, 19.6, 19.8, 19.9, 19.10, 19.12)" }]
+after = [{ epic = 2, needs = "the character, enemy, item and battle-data readers plus the main-file reader/writer for audio settings (2.6, 2.7, 2.9)" }, { epic = 5, needs = "the unified actor runtime and board-edge arrival paths whose audio sources beforePlay observes (5.3, 5.9)" }, { epic = 18, needs = "closure saving, which stays the only place callables are saved (18.6)" }, { epic = 19, needs = "objects, receivers, packages, registerPlugin, the plugins list, emitters and the step-budget spike (19.1, 19.2, 19.4, 19.6, 19.8, 19.9, 19.10, 19.12)" }, { epic = 6, needs = "the completed audio core and synth contract whose playback, cue, wait and fade rules 21.1 preserves (6.17)" }]
 
 [[epic]]
 id = 7
@@ -93,7 +93,7 @@ tracker_id = "#503"
 slug = "epic-battle"
 title = "Battles run on core rules with a default UI"
 covers = ["CAP-9"]
-after = [{ epic = 2, needs = "enemy, special-move, status-effect and background data" }, { epic = 3, needs = "battle built-ins and custom programs" }, { epic = 5, needs = "random battle start and fighter state" }, { epic = 19, needs = "objects, packages, registerPlugin and emitters for the stock battle package" }, { epic = 20, needs = "the actor model, behaviours, hydration and the stock_battle package shell" }, { epic = 21, needs = "the media object and `beforePlay`, for battle music and battle sounds" }]
+after = [{ epic = 2, needs = "enemy, special-move, status-effect and background data (2.7)" }, { epic = 3, needs = "the plugin/command runtime needed by battle built-ins and custom programs (3.3, 3.5)" }, { epic = 5, needs = "random battle start and fighter state" }, { epic = 19, needs = "objects, packages, registerPlugin and emitters for the stock battle package" }, { epic = 20, needs = "the actor model, behaviours, hydration and the stock_battle package shell" }, { epic = 21, needs = "the media object and `beforePlay`, for battle music and battle sounds" }]
 
 [[epic]]
 id = 8
@@ -187,7 +187,7 @@ id = 23
 tracker_id = "#639"
 slug = "epic-deferred-work"
 title = "Deferred work: hardening and carry-forward"
-after = [{ epic = 2, needs = "legacy format and conversion contracts" }, { epic = 4, needs = "rendering and surface contracts" }, { epic = 3, needs = "VM and state contracts" }]
+after = [{ epic = 2, needs = "enemy definitions and battle fixtures required by the deferred evidence audit (2.6, 2.7)" }, { epic = 3, needs = "the legacy engine state hash used for surface-hash parity (3.11)" }, { epic = 4, needs = "the persistent raster-surface contract used by the cache optimization (4.7)" }]
 
 [[epic]]
 id = 24
@@ -195,7 +195,7 @@ tracker_id = "#727"
 slug = "epic-headless-sessions"
 title = "Headless sessions: screenshots, short videos, start state and mocks"
 covers = ["CAP-12", "CAP-13"]
-after = [{ epic = 1, needs = "the headless runner, golden harness, licence gate and fixture fetch" }, { epic = 4, needs = "the draw list, core/raster and surfaces that screenshots and frames come from" }, { epic = 6, needs = "synth PCM rendering for the offline WAV master" }]
+after = [{ epic = 1, needs = "the headless runner, golden harness, licence gate and fixture fetch (1.5, 1.7, 1.9)" }, { epic = 4, needs = "the draw list, core/raster and surfaces that screenshots and frames come from (4.5, 4.7)" }, { epic = 6, needs = "synth PCM rendering for the offline WAV master (6.12)" }]
 
 [[epic]]
 id = 25
@@ -203,7 +203,7 @@ tracker_id = "#1347"
 slug = "epic-game-launcher"
 title = "The Universal Game Launcher: Marketplace, Library and Local Packages"
 covers = ["CAP-12"]
-after = [{ epic = 9, needs = "the runner-web and runner-desktop live player sessions" }]
+after = [{ epic = 9, needs = "the runner-web and runner-desktop live player sessions (9.3, 9.11, 9.16)" }]
 
 [[epic]]
 id = 26
@@ -211,7 +211,7 @@ tracker_id = "#1355"
 slug = "epic-host-capabilities-and-viewports"
 title = "Host Capabilities, Display Planes and Touch Control Surface"
 covers = ["CAP-12"]
-after = [{ epic = 9, needs = "the runner boundary and live session" }]
+after = [{ epic = 9, needs = "the runner contract and live player session used by the host integration (9.2, 9.16)" }]
 
 
 [[epic]]
