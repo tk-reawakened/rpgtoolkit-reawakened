@@ -1,6 +1,6 @@
 # ADR 0026 — Editors are bound to document kinds through one registry and one document contract
 
-* **Status:** Proposed (2026-11-11). Not approved by the owner. No code follows from it until it is.
+* **Status:** Proposed (2026-11-11). Not yet accepted as an ADR. The owner told the 12.1 story to build to it on 2026-11-13, so the extraction below exists in code; acceptance of the ADR itself is still the owner's to record.
 * **Date:** 2026-11-11
 * **Context documents:** [editor-ecosystem](../editor-ecosystem/README.md) (the proposal this ADR belongs to), [0005](0005-independent-product-v1-and-native-format.md), [0009](0009-compatibility-layer-not-the-model.md), [0019](0019-tkr-authoring-formats.md), [0022](0022-shared-editor-authoring-contracts.md), [0023](0023-native-data-contracts-versioning-identity-and-sidecars.md), [0024](0024-plugin-data-contributions.md), [0025](0025-editor-ui-framework-preact-tsx.md), [guardrails.md](../guardrails.md), architecture spine AD-18 to AD-20
 * **Does not reopen:** ADR 0022's ownership and lifecycle rules, the ADR 0005 amendment of 2026-11-09, ADR 0008's trust line, or any host or framework choice
@@ -62,3 +62,14 @@ ADR 0009 already says Toolkit 3 shapes are adapters onto our model. This ADR car
 * Whether a kind identifier is a plain name (`board`) or always qualified (`core/board`), and how a plugin's is formed (PKG-2).
 * Whether the registry is fixed at build time for the first release or can change while the editor runs.
 * How a text kind in VS Code, where the host's text document is the authority, presents `apply` and `undo` through the shared contract without a second model (ADR 0022 D2.2 says the surface is the same; the adapter is unproved).
+
+## Implementation notes (story 12.1, [#1712](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1712), 2026-11-13)
+
+The second document kind (the board, `.brd`) is the "second caller" of decision 9, so the extraction was made there. What exists, and what is still open:
+
+* **One binary document class** (`packages/editor-model/src/binary-document.ts`). `BinaryDocument<Model, Command, Fields>` holds the whole ADR 0022 D3 lifecycle (save, conflict, revert, undo by `editId`, Save As); a kind supplies a `DocumentCodec` (read, write, same-version-writer check, command guard, apply, label, refuse, summary, snapshot fields). `mainCodec` and `boardCodec` are the two codecs; the 70 existing `editor-model` tests passed unchanged across the move. (Decisions 3 and 4.)
+* **The registry** (`editor-model/src/kinds.ts`): `DOCUMENT_KINDS`, `kindForPath`, `kindById`. Identifiers are plain (`main`, `board`); a qualified form for plugins stays an open question. The registry is fixed at build time. The workspace opens by registered kind and refuses an unclaimed extension with `unsupported`. (Decisions 1 and 2, first half.)
+* **Views by kind** (`editor-ui/src/mount.ts`): `mount` picks the settings view or the board view by `document.kind`. (Decision 2, second half.)
+* **The kind-conformance suite** (`editor-model/test/kind-conformance.test.ts`): a table of kinds run through the checks of the architecture page, with a test that fails when a registered kind is missing from the table. The board's cases that need real project files are in `board-document.test.ts`, `board-preview.test.ts` and the host proof `tools/editor-vscode-test/test/board-hosts.test.ts`. (Decision 5.) The read-only-with-a-reason row is proved for the main kind only: no committed board has a reader but no writer.
+* **Hosts** drive the one contract: the VS Code provider and bridge carry the kind and a `preview` request, recovery runs over any kind, and the browser host exposes `openEditor`/`mountEditor` (`openGameSettings`/`mountGameSettings` remain as aliases). The webview reads no files, so the extension host composes a board's picture and posts it.
+* **Not done:** decision 7 (generated manifests). `extensions/editor/package.json` is edited by hand for the second view type (`tkr.board`); generating it from the registry waits for a third kind. The settings view still carries its own conflict and save markup; the board view repeats it with `tkr-board-*` classes, and the shared status component is for whichever story next needs it a third time.

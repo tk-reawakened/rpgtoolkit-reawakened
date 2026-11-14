@@ -1,12 +1,12 @@
 {
   "name": "editor",
   "displayName": "RPG Toolkit Editor",
-  "description": "Game settings editor for RPG Toolkit projects.",
+  "description": "Game settings and board editor for RPG Toolkit projects.",
   "version": "0.0.1",
   "publisher": "tk-reawakened",
   "license": "MIT",
   "engines": { "vscode": "^1.90.0" },
-  "activationEvents": ["onCustomEditor:tkr.gameSettings"],
+  "activationEvents": ["onCustomEditor:tkr.gameSettings", "onCustomEditor:tkr.board"],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
   "contributes": {
@@ -14,6 +14,11 @@
       "viewType": "tkr.gameSettings",
       "displayName": "RPG Toolkit Game Settings",
       "selector": [{ "filenamePattern": "*.gam" }],
+      "priority": "default"
+    }, {
+      "viewType": "tkr.board",
+      "displayName": "RPG Toolkit Board Editor",
+      "selector": [{ "filenamePattern": "*.brd" }],
       "priority": "default"
     }]
   },

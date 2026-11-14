@@ -2,9 +2,9 @@
 // case-sensitive in-memory folder in place of File System Access. The browser host is its own workbench, so every user
 // action is the call its page makes (`openGameSettings`, `workspace.undo`, `workspace.close`, ...), and every question it
 // asks goes through its `dialogs` service, answered here as the user would.
-import { asMainDocument, type MainDocument } from "@tk-reawakened/editor-model";
+import { asMainDocument, previewBoard, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
 import type { DialogQuestion, DialogService } from "@tk-reawakened/platform-services";
-import { createFolderProject, mountGameSettings, openGameSettings, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web/testing";
+import { createFolderProject, mountGameSettings, openEditor, openGameSettings, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web/testing";
 import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost } from "./suite.ts";
 import { MemoryDirectory, type WriteControl } from "./memory-directory.ts";
 import { MountedView, settle, type Act } from "./view.ts";
@@ -199,5 +199,59 @@ export function createWebConformanceHost(fixture: Uint8Array, act: Act): Conform
     settle: () => settle(act),
     restartFromBackup: async () => null,
     modelsOpen: () => project.workspace.documents().length,
+  };
+}
+
+/** One open board tab in the browser host. */
+export interface WebBoardTab {
+  readonly element: HTMLElement;
+  /** The document's own dirty state: the browser host is its own workbench. */
+  workbenchDirty(): boolean;
+  /** The picture of the file's bytes through the host's project files, as the view's own preview composes it. */
+  picture(): Promise<BoardPicture>;
+  close(): Promise<void>;
+}
+
+/** The browser host holding `files` besides a `.gam`, for the board proof of story 12.1. */
+export function createWebBoardProofHost(gam: Uint8Array, files: Readonly<Record<string, Uint8Array>>, act: Act): {
+  readonly name: string;
+  open(path: string): Promise<WebBoardTab>;
+  disk(path: string): Promise<Uint8Array | null>;
+  settle(): Promise<void>;
+} {
+  const control: WriteControl = { refuse: false, hold: null, tick: 0 };
+  const root = new MemoryDirectory("project", control);
+  root.put(GAME, gam);
+  for (const [path, bytes] of Object.entries(files)) root.put(path, bytes);
+  const project = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:board-proof", name: "Board proof" }, { dialogs: new ScriptedDialogs() });
+  return {
+    name: "browser host",
+    async open(path) {
+      const element = document.createElement("div");
+      document.body.append(element);
+      let opened!: Awaited<ReturnType<typeof openEditor>>;
+      await act(async () => { opened = await openEditor(project, path, element); });
+      if (!opened.ok) {
+        element.remove();
+        throw new Error(opened.error.kind === "case-conflict" || opened.error.kind === "unsupported" ? opened.error.message : `${opened.error.document}: ${opened.error.error.message}`);
+      }
+      const { document: model, view } = opened;
+      await settle(act);
+      return {
+        element,
+        workbenchDirty: () => model.getSnapshot().dirty,
+        picture: async () => {
+          const preview = await previewBoard(project.services.fs, project.project.id, model.serialize());
+          return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
+        },
+        close: async () => {
+          await view.close();
+          view.dispose();
+          element.remove();
+        },
+      };
+    },
+    disk: async (path) => root.read(path),
+    settle: () => settle(act),
   };
 }
