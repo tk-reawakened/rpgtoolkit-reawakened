@@ -14,7 +14,7 @@
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
     "onView:tkr.game",
-    "onCommand:tkr.packageGame"
+    "onCommand:tkr.packageGame",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
     "onCommand:tkr.startBoard",
