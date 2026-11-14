@@ -190,6 +190,7 @@ async function excludeVerifiedPreviousExports(
   collected: CollectedFiles,
   mainFile: PackageFile,
   packageExport: PackageExportService,
+): Promise<CollectedFiles> {
   const byPath = new Map<string, PackageFile>(collected.files.map((file) => [foldPath(file.path), file]));
   const groups = new Map<string, Set<string>>();
   for (const descriptor of collected.files) {
