@@ -654,6 +654,83 @@ test("tile bitmap previews resolve Tiles-prefixed references and animated-tile f
   }
 });
 
+test("optional Tiles prefixes do not collapse nested asset paths", async () => {
+  const rootBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/files/flower.gph", import.meta.url)));
+  const nestedBytes = new TextEncoder().encode(new TextDecoder().decode(rootBytes).replaceAll(" 7885040 ", " 16711680 "));
+  const bitmap = writeTileBitmap({
+    magic: TILE_BITMAP_MAGIC,
+    major: 3,
+    minor: 0,
+    width: 2,
+    height: 1,
+    cells: [
+      { tile: "Tiles/foo.gph", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "Tiles/Tiles/foo.gph", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+      { tile: "", r: 0, g: 0, b: 0 },
+    ],
+    residue: new Uint8Array(),
+  });
+  ok(bitmap.ok);
+  const rootTexture = decodeTileTexture(assetKey("foo.gph"), rootBytes);
+  const nestedTexture = decodeTileTexture(assetKey("Tiles/foo.gph"), nestedBytes);
+  const parsedBitmap = readTileBitmap(new BinaryReader(bitmap.value, "Bitmap/collision.tbm"));
+  ok(rootTexture.ok && nestedTexture.ok && parsedBitmap.ok);
+  const expected = compositeTileBitmap(parsedBitmap.value, new Map([
+    ["Tiles/foo.gph", { w: rootTexture.texture.w, h: rootTexture.texture.h, rgba: rootTexture.texture.rgba }],
+    ["Tiles/Tiles/foo.gph", { w: nestedTexture.texture.w, h: nestedTexture.texture.h, rgba: nestedTexture.texture.rgba }],
+  ]));
+  ok(expected.ok);
+  const s = await setup(exampleBoard(), createBrowserSession(), {
+    "Tiles/foo.gph": rootBytes,
+    "Tiles/Tiles/foo.gph": nestedBytes,
+    "Bitmap/collision.tbm": bitmap.value,
+  });
+  const canvasDescriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+  const originalGetContext = HTMLCanvasElement.prototype.getContext;
+  const drawnPixels = new WeakMap<HTMLCanvasElement, Uint8ClampedArray>();
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: function (this: HTMLCanvasElement, type: string) {
+      if (this.dataset.previewReference === undefined) return originalGetContext.call(this, "2d");
+      const canvas = this;
+      return {
+        createImageData(width: number, height: number) {
+          return { width, height, colorSpace: "srgb", data: new Uint8ClampedArray(width * height * 4) };
+        },
+        putImageData(image: ImageData) { drawnPixels.set(canvas, image.data); },
+        getImageData() { return { data: drawnPixels.get(canvas) }; },
+      } as unknown as CanvasRenderingContext2D;
+    },
+  });
+  let handle: ViewHandle | undefined;
+  try {
+    handle = await show(s);
+    const source = s.el.querySelector<HTMLSelectElement>(".tkr-tileset-browser select");
+    ok(source !== null);
+    await act(async () => {
+      source.value = "Bitmap/collision.tbm";
+      source.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      for (let turn = 0; turn < 100 && !s.el.querySelector(".tkr-tileset-browser-item")?.textContent?.includes("collision.tbm"); turn += 1) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    });
+    const preview = s.el.querySelector<HTMLCanvasElement>(".tkr-tileset-browser-preview");
+    ok(preview !== null, `the bitmap draws both same-named assets from distinct nested paths; item=${s.el.querySelector(".tkr-tileset-browser-item")?.textContent}; message=${s.el.querySelector(".tkr-tileset-browser-message")?.textContent}; sources=${[...(source?.options ?? [])].map((option) => `${option.value}=${option.textContent}`).join(",")}`);
+    const context = preview.getContext("2d");
+    ok(context !== null);
+    deepEqual([...context.getImageData(0, 0, preview.width, preview.height).data], [...expected.value.rgba], "optional Tiles prefix and nested asset identity resolve to distinct canonical pixels");
+  } finally {
+    handle?.dispose();
+    if (canvasDescriptor !== undefined) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", canvasDescriptor);
+  }
+});
+
 test("tile-reference matching folds ASCII path characters without conflating Unicode case", async () => {
   const single = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/files/flower.gph", import.meta.url)));
   const bitmapFor = (reference: string): Uint8Array => {

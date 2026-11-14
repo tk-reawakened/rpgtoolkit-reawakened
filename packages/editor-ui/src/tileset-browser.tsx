@@ -243,9 +243,9 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     const match = single || animated ? null : /^(.*\.(?:tst|iso))(\d+)$/i.exec(relative);
     if (!single && !animated && match === null) return undefined;
     const wantedSourceKey = assetKey(single || animated ? relative : match![1]!);
-    const source = available.find((candidate) => assetKey(withoutTilesPrefix(sourceReference(candidate))) === wantedSourceKey);
+    const source = available.find((candidate) => assetKey(sourceReference(candidate)) === wantedSourceKey);
     if (source === undefined) return undefined;
-    const key = assetKey(withoutTilesPrefix(sourceReference(source)));
+    const key = assetKey(sourceReference(source));
     if (resolving.has(key)) return undefined;
     let decoded = decodedCache.get(key);
     if (decoded === undefined) {
