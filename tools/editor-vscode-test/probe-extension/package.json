@@ -11,7 +11,7 @@
     "onFileSystem:tkr-testfs",
     "onCommand:tkr.editorWebProof.runExampleGame",
     "onCommand:tkr.editorWebProof.runExampleProgram",
-    "onCommand:tkr.editorWebProof.failSaves",
+    "onCommand:tkr.editorWebProof.runExampleBoard",
     "onCommand:tkr.editorWebProof.allowSaves",
     "onCommand:tkr.editorWebProof.pauseProgramRead",
     "onCommand:tkr.editorWebProof.resumeProgramRead",
@@ -29,6 +29,10 @@
       {
         "command": "tkr.editorWebProof.runExampleProgram",
         "title": "Test: Run Example Program"
+      },
+      {
+        "command": "tkr.editorWebProof.runExampleBoard",
+        "title": "Test: Run Example Board"
       },
       { "command": "tkr.editorWebProof.failSaves", "title": "Test: Fail Saves" },
       { "command": "tkr.editorWebProof.allowSaves", "title": "Test: Allow Saves" },

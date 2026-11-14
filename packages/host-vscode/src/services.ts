@@ -12,7 +12,7 @@ export function createVscodeServices(root: vscode.Uri, context: vscode.Extension
   const project: ProjectHandle = { id: root.toString(), name: folder?.name ?? root.path.split("/").at(-1) ?? "Workspace" };
   const run = createVscodeRunService(context, root, generation);
   const desktop = vscode.env.uiKind === vscode.UIKind.Desktop;
-  const capabilities = [...vscodeCapabilities(desktop), "runGame", "runProgram"] as const;
+  const capabilities = [...vscodeCapabilities(desktop), "runGame", "runBoard", "runProgram"] as const;
   return {
     capabilities: new Set(capabilities),
     fs: createVscodeFileSystem(root),

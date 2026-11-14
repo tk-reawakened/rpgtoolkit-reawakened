@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { createRunHandle, prepareRun, prepareSceneLaunch, platformError, platformOk, type Launch, type PreparedRun, type PlatformResult, type ProgramLaunch, type RunHandle, type RunService, type RunStartGuard, type RunStatus } from "@tk-reawakened/platform-services";
+import { createRunHandle, prepareBoardLaunch, prepareRun, prepareSceneLaunch, platformError, platformOk, type BoardLaunch, type Launch, type ProgramLaunch, type PreparedRun, type PlatformResult, type RunHandle, type RunService, type RunStartGuard, type RunStatus } from "@tk-reawakened/platform-services";
 import { createVscodeFileSystem } from "./filesystem.ts";
 
 
@@ -79,22 +79,23 @@ export function createVscodeRunService(context: vscode.ExtensionContext, root: v
   const projectId = root.toString();
   const fs = createVscodeFileSystem(root);
   return {
-    unavailable: { board: "The owner's fresh-state ruling requires its accepted ADR/spec update before board-test implementation." },
-    startGame: async (launch, guard = () => platformOk(undefined)) => {
-      if (launch.kind === "board") return platformError("unavailable", "The owner's fresh-state ruling requires its accepted ADR/spec update before board-test implementation.");
-      return await start(launch, guard);
-    },
+    unavailable: {},
+    startGame: async (launch, guard = () => platformOk(undefined)) => await start(launch, guard),
     startProgram: async (launch, guard = () => platformOk(undefined)) => await start(launch, guard),
   };
 
-  async function start(launch: Exclude<Launch, { kind: "board" }>, callerGuard: RunStartGuard): Promise<PlatformResult<RunHandle>> {
+  async function start(launch: Launch, callerGuard: RunStartGuard): Promise<PlatformResult<RunHandle>> {
     const savedResult = await saveBeforeRun(generation);
     if (!savedResult.ok) return savedResult;
     const savedGeneration = savedResult.value;
     const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web" });
     if (!prepared.ok) return prepared;
     let scene: { readonly board: string; readonly program: string } | undefined;
-    if (launch.kind === "program") {
+    if (launch.kind === "board") {
+      const staged = prepareBoardLaunch({ ...launch, start: { ...launch.start, board: prepared.value.snapshot.start!.board }, party: prepared.value.snapshot.party });
+      if (!staged.ok) return staged;
+      scene = staged.value;
+    } else if (launch.kind === "program") {
       const staged = prepareSceneLaunch(launch, prepared.value.files);
       if (!staged.ok) return staged;
       scene = staged.value;
@@ -110,8 +111,9 @@ export function createVscodeRunService(context: vscode.ExtensionContext, root: v
   }
 
 
+
   async function openPlayer(
-    launch: Exclude<Launch, { kind: "board" }>,
+    launch: Launch,
     prepared: PreparedRun,
     scene: { readonly board: string; readonly program: string } | undefined,
     guard: RunStartGuard,
@@ -125,7 +127,7 @@ export function createVscodeRunService(context: vscode.ExtensionContext, root: v
     } catch (error) {
       return platformError("io-error", `The bundled player assets could not be loaded: ${String(error)}`);
     }
-    const launchLabel = launch.kind === "program" ? "Program test" : "Game";
+    const launchLabel = launch.kind === "program" ? "Program test" : launch.kind === "board" ? "Board test" : "Game";
     const panel = vscode.window.createWebviewPanel("tkr.player", launch.kind === "game" ? "Running Game" : `Testing ${launchLabel}`, vscode.ViewColumn.Beside, {
       enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
     });
@@ -203,7 +205,7 @@ export function createVscodeRunService(context: vscode.ExtensionContext, root: v
         const statusValue = playerStatus(value.status);
         if (statusValue === undefined) return;
         report?.(statusValue);
-        status.text = statusValue.state === "running" ? `$(play) ${launch.kind === "program" ? "Program" : "Game"} tick ${statusValue.tick}`
+        status.text = statusValue.state === "running" ? `$(play) ${launchLabel} tick ${statusValue.tick}`
           : statusValue.state === "stalled" ? `$(loading~spin) Waiting for ${statusValue.stalledOn ?? "an asset"}`
             : statusValue.state === "ended" ? "$(check) Run ended"
               : statusValue.state === "failed" ? "$(error) Run failed"
@@ -233,6 +235,19 @@ function isProgramLaunch(value: unknown): value is ProgramLaunch {
     if (typeof start.board !== "string" || typeof start.x !== "number" || typeof start.y !== "number" || typeof start.layer !== "number") return false;
   }
   return true;
+}
+
+function isBoardLaunch(value: unknown): value is BoardLaunch {
+  if (typeof value !== "object" || value === null) return false;
+  const launch = value as Record<string, unknown>;
+  if (launch.kind !== "board" || typeof launch.main !== "string" || typeof launch.projectFolder !== "string"
+    || (launch.seed !== undefined && typeof launch.seed !== "number") || !Array.isArray(launch.party)
+    || !launch.party.every((path) => typeof path === "string")) return false;
+  const start = launch.start;
+  if (typeof start !== "object" || start === null || Array.isArray(start)) return false;
+  const position = start as Record<string, unknown>;
+  return typeof position.board === "string" && typeof position.x === "number"
+    && typeof position.y === "number" && typeof position.layer === "number";
 }
 
 interface PromptedProgramLaunch {
@@ -363,7 +378,7 @@ async function promptProgramLaunch(): Promise<PromptedProgramLaunch | undefined>
   }
 }
 
-/** Register native run commands; board tests remain unavailable until the fresh-state ruling's ADR/spec update is accepted. */
+/** Register native run commands for the game, board-test and program-test launch surfaces. */
 export function registerVscodeGameRunner(context: vscode.ExtensionContext, generation: RunGeneration, runForProject: (root: vscode.Uri) => RunService): void {
   context.subscriptions.push(vscode.commands.registerCommand("tkr.runGame", async (explicitMain?: vscode.Uri, explicitFolder?: vscode.Uri) => {
     const savedResult = await saveBeforeRun(generation);
@@ -421,6 +436,8 @@ export function registerVscodeGameRunner(context: vscode.ExtensionContext, gener
       : platformError("unavailable", "A saved file changed while you were choosing run options; run it again."));
     if (!result.ok) void vscode.window.showErrorMessage(`The game was not started: ${result.error.message}`);
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.startBoard", async (workspaceUri: unknown, launchValue: unknown) =>
+    await startBoardRequest(workspaceUri, launchValue)));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.startProgram", async (workspaceUri: unknown, launchValue: unknown) =>
     await startProgramRequest(workspaceUri, launchValue)));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.testProgram", async (workspaceUri?: unknown, launchValue?: unknown) => {
@@ -441,6 +458,21 @@ export function registerVscodeGameRunner(context: vscode.ExtensionContext, gener
     return result;
   }));
 
+  async function startBoardRequest(workspaceUri: unknown, launchValue: unknown): Promise<PlatformResult<RunHandle>> {
+    if (!(workspaceUri instanceof vscode.Uri) || !isBoardLaunch(launchValue)) {
+      return platformError("invalid-request", "Start Board requires a workspace URI and a complete board launch.");
+    }
+    const workspace = vscode.workspace.getWorkspaceFolder(workspaceUri);
+    if (workspace === undefined || workspace.uri.toString() !== workspaceUri.toString()) {
+      return platformError("invalid-request", "Start Board requires the URI of an open workspace folder.");
+    }
+    const savedResult = await saveBeforeRun(generation);
+    if (!savedResult.ok) return savedResult;
+    const savedGeneration = savedResult.value;
+    return await runForProject(workspace.uri).startGame(launchValue, () => generation() === savedGeneration
+      ? platformOk(undefined)
+      : platformError("unavailable", "A saved file changed while the board test was being prepared; run it again."));
+  }
   async function startProgramRequest(
     workspaceUri: unknown,
     launchValue: unknown,

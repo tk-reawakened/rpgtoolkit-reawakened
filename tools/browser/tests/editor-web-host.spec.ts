@@ -284,6 +284,54 @@ test("a board-backed program runs its declared fixture in the real browser playe
   await page.getByRole("button", { name: "Stop", exact: true }).click();
 });
 
+test("a board test starts a fresh selected board, party and position in the real browser player", async ({ page }) => {
+  const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
+  const files: PickerInput[] = [];
+  const collect = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: Array.from(readFileSync(path)) });
+    }
+  };
+  collect(root);
+  const ada = files.find((file) => file.path === "Game/Example/Chrs/ada.tem");
+  expect(ada).toBeDefined();
+  files.push({ path: "Game/Example/Chrs/companion.tem", bytes: [...ada!.bytes] });
+  const startup = files.findIndex((file) => file.path === "Game/Example/Prg/start.prg");
+  expect(startup).toBeGreaterThanOrEqual(0);
+  files[startup] = { path: "Game/Example/Prg/start.prg", bytes: Array.from(new TextEncoder().encode('mwin("SAVED STARTUP MUST NOT RUN")\n')) };
+  await installFolderPicker(page, files);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("spinbutton", { name: "Column" }).fill("2");
+  await page.getByRole("spinbutton", { name: "Row" }).fill("2");
+  const party = page.getByRole("listbox", { name: "Party", exact: true }).first();
+  await party.selectOption("Game/Example/Chrs/companion.tem");
+  await party.selectOption(["Game/Example/Chrs/ada.tem", "Game/Example/Chrs/companion.tem"]);
+  await page.getByRole("spinbutton", { name: "Seed" }).fill("23");
+  await page.getByRole("button", { name: "Test board", exact: true }).click();
+
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  await expect(frame.getByLabel("Game screen")).toBeVisible();
+  const scene = async () => frame.locator("#screen").evaluate(() => {
+    const live = Reflect.get(window, "__live") as { board: string | null; player: unknown; stateHash: string } | undefined;
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
+    return { live, text: (session?.engine.drawList().commands ?? []).filter((command) => command.kind === "text").map((command) => command.text) };
+  });
+  await expect.poll(async () => (await scene()).live?.board ?? "", { timeout: 30_000 }).toContain("village.brd");
+  const result = await scene();
+  expect(result.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.text.join(" ")).not.toContain("SAVED STARTUP MUST NOT RUN");
+  await expect(page.getByLabel("Current run")).toContainText("State hash:");
+  await expect(page.getByLabel("Run snapshot")).toContainText("Game/Example/Chrs/companion.tem, Game/Example/Chrs/ada.tem");
+  await expect(page.getByLabel("Run snapshot")).toContainText("23");
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+});
+
 // The real browser page is held at the player load boundary to prove an edit during the handoff cannot start stale bytes.
 test("an edit before the player handshake prevents a stale game from starting", async ({ page }) => {
   await installFolderPicker(page, [{ path: "Main/example.gam", bytes: validMain }]);

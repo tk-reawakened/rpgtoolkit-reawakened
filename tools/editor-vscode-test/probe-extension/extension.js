@@ -34,6 +34,17 @@ function activate(context) {
     });
     report(result?.ok ? "Program launch accepted" : `Program launch refused: ${result?.error?.message ?? "unknown error"}`);
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runExampleBoard", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    report("Board launch pending");
+    const result = await vscode.commands.executeCommand("tkr.startBoard", workspace.uri, {
+      kind: "board", main: "Main/example.gam", projectFolder: "Game/Example", seed: 23,
+      party: ["Game/Example/Chrs/ada.tem"],
+      start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 },
+    });
+    report(result?.ok ? "Board launch accepted" : `Board launch refused: ${result?.error?.message ?? "unknown error"}`);
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.copyMainFileBytes", async () => {
     console.info("[vscode-web-proof-probe] copy command invoked");
     const workspace = vscode.workspace.workspaceFolders?.[0];

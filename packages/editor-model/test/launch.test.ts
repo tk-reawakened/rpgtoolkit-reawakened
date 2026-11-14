@@ -107,7 +107,7 @@ test("a launch the host cannot do is refused with the host's reason, before anyt
 
 test("a launch naming a file the project lacks is refused with the host's sentence", async () => {
   const { launcher } = await setUp();
-  const outcome = await launcher.launch({ kind: "board", main: MAIN, projectFolder: "", start: { board: "Boards/none.brd", x: 1, y: 1, layer: 1 }, party: [] });
+  const outcome = await launcher.launch({ kind: "board", main: MAIN, projectFolder: "", start: { board: "Boards/none.brd", x: 1, y: 1, layer: 1 }, party: ["Chrs/hero.tem"] });
   ok(!outcome.ok);
   equal(outcome.reason, "refused");
   equal(outcome.message, "The run needs the board Boards/none.brd, which the project does not have.");

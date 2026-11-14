@@ -20,15 +20,15 @@ import { platformError, platformOk, type Disposable, type PlatformResult } from 
 export type LaunchKind = "game" | "board" | "program";
 
 /**
- * Where a run starts on a board, the way the legacy editor's test setting `Send(board, x, y, layer)` named it
- * (`docs/spec/formats/rpgcode-program.md#test-runs-from-the-editor`): a project-relative board path and a tile position.
+ * Where a run starts on a board, using that board's coordinate mode (`docs/spec/engine/movement-and-collision.md#reawakened-send-board`):
+ * one-based tile coordinates unless the board enables pixel coordinates, otherwise absolute board pixels.
  */
 export interface BoardStart {
   /** The project-relative path of the board, for example `Boards/village.brd`. */
   readonly board: string;
-  /** The tile column, counted from 1. */
+  /** Tile column (one-based) or absolute board-pixel x, according to the destination board. */
   readonly x: number;
-  /** The tile row, counted from 1. */
+  /** Tile row (one-based) or absolute board-pixel y, according to the destination board. */
   readonly y: number;
   /** The board layer, counted from 1. */
   readonly layer: number;
@@ -52,14 +52,63 @@ export interface GameLaunch extends LaunchBase {
   readonly kind: "game";
 }
 
-/** A board test: the game entered at an explicit board and start position with an explicit party (D8.1). */
+/** A board test: enter an explicit board and start position with an explicit party (D8.1). */
 export interface BoardLaunch extends LaunchBase {
   readonly kind: "board";
   readonly start: BoardStart;
-  /** The project-relative character files of the party, leader first. Empty means the main file's initial character. */
+  /** One to five distinct project-relative `.tem` character files, in leader-first order. */
   readonly party: readonly string[];
 }
 
+
+
+/**
+ * Whether a board launch is representable as the documented in-memory RPGCode setup.
+ * Does not read or modify saved programs or save-state data.
+ */
+function boardLaunchProblem(launch: BoardLaunch): string | null {
+  if (!Array.isArray(launch.party) || launch.party.length < 1 || launch.party.length > 5) {
+    return "A board test requires 1 to 5 distinct character files.";
+  }
+  const seen = new Set<string>();
+  for (const path of launch.party) {
+    if (typeof path !== "string" || !path.toLowerCase().endsWith(".tem")) {
+      return `Board party member ${String(path)} is not a .tem character file.`;
+    }
+    const key = fold(path);
+    if (seen.has(key)) return `Board party member ${path} is duplicated.`;
+    seen.add(key);
+    if (/["\r\n]/.test(path)) return `Board party member ${path} cannot be represented as an RPGCode string.`;
+  }
+  const problem = badStart(launch.start, "start");
+  if (problem !== null) return problem;
+  if (typeof launch.start.board !== "string" || /["\r\n]/.test(launch.start.board)) {
+    return "The board path cannot be represented as an RPGCode string.";
+  }
+  return null;
+}
+
+/** Build a fresh board entry only through the documented RPGCode setup surface. */
+export function prepareBoardLaunch(launch: BoardLaunch): PlatformResult<PreparedSceneLaunch> {
+  const problem = boardLaunchProblem(launch);
+  if (problem !== null) return platformError("invalid-request", problem);
+  const root = launch.projectFolder.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const relative = (path: string): string | null => {
+    const name = path.replace(/\\/g, "/");
+    return root === "" ? name : fold(name).startsWith(`${fold(root)}/`) ? name.slice(root.length + 1) : null;
+  };
+  const quote = (text: string | null): string | null => text === null || /["\r\n]/.test(text) ? null : `"${text}"`;
+  const board = relative(launch.start.board);
+  const boardString = quote(board);
+  const party = launch.party.map((path) => quote(relative(path)));
+  const members = party.filter((member): member is string => member !== null);
+  if (board === null || boardString === null || members.length !== launch.party.length) {
+    return platformError("invalid-request", "A board or party path is outside the game folder or cannot be represented as an RPGCode string.");
+  }
+  const lines = members.map((member) => `AddPlayer(${member})`);
+  lines.push(`Send(${boardString},${launch.start.x},${launch.start.y},${launch.start.layer})`);
+  return platformOk({ board, program: `${lines.join("\n")}\n` });
+}
 /**
  * The fixture of a program test: the editor's test settings, as data (ADR 0022 D8.5). The legacy editor wrote these as
  * lines before the program in `Prg\sys_test.prg`; a Reawakened run never writes that file and never reads a creator's
@@ -350,10 +399,11 @@ function utf8(text: string): Uint8Array {
   return new Uint8Array(out);
 }
 
-/** A position that is not a whole tile counted from 1, as a sentence; `null` when it is one. */
+/** A position must be whole-numbered; x/y may be 0 for absolute pixel coordinates, while layers start at 1. */
 function badStart(start: BoardStart, role: string): string | null {
   for (const [name, value] of [["x", start.x], ["y", start.y], ["layer", start.layer]] as const) {
-    if (!Number.isInteger(value) || value < 1) return `The ${role}'s ${name} must be a whole number from 1; it is ${value}.`;
+    const minimum = name === "layer" ? 1 : 0;
+    if (!Number.isInteger(value) || value < minimum) return `The ${role}'s ${name} must be a whole number from ${minimum}; it is ${value}.`;
   }
   return null;
 }
@@ -372,13 +422,17 @@ export async function prepareRun(
   const seed = launch.seed ?? 0;
   if (!Number.isInteger(seed)) return platformError("invalid-request", `The seed must be a whole number; it is ${seed}.`);
   const start = launch.kind === "board" ? launch.start : launch.kind === "program" ? launch.fixture.start ?? null : null;
-  if (start !== null) {
-    const problem = badStart(start, launch.kind === "board" ? "start" : "fixture start");
+  if (launch.kind === "board") {
+    const problem = boardLaunchProblem(launch);
+    if (problem !== null) return platformError("invalid-request", problem);
+  } else if (start !== null) {
+    const problem = badStart(start, "fixture start");
     if (problem !== null) return platformError("invalid-request", problem);
   }
   if (launch.kind === "program" && launch.fixture.fontSize !== undefined && !(launch.fixture.fontSize > 0)) {
     return platformError("invalid-request", `The fixture's font size must be above 0; it is ${launch.fixture.fontSize}.`);
   }
+
 
   const files = new Map<string, Uint8Array>();
   const byKey = new Map<string, string>();

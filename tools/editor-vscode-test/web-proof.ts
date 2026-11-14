@@ -95,6 +95,39 @@ export async function runVscodeProgramProof(page: Page, expect: Expect, workbenc
   expect(snapshot.targets.find((target) => target.path === "Game/Example/Prg/start.prg")?.sha256).toMatch(/^[a-f0-9]{64}$/);
 }
 
+/** Exercise a fresh board launch through the real VS Code web extension and packaged player. */
+export async function runVscodeBoardProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "Test: Run Example Board");
+  let player: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  const frame = player as Frame | undefined;
+  if (frame === undefined) throw new Error("Board player frame was not found");
+  const scene = async () => await frame.evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
+    const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
+    return { live, text: (session?.engine.drawList().commands ?? []).filter((command) => command.kind === "text").map((command) => command.text) };
+  });
+  await expect.poll(async () => (await scene()).live?.board ?? "", { timeout: 30_000 }).toContain("village.brd");
+  const result = await scene();
+  expect(result.live?.player).toEqual({ x: 48, y: 63 });
+  expect(result.live?.stateHash).toBeTruthy();
+  expect(result.text.join(" ")).not.toContain("VS CODE FIXTURE PROOF");
+  const snapshot = JSON.parse(await frame.locator("#run-snapshot pre").textContent() ?? "null") as {
+    kind: string; start: { board: string; x: number; y: number; layer: number }; party: string[]; seed: number;
+  };
+  expect(snapshot.kind).toBe("board");
+  expect(snapshot.start).toEqual({ board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 });
+  expect(snapshot.party).toEqual(["Game/Example/Chrs/ada.tem"]);
+  expect(snapshot.seed).toBe(23);
+}
+
 /** Refused saves and edits during snapshot preparation must prevent launching a player. */
 export async function runVscodeGuardProof(
   page: Page, expect: Expect, workbenchUrl: string, gamePath: string,

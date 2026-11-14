@@ -1,4 +1,4 @@
-import { createRunHandle, launchUnavailable, platformError, platformOk, prepareRun, prepareSceneLaunch, type FileSystemService, type Launch, type RunDiagnostic, type RunHandle, type RunService, type RunStartGuard, type RunStatus } from "@tk-reawakened/platform-services";
+import { createRunHandle, platformError, platformOk, prepareBoardLaunch, prepareRun, prepareSceneLaunch, type FileSystemService, type Launch, type RunDiagnostic, type RunHandle, type RunService, type RunStartGuard, type RunStatus } from "@tk-reawakened/platform-services";
 
 function isDiagnostic(value: unknown): value is RunDiagnostic {
   return typeof value === "object" && value !== null
@@ -11,10 +11,11 @@ function isDiagnostic(value: unknown): value is RunDiagnostic {
 /** Launch saved project bytes in the same-origin live player. The frame is host chrome; it owns no editor state. */
 export function createWebRunService(fs: FileSystemService, projectId: string, playerUrl: string): RunService {
   const start = async (launch: Launch, guard?: RunStartGuard) => {
-      if (launch.kind === "board") return launchUnavailable("board", "the fresh-state board runner is not yet connected.");
       const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web" });
       if (!prepared.ok) return prepared;
-      const scene = launch.kind === "game" ? null : prepareSceneLaunch(launch, prepared.value.files);
+      const scene = launch.kind === "game" ? null : launch.kind === "board"
+        ? prepareBoardLaunch({ ...launch, start: { ...launch.start, board: prepared.value.snapshot.start!.board }, party: prepared.value.snapshot.party })
+        : prepareSceneLaunch(launch, prepared.value.files);
       if (scene !== null && !scene.ok) return scene;
       const url = new URL(playerUrl, window.location.href);
       if (url.origin !== window.location.origin) return platformError("unavailable", "The game player must be hosted on the editor's origin.");
@@ -80,7 +81,7 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
       return platformOk<RunHandle>(handle);
     };
   return {
-    unavailable: { board: "the fresh-state board runner is not yet connected." },
+    unavailable: {},
     startGame: start,
     startProgram: start,
   };

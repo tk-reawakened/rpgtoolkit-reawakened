@@ -30,6 +30,7 @@ const FILES = {
   "Boards/caves.brd": exampleBoard(),
   "Prg/hello.prg": new Uint8Array([0x6d, 0x77, 0x69, 0x6e]),
   "Chrs/hero.tem": new Uint8Array([1]),
+  "Chrs/second.tem": new Uint8Array([3]),
   "Bitmap/window.png": new Uint8Array([2]),
 };
 const sha = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -78,7 +79,17 @@ function labelled<T extends HTMLElement>(scope: HTMLElement, label: string, sele
 async function choose(select: HTMLSelectElement, ...values: string[]): Promise<void> {
   await act(() => {
     for (const option of select.options) option.selected = values.includes(option.value);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+    if (select.multiple) {
+      Object.defineProperty(select, "selectedOptions", {
+        configurable: true,
+        value: [...select.options].filter((option) => values.includes(option.value)),
+      });
+    }
+    try {
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    } finally {
+      if (select.multiple) Reflect.deleteProperty(select, "selectedOptions");
+    }
   });
 }
 
@@ -140,15 +151,23 @@ test("a failed save stops the run and the panel names the document", async () =>
   ok(alert?.textContent?.startsWith(`${MAIN} could not be saved`), alert?.textContent ?? "no alert");
 });
 
-test("Test board starts at the chosen board, position and party; the document in front is offered first", async () => {
+test("Test board requires a party and preserves selection order with the first member as leader", async () => {
   const { el, host } = await setup(["runGame", "runBoard"], "Boards/village.brd");
   const section = fieldset(el, "Test board");
   equal(labelled<HTMLSelectElement>(section, "Board", "select").value, "Boards/village.brd");
+  const runButton = launchButton(el, "Test board");
+  equal(runButton.disabled, true);
+  equal(section.querySelector(".tkr-run-unavailable")?.textContent, "Choose at least one character for the party.");
   await type(labelled<HTMLInputElement>(section, "Column", "input"), "4");
   await type(labelled<HTMLInputElement>(section, "Row", "input"), "7");
-  await choose(labelled<HTMLSelectElement>(section, "Party", "select"), "Chrs/hero.tem");
-  await click(launchButton(el, "Test board"));
-  deepEqual(host.runs[0]!.launch, { kind: "board", main: MAIN, projectFolder: "", start: { board: "Boards/village.brd", x: 4, y: 7, layer: 1 }, party: ["Chrs/hero.tem"] });
+  const party = labelled<HTMLSelectElement>(section, "Party", "select");
+  equal(party.multiple, true);
+  deepEqual([...party.options].map((option) => option.value), ["Chrs/hero.tem", "Chrs/second.tem"]);
+  await choose(party, "Chrs/second.tem");
+  await choose(party, "Chrs/hero.tem", "Chrs/second.tem");
+  equal(runButton.disabled, false);
+  await click(runButton);
+  deepEqual(host.runs[0]!.launch, { kind: "board", main: MAIN, projectFolder: "", start: { board: "Boards/village.brd", x: 4, y: 7, layer: 1 }, party: ["Chrs/second.tem", "Chrs/hero.tem"] });
   equal(el.querySelector('[aria-label="Run snapshot"] dd')?.textContent, "Board test at Boards/village.brd (4, 7, layer 1)");
 });
 

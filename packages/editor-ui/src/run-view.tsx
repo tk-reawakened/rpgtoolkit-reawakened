@@ -131,13 +131,19 @@ function Select({ label, value, options, onChange, none }: {
   );
 }
 
-/** The party, in the order the characters are listed; the first chosen leads. */
+/** The party, in the order the characters are selected; the first chosen leads. */
 function PartySelect({ value, options, onChange }: { readonly value: readonly string[]; readonly options: readonly string[]; readonly onChange: (value: string[]) => void }) {
   return (
     <label class="tkr-run-field">
       Party
-      <select multiple onChange={(event) => onChange([...event.currentTarget.selectedOptions].map((option) => option.value))}>
-        {options.map((option) => <option key={option} value={option} selected={value.includes(option)}>{option}</option>)}
+      <select multiple onChange={(event) => {
+        const selected = [...event.currentTarget.selectedOptions].map((option) => option.value);
+        const selectedSet = new Set(selected);
+        const ordered = value.filter((option) => selectedSet.has(option));
+        for (const option of selected) if (!value.includes(option)) ordered.push(option);
+        onChange(ordered);
+      }}>
+        {options.map((option) => <option key={option} value={option}>{option}</option>)}
       </select>
     </label>
   );
@@ -147,7 +153,7 @@ function Position({ value, onChange }: { readonly value: Omit<BoardStart, "board
   const field = (name: "x" | "y" | "layer", label: string) => (
     <label class="tkr-run-field">
       {label}
-      <input type="number" min={1} step={1} value={value[name]} onInput={(event) => onChange({ ...value, [name]: Number(event.currentTarget.value) })} />
+      <input type="number" min={name === "layer" ? 1 : 0} step={1} value={value[name]} onInput={(event) => onChange({ ...value, [name]: Number(event.currentTarget.value) })} />
     </label>
   );
   return (
@@ -171,6 +177,7 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
   const [board, setBoard] = useState("");
   const [boardAt, setBoardAt] = useState({ x: 1, y: 1, layer: 1 });
   const [boardParty, setBoardParty] = useState<string[]>([]);
+  const [boardSeed, setBoardSeed] = useState("");
   const [program, setProgram] = useState("");
   const [fixtureBoard, setFixtureBoard] = useState("");
   const [fixtureAt, setFixtureAt] = useState({ x: 1, y: 1, layer: 1 });
@@ -259,14 +266,18 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
       )}
       {section(
         "board",
-        "Starts the game on one board, at the position and with the party you choose, without the start-up.",
+        "Starts fresh on the chosen board. Choose 1–5 characters in order; the first leads. Column and row are tile coordinates unless the board uses pixel coordinates (flag 4), where zero is allowed. The layer starts at 1.",
         <>
           <Select label="Board" value={chosenBoard} options={choices.boards} onChange={setBoard} />
           <Position value={boardAt} onChange={setBoardAt} />
           <PartySelect value={boardParty} options={choices.characters} onChange={setBoardParty} />
+          <label class="tkr-run-field">Seed
+            <input type="number" step={1} value={boardSeed} onInput={(event) => setBoardSeed(event.currentTarget.value)} />
+          </label>
         </>,
-        chosenBoard === "" ? "This project has no boards to test." : null,
-        () => ({ kind: "board", ...base, start: { board: chosenBoard, ...boardAt }, party: boardParty }),
+        chosenBoard === "" ? "This project has no boards to test." : boardParty.length === 0 ? "Choose at least one character for the party."
+          : boardParty.length > 5 ? "Choose no more than five characters." : null,
+        () => ({ kind: "board", ...base, start: { board: chosenBoard, ...boardAt }, party: boardParty, ...(boardSeed === "" ? {} : { seed: Number(boardSeed) }) }),
       )}
       {section(
         "program",

@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import { createHash } from "node:crypto";
 import { deepEqual, equal, notDeepEqual, notEqual, ok } from "node:assert/strict";
-import { prepareRun, prepareSceneLaunch, type GameLaunch, type ProgramLaunch, type RunStatus } from "../src/index.ts";
+import { prepareBoardLaunch, prepareRun, prepareSceneLaunch, type BoardLaunch, type GameLaunch, type ProgramLaunch, type RunStatus } from "../src/index.ts";
 import { createMemoryPlatformServices } from "../src/testing.ts";
 
 const text = (value: string): Uint8Array => new Uint8Array([...value].map((character) => character.charCodeAt(0)));
@@ -99,6 +99,56 @@ test("a scene fixture uses saved program text and documented setup without writi
   equal(injected.error.code, "invalid-request");
 });
 
+test("a board scene uses only ordered character additions and the board's pixel-aware start position", () => {
+  const launch: BoardLaunch = {
+    kind: "board",
+    main: "Main/game.gam",
+    projectFolder: "Game/demo/",
+    start: { board: "Game/demo/Boards/village.brd", x: 0, y: 0, layer: 1 },
+    party: ["Game/demo/Chrs/lead.tem", "Game/demo/Chrs/companion.tem"],
+  };
+  const prepared = prepareBoardLaunch(launch);
+  ok(prepared.ok);
+  equal(prepared.value.board, "Boards/village.brd");
+  equal(prepared.value.program, 'AddPlayer("Chrs/lead.tem")\nAddPlayer("Chrs/companion.tem")\nSend("Boards/village.brd",0,0,1)\n');
+
+  const refused = [
+    { ...launch, party: [] },
+    { ...launch, party: ["Chrs/hero.tem", "chrs/HERO.TEM"] },
+    { ...launch, party: ["Chrs/hero.png"] },
+    { ...launch, party: ["a.tem", "b.tem", "c.tem", "d.tem", "e.tem", "f.tem"] },
+    { ...launch, party: ['Chrs/bad")\\nQuit("x.tem'] },
+  ];
+  for (const invalid of refused) {
+    const result = prepareBoardLaunch(invalid);
+    ok(!result.ok);
+    equal(result.error.code, "invalid-request");
+  }
+});
+
+test("run preparation refuses an empty, duplicate, oversized or non-character board party", async () => {
+  const host = createMemoryPlatformServices({ files: FILES, capabilities: ALL_RUNS });
+  const base: BoardLaunch = {
+    kind: "board",
+    main: "Main/game.gam",
+    projectFolder: "",
+    start: { board: "Boards/start.brd", x: 1, y: 1, layer: 1 },
+    party: ["Chrs/hero.tem"],
+  };
+  const invalid: BoardLaunch[] = [
+    { ...base, party: [] },
+    { ...base, party: ["Chrs/hero.tem", "chrs/HERO.TEM"] },
+    { ...base, party: ["Chrs/hero.png"] },
+    { ...base, party: ["a.tem", "b.tem", "c.tem", "d.tem", "e.tem", "f.tem"] },
+  ];
+  for (const launch of invalid) {
+    const result = await host.run!.startGame(launch);
+    ok(!result.ok);
+    equal(result.error.code, "invalid-request");
+  }
+  equal(host.runs.length, 0);
+});
+
 test("a launch the host does not declare is refused with its reason, and nothing runs", async () => {
   const host = createMemoryPlatformServices({ files: FILES, capabilities: ["runGame"], runRefusal: "its runner boots only from the main file." });
   const refused = await host.run!.startProgram(program);
@@ -111,14 +161,14 @@ test("a launch the host does not declare is refused with its reason, and nothing
 
 test("a file the launch names that the project lacks is refused by name", async () => {
   const host = createMemoryPlatformServices({ files: FILES, capabilities: ALL_RUNS });
-  const missingBoard = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/gone.brd", x: 1, y: 1, layer: 1 }, party: [] });
+  const missingBoard = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/gone.brd", x: 1, y: 1, layer: 1 }, party: ["Chrs/hero.tem"] });
   ok(!missingBoard.ok);
   equal(missingBoard.error.code, "not-found");
   equal(missingBoard.error.message, "The run needs the board Boards/gone.brd, which the project does not have.");
   const missingGraphic = await host.run!.startProgram({ ...program, fixture: { ...program.fixture, windowGraphic: "Bitmap/none.png" } });
   ok(!missingGraphic.ok);
   equal(missingGraphic.error.message, "The run needs the fixture window graphic Bitmap/none.png, which the project does not have.");
-  const badStart = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/start.brd", x: 0, y: 1, layer: 1 }, party: [] });
+  const badStart = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/start.brd", x: -1, y: 1, layer: 1 }, party: ["Chrs/hero.tem"] });
   ok(!badStart.ok);
   equal(badStart.error.code, "invalid-request");
   equal(host.runs.length, 0);

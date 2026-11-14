@@ -94,6 +94,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
   if (options.playerUrl !== undefined) {
     capabilities.add("runGame");
+    capabilities.add("runBoard");
     capabilities.add("runProgram");
   }
   const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
