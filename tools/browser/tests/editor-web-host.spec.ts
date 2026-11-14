@@ -353,12 +353,6 @@ test("browser editor response header refuses cross-origin framing", async ({ pag
   await expect.poll(() => consoleErrors.some((message) => message.includes(`frame-ancestors 'none'`))).toBe(true);
 });
 
-type BrowserPickerSetup = {
-  readonly files: readonly PickerInput[];
-  readonly indexedDbAvailable: boolean;
-  readonly denyPermission: boolean;
-  readonly delayMainRead: boolean;
-};
 // This browser integration crosses a real WebGL/audio player boundary; a unit test cannot prove a live game reaches its board.
 test("a saved folder game launches in the live player from the editor", async ({ page }) => {
   const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
