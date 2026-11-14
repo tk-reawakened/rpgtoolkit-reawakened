@@ -255,6 +255,11 @@ beyond its version because the new field is absent until an action starts; every
 committed save fixture from before the split exercises the first two, and the
 `vm6-battle-*` fixtures exercise the last.
 
+The world section is version 3. A version-2 save's `world.board.runtime.tileEdits`
+indices use the old per-layer `sizeX × sizeY` stride even on iso-rotated boards.
+Migration converts each such index to the corresponding cell and layer in the
+board's stored grid before restore proceeds; non-rotated indices are unchanged.
+
 Audio game saves add only the playback projection defined in
 [audio-media.md](../engine/audio-media.md#audio-save-load), not runtime audio
 configuration or script volume settings. The saved cue is restored through
