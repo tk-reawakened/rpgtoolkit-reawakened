@@ -172,6 +172,8 @@ The reversible in-house route now has real code, not a preview substituted for a
 
 The scope is version-20 `.tst`, details 1–6, with exact same-encoding writes and preserved unrelated tiles/residue. Stored 16-pixel tiles stay 16-pixel data. Partial alpha, opaque RGB(0,1,2), and unavailable indexed colors are refused, not silently quantized. Isometric editing, native layered sources, interchange formats and the rest of T-36 remain outside this experiment; their existing story gates and full matrix above are unchanged.
 
+The owned gesture contract follows the physical pointer: a scroll or layout change under a stationary held pointer must not add pixels. A coordinate-only browser event with unchanged client coordinates is not a new stroke segment; release commits only the staged preview (#2662).
+
 Observed checks on the integrated owned experiment:
 
 - Five focused model cases passed, including all six regular detail codes, asymmetric row/column orientation, palette duplicate no-op preservation, transparency and malformed boundary commands. Each reported under 4 ms.
