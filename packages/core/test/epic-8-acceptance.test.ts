@@ -325,12 +325,11 @@ function makeAcceptanceGame(options: { readonly disableSaving?: number; readonly
 // Full-engine acceptance suite, kept on purpose: it runs integrated play-throughs over real stock packages to
 // prove all E-80–E-87 and E-123 behaviors against committed golden hashes.
 //
-// Duration: the play-through below takes about nine seconds at 320 x 240 (AGENTS.md: ordinary tests stay under one
-// second individually). That is irreducible here: the scenario drives one booted game through the menu, items,
-// equipment, abilities, saved graphics and sounds, and the saving-disabled board case, over thousands of engine
-// ticks, and each checkpoint is a real state/draw/event hash of the whole engine. Splitting it would boot the same
-// game several times and prove less; the per-layer behavior has its own fast unit suites, so the golden is only
-// re-recorded when this integrated path changes (G5).
+// Duration exception (AGENTS.md): the integrated play-through took 9.17 s at 640 x 480 on Node 26.13.0.
+// A CPU profile put most samples in UTF-8 encoding, FNV hashing and surface encoding. This single booted game
+// exercises menu, items, equipment, abilities, graphics, sounds and the saving-disabled board, with real full-engine
+// state/draw/event hash checkpoints. Splitting or skipping those steps would lose that end-to-end coverage; faster
+// hashing or rendering may still reduce the cost. Allow about 10 seconds on a comparable host, plus load variation.
 
 test("[E-80, E-81, E-82, E-87, CAP-10] integrated stock menu play-through covers items, equip, abilities, time, gold, and matches committed golden", () => {
   const startup = [
