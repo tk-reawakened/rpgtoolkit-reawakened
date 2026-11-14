@@ -233,7 +233,7 @@ Operators on one row have equal precedence. Written from the top down, as a pars
 
 A thread is a whole program run in the background, a slice of instructions per frame ([main-loop-and-startup.md](main-loop-and-startup.md#timing)), while the game keeps playing.
 
-- Created by board threads, by an item's "multitask" program, or by `Thread(file, persistent)`. If `file` does not exist in `Prg\`, the text itself is compiled as code.
+- Created by board threads, by an item's "multitask" program, or by `Thread(file, persistent)`. If `file` resolves to a program in `Prg\`, it is loaded and compiled before the thread is registered; a load or compile failure is reported once, execution continues in the caller, the command returns `0` (including its optional output), and no thread is registered. Otherwise the text itself is compiled as code before registering the thread.
 - Non-persistent threads belong to the current board and are destroyed when the board changes. Persistent threads survive board changes.
 - `ThreadSleep(thread, seconds)` pauses a thread; `ThreadWake(thread)` wakes it.
 - **Threads do not pump window messages.** A blocking command (`Wait`, `Delay`, `Prompt`…) inside a thread freezes the whole game until it completes.
