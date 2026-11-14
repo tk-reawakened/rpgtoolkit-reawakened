@@ -1,5 +1,4 @@
-import { assetKey, BinaryReader, compositeTileBitmap, decodeTileTexture, expandTileToRgba, readTileAnimation, readTileBitmap, readTileset, tileDimensions } from "@tk-reawakened/core";
-import { listCandidates, type AssetCandidate, type ProjectLayout } from "@tk-reawakened/editor-model";
+import { createTileSourcePreviewer, listCandidates, type AssetCandidate, type ProjectLayout, type TilePreviewPixels } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { BrowserSession, BrowserAssetKind, BrowserSelection } from "./brush.ts";
@@ -21,28 +20,6 @@ function suffix(path: string): string {
   return dot < 0 ? "" : path.slice(dot).toLowerCase();
 }
 
-interface TilePreview {
-  readonly width: number;
-  readonly height: number;
-  readonly pixels: Uint8Array;
-}
-interface DecodedSourcePreview {
-  readonly preview: TilePreview;
-  readonly tileCount: number | null;
-}
-
-
-function sourceReference(source: Source): string {
-  return source.reference.replaceAll("/", "\\");
-}
-
-function withoutTilesPrefix(reference: string): string {
-  const normalized = reference.replaceAll("/", "\\");
-  const prefix = "Tiles\\";
-  return assetKey(normalized.slice(0, prefix.length)) === assetKey(prefix)
-    ? normalized.slice(prefix.length)
-    : normalized;
-}
 
 export interface TilesetBrowserContext {
   readonly session: BrowserSession;
@@ -65,7 +42,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
   const [sources, setSources] = useState<readonly Source[]>([]);
   const [path, setPath] = useState<string | null>(initial.path);
   const [items, setItems] = useState<readonly BrowserSelection[]>([]);
-  const [previews, setPreviews] = useState<ReadonlyMap<string, TilePreview>>(new Map());
+  const [previews, setPreviews] = useState<ReadonlyMap<string, TilePreviewPixels>>(new Map());
   const [loadedPath, setLoadedPath] = useState<string | null>(null);
   const loadedPathRef = useRef<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -145,7 +122,10 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
     setMessage(null);
     session.update({ path: source.path, scrollTop: session.getSnapshot().scrollTop });
     const isCurrent = (): boolean => currentRequest === request.current;
-    const decodedCache = new Map<string, Promise<DecodedSourcePreview | null>>();
+    const previewer = createTileSourcePreviewer(available, async (path) => {
+      const result = await fs.read(path);
+      return result.ok ? result.value : null;
+    });
     try {
       const result = await fs.read(source.path);
       if (!isCurrent()) return;
@@ -157,68 +137,33 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
         setLoadedPath(source.path);
         return;
       }
-      const reference = sourceReference(source);
-      if (suffix(source.path) === ".tst" || suffix(source.path) === ".iso") {
-        const parsed = readTileset(result.value, source.path);
-        if (!parsed.ok) throw new Error(parsed.error.message);
+      const rendered = await previewer.previewSource(source, result.value);
+      if (!isCurrent()) return;
+      if (!rendered.ok) throw new Error(rendered.message);
+      const reference = source.reference.replaceAll("/", "\\");
+      if (rendered.value.kind === "tileset") {
         const nextItems: BrowserSelection[] = [];
-        const nextPreviews = new Map<string, TilePreview>();
-        for (let index = 0; index < parsed.value.tiles.length; index += 1) {
+        const nextPreviews = new Map<string, TilePreviewPixels>();
+        rendered.value.tiles.forEach((preview, index) => {
           const tileReference = `${reference}${index + 1}`;
           nextItems.push({ kind: "tiles", path: source.path, reference: tileReference, label: `${source.name} tile ${index + 1}`, boardTile: tileReference });
-          const image = expandTileToRgba(parsed.value, index);
-          if (!image.ok) throw new Error(image.error.message);
-          const { width, height } = tileDimensions(parsed.value.detail);
-          const pixels = new Uint8Array(image.value.length);
-          for (let x = 0; x < width; x += 1) for (let y = 0; y < height; y += 1) {
-            const offset = (x * height + y) * 4;
-            pixels.set(image.value.subarray(offset, offset + 4), (y * width + x) * 4);
-          }
-          nextPreviews.set(tileReference, { width, height, pixels });
-        }
-        if (!isCurrent()) return;
+          nextPreviews.set(tileReference, preview);
+        });
         setItems(nextItems);
         setPreviews(nextPreviews);
         loadedPathRef.current = source.path;
         setLoadedPath(source.path);
         return;
       }
-      if (suffix(source.path) === ".gph") {
-        const decoded = decodeTileTexture(assetKey(reference), result.value);
-        if (!decoded.ok) throw new Error(decoded.error?.message ?? `Cannot decode ${source.path}`);
-        const selection: BrowserSelection = { kind: source.kind, path: source.path, reference, label: source.name, boardTile: source.boardTile };
-        setItems([selection]);
-        setPreviews(new Map([[reference, { width: decoded.texture.w, height: decoded.texture.h, pixels: decoded.texture.rgba }]]));
-        loadedPathRef.current = source.path;
-        setLoadedPath(source.path);
-        return;
-      }
       const selection: BrowserSelection = { kind: source.kind, path: source.path, reference, label: source.name, boardTile: source.boardTile };
-      let preview: TilePreview | undefined;
-      if (suffix(source.path) === ".tan") {
-        const animation = readTileAnimation(new BinaryReader(result.value, source.path));
-        if (!animation.ok) throw new Error(animation.error.message);
-        const frame = animation.value.frames.find((entry) => entry !== "");
-        if (frame !== undefined) preview = await previewReference(frame, available, decodedCache);
-        if (!isCurrent()) return;
-        setMessage(`Animated tile: ${animation.value.frames.length} frames at ${1000 / animation.value.speed} ms per frame. Select the animation as a board brush.`);
-      } else {
-        const bitmap = readTileBitmap(new BinaryReader(result.value, source.path));
-        if (!bitmap.ok) throw new Error(bitmap.error.message);
-        const tiles = new Map<string, { w: number; h: number; rgba: Uint8Array }>();
-        for (const cell of bitmap.value.cells) {
-          if (cell.tile === "" || tiles.has(cell.tile)) continue;
-          const tile = await previewReference(cell.tile, available, decodedCache);
-          if (tile !== undefined) tiles.set(cell.tile, { w: tile.width, h: tile.height, rgba: tile.pixels });
-        }
-        if (!isCurrent()) return;
-        const composed = compositeTileBitmap(bitmap.value, tiles);
-        if (!composed.ok) throw new Error(composed.error.message);
-        preview = { width: composed.value.w, height: composed.value.h, pixels: composed.value.rgba };
+      const preview = rendered.value.preview;
+      if (rendered.value.kind === "animation") {
+        setMessage(`Animated tile: ${rendered.value.frameCount} frames at ${1000 / rendered.value.speed} ms per frame. Select the animation as a board brush.`);
+      } else if (rendered.value.kind === "bitmap") {
         setMessage("Tile bitmap preview. Bitmap sources are browse-only here; select a tile or animation for a board brush.");
       }
       setItems([selection]);
-      setPreviews(preview === undefined ? new Map() : new Map([[selection.reference, preview]]));
+      setPreviews(preview === null ? new Map() : new Map([[selection.reference, preview]]));
       loadedPathRef.current = source.path;
       setLoadedPath(source.path);
     } catch (error) {
@@ -228,72 +173,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       setMessage(error instanceof Error ? `${source.path}: ${error.message}` : String(error));
       loadedPathRef.current = source.path;
       setLoadedPath(source.path);
-  }
-  }
-
-  async function previewReference(
-    reference: string,
-    available: readonly Source[],
-    decodedCache: Map<string, Promise<DecodedSourcePreview | null>>,
-    resolving = new Set<string>(),
-  ): Promise<TilePreview | undefined> {
-    const relative = withoutTilesPrefix(reference);
-    const single = /\.gph$/i.test(relative);
-    const animated = /\.tan$/i.test(relative);
-    const match = single || animated ? null : /^(.*\.(?:tst|iso))(\d+)$/i.exec(relative);
-    if (!single && !animated && match === null) return undefined;
-    const wantedSourceKey = assetKey(single || animated ? relative : match![1]!);
-    const source = available.find((candidate) => assetKey(sourceReference(candidate)) === wantedSourceKey);
-    if (source === undefined) return undefined;
-    const key = assetKey(sourceReference(source));
-    if (resolving.has(key)) return undefined;
-    let decoded = decodedCache.get(key);
-    if (decoded === undefined) {
-      decoded = (async (): Promise<DecodedSourcePreview | null> => {
-        const bytes = await fs.read(source.path);
-        if (!bytes.ok) return null;
-        if (suffix(source.path) === ".tan") {
-          const animation = readTileAnimation(new BinaryReader(bytes.value, source.path));
-          if (!animation.ok) return null;
-          const frame = animation.value.frames.find((entry) => entry !== "");
-          if (frame === undefined) return null;
-          const nextResolving = new Set(resolving);
-          nextResolving.add(key);
-          const preview = await previewReference(frame, available, decodedCache, nextResolving);
-          return preview === undefined ? null : { preview, tileCount: null };
-        }
-        const texture = decodeTileTexture(assetKey(source.reference), bytes.value);
-        if (!texture.ok) return null;
-        const ext = suffix(source.path);
-        if (ext !== ".tst" && ext !== ".iso") {
-          return { preview: { width: texture.texture.w, height: texture.texture.h, pixels: texture.texture.rgba }, tileCount: null };
-        }
-        const parsed = readTileset(bytes.value, source.path);
-        if (!parsed.ok) return null;
-        return {
-          preview: { width: texture.texture.w, height: texture.texture.h, pixels: texture.texture.rgba },
-          tileCount: parsed.value.tiles.length,
-        };
-      })();
-      decodedCache.set(key, decoded);
     }
-    const data = await decoded;
-    if (data === null) return undefined;
-    if (single || animated) return data.preview;
-    const index = Number(match![2]) - 1;
-    if (data.tileCount === null || !Number.isInteger(index) || index < 0 || index >= data.tileCount) return undefined;
-    const width = data.preview.width / data.tileCount;
-    if (!Number.isInteger(width)) return undefined;
-    const height = data.preview.height;
-    const pixels = new Uint8Array(width * height * 4);
-    const offsetX = index * width;
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const sourceOffset = (y * data.preview.width + offsetX + x) * 4;
-        pixels.set(data.preview.pixels.subarray(sourceOffset, sourceOffset + 4), (y * width + x) * 4);
-      }
-    }
-    return { width, height, pixels };
   }
 
   const closeMenu = (): void => {

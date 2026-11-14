@@ -6,7 +6,7 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { assetKey, BinaryReader, compositeTileBitmap, decodeTileTexture, readTileset, TILE_ANIMATION_MAGIC, TILE_BITMAP_MAGIC, readTileBitmap, writeTileAnimation, writeTileBitmap, type TileAnimation, type TileBitmap } from "@tk-reawakened/core";
+import { assetKey, BinaryReader, compositeTileBitmap, decodeTileTexture, readTileset, TILE_ANIMATION_MAGIC, TILE_BITMAP_MAGIC, readTileBitmap, writeTileAnimation, writeTileBitmap, type TileAnimation, type TileBitmap } from "@tk-reawakened/editor-model/testing";
 import { createBrowserSession, type BrowserSession } from "../dist/brush.js";
 import type { BoardViewDocument, ViewHandle } from "../src/mount.ts";
 import type { TilesetBrowserContext } from "../src/tileset-browser.tsx";
