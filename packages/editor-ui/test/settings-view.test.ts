@@ -317,16 +317,20 @@ test("two mounted views have distinct ids, and each label and description points
   show(first);
   show(second);
   const ids = [first.el, second.el].flatMap((el) => [...el.querySelectorAll("[id]")].map((node) => node.id));
-  equal(ids.length, 4, "a field and a status line per view");
+  ok(ids.length > 4, "every settings field has its own id");
   equal(new Set(ids).size, ids.length, `no id is used twice: ${ids.join(", ")}`);
   for (const view of [first, second]) {
     const field = input(view.el);
     const label = view.el.querySelector("label");
     equal(label?.getAttribute("for"), field.id, "the label names its own field");
     equal(document.getElementById(field.id), field, "and the page resolves that id to this field");
-    const described = field.getAttribute("aria-describedby") ?? "";
-    for (const id of described.split(" ")) {
-      equal(document.getElementById(id)?.closest("section"), view.el.querySelector("section"), `${id} is inside its own view`);
+    const own = view.el.querySelector("section");
+    const references = [
+      ...[...view.el.querySelectorAll("label[for]")].map((node) => node.getAttribute("for") ?? ""),
+      ...[...view.el.querySelectorAll("[aria-describedby]")].flatMap((node) => (node.getAttribute("aria-describedby") ?? "").split(" ")),
+    ];
+    for (const id of references) {
+      equal(document.getElementById(id)?.closest("section"), own, `${id} is inside its own view`);
     }
   }
 });

@@ -1,6 +1,7 @@
 import type { ApplyResult, ConflictChoice, MainCommand, SaveFailure } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { GameSettingsForm } from "./game-settings-form.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { ViewDocument } from "./mount.ts";
 
@@ -15,9 +16,10 @@ export interface SettingsViewProps {
   readonly onEdited: (event: DocumentEdited) => void;
 }
 /**
- * The game settings view; its one field is the game title (`docs/spec/formats/main-file.md#layout`, `gameTitle`).
- * The field edits a draft; leaving the field or pressing Enter commits it as one command. The text shown is the
- * document's, so an edit stays visible after a failed save, and what the document refuses is reported beside the field.
+ * The game settings view (`docs/spec/formats/main-file.md#layout`). The game title field edits a draft; leaving the
+ * field or pressing Enter commits it as one command. The text shown is the document's, so an edit stays visible after a
+ * failed save, and what the document refuses is reported beside the field. Every other setting of editor-features T-10
+ * to T-14 is staged in `GameSettingsForm` and reaches the document only through its Apply.
  * A change another program made on disk is shown beside the local title with the two ways to settle it (ADR 0022 D3.5).
  * Only classes and ARIA attributes are used, never a `style` attribute (ADR 0025 decision 6).
  */
@@ -248,6 +250,7 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
           {failure.message}
         </p>
       )}
+      <GameSettingsForm doc={doc} snapshot={snapshot} ids={ids} readOnly={readOnly} onEdited={onEdited} />
     </section>
   );
 }
