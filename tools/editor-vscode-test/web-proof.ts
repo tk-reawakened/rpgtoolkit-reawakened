@@ -88,7 +88,7 @@ export async function runVscodeLaunchProof(
   const title = editor.getByLabel("Game title");
   await expect(title).toBeVisible();
   await title.fill("VS Code launch proof");
-  await title.press("Enter");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
   await runCommand(page, expect, "Test: Run Example Game");
   await expect.poll(readBacking, { timeout: 30_000 }).toEqual(expectedBytes);
@@ -216,7 +216,7 @@ export async function runVscodeGuardProof(
   const editor = await waitForEditorFrame(page, "VS Code guard editor");
   const title = editor.getByLabel("Game title");
   await title.fill("Save must fail");
-  await title.press("Enter");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
   await runCommand(page, expect, "Test: Fail Saves");
   await runCommand(page, expect, "Test: Run Example Program");
@@ -230,7 +230,7 @@ export async function runVscodeGuardProof(
   await runCommand(page, expect, "Test: Run Example Program");
   await expect(page.getByText("Fixture read paused")).toBeVisible({ timeout: 30_000 });
   await title.fill("Race saved");
-  await title.press("Enter");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   await editor.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(readBacking, { timeout: 30_000 }).toEqual(raced);
   await runCommand(page, expect, "Test: Resume Program Read");
@@ -376,7 +376,7 @@ export async function runVscodeWebProof(
   await assertCspListenerCountsBlockedAction(editor, expect, consoleViolations);
   const before = await readWorkspaceBytes(page, expect);
   await titleField.fill(title);
-  await titleField.press("Enter");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   const savedTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
   await expect(savedTab).toHaveClass(/dirty/);
   await editor.getByRole("button", { name: "Save" }).click();
@@ -412,8 +412,8 @@ export async function runVscodeWebProof(
   const sentinelField = sentinelEditor.getByLabel("Game title");
   await sentinelField.click();
   await sentinelField.fill(host.sentinelTitle);
-  await sentinelField.press("Enter");
-  await expect(sentinelEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await sentinelEditor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(sentinelEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   const sentinelTab = page.getByRole("tab").filter({ hasText: sentinelPath }).first();
   await expect(sentinelTab).toHaveClass(/dirty/);
   await expect.poll(() => backupIsStored(page, host.sentinelBytes), { timeout: 15_000 }).toBe(true);
@@ -423,9 +423,9 @@ export async function runVscodeWebProof(
   const recoveredTitleField = reopenedEditor.getByLabel("Game title");
   await recoveredTitleField.click();
   await recoveredTitleField.fill(recoveredTitle);
-  await recoveredTitleField.press("Enter");
+  await reopenedEditor.getByRole("button", { name: "Apply changes" }).click();
   await expectValueWithFrameDiagnostics(page, recoveredTitleField, recoveredTitle, expect);
-  await expect(reopenedEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(reopenedEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   const dirtyEditorTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
   await expect(dirtyEditorTab).toHaveClass(/dirty/);
   // The CI workspace sets files.autoSave=off so autosave cannot mask this hot-exit test.
@@ -436,7 +436,7 @@ export async function runVscodeWebProof(
       { timeout: 15_000, message: "VS Code backup tracker did not start creating a backup after the final edit" },
     ).toBe(true);
   } catch (error) {
-    const status = await reopenedEditor.getByRole("status").innerText().catch((readError) => `<unavailable: ${String(readError)}>`);
+    const status = await reopenedEditor.locator(".tkr-settings-state").innerText().catch((readError) => `<unavailable: ${String(readError)}>`);
     const tabClass = await dirtyEditorTab.getAttribute("class").catch((readError) => `<unavailable: ${String(readError)}>`);
     const details = await backupDiagnostics(page, expect, backupTrackerLogs);
     await logFrameDiagnostics(page, "backup tracker did not begin creating the final dirty document's backup");
@@ -473,7 +473,7 @@ export async function runVscodeWebProof(
   await enableWorkbenchTraceLogging(page, expect);
 
 
-  await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   await expect.poll(() => frameCspViolations(page, recoveredEditor, consoleViolations)).toEqual([]);
   await expect(recoveredEditor.getByRole("group", { name: "Changed on disk" })).toBeVisible();
   await expect(recoveredEditor.getByRole("button", { name: "Use the version on disk" })).toHaveCount(0);
@@ -486,7 +486,7 @@ export async function runVscodeWebProof(
     await expect(sentinelTab).toHaveClass(/dirty/);
     await sentinelTab.click();
     sentinelEditor = await waitForTitledEditor(page, host.sentinelTitle, expect);
-    await expect(sentinelEditor.getByRole("status")).toHaveText("Unsaved changes");
+    await expect(sentinelEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
     expect(await host.readBacking(sentinelPath)).toEqual(sentinelBacking);
     await page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first().click();
     recoveredEditor = await waitForTitledEditor(page, recoveredTitle, expect);
@@ -496,9 +496,9 @@ export async function runVscodeWebProof(
   const choiceTraceStart = backupTrackerLogs.length;
   const hostEventsStart = host.readHostEvents().length;
   if (host.choice === "cancel") {
-    await recoveredEditor.getByRole("button", { name: "Cancel" }).click();
+    await recoveredEditor.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(recoveredEditor.getByRole("button", { name: "Review conflict" })).toBeVisible();
-    await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+    await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
     expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
     expect(await host.readBacking()).toEqual(externalAfterRestart);
     await verifySentinel();
@@ -508,7 +508,7 @@ export async function runVscodeWebProof(
   await expect(recoveredEditor.getByRole("button", { name: "Keep my version" })).toBeVisible();
   await recoveredEditor.getByRole("button", { name: "Keep my version" }).click();
   await runCommand(page, expect, "Notifications: Clear All Notifications");
-  await expect(recoveredEditor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   expect(await readWorkspaceBytes(page, expect)).toEqual(externalAfterRestart);
   expect(await host.readBacking()).toEqual(externalAfterRestart);
   await verifySentinel();
@@ -531,7 +531,7 @@ export async function runVscodeWebProof(
   // Keep the other editor active until the original document's bytes really reach disk.
   await expect.poll(async () => Array.from(await host.readBacking()), { timeout: 30_000 }).toEqual(Array.from(recoveredBytes));
   await verifySentinel();
-  await expect(recoveredEditor.getByRole("status")).toHaveText("All changes saved");
+  await expect(recoveredEditor.locator(".tkr-settings-state")).toHaveText("All changes saved");
   const recovered = await readWorkspaceBytes(page, expect);
   expect(recovered).toEqual(recoveredBytes);
   expect(await host.readBacking()).toEqual(recoveredBytes);
@@ -942,8 +942,8 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   let editor = await waitForEditorFrame(page, "lifecycle settings editor");
   const field = editor.getByLabel("Game title");
   await field.fill(hiddenTitle);
-  await field.press("Enter");
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
   // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
@@ -955,7 +955,7 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   const alive = await editor.evaluate(() => (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker);
   if (alive !== undefined) throw new Error("VS Code kept the hidden webview's page alive, so this proof cannot show a re-created view");
   await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
   await runCommand(page, expect, "View: Close Editor");
   const dialog = page.locator(".monaco-dialog-box");
@@ -964,12 +964,12 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await expect(dialog).toBeHidden();
   editor = await waitForEditorFrame(page, "settings editor after a cancelled close");
   await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
   const autosaveField = editor.getByLabel("Game title");
   await autosaveField.fill(autosaveTitle);
-  await autosaveField.press("Enter");
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   const readMarker = async (name: string): Promise<string | undefined> => {
     try {
       return new TextDecoder().decode(await host.readBacking(`.vscode/tkr-autosave-command-${name}`));

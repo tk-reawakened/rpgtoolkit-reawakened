@@ -58,16 +58,14 @@ export class MountedView {
     return [...this.element.querySelectorAll<HTMLButtonElement>("button")].some((candidate) => candidate.textContent?.trim() === label);
   }
 
-  /** Type `title` and press Enter: the view commits it as one command. */
+  /** Type `title` and explicitly apply it as one command. */
   async type(title: string): Promise<void> {
     const field = this.#field();
     await this.#act(() => {
       field.value = title;
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await this.#act(() => {
-      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-    });
+    await this.click("Apply changes");
   }
 
   async click(label: string): Promise<void> {

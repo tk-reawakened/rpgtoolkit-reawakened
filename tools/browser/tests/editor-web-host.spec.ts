@@ -35,6 +35,7 @@ test("browser host mounts the shared settings view and keeps CSP quiet while edi
   await expect(page.getByText(/session copy; changes stay in memory/)).toBeVisible();
   const nextTitle = `Browser host proof ${Date.now()}`;
   await title.fill(nextTitle);
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(title).toHaveValue(nextTitle);
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
@@ -105,6 +106,7 @@ test("browser folder handle and identity survive reload and re-selection", async
   await expect(page.getByLabel("Recent project")).toBeVisible();
   const identity = await page.locator("#recent-project").inputValue();
   await title.fill("Stable browser project");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
   await page.reload();
@@ -416,7 +418,7 @@ test("an edit before the player handshake prevents a stale game from starting", 
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   await requested;
   await page.getByLabel("Game title").fill("Changed during player setup");
-  await page.getByLabel("Game title").press("Enter");
+  await page.getByRole("button", { name: "Apply changes" }).click();
   release();
   await expect(page.getByLabel("Current run")).toContainText("changed while the run was being prepared");
   await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
