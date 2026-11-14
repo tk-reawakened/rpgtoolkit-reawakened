@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Desktop players accept per-run FPS, overlay selection and colour overrides without changing the game package, even after a game save. When launching through Electron, place `--` before `--debug` (#2413, #2436).
 - The VS Code web proof retries settings observations while the file is being written, while still failing on persistent invalid JSON or the wrong autosave value (#2399).
 - Desktop CSP probes no longer overwrite the shared audio worklet while testing decoder failures, so concurrent probes keep their own generated assets (#2345).
 - Each desktop input probe now uses its own Electron profile, so overlapping runs do not share the single-instance lock (#2003). Temporary-profile cleanup retries Windows file locks without masking the probe result (#2344).

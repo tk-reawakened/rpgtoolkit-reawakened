@@ -41,6 +41,7 @@ declare global {
   interface Window {
     __live?: { readonly board: string | null };
     __session?: {
+      readonly gameId: string;
       boardKey(): string | null;
       engine: { drawList(alpha: number, include: { shading: boolean; images: boolean; sprites: boolean }): { commands: readonly DrawCommand[] } | null };
     };
@@ -48,7 +49,7 @@ declare global {
 }
 
 /** Write a two-tile board with one closed vector and a main file carrying the given Graphics settings. */
-function buildGame(directory: string, main: Partial<MainFile>): void {
+function buildGame(directory: string, main: Partial<MainFile>, withSave: boolean): void {
   const written = writeMainFile({
     ...createEmptyMainFile(),
     major: 2,
@@ -70,7 +71,7 @@ function buildGame(directory: string, main: Partial<MainFile>): void {
     tileRuns: [{ lutIndex: 0, count: 4, marker: true }],
     layerTitles: ["", ""],
     lut: ["tile.tst1"],
-    properties: { ...empty.properties, backgroundColour: { r: 0, g: 0, b: 0 }, ambient: { r: 0, g: 0, b: 0 }, start: { x: 16, y: 16, layer: 1 } },
+    properties: { ...empty.properties, backgroundColour: { r: 0, g: 0, b: 0 }, ambient: { r: 0, g: 0, b: 0 }, start: { x: 16, y: 16, layer: 1 }, enterPrg: withSave ? "save.prg" : "" },
     vectors: [{ points: [{ x: 8, y: 8 }, { x: 40, y: 8 }, { x: 40, y: 40 }, { x: 8, y: 40 }], attributes: 0, closed: 1, layer: 1, type: 1, handle: "" }],
   });
   if (!board.ok) throw new Error(board.error.message);
@@ -84,6 +85,7 @@ function buildGame(directory: string, main: Partial<MainFile>): void {
     ["Chrs/hero.tem", new Uint8Array(character.value)],
     ["Tiles/tile.tst", tileset.value],
   ];
+  if (withSave) files.push(["Prg/save.prg", new TextEncoder().encode('save("overlay-proof")\nend()\n')]);
   for (const [path, bytes] of files) {
     const full = join(directory, path);
     mkdirSync(dirname(full), { recursive: true });
@@ -92,10 +94,10 @@ function buildGame(directory: string, main: Partial<MainFile>): void {
 }
 
 /** The same files the browser will fetch, as a package the lane's server can hand out. */
-function packageFor(name: string, main: Partial<MainFile>): { readonly path: string; readonly bytes: Uint8Array } {
+function packageFor(name: string, main: Partial<MainFile>, withSave = false): { readonly path: string; readonly bytes: Uint8Array } {
   const directory = mkdtempSync(join(tmpdir(), `tkr-overlays-${name}-`));
   try {
-    buildGame(directory, main);
+    buildGame(directory, main, withSave);
     const out = join(root, "fixtures", "packages", `${name}.tpk`);
     mkdirSync(dirname(out), { recursive: true });
     writePackage(directory, { out, title: name });
@@ -180,7 +182,7 @@ test("a project without drawVectors draws no overlays and keeps its plain title"
 
 test("a per-run desktop flag adds one overlay without touching the package", async () => {
   test.setTimeout(120_000);
-  const pkg = packageFor("overlay-flag", { drawVectorsFlags: 0, showFpsInTitle: 0 });
+  const pkg = packageFor("overlay-flag", { drawVectorsFlags: 0, showFpsInTitle: 0 }, true);
   const before = readFileSync(join(root, pkg.path));
   const dataDir = mkdtempSync(join(tmpdir(), "tkr-overlays-desktop-"));
   const player = await electron.launch({
@@ -192,7 +194,10 @@ test("a per-run desktop flag adds one overlay without touching the package", asy
       "--game", join(root, pkg.path),
       "--user-data-dir", dataDir,
       "--page", "packages/runner-desktop/app/player.html",
-      "--debug-vectors",
+      "--",
+      "--debug", "board",
+      "--debug-colour", "#0a14ff",
+      "--fps",
       "--diagnostics",
     ],
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: "0", ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}) },
@@ -203,12 +208,15 @@ test("a per-run desktop flag adds one overlay without touching the package", asy
       const session = window.__session;
       return session !== undefined && session.boardKey() !== null;
     }, undefined, { timeout: 90_000 });
-    const drawn = await playerWindow.evaluate(() => {
+    const drawn = await overlayCommandsInBrowser(playerWindow);
+    expect(drawn, "the per-run flag turns the board-vector overlay on").toHaveLength(4);
+    expect(drawn.every((line) => line.rgb.r === 10 && line.rgb.g === 20 && line.rgb.b === 255)).toBe(true);
+    await expect.poll(() => playerWindow.title(), { timeout: 10_000 }).toMatch(/^Debug Overlays 1 vectors, \d+ FPS$/);
+    await expect.poll(() => playerWindow.evaluate(async () => {
       const session = window.__session;
-      const list = session?.engine.drawList(0, { shading: false, images: false, sprites: false });
-      return list === null || list === undefined ? 0 : list.commands.filter((command) => command.kind === "line").length;
-    });
-    expect(drawn, "the per-run flag turns the board-vector overlay on").toBe(4);
+      const host = (window as unknown as { desktop: { listBlobs(area: "saves", gameId: string): Promise<string[]> } }).desktop;
+      return session === undefined ? [] : host.listBlobs("saves", session.gameId);
+    }), { timeout: 30_000, message: "the board entry program completes its game save" }).not.toEqual([]);
     // The diagnostics strip is a runner feature and appears only when asked for.
     await expect(playerWindow.locator("#diagnostics")).toBeVisible();
     expect(await playerWindow.textContent("#diagnostics")).toMatch(/tick \d+/);

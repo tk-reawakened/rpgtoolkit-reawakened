@@ -4883,7 +4883,7 @@ export function createEngine(init: EngineInit): Engine {
         }
       };
       if ((flags & 1) !== 0) for (const vector of board?.vectors ?? []) linePoints(vector.points, colour, vector.closed !== 0);
-      if ((flags & 2) !== 0) for (const sprite of spriteInput) if (sprite.collisionBase !== undefined) linePoints(sprite.collisionBase, { r: 255, g: 128, b: 0 }, true);
+      if ((flags & 2) !== 0) for (const sprite of spriteInput) if (sprite.collisionBase !== undefined) linePoints(sprite.collisionBase, init.debug?.pathColor ?? { r: 255, g: 128, b: 0 }, true);
       // Bits 4/8 are the player's queued path and destination; 16/32 are the selected player's. Core has one selected
       // player and one movement owner, so the pairs name the same route and draw once (main-file row 58).
       const route = ((flags & 12) !== 0 || (flags & 48) !== 0) ? queuedRoute() : null;
