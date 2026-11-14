@@ -226,3 +226,32 @@ test("a per-run desktop flag adds one overlay without touching the package", asy
   }
   expect(readFileSync(join(root, pkg.path)).equals(before), "the run must not rewrite the package").toBe(true);
 });
+
+// This exercises the real Electron launch boundary; a parser unit test cannot prove the strip stays hidden.
+test("a desktop overlay does not enable the diagnostics strip", async () => {
+  test.setTimeout(120_000);
+  const pkg = packageFor("overlay-no-diagnostics", { drawVectorsFlags: 0, showFpsInTitle: 0 });
+  const dataDir = mkdtempSync(join(tmpdir(), "tkr-overlays-desktop-"));
+  const player = await electron.launch({
+    executablePath: electronBinary(),
+    args: [
+      join(root, "packages/runner-desktop/dist"),
+      ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
+      "--serve", root,
+      "--game", join(root, pkg.path),
+      "--user-data-dir", dataDir,
+      "--page", "packages/runner-desktop/app/player.html",
+      "--", "--debug", "board",
+    ],
+    env: { ...process.env, ELECTRON_ENABLE_LOGGING: "0", ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}) },
+  });
+  try {
+    const playerWindow = await player.firstWindow();
+    await playerWindow.waitForFunction(() => window.__session?.boardKey() !== null && window.__session !== undefined, undefined, { timeout: 90_000 });
+    expect(await overlayCommandsInBrowser(playerWindow)).toHaveLength(4);
+    await expect(playerWindow.locator("#diagnostics")).toBeHidden();
+  } finally {
+    await player.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
