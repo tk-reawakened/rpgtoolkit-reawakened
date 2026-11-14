@@ -325,7 +325,7 @@ function makeAcceptanceGame(options: { readonly disableSaving?: number; readonly
 // Full-engine acceptance suite, kept on purpose: it runs integrated play-throughs over real stock packages to
 // prove all E-80–E-87 and E-123 behaviors against committed golden hashes.
 //
-// Duration exception (AGENTS.md): the integrated play-through took 9.17 s at 640 x 480 on Node 26.13.0.
+// Duration exception (AGENTS.md): the integrated play-through took 9.17 s with CPU profiling at 640 x 480 on Node 26.13.0.
 // A CPU profile put most samples in UTF-8 encoding, FNV hashing and surface encoding. This single booted game
 // exercises menu, items, equipment, abilities, graphics, sounds and the saving-disabled board, with real full-engine
 // state/draw/event hash checkpoints. Splitting or skipping those steps would lose that end-to-end coverage; faster
