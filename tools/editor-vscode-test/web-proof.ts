@@ -954,6 +954,9 @@ async function openProjectBoard(page: Page, path: string, expect: Expect): Promi
 /** Open the project file at `path` from the Explorer and return the custom editor frame whose content contains `selector`. */
 async function openProjectFile(page: Page, path: string, expect: Expect, selector: string): Promise<Frame> {
   await focusWorkbench(page);
+  const explorer = page.getByRole("tree", { name: "Files Explorer" });
+  await explorer.focus();
+  await explorer.press("Home");
   const folder = page.getByRole("treeitem", { name: path.split("/")[0]!, exact: true });
   await expect(folder).toBeVisible();
   if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
