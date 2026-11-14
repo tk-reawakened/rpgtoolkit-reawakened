@@ -711,6 +711,23 @@ test("a collision reports each binding and dispatches all actions in ACT-4 order
   equal(state.input.keys.length, 1, "release does not append another raw key");
 });
 
+test("a movement key shared with the menu and game actions emits all ordered edges", () => {
+  const state = withMovementPolicy(1, [0x1c, 0, 0x1c, 0, 0, 0, 0, 0]);
+  ok(registerGameAction(state.input, { name: "game.spell", label: "Spell", controls: ["key:Enter"], icon: null, group: null, locked: false, hidden: false }));
+  const transitions: string[] = [];
+  const event = { kind: "key", code: "Enter", name: "ENTER", char: null } as const;
+  for (const down of [true, false]) {
+    applyInputEvent(state.input, { ...event, down }, undefined, (action, pressed) => transitions.push(`${action}:${pressed}`));
+  }
+  deepEqual(state.input.keys.map(({ name, resolvedActions }) => ({ name, resolvedActions })), [{
+    name: "ENTER", resolvedActions: ["down", "right", "confirm", "menu", "game.spell"],
+  }]);
+  deepEqual(transitions, [
+    "down:true", "right:true", "confirm:true", "menu:true", "game.spell:true",
+    "down:false", "right:false", "confirm:false", "menu:false", "game.spell:false",
+  ]);
+});
+
 test("a disabled pad contributes no movement, actions or active device state", () => {
   const event = { kind: "gamepad", device: 0, connected: true, axes: { x: 1000, y: 0 }, buttons: 1 } as const;
   for (const [minor, useJoystick, enabled] of [[9, 0, false], [9, 1, true], [2, 0, true]] as const) {
