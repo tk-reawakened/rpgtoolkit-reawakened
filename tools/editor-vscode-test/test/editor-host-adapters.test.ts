@@ -102,7 +102,15 @@ test("VS Code bridge accepts pre-battle character snapshots", async () => {
   }, "file:///project"), createDocumentIdentity("file:///project", path));
   ok(opened.ok);
   equal(opened.document.getSnapshot().battleAnimations.length, 0);
-  ok(isSpriteSnapshot(opened.document.getSnapshot(), "character"));
+  const snapshot = opened.document.getSnapshot();
+  ok(isSpriteSnapshot(snapshot, "character"));
+  ok(snapshot.character);
+  equal(isSpriteSnapshot({ ...snapshot, character: null }, "character"), false);
+  equal(isSpriteSnapshot({ ...snapshot, character: { ...snapshot.character, stats: {} } }, "character"), false);
+  equal(isSpriteSnapshot({ ...snapshot, character: { ...snapshot.character, specialMoves: [] } }, "character"), false);
+  equal(isSpriteSnapshot({ ...snapshot, character: { ...snapshot.character, variableNames: [123] } }, "character"), false);
+  ok(isSpriteSnapshot({ ...snapshot, actorType: "item", battleAnimations: [""], character: null }, "item"));
+  equal(isSpriteSnapshot({ ...snapshot, actorType: "item", battleAnimations: [""], character: snapshot.character }, "item"), false);
 });
 test("the VS Code sprite bridge previews project GIFs and saves edits that survive reopening", async () => {
   const actorPath = "Chrs/hero.tem";

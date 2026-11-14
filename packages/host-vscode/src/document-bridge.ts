@@ -17,6 +17,36 @@ export type ReturnOutcome = { readonly ok: true; readonly path: string; readonly
 
 /** A snapshot as it crosses the bridge: plain data, whatever the kind (the kind says which fields it has). */
 export type BridgedSnapshot = DocumentSnapshot<unknown>;
+function isCharacterSnapshot(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const character = value as Record<string, unknown>;
+  const stats = character.stats;
+  const stringList = (list: unknown, length: number): boolean =>
+    Array.isArray(list) && list.length === length && list.every((entry: unknown) => typeof entry === "string");
+  const numberList = (list: unknown, length: number): boolean =>
+    Array.isArray(list) && list.length === length && list.every((entry: unknown) => typeof entry === "number" && Number.isInteger(entry));
+  if (typeof character.name !== "string" || typeof character.profilePicture !== "string"
+    || typeof character.specialMoveCategory !== "string" || typeof character.levelUpProgram !== "string"
+    || !stringList(character.variableNames, 9) || !stringList(character.accessorySlots, 11)
+    || !numberList(character.bodySlots, 7) || !numberList(character.levelIncreases, 4)) return false;
+  if (typeof stats !== "object" || stats === null) return false;
+  const fields = stats as Record<string, unknown>;
+  for (const field of ["experience", "hp", "maxHp", "dp", "fp", "smp", "maxSmp", "level"]) {
+    if (typeof fields[field] !== "number" || !Number.isInteger(fields[field])) return false;
+  }
+  for (const field of ["hasSpecialMoves", "firstLevelExp", "experienceIncrease", "maxLevel", "levelUpType"]) {
+    if (typeof character[field] !== "number" || !Number.isInteger(character[field])) return false;
+  }
+  return Array.isArray(character.specialMoves) && character.specialMoves.length === 201
+    && character.specialMoves.every((move: unknown) => {
+      if (typeof move !== "object" || move === null) return false;
+      const slot = move as Record<string, unknown>;
+      return typeof slot.file === "string" && typeof slot.condVar === "string" && typeof slot.condValue === "string"
+        && typeof slot.minExp === "number" && Number.isInteger(slot.minExp)
+        && typeof slot.minLevel === "number" && Number.isInteger(slot.minLevel);
+    });
+}
+
 export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snapshot is SpriteDocumentSnapshot {
   const isStringList = (value: unknown): value is readonly string[] =>
     Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string");
@@ -28,6 +58,7 @@ export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snaps
   );
   if (!("actorType" in snapshot) || snapshot.actorType !== kind || (kind !== "character" && kind !== "item")) return false;
   if (!("actorName" in snapshot) || typeof snapshot.actorName !== "string" || !("minor" in snapshot) || typeof snapshot.minor !== "number" || !Number.isInteger(snapshot.minor)) return false;
+  if (!("character" in snapshot) || (kind === "item" ? snapshot.character !== null : !isCharacterSnapshot(snapshot.character))) return false;
   const expectedBattleStances = kind === "character" ? snapshot.minor < 5 ? 0 : 5 : 1;
   if (!("battleAnimations" in snapshot) || !isStringList(snapshot.battleAnimations) || snapshot.battleAnimations.length !== expectedBattleStances) return false;
   if (!("customStances" in snapshot) || !Array.isArray(snapshot.customStances) || !snapshot.customStances.every((stance: unknown) =>
