@@ -59,6 +59,7 @@ import type { AssetDecoder } from "../formats/registry/decoder.ts";
 import { BUILTIN_TRACKS, MAX_VOICES } from "../audio/model.ts";
 import type { Logger } from "../ports/logger.ts";
 import { composeBoard, type BoardBlit, type SpriteDraw, type SpriteFrame } from "../render/compose.ts";
+import { decodeTileTexture } from "../render/tile-texture.ts";
 import { composeUi, composeUiCursor, composeUiMargins, renderNowBlit, uiAccessibilityTree } from "../render/ui.ts";
 import { emitText, resolveFontAsset } from "../render/text.ts";
 import { applyFxDrawList, advanceFx, applyFxEffect } from "../render/fx.ts";
@@ -1909,55 +1910,17 @@ export function createEngine(init: EngineInit): Engine {
     if (cached !== undefined) return cached;
     const bytes = cache.get(key);
     if (bytes === undefined) return null;
-    const lower = key.toLowerCase();
-    if (lower.endsWith(".gph")) {
-      const parsed = readSingleTile(bytes, key);
-      if (!parsed.ok) {
-        diagnostics.push({ code: "asset.invalid", file: key, line: parsed.error.offset, message: parsed.error.message });
+    const decoded = decodeTileTexture(key, bytes);
+    if (!decoded.ok) {
+      // A key that is not a tile file is not an error; a tile file the reader refused is, and says where.
+      if (decoded.error !== null) {
+        diagnostics.push({ code: "asset.invalid", file: key, line: decoded.error.offset, message: decoded.error.message });
         failed = true;
-        return null;
       }
-      const rgba = expandSingleTileToRgba(parsed.value, "row-major");
-      if (!rgba.ok) return null;
-      const texture = { w: parsed.value.width, h: parsed.value.height, rgba: rgba.value };
-      decodedTiles.set(key, texture);
-      return texture;
-    }
-    if (!lower.endsWith(".tst") && !lower.endsWith(".iso")) return null;
-    const parsed = readTileset(bytes, key);
-    if (!parsed.ok) {
-      diagnostics.push({ code: "asset.invalid", file: key, line: parsed.error.offset, message: parsed.error.message });
-      failed = true;
       return null;
     }
-    const native = tileDimensions(parsed.value.detail);
-    const scale = parsed.value.detail.size === 16 ? 2 : 1;
-    const width = native.width * scale;
-    const height = native.height * scale;
-    const rgba = new Uint8Array(width * parsed.value.tiles.length * height * 4);
-    for (let tile = 0; tile < parsed.value.tiles.length; tile += 1) {
-      const expanded = expandTileToRgba(parsed.value, tile);
-      if (!expanded.ok) return null;
-      for (let x = 0; x < native.width; x += 1) {
-        for (let y = 0; y < native.height; y += 1) {
-          const source = (x * native.height + y) * 4;
-          for (let dx = 0; dx < scale; dx += 1) {
-            for (let dy = 0; dy < scale; dy += 1) {
-              const targetX = tile * width + x * scale + dx;
-              const targetY = y * scale + dy;
-              const target = (targetY * width * parsed.value.tiles.length + targetX) * 4;
-              rgba[target] = expanded.value[source] ?? 0;
-              rgba[target + 1] = expanded.value[source + 1] ?? 0;
-              rgba[target + 2] = expanded.value[source + 2] ?? 0;
-              rgba[target + 3] = expanded.value[source + 3] ?? 0;
-            }
-          }
-        }
-      }
-    }
-    const texture = { w: width * parsed.value.tiles.length, h: height, rgba };
-    decodedTiles.set(key, texture);
-    return texture;
+    decodedTiles.set(key, decoded.texture);
+    return decoded.texture;
   }
   function battlePictureName(file: unknown): string | null {
     if (typeof file !== "object" || file === null || Array.isArray(file)) return null;

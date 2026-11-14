@@ -18,6 +18,7 @@ export {
   type BoardOpenResult,
   type SetTileCommand,
 } from "./board-document.ts";
+export { previewBoard, type BoardPreview, type BoardPreviewOptions, type PreviewStorage } from "./board-preview.ts";
 export { DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {

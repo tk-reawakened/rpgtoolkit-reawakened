@@ -4,3 +4,4 @@ export * from "./shade.ts";
 export * from "./ui.ts";
 export * from "./fx.ts";
 export * from "./animation.ts";
+export * from "./tile-texture.ts";
