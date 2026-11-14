@@ -1,6 +1,6 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
-import { advanceScriptTick, compileTk2, createGameState, normaliseTk2, parseTk2, startProgram, UI_PLUGIN } from "../src/index.ts";
+import { advanceScriptTick, compileTk2, createGameState, IR_VERSION, normaliseTk2, parseTk2, startProgram, UI_PLUGIN } from "../src/index.ts";
 import { createScriptServices } from "./script-test-services.ts";
 
 test("TK2 continued unprefixed assignments execute as one statement", () => {
@@ -18,6 +18,35 @@ test("TK2 quoted dialogue reaches a redirected message command", () => {
   startProgram(state.vm, program.ref);
   advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
   equal(state.vm.globals.captured, 'Hello "friend"');
+});
+
+test("TK2 ReturnMethod returns inside inline and multiline method bodies (#2514)", () => {
+  const source = [
+    '#Method inline(x) { #x = x + 1; #ReturnMethod(x) }',
+    '#Method lines(x) {',
+    '#ReturnMethod(x)',
+    '}',
+    '#result = inline(lines(41))',
+  ].join("\n");
+  const converted = normaliseTk2(source);
+  const program = compileTk2(source, "inline-return.prg");
+  const state = createGameState({ seed: 0 });
+  startProgram(state.vm, program.ref);
+  advanceScriptTick(state, createScriptServices(state, [UI_PLUGIN]));
+  equal(state.vm.globals.result, 42);
+  const convertedState = createGameState({ seed: 0 });
+  startProgram(convertedState.vm, { kind: "inline", text: converted, ir: IR_VERSION });
+  advanceScriptTick(convertedState, createScriptServices(convertedState, [UI_PLUGIN]));
+  equal(convertedState.vm.globals.result, 42);
+});
+
+test("TK2 inline return lowering preserves string and comment text", () => {
+  const source = '#Method show() { #obj = { returnmethod: 3 }; #text("returnMethod(9)"); /* returnMethod(8) */ #ReturnMethod(7) }';
+  const converted = normaliseTk2(source);
+  equal(converted.includes('"returnMethod(9)"'), true);
+  equal(converted.includes("/* returnMethod(8) */"), true);
+  equal(converted.includes("returnmethod: 3"), true);
+  equal(converted.includes("return(7)"), true);
 });
 
 test("TK2 quoted dialogue inside a lambda retains its text", () => {
