@@ -100,14 +100,16 @@ test("a webview answers the extension host's settle request only after every edi
   remote.receive({ type: "settle", requestId: "settle-1" });
   await Promise.resolve();
   await Promise.resolve();
-  deepEqual(outbound, [], "the host is not told the webview is settled while an edit is still held");
+  // `deepEqual` narrows its first argument, so the sent messages are read through a call.
+  const sent = (): readonly EditorHostRequest[] => [...outbound];
+  deepEqual(sent(), [], "the host is not told the webview is settled while an edit is still held");
 
   handed();
   for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
-  deepEqual(outbound, [{ type: "settled", requestId: "settle-1" }]);
+  deepEqual(sent(), [{ type: "settled", requestId: "settle-1" }]);
 
   // With nothing held, the answer is immediate, once per request.
   remote.receive({ type: "settle", requestId: "settle-2" });
   for (let turn = 0; turn < 5; turn += 1) await Promise.resolve();
-  deepEqual(outbound.map((message) => message.type === "settled" ? message.requestId : message.type), ["settle-1", "settle-2"]);
+  deepEqual(sent().map((message) => message.type === "settled" ? message.requestId : message.type), ["settle-1", "settle-2"]);
 });
