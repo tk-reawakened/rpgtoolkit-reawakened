@@ -4601,6 +4601,8 @@ export function createEngine(init: EngineInit): Engine {
         state.ui.surfaceBuilders = state.ui.surfaceBuilders.filter((builder) => builder.openedTick >= state.time.tick);
         state.ui.actionSurfaces = state.ui.actionSurfaces.filter((surface) => surface.publishedTick >= state.time.tick - 1);
         collectStateGarbage(state, layerRoots(services.layers));
+        // Preserve the observer seam after the final phase's state updates (docs/spec/engine/main-loop-and-startup.md#reawakened-phases).
+        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
         return;
       case "movement":
         state.camera = updateCamera(state.camera, state.world.board ?? null, init.cameraTarget ?? init.spriteRuntime);

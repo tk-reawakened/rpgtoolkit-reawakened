@@ -17,6 +17,7 @@ import {
   type ClosingPlan,
 } from "../src/closing.ts";
 import { encodeRgbaPng } from "../src/png.ts";
+import { compareClosingTickHashes } from "../src/closing-ticks.ts";
 
 /** `assert.ok` for the repository's minimal assertion declarations. */
 function ok(condition: boolean, message?: string): void {
@@ -201,4 +202,24 @@ test("a plan is validated before any game runs", () => {
     }
     ok(message.startsWith("closing plan:"), JSON.stringify(broken));
   }
+});
+
+test("closing batching detects state and draw drift between scheduled checkpoints", () => {
+  const reference = Array.from({ length: 10 }, (_, index) => ({
+    tick: index + 1,
+    stateHash: `state-${index + 1}`,
+    drawHash: `draw-${index + 1}`,
+  }));
+  const checkpoints = [5, 10];
+  const divergent = reference.map((entry) =>
+    entry.tick === 7 ? { ...entry, stateHash: "state-diverged", drawHash: "draw-diverged" } : entry,
+  );
+
+  equal(checkpoints.includes(7), false);
+  deepEqual(compareClosingTickHashes(7, 10, reference, divergent), [
+    "batch 7: per-tick hashes differ at tick 7: state state-diverged / draw draw-diverged, reference state state-7 / draw draw-7",
+  ]);
+  deepEqual(compareClosingTickHashes(7, 10, reference, reference.slice(0, 9)), [
+    "batch 7: trace has 9 per-tick hashes, reference has 10 ticks",
+  ]);
 });
