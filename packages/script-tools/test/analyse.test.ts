@@ -36,6 +36,18 @@ test("a syntax error names the token, and the range slices it exactly", () => {
   equal(diagnostic.fix, undefined);
   equal(typeof diagnostic.message, "string");
 });
+test("Toolkit 2 syntax diagnostics slice the original token after indentation and #", () => {
+  const source = "\t#Mwin(1 + )\n";
+  const analysis = analyse(source, { file: "broken-tk2.prg", dialect: "tk2" });
+  equal(analysis.ok, false);
+  equal(analysis.diagnostics.length, 1);
+  const [diagnostic] = analysis.diagnostics;
+  ok(diagnostic);
+  equal(diagnostic.code, "syntax.error");
+  const line = source.split("\n")[diagnostic.range.start.line - 1]!;
+  equal(line.slice(diagnostic.range.start.column - 1, diagnostic.range.end.column), ")");
+});
+
 
 test("a lexical error after a tab, a CRLF and a Windows-1252 byte still slices the offending character", () => {
   const source = 'mwin("caf\u00e9")\r\n\tx = \u00a7\r\n';

@@ -10,7 +10,7 @@
 import type { BuiltinSpec, ParamSpec } from "./builtins.ts";
 import { ScriptError } from "./errors.ts";
 import { lower } from "./lower.ts";
-import { tokenizeObjects } from "./lex.ts";
+import { tokenizeObjects, type Token } from "./lex.ts";
 import type { Ast, Expr } from "./ast.ts";
 import { parse } from "./parse.ts";
 import { IR_VERSION, type Program } from "./program.ts";
@@ -288,7 +288,7 @@ function lowerInlineReturns(text: string): string {
       while (i < text.length && text[i] !== '"' && text[i] !== "\n") i += 1;
       if (text[i] === '"') i += 1;
       statement = false;
-    } else if (char === "/" && text[i + 1] === "/") {
+    } else if ((char === "/" && text[i + 1] === "/") || (char === "*" && text[i + 1] === "*")) {
       while (i < text.length && text[i] !== "\n") i += 1;
     } else if (char === "/" && text[i + 1] === "*") {
       i += 2;
@@ -323,19 +323,277 @@ function lowerInlineReturns(text: string): string {
   return copied === 0 ? text : result + text.slice(copied);
 }
 
-function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
-  const codeWithoutStrings = text.replace(/"[^"\n]*"/g, "");
-  if (/^\s*#?\s*if\b[^\n]*\bthen\s*<|^\s*<(?=[#\s]|$)|^\s*>\s*$/im.test(codeWithoutStrings)) {
-    throw new ScriptError("syntax.unsupported", "Toolkit 1.x `< >` blocks are outside the MVP (docs/spec/engine/rpgcode-dialects.md#toolkit-1x)", { file: "", line: 1 });
-  }
-  const lines = text.split("\n");
-  const continued = continuedCodeRows(lines, lookup);
-  return lowerInlineReturns(lines.map((line, index) => normaliseLine(line, lookup, (value) => {
-    if (literals === null) {
-      throw new ScriptError("syntax.unsupported", "Cannot convert loose dialogue containing a double quote: 3.1 has no unshadowable quote literal encoding (LEX-8).", { file: "", line: index + 1 });
+type Tk2SourceMap = { readonly text: string; readonly offsets: readonly (number | undefined)[] };
+
+function sourceOffsetWithoutQuotedText(source: string, visibleOffset: number): number {
+  let sourceOffset = 0;
+  let visible = 0;
+  while (visible < visibleOffset && sourceOffset < source.length) {
+    if (source[sourceOffset] === '"') {
+      const close = source.indexOf('"', sourceOffset + 1);
+      const newline = source.indexOf("\n", sourceOffset + 1);
+      if (close >= 0 && (newline < 0 || close < newline)) {
+        sourceOffset = close + 1;
+        continue;
+      }
     }
-    literals.set(index + 1, value);
+    sourceOffset += 1;
+    visible += 1;
+  }
+  return sourceOffset;
+}
+function normalizeTk2Text(source: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
+  const codeWithoutStrings = source.replace(/"[^"\n]*"/g, "");
+  const unsupported = /^\s*#?\s*if\b[^\n]*\bthen\s*<|^\s*<(?=[#\s]|$)|^\s*>\s*$/im.exec(codeWithoutStrings);
+  if (unsupported !== null) {
+    const marker = unsupported[0].lastIndexOf("<") >= 0 ? unsupported[0].lastIndexOf("<") : unsupported[0].lastIndexOf(">");
+    const offset = sourceOffsetWithoutQuotedText(source, unsupported.index + Math.max(0, marker));
+    const coordinates = sourceCoordinates(source);
+    throw new ScriptError("syntax.unsupported", "Toolkit 1.x `< >` blocks are outside the MVP (docs/spec/engine/rpgcode-dialects.md#toolkit-1x)", {
+      file: "",
+      line: coordinates.lines[offset]!,
+      col: coordinates.columns[offset]!,
+      endCol: coordinates.columns[offset]!,
+    });
+  }
+  const lines = source.split("\n");
+  const continued = continuedCodeRows(lines, lookup);
+  return lowerInlineReturns(lines.map((line, index) => normaliseLine(line, lookup, (_value) => {
+    if (literals === null) {
+      const column = (lines[index] ?? "").indexOf('"') + 1;
+      throw new ScriptError("syntax.unsupported", "Cannot convert loose dialogue containing a double quote: 3.1 has no unshadowable quote literal encoding (LEX-8).", { file: "", line: index + 1, col: column, endCol: column });
+    }
+    literals.set(index + 1, _value);
   }, continued.has(index))).join("\n"));
+}
+
+function normalizeWithSourceMap(source: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): Tk2SourceMap {
+  const text = normalizeTk2Text(source, lookup, literals);
+  const sourceLines = source.split("\n");
+  const offsets: (number | undefined)[] = new Array(text.length + 1);
+  const normalizedLines = text.split("\n");
+  let sourceBase = 0;
+  let normalizedBase = 0;
+  for (let line = 0; line < normalizedLines.length; line += 1) {
+    const original = sourceLines[line] ?? "";
+    const normalized = normalizedLines[line]!;
+    let i = 0;
+    let j = 0;
+    while (j < normalized.length) {
+      if (i < original.length && normalized[j] === original[i]) {
+        offsets[normalizedBase + j] = sourceBase + i;
+        i += 1;
+        j += 1;
+        continue;
+      }
+      if (original.slice(i, i + "method".length).toLowerCase() === "method" && normalized.startsWith("function", j)) {
+        j += "function".length;
+        i += "method".length;
+        continue;
+      }
+      if (i < original.length && /\s/.test(original[i]!) && !/\s/.test(normalized[j]!)) {
+        i += 1;
+        continue;
+      }
+      if (i < original.length && /[#!$]/.test(original[i]!) && normalized[j] !== original[i]) {
+        i += 1;
+        continue;
+      }
+      let sourceSkip = -1;
+      let normalizedSkip = -1;
+      for (let distance = 1; distance <= 8; distance += 1) {
+        if (sourceSkip < 0 && i + distance < original.length && normalized[j] === original[i + distance]) sourceSkip = distance;
+        if (normalizedSkip < 0 && j + distance < normalized.length && normalized[j + distance] === original[i]) normalizedSkip = distance;
+      }
+      if (sourceSkip >= 0 && (normalizedSkip < 0 || sourceSkip <= normalizedSkip)) i += sourceSkip;
+      else {
+        offsets[normalizedBase + j] = undefined;
+        j += 1;
+      }
+    }
+    offsets[normalizedBase + normalized.length] = sourceBase + original.length - (original.endsWith("\r") ? 1 : 0);
+    sourceBase += original.length + 1;
+    normalizedBase += normalized.length + 1;
+  }
+  if (!text.endsWith("\n")) offsets[text.length] = source.length;
+  return { text, offsets };
+}
+
+function sourceCoordinates(source: string): { readonly lines: readonly number[]; readonly columns: readonly number[] } {
+  const lines: number[] = new Array(source.length + 1);
+  const columns: number[] = new Array(source.length + 1);
+  let line = 1;
+  let column = 1;
+  for (let index = 0; index < source.length; index += 1) {
+    lines[index] = line;
+    columns[index] = column;
+    if (source[index] === "\n") {
+      line += 1;
+      column = 1;
+    } else column += 1;
+  }
+  lines[source.length] = line;
+  columns[source.length] = column;
+  return { lines, columns };
+}
+
+function mapTk2Tokens(source: string, mapped: Tk2SourceMap): Token[] {
+  const coordinates = sourceCoordinates(source);
+  const normalizedStarts: number[] = [];
+  let normalizedStart = 0;
+  for (const line of mapped.text.split("\n")) {
+    normalizedStarts.push(normalizedStart);
+    normalizedStart += line.length + 1;
+  }
+  let tokens: Token[];
+  try {
+    tokens = tokenizeObjects(mapped.text);
+  } catch (error) {
+    remapTk2Error(error, source, mapped);
+  }
+  return tokens.map((token) => {
+    const start = normalizedStarts[token.line - 1];
+    if (start === undefined) return { ...token, col: 0, endCol: 0 };
+    const tokenStart = start + token.col - 1;
+    let first: number | undefined;
+    let last: number | undefined;
+    for (let index = tokenStart; index < tokenStart + Math.max(1, token.endCol - token.col + 1); index += 1) {
+      const sourceOffset = mapped.offsets[index];
+      if (sourceOffset !== undefined) {
+        first ??= sourceOffset;
+        last = sourceOffset;
+      }
+    }
+    if (first === undefined || last === undefined) return { ...token, col: 0, endCol: 0 };
+    const suffix = source[last + 1];
+    const nextOutputOffset = mapped.offsets[start + token.endCol];
+    if (token.kind === "identifier" && (suffix === "!" || suffix === "$") && nextOutputOffset !== last + 1) last += 1;
+    return {
+      ...token,
+      line: coordinates.lines[first]!,
+      col: coordinates.columns[first]!,
+      endCol: coordinates.columns[last]!,
+    };
+  });
+}
+
+function remapTk2Error(error: unknown, source: string, mapped: Tk2SourceMap): never {
+  if (error instanceof ScriptError && error.pos?.col !== undefined) {
+    const coordinates = sourceCoordinates(source);
+    const normalizedLines = mapped.text.split("\n");
+    let normalizedStart = 0;
+    for (let index = 0; index < error.pos.line - 1; index += 1) normalizedStart += normalizedLines[index]!.length + 1;
+    const tokenStart = normalizedStart + error.pos.col - 1;
+    const tokenEnd = normalizedStart + (error.pos.endCol ?? error.pos.col) - 1;
+    let first: number | undefined;
+    let last: number | undefined;
+    for (let index = tokenStart; index <= tokenEnd; index += 1) {
+      const sourceOffset = mapped.offsets[index];
+      if (sourceOffset !== undefined) {
+        first ??= sourceOffset;
+        last = sourceOffset;
+      }
+    }
+    if (first !== undefined && last !== undefined) {
+      throw new ScriptError(error.code, error.message, {
+        ...error.pos,
+        line: coordinates.lines[first]!,
+        col: coordinates.columns[first]!,
+        endCol: coordinates.columns[last]!,
+      });
+    }
+    const pos = { ...error.pos };
+    delete pos.col;
+    delete pos.endCol;
+    throw new ScriptError(error.code, error.message, pos);
+  }
+  throw error;
+}
+
+function declaredNameToken(tokens: readonly Token[], keyword: string, name: string): Token | undefined {
+  const foldedName = name.toLowerCase();
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token.kind !== "identifier" || token.name !== keyword) continue;
+    let nextIndex = index + 1;
+    while (tokens[nextIndex]?.kind === "end") nextIndex += 1;
+    const next = tokens[nextIndex];
+    if (next?.kind === "identifier" && next.name.toLowerCase() === foldedName) return next;
+  }
+  return undefined;
+}
+
+function methodNameAt(tokens: readonly Token[], index: number, name: string): Token | undefined {
+  const first = tokens[index];
+  if (first?.kind === "identifier" && first.name.toLowerCase() === name.toLowerCase()) return first;
+  if (name.startsWith("operator") && first?.kind === "identifier" && first.name === "operator") {
+    const suffix = name.slice("operator".length);
+    const operator = tokens[index + 1];
+    const close = tokens[index + 2];
+    if (operator?.kind === "op" && operator.text === suffix) return { ...first, endCol: operator.endCol };
+    if (suffix === "[]" && operator?.kind === "op" && operator.text === "[" && close?.kind === "op" && close.text === "]") {
+      return { ...first, endCol: close.endCol };
+    }
+  }
+  if (name.startsWith("~") && first?.kind === "op" && first.text === "~") {
+    const destructor = tokens[index + 1];
+    if (destructor?.kind === "identifier" && `~${destructor.name}`.toLowerCase() === name.toLowerCase()) return { ...first, endCol: destructor.endCol };
+  }
+  return undefined;
+}
+
+function methodNameToken(tokens: readonly Token[], owner: string, name: string): Token | undefined {
+  const foldedOwner = owner.toLowerCase();
+  for (let index = 0; index + 3 < tokens.length; index += 1) {
+    const keyword = tokens[index];
+    const ownerToken = tokens[index + 1];
+    const separator = tokens[index + 2];
+    if (keyword?.kind !== "identifier" || keyword.name !== "method") continue;
+    if (ownerToken?.kind !== "identifier" || ownerToken.name.toLowerCase() !== foldedOwner) continue;
+    if (separator?.kind !== "op" || separator.text !== "::") continue;
+    const method = methodNameAt(tokens, index + 3, name);
+    if (method !== undefined) return method;
+  }
+  for (let index = 0; index + 1 < tokens.length; index += 1) {
+    const keyword = tokens[index];
+    const ownerToken = tokens[index + 1];
+    if (keyword?.kind !== "identifier" || keyword.name !== "class") continue;
+    if (ownerToken?.kind !== "identifier" || ownerToken.name.toLowerCase() !== foldedOwner) continue;
+    let open = index + 2;
+    while (open < tokens.length) {
+      const token = tokens[open]!;
+      if (token.kind === "op" && token.text === "{") break;
+      open += 1;
+    }
+    let depth = 0;
+    for (let cursor = open; cursor < tokens.length; cursor += 1) {
+      const token = tokens[cursor]!;
+      if (token.kind === "op" && token.text === "{") depth += 1;
+      else if (token.kind === "op" && token.text === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      } else if (depth === 1 && token.kind === "identifier" && token.name === "method") {
+        const method = methodNameAt(tokens, cursor + 1, name);
+        if (method !== undefined) return method;
+      }
+    }
+  }
+  return undefined;
+}
+
+function omitSyntheticSpans<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(omitSyntheticSpans) as T;
+  if (value === null || typeof value !== "object") return value;
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if ((key === "col" || key === "endCol") && child === 0) continue;
+    result[key] = omitSyntheticSpans(child);
+  }
+  return result as T;
+}
+
+function normaliseTk2Internal(text: string, lookup: Tk2CommandLookup | undefined, literals: Map<number, string> | null): string {
+  return normalizeTk2Text(text, lookup, literals);
 }
 
 /** Convert TK2 source into equivalent 3.1 source, or report an unrepresentable literal. */
@@ -343,7 +601,7 @@ export function normaliseTk2(text: string, lookup?: Tk2CommandLookup): string {
   return normaliseTk2Internal(text, lookup, null);
 }
 
-function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>): Ast {
+function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>, tokens: readonly Token[]): Ast {
   const rewriteExpression = (expr: Expr): Expr => {
     if (expr.kind === "methodCall") {
       return { ...expr, receiver: rewriteExpression(expr.receiver), args: expr.args.map(rewriteExpression) };
@@ -379,8 +637,30 @@ function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>): Ast {
   };
   return {
     statements: ast.statements.map(rewriteStatement),
-    functions: ast.functions.map((fn) => ({ ...fn, body: fn.body.map(rewriteStatement) })),
-    classes: ast.classes.map((cls) => ({ ...cls, methods: cls.methods.map((method) => ({ ...method, body: method.body?.map(rewriteStatement) ?? null })) })),
+    functions: ast.functions.map((fn) => {
+      const nameToken = declaredNameToken(tokens, "function", fn.name);
+      return {
+        ...fn,
+        ...(nameToken === undefined ? {} : { line: nameToken.line, col: nameToken.col, endCol: nameToken.endCol }),
+        body: fn.body.map(rewriteStatement),
+      };
+    }),
+    classes: ast.classes.map((cls) => {
+      const nameToken = declaredNameToken(tokens, "class", cls.name);
+      return {
+        ...cls,
+        ...(nameToken === undefined ? {} : { line: nameToken.line, col: nameToken.col, endCol: nameToken.endCol }),
+        members: cls.members,
+        methods: cls.methods.map((method) => {
+          const methodToken = methodNameToken(tokens, cls.name, method.name);
+          return {
+            ...method,
+            ...(methodToken === undefined ? {} : { line: methodToken.line, col: methodToken.col, endCol: methodToken.endCol }),
+            body: method.body?.map(rewriteStatement) ?? null,
+          };
+        }),
+      };
+    }),
     includes: ast.includes,
   };
 }
@@ -388,8 +668,21 @@ function rewriteAst(ast: Ast, literals: ReadonlyMap<number, string>): Ast {
 /** Parse TK2 into the same Unified AST used by the TK3 frontend. */
 export function parseTk2(text: string, lookup?: Tk2CommandLookup): Ast {
   const literals = new Map<number, string>();
-  const normalised = normaliseTk2Internal(text, lookup, literals);
-  return rewriteAst(parse(tokenizeObjects(normalised), { redirects: new Map(), preserveSystemNamespace: true }), literals);
+  const mapped = normalizeWithSourceMap(text, lookup, literals);
+  const tokens = mapTk2Tokens(text, mapped);
+  let ast: Ast;
+  try {
+    ast = parse(tokens, { redirects: new Map(), preserveSystemNamespace: true });
+  } catch (error) {
+    if (error instanceof ScriptError && (error.pos?.col === 0 || error.pos?.endCol === 0)) {
+      const pos = { ...error.pos };
+      delete pos.col;
+      delete pos.endCol;
+      throw new ScriptError(error.code, error.message, pos);
+    }
+    throw error;
+  }
+  return omitSyntheticSpans(rewriteAst(ast, literals, tokens));
 }
 
 /** Compile TK2 source into the shared flat Step IR without modifying its input. */

@@ -220,6 +220,42 @@ test("definitions: functions with arity, a class with members and methods, label
     ],
   );
 });
+test("Toolkit 2 and 3.1 index ranges slice original identifiers", () => {
+  const tk2Source = "\t#Method Show(value) {\n\t  #Mwin(value)\n}\n\t#Show(1)\n";
+  const tk2 = buildIndex([
+    { name: "tk2.prg", ref: { kind: "inline", text: tk2Source, ir: "1", dialect: "tk2" } },
+  ]);
+  const [tk2Program] = tk2.programs;
+  ok(tk2Program);
+  const method = tk2Program.functions.find((fn) => fn.name === "show");
+  ok(method);
+  ok(method.col !== undefined && method.endCol !== undefined);
+  equal(tk2Source.split("\n")[method.line - 1]?.slice(method.col - 1, method.endCol), "Show");
+  const call = tk2Program.calls.find((site) => site.name === "mwin");
+  ok(call);
+  ok(call.pos.col !== undefined && call.pos.endCol !== undefined);
+  equal(tk2Source.split("\n")[call.pos.line - 1]?.slice(call.pos.col - 1, call.pos.endCol), "Mwin");
+
+  const tk31Source = "\tfunction\n  Show() {\n\t  Mwin(\"x\")\n}\n";
+  const tk31 = buildIndex([
+    { name: "tk31.prg", ref: { kind: "inline", text: tk31Source, ir: "1", dialect: "tk3" } },
+  ]);
+  const [tk31Program] = tk31.programs;
+  ok(tk31Program);
+  const tk31Call = tk31Program.calls.find((site) => site.name === "mwin");
+  ok(tk31Call);
+  ok(tk31Call.pos.col !== undefined && tk31Call.pos.endCol !== undefined);
+  equal(tk31Source.split("\n")[tk31Call.pos.line - 1]?.slice(tk31Call.pos.col - 1, tk31Call.pos.endCol), "Mwin");
+});
+
+test("Toolkit 2 ranges count UTF-16 code units through inline statements and CRLF", () => {
+  const source = '#text("a\u{1F600}"); #Mwin("x")\r\n';
+  const index = buildIndex([{ name: "utf16.prg", ref: { kind: "inline", text: source, ir: "1", dialect: "tk2" } }]);
+  const call = index.programs[0]?.calls.find((site) => site.name === "mwin");
+  ok(call && call.pos.col !== undefined && call.pos.endCol !== undefined);
+  equal(source.split("\n")[call.pos.line - 1]?.slice(call.pos.col - 1, call.pos.endCol), "Mwin");
+});
+
 
 test("includes: the explicit #include and the implicit file.func call, both resolved", () => {
   const [program] = fixtureIndex().programs;

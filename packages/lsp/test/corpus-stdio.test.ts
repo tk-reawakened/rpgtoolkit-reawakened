@@ -84,8 +84,12 @@ test("FinalDestiny: hover and the outline work on Toolkit 2 programs of the runn
     const hover = await client.connection.sendRequest<Hover | null>("textDocument/hover", { textDocument: { uri: chest }, position: { line: 2, character: 2 } });
     ok(hover !== null, "hover on a Toolkit 2 built-in call");
     ok(JSON.stringify(hover.contents).length > 20, "hover carries the command documentation");
-    // The column is the Toolkit 2 frontend's normalised one until #2102 is fixed; the line is exact.
-    equal(hover.range?.start.line, 2);
+    const mwinLine = text(join(game, "Prg", "Basic Armor chest.prg")).split(/\r?\n/)[2]!;
+    const mwinStart = mwinLine.toLowerCase().indexOf("mwin");
+    deepEqual(hover.range, {
+      start: { line: 2, character: mwinStart },
+      end: { line: 2, character: mwinStart + "mwin".length },
+    });
 
     const system = pathToFileURL(join(game, "Prg", "system.prg")).href;
     deepEqual((await client.open(system, text(join(game, "Prg", "system.prg")))).filter((item) => item.code === "syntax.error"), []);

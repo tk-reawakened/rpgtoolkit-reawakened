@@ -1,3 +1,4 @@
+import { ScriptError } from "../src/script/errors.ts";
 import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { advanceScriptTick, compileTk2, createGameState, IR_VERSION, normaliseTk2, parseTk2, startProgram, UI_PLUGIN } from "../src/index.ts";
@@ -272,14 +273,14 @@ test("TK2 raw text binds only the command argument and leaves expressions execut
     expr: {
       kind: "call",
       name: "mwin",
-      args: [{ kind: "literal", value: "Hello there", line: 1, col: 6, endCol: 18 }],
+      args: [{ kind: "literal", value: "Hello there", line: 1, col: 7, endCol: 17 }],
       line: 1,
-      col: 1,
-      endCol: 4,
+      col: 2,
+      endCol: 5,
     },
     line: 1,
-    col: 1,
-    endCol: 4,
+    col: 2,
+    endCol: 5,
   });
 });
 
@@ -386,4 +387,99 @@ test("TK2 sigil stripping preserves punctuation in quoted strings", () => {
   const dialogueText = dialogue.expr.args[0];
   if (dialogueText?.kind !== "literal") throw new Error("expected loose dialogue literal");
   equal(dialogueText.value, "[OK]!, continue");
+});
+test("TK2 source maps identifiers, sigils and inserted raw quotes to original spans", () => {
+  const source = '  #value! = 1\r\n\t#other$ = value!\r\n  #MWin(\u{1F600} hello)';
+  const ast = parseTk2(source);
+  const first = ast.statements[0];
+  const second = ast.statements[1];
+  const third = ast.statements[2];
+  if (first?.kind !== "expr" || first.expr.kind !== "assign" || first.expr.target.kind !== "variable") throw new Error("expected first assignment");
+  if (second?.kind !== "expr" || second.expr.kind !== "assign" || second.expr.target.kind !== "variable") throw new Error("expected second assignment");
+  const program = compileTk2("  #value! = 1");
+  const compiledName = program.ops.find((op) => op.op === "load" && op.name === "value");
+  if (compiledName?.op !== "load") throw new Error("expected compiled assignment target");
+  deepEqual([compiledName.pos?.line, compiledName.pos?.col, compiledName.pos?.endCol], [1, 4, 9]);
+  const firstTarget = first.expr.target;
+  if (firstTarget.col === undefined || firstTarget.endCol === undefined) throw new Error("expected first original identifier span");
+  deepEqual([firstTarget.line, firstTarget.col, firstTarget.endCol], [1, 4, 9]);
+  equal(source.split("\r\n")[0]!.slice(firstTarget.col - 1, firstTarget.endCol), "value!");
+  const secondTarget = second.expr.target;
+  if (secondTarget.col === undefined || secondTarget.endCol === undefined) throw new Error("expected second original identifier span");
+  deepEqual([secondTarget.line, secondTarget.col, secondTarget.endCol], [2, 3, 8]);
+  equal(source.split("\r\n")[1]!.slice(secondTarget.col - 1, secondTarget.endCol), "other$");
+  const value = second.expr.value;
+  if (value.kind !== "variable") throw new Error("expected variable assignment value");
+  deepEqual([value.line, value.col, value.endCol], [2, 12, 17]);
+  if (third?.kind !== "expr" || third.expr.kind !== "call" || third.expr.args[0]?.kind !== "literal") throw new Error("expected raw dialogue argument");
+  const rawText = third.expr.args[0];
+  if (rawText.col === undefined || rawText.endCol === undefined) throw new Error("expected original raw-text span");
+  equal(source.split("\r\n")[2]!.slice(rawText.col - 1, rawText.endCol), "\u{1F600} hello");
+  deepEqual([rawText.line, rawText.col, rawText.endCol], [3, 9, 16]);
+});
+test("TK2 method declarations point at the original name, not the rewritten keyword", () => {
+  const ast = parseTk2("#method Show() {\n#return 1\n}");
+  const fn = ast.functions[0];
+  if (fn === undefined) throw new Error("expected method declaration");
+  deepEqual([fn.name, fn.line, fn.col, fn.endCol], ["show", 1, 9, 12]);
+});
+
+test("TK2 class, method, operator and destructor declarations use name spans", () => {
+  const source = "#class Box { public: method value() { return 42 } method operator+(other) { return 1 } method ~Box() { return 0 } }\n#class Other { public: method value() { return 0 } }";
+  const cls = parseTk2(source).classes[0];
+  if (cls === undefined) throw new Error("expected class declaration");
+  if (cls.col === undefined || cls.endCol === undefined) throw new Error("expected original class name span");
+  const sourceSpan = (node: { readonly col?: number; readonly endCol?: number }): string => {
+    if (node.col === undefined || node.endCol === undefined) throw new Error("expected original declaration span");
+    return source.slice(node.col - 1, node.endCol);
+  };
+  equal(sourceSpan(cls), "Box");
+  const ordinary = cls.methods.find((method) => method.name === "value");
+  const operator = cls.methods.find((method) => method.name === "operator+");
+  const destructor = cls.methods.find((method) => method.name === "~box");
+  if (ordinary === undefined || operator === undefined || destructor === undefined) throw new Error("expected method declarations");
+  equal(sourceSpan(ordinary), "value");
+  equal(sourceSpan(operator), "operator+");
+  equal(sourceSpan(destructor), "~Box");
+  const other = parseTk2(source).classes[1];
+  const otherMethod = other?.methods.find((method) => method.name === "value");
+  if (otherMethod === undefined) throw new Error("expected second class method");
+  deepEqual([otherMethod.line, otherMethod.col, otherMethod.endCol], [2, 31, 35]);
+});
+
+test("TK2 parser and lexical errors retain original token positions", () => {
+  throws(
+    () => parseTk2("  #value = )"),
+    (error: unknown) => error instanceof ScriptError
+      && error.code === "syntax.error"
+      && error.pos?.line === 1
+      && error.pos.col === 12
+      && error.pos.endCol === 12,
+  );
+  throws(
+    () => parseTk2("  #value = §"),
+    (error: unknown) => error instanceof ScriptError
+      && error.code === "syntax.error"
+      && error.pos?.line === 1
+      && error.pos.col === 12
+      && error.pos.endCol === 12,
+  );
+  throws(
+    () => parseTk2("  <"),
+    (error: unknown) => error instanceof ScriptError
+      && error.code === "syntax.unsupported"
+      && error.pos?.line === 1
+      && error.pos.col === 3
+      && error.pos.endCol === 3,
+  );
+});
+
+test("TK2 UTF-16 source mapping stays aligned after astral text and CRLF", () => {
+  const source = "#MWin(\u{1F600} hello)\r\n  #after! = 1";
+  const after = parseTk2(source).statements[1];
+  if (after?.kind !== "expr" || after.expr.kind !== "assign" || after.expr.target.kind !== "variable") throw new Error("expected assignment after CRLF");
+  const target = after.expr.target;
+  if (target.col === undefined || target.endCol === undefined) throw new Error("expected original identifier span");
+  deepEqual([target.line, target.col, target.endCol], [2, 4, 9]);
+  equal(source.split("\r\n")[1]!.slice(target.col - 1, target.endCol), "after!");
 });
