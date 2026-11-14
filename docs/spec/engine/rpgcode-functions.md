@@ -528,7 +528,7 @@ A committed buy emits exactly one `itemAdded`, followed by `goldChanged` if gold
 
 | Command | Signature | Purpose | Notes |
 |---|---|---|---|
-| `clear` | `void clear([canvas cnv])` | Clear a surface. clear() blanks the screen. |  |
+| `clear` | `void clear([canvas cnv])` | Clear a surface. `clear()` blanks the screen's script drawing, including earlier screen text. | Without a canvas, removes earlier `text` and `pixeltext` draws from the screen text layer as well as clearing the screen surface; text drawn afterwards remains. With a canvas, clears that canvas only. |
 | `setpixel` | `void setpixel(int x, int y, [canvas cnv])` | Set a pixel in the current colour. |  |
 | `drawline` | `void drawline(int x1, int y1, int x2, int y2, [canvas cnv])` | Draw a line. |  |
 | `drawrect` | `void drawrect(int x1, int y1, int x2, int y2, [canvas cnv])` | Draw a rectangle. |  |
