@@ -1,7 +1,7 @@
 ---
 title: 'Correct script animation source dimensions'
 type: 'bugfix'
-ticket: ''
+ticket: 1271
 created: '2026-11-04'
 status: 'built'
 baseline_revision: '7d5b874610a7e5f066c68dc3d8b620bd228bedb3'

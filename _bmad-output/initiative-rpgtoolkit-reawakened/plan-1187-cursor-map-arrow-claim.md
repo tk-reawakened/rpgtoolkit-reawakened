@@ -1,7 +1,7 @@
 ---
 title: "Consume cursor-map navigation keys once"
 type: bugfix
-ticket: ''
+ticket: 1187
 created: '2026-11-02'
 status: in-progress
 baseline_revision: 4fd37fcbbbb540871eae4e41c2a5fec3547c2bc2
