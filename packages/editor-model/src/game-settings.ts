@@ -33,6 +33,8 @@ function foldNamespace(text: string): string {
 /** Every editable game setting. Booleans stand for flag rows; a stored legacy flag value (such as `-1`) is kept unless the flag is turned over. */
 export interface MainSettings {
   // T-10 Project settings.
+  /** Row 7: the game title. */
+  readonly gameTitle: string;
   /** Row 6: the project folder relative to the Toolkit folder, with a trailing `\`. */
   readonly projectPath: string;
   /** Row 45, minor ≥ 3: whether the game offers controllers. */
@@ -164,6 +166,7 @@ export const EXT_KEY_SLOTS = 51;
 export const ENEMY_SLOTS = 501;
 
 export const MAIN_SETTINGS: { readonly [Key in MainSettingKey]: SettingInfo } = {
+  gameTitle: { label: "Game title", category: "project", shape: "text", since: 0, owner: "row 7" },
   projectPath: { label: "Project folder", category: "project", shape: "text", since: 0, owner: "row 6" },
   useJoystick: { label: "Legacy joystick input", category: "project", shape: "flag", since: 3, owner: "row 45" },
   cursorMoveSound: { label: "Cursor move sound", category: "project", shape: "text", since: 3, owner: "row 42" },
@@ -278,6 +281,7 @@ export function mainSettingsOf(model: MainFile): MainSettings {
   const minor = model.minor;
   const controls = minor >= 9 ? model.movementControls : 1 + 4;
   return {
+    gameTitle: model.gameTitle,
     projectPath: model.projectPath,
     useJoystick: minor >= 3 ? model.useJoystick !== 0 : true,
     cursorMoveSound: model.cursorMoveSound,
@@ -341,6 +345,7 @@ export function applyMainSettings(model: MainFile, changes: MainSettingsChanges)
     const value = changes[key];
     if (value !== undefined) apply(value as MainSettings[Key]);
   };
+  set("gameTitle", (value) => { next.gameTitle = value; });
   set("projectPath", (value) => { next.projectPath = value; });
   set("useJoystick", (value) => { next.useJoystick = flag(next.useJoystick, value); });
   set("cursorMoveSound", (value) => { next.cursorMoveSound = value; });
