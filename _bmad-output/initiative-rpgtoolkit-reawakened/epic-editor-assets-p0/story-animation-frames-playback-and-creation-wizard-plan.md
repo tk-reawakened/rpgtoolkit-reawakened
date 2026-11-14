@@ -2,7 +2,7 @@
 type: feature
 title: "Animation frames playback and creation wizard"
 ticket: 7
-status: draft
+status: blocked
 ---
 
 # Animation frames playback and creation wizard
@@ -21,4 +21,6 @@ Use the shared document lifecycle and preserve same-version unknown data; exerci
 
 ## Dependencies and decision gate
 
-Prerequisites: 2, 8, 11.1. Follow the 11.1 contract where applicable; inspect actual supported formats and correct documented provider gaps within scope under G7.
+Prerequisites: 2, 8, 11.1 and the checkpoint-group provider in 11.14 (#1828). ADR 0022 D4.1/D12.3 requires recording the pre-operation contents and created files for the multi-file ANM/TBM wizard, with one-action recovery and truthful per-file restore results. The accepted contract exists, but its shared provider is not implemented; the trusted-local-folder ruling does not remove ordinary recovery.
+
+Partial model/view and both-host registration are preserved on pushed branch `feat/1718-animation-authoring`, draft PR #2699. Build passed after integration corrections; focused animation model/view tests passed 3/3 (each under one second), alongside 47 passing kind/host cases. This is not a feature completion claim: checkpoint recovery, the staged multi-frame tile batch with retry results, explicit new-ANM creation and actual both-host wizard proof remain unfinished. Keep the complete acceptance above when resuming.
