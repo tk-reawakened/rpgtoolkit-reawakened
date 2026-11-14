@@ -60,7 +60,11 @@ test("browser workbench opens registered assets and packages a project through t
   await expect(page.getByRole("tab", { name: "Boards/village.brd", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Package game…", exact: true }).click();
+  const packagePanel = page.getByRole("group", { name: "Package game" });
   await page.getByLabel("Release version").fill("1.0.0");
+  await packagePanel.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Package game…", exact: true }).click();
+  await expect(page.getByLabel("Release version")).toHaveValue("1.0.0");
   await page.getByRole("button", { name: "Prepare package", exact: true }).click();
   const packageStatus = page.locator(".tkr-files-package-status");
   await expect(packageStatus).toContainText("Preflight passed");
