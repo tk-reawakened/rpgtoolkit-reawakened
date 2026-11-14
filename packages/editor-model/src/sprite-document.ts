@@ -282,6 +282,7 @@ function invalidValue(model: SpriteActor, command: SpriteCommand): string | null
   if (command.type === "set-character-move" && command.index >= 201) return "Choose one of the 201 stored special-move slots.";
   if (command.type === "set-character-increase" && command.index >= 4) return "Choose one of the four level-increase fields.";
   if (command.type === "set-character-moves-enabled" && command.value !== 0 && command.value !== 1) return "Special-move flag must be 0 or 1.";
+  if (command.type === "set-character-growth" && command.field === "levelUpType" && command.value !== 0 && command.value !== 1) return "Level-up type must be 0 (percentage) or 1 (fixed-point).";
   if (command.type === "set-sprite-animation") {
     const max = command.group === "walk" || command.group === "idle" ? 8 : command.group === "battle" ? (actorType(model) === "character" ? 5 : 1) : (model.customStances ?? []).length;
     if (!Number.isInteger(command.index) || command.index < 0 || command.index >= max) return "Choose an existing stance slot.";
@@ -331,7 +332,16 @@ function commandSurvivedWriteback(actual: SpriteActor, next: SpriteActor, comman
     if (command.type === "set-character-text") return actual[command.field] === next[command.field];
     if (command.type === "set-character-variable") return actual.variableNames[command.index] === next.variableNames[command.index];
     if (command.type === "set-character-stat") return actual.stats[command.field] === next.stats[command.field];
-    if (command.type === "set-character-move") return JSON.stringify(actual.specialMoves[command.index]) === JSON.stringify(next.specialMoves[command.index]);
+    if (command.type === "set-character-move") {
+      const actualMove = actual.specialMoves[command.index];
+      const nextMove = next.specialMoves[command.index];
+      return actualMove !== undefined && nextMove !== undefined
+        && actualMove.file === nextMove.file
+        && actualMove.minExp === nextMove.minExp
+        && actualMove.minLevel === nextMove.minLevel
+        && actualMove.condVar === nextMove.condVar
+        && actualMove.condValue === nextMove.condValue;
+    }
     if (command.type === "set-character-accessory") return actual.accessorySlots[command.index] === next.accessorySlots[command.index];
     if (command.type === "set-character-body-slot") return actual.bodySlots[command.index] === next.bodySlots[command.index];
     if (command.type === "set-character-growth") return actual[command.field] === next[command.field];

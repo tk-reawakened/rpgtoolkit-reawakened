@@ -114,7 +114,7 @@ test("character authoring fields apply independently, undo and round-trip withou
   apply(doc, { type: "set-character-variable", index: 0, value: "hero_exp!" });
   apply(doc, { type: "set-character-stat", field: "maxHp", value: 321 });
   apply(doc, { type: "set-character-text", field: "profilePicture", value: "Bitmap/hero.png" });
-  apply(doc, { type: "set-character-move", index: 200, value: { file: "SpcMove/flare.spc", minExp: 42, minLevel: 3, condVar: "quest!", condValue: "done" } });
+  apply(doc, { type: "set-character-move", index: 200, value: { condValue: "done", condVar: "quest!", minLevel: 3, minExp: 42, file: "SpcMove/flare.spc" } });
   apply(doc, { type: "set-character-text", field: "specialMoveCategory", value: "Arts" });
   apply(doc, { type: "set-character-moves-enabled", value: 1 });
   apply(doc, { type: "set-character-accessory", index: 10, value: "Charm" });
@@ -125,6 +125,11 @@ test("character authoring fields apply independently, undo and round-trip withou
   apply(doc, { type: "set-character-increase", index: 3, value: 7 });
   apply(doc, { type: "set-character-growth", field: "levelUpProgram", value: "Prg/levelup.prg" });
   apply(doc, { type: "set-character-growth", field: "levelUpType", value: 1 });
+  apply(doc, { type: "set-character-growth", field: "levelUpType", value: 0 });
+  apply(doc, { type: "set-character-growth", field: "levelUpType", value: 1 });
+  const invalidLevelUpType = doc.apply({ type: "set-character-growth", field: "levelUpType", value: 2 });
+  ok(!invalidLevelUpType.ok);
+  equal(doc.getSnapshot().character?.levelUpType, 1);
   const invalid = doc.apply({ type: "set-character-variable", index: 9, value: "outside!" });
   ok(!invalid.ok);
   const unchanged = doc.getSnapshot().character;
