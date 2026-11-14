@@ -1,5 +1,7 @@
 const vscode = require("vscode");
 const proofSecret = "__TKR_PROOF_SECRET__";
+let autosaveOffGate;
+let releaseAutosaveOff;
 
 function activate(context) {
   console.info("[vscode-web-proof-probe] activated");
@@ -41,11 +43,40 @@ function activate(context) {
   const setAutosave = (value) => async () => {
     const configuration = vscode.workspace.getConfiguration("files");
     await configuration.update("autoSave", value, vscode.ConfigurationTarget.Workspace);
+    if (value === "off" && autosaveOffGate !== undefined) {
+      const workspace = vscode.workspace.workspaceFolders?.[0];
+      if (workspace === undefined) throw new Error("The proof workspace is not open");
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.joinPath(workspace.uri, ".vscode", "tkr-autosave-command-paused"),
+        new TextEncoder().encode("off"),
+      );
+      await autosaveOffGate;
+    }
     if (value !== "off") await configuration.update("autoSaveDelay", 1000, vscode.ConfigurationTarget.Workspace);
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(workspace.uri, ".vscode", "tkr-autosave-command-complete"),
+      new TextEncoder().encode(value),
+    );
     console.info(`[vscode-web-proof-probe] files.autoSave=${String(configuration.get("autoSave"))} delay=${String(configuration.get("autoSaveDelay"))}`);
   };
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.enableAutosave", setAutosave("afterDelay")));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.disableAutosave", setAutosave("off")));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseAutosaveOff", () => {
+    if (autosaveOffGate === undefined) autosaveOffGate = new Promise((resolve) => { releaseAutosaveOff = resolve; });
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.releaseAutosaveOff", async () => {
+    releaseAutosaveOff?.();
+    releaseAutosaveOff = undefined;
+    autosaveOffGate = undefined;
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(workspace.uri, ".vscode", "tkr-autosave-command-released"),
+      new TextEncoder().encode("off"),
+    );
+  }));
 }
 function withTimeout(operation, stage) {
   let timer;
