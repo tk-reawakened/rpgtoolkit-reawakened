@@ -4,7 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { discoverProjectSpecs, runSpecProject } from "../src/index.ts";
+import { createAssetIndex, PACKAGE_ROOT } from "@tk-reawakened/core";
+import { discoverProjectSpecs, runSpecFile, runSpecProject } from "../src/index.ts";
+import type { SpecProgramLoader } from "../src/runner.ts";
 
 function writeProjectFile(root: string, path: string, source: string): void {
   const file = join(root, path);
@@ -169,6 +171,58 @@ test("project thread load failures report, continue the caller, and register no 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("inline thread preflight applies redirects before registration", () => {
+  const root = mkdtempSync(join(tmpdir(), "script-spec-project-thread-redirect-"));
+  try {
+    writeProjectFile(root, "Prg/broken.prg", "if (\n");
+    writeProjectFile(root, "thread-redirect.spec.prg", [
+      'it("preflights redirected inline code", () => {',
+      '  redirect("oldCall", "broken.missingFunction")',
+      "  threadId = 99",
+      '  result = thread("oldCall()", 0, threadId)',
+      "  continued = 1",
+      "  expect(continued).toBe(1)",
+      "  expect(result).toBe(0)",
+      "  expect(threadId).toBe(0)",
+      "  expect(() => killThread(result)).toThrow()",
+      "})",
+    ].join("\n"));
+
+    const report = runSpecProject(root);
+    const result = report.files[0]?.cases[0];
+    ok(result);
+    equal(result.outcomes.filter((outcome) => outcome.kind === "pass").length, 4);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("syntax.error:")), true);
+    equal(result.outcomes.some((outcome) => outcome.actual.startsWith("spec.timeout:")), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("thread preflight reports an indexed program whose loader cannot read it", () => {
+  const loader: SpecProgramLoader = {
+    index: createAssetIndex(["Prg/unreadable.prg"]),
+    root: PACKAGE_ROOT,
+    read: () => undefined,
+  };
+  const report = runSpecFile("unreadable.spec.prg", [
+    'it("continues after a missing source read", () => {',
+    "  threadId = 99",
+    '  result = thread("unreadable.prg", 0, threadId)',
+    "  continued = 1",
+    "  expect(continued).toBe(1)",
+    "  expect(result).toBe(0)",
+    "  expect(threadId).toBe(0)",
+    "  expect(() => killThread(result)).toThrow()",
+    "})",
+  ].join("\n"), { loader });
+  const result = report.cases[0];
+  ok(result);
+  equal(result.outcomes.filter((outcome) => outcome.kind === "pass").length, 4);
+  equal(result.outcomes.some((outcome) => outcome.actual.startsWith("program.missing:")), true);
+  equal(result.outcomes.some((outcome) => outcome.actual.startsWith("spec.timeout:")), false);
 });
 
 test("package specs execute the manifest's real startup, not an unrelated Prg file", () => {

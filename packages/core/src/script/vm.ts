@@ -3554,12 +3554,16 @@ function dispatchResolved(
         const indexed = loader !== undefined && resolveProgram(loader, file) !== undefined;
         let ref: ProgramRef;
         try {
-          ref = indexed && loader !== undefined
-            ? fileProgramRef(loader, file, vm.redirects)
-            : { kind: "inline", text: file, ir: IR_VERSION };
+          ref = withRedirects(
+            indexed && loader !== undefined
+              ? fileProgramRef(loader, file, vm.redirects)
+              : { kind: "inline", text: file, ir: IR_VERSION },
+            vm.redirects,
+          );
           services.programs.get(ref);
         } catch (error) {
-          if (!(error instanceof ScriptError) || failureClass(error.code) !== null) throw error;
+          if (!(error instanceof ScriptError) ||
+              (error.code !== "program.missing" && failureClass(error.code) !== null)) throw error;
           services.diagnostics.push({
             code: error.code,
             file: error.pos?.file || (indexed ? file : "<inline>"),
