@@ -1,4 +1,4 @@
-import { BOARD_MAX_CELLS, BinaryReader, boardGrid, readBoard, writeBoard, type Board, type BoardGrid, type BoardTileRun } from "@tk-reawakened/core";
+import { BOARD_MAX_CELLS, BinaryReader, boardGrid, readBoard, writeBoard, type Board, type BoardGrid, type BoardShadeLayer, type BoardShadeRecord, type BoardTileRun } from "@tk-reawakened/core";
 import {
   createBinaryDocument,
   firstDifference,
@@ -39,6 +39,22 @@ export interface TileAssignment {
   readonly tile: string;
 }
 
+/**
+ * Give one cell of one layer a tint: the signed RGB (−255…255) that is added to that layer's tile there, as a tile
+ * bitmap cell's tint is. The board stores shading per **cast layer** (`docs/spec/formats/board.md#tile-shading`): a shade
+ * cast onto layer `c` tints layers `1…c`, so the tint of one layer alone is two shade records, `+tint` on the shade cast
+ * onto this layer and `−tint` on the shade cast onto the layer below it. Setting a tint is idempotent: it is the cell's
+ * tint on this layer that becomes `r, g, b`, whatever shading the cell already had, and other layers keep theirs.
+ */
+export interface ShadeAssignment {
+  readonly layer: number;
+  readonly x: number;
+  readonly y: number;
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
 /** What the gesture that made a `set-tiles` command was, for the words an undo menu shows. */
 export type TileGesture = "draw" | "erase" | "flood" | "rectangle" | "stamp" | "move" | "copy";
 
@@ -51,6 +67,8 @@ export interface SetTilesCommand {
   readonly type: "set-tiles";
   readonly gesture: TileGesture;
   readonly cells: readonly TileAssignment[];
+  /** Tints set in the same edit (a tile bitmap stamp places its cells' tints with its tiles). Absent when there are none. */
+  readonly shades?: readonly ShadeAssignment[];
 }
 
 /** Every command a board document accepts. Plain data, so a stack of them can be stored and replayed. */
@@ -183,8 +201,112 @@ function assignTiles(board: Board, assignments: readonly TileAssignment[]): Boar
   return { ...board, lut, tileMatrix, tileRuns: runs };
 }
 
+const SHADE_MIN = -255;
+const SHADE_MAX = 255;
+
+/** One shade layer's cells, three channels each, row by row; `null` when its records cover more cells than the grid (a file the editor will not rewrite). */
+function decodeShade(layer: BoardShadeLayer, cells: number): Int16Array | null {
+  const values = new Int16Array(cells * 3);
+  let at = 0;
+  for (const record of layer.records) {
+    const count = record.runCount > 1 ? record.runCount : 1;
+    if (at + count > cells) return null;
+    for (let run = 0; run < count; run += 1, at += 1) {
+      values[at * 3] = record.r;
+      values[at * 3 + 1] = record.g;
+      values[at * 3 + 2] = record.b;
+    }
+  }
+  return values;
+}
+
+/** Run-length encode shade cells: equal neighbours become one record (the stored count is at most an `i16`). */
+function encodeShade(values: Int16Array, cells: number): BoardShadeRecord[] {
+  const records: BoardShadeRecord[] = [];
+  for (let at = 0; at < cells;) {
+    const r = values[at * 3]!;
+    const g = values[at * 3 + 1]!;
+    const b = values[at * 3 + 2]!;
+    let end = at + 1;
+    while (end < cells && end - at < 32_767 && values[end * 3] === r && values[end * 3 + 1] === g && values[end * 3 + 2] === b) end += 1;
+    records.push({ runCount: end - at > 1 ? end - at : 1, r, g, b });
+    at = end;
+  }
+  return records;
+}
+
+/**
+ * Work out the shade layers after setting `shades`, or why they cannot be set. For each assignment the cell's tint on that
+ * layer alone (every shade cast onto that layer or a higher one, and the all-layer shade) becomes the wanted tint: the
+ * difference is added to the shade cast onto the layer and taken from the shade cast onto the layer below it.
+ */
+function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonly ok: true; readonly layers: readonly BoardShadeLayer[] } | { readonly ok: false; readonly message: string } {
+  if (shades.length === 0) return { ok: true, layers: board.shadeLayers };
+  const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
+  const cells = grid.width * grid.height;
+  const decoded: (Int16Array | null)[] = [];
+  const layers = [...board.shadeLayers];
+  const values = (index: number): Int16Array | null => {
+    if (decoded[index] === undefined) decoded[index] = decodeShade(layers[index]!, cells);
+    return decoded[index]!;
+  };
+  /** The shade layer cast onto `castLayer`, made when the board has none. */
+  const castOnto = (castLayer: number): number => {
+    const found = layers.findIndex((layer) => layer.castLayer === castLayer);
+    if (found !== -1) return found;
+    layers.push({ castLayer, records: encodeShade(new Int16Array(cells * 3), cells) });
+    return layers.length - 1;
+  };
+  const changed = new Set<number>();
+  const final = new Map<number, ShadeAssignment>();
+  for (const shade of shades) {
+    // The shading has no layers of its own: a cell is its place in the grid.
+    if (cellOf(grid, board.sizeL, shade.layer, shade.x, shade.y) !== null) final.set(shade.y * grid.width + shade.x, shade);
+  }
+  const edits: { cell: number; layerNumber: number; delta: readonly [number, number, number] }[] = [];
+  for (const [cell, shade] of final) {
+    const layerNumber = shade.layer + 1;
+    const wanted = [shade.r, shade.g, shade.b] as const;
+    if (!wanted.every((channel) => Number.isInteger(channel) && channel >= SHADE_MIN && channel <= SHADE_MAX)) {
+      return { ok: false, message: `A tint is three whole numbers from ${SHADE_MIN} to ${SHADE_MAX}.` };
+    }
+    const effective = [0, 0, 0];
+    for (let index = 0; index < layers.length; index += 1) {
+      const castLayer = layers[index]!.castLayer;
+      if (castLayer !== 0 && castLayer < layerNumber) continue;
+      const decodedLayer = values(index);
+      if (decodedLayer === null) return { ok: false, message: "This board's shading covers more cells than its grid, which the editor does not rewrite." };
+      for (let channel = 0; channel < 3; channel += 1) effective[channel]! += decodedLayer[cell * 3 + channel]!;
+    }
+    edits.push({ cell, layerNumber, delta: [wanted[0] - effective[0]!, wanted[1] - effective[1]!, wanted[2] - effective[2]!] });
+  }
+  for (const edit of edits) {
+    if (edit.delta.every((channel) => channel === 0)) continue;
+    // A shade cast onto layer `n` tints layers 1…n, so the tint of layer `n` alone is +delta there and −delta cast onto `n − 1`.
+    const casts: readonly [number, number][] = edit.layerNumber === 1 ? [[1, 1]] : [[edit.layerNumber, 1], [edit.layerNumber - 1, -1]];
+    for (const [castLayer, sign] of casts) {
+      const index = castOnto(castLayer);
+      const decodedLayer = values(index);
+      if (decodedLayer === null) return { ok: false, message: "This board's shading covers more cells than its grid, which the editor does not rewrite." };
+      for (let channel = 0; channel < 3; channel += 1) {
+        const next = decodedLayer[edit.cell * 3 + channel]! + sign * edit.delta[channel]!;
+        if (next < SHADE_MIN || next > SHADE_MAX) return { ok: false, message: `The shading at column ${(edit.cell % grid.width) + 1}, row ${Math.floor(edit.cell / grid.width) + 1} cannot hold that tint: a shade is at most ${SHADE_MAX} either way.` };
+        decodedLayer[edit.cell * 3 + channel] = next;
+      }
+      changed.add(index);
+    }
+  }
+  if (changed.size === 0) return { ok: true, layers: board.shadeLayers };
+  for (const index of changed) layers[index] = { castLayer: layers[index]!.castLayer, records: encodeShade(decoded[index]!, cells) };
+  return { ok: true, layers };
+}
+
 function applyCommand(board: Board, command: BoardCommand): Board {
-  return assignTiles(board, command.type === "set-tile" ? [command] : command.cells);
+  if (command.type === "set-tile") return assignTiles(board, [command]);
+  const tiled = assignTiles(board, command.cells);
+  if (command.shades === undefined || command.shades.length === 0) return tiled;
+  const planned = planShades(tiled, command.shades);
+  return planned.ok && planned.layers !== tiled.shadeLayers ? { ...tiled, shadeLayers: planned.layers } : tiled;
 }
 
 function readOnlyReason(model: Board, bytes: Uint8Array): ReadOnlyReason | null {
@@ -217,6 +339,10 @@ function refuse(next: Board, command: BoardCommand, previous: Board): Rejection 
     }
     if (typeof assignment.tile !== "string") return { reason: "invalid", message: "A tile is named by a text reference." };
   }
+  if (command.type === "set-tiles" && command.shades !== undefined) {
+    const planned = planShades(previous, command.shades);
+    if (!planned.ok) return { reason: "invalid", message: planned.message };
+  }
   if (next === previous) {
     return { reason: "invalid", message: assignments.length === 1 ? "That cell already shows that tile." : "Those cells already show those tiles." };
   }
@@ -234,6 +360,12 @@ function refuse(next: Board, command: BoardCommand, previous: Board): Rejection 
     }
   }
   return null;
+}
+
+function isShade(value: unknown): value is ShadeAssignment {
+  return typeof value === "object" && value !== null
+    && "layer" in value && typeof value.layer === "number" && "x" in value && typeof value.x === "number" && "y" in value && typeof value.y === "number"
+    && "r" in value && typeof value.r === "number" && "g" in value && typeof value.g === "number" && "b" in value && typeof value.b === "number";
 }
 
 function isAssignment(value: unknown): value is TileAssignment {
@@ -264,7 +396,8 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
     if (typeof value !== "object" || value === null || !("type" in value)) return false;
     if (value.type === "set-tile") return isAssignment(value);
     return value.type === "set-tiles" && "gesture" in value && typeof value.gesture === "string" && GESTURES.includes(value.gesture)
-      && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment);
+      && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment)
+      && (!("shades" in value) || value.shades === undefined || (Array.isArray(value.shades) && value.shades.length <= BOARD_MAX_CELLS && value.shades.every(isShade)));
   },
   apply: applyCommand,
   label: (command) => {

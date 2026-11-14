@@ -18,6 +18,7 @@ export {
   type BoardOpenResult,
   type SetTileCommand,
   type SetTilesCommand,
+  type ShadeAssignment,
   type TileAssignment,
   type TileGesture,
 } from "./board-document.ts";
@@ -80,6 +81,7 @@ export {
   rectCells,
   rectContains,
   rectangleCells,
+  rectangleRegion,
   stampCells,
   stampFromBitmap,
   tileSourceOf,

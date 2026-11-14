@@ -125,10 +125,14 @@ export function BoardCanvas(props: BoardCanvasProps) {
       class="tkr-board-canvas"
       role="img"
       aria-label="The board as the engine draws it"
+      // Focusable by pointer, not a tab stop: the cell grid is the keyboard way in. Clicking the canvas puts the focus in
+      // the board, so tool shortcuts, Undo, Redo and Escape reach it instead of the page body.
+      tabIndex={-1}
       width={state.viewport.width}
       height={state.viewport.height}
       onPointerDown={(event) => {
         if (event.button === 1) event.preventDefault();
+        canvas.current?.focus({ preventScroll: true });
         canvas.current?.setPointerCapture?.(event.pointerId);
         editor.pointerDown(position(event), modifiers(event), event.button);
       }}

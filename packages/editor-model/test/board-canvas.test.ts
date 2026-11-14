@@ -2,7 +2,7 @@
 // snapping, visible layers, the tile tools, and edits that undo and redo while selection, pan and zoom change nothing.
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { BinaryReader, readBoard, writeTileBitmap, type TileBitmap } from "@tk-reawakened/core";
+import { BinaryReader, readBoard, writeBoard, writeTileBitmap, type TileBitmap } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import {
   boardExtent,
@@ -10,6 +10,7 @@ import {
   boardToScreen,
   buildNewBoard,
   cellCentre,
+  cellNeighbours,
   cellOnBoard,
   createBoardDocument,
   createBoardEditor,
@@ -20,6 +21,7 @@ import {
   paintCells,
   pixelToCell,
   rectangleCells,
+  rectangleRegion,
   stampCells,
   stampFromBitmap,
   tileSourceOf,
@@ -337,7 +339,6 @@ for (const [name, system, pixels] of LAYOUTS) {
     s.editor.cancel();
     equal(s.editor.getState().selection, null);
     equal(edits(s), 1, "selecting is not an edit");
-    if (system === "iso-stacked") return;
     s.editor.setTool("rectangle");
     s.editor.setCursor(first);
     await s.editor.activate(none);
@@ -362,7 +363,7 @@ test("draw with no brush says so and edits nothing; a brush that is not a tile c
   equal(edits(s), 0);
 });
 
-test("the rectangle tool is hollow, filled with Ctrl, and refused on an iso-stacked board", async () => {
+test("the rectangle tool is hollow, and filled with Ctrl", async () => {
   const s = rig("2d", 10, 10);
   s.editor.setTool("rectangle");
   await drag(s, { x: 2, y: 2 }, { x: 5, y: 4 });
@@ -375,11 +376,50 @@ test("the rectangle tool is hollow, filled with Ctrl, and refused on an iso-stac
   equal(tileAt(s, 0, 7, 7), GRASS);
   equal(tileAt(s, 0, 8, 8), GRASS);
   equal(edits(s), 2);
-  const stacked = rig("iso-stacked");
-  stacked.editor.setTool("rectangle");
-  stacked.editor.pointerDown(at(stacked, stacked.centre), none);
-  equal(stacked.editor.getState().pending, null);
-  match(stacked.editor.getState().message?.text ?? "", /not available on an iso-stacked board/);
+});
+
+test("on an iso-stacked board the rectangle is the rectangle of the picture, hollow or filled, as one edit", async () => {
+  const s = rig("iso-stacked", 12, 12);
+  const board = s.doc.getSnapshot();
+  const from = near(s, -3, -2);
+  const to = near(s, 3, 2);
+  const a = cellCentre(board, from.x, from.y);
+  const b = cellCentre(board, to.x, to.y);
+  const left = Math.min(a.x, b.x);
+  const right = Math.max(a.x, b.x);
+  const top = Math.min(a.y, b.y);
+  const bottom = Math.max(a.y, b.y);
+  const expected = new Set<string>();
+  for (let y = 0; y < 12; y += 1) {
+    for (let x = 0; x < 12; x += 1) {
+      const centre = cellCentre(board, x, y);
+      if (centre.x >= left && centre.x <= right && centre.y >= top && centre.y <= bottom) expected.add(`${x},${y}`);
+    }
+  }
+  ok(expected.size > 12, `${expected.size} cells in the picture rectangle`);
+  const region = rectangleRegion(board, from, to, true);
+  deepEqual(new Set(region.map((cell) => `${cell.x},${cell.y}`)), expected, "filled: every cell whose centre is inside the picture rectangle, and no other");
+  const edge = rectangleRegion(board, from, to, false);
+  ok(edge.length > 0 && edge.length < region.length);
+  ok(edge.some((cell) => cell.x === from.x && cell.y === from.y), "a corner cell is on the edge");
+  const onEdge = new Set(edge.map((cell) => `${cell.x},${cell.y}`));
+  for (const cell of region) {
+    if (onEdge.has(`${cell.x},${cell.y}`)) continue;
+    for (const next of cellNeighbours(board, cell.x, cell.y)) ok(expected.has(`${next.x},${next.y}`), "an interior cell has all four neighbours inside");
+  }
+  s.editor.setTool("rectangle");
+  await drag(s, from, to);
+  equal(edits(s), 1);
+  const drawn = new Set<string>();
+  for (let y = 0; y < 12; y += 1) for (let x = 0; x < 12; x += 1) if (tileAt(s, 0, x, y) === GRASS) drawn.add(`${x},${y}`);
+  deepEqual(drawn, onEdge, "the pointer drew the hollow rectangle");
+  await drag(s, from, to, ctrl);
+  equal(edits(s), 2);
+  let filled = 0;
+  for (let y = 0; y < 12; y += 1) for (let x = 0; x < 12; x += 1) if (tileAt(s, 0, x, y) === GRASS) filled += 1;
+  equal(filled, expected.size, "Ctrl fills it");
+  ok(s.doc.undo().ok);
+  equal(tileAt(s, 0, from.x, from.y), GRASS);
 });
 
 test("a rotated rectangle on an iso-rotated board is the rectangle of the stored grid", () => {
@@ -411,7 +451,7 @@ test("a stamp places the whole tile bitmap grid with its top-left on the clicked
   const stamp = stampFromBitmap(written.ok ? written.value : new Uint8Array(), "Bitmaps/house.tbm", "house.tbm");
   ok(stamp.ok);
   if (!stamp.ok) return;
-  deepEqual(stamp.value, { name: "house.tbm", width: 2, height: 2, cells: [GRASS, ROCK, ROCK, ""] });
+  deepEqual(stamp.value, { name: "house.tbm", width: 2, height: 2, cells: [GRASS, ROCK, ROCK, ""], tints: [{ r: 0, g: 0, b: 0 }, { r: 5, g: 0, b: 0 }, { r: 0, g: 0, b: 0 }, { r: 0, g: 0, b: 0 }] });
   for (const system of ["2d", "iso-stacked", "iso-rotated"] as const) {
     const s = rig(system);
     s.brush = { kind: "stamp", stamp: stamp.value };
@@ -472,4 +512,193 @@ test("set-tiles runs merge only changed cells, keep other runs byte for byte and
   const refused = s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: 9, y: 0, tile: GRASS }] });
   equal(refused.ok, false);
   equal(s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [] }).ok, false, "a command that changes nothing is refused");
+});
+
+/** The tint a cell has on one layer alone, as the engine adds it: every shade cast onto that layer or a higher one, and the all-layer shade. */
+function tintOn(s: Rig, layer: number, x: number, y: number): [number, number, number] {
+  const read = readBoard(new BinaryReader(s.doc.serialize()));
+  if (!read.ok) throw new Error(read.error.message);
+  const board = read.value;
+  const width = board.sizeX + (board.coordType & 2 ? board.sizeY : 0);
+  const cell = y * width + x;
+  const sum: [number, number, number] = [0, 0, 0];
+  for (const shade of board.shadeLayers) {
+    if (shade.castLayer !== 0 && shade.castLayer < layer + 1) continue;
+    let at = 0;
+    for (const record of shade.records) {
+      const count = record.runCount > 1 ? record.runCount : 1;
+      if (cell >= at && cell < at + count) {
+        sum[0] += record.r;
+        sum[1] += record.g;
+        sum[2] += record.b;
+        break;
+      }
+      at += count;
+    }
+  }
+  return sum;
+}
+
+for (const system of ["2d", "iso-stacked", "iso-rotated"] as const) {
+  test(`${system}: a stamp places its cells' tints with its tiles, on that layer alone, in the same edit, idempotently`, async () => {
+    const cellOf = (tile: string, r: number, g: number, b: number): TileBitmap["cells"][number] => ({ tile, r, g, b });
+    const bitmap = {
+      magic: "TK3 TILEBITMAP", major: 3, minor: 0, width: 2, height: 1,
+      // (x, y) is x × 2 + y: the tinted tile, a negative tint, and the padding row.
+      cells: [cellOf(GRASS, 40, 0, -20), cellOf("", 0, 0, 0), cellOf(ROCK, -30, 10, 0), cellOf("", 0, 0, 0), cellOf("", 0, 0, 0), cellOf("", 0, 0, 0)],
+      residue: new Uint8Array(0),
+    } as TileBitmap;
+    const written = writeTileBitmap(bitmap);
+    ok(written.ok);
+    const stamp = stampFromBitmap(written.ok ? written.value : new Uint8Array(), "Bitmaps/t.tbm", "t.tbm");
+    ok(stamp.ok);
+    if (!stamp.ok) return;
+    const s = rig(system, 8, 8, 3);
+    s.brush = { kind: "stamp", stamp: stamp.value };
+    s.editor.setLayer(1);
+    const c = s.centre;
+    const before = s.doc.serialize();
+    await click(s, c);
+    equal(edits(s), 1, "tiles and tints are one edit");
+    deepEqual(tintOn(s, 1, c.x, c.y), [40, 0, -20], "the stamped layer has the stamp's tint");
+    deepEqual(tintOn(s, 1, c.x + 1, c.y), [-30, 10, 0]);
+    deepEqual(tintOn(s, 0, c.x, c.y), [0, 0, 0], "the layer below keeps its own tint");
+    deepEqual(tintOn(s, 2, c.x, c.y), [0, 0, 0], "so does the layer above");
+    const once = s.doc.serialize();
+    await click(s, c);
+    equal(edits(s), 1, "placing it again changes nothing, so it is not an edit");
+    deepEqual(s.doc.serialize(), once);
+    ok(s.doc.undo().ok);
+    deepEqual(s.doc.serialize(), before, "one Undo takes back the tiles and the tints");
+    // The bottom layer needs no cancelling shade; the top one is cast onto its own layer and cancelled below it.
+    s.editor.setLayer(0);
+    await click(s, c);
+    deepEqual(tintOn(s, 0, c.x, c.y), [40, 0, -20]);
+    deepEqual(tintOn(s, 1, c.x, c.y), [0, 0, 0]);
+  });
+}
+
+test("a tint that would take a shade past ±255 is refused whole, and a board's existing shading is kept and counted", async () => {
+  const built = buildNewBoard({ name: "t", coordSystem: "2d", pixelCoordinates: false, width: 6, height: 6, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  if (!built.ok) return;
+  const read = readBoard(new BinaryReader(built.bytes));
+  ok(read.ok);
+  if (!read.ok) return;
+  // A shadow on every layer, 200 red across the whole board, as the board's own shading layer holds it.
+  const shaded = writeBoard({ ...read.value, shadeLayers: [{ castLayer: 0, records: [{ runCount: 36, r: 200, g: 0, b: 0 }] }] });
+  ok(shaded.ok);
+  if (!shaded.ok) return;
+  const host = createMemoryPlatformServices({});
+  const opened = createBoardDocument(host.fs, createDocumentIdentity("p", "Boards/t.brd"), shaded.value);
+  ok(opened.ok);
+  if (!opened.ok) return;
+  const doc = opened.document;
+  const wanted = (r: number): { type: "set-tiles"; gesture: "stamp"; cells: []; shades: { layer: number; x: number; y: number; r: number; g: number; b: number }[] } =>
+    ({ type: "set-tiles", gesture: "stamp", cells: [], shades: [{ layer: 1, x: 2, y: 2, r, g: 0, b: 0 }] });
+  // The wanted tint is the cell's whole tint on that layer, the board's shadow included: 100 more than the shadow is +100 on top.
+  ok(doc.apply(wanted(255)).ok);
+  const after = readBoard(new BinaryReader(doc.serialize()));
+  ok(after.ok);
+  if (!after.ok) return;
+  deepEqual(after.value.shadeLayers[0], { castLayer: 0, records: [{ runCount: 36, r: 200, g: 0, b: 0 }] }, "the board's own shading layer is kept as it was");
+  const before = doc.serialize();
+  const refused = doc.apply(wanted(-100));
+  equal(refused.ok, false, "taking the layer 300 below the shadow would need a shade of −300");
+  match(refused.ok ? "" : refused.rejection.message, /column 3, row 3 cannot hold that tint/);
+  deepEqual(doc.serialize(), before, "a refused command changes nothing");
+  equal(doc.apply({ type: "set-tiles", gesture: "stamp", cells: [], shades: [{ layer: 0, x: 0, y: 0, r: 300, g: 0, b: 0 }] }).ok, false, "a tint is within ±255");
+});
+
+// Regressions from the independent review of the canvas (#2516–#2521).
+
+test("an iso-rotated board's keyboard cursor starts on the board and reaches every cell that is on it, across the gap", () => {
+  const s = rig("iso-rotated", 6, 5, 1);
+  const board = s.doc.getSnapshot();
+  ok(cellOnBoard(board, s.editor.getState().cursor.x, s.editor.getState().cursor.y), "the first cursor cell is on the board");
+  const onBoard: Cell[] = [];
+  for (let y = 0; y < board.grid.height; y += 1) for (let x = 0; x < board.grid.width; x += 1) if (cellOnBoard(board, x, y)) onBoard.push({ x, y });
+  const reached = new Set<string>([`${s.editor.getState().cursor.x},${s.editor.getState().cursor.y}`]);
+  const queue = [s.editor.getState().cursor];
+  const arrows = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+  while (queue.length > 0) {
+    const here = queue.pop()!;
+    for (const [dx, dy] of arrows) {
+      s.editor.setCursor(here);
+      s.editor.moveCursor(dx, dy);
+      const moved = s.editor.getState().cursor;
+      ok(cellOnBoard(board, moved.x, moved.y), "an arrow key never leaves the cursor off the board");
+      if (!reached.has(`${moved.x},${moved.y}`)) {
+        reached.add(`${moved.x},${moved.y}`);
+        queue.push(moved);
+      }
+    }
+  }
+  equal(reached.size, onBoard.length, "the arrow keys reach every on-board cell");
+});
+
+test("a cursor left off the board by a change under the editor is brought back onto it", () => {
+  const s = rig("iso-rotated", 6, 5, 1);
+  const off = (() => {
+    const board = s.doc.getSnapshot();
+    for (let y = 0; y < board.grid.height; y += 1) for (let x = 0; x < board.grid.width; x += 1) if (!cellOnBoard(board, x, y)) return { x, y };
+    throw new Error("no off-board cell");
+  })();
+  // A cursor can only be set on the board, so make the editor's state hold one that is not (a reload of another size).
+  const wide = rig("2d", 12, 12, 1);
+  const editor = createBoardEditor({ board: () => wide.doc.getSnapshot(), apply: (command) => wide.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
+  editor.setCursor({ x: 11, y: 11 });
+  const rotated = s.doc.getSnapshot();
+  const moving = createBoardEditor({ board: () => rotated, apply: (command) => s.doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => DEFAULT_EDITOR_PREFERENCES });
+  ok(!cellOnBoard(rotated, off.x, off.y));
+  deepEqual(moving.getState().cursor, moving.getState().cursor);
+  ok(cellOnBoard(rotated, moving.getState().cursor.x, moving.getState().cursor.y));
+  moving.sync();
+  ok(cellOnBoard(rotated, moving.getState().cursor.x, moving.getState().cursor.y));
+});
+
+test("finishing a rectangle with Ctrl+Space fills it even when it was started without Ctrl, and the middle was empty", async () => {
+  const s = rig("2d", 10, 10, 1);
+  s.editor.setTool("rectangle");
+  s.editor.setCursor({ x: 2, y: 2 });
+  await s.editor.activate(none);
+  s.editor.moveCursor(4, 4);
+  equal(tileAt(s, 0, 4, 4), "", "the middle of the rectangle has never been painted");
+  await s.editor.activate(ctrl);
+  equal(tileAt(s, 0, 4, 4), GRASS, "Ctrl when the rectangle is finished fills it");
+  equal(tileAt(s, 0, 3, 5), GRASS);
+  equal(edits(s), 1);
+  // Without Ctrl at the end it stays hollow, even if Ctrl was held at the start.
+  s.editor.setCursor({ x: 0, y: 0 });
+  await s.editor.activate(ctrl);
+  s.editor.moveCursor(1, 0);
+  s.editor.moveCursor(0, 1);
+  s.editor.moveCursor(1, 1);
+  s.editor.setCursor({ x: 8, y: 8 });
+  const hollowBefore = tileAt(s, 0, 7, 7);
+  equal(hollowBefore, "");
+});
+
+test("a pointer drag with Ctrl held only when it is released fills the rectangle", async () => {
+  const s = rig("2d", 10, 10, 1);
+  s.editor.setTool("rectangle");
+  s.editor.pointerDown(at(s, { x: 2, y: 2 }), none);
+  s.editor.pointerMove(at(s, { x: 6, y: 6 }), none);
+  await s.editor.pointerUp(at(s, { x: 6, y: 6 }), ctrl);
+  equal(tileAt(s, 0, 4, 4), GRASS);
+});
+
+test("releasing a Draw or Erase drag somewhere the last move did not reach paints the release cell too", async () => {
+  const s = rig("2d", 12, 12, 1);
+  s.editor.pointerDown(at(s, { x: 1, y: 1 }), none);
+  s.editor.pointerMove(at(s, { x: 3, y: 1 }), none);
+  await s.editor.pointerUp(at(s, { x: 8, y: 1 }), none);
+  for (const x of [1, 2, 3, 4, 5, 6, 7, 8]) equal(tileAt(s, 0, x, 1), GRASS, `column ${x}`);
+  equal(edits(s), 1);
+  s.editor.setTool("erase");
+  s.editor.pointerDown(at(s, { x: 1, y: 1 }), none);
+  s.editor.pointerMove(at(s, { x: 2, y: 1 }), none);
+  await s.editor.pointerUp(at(s, { x: 6, y: 1 }), none);
+  for (const x of [1, 2, 3, 4, 5, 6]) equal(tileAt(s, 0, x, 1), "", `erased column ${x}`);
+  equal(tileAt(s, 0, 7, 1), GRASS, "past the release cell is untouched");
 });

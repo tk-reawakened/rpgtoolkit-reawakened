@@ -8,7 +8,6 @@ import {
   cellInGrid,
   cellOnBoard,
   clampViewport,
-  layoutOf,
   pixelToCell,
   revealCell,
   screenToBoard,
@@ -26,6 +25,7 @@ import {
   paintCells,
   rectContains,
   rectangleCells,
+  rectangleRegion,
   stampCells,
   type BoardTool,
   type CellRect,
@@ -188,6 +188,12 @@ export interface BoardEditor {
 
 const key = (cell: Cell): string => `${cell.x},${cell.y}`;
 
+/** The first cell of the board that is on its picture, row by row; the corner cell when there is none (an empty board). */
+function firstOnBoard(board: ToolBoard): Cell {
+  for (let y = 0; y < board.grid.height; y += 1) for (let x = 0; x < board.grid.width; x += 1) if (cellOnBoard(board, x, y)) return { x, y };
+  return { x: 0, y: 0 };
+}
+
 /** Make the editor of one board canvas. */
 export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   const listeners = new Set<() => void>();
@@ -202,7 +208,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     grid: true,
     viewport: clampViewport(options.board(), { x: 0, y: 0, zoomIndex: DEFAULT_ZOOM_INDEX, width: view.width, height: view.height }),
     scrollAxis: "vertical",
-    cursor: { x: 0, y: 0 },
+    cursor: firstOnBoard(options.board()),
     hover: null,
     selection: null,
     pending: null,
@@ -224,14 +230,14 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       publish({ pending: null, message: { kind: "error", text: outcome.message } });
       return false;
     }
-    if (outcome.cells.length === 0) {
+    if (outcome.cells.length === 0 && (outcome.shades === undefined || outcome.shades.length === 0)) {
       publish({ pending: null, message: { kind: "info", text: "Nothing changed: those cells already show that." } });
       return false;
     }
     publish({ pending: null, busy: true, message: null });
     let result: ApplyResult;
     try {
-      result = await options.apply({ type: "set-tiles", gesture, cells: outcome.cells });
+      result = await options.apply({ type: "set-tiles", gesture, cells: outcome.cells, ...(outcome.shades === undefined || outcome.shades.length === 0 ? {} : { shades: outcome.shades }) });
     } catch (thrown) {
       result = { ok: false, rejection: { reason: "invalid", message: thrown instanceof Error ? thrown.message : String(thrown) } };
     }
@@ -286,7 +292,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     }
   };
 
-  const finishCorner = async (pending: Extract<PendingGesture, { kind: "corner" }>, current: Cell): Promise<void> => {
+  const finishCorner = async (pending: Extract<PendingGesture, { kind: "corner" }>, current: Cell, modifiers: Modifiers): Promise<void> => {
     if (state.tool === "select") {
       publish({ pending: null, message: null, selection: { layer: state.layer, rect: cellRect(pending.anchor, current) } });
       return;
@@ -296,14 +302,11 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       publish({ pending: null });
       return;
     }
-    await commit("rectangle", rectangleCells(options.board(), state.layer, pending.anchor, current, pending.filled, tile));
+    // Ctrl held when the rectangle is finished fills it (the modifier of the finishing click or Space).
+    await commit("rectangle", rectangleCells(options.board(), state.layer, pending.anchor, current, modifiers.ctrl === true, tile));
   };
 
   const startCorner = (cell: Cell, modifiers: Modifiers, keyboard: boolean): void => {
-    if (state.tool === "rectangle" && layoutOf(options.board()) === "iso-stacked") {
-      error("The rectangle tool is not available on an iso-stacked board; draw or flood fill instead.");
-      return;
-    }
     publish({ pending: { kind: "corner", anchor: cell, current: cell, filled: modifiers.ctrl === true, keyboard }, message: null });
   };
 
@@ -327,7 +330,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       const board = options.board();
       const layer = Math.max(0, Math.min(state.layer, board.layers - 1));
       const hidden = state.hidden.filter((index) => index < board.layers && index !== layer);
-      const cursor = cellInGrid(board, state.cursor.x, state.cursor.y) ? state.cursor : { x: 0, y: 0 };
+      const cursor = cellOnBoard(board, state.cursor.x, state.cursor.y) ? state.cursor : firstOnBoard(board);
       const selection = state.selection !== null && state.selection.layer < board.layers
         && cellInGrid(board, state.selection.rect.x0, state.selection.rect.y0) && cellInGrid(board, state.selection.rect.x1, state.selection.rect.y1)
         ? state.selection
@@ -474,7 +477,9 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         const tool = state.tool;
         const tile = tool === "erase" ? "" : needTile();
         if (tile === null) return void publish({ pending: null });
-        await commit(tool === "erase" ? "erase" : "draw", { ok: true, cells: paintCells(board, layer, pending.cells, tile) });
+        // The release position counts even when the pointer did not move after its last move event.
+        const crossed = cellsBetween(board, lastPixel ?? pixel, pixel);
+        await commit(tool === "erase" ? "erase" : "draw", { ok: true, cells: paintCells(board, layer, [...pending.cells, ...crossed], tile) });
       } else if (pending.kind === "stamp") {
         const brush = options.brush();
         if (brush === null || brush.kind !== "stamp") return void publish({ pending: null });
@@ -483,7 +488,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         publish({ pending: null });
         await place(state.tool, at ?? pending.cell);
       } else if (pending.kind === "corner") {
-        await finishCorner(pending, at ?? pending.current);
+        await finishCorner(pending, at ?? pending.current, modifiers);
       } else {
         const to = at ?? pending.current;
         publish({ pending: null });
@@ -496,7 +501,9 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     },
     moveCursor(dx, dy) {
       const board = options.board();
-      const to = { x: state.cursor.x + dx, y: state.cursor.y + dy };
+      // Over a gap (cells of the stored grid that have no place on the picture) the cursor goes on to the next cell that has one.
+      let to = { x: state.cursor.x + dx, y: state.cursor.y + dy };
+      while ((dx !== 0 || dy !== 0) && cellInGrid(board, to.x, to.y) && !cellOnBoard(board, to.x, to.y)) to = { x: to.x + dx, y: to.y + dy };
       if (!cellOnBoard(board, to.x, to.y)) return;
       const pending = state.pending;
       publish({
@@ -515,7 +522,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       const pending = state.pending;
       const tool = state.tool;
       if (tool === "rectangle" || tool === "select") {
-        if (pending !== null && pending.kind === "corner" && pending.keyboard) await finishCorner(pending, cursor);
+        if (pending !== null && pending.kind === "corner" && pending.keyboard) await finishCorner(pending, cursor, modifiers);
         else startCorner(cursor, modifiers, true);
         return;
       }
@@ -577,12 +584,10 @@ export function pendingCells(board: ToolBoard, state: BoardEditorState, stamp: S
       return onBoard(cells);
     }
     case "corner": {
+      if (state.tool === "rectangle") return rectangleRegion(board, pending.anchor, pending.current, pending.filled);
       const rect = cellRect(pending.anchor, pending.current);
       const cells: Cell[] = [];
-      const hollow = state.tool === "rectangle" && !pending.filled;
-      for (let y = rect.y0; y <= rect.y1; y += 1) {
-        for (let x = rect.x0; x <= rect.x1; x += 1) if (!hollow || x === rect.x0 || x === rect.x1 || y === rect.y0 || y === rect.y1) cells.push({ x, y });
-      }
+      for (let y = rect.y0; y <= rect.y1; y += 1) for (let x = rect.x0; x <= rect.x1; x += 1) cells.push({ x, y });
       return onBoard(cells);
     }
     case "move": {

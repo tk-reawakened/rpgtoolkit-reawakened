@@ -123,7 +123,7 @@ test("a template contributes its layer titles, background and ambience but none 
       enterPrg: "enter.prg",
     },
   };
-  const built = buildNewBoard({ ...base, layers: 3 }, template);
+  const built = buildNewBoard({ ...base, layers: 3, backgroundImage: "sky.png" }, template);
   ok(built.ok);
   if (!built.ok) return;
   const read = readBoard(new BinaryReader(built.bytes));
@@ -137,6 +137,17 @@ test("a template contributes its layer titles, background and ambience but none 
   equal(read.value.properties.enterPrg, "", "programs are not copied");
   equal(read.value.vectors.length, 0);
   ok(read.value.tileMatrix.every((index) => index === 0));
+  // The dialog offers the template's background and the author may clear it: empty is none, not "inherit".
+  const cleared = buildNewBoard({ ...base, layers: 3, backgroundImage: "" }, template);
+  ok(cleared.ok);
+  if (cleared.ok) {
+    const reread = readBoard(new BinaryReader(cleared.bytes));
+    ok(reread.ok);
+    if (reread.ok) {
+      equal(reread.value.properties.backgroundImage, "", "a cleared background stays cleared");
+      equal(reread.value.properties.backgroundMusic, "theme.mid", "the rest of the template's background is still copied");
+    }
+  }
   const own = buildNewBoard({ ...base, backgroundImage: "mine.png" }, template);
   ok(own.ok);
   if (own.ok) {

@@ -265,11 +265,21 @@ test("a typed letter in a text field is text, not a tool shortcut", async () => 
   equal(tool(s, "draw").getAttribute("aria-pressed"), "true");
 });
 
-test("the rectangle tool is unavailable on an iso-stacked board and its shortcut does nothing there", async () => {
-  const s = await setup("iso-stacked");
-  equal(tool(s, "rectangle").disabled, true);
-  const ordinary = await setup("2d");
-  equal(tool(ordinary, "rectangle").disabled, false);
+test("the rectangle tool is available on every layout, including iso-stacked, and draws hollow and filled with the pointer", async () => {
+  for (const system of ["2d", "iso-stacked", "iso-rotated"] as const) {
+    const s = await setup(system);
+    equal(tool(s, "rectangle").disabled, false, `${system}: the Rectangle tool is offered`);
+    await brush(s, GRASS);
+    await act(() => tool(s, "rectangle").click());
+    await gesture(s, near(s, -2, -1), near(s, 2, 1));
+    equal(s.host.editedEvents.length, 1, `${system}: one rectangle is one edit`);
+    const hollow = s.el.querySelectorAll(`.tkr-board-cell[aria-label$=": ${GRASS}"]`).length;
+    ok(hollow >= 6, `${system}: ${hollow} cells on the edge`);
+    await gesture(s, near(s, -2, -1), near(s, 2, 1), { ctrl: true });
+    const filled = s.el.querySelectorAll(`.tkr-board-cell[aria-label$=": ${GRASS}"]`).length;
+    ok(filled > hollow, `${system}: Ctrl fills it (${filled} > ${hollow})`);
+    equal(s.host.editedEvents.length, 2);
+  }
 });
 
 test("Draw with no brush explains what to do and edits nothing", async () => {
@@ -393,4 +403,32 @@ test("pointing at a place off an iso-rotated board's picture is explained and ed
   await act(async () => { canvas(s).dispatchEvent(pointer("pointerup", { x: 2, y: 2 })); await Promise.resolve(); });
   match(s.el.querySelector(".tkr-board-message")?.textContent ?? "", /not on the board/);
   equal(s.doc.getSnapshot().dirty, false);
+});
+
+test("clicking the canvas puts the focus in the board, so Escape, Undo and the tool keys reach it instead of the page", async () => {
+  const s = await setup("2d");
+  await brush(s, GRASS);
+  await click(s, s.centre);
+  equal(document.activeElement, canvas(s), "the canvas holds the focus after a click on it");
+  equal(canvas(s).getAttribute("tabindex"), "-1", "it is focusable by the pointer without becoming a tab stop");
+  await key(s, document.activeElement!, { key: "z", ctrlKey: true });
+  equal(tileAt(s, 0, s.centre), "", "Ctrl+Z from the canvas undoes");
+  await key(s, document.activeElement!, { key: "e" });
+  equal(tool(s, "erase").getAttribute("aria-pressed"), "true", "a tool key from the canvas picks the tool");
+  await act(() => tool(s, "select").click());
+  await gesture(s, near(s, -1, -1), near(s, 1, 1));
+  ok(s.el.querySelector(".tkr-board-selection")?.textContent?.includes("columns"));
+  await key(s, document.activeElement!, { key: "Escape" });
+  ok(s.el.querySelector(".tkr-board-selection")?.textContent?.includes("Nothing selected"), "Escape from the canvas clears the selection");
+});
+
+test("flood preferences are read when the gesture happens: a change after the view was drawn is the one used", async () => {
+  const s = await setup("2d");
+  await brush(s, ROCK);
+  await act(() => tool(s, "flood").click());
+  // Changed with no render in between: the view must read the source, not what it last drew with.
+  s.prefs = { revertToDrawAfterFlood: false, recursiveFlood: true };
+  await click(s, s.centre);
+  equal(tool(s, "flood").getAttribute("aria-pressed"), "true", "the tool stayed, as the new preference says");
+  equal(tileAt(s, 1, s.centre), ROCK, "and the fill went through the other layer");
 });

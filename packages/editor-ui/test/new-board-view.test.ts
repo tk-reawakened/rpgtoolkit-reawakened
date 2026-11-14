@@ -19,25 +19,48 @@ before(async () => {
 
 after(() => GlobalRegistrator.unregister());
 
+interface Deferred<T> { readonly promise: Promise<T>; readonly resolve: (value: T) => void }
+
+/** A promise settled from outside, for an answer a test releases when it chooses. */
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 interface Rig {
   readonly el: HTMLElement;
   readonly created: NewBoardSettings[];
   cancelled: number;
   answer: { ok: true } | { ok: false; message: string };
+  /** When set, `describeTemplate` and `onCreate` wait for these instead of answering at once. */
+  hold: boolean;
+  describing: Map<string, () => void>;
+  holdCreate: Deferred<{ ok: true } | { ok: false; message: string }> | null;
 }
+
+const TEMPLATE: Partial<NewBoardSettings> = { coordSystem: "iso-rotated", pixelCoordinates: true, width: 7, height: 5, layers: 4, backgroundImage: "sky.png" };
+const OTHER: Partial<NewBoardSettings> = { coordSystem: "2d", pixelCoordinates: false, width: 3, height: 3, layers: 1, backgroundImage: "" };
 
 async function show(templates: readonly { path: string; name: string }[] = []): Promise<Rig> {
   const el = document.createElement("div");
   document.body.append(el);
-  const rig: Rig = { el, created: [], cancelled: 0, answer: { ok: true } };
+  const rig: Rig = { el, created: [], cancelled: 0, answer: { ok: true }, hold: false, describing: new Map(), holdCreate: null };
   await act(() => {
     mountNewBoard(el, {
       initial: { ...DEFAULT_NEW_BOARD, coordSystem: "iso-stacked", width: 12, height: 9, layers: 3 },
       templates,
-      describeTemplate: async (path) => (path === "Boards/bad.brd" ? "Could not read the template Boards/bad.brd: gone" : { coordSystem: "iso-rotated", pixelCoordinates: true, width: 7, height: 5, layers: 4, backgroundImage: "sky.png" }),
-      onCreate: async (settings) => {
+      describeTemplate: (path) => {
+        const answer = path === "Boards/bad.brd" ? "Could not read the template Boards/bad.brd: gone" : TEMPLATE;
+        if (!rig.hold) return Promise.resolve(answer);
+        const held = deferred<Partial<NewBoardSettings> | string>();
+        rig.describing.set(path, () => held.resolve(path === "Boards/other.brd" ? OTHER : answer));
+        return held.promise;
+      },
+      onCreate: (settings) => {
         rig.created.push(settings);
-        return rig.answer;
+        if (rig.holdCreate === null) return Promise.resolve(rig.answer);
+        return rig.holdCreate.promise;
       },
       onCancel: () => { rig.cancelled += 1; },
     });
@@ -122,4 +145,47 @@ test("Cancel and Escape create nothing", async () => {
   await act(() => { rig.el.querySelector("form")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
   equal(rig.cancelled, 2);
   equal(rig.created.length, 0);
+});
+
+test("a slow answer for an earlier template never replaces a later choice", async () => {
+  const rig = await show([{ path: "Boards/start.brd", name: "start.brd" }, { path: "Boards/other.brd", name: "other.brd" }]);
+  rig.hold = true;
+  const select = field<HTMLSelectElement>(rig, "Start from");
+  await act(() => { select.value = "Boards/start.brd"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(() => { select.value = "Boards/other.brd"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  // The later choice answers first, the earlier one last.
+  await act(async () => { rig.describing.get("Boards/other.brd")!(); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+  equal(field<HTMLInputElement>(rig, "Width in tiles").value, "3");
+  await act(async () => { rig.describing.get("Boards/start.brd")!(); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+  equal(field<HTMLInputElement>(rig, "Width in tiles").value, "3", "the earlier answer was ignored");
+  equal(field<HTMLSelectElement>(rig, "Layout").value, "2d");
+  // Choosing a blank board while an answer is on its way keeps it blank.
+  await act(() => { select.value = "Boards/start.brd"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(() => { select.value = ""; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await act(async () => { rig.describing.get("Boards/start.brd")!(); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+  equal(field<HTMLInputElement>(rig, "Width in tiles").value, "3", "a late template does not overwrite a blank board's fields");
+  await type(field(rig, "Name"), "blank");
+  await submit(rig);
+  equal(rig.created[0]?.template, null, "and the board is made blank");
+});
+
+test("Cancel and Escape do nothing while the board is being made, so a board is never both cancelled and created", async () => {
+  const rig = await show();
+  rig.holdCreate = deferred();
+  await type(field(rig, "Name"), "village");
+  await submit(rig);
+  equal(rig.created.length, 1, "creation is under way");
+  equal(rig.el.querySelector<HTMLButtonElement>(".tkr-new-board-cancel")!.disabled, true);
+  await act(() => rig.el.querySelector<HTMLButtonElement>(".tkr-new-board-cancel")!.click());
+  await act(() => { rig.el.querySelector("form")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+  equal(rig.cancelled, 0, "nothing was cancelled");
+  await act(async () => { rig.holdCreate!.resolve({ ok: false, message: "the folder is read-only" }); await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+  match(alerts(rig).join(" "), /read-only/);
+  equal(rig.el.querySelector<HTMLButtonElement>(".tkr-new-board-cancel")!.disabled, false, "Cancel works again once the creation has failed");
+  await act(() => rig.el.querySelector<HTMLButtonElement>(".tkr-new-board-cancel")!.click());
+  equal(rig.cancelled, 1);
 });

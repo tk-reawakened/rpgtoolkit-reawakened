@@ -40,6 +40,8 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const first = useRef<HTMLInputElement>(null);
+  /** Counts template choices, so a slow answer for an earlier choice never replaces a later one. */
+  const choice = useRef(0);
   useEffect(() => first.current?.focus(), []);
 
   const typed: NewBoardSettings = { ...settings, width: Number(numbers.width), height: Number(numbers.height), layers: Number(numbers.layers) };
@@ -49,13 +51,25 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
   const summary = problems.some((problem) => problem.field !== "name" && problem.field !== "backgroundImage") ? null : newBoardSummary(typed);
 
   const choose = (template: string): void => {
+    const mine = ++choice.current;
     setFailure(null);
     if (template === "") return setSettings({ ...settings, template: null });
+    // Shown at once, so the list says what was chosen while the template is read.
+    setSettings({ ...settings, template });
     void describeTemplate(template).then((found) => {
-      if (typeof found === "string") return setFailure(found);
+      if (mine !== choice.current) return;
+      if (typeof found === "string") {
+        setSettings((current) => ({ ...current, template: null }));
+        return setFailure(found);
+      }
       setSettings((current) => ({ ...current, ...found, template }));
       setNumbers({ width: String(found.width ?? numbers.width), height: String(found.height ?? numbers.height), layers: String(found.layers ?? numbers.layers) });
     });
+  };
+
+  /** Cancelling is closed while the board is being made: it could report "cancelled" and still write and open it. */
+  const cancel = (): void => {
+    if (!busy) onCancel();
   };
 
   const submit = (event: Event): void => {
@@ -77,7 +91,7 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
   const described = (id: string, name: keyof NewBoardSettings): string | undefined => (shown(name) === undefined ? undefined : `${ids}-${id}-error`);
 
   return (
-    <form class="tkr-new-board" aria-label="New board" onSubmit={submit} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onCancel(); } }}>
+    <form class="tkr-new-board" aria-label="New board" onSubmit={submit} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); cancel(); } }}>
       <h2 class="tkr-new-board-heading">New board</h2>
       {field("name", "Name", "name", (
         <input id={`${ids}-name`} ref={first} type="text" value={settings.name} aria-invalid={shown("name") === undefined ? undefined : true} aria-describedby={described("name", "name")} onInput={(event) => setSettings({ ...settings, name: event.currentTarget.value })} />
@@ -114,7 +128,7 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
       ))}
       {failure === null ? null : <p class="tkr-new-board-error" role="alert">{failure}</p>}
       <button type="submit" class="tkr-new-board-create" disabled={busy}>Create board</button>
-      <button type="button" class="tkr-new-board-cancel" onClick={onCancel}>Cancel</button>
+      <button type="button" class="tkr-new-board-cancel" disabled={busy} onClick={cancel}>Cancel</button>
     </form>
   );
 }

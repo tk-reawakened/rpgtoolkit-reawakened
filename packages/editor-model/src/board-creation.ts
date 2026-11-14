@@ -128,8 +128,8 @@ function emptyRuns(cells: number): BoardTileRun[] {
 
 /**
  * The bytes of a new board. A template contributes its layer titles, background (image, how it is drawn, colour and
- * music) and ambient light; its tiles, vectors, programs, sprites and images are not copied. A background named in
- * `settings` replaces the template's.
+ * music) and ambient light; its tiles, vectors, programs, sprites and images are not copied. The background image is the
+ * one in `settings` (the dialog fills it from the template, and an author may clear or change it), empty meaning none.
  */
 export function buildNewBoard(settings: NewBoardSettings, template: Board | null = null): { readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false; readonly message: string } {
   const problems = validateNewBoard({ ...settings, name: settings.name === "" ? "new" : settings.name });
@@ -159,7 +159,8 @@ export function buildNewBoard(settings: NewBoardSettings, template: Board | null
     tileMatrix: new Array<number>(cells).fill(0),
     tileRuns: emptyRuns(cells),
     layerTitles: titles,
-    properties: settings.backgroundImage === "" ? properties : { ...properties, backgroundImage: settings.backgroundImage },
+    // The background in the settings is the one asked for, empty included: a template's background is offered by the dialog, not forced.
+    properties: { ...properties, backgroundImage: settings.backgroundImage },
   };
   const written = writeBoard(board);
   if (!written.ok) return { ok: false, message: written.error.message };

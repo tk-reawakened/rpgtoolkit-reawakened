@@ -1,7 +1,7 @@
 import { BinaryReader, readTileBitmap, type Result } from "@tk-reawakened/core";
-import type { BoardDocumentFields, TileAssignment } from "./board-document.ts";
+import type { BoardDocumentFields, ShadeAssignment, TileAssignment } from "./board-document.ts";
 import { boardTileAt } from "./board-document.ts";
-import { cellNeighbours, cellOnBoard, layoutOf, pixelToCell, TILE_PIXELS, type Cell, type Pixel } from "./board-geometry.ts";
+import { cellCentre, cellNeighbours, cellOnBoard, cellsInRect, layoutOf, pixelToCell, TILE_PIXELS, type Cell, type Pixel } from "./board-geometry.ts";
 
 /**
  * The tile tools of the board canvas as pure functions of a board snapshot (`docs/editor-features.md`, "Reawakened rules
@@ -18,7 +18,7 @@ export const BOARD_TOOLS: readonly BoardTool[] = ["draw", "select", "flood", "er
 export type ToolBoard = Pick<BoardDocumentFields, "sizeX" | "sizeY" | "coordType" | "grid" | "layers" | "lut" | "tileMatrix">;
 
 export type ToolOutcome =
-  | { readonly ok: true; readonly cells: readonly TileAssignment[] }
+  | { readonly ok: true; readonly cells: readonly TileAssignment[]; /** Tints set in the same edit (a stamp's). */ readonly shades?: readonly ShadeAssignment[] }
   | { readonly ok: false; readonly message: string };
 
 /** An inclusive rectangle of stored cells. */
@@ -130,14 +130,37 @@ export function floodFill(board: ToolBoard, layer: number, start: Cell, tile: st
 }
 
 /**
- * The rectangle tool (T-23): the cells between two corners of the stored grid, hollow or filled. On an iso-rotated board
- * that is a rotated rectangle on the picture. It is not offered on an iso-stacked board, whose stored rows are staggered.
+ * The cells a rectangle between two corner cells covers, hollow (its edge) or filled. On a top-down or iso-rotated board
+ * the rectangle is that of the stored grid (a rotated rectangle on an iso-rotated picture, T-23). On an iso-stacked board,
+ * whose stored rows are staggered, it is the rectangle of the picture: the cells whose centres lie between the two corner
+ * cells' centres, and its edge is the covered cells that have a neighbour (a cell sharing an edge) outside it.
  */
+export function rectangleRegion(board: ToolBoard, a: Cell, b: Cell, filled: boolean): Cell[] {
+  if (layoutOf(board) !== "iso-stacked") {
+    const rect = cellRect(a, b);
+    return rectCells(board, rect).filter((cell) => filled || cell.x === rect.x0 || cell.x === rect.x1 || cell.y === rect.y0 || cell.y === rect.y1);
+  }
+  const first = cellCentre(board, a.x, a.y);
+  const second = cellCentre(board, b.x, b.y);
+  const left = Math.min(first.x, second.x);
+  const right = Math.max(first.x, second.x);
+  const top = Math.min(first.y, second.y);
+  const bottom = Math.max(first.y, second.y);
+  const inside = (cell: Cell): boolean => {
+    const centre = cellCentre(board, cell.x, cell.y);
+    return centre.x >= left && centre.x <= right && centre.y >= top && centre.y <= bottom;
+  };
+  const covered = cellsInRect(board, left - 32, top - 16, right + 33, bottom + 17).filter((cell) => inside(cell));
+  if (filled) return covered;
+  return covered.filter((cell) => {
+    const around = cellNeighbours(board, cell.x, cell.y);
+    return around.length < 4 || around.some((next) => !inside(next));
+  });
+}
+
+/** The rectangle tool (T-23): `rectangleRegion` painted with `tile`. */
 export function rectangleCells(board: ToolBoard, layer: number, a: Cell, b: Cell, filled: boolean, tile: string): ToolOutcome {
-  if (layoutOf(board) === "iso-stacked") return fail("The rectangle tool is not available on an iso-stacked board; draw or flood fill instead.");
-  const rect = cellRect(a, b);
-  const cells = rectCells(board, rect).filter((cell) => filled || cell.x === rect.x0 || cell.x === rect.x1 || cell.y === rect.y0 || cell.y === rect.y1);
-  return ok(paintCells(board, layer, cells, tile));
+  return ok(paintCells(board, layer, rectangleRegion(board, a, b, filled), tile));
 }
 
 /**
@@ -167,6 +190,8 @@ export interface Stamp {
   readonly width: number;
   readonly height: number;
   readonly cells: readonly string[];
+  /** The tint of each cell, parallel to `cells` (`docs/spec/formats/tiles.md#tile-bitmap-tbm` field 5b). */
+  readonly tints: readonly { readonly r: number; readonly g: number; readonly b: number }[];
 }
 
 /** Read the drawn cells of a `.tbm` (`docs/spec/formats/tiles.md#tile-bitmap-tbm`; the padding row and column are not drawn). */
@@ -177,25 +202,35 @@ export function stampFromBitmap(bytes: Uint8Array, path: string, name: string): 
   const rows = Math.max(0, height);
   const columns = Math.max(0, width);
   const drawn: string[] = [];
+  const tints: { r: number; g: number; b: number }[] = [];
   for (let y = 0; y < rows; y += 1) {
-    for (let x = 0; x < columns; x += 1) drawn.push(cells[x * (rows + 1) + y]?.tile ?? "");
+    for (let x = 0; x < columns; x += 1) {
+      const cell = cells[x * (rows + 1) + y];
+      drawn.push(cell?.tile ?? "");
+      tints.push({ r: cell?.r ?? 0, g: cell?.g ?? 0, b: cell?.b ?? 0 });
+    }
   }
-  return { ok: true, value: { name, width: columns, height: rows, cells: drawn }, warnings: read.warnings };
+  return { ok: true, value: { name, width: columns, height: rows, cells: drawn, tints }, warnings: read.warnings };
 }
 
 /** Place a stamp with its top-left drawn cell on `at`, in the stored grid. Refused whole when any of it would be off the board. */
 export function stampCells(board: ToolBoard, layer: number, stamp: Stamp, at: Cell): ToolOutcome {
   if (stamp.width === 0 || stamp.height === 0) return fail(`${stamp.name} has no drawn cells.`);
   const changes: TileAssignment[] = [];
+  const shades: ShadeAssignment[] = [];
   for (let y = 0; y < stamp.height; y += 1) {
     for (let x = 0; x < stamp.width; x += 1) {
       const cell = { x: at.x + x, y: at.y + y };
       if (!cellOnBoard(board, cell.x, cell.y)) return fail(`${stamp.name} is ${stamp.width} × ${stamp.height} cells and does not fit with its corner here.`);
       const tile = stamp.cells[y * stamp.width + x] ?? "";
-      if (tile !== "" && boardTileAt(board, layer, cell.x, cell.y) !== tile) changes.push({ layer, x: cell.x, y: cell.y, tile });
+      if (tile === "") continue;
+      if (boardTileAt(board, layer, cell.x, cell.y) !== tile) changes.push({ layer, x: cell.x, y: cell.y, tile });
+      const tint = stamp.tints[y * stamp.width + x];
+      // A cell with a tint is placed with it; an untinted cell leaves the board's shading as it is.
+      if (tint !== undefined && (tint.r !== 0 || tint.g !== 0 || tint.b !== 0)) shades.push({ layer, x: cell.x, y: cell.y, r: tint.r, g: tint.g, b: tint.b });
     }
   }
-  return ok(changes);
+  return { ok: true, cells: changes, ...(shades.length === 0 ? {} : { shades }) };
 }
 
 /** Where the file of a tile reference lives and what to call it, so the dropper can make it the brush; `null` for a reference it cannot place. */

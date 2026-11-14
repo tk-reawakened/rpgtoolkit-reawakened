@@ -105,9 +105,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
   const focusCell = useRef(false);
 
   // What the editor reads each time it acts is kept in refs, so one editor lives as long as the view.
-  const latest = useRef({ snapshot, brush: null as Brush | null, preferences: DEFAULT_EDITOR_PREFERENCES, browser, doc, onEdited });
+  const latest = useRef({ snapshot, brush: null as Brush | null, preferences, browser, doc, onEdited });
   const brush = brushFor(brushSelection, stamp);
-  latest.current = { snapshot, brush, preferences: preferences?.get() ?? DEFAULT_EDITOR_PREFERENCES, browser, doc, onEdited };
+  latest.current = { snapshot, brush, preferences, browser, doc, onEdited };
 
   /** Apply a command and tell the host about the edit, once, as the one place that does. A host that answers at once is answered at once. */
   const applyAndReport = (command: Parameters<BoardViewDocument["apply"]>[0]): ApplyResult | Promise<ApplyResult> => {
@@ -132,7 +132,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
       board: () => latest.current.snapshot,
       apply: (command) => applyAndReport(command),
       brush: () => latest.current.brush,
-      preferences: () => latest.current.preferences,
+      // Read from the source when the gesture happens, so a preference changed since the last render is the one used.
+      preferences: () => latest.current.preferences?.get() ?? DEFAULT_EDITOR_PREFERENCES,
       pickTile: (tile) => {
         const source = tileSourceOf(tile);
         const context = latest.current.browser;
@@ -348,8 +349,6 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
             data-tool={tool}
             aria-pressed={state.tool === tool}
             aria-keyshortcuts={TOOL_LABELS[tool].key}
-            disabled={tool === "rectangle" && (snapshot.coordType & 3) === 1}
-            title={tool === "rectangle" && (snapshot.coordType & 3) === 1 ? "The rectangle tool is not available on an iso-stacked board." : undefined}
             onClick={() => editor.setTool(tool)}
           >
             {TOOL_LABELS[tool].label}
@@ -366,7 +365,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           <span class="tkr-board-host-note">Use this editor's own Undo and Redo.</span>
         )}
         <button type="button" class="tkr-board-zoom-out" disabled={state.viewport.zoomIndex <= 0} aria-keyshortcuts="-" onClick={() => editor.zoomOut()}>Zoom out</button>
-        <span class="tkr-board-zoom" role="status" aria-label="Zoom">{zoomPercent}%</span>
+        <span class="tkr-board-zoom">{zoomPercent}%</span>
         <button type="button" class="tkr-board-zoom-in" disabled={state.viewport.zoomIndex >= ZOOM_STEPS.length - 1} aria-keyshortcuts="+" onClick={() => editor.zoomIn()}>Zoom in</button>
         <button type="button" class="tkr-board-grid-toggle" aria-pressed={state.grid} aria-keyshortcuts="G" onClick={() => editor.toggleGrid()}>Grid</button>
       </div>
@@ -431,7 +430,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           <p class="tkr-board-preview-state" role="status">No picture: {picture.message}</p>
         )}
       </div>
-      <p class="tkr-board-brush-state" role="status">{brushText}</p>
+      <p class="tkr-board-brush-state">{brushText}</p>
       {pending !== null && pending.kind === "corner" && pending.keyboard ? (
         <p class="tkr-board-note" role="status">
           First corner at column {pending.anchor.x + 1}, row {pending.anchor.y + 1}. Move to the other corner and press Space, or Escape to cancel.

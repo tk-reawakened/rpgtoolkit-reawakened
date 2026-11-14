@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { createEmptyBoard, writeBoard } from "@tk-reawakened/core";
+import { buildNewBoard } from "@tk-reawakened/editor-model";
 import { runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
@@ -53,7 +54,13 @@ for (const choice of ["cancel", "keep"]) {
   const boardBytes = createBoardBytes();
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
+  const canvasBoards = [["2d", "top-down", 0], ["iso-stacked", "iso-stacked", 1], ["iso-rotated", "iso-rotated", 2]].map(([system, label, coordType]) => ({ system, label, coordType, path: `Boards/canvas-${label}.brd` }));
   await Promise.all([
+    ...canvasBoards.map(async ({ system, path }) => {
+      const built = buildNewBoard({ name: "canvas", coordSystem: system, pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null });
+      if (!built.ok) throw new Error(`Could not create the canvas proof board: ${built.message}`);
+      await writeFile(resolve(proofWorkspace, path), built.bytes);
+    }),
     writeFile(resolve(proofWorkspace, boardPath), boardBytes),
     writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
     copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
@@ -179,7 +186,7 @@ for (const choice of ["cancel", "keep"]) {
       }
     };
     const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
-    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath });
+    await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, { restart, readBacking, readHostEvents: persistentFs.events, externalBytes, sentinelTitle, sentinelBytes, choice, boardPath, otherBoardPath, canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })) });
     console.log(`vscode.dev settings and board proof passed (${choice})`);
   } catch (error) {
     failure = error;
