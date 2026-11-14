@@ -199,7 +199,7 @@ test("a board changed on disk shows the conflict with the ways to settle it, and
   const s = await setup();
   await show(s);
   await putTile(s.el, "village.tst2");
-  const theirs = s.host.bytesOf(PATH).slice();
+  const theirs = (s.host.bytesOf(PATH) ?? new Uint8Array()).slice();
   theirs[theirs.length - 1] = (theirs[theirs.length - 1] ?? 0) ^ 0xff;
   s.host.seed(PATH, theirs);
   await act(async () => {
