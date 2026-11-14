@@ -1,7 +1,7 @@
 import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, openSpriteDocument, type ApplyResult, type ExternalCheck, type PickOutcome, type SpriteCommand } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createPendingEdits, openSpriteDocument, type ApplyResult, type ExternalCheck, type PickOutcome, type SpriteCommand } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { SpriteViewDocument } from "../src/sprite-view.tsx";
 import type { CharacterAuthoringViewProps } from "../src/character-authoring-view.tsx";
@@ -34,7 +34,7 @@ interface Setup {
 
 async function setup(
   bytes: Uint8Array = exampleCharacter(),
-  services: Pick<CharacterAuthoringViewProps, "pickAsset" | "visit"> = {},
+  services: Pick<CharacterAuthoringViewProps, "pickAsset" | "pendingEdits"> = {},
 ): Promise<Setup> {
   const host = createMemoryPlatformServices({ files: { "Chrs/hero.tem": bytes } });
   const opened = await openSpriteDocument("character", host.fs, createDocumentIdentity("memory-project", "Chrs/hero.tem"));
@@ -168,9 +168,8 @@ test("character authoring edits bindings, starting stats, picture, move conditio
     setupView.el.remove();
   }
 });
-test("project asset pickers leave cancelled references unchanged and support linked special-move authoring", async () => {
+test("project asset pickers leave cancelled references unchanged, and no linked .prg or .spc visit is offered (#2609)", async () => {
   const requests: Array<Parameters<NonNullable<CharacterAuthoringViewProps["pickAsset"]>>[0]> = [];
-  const visited: string[] = [];
   const outcomes: PickOutcome[] = [
     { chosen: false },
     { chosen: true, reference: "hero.bmp" },
@@ -184,10 +183,6 @@ test("project asset pickers leave cancelled references unchanged and support lin
       const outcome = outcomes.shift();
       if (outcome === undefined) throw new Error("unexpected asset picker request");
       return outcome;
-    },
-    visit: async (path) => {
-      visited.push(path);
-      return { ok: true, path };
     },
   });
   try {
@@ -205,8 +200,6 @@ test("project asset pickers leave cancelled references unchanged and support lin
     await clickButton(setupView.el, "Choose level-up program");
     await settle();
     equal(setupView.doc.getSnapshot().character?.levelUpProgram, "levelup.prg");
-    await clickButton(setupView.el, "Open level-up program");
-    await settle();
     const slot = setupView.el.querySelector<HTMLSelectElement>('select[aria-label="Special-move slot"]');
     ok(slot);
     await act(() => {
@@ -219,8 +212,12 @@ test("project asset pickers leave cancelled references unchanged and support lin
     await clickButton(setupView.el, "Apply special-move slot 12");
     await settle();
     equal(setupView.doc.getSnapshot().character?.specialMoves[12]?.file, "meteor.spc");
-    await clickButton(setupView.el, "Open special-move file");
-    await settle();
+
+    // Neither host has a program or special-move editor, so no Open action exists to fail, and the view says why.
+    equal(setupView.el.querySelector('button[aria-label="Open level-up program"]'), null);
+    equal(setupView.el.querySelector('button[aria-label="Open special-move file"]'), null);
+    const notice = setupView.el.querySelector('[aria-label="Linked authoring availability"]')?.textContent ?? "";
+    ok(notice.includes(".prg") && notice.includes(".spc") && notice.includes("not available"), notice);
 
     deepEqual(requests.map(({ kind, extensions }) => ({ kind, extensions })), [
       { kind: "bitmaps", extensions: [".bmp", ".png", ".jpg", ".gif", ".tbm"] },
@@ -229,7 +226,6 @@ test("project asset pickers leave cancelled references unchanged and support lin
       { kind: "programs", extensions: [".prg"] },
       { kind: "specialMoves", extensions: [".spc"] },
     ]);
-    deepEqual(visited, ["Prg/levelup.prg", "SpcMove/meteor.spc"]);
   } finally {
     setupView.unmount();
     setupView.el.remove();
@@ -536,5 +532,66 @@ test("items expose no character-only authoring fields", async () => {
   } finally {
     unmount();
     el.remove();
+  }
+});
+
+test("a save waits for every submitted character edit, including ones queued behind a held acknowledgement (#2613)", async () => {
+  const pendingEdits = createPendingEdits();
+  const setupView = await setup(exampleCharacter(), { pendingEdits });
+  try {
+    const originalApply = setupView.doc.apply.bind(setupView.doc);
+    const held: Array<() => void> = [];
+    setupView.doc.apply = (command: SpriteCommand): ApplyResult | Promise<ApplyResult> => {
+      const gate = deferred<ApplyResult>();
+      held.push(() => { void Promise.resolve(originalApply(command)).then(gate.resolve); });
+      return gate.promise;
+    };
+    equal(pendingEdits.busy(), false, "nothing is pending before an edit");
+    await editInput(setupView.el, "Character name", "Ada");
+    await editInput(setupView.el, "Health (HP)", "123");
+    await settle();
+    // A is with the document, awaiting its acknowledgement; B is queued behind it and has not been given to the document.
+    equal(held.length, 1);
+    equal(pendingEdits.busy(), true);
+    equal(setupView.doc.getSnapshot().character?.stats.hp === 123, false, "B is not in the document yet");
+
+    let settled = false;
+    const waiting = pendingEdits.settle().then(() => { settled = true; });
+    await settle();
+    equal(settled, false, "a save that ran now would leave B out");
+
+    const first = held.shift();
+    if (first === undefined) throw new Error("the first edit is not waiting");
+    await act(() => first());
+    await settle();
+    equal(settled, false, "B is with the document but its acknowledgement is held too");
+    equal(held.length, 1);
+    const second = held.shift();
+    if (second === undefined) throw new Error("the queued edit was not given to the document");
+    await act(() => second());
+    await waiting;
+    equal(settled, true);
+    equal(pendingEdits.busy(), false);
+    equal(setupView.doc.getSnapshot().character?.name, "Ada");
+    equal(setupView.doc.getSnapshot().character?.stats.hp, 123);
+  } finally {
+    setupView.unmount();
+    setupView.el.remove();
+  }
+});
+
+test("a rejected character edit is no longer pending and does not hold a save", async () => {
+  const pendingEdits = createPendingEdits();
+  const setupView = await setup(exampleCharacter(), { pendingEdits });
+  try {
+    setupView.doc.apply = (): ApplyResult => ({ ok: false, rejection: { reason: "invalid", message: "No." } });
+    await editInput(setupView.el, "Character name", "Ada");
+    await settle();
+    await pendingEdits.settle();
+    equal(pendingEdits.busy(), false);
+    ok(setupView.el.textContent?.includes("No."));
+  } finally {
+    setupView.unmount();
+    setupView.el.remove();
   }
 });

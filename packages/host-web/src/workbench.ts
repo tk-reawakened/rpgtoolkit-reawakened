@@ -1,12 +1,21 @@
 import {
+  asksBeforeCreating,
   createAssetPicker,
+  createBoardFile,
   type AssetKind,
   createLayoutModel,
   createPreferences,
   createProjectTree,
   createTabs,
   createVisits,
+  listCandidates,
+  newBoardSettingsFrom,
+  readBoardTemplate,
+  rememberNewBoard,
+  uniqueBoardName,
   type AnyDocument,
+  type CreateBoardResult,
+  type NewBoardSettings,
   type LayoutModel,
   type PickOutcome,
   type ProjectLayout,
@@ -17,7 +26,7 @@ import {
   type VisitResult,
   type Visits,
 } from "@tk-reawakened/editor-model";
-import { mountAssetPicker, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { mountAssetPicker, mountNewBoard, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, type DocumentView, type WebProject } from "./index.ts";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
@@ -56,6 +65,13 @@ export interface Workbench {
    * Escape or the Close button closes them and gives focus back to where it was. Opening them twice shows one.
    */
   openPreferences(): void;
+  /**
+   * Make a new board (T-20) and open it in a tab. With "Ask before creating a board" on, the new-board questions are shown
+   * over the workbench, starting from the last choices; with it off, the board is made from those choices with the first
+   * free name. A board is never made over a file. Resolves with the new board's path, or `null` when nothing was made
+   * (cancelled, refused or failed; a refusal is said in a dialog).
+   */
+  newBoard(): Promise<string | null>;
   /** The layout as identifiers and numbers. */
   saveLayout(): SavedLayout;
   dispose(): void;
@@ -81,6 +97,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   let version = 0;
   let disposed = false;
   let openPrefs: (() => void) | null = null;
+  let openNewBoard: (() => void) | null = null;
 
   // Restore the saved layout without waiting for it: the defaults show until it arrives.
   void services.settings.get("user", LAYOUT_SETTING).then((saved) => {
@@ -117,12 +134,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container, projectLayout, {
+          entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource, {
             pickAsset: (request) => workbench.pickAsset(request),
-            visit: async (path) => {
-              const result = await workbench.visit(document, path);
-              return result.ok ? { ok: true, path } : { ok: false, message: "error" in result.error ? result.error.error.message : result.error.message };
-            },
           }), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
@@ -150,6 +163,75 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     const result = await tree.open(path);
     if (result.ok && result.via === "document") show(result.document);
   };
+  /** What the tileset browser's "edit source" asks for: the file in a tab, or why it did not open. */
+  const openSource = async (path: string): Promise<string | null> => {
+    const result = await tree.open(path);
+    if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
+    if (result.via === "document") show(result.document);
+    return null;
+  };
+
+  const tell = (message: string): Promise<unknown> =>
+    services.dialogs.ask({ message, detail: "Nothing else was changed.", choices: [{ id: "ok", label: "OK" }], cancel: "ok" });
+
+  const newBoard = async (): Promise<string | null> => {
+    if (openNewBoard !== null || disposed) return null;
+    const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
+    await preferences.refresh();
+    const remembered = newBoardSettingsFrom(preferences.getSnapshot());
+    const finish = async (settings: NewBoardSettings): Promise<CreateBoardResult> => {
+      const result = await createBoardFile(services.fs, projectLayout, settings);
+      if (!result.ok) return result;
+      const problem = await rememberNewBoard(preferences, settings);
+      await tree.refresh();
+      await openPath(result.path);
+      if (problem !== null) await tell(problem);
+      return result;
+    };
+    if (!asksBeforeCreating(preferences.getSnapshot())) {
+      const result = await finish({ ...remembered, name: await uniqueBoardName(services.fs, projectLayout) });
+      preferences.dispose();
+      if (result.ok) return result.path;
+      await tell(result.message);
+      return null;
+    }
+    const candidates = await listCandidates(services.fs, projectLayout, "boards", [".brd"]);
+    const doc = element.ownerDocument;
+    const before = doc.activeElement;
+    const overlay = doc.createElement("div");
+    overlay.className = "tkr-picker-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "New board");
+    element.append(overlay);
+    return new Promise<string | null>((resolve) => {
+      const close = (path: string | null): void => {
+        if (openNewBoard === null) return;
+        openNewBoard = null;
+        handle.dispose();
+        preferences.dispose();
+        overlay.remove();
+        if (before instanceof HTMLElement) before.focus();
+        resolve(path);
+      };
+      const handle = mountNewBoard(overlay, {
+        initial: remembered,
+        templates: candidates.candidates.map((candidate) => ({ path: candidate.path, name: candidate.reference })),
+        describeTemplate: async (path) => {
+          const described = await readBoardTemplate(services.fs, path);
+          return described.ok ? described.settings : described.message;
+        },
+        onCreate: async (settings) => {
+          const result = await finish(settings);
+          if (!result.ok) return result;
+          close(result.path);
+          return { ok: true };
+        },
+        onCancel: () => close(null),
+      });
+      openNewBoard = () => close(null);
+    });
+  };
 
   const shell: ViewHandle = mountShell(element, {
     layout,
@@ -162,6 +244,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       if (result.via === "document") show(result.document);
     },
     onOpenPath: (path) => { void openPath(path); },
+    onNewBoard: () => { void newBoard(); },
     onEditorElement: (editorElement) => {
       slot = editorElement;
       sync();
@@ -247,9 +330,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       openPrefs = closePreferences;
       close.focus();
     },
+    newBoard,
     saveLayout,
     dispose() {
       openPrefs?.();
+      openNewBoard?.();
       disposed = true;
       unsubscribeTabs();
       unsubscribeLayout();

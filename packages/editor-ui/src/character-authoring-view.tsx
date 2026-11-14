@@ -1,11 +1,13 @@
 import {
   classifyImageReference,
+  createEditTracker,
   spritePicturePreview,
   spriteProjectAssetPath,
   spriteTileBitmapPreviewFromAssets,
   spriteTileFrameFromReference,
   type AssetKind,
   type CharacterAuthoringFields,
+  type PendingEdits,
   type PickOutcome,
   type SpriteCommand,
   type SpritePreviewFrame,
@@ -33,6 +35,11 @@ const MOVE_FIELDS = [
 const INCREASES = [[0, "HP"], [1, "DP"], [2, "FP"], [3, "SMP"]] as const;
 const ACCESSORY_SLOTS = Array.from({ length: 10 }, (_, index) => `Accessory ${index + 1}`);
 const BODY_SLOTS = ["Head", "Neck", "Left hand", "Right hand", "Body", "Legs"] as const;
+/**
+ * Neither host has an editor or text provider for `.prg` programs or `.spc` special-move files (#2609), so the level-up
+ * program and special-move file references are chosen and typed here but cannot be opened from this editor.
+ */
+const LINKED_AUTHORING_NOTICE = "Opening level-up programs (.prg) and special-move files (.spc) from this editor is not available yet: neither host has an editor for them. Choose or type the reference here, and edit the file outside this editor.";
 const INT32_MIN = -2_147_483_648;
 const INT32_MAX = 2_147_483_647;
 const INT16_MIN = -32_768;
@@ -46,7 +53,8 @@ export interface CharacterAuthoringViewProps {
   readonly capabilities: Capabilities;
   readonly onEdited: (event: DocumentEdited) => void;
   readonly pickAsset?: (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string }) => Promise<PickOutcome>;
-  readonly visit?: (path: string) => Promise<VisitOutcome>;
+  /** Where this view reports edits it has accepted but not yet handed to the document, so the host's save, close and revert wait for them (#2613). */
+  readonly pendingEdits?: PendingEdits;
 }
 
 type TextField = "name" | "profilePicture" | "specialMoveCategory" | "levelUpProgram";
@@ -58,7 +66,6 @@ type CommandInput = Command | ((latest: CharacterAuthoringFields) => Command);
 type Cleanup = readonly (readonly [string, string])[];
 type Drafts = Readonly<Record<string, string>>;
 type AssetPickRequest = { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string };
-type VisitOutcome = { readonly ok: true; readonly path: string } | { readonly ok: false; readonly message: string };
 type PendingDraft = { readonly generation: number; readonly count: number };
 
 
@@ -132,13 +139,16 @@ function integerValue(raw: string, minimum: number, maximum: number): number | n
 }
 
 /** T-50/T-51/T-53/T-54 fields from `docs/spec/formats/character.md#layout`; shared graphics stay in SpriteView. */
-export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, onEdited, pickAsset, visit }: CharacterAuthoringViewProps) {
+export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, onEdited, pickAsset, pendingEdits }: CharacterAuthoringViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const character = snapshot.character;
   const [drafts, setDrafts] = useState<Drafts>({});
   const [feedback, setFeedback] = useState("");
   const [pendingCount, setPendingCount] = useState(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
+  // Every edit counts from the moment the user's change is accepted, not from the moment the queue reaches it: a save,
+  // close or revert that runs while an acknowledgement is held waits for the whole queue (#2613).
+  const submitted = useRef(createEditTracker());
   const draftVersions = useRef(new Map<string, number>());
   const mutationGeneration = useRef(0);
   const observedSnapshot = useRef(snapshot);
@@ -151,6 +161,8 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
   };
   const hasPendingPrefix = (prefix: string): boolean => [...pendingDraftKeys.current].some(([key, pending]) =>
     key.startsWith(prefix) && pending.generation === mutationGeneration.current && pending.count > 0);
+
+  useEffect(() => pendingEdits?.register(submitted.current), [pendingEdits]);
 
   useEffect(() => {
     observedSnapshot.current = doc.getSnapshot();
@@ -170,6 +182,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
 
   const submit = (commandInput: CommandInput, clear: Cleanup = []): void => {
     const generation = mutationGeneration.current;
+    const finishSubmission = submitted.current.begin();
     for (const [key] of clear) {
       const pending = pendingDraftKeys.current.get(key);
       pendingDraftKeys.current.set(key, {
@@ -221,6 +234,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
           else pendingDraftKeys.current.set(key, { generation, count: pending.count - 1 });
         }
         setPendingCount((count) => Math.max(0, count - 1));
+        finishSubmission();
       }
     };
     queue.current = queue.current.then(apply, apply);
@@ -356,7 +370,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
           <option value="0">Yes</option><option value="1">No</option>
         </select>
       </label>
-      <MoveEditor character={character} disabled={disabled} drafts={drafts} editText={editText} clearDrafts={clearDrafts} hasPendingPrefix={hasPendingPrefix} requestAsset={requestAsset} pickerAvailable={pickAsset !== undefined} {...(visit === undefined ? {} : { visit })} submit={submit} feedback={setFeedback} />
+      <MoveEditor character={character} disabled={disabled} drafts={drafts} editText={editText} clearDrafts={clearDrafts} hasPendingPrefix={hasPendingPrefix} requestAsset={requestAsset} pickerAvailable={pickAsset !== undefined} submit={submit} feedback={setFeedback} />
     </fieldset>
 
     <fieldset disabled={disabled}>
@@ -392,10 +406,6 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       {INCREASES.map(([index, label]) => numericInput(`${label} increase per level`, `increase:${index}`, character.levelIncreases[index] ?? 0, 0, INT16_MAX, (value) => ({ type: "set-character-increase", index, value })))}
       {textInput("Level-up program", "levelUpProgram", character.levelUpProgram, "levelUpProgram")}
       <button type="button" aria-label="Choose level-up program" disabled={disabled || pickAsset === undefined} onClick={() => { void pickLevelUpProgram(); }}>Choose level-up program…</button>
-      {visit !== undefined && <button type="button" aria-label="Open level-up program" disabled={disabled || character.levelUpProgram.trim() === ""} onClick={() => {
-        void visit(projectAssetPath("Prg", character.levelUpProgram)).then((result) => setFeedback(result.ok ? `Opened ${result.path}.` : result.message)).catch((error: unknown) => setFeedback(error instanceof Error ? error.message : "Could not open the level-up program."));
-      }}>Open level-up program</button>}
-      {visit === undefined && <p>Linked authoring is unavailable here.</p>}
       {pickAsset === undefined && <p>Asset picker unavailable here; enter the project program reference above.</p>}
       <label>Level-up type
         <select aria-label="Level-up type" value={text("growth:levelUpType", String(character.levelUpType))} onChange={(event) => {
@@ -408,12 +418,13 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
       </label>
     </fieldset>
 
+    <p aria-label="Linked authoring availability">{LINKED_AUTHORING_NOTICE}</p>
     <p role="status" aria-live="polite" aria-label="Character edit status">{feedback || (pendingCount > 0 ? "Applying character changes…" : "")}</p>
   </section>;
 }
 
 function MoveEditor({
-  character, disabled, drafts, editText, clearDrafts, hasPendingPrefix, requestAsset, pickerAvailable, visit, submit, feedback,
+  character, disabled, drafts, editText, clearDrafts, hasPendingPrefix, requestAsset, pickerAvailable, submit, feedback,
 }: {
   readonly character: CharacterAuthoringFields;
   readonly disabled: boolean;
@@ -423,7 +434,6 @@ function MoveEditor({
   readonly hasPendingPrefix: (prefix: string) => boolean;
   readonly requestAsset: (key: string, request: AssetPickRequest) => Promise<string | null>;
   readonly pickerAvailable: boolean;
-  readonly visit?: (path: string) => Promise<VisitOutcome>;
   readonly submit: (command: CommandInput, clear?: Cleanup) => void;
   readonly feedback: (message: string) => void;
 }) {
@@ -483,10 +493,6 @@ function MoveEditor({
     })}
     <div role="group" aria-label="Special-move reference actions">
       <button type="button" aria-label="Choose special-move file…" disabled={disabled || !pickerAvailable} onClick={() => { void requestAsset(slotKey("file"), { kind: "specialMoves", extensions: [".spc"], field: "the special-move file" }); }}>Choose special-move file…</button>
-      {visit !== undefined && <button type="button" aria-label="Open special-move file" disabled={disabled || current.file.trim() === ""} onClick={() => {
-        void visit(projectAssetPath("SpcMove", current.file)).then((result) => feedback(result.ok ? `Opened ${result.path}.` : result.message)).catch((error: unknown) => feedback(error instanceof Error ? error.message : "Could not open the special-move file."));
-      }}>Open special-move file</button>}
-      {visit === undefined && <p>Linked authoring is unavailable here.</p>}
       {!pickerAvailable && <p>Asset picker unavailable here; enter the special-move reference above.</p>}
     </div>
     <button type="button" aria-label={`Apply special-move slot ${slot}`} disabled={disabled} onClick={save}>Apply special-move slot {slot}</button>
@@ -498,11 +504,6 @@ const EMPTY_MOVE: Move = { file: "", minExp: 0, minLevel: 0, condVar: "", condVa
 function sameMove(left: Move, right: Move): boolean {
   return left.file === right.file && left.minExp === right.minExp && left.minLevel === right.minLevel && left.condVar === right.condVar && left.condValue === right.condValue;
 }
-function projectAssetPath(folder: "Prg" | "SpcMove", reference: string): string {
-  const normalized = reference.replace(/\\/g, "/").replace(new RegExp(`^${folder}/`, "i"), "");
-  return `${folder}/${normalized}`;
-}
-
 function without(drafts: Drafts, key: string): Drafts {
   if (!(key in drafts)) return drafts;
   const next = { ...drafts };

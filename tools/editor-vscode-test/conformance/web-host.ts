@@ -2,10 +2,10 @@
 // case-sensitive in-memory folder in place of File System Access. The browser host is its own workbench, so every user
 // action is the call its page makes (`openGameSettings`, `workspace.undo`, `workspace.close`, ...), and every question it
 // asks goes through its `dialogs` service, answered here as the user would.
-import { asMainDocument, previewBoard, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
+import { asMainDocument, previewBoard, previewTileBitmap, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
 import type { DialogQuestion, DialogService } from "@tk-reawakened/platform-services";
 import { createFolderProject, mountGameSettings, openEditor, openGameSettings, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web/testing";
-import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost } from "./suite.ts";
+import { GAME, SECOND, retitled, type CharacterProofHost, type CharacterProofTab, type CloseAnswer, type ConformanceEditor, type ConformanceHost } from "./suite.ts";
 import { MemoryDirectory, type WriteControl } from "./memory-directory.ts";
 import { MountedView, settle, type Act } from "./view.ts";
 
@@ -241,6 +241,7 @@ export function createWebBoardProofHost(gam: Uint8Array, files: Readonly<Record<
         element,
         workbenchDirty: () => model.getSnapshot().dirty,
         picture: async () => {
+          if (model.kind === "tile-bitmap") return previewTileBitmap(project.services.fs, project.project.id, model.serialize());
           const preview = await previewBoard(project.services.fs, project.project.id, model.serialize());
           return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
         },
@@ -248,6 +249,71 @@ export function createWebBoardProofHost(gam: Uint8Array, files: Readonly<Record<
           await view.close();
           view.dispose();
           element.remove();
+        },
+      };
+    },
+    disk: async (path) => root.read(path),
+    settle: () => settle(act),
+  };
+}
+
+/** The browser host holding `files` besides a `.gam`, for the character proof of #1716: its workspace saves and closes the document. */
+export function createWebCharacterProofHost(gam: Uint8Array, files: Readonly<Record<string, Uint8Array>>, act: Act): CharacterProofHost {
+  const control: WriteControl = { refuse: false, hold: null, tick: 0 };
+  const root = new MemoryDirectory("project", control);
+  root.put(GAME, gam);
+  for (const [path, bytes] of Object.entries(files)) root.put(path, bytes);
+  const dialogs = new ScriptedDialogs();
+  const project = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:character-proof", name: "Character proof" }, { dialogs });
+  return {
+    name: "browser host",
+    async open(path): Promise<CharacterProofTab> {
+      const element = document.createElement("div");
+      document.body.append(element);
+      let opened!: Awaited<ReturnType<typeof openEditor>>;
+      await act(async () => { opened = await openEditor(project, path, element); });
+      if (!opened.ok) {
+        element.remove();
+        throw new Error(opened.error.kind === "case-conflict" || opened.error.kind === "unsupported" ? opened.error.message : `${opened.error.document}: ${opened.error.error.message}`);
+      }
+      const { document: model, view } = opened;
+      await settle(act);
+      return {
+        element,
+        workbenchDirty: () => model.getSnapshot().dirty,
+        holdEditAcknowledgements() {
+          // An adapter that answers late: the document takes the edit at once, the view hears of it only when released.
+          const apply = model.apply.bind(model) as (command: never) => unknown;
+          const held: Array<() => void> = [];
+          let holding = true;
+          (model as { apply: unknown }).apply = (command: never) => {
+            const result = apply(command);
+            if (!holding) return result;
+            return new Promise((resolve) => { held.push(() => resolve(result)); });
+          };
+          return {
+            release() {
+              holding = false;
+              (model as { apply: unknown }).apply = apply;
+              for (const answer of held.splice(0)) answer();
+            },
+          };
+        },
+        async saveFromWorkbench() {
+          const results = await project.workspace.saveAll();
+          return results.every((entry) => entry.result.ok);
+        },
+        backupBytes: async () => model.serialize(),
+        async close(answer) {
+          dialogs.answer = answer;
+          const closed = await view.close();
+          dialogs.answer = null;
+          if (closed.closed) {
+            view.dispose();
+            element.remove();
+          }
+          await settle(act);
+          return closed.closed;
         },
       };
     },

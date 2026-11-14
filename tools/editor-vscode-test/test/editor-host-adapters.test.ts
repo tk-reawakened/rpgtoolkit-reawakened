@@ -2,7 +2,7 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { asMainDocument, createDocumentIdentity, openMainDocument, openSpriteDocument, type MainDocumentSnapshot, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { DEFAULT_EDITOR_PREFERENCES, asMainDocument, createDocumentIdentity, openMainDocument, openSpriteDocument, type MainDocumentSnapshot, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { createVscodeFileSystemWithPort, handleEditorHostRequest, isSpriteSnapshot, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
@@ -61,6 +61,7 @@ test("real web and VS Code adapters keep mounted title edits dirty and named aft
     browserRead: (path: string) => vscodeFs.read(path),
     didEdit: (_editId: string) => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    boardPreferences: () => DEFAULT_EDITOR_PREFERENCES,
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
@@ -160,6 +161,7 @@ test("the VS Code sprite bridge previews project GIFs and saves edits that survi
     resolveConflict: async (choice: "keep-local" | "reload") => model.resolveConflict(choice),
     preview: async () => ({ ok: false as const, message: "A sprite document has no board picture." }),
     visit: async () => ({ ok: false as const, message: "not used" }),
+    boardPreferences: () => DEFAULT_EDITOR_PREFERENCES,
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
     readProject: (path: string) => fs.readProject(identity.projectId, path),
@@ -281,6 +283,7 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
     browserRead: (path: string) => vscodeFs.read(path),
     didEdit: () => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    boardPreferences: () => DEFAULT_EDITOR_PREFERENCES,
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),
@@ -481,6 +484,7 @@ test("two rejected recovery choices never discard local work when disk first mat
     browserRead: (path: string) => browserFs.read(path),
     didEdit: () => undefined,
     preview: async () => ({ ok: false as const, message: "A main file has no picture." }),
+    boardPreferences: () => DEFAULT_EDITOR_PREFERENCES,
     visit: async () => ({ ok: false as const, message: "not used" }),
     returnFromVisit: async () => ({ ok: false as const, message: "not used" }),
     pickAsset: async () => ({ chosen: false as const }),

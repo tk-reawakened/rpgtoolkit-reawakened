@@ -17,11 +17,12 @@
 // itself; this driver lets every conformance case run in under a second.
 import { posix } from "node:path";
 import { asMainDocument, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
-import { mount, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { mount, type SpriteViewDocument, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { Capability, DialogQuestion, DialogService, FileChange, OutsideFile } from "@tk-reawakened/platform-services";
 import {
   createGameEditorProvider,
   createVscodeFileSystemWithPort,
+  isSpriteSnapshot,
   RemoteDocument,
   vscodeCapabilities,
   type BridgeMessage,
@@ -31,7 +32,7 @@ import {
   type GameEditorProvider,
   type VscodeFileSystemPort,
 } from "@tk-reawakened/host-vscode/testing";
-import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type DeferredRead, type HeldWrite } from "./suite.ts";
+import { GAME, SECOND, retitled, type CharacterProofHost, type CharacterProofTab, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type DeferredRead, type HeldWrite } from "./suite.ts";
 import { MountedView, settle, type Act } from "./view.ts";
 
 interface Uri { readonly path: string }
@@ -239,6 +240,10 @@ class Webview {
   readonly #listeners = new Set<(message: unknown) => unknown>();
   readonly #disposeListeners = new Set<() => void>();
   #page: Page | null = null;
+  /** Messages the page has sent that the provider has not yet received, in sending order. */
+  readonly #undelivered: EditorHostRequest[] = [];
+  /** While set, the provider's acknowledgements of the page's edits wait here instead of reaching the page (a slow extension host). */
+  #heldEditResults: BridgeMessage[] | null = null;
 
   constructor(act: Act) {
     this.#act = act;
@@ -249,6 +254,10 @@ class Webview {
       const page = this.#page;
       if (page === null) return Promise.resolve(false);
       const copy = structuredClone(message);
+      if (this.#heldEditResults !== null && copy.type === "edit-result") {
+        this.#heldEditResults.push(copy);
+        return Promise.resolve(true);
+      }
       setTimeout(() => void this.#act(() => this.#receive(page, copy)), 0);
       return Promise.resolve(true);
     },
@@ -265,6 +274,26 @@ class Webview {
   get view(): MountedView {
     if (this.#page === null) throw new Error("the webview is hidden");
     return new MountedView(this.#page.element, this.#act);
+  }
+
+  /**
+   * Hold every acknowledgement of an edit the page sends from now on, in the order the provider answered. `release`
+   * delivers them in that order and stops holding. The edits themselves still reach the extension host at once, as
+   * they do when its reply is merely slow.
+   */
+  holdEditResults(): { release(): void } {
+    if (this.#heldEditResults !== null) throw new Error("edit acknowledgements are already held");
+    const held: BridgeMessage[] = [];
+    this.#heldEditResults = held;
+    return {
+      release: () => {
+        if (this.#heldEditResults !== held) return;
+        this.#heldEditResults = null;
+        const page = this.#page;
+        if (page === null) return;
+        for (const message of held) setTimeout(() => void this.#act(() => this.#receive(page, message)), 0);
+      },
+    };
   }
 
   /** The webview's document proxy, for a proof that drives what a view would call. */
@@ -307,13 +336,33 @@ class Webview {
   }
 
   dispose(): void {
+    // A message still on its way when the panel is disposed is lost: VS Code gives no delivery guarantee for it, so this
+    // harness does not either (see `delivered`).
+    this.#undelivered.length = 0;
     this.hide();
     for (const listener of [...this.#disposeListeners]) listener();
   }
 
   #send(request: EditorHostRequest): void {
     const copy = structuredClone(request);
-    setTimeout(() => { for (const listener of [...this.#listeners]) void listener(copy); }, 0);
+    this.#undelivered.push(copy);
+    setTimeout(() => this.#deliver(copy), 0);
+  }
+
+  /** Hand one sent message to the provider, once; a message already delivered by a flush is not delivered again. */
+  #deliver(copy: EditorHostRequest): void {
+    const at = this.#undelivered.indexOf(copy);
+    if (at === -1) return;
+    this.#undelivered.splice(at, 1);
+    for (const listener of [...this.#listeners]) void listener(copy);
+  }
+
+  /**
+   * Resolves once every message the page has sent has reached the provider. A proof that closes a tab right after a
+   * choice waits for this, which is what a person's reaction time provides in practice; it is observed, not slept.
+   */
+  async delivered(): Promise<void> {
+    while (this.#undelivered.length > 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
   #receive(page: Page, message: BridgeMessage): void {
@@ -323,8 +372,25 @@ class Webview {
         postMessage: (request) => this.#send(request),
         getState: () => undefined,
         setState: () => undefined,
-      });
+      }, message.boardPreferences);
       page.remote = remote;
+      if (message.kind === "character" || message.kind === "item") {
+        // As `webview.tsx` mounts a sprite document: its own view document, the host's asset picker and no linked visit,
+        // and the edits the views accepted but have not yet sent (#2613, #2609).
+        const view = spriteViewDocument(remote);
+        if (view === null) throw new Error(`the ${message.kind} editor received an invalid sprite snapshot`);
+        page.handle = mount(page.element, {
+          document: view,
+          services: {
+            document: { edited: () => undefined },
+            capabilities: new Set(message.capabilities),
+            fs: { readProject: (projectId, path) => remote.readProject(projectId, path) },
+          },
+          pendingEdits: remote.pendingEdits,
+          navigation: { pickAsset: (request) => remote.pickAsset(request) },
+        });
+        return;
+      }
       page.handle = mount(page.element, {
         document: remote as unknown as ViewContext["document"],
         services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities) },
@@ -332,12 +398,39 @@ class Webview {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
           layout: { projectFolder: "" },
+          // As `webview.tsx` supplies it: a linked visit through the extension host.
+          openSource: async (path) => {
+            const outcome = await remote.visit(path);
+            return outcome.ok ? null : outcome.message;
+          },
         },
+        boardPreferences: remote.boardPreferences,
+        pendingEdits: remote.pendingEdits,
       });
       return;
     }
     page.remote?.receive(message);
   }
+}
+
+/** The sprite view document `webview.tsx` builds over a remote character or item. */
+function spriteViewDocument(remote: RemoteDocument): SpriteViewDocument | null {
+  if (remote.kind !== "character" && remote.kind !== "item") return null;
+  const kind = remote.kind;
+  if (!isSpriteSnapshot(remote.getSnapshot(), kind)) return null;
+  return {
+    kind,
+    identity: remote.identity,
+    getSnapshot: () => {
+      const snapshot = remote.getSnapshot();
+      if (!isSpriteSnapshot(snapshot, kind)) throw new Error(`The ${kind} editor received an invalid sprite snapshot.`);
+      return snapshot;
+    },
+    subscribe: (listener) => remote.subscribe(listener),
+    apply: (command) => remote.apply(command),
+    save: () => remote.save(),
+    resolveConflict: (choice) => remote.resolveConflict(choice),
+  };
 }
 
 async function untilSaved(view: MountedView, model: MainDocument, act: Act): Promise<void> {
@@ -390,6 +483,7 @@ class Workbench {
         script.opened.push(path);
         await this.focusOrOpen(path);
       },
+      ...(host.settleTimeoutMs === undefined ? {} : { settleTimeoutMs: host.settleTimeoutMs }),
       quickPick: async (items, placeholder) => {
         script.pickLists.push({ placeholder, labels: items.map((item) => item.label) });
         return script.picks.shift();
@@ -600,14 +694,17 @@ class VscodeHost implements ConformanceHost {
   /** The provider's bound, as ADR 0022 D14.6 states it (written here, not imported, so the test checks the provider). */
   readonly saveWrites = 3;
   readonly drive = new Disk();
+  /** The port's bound on waiting for a webview's edits, when a proof sets one. */
+  readonly settleTimeoutMs: number | undefined;
   readonly backups = new Map<string, Uint8Array>();
   readonly #backupIdsByDocument = new Map<string, string>();
   revertCommands = 0;
   readonly act: Act;
   #workbench: Workbench;
 
-  constructor(desktop: boolean, fixture: Uint8Array, act: Act, files: Readonly<Record<string, Uint8Array>> = {}) {
+  constructor(desktop: boolean, fixture: Uint8Array, act: Act, files: Readonly<Record<string, Uint8Array>> = {}, settleTimeoutMs?: number) {
     this.name = desktop ? "VS Code desktop" : "VS Code for the Web";
+    this.settleTimeoutMs = settleTimeoutMs;
     const capabilities = vscodeCapabilities(desktop);
     this.capabilities = new Set(capabilities);
     this.act = act;
@@ -727,6 +824,14 @@ class VscodeHost implements ConformanceHost {
     return this.#workbench.copies.size;
   }
 
+  /** The bytes of the provider's hot-exit backup of `copy`, as VS Code asks for them when it backs the document up. */
+  async backupOf(copy: WorkingCopy): Promise<Uint8Array> {
+    const backup = await this.#workbench.provider.backupCustomDocument(copy.custom, { path: `/backups/${copy.uri.path}` });
+    const bytes = this.backups.get(backup.id);
+    if (bytes === undefined) throw new Error("the provider backed nothing up");
+    return bytes.slice();
+  }
+
   /** The project-relative paths of the documents open now, in the order they were opened. */
   openPaths(): readonly string[] {
     return [...this.#workbench.copies.values()].map((copy) => copy.custom.model.identity.path);
@@ -745,12 +850,16 @@ export interface BoardProofTab {
   workbenchDirty(): boolean;
   /** The picture the view asked the extension host for. */
   picture(): Promise<BoardPicture>;
+  /** Resolves once every message the webview has sent has reached the extension host. */
+  delivered(): Promise<void>;
   close(): Promise<void>;
 }
 
 export interface BoardProofHost {
   readonly name: string;
   open(path: string): Promise<BoardProofTab>;
+  /** The project-relative paths of the documents the workbench has open, in the order they were opened. */
+  openPaths(): readonly string[];
   disk(path: string): Promise<Uint8Array | null>;
   settle(): Promise<void>;
 }
@@ -766,9 +875,11 @@ export function createVscodeBoardProofHost(desktop: boolean, gam: Uint8Array, fi
         get element() { return editor.webview.view.element; },
         workbenchDirty: () => editor.copy.dirty,
         picture: () => editor.webview.picture(),
+        delivered: () => editor.webview.delivered(),
         close: async () => { await editor.close("discard"); },
       };
     },
+    openPaths: () => host.openPaths(),
     disk: (path) => host.disk(path),
     settle: () => host.settle(),
   };
@@ -819,6 +930,33 @@ export function createVscodeNavigationHost(desktop: boolean, gam: Uint8Array, fi
     disk: (path) => host.disk(path),
     modelsOpen: () => host.modelsOpen(),
     openPaths: () => host.openPaths(),
+    settle: () => host.settle(),
+  };
+}
+
+/** The VS Code host holding `files` (project-relative paths) besides a `.gam`, for the character proof of #1716. */
+export function createVscodeCharacterProofHost(
+  desktop: boolean,
+  gam: Uint8Array,
+  files: Readonly<Record<string, Uint8Array>>,
+  act: Act,
+  options: { readonly settleTimeoutMs?: number } = {},
+): CharacterProofHost {
+  const host = new VscodeHost(desktop, gam, act, files, options.settleTimeoutMs);
+  return {
+    name: host.name,
+    async open(path): Promise<CharacterProofTab> {
+      const editor = (await host.open(path)) as VscodeEditor;
+      return {
+        get element() { return editor.webview.view.element; },
+        workbenchDirty: () => editor.copy.dirty,
+        holdEditAcknowledgements: () => editor.webview.holdEditResults(),
+        saveFromWorkbench: () => editor.copy.save().then(() => true, () => false),
+        backupBytes: () => host.backupOf(editor.copy),
+        close: (answer) => editor.close(answer),
+      };
+    },
+    disk: (path) => host.disk(path),
     settle: () => host.settle(),
   };
 }

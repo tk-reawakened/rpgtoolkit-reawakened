@@ -3,7 +3,7 @@
 import { deepEqual, equal, notEqual, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, createDocumentWorkspace, createMainDocument, openMainDocument } from "../src/index.ts";
+import { createDocumentIdentity, createDocumentWorkspace, createEditTracker, createMainDocument, createPendingEdits, openMainDocument } from "../src/index.ts";
 import { resolveDocumentPath } from "../src/workspace.ts";
 import { exampleMain, titleOf, withTitle } from "./fixtures.ts";
 
@@ -662,4 +662,117 @@ test("revert refuses an edit made and undone during its disk read", async () => 
   equal(doc.getSnapshot().canRedo, true);
   ok(doc.redo().ok);
   equal(doc.getSnapshot().gameTitle, "Later");
+});
+
+/** A view that accepted a title edit from the user but can give it to the document only when `release` is called (#2613). */
+function queuedTitleEdit(doc: { apply(command: { type: "set-game-title"; title: string }): unknown }, title: string) {
+  const tracker = createEditTracker();
+  const done = tracker.begin();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  void gate.then(() => {
+    doc.apply({ type: "set-game-title", title });
+    done();
+  });
+  return { tracker, release };
+}
+
+test("pending edits settle only once every registered view is idle, including work submitted while waiting (#2613)", async () => {
+  const pending = createPendingEdits();
+  const first = createEditTracker();
+  const second = createEditTracker();
+  pending.register(first);
+  const unregister = pending.register(second);
+  equal(pending.busy(), false);
+  const endFirst = first.begin();
+  equal(pending.busy(), true);
+  let settled = false;
+  const waiting = pending.settle().then(() => { settled = true; });
+  await Promise.resolve();
+  equal(settled, false);
+  // Work that arrives during the wait, in the other view, is waited for too.
+  const endSecond = second.begin();
+  endFirst();
+  await Promise.resolve();
+  await Promise.resolve();
+  equal(settled, false, "the second view's later work is still pending");
+  endSecond();
+  await waiting;
+  equal(settled, true);
+  // An unregistered view is no longer waited for.
+  unregister();
+  second.begin();
+  equal(pending.busy(), false);
+  await pending.settle();
+});
+
+test("Save All writes an edit a view still holds, instead of finding its document clean (#2613)", HELD, async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: host });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const doc = opened.document;
+  ok(doc.apply({ type: "set-game-title", title: "First" }).ok);
+  const held = queuedTitleEdit(doc as never, "Second, queued behind an acknowledgement");
+  workspace.pendingEdits(doc).register(held.tracker);
+  const saving = workspace.saveAll();
+  await Promise.resolve();
+  equal(titleOf(host.bytesOf(PATH)!), titleOf(exampleMain(9)), "nothing is written while an edit is still held");
+  held.release();
+  const results = await saving;
+  deepEqual(results.map((entry) => [entry.document, entry.result.ok]), [[PATH, true]]);
+  equal(titleOf(host.bytesOf(PATH)!), "Second, queued behind an acknowledgement");
+  equal(doc.getSnapshot().dirty, false);
+});
+
+test("Save All writes a document whose only edit is still held", HELD, async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: host });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const held = queuedTitleEdit(opened.document as never, "Only edit");
+  workspace.pendingEdits(opened.document).register(held.tracker);
+  equal(opened.document.getSnapshot().dirty, false, "the document looks clean until the edit reaches it");
+  const saving = workspace.saveAll();
+  held.release();
+  deepEqual((await saving).map((entry) => entry.result.ok), [true]);
+  equal(titleOf(host.bytesOf(PATH)!), "Only edit");
+});
+
+test("closing a view waits for its held edit, then asks about it and saves it (#2613)", HELD, async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: host });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const doc = opened.document;
+  const lease = workspace.attachView(doc);
+  const held = queuedTitleEdit(doc as never, "Held at close");
+  workspace.pendingEdits(doc).register(held.tracker);
+  host.answerQuestions("save");
+  const closing = lease.close();
+  await Promise.resolve();
+  equal(host.questions.length, 0, "the document is not judged clean or dirty before the held edit reaches it");
+  held.release();
+  deepEqual(await closing, { closed: true });
+  equal(host.questions.length, 1, "the user was asked, because the held edit made the document dirty");
+  equal(titleOf(host.bytesOf(PATH)!), "Held at close");
+  lease.dispose();
+});
+
+test("revert waits for a held edit and discards it with the rest (#2613)", HELD, async () => {
+  const original = exampleMain(9);
+  const host = createMemoryPlatformServices({ files: { [PATH]: original }, capabilities: [] });
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: host });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const doc = opened.document;
+  ok(doc.apply({ type: "set-game-title", title: "Applied" }).ok);
+  const held = queuedTitleEdit(doc as never, "Held");
+  workspace.pendingEdits(doc).register(held.tracker);
+  host.answerQuestions("revert");
+  const reverting = workspace.revert(doc);
+  held.release();
+  ok((await reverting).ok);
+  equal(titleOfDocument(doc), titleOf(original));
+  equal(doc.getSnapshot().dirty, false, "the held edit did not land after the revert");
 });

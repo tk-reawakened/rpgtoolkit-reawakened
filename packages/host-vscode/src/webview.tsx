@@ -8,7 +8,7 @@ const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
   if (event.data.type === "initialize") {
-    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api);
+    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences);
     remoteDocument = remote;
     const fs = {
       readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
@@ -20,20 +20,28 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
       mount(documentRoot(), {
         document: doc,
         services,
-        navigation: {
-          pickAsset: (request) => remote.pickAsset(request),
-          visit: (path) => remote.visit(path),
-        },
+        // The extension host's `settle` request waits for the edits these views have accepted but not yet sent (#2613).
+        pendingEdits: remote.pendingEdits,
+        // No `.prg` or `.spc` editor exists in this host, so a linked visit is not offered for them (#2609).
+        navigation: { pickAsset: (request) => remote.pickAsset(request) },
       });
     } else {
       mount(documentRoot(), {
+        // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
         document: remote as unknown as ViewContext["document"],
         services,
         browser: {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
           layout: { projectFolder: "" },
+          // A linked visit: the extension host opens the file in its own editor and remembers the way back.
+          openSource: async (path) => {
+            const outcome = await remote.visit(path);
+            return outcome.ok ? null : outcome.message;
+          },
         },
+        boardPreferences: remote.boardPreferences,
+        pendingEdits: remote.pendingEdits,
       });
     }
     return;
