@@ -1,4 +1,5 @@
 // This probe runs in the real Electron page; it is slower than a unit test because it reloads a live game.
+import { build } from "esbuild";
 import { randomUUID } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
