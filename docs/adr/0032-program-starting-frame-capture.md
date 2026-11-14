@@ -1,4 +1,4 @@
-# ADR 0017 — Program starting-frame capture seam
+# ADR 0032 — Program starting-frame capture seam
 
 * **Status:** Proposed (awaiting owner rulings)
 * **Date:** 2026-11-02
