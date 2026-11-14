@@ -104,6 +104,7 @@ for (const choice of ["cancel", "keep"]) {
         "--host=localhost", "--browser=none",
         `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
         `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
+        `--testRunnerDataDir=${process.env.TKR_VSCODE_TEST_DATA_DIR ?? resolve(root, ".vscode-test-web")}`,
       ], {
         cwd: root,
         stdio: "inherit",
