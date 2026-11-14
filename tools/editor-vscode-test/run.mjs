@@ -84,6 +84,7 @@ for (const choice of ["cancel", "keep"]) {
   let trackedProcess;
   let failure;
   let cleanupErrors = [];
+  const routeErrors = [];
   const browserDiagnostics = [];
   const probeDiagnostics = [];
   try {
@@ -108,15 +109,21 @@ for (const choice of ["cancel", "keep"]) {
     };
     await startWorkbench();
     browser = await chromium.launchPersistentContext(browserProfile, { headless: true });
-    // Observe the actual built host adapter at its dispatch boundary without adding a production test hook.
     // A changed build shape fails closed rather than silently losing this safety assertion.
-    await browser.route("**/static/extensions/0/extension.js", async (route) => {
+    const captureRouteErrors = (handler) => async (route) => {
+      try {
+        await handler(route);
+      } catch (error) {
+        routeErrors.push(error);
+      }
+    };
+    const providerRoute = captureRouteErrors(async (route) => {
       const response = await route.fetch();
       const source = await response.text();
       if (source.split("__TKR_PROOF_SECRET__").length !== 2) throw new Error("Proof provider no longer matches the credential injection");
       await route.fulfill({ response, body: source.replace("__TKR_PROOF_SECRET__", persistentFs.token) });
     });
-    await browser.route("**/static/devextensions/dist/extension.browser.js", async (route) => {
+    const browserExtensionRoute = captureRouteErrors(async (route) => {
       const response = await route.fetch();
       let source = await response.text();
       const [, bridgePort] = persistentFs.authority.split(".");
@@ -145,6 +152,11 @@ for (const choice of ["cancel", "keep"]) {
       }
       await route.fulfill({ response, body: source });
     });
+    const registerContextRoutes = async () => {
+      await browser.route("**/static/extensions/0/extension.js", providerRoute);
+      await browser.route("**/static/devextensions/dist/extension.browser.js", browserExtensionRoute);
+    };
+    await registerContextRoutes();
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const newPage = async () => {
       const page = await browser.newPage();
@@ -186,12 +198,14 @@ for (const choice of ["cancel", "keep"]) {
         const timer = setTimeout(() => timeout.reject(new Error("Workbench bootstrap did not pause")), 30_000);
         try { await Promise.race([paused.promise, timeout.promise]); } finally { clearTimeout(timer); }
         if (!extensionFrame.isDetached()) throw new Error("The previous extension host did not stop before offline mutation");
+        await browser.unrouteAll({ behavior: "wait" });
         trackedProcess.child.kill("SIGTERM");
         const code = await trackedProcess.closed;
         if (code !== 0 || trackedProcess.errors.length) throw new Error(`VS Code web workbench did not stop cleanly: ${code}`);
         trackedProcess = undefined;
         if (offlineBytes !== undefined) await writeFile(resolve(proofWorkspace, game), offlineBytes);
         await startWorkbench();
+        await registerContextRoutes();
         release.resolve();
         const routeError = await continued.promise;
         if (routeError) throw routeError;
@@ -228,7 +242,11 @@ for (const choice of ["cancel", "keep"]) {
   } catch (error) {
     failure = error;
   } finally {
+    if (browser !== undefined) {
+      try { await browser.unrouteAll({ behavior: "wait" }); } catch (error) { cleanupErrors.push(error); }
+    }
     cleanupErrors.push(...await cleanupTestRun(browser, trackedProcess, proofWorkspace));
+    cleanupErrors.push(...routeErrors);
     if (persistentFs !== undefined) {
       try { await persistentFs.close(); } catch (error) { cleanupErrors.push(error); }
     }

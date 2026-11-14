@@ -917,7 +917,12 @@ async function openPersistedBytesPanel(page: Page, expect: Expect): Promise<{ ta
   const panelTabs = page.getByRole("tab").filter({ hasText: /Persisted Main File Bytes #[0-9a-f-]+/i });
   const existingCount = await panelTabs.count();
   await runCommand(page, expect, copyBytesCommand);
-  await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+  try {
+    await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+  } catch (cause) {
+    const tabs = await page.getByRole("tab").allTextContents();
+    throw new Error(`The byte probe did not open a new tab; current tabs: ${JSON.stringify(tabs)}`, { cause });
+  }
   const panelTab = panelTabs.nth(existingCount);
   await expect(panelTab).toBeVisible({ timeout: 15_000 });
   const panelId = /Persisted Main File Bytes #([0-9a-f-]+)/i.exec(await panelTab.innerText())?.[1];
