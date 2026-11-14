@@ -1,5 +1,5 @@
 import { createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, FileSystemService } from "@tk-reawakened/platform-services";
+import type { Capability, DialogService, FileSystemService, PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
@@ -94,7 +94,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
   /** Hand an accepted edit to VS Code's undo stack; VS Code undoes it by its `editId` (AD-19). */
   didEdit(editId: string): void {
-    const label = this.model.getSnapshot().edits.find((edit) => edit.editId === editId)?.label ?? "Edit";
+    const label = this.model.getSnapshot().edits.find((edit: { readonly editId: string; readonly label: string }) => edit.editId === editId)?.label ?? "Edit";
     this.#fire({ document: this, label, undo: () => { this.model.undo(editId); }, redo: () => { this.model.redo(editId); } });
   }
 
@@ -133,6 +133,10 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     if (this.model.kind !== "board") return { ok: false, message: `A ${this.model.kind} document has no picture.` };
     const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize());
     return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
+  }
+  /** Read a project-relative preview asset through this document's project-bound host filesystem. */
+  readProject(path: string): Promise<PlatformResult<Uint8Array>> {
+    return this.#fs.readProject(this.model.identity.projectId, path);
   }
 
   /**

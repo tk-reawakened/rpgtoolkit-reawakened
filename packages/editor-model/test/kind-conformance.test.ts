@@ -5,15 +5,15 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { TILE_BITMAP_MAGIC, writeTileBitmap } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyDocument } from "../src/index.ts";
-import { exampleBoard, exampleMain } from "./fixtures.ts";
+import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyCommand, type AnyDocument } from "../src/index.ts";
+import { exampleBoard, exampleCharacter, exampleItem, exampleMain } from "./fixtures.ts";
 
 interface KindCase {
   readonly kind: string;
   readonly path: string;
   readonly bytes: Uint8Array;
   /** A command the kind accepts and that changes the document. */
-  readonly accepted: unknown;
+  readonly accepted: AnyCommand;
   /** A command the kind rejects whole. */
   readonly rejected: unknown;
 }
@@ -56,6 +56,20 @@ const CASES: readonly KindCase[] = [
     accepted: { type: "set-bitmap-cell", x: 1, y: 0, tile: "village.tst2" },
     rejected: { type: "set-bitmap-cell", x: 2, y: 0, tile: "village.tst2" },
   },
+  {
+    kind: "character",
+    path: "Chrs/hero.tem",
+    bytes: exampleCharacter(),
+    accepted: { type: "set-sprite-animation", group: "walk", index: 7, file: "Misc/hero_walk_se.anm" },
+    rejected: { type: "set-sprite-animation", group: "walk", index: 8, file: "Misc/hero_walk_invalid.anm" },
+  },
+  {
+    kind: "item",
+    path: "Item/chest.itm",
+    bytes: exampleItem(),
+    accepted: { type: "set-sprite-animation", group: "idle", index: 7, file: "Misc/chest_idle_se.anm" },
+    rejected: { type: "set-sprite-animation", group: "battle", index: 0, file: "Misc/chest_battle.anm" },
+  },
 ];
 
 async function open(entry: KindCase): Promise<{ readonly host: ReturnType<typeof createMemoryPlatformServices>; readonly doc: AnyDocument }> {
@@ -84,7 +98,7 @@ for (const entry of CASES) {
   test(`${entry.kind}: a rejected command leaves the snapshot unchanged and names its reason (ADR 0022 D3.1)`, async () => {
     const { doc } = await open(entry);
     const before = doc.getSnapshot();
-    const result = doc.apply(entry.rejected);
+    const result = doc.apply(entry.rejected as AnyCommand);
     ok(!result.ok);
     equal(result.rejection.reason, "invalid");
     ok(result.rejection.message.length > 0);

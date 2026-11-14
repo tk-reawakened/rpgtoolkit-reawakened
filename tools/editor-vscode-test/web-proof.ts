@@ -27,6 +27,88 @@ type ProofHost = {
   bitmapSaved: Uint8Array;
 };
 
+/** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
+export async function runVscodeSpriteWebProof(
+  page: Page,
+  expect: Expect,
+  workbenchUrl: string,
+  spritePath: string,
+  originalBytes: Uint8Array,
+  host: Pick<ProofHost, "readBacking">,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
+  const chrsFolder = page.getByRole("treeitem", { name: "Chrs", exact: true });
+  await expect(chrsFolder).toBeVisible();
+  await chrsFolder.click();
+  await openGame(page, spritePath, expect);
+  let editor = await waitForEditorFrame(page, "opened sprite graphics editor");
+  const view = editor.getByRole("region", { name: "character sprite graphics" });
+  await expect(view).toBeVisible();
+  const south = view.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
+  await expect(south).toBeVisible();
+  await south.fill("Misc/vscode-web-proof.anm");
+  await south.press("Tab");
+  await expect(view.getByText("Graphics change recorded. Save the document to keep it.", { exact: true })).toBeVisible();
+  const north = view.getByRole("group", { name: "Directional walk animations" }).getByLabel("North animation file");
+  await north.fill("Misc/vscode-web-proof.gif");
+  await north.press("Tab");
+  const previewStylesheet = editor.locator('link[rel="stylesheet"][href$="tileset-browser.css"]');
+  await expect(previewStylesheet).toHaveCount(1);
+  expect(await previewStylesheet.evaluate((link) => (link as HTMLLinkElement).sheet !== null)).toBe(true);
+  const previewStage = view.locator(".tkr-sprite-preview-stage");
+  await expect(previewStage).toBeVisible();
+  const previewOverlay = previewStage.locator(".tkr-sprite-preview-overlay");
+  await expect(previewOverlay).toBeVisible();
+  const previewLayout = await previewStage.evaluate((stage) => {
+    const overlay = stage.querySelector<SVGSVGElement>(".tkr-sprite-preview-overlay");
+    if (overlay === null) throw new Error("the sprite origin overlay is missing");
+    const stageStyle = getComputedStyle(stage);
+    const overlayStyle = getComputedStyle(overlay);
+    return {
+      stagePosition: stageStyle.position,
+      stageDisplay: stageStyle.display,
+      stageWidth: stageStyle.width,
+      stageHeight: stageStyle.height,
+      overlayPosition: overlayStyle.position,
+      overlayTop: overlayStyle.top,
+      overlayRight: overlayStyle.right,
+      overlayBottom: overlayStyle.bottom,
+      overlayLeft: overlayStyle.left,
+      overlayWidth: overlayStyle.width,
+      overlayHeight: overlayStyle.height,
+      overlayPointerEvents: overlayStyle.pointerEvents,
+      hasInlineStyle: stage.hasAttribute("style") || overlay.hasAttribute("style"),
+    };
+  });
+  expect(previewLayout).toMatchObject({
+    stagePosition: "relative",
+    stageDisplay: "inline-block",
+    overlayPosition: "absolute",
+    overlayTop: "0px",
+    overlayRight: "0px",
+    overlayBottom: "0px",
+    overlayLeft: "0px",
+    overlayPointerEvents: "none",
+    hasInlineStyle: false,
+  });
+  expect(previewLayout.overlayWidth).toBe(previewLayout.stageWidth);
+  expect(previewLayout.overlayHeight).toBe(previewLayout.stageHeight);
+  await view.getByRole("button", { name: "Save sprite" }).click();
+  await expect(view.getByText("Sprite saved.", { exact: true })).toBeVisible();
+  const savedBytes = await host.readBacking(spritePath);
+  expect(savedBytes).not.toEqual(originalBytes);
+  await closeActiveEditor(page, expect);
+  await openGame(page, spritePath, expect);
+  editor = await waitForEditorFrame(page, "reopened sprite graphics editor");
+  const reopened = editor.getByRole("region", { name: "character sprite graphics" });
+  const reopenedWalk = reopened.getByRole("group", { name: "Directional walk animations" });
+  await expect(reopenedWalk.getByLabel("South animation file")).toHaveValue("Misc/vscode-web-proof.anm");
+  await expect(reopenedWalk.getByLabel("North animation file")).toHaveValue("Misc/vscode-web-proof.gif");
+  await expect(reopened.getByText("All sprite changes saved.", { exact: true })).toBeVisible();
+  expect(await host.readBacking(spritePath)).toEqual(savedBytes);
+}
+
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
 export async function runVscodeWebProof(
   page: Page,

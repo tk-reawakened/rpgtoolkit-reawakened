@@ -57,4 +57,3 @@ export function createBrowserSession(initial: BrowserState = { selection: null, 
     },
   };
 }
-

@@ -1,5 +1,5 @@
-import { createSessionCopy, listRecentWebProjects, mountGameSettings, openGameSettings, openWebProject, reopenWebProject, type GameSettingsOpenResult, type GameSettingsView, type WebProject } from "@tk-reawakened/host-web";
-import { createDocumentIdentity, type AnyDocument, type MainDocument } from "@tk-reawakened/editor-model";
+import { createSessionCopy, createWorkbench, listRecentWebProjects, openWebProject, reopenWebProject, type WebProject, type Workbench } from "@tk-reawakened/host-web";
+import { createDocumentIdentity, type AnyDocument } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
 const status = document.querySelector<HTMLElement>("#host-status")!;
@@ -13,15 +13,14 @@ const recentLabel = document.querySelector<HTMLLabelElement>("#recent-project-la
 const recentSelect = document.querySelector<HTMLSelectElement>("#recent-project")!;
 const reopenButton = document.querySelector<HTMLButtonElement>("#reopen-project")!;
 const actions = document.querySelector<HTMLElement>("#document-actions")!;
-/** The one document this page shows: its project, its model and the view mounted over it. */
+/** The one project this page shows: its workspace, tabs and mounted workbench. */
 interface Shown {
   readonly project: WebProject;
-  readonly document: MainDocument;
-  readonly view: GameSettingsView;
+  readonly workbench: Workbench;
   readonly element: HTMLElement;
+  readonly unsubscribeTabs: () => void;
 }
 let shown: Shown | null = null;
-let openedProject: WebProject | null = null;
 let projectWithChoices: WebProject | null = null;
 let openRequest = 0;
 interface PendingDocumentOpen {
@@ -137,7 +136,7 @@ async function projectGames(project: WebProject): Promise<string[]> {
     for (const entry of listed.value) {
       const path = folder === "" ? entry.name : `${folder}/${entry.name}`;
       if (entry.kind === "directory") pending.push(path);
-      else if (entry.name.toLowerCase().endsWith(".gam")) games.push(path);
+      else if (entry.kind === "file" && entry.name.toLowerCase().endsWith(".gam")) games.push(path);
     }
   }
   return games.sort();
@@ -151,16 +150,121 @@ function hideProjectChoices(): void {
   gameSelect.replaceChildren();
 }
 
-/**
- * Show `path` in place of the shown document. The new view is made first, so a failed open leaves the old one; then the
- * old document is closed, which asks before losing unsaved work (ADR 0022 D3.6). Cancelling keeps the old document.
- */
+let showQueue: Promise<void> = Promise.resolve();
 async function show(project: WebProject, path: string, request: number): Promise<void> {
+  const previous = showQueue;
+  let release!: () => void;
+  showQueue = new Promise<void>((resolve) => { release = resolve; });
+  await previous;
+  try {
+    if (request === openRequest) await showProject(project, path, request);
+  } finally {
+    release();
+  }
+}
+
+async function showProject(project: WebProject, path: string, request: number): Promise<void> {
   const identityKey = createDocumentIdentity(project.project.id, path).key;
-  let opens = pendingDocumentOpens.get(project.workspace);
+  const previous = shown;
+  const workspace = previous !== null && previous.project.project.id === project.project.id
+    ? previous.project.workspace
+    : project.workspace;
+  beginDocumentOpen(workspace, identityKey);
+  if (previous !== null && previous.project.project.id === project.project.id) {
+    if (previous.project !== project) project.deactivate();
+    try {
+      await previous.workbench.openPath(path);
+      if (request !== openRequest) return;
+      if (!previous.workbench.tabs.getSnapshot().tabs.some((tab) => tab.key === identityKey)) {
+        throw new Error(`Could not open ${path} as a registered Toolkit document.`);
+      }
+      status.textContent = projectStatus(previous.project, path);
+      return;
+    } finally {
+      await finishDocumentOpen(previous.project.workspace, identityKey);
+    }
+  }
+
+  const element = document.createElement("section");
+  element.hidden = true;
+  settings.append(element);
+  const workbench = createWorkbench(project, element);
+  let candidate!: Shown;
+  const unsubscribeTabs = workbench.tabs.subscribe(() => updateActions(candidate));
+  candidate = { project, workbench, element, unsubscribeTabs };
+  let openedDocument: AnyDocument | undefined;
+  try {
+    await workbench.openPath(path);
+    openedDocument = project.workspace.documents().find((item) => item.identity.key === identityKey);
+    if (!workbench.tabs.getSnapshot().tabs.some((tab) => tab.key === identityKey)) {
+      throw new Error(`Could not open ${path} as a registered Toolkit document.`);
+    }
+  } catch (error) {
+    candidate.unsubscribeTabs();
+    workbench.dispose();
+    element.remove();
+    if (openedDocument !== undefined) abandonCandidate(project, openedDocument, identityKey);
+    await finishDocumentOpen(project.workspace, identityKey);
+    project.deactivate();
+    throw error;
+  }
+  if (request !== openRequest) {
+    candidate.unsubscribeTabs();
+    workbench.dispose();
+    element.remove();
+    if (openedDocument !== undefined) abandonCandidate(project, openedDocument, identityKey);
+    await finishDocumentOpen(project.workspace, identityKey);
+    project.deactivate();
+    return;
+  }
+
+  if (previous !== null) {
+    const closedPaths: string[] = [];
+    for (const tab of [...previous.workbench.tabs.getSnapshot().tabs]) {
+      const closed = await previous.workbench.tabs.close(tab.key);
+      if (!closed.closed || request !== openRequest) {
+        await restoreClosedTabs(previous, closedPaths);
+        candidate.unsubscribeTabs();
+        workbench.dispose();
+        element.remove();
+        if (openedDocument !== undefined) abandonCandidate(project, openedDocument, identityKey);
+        await finishDocumentOpen(project.workspace, identityKey);
+        project.deactivate();
+        if (request === openRequest && !closed.closed) {
+          const previousPath = previous.workbench.tabs.getSnapshot().tabs[0]?.path ?? tab.path;
+          status.textContent = closed.reason === "cancelled"
+            ? `${previousPath} is still open; ${path} was not opened.`
+            : `${previousPath} is still open: ${closed.failure.message}`;
+        }
+        return;
+      }
+      closedPaths.push(tab.path);
+    }
+    if (request !== openRequest) {
+      await restoreClosedTabs(previous, closedPaths);
+      candidate.unsubscribeTabs();
+      workbench.dispose();
+      element.remove();
+      if (openedDocument !== undefined) abandonCandidate(project, openedDocument, identityKey);
+      await finishDocumentOpen(project.workspace, identityKey);
+      project.deactivate();
+      return;
+    }
+  }
+  replaceShown(candidate);
+  status.textContent = projectStatus(project, path);
+  await finishDocumentOpen(project.workspace, identityKey);
+}
+
+function projectStatus(project: WebProject, path: string): string {
+  return `${project.project.name}: ${path}${project.sessionCopy ? " (session copy; changes stay in memory)" : " (project folder; changes write to disk)"}`;
+}
+
+function beginDocumentOpen(workspace: WebProject["workspace"], identityKey: string): void {
+  let opens = pendingDocumentOpens.get(workspace);
   if (opens === undefined) {
     opens = new Map();
-    pendingDocumentOpens.set(project.workspace, opens);
+    pendingDocumentOpens.set(workspace, opens);
   }
   let pending = opens.get(identityKey);
   if (pending === undefined) {
@@ -168,78 +272,13 @@ async function show(project: WebProject, path: string, request: number): Promise
     opens.set(identityKey, pending);
   }
   pending.count += 1;
-  const candidateElement = document.createElement("div");
-  candidateElement.hidden = true;
-  settings.append(candidateElement);
-  let result: GameSettingsOpenResult;
-  try {
-    // A failed close leaves the document queued for a later attempt, but must not block this acquisition.
-    if (pending.closing !== undefined) {
-      try {
-        await pending.closing;
-      } catch {
-        // finishDocumentOpen restored the document to the cleanup queue.
-      }
-    }
-    if (request !== openRequest) {
-      candidateElement.remove();
-      await finishDocumentOpen(project.workspace, identityKey);
-      return;
-    }
-    result = await openGameSettings(project, path, candidateElement);
-  } catch (error) {
-    candidateElement.remove();
-    await finishDocumentOpen(project.workspace, identityKey);
-    throw error;
-  }
-  if (request !== openRequest) {
-    try {
-      if (result.ok) await abandonCandidate(project, result.document, result.view, identityKey);
-    } finally {
-      candidateElement.remove();
-      await finishDocumentOpen(project.workspace, identityKey);
-    }
-    return;
-  }
-  await finishDocumentOpen(project.workspace, identityKey);
-  if (request !== openRequest) {
-    try {
-      if (result.ok) await abandonCandidate(project, result.document, result.view, identityKey);
-    } finally {
-      candidateElement.remove();
-    }
-    return;
-  }
-  if (!result.ok) {
-    candidateElement.remove();
-    throw new Error(result.error.kind === "case-conflict" ? result.error.message : `${result.error.document}: ${result.error.error.message}`);
-  }
-
-  const previous = shown;
-  if (previous !== null && previous.document !== result.document) {
-    const closed = await previous.view.close();
-    if (!closed.closed) {
-      await abandonCandidate(project, result.document, result.view, identityKey);
-      candidateElement.remove();
-      if (project !== previous.project) project.deactivate();
-      status.textContent = closed.reason === "cancelled"
-        ? `${previous.document.identity.path} is still open; ${path} was not opened.`
-        : `${previous.document.identity.path} is still open: ${closed.failure.message}`;
-      return;
-    }
-    if (request !== openRequest) {
-      await abandonCandidate(project, result.document, result.view, identityKey);
-      candidateElement.remove();
-      return;
-    }
-  }
-  if (openedProject !== project) openedProject?.deactivate();
-  openedProject = project;
-  replaceShown({ project, document: result.document, view: result.view, element: candidateElement });
-  status.textContent = `${project.project.name}: ${result.document.identity.path}${project.sessionCopy ? " (session copy; changes stay in memory)" : " (project folder; changes write to disk)"}`;
 }
 
-/** Close stale documents only after same-workspace opens have finished mounting or failing. */
+function shownOwnsDocument(workspace: WebProject["workspace"], identityKey: string): boolean {
+  return shown?.project.workspace === workspace
+    && shown.workbench.tabs.getSnapshot().tabs.some((tab) => tab.key === identityKey);
+}
+
 async function finishDocumentOpen(workspace: WebProject["workspace"], identityKey: string): Promise<void> {
   const opens = pendingDocumentOpens.get(workspace);
   const pending = opens?.get(identityKey);
@@ -248,7 +287,10 @@ async function finishDocumentOpen(workspace: WebProject["workspace"], identityKe
   if (pending.count > 0) return;
   while (pending.abandonedDocuments.length > 0) {
     const abandoned = pending.abandonedDocuments.pop()!;
-    const closing = workspace.close(abandoned).then(() => {});
+    if (shownOwnsDocument(workspace, identityKey)) continue;
+    const closing = workspace.close(abandoned).then((result) => {
+      if (!result.closed) throw new Error(`Could not close abandoned document ${abandoned.identity.path}.`);
+    });
     pending.closing = closing;
     try {
       await closing;
@@ -264,20 +306,15 @@ async function finishDocumentOpen(workspace: WebProject["workspace"], identityKe
   if (opens.size === 0) pendingDocumentOpens.delete(workspace);
 }
 
-/** Release the candidate view immediately; workspace.close respects any active view still owning the document. */
-async function abandonCandidate(
-  project: WebProject,
-  document: AnyDocument,
-  view: GameSettingsView,
-  identityKey: string,
-): Promise<void> {
-  view.dispose();
+function abandonCandidate(project: WebProject, document: AnyDocument, identityKey: string): void {
   const pending = pendingDocumentOpens.get(project.workspace)?.get(identityKey);
-  if (pending !== undefined && pending.count > 0) {
+  if (pending !== undefined && !pending.abandonedDocuments.includes(document)) {
     pending.abandonedDocuments.push(document);
-    return;
   }
-  await project.workspace.close(document);
+}
+
+async function restoreClosedTabs(previous: Shown, paths: readonly string[]): Promise<void> {
+  for (const path of paths) await previous.workbench.openPath(path);
 }
 
 
@@ -286,56 +323,90 @@ function replaceShown(next: Shown | null): void {
   const previous = shown;
   shown = next;
   if (next !== null) next.element.hidden = false;
-  previous?.view.dispose();
-  previous?.element.remove();
-  actions.hidden = next === null;
+  actions.hidden = activeDocument(next) === null;
+  if (previous !== null && previous !== next) {
+    previous.unsubscribeTabs();
+    previous.workbench.dispose();
+    previous.element.remove();
+    previous.project.deactivate();
+  }
 }
 
-/** Run a document action on the shown document; a newer open makes its outcome stale. */
-function onShown(button: string, action: (current: Shown) => Promise<string | null> | string | null): void {
+function activeDocument(current: Shown | null): AnyDocument | null {
+  if (current === null) return null;
+  const active = current.workbench.tabs.getSnapshot().active;
+  if (active === null) return null;
+  return current.project.workspace.documents().find((candidate) => candidate.identity.key === active) ?? null;
+}
+
+function updateActions(current: Shown): void {
+  if (shown === current) actions.hidden = activeDocument(current) === null;
+}
+
+function onActive(button: string, action: (current: Shown, document: AnyDocument) => Promise<string | null> | string | null): void {
   document.querySelector<HTMLButtonElement>(button)!.addEventListener("click", () => {
     const current = shown;
-    if (current === null) return;
-    void Promise.resolve(action(current))
+    const active = activeDocument(current);
+    if (current === null || active === null) return;
+    void Promise.resolve(action(current, active))
       .then((message) => { if (message !== null && shown === current) status.textContent = message; })
       .catch((error: unknown) => { if (shown === current) showFailure(error); });
   });
 }
 
-onShown("#undo", ({ project, document }) => {
-  const undone = project.workspace.undo(document);
+onActive("#undo", ({ project }, active) => {
+  const undone = project.workspace.undo(active);
   return undone.ok ? null : "Nothing to undo.";
 });
-onShown("#redo", ({ project, document }) => {
-  const redone = project.workspace.redo(document);
+onActive("#redo", ({ project }, active) => {
+  const redone = project.workspace.redo(active);
   return redone.ok ? null : "Nothing to redo.";
 });
-onShown("#save-as", async (current) => {
-  const saved = await current.project.workspace.saveAs(current.document);
+onActive("#save-as", async (current, active) => {
+  const saved = await current.project.workspace.saveAs(active);
   if (!saved.ok) return saved.reason === "cancelled" ? null : saved.failure.message;
   if (shown !== current) return null;
-  // The copy is a new document (ADR 0022 D1.3): it replaces the source, which the workspace has closed.
-  const element = document.createElement("div");
-  settings.append(element);
-  replaceShown({ project: current.project, document: saved.document, view: mountGameSettings(current.project, saved.document, element), element });
-  return `${current.project.project.name}: ${saved.document.identity.path} (saved as a copy of ${current.document.identity.path})`;
+  const sourceTab = active.identity.key;
+  const sourceClosed = saved.document === active
+    ? { closed: true }
+    : await current.workbench.tabs.close(sourceTab);
+  if (shown !== current) return null;
+  current.workbench.tabs.open(saved.document);
+  const sourceNotice = sourceClosed.closed ? "" : ` The source ${active.identity.path} remains open.`;
+  return `${current.project.project.name}: ${saved.document.identity.path} (saved as a copy of ${active.identity.path}).${sourceNotice}`;
 });
-onShown("#save-all", async ({ project }) => {
-  const results = await project.workspace.saveAll();
-  if (results.length === 0) return "Nothing to save.";
-  // Each document is saved or not on its own (ADR 0022 D4.1); the message names every one.
-  return results.map(({ document, result }) => (result.ok ? `Saved ${document}.` : result.failure.message)).join(" ");
+document.querySelector<HTMLButtonElement>("#save-all")!.addEventListener("click", () => {
+  const current = shown;
+  if (current === null) return;
+  void current.project.workspace.saveAll().then((results) => {
+    if (shown !== current) return;
+    if (results.length === 0) {
+      status.textContent = "Nothing to save.";
+      return;
+    }
+    status.textContent = results.map(({ document, result }) => (result.ok ? `Saved ${document}.` : result.failure.message)).join(" ");
+  }).catch((error: unknown) => { if (shown === current) showFailure(error); });
 });
-onShown("#revert", async ({ project, document }) => {
-  const reverted = await project.workspace.revert(document);
-  if (reverted.ok) return `Reverted ${document.identity.path} to the version on disk.`;
+onActive("#revert", async (current, active) => {
+  const reverted = await current.project.workspace.revert(active);
+  if (reverted.ok) return `Reverted ${active.identity.path} to the version on disk.`;
   return reverted.reason === "cancelled" ? null : reverted.failure.message;
 });
-onShown("#close", async (current) => {
-  const closed = await current.view.close();
-  if (!closed.closed) return closed.reason === "cancelled" ? null : `${current.document.identity.path} is still open: ${closed.failure.message}`;
-  if (shown === current) replaceShown(null);
-  return "No game open.";
+document.querySelector<HTMLButtonElement>("#close")!.addEventListener("click", () => {
+  const current = shown;
+  const active = activeDocument(current);
+  if (current === null || active === null) return;
+  void current.workbench.tabs.close(active.identity.key).then((closed) => {
+    if (shown !== current) return;
+    if (!closed.closed) {
+      if (closed.reason !== "cancelled") status.textContent = `${active.identity.path} is still open: ${closed.failure.message}`;
+      return;
+    }
+    if (current.workbench.tabs.getSnapshot().tabs.length === 0) {
+      status.textContent = "No document open.";
+      actions.hidden = true;
+    }
+  }).catch((error: unknown) => { if (shown === current) showFailure(error); });
 });
 
 // Leaving the page closes the document too: the browser asks first while there is unsaved work (D3.6).

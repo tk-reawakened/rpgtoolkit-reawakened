@@ -21,6 +21,7 @@ import { BoardView } from "./board-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 import { TileBitmapView } from "./tile-bitmap-view.tsx";
+import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
@@ -51,16 +52,15 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
-  readonly services: Pick<PlatformServices, "document" | "capabilities">;
+  readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> };
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
 }
-
 /** The handle a host keeps to a mounted view. */
 export interface ViewHandle {
   /** Remove the view from the page and everything it subscribed to. Calling it again does nothing. */
@@ -75,17 +75,25 @@ function isTileBitmapView(document: ViewContext["document"]): document is TileBi
   return document.kind === "tile-bitmap";
 }
 
+function isSpriteView(document: ViewContext["document"]): document is SpriteViewDocument {
+  return document.kind === "character" || document.kind === "item";
+}
+
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
 export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const onEdited = (event: Parameters<PlatformServices["document"]["edited"]>[0]): void => ctx.services.document.edited(event);
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
+  const fs = ctx.services.fs;
+  if (isSpriteView(document) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
   const browser = ctx.browser === undefined ? {} : { browser: ctx.browser };
   render(
     isBoardView(document)
       ? createElement(BoardView, { doc: document, capabilities, onEdited, ...browser })
       : isTileBitmapView(document)
         ? createElement(TileBitmapView, { doc: document, capabilities, onEdited, ...browser })
+        : isSpriteView(document)
+          ? createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited })
         : createElement(SettingsView, { doc: document, capabilities, onEdited }),
     el,
   );

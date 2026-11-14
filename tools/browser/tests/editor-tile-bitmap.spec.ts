@@ -13,8 +13,8 @@ import {
   type TileBitmapCell,
 } from "@tk-reawakened/core";
 
-// Story 12.8 in the real browser host: the whole workbench (files panel, tabs, tile bitmap editor and the shared tileset
-// browser) over an origin-private project folder. What the editor's canvas shows is read back from the canvas itself and
+// Story 12.8 in the real browser host, through the shipped editor page: its workbench (files panel, tabs, tile bitmap
+// editor and the shared tileset browser) over an origin-private project folder. What the editor's canvas shows is read back from the canvas itself and
 // compared with the picture the core compositor makes of the same cells; the layout is read from rendered boxes.
 
 const tileset = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/tileset/tileset_detail1.tst", import.meta.url)));
@@ -55,29 +55,41 @@ function expectedPicture(model: TileBitmap): { readonly width: number; readonly 
 const HOUSE = bitmap(2, 2, (x, y) => (x === 1 && y === 0 ? cellOf("village.tst2", 10, -20, 30) : cellOf("village.tst1")));
 const OTHER = bitmap(3, 1, () => cellOf("village.tst2", 1, 2, 3));
 
-/** Seed an origin-private project folder, then open the workbench over it. */
-async function openWorkbench(page: Page): Promise<string> {
-  const folder = `TkrBitmap-${randomUUID()}`;
+const validMain = Array.from(readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url)));
+
+interface ProofWindow extends Window { __tkrTestFolder?: FileSystemDirectoryHandle }
+
+/**
+ * The shipped editor page (`tools/browser/editor-web/index.html`) over a seeded origin-private project folder, opened the
+ * way a person does it: "Open project folder". Returns once the project's workbench is showing.
+ */
+async function openWorkbench(page: Page): Promise<void> {
   const files = [
+    { path: "Main/example.gam", bytes: validMain },
     { path: "Bitmap/house.tbm", bytes: [...bytesOf(HOUSE)] },
     { path: "Bitmap/other.tbm", bytes: [...bytesOf(OTHER)] },
     { path: "Tiles/village.tst", bytes: [...tileset] },
   ];
-  // Same origin, no workbench yet: the seeding finishes before the workbench reads the folder.
-  await page.goto("/health");
-  await page.evaluate(async ({ name, inputs }) => {
+  const folderName = `TkrBitmap-${randomUUID()}`;
+  await page.addInitScript(async ({ inputs, name }) => {
     const root = await (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create: true });
     for (const input of inputs) {
       let parent = root;
       const parts = input.path.split("/");
       for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part, { create: true });
-      const writable = await (await parent.getFileHandle(parts.at(-1)!, { create: true })).createWritable();
+      const file = await parent.getFileHandle(parts.at(-1)!, { create: true });
+      if ((await file.getFile()).size > 0) continue;
+      const writable = await file.createWritable();
       await writable.write(new Uint8Array(input.bytes));
       await writable.close();
     }
-  }, { name: folder, inputs: files });
-  await page.goto(`/tools/browser/editor-web/workbench.html?folder=${folder}`);
-  return folder;
+    Object.defineProperty(window, "showDirectoryPicker", { configurable: true, value: async () => root });
+    (window as ProofWindow).__tkrTestFolder = root;
+  }, { inputs: files, name: folderName });
+  await page.goto("/tools/browser/editor-web/index.html");
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
 }
 
 async function openFile(page: Page, folderName: string, fileName: string): Promise<void> {
@@ -102,17 +114,17 @@ async function expectCanvas(canvas: Locator, expected: { readonly width: number;
   }, { message: "the canvas shows exactly the pixels the compositor makes of the cells" }).toBe(true);
 }
 
-async function readOpfs(page: Page, folder: string, path: string): Promise<number[]> {
-  return await page.evaluate(async ({ name, file }) => {
-    let handle = await (await navigator.storage.getDirectory()).getDirectoryHandle(name);
+async function readProjectFile(page: Page, path: string): Promise<number[]> {
+  return await page.evaluate(async (file) => {
+    let handle = (window as ProofWindow).__tkrTestFolder!;
     const parts = file.split("/");
     for (const part of parts.slice(0, -1)) handle = await handle.getDirectoryHandle(part);
     return Array.from(new Uint8Array(await (await (await handle.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer()));
-  }, { name: folder, file: path });
+  }, path);
 }
 
 test("the tile bitmap editor lays its grid out as a grid and paints the compositor's pixels, before and after an edit", async ({ page }) => {
-  const folder = await openWorkbench(page);
+  await openWorkbench(page);
   await openFile(page, "Bitmap", "house.tbm");
   const editor = page.locator(".tkr-bitmap");
   await expect(editor.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles, 64 × 64 pixels");
@@ -148,10 +160,10 @@ test("the tile bitmap editor lays its grid out as a grid and paints the composit
   await editor.getByRole("button", { name: /^Column 1, row 1:/ }).click();
   const edited = bitmap(2, 2, (x, y) => (x === 0 && y === 0 ? cellOf("village.tst2") : x === 1 && y === 0 ? cellOf("village.tst2", 10, -20, 30) : cellOf("village.tst1")));
   await expectCanvas(canvas, expectedPicture(edited));
-  expect(await readOpfs(page, folder, "Bitmap/house.tbm")).toEqual([...bytesOf(HOUSE)]);
+  expect(await readProjectFile(page, "Bitmap/house.tbm")).toEqual([...bytesOf(HOUSE)]);
   await editor.getByRole("button", { name: "Save", exact: true }).click();
   await expect(editor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
-  await expect.poll(() => readOpfs(page, folder, "Bitmap/house.tbm")).toEqual([...bytesOf(edited)]);
+  await expect.poll(() => readProjectFile(page, "Bitmap/house.tbm")).toEqual([...bytesOf(edited)]);
 });
 
 test("Edit tile bitmap in the browser opens that very file in its own tab", async ({ page }) => {
@@ -175,7 +187,7 @@ test("Edit tile bitmap in the browser opens that very file in its own tab", asyn
 });
 
 test("typing a shade into a field and pressing Enter shades that cell, and the canvas and saved file follow", async ({ page }) => {
-  const folder = await openWorkbench(page);
+  await openWorkbench(page);
   await openFile(page, "Bitmap", "house.tbm");
   const editor = page.locator(".tkr-bitmap");
   await expect(editor.locator("canvas.tkr-bitmap-canvas")).toBeVisible();
@@ -186,5 +198,5 @@ test("typing a shade into a field and pressing Enter shades that cell, and the c
   const shaded = bitmap(2, 2, (x, y) => (x === 0 && y === 0 ? cellOf("village.tst1", -255, 0, 0) : x === 1 && y === 0 ? cellOf("village.tst2", 10, -20, 30) : cellOf("village.tst1")));
   await expectCanvas(editor.locator("canvas.tkr-bitmap-canvas"), expectedPicture(shaded));
   await editor.getByRole("button", { name: "Save", exact: true }).click();
-  await expect.poll(() => readOpfs(page, folder, "Bitmap/house.tbm")).toEqual([...bytesOf(shaded)]);
+  await expect.poll(() => readProjectFile(page, "Bitmap/house.tbm")).toEqual([...bytesOf(shaded)]);
 });

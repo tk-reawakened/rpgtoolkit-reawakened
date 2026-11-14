@@ -57,16 +57,6 @@ await build({
   },
 });
 console.log("built tools/browser/editor-web/dist/editor-web.js");
-await build({
-  entryPoints: [join(here, "editor-web", "workbench.ts")],
-  outfile: join(dirname(editorWebOut), "workbench.js"),
-  ...bundleOptions,
-  alias: {
-    ...bundleOptions.alias,
-    "@tk-reawakened/host-web": join(root, "packages/host-web/src/index.ts"),
-  },
-});
-console.log("built tools/browser/editor-web/dist/workbench.js");
 
 // No browser artefact may contain a WebAssembly module: the page's strict `script-src 'self'` forbids instantiation, and
 // the only dependency that ships one (the Vorbis decoder) is aliased to a stub (#1325,
