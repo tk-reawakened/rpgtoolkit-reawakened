@@ -204,6 +204,9 @@ importers:
       '@tk-reawakened/runner-harness':
         specifier: workspace:*
         version: link:packages/runner-harness
+      '@tk-reawakened/runner-headless':
+        specifier: workspace:*
+        version: link:packages/runner-headless
       '@tk-reawakened/runner-web':
         specifier: workspace:*
         version: link:packages/runner-web
