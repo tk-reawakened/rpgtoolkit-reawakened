@@ -27,6 +27,7 @@ import {
   selectRecovery,
   removeActorSprite,
   restoreGameState,
+  snapshot,
   utf8Decode,
   utf8Encode,
   tagNonFinite,
@@ -41,6 +42,7 @@ import {
   type Value,
   type RecoveryStorage,
   type RecoveryValidate,
+  type WorldBoard,
   type WorldItem,
   type WorldTile,
 } from "../src/index.ts";
