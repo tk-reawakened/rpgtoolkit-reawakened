@@ -71,12 +71,18 @@ function activate(context) {
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.enableAutosave", setAutosave("afterDelay")));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.disableAutosave", setAutosave("off")));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseAutosaveOff", () => {
-    autosaveOffGate = new Promise((resolve) => { releaseAutosaveOff = resolve; });
+    if (autosaveOffGate === undefined) autosaveOffGate = new Promise((resolve) => { releaseAutosaveOff = resolve; });
   }));
-  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.releaseAutosaveOff", () => {
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.releaseAutosaveOff", async () => {
     releaseAutosaveOff?.();
     releaseAutosaveOff = undefined;
     autosaveOffGate = undefined;
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.joinPath(workspace.uri, ".vscode", "tkr-autosave-command-released"),
+      new TextEncoder().encode("off"),
+    );
   }));
 }
 function withTimeout(operation, stage) {

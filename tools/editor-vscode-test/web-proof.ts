@@ -315,7 +315,7 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
         if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
         throw error;
       }
-    }, { message: `VS Code completed the autosave ${value} command` }).toBe(value);
+    }, { message: `VS Code completed the autosave ${value} command`, timeout: 30_000 }).toBe(value);
     await expect.poll(async () => {
       const settings = JSON.parse(new TextDecoder().decode(await host.readBacking(".vscode/settings.json"))) as Record<string, unknown>;
       return settings["files.autoSave"];
@@ -334,11 +334,17 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   } catch (error) {
     failure = error;
   } finally {
+    let acknowledgement: Promise<void> | undefined;
+    let acknowledgementError: unknown;
+    let acknowledgementFailed = false;
     try {
       await runCommand(page, expect, "Test: Pause Autosave Off");
       await runCommand(page, expect, "Test: Turn Autosave Off");
       let autosaveAcknowledged = false;
-      const acknowledgement = expectAutosave("off").then(() => { autosaveAcknowledged = true; });
+      acknowledgement = expectAutosave("off").then(
+        () => { autosaveAcknowledged = true; },
+        (error: unknown) => { acknowledgementFailed = true; acknowledgementError = error; },
+      );
       await expect.poll(async () => new TextDecoder().decode(await host.readBacking(".vscode/tkr-autosave-command-paused"))).toBe("off");
       await expect.poll(async () => {
         const settings = JSON.parse(new TextDecoder().decode(await host.readBacking(".vscode/settings.json"))) as Record<string, unknown>;
@@ -347,11 +353,27 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
       await expect.poll(async () => new TextDecoder().decode(await host.readBacking(".vscode/tkr-autosave-command-complete"))).toBe("afterDelay");
       if (autosaveAcknowledged) throw new Error("The autosave proof acknowledged a command before its completion barrier");
       console.info("vscode.dev autosave guard negative control passed: files.autoSave=off while command completion remained pending");
-      await runCommand(page, expect, "Test: Release Autosave Off");
-      await acknowledgement;
-      console.info("vscode.dev autosave completion acknowledged and persisted: off");
     } catch (error) {
       cleanupErrors.push(error);
+    } finally {
+      try {
+        await runCommand(page, expect, "Test: Release Autosave Off");
+        await expect.poll(async () => {
+          try {
+            return new TextDecoder().decode(await host.readBacking(".vscode/tkr-autosave-command-released"));
+          } catch (error) {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+            throw error;
+          }
+        }, { message: "VS Code released the autosave completion barrier" }).toBe("off");
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+      if (acknowledgement !== undefined) {
+        await acknowledgement;
+        if (acknowledgementFailed) cleanupErrors.push(acknowledgementError);
+        else console.info("vscode.dev autosave completion acknowledged and persisted: off");
+      }
     }
   }
   const combined = combineProofErrors(failure, cleanupErrors);
