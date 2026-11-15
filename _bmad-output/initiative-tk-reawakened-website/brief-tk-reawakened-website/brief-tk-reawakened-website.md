@@ -7,7 +7,7 @@ updated: 2026-11-14
 
 # TK Reawakened Website
 
-The official site gives people one place to get TK Reawakened, learn to make or import an RPG, and find other people making games. A newcomer should reach their first working scene. A returning Toolkit creator should know which release to get and what it can import. Both should be able to show what they made and get a useful response. Players and playtesters should be able to find work to try and know what feedback the creator wants.
+The official site at `tk-reawakened.com` gives people one place to get TK Reawakened, learn to make or import an RPG, and find other people making games. A newcomer should reach their first working scene. A returning Toolkit creator should know which release to get and what it can import. Both should be able to show what they made and get a useful response. Players and playtesters should be able to find work to try and know what feedback the creator wants.
 
 ## Proposed launch
 
@@ -39,6 +39,6 @@ Toolkit Zone showed that participation could be visible even to visitors who arr
 ## Open decisions
 
 - Pick the home for help and feedback with its moderators. Name the launch owner for submission review, reports, the prompt and its recap. Test the flow with a newcomer and a returning creator.
-- Choose the website repository, hosting and domain. Decide where public guides are authored and how product releases provide builds, version data and verification inputs. The website is expected to have its own repository.
+- Choose the website repository and [hosting for `tk-reawakened.com`](../epic-documentation-website/discovery/hosting-options.md). Decide where public guides are authored and how product releases provide builds, version data and verification inputs. The website is expected to have its own repository.
 - Decide how to link to the [public community archive](https://tk-reawakened.github.io/corpus/) and which starter resources have clear permission and useful version information. A curated resources page is a candidate once there is material to share.
-- Revisit built-in accounts, forums, file uploads and game hosting after seeing how people use the curated showcase and shared feedback channel.
+- Decide whether durable discussions belong on an existing service or a separately hosted forum. Revisit built-in site accounts, file uploads and game hosting after seeing how people use the curated showcase and feedback channel.

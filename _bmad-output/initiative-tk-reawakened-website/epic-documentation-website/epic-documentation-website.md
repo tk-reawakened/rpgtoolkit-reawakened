@@ -32,7 +32,7 @@ A person who has never seen the project can find the site, install or open the p
 
 Documentation content and the website that publishes it: the information architecture, the site build, hosting set-up, versioning, search, the documentation QA gates, the surface inventory and the sample-verification harness, screenshots and example projects, and the landing, about and status pages. Not the normative spec (`docs/spec/`, ADR 0007), the architecture decision records, `docs/guardrails.md` or `docs/editor-features.md`, which stay engineering documents; not the product's in-app help and tutorial screens (epics editor-foundation and editor-p2 own the editor surfaces, this epic supplies the content and the link contract); not the product's release process (npm publish, PWA deploy, extension publish, signing, store accounts), which no epic owns yet (decision D-13); not translations; not a community platform, forum, game gallery or game hosting service; not publishing recovered community material or naming living people without their say (README promise).
 
-- Touch point: the static site generator, hosting provider and domain - none chosen; owner: this epic (decisions D-3 and D-4 of the inception proposal)
+- Touch point: this epic owns the website stack and hosting decision for `tk-reawakened.com`. See the [hosting comparison](discovery/hosting-options.md) and inception decisions D-3 and D-4.
 - Touch point: the editor hosts, runner and CLI - consumed to produce screenshots and to extract the surface inventory; owner: epics editor-foundation, web-runner-packaging, rpgcode-tooling
 
 ## References

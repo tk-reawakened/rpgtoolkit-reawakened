@@ -20,3 +20,5 @@ Publish the official home for TK Reawakened. Visitors can get the software and f
 The owner expects the website to live in a dedicated repository. This initiative lives in the product repository while the destination is chosen. At that point, move its entire folder, including Epic 17, its discovery notes, and the brief. Configure BMAD and the GitHub Project mirror in the destination, and update the product CAP-19 ownership link. Reconcile the existing Epic 17 issue and Project 3 entry with the new repository so they continue to point at one epic.
 
 The product repository is the source of released builds and the normative specification. The website directs visitors to official builds and publishes public docs. Decide how the two repositories exchange release metadata and verification inputs, and where the guide source lives, before choosing the publication workflow.
+
+The owner has chosen `tk-reawakened.com` as the site domain. The host is open. See the [hosting comparison](epic-documentation-website/discovery/hosting-options.md).
