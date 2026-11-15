@@ -137,7 +137,7 @@ function reset(workspace: FakeState["workspaceFolders"]): void {
   state.refuseWrites = false;
   state.restartOnUpdate = false;
   state.refuseWorkspaceUpdate = false;
-  state.onWorkspaceUpdate = undefined;
+  delete state.onWorkspaceUpdate;
   fake.files.clear();
   fake.folders.clear();
   // The folders a person can pick already exist, as they do in a real folder dialog.
