@@ -178,7 +178,11 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   // Format Document: the server's formatter answers and Monaco computes the minimal edit in its editor worker.
-  await page.keyboard.press("Shift+Alt+f");
+  // Through the command palette: the key chord differs between platforms, the command does not.
+  await page.keyboard.press("F1");
+  await page.keyboard.type("Format Document");
+  await expect(page.locator(".quick-input-widget .quick-input-list-entry").first()).toContainText("Format Document");
+  await page.keyboard.press("Enter");
   await expect.poll(() => editorText(page)).toContain("\ny = 2");
   await page.keyboard.press("ControlOrMeta+s");
   const saved = await savedText(page, PROGRAM, (text) => text.endsWith("y = 2"));
