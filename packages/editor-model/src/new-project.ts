@@ -384,7 +384,8 @@ interface Listing {
  * creation, even when its bytes match the planned output, and type mismatches are reported without writing anything.
  * Folders are then made, starter files written, and the main file last. The wizard never deletes files. This check before
  * the write is not atomic: an external program can create a file between the check and write, and the wizard may replace
- * it. Names are compared ASCII-folded and an existing folder keeps its own spelling.
+ * it. Names are compared ASCII-folded; differently-cased existing reserved asset folders are refused because stored
+ * references use their canonical spelling, which may not resolve on case-sensitive storage.
  */
 export async function createNewProject(storage: NewProjectStorage, settings: NewProjectSettings, definitions: readonly StarterDefinition[] = STARTER_DEFINITIONS): Promise<CreateProjectResult> {
   const planned = planNewProject(settings, definitions);
@@ -433,6 +434,10 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
     const existing = root.entries.get(foldPath(folder));
     if (existing === undefined) toMake.push(folder);
     else if (existing.kind !== "directory") conflicts.push({ path: existing.name, message: `${existing.name} is a ${existing.kind === "file" ? "file" : "link"}, and the project needs a folder of that name.` });
+    else if (folder !== MAIN_FOLDER && existing.name !== folder) conflicts.push({
+      path: existing.name,
+      message: `${existing.name} uses different casing from the reserved folder ${folder}; the editor's stored references use ${folder}, which may not resolve on case-sensitive storage.`,
+    });
   }
 
   /** Resolve each component independently so nested starter paths cannot hide a file or link in an ancestor. */

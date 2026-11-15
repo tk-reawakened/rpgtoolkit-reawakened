@@ -242,20 +242,38 @@ test("a Game symbolic link refuses project creation before any write", async () 
   equal(host.bytesOf("Main/MyQuest.gam"), undefined);
 });
 
-test("a conflicting main file alone stops creation, and a differently cased existing folder keeps its own spelling", async () => {
+test("a conflicting main file stops creation, and a differently-cased reserved folder is refused for case-sensitive consumers", async () => {
   const existing = new Uint8Array([1]);
   const clash = createMemoryPlatformServices({ files: { "main/myquest.GAM": existing } });
-  const refused = await createNewProject(clash.fs, settings());
-  ok(!refused.ok && refused.reason === "conflicts", "names compare ASCII-folded");
+  const refusedMain = await createNewProject(clash.fs, settings());
+  ok(!refusedMain.ok && refusedMain.reason === "conflicts", "names compare ASCII-folded");
   deepEqual(clash.bytesOf("main/myquest.GAM"), existing);
 
   const host = createMemoryPlatformServices({ files: { "boards/keep.brd": existing, "notes.txt": existing } });
-  const created = await createNewProject(host.fs, settings({ starters: ["start-board"] }));
-  ok(created.ok);
-  deepEqual(created.written, ["boards/start.brd", "Main/MyQuest.gam"], "written into the existing folder's own spelling, not a second Boards");
-  const kinds = await folderKinds(host);
-  equal(kinds.Boards, undefined);
+  const originalList = host.fs.list;
+  const caseSensitiveStorage = bindProjectFileSystem("memory-project", {
+    ...host.fs,
+    list: async (path) => {
+      if (path !== "") {
+        const root = await originalList("");
+        if (!root.ok) return root;
+        if (!root.value.some((entry) => entry.name === path)) return platformError("not-found", `${path} does not exist`);
+      }
+      return originalList(path);
+    },
+  });
+  const consumerLookup = await caseSensitiveStorage.list("Boards");
+  ok(!consumerLookup.ok && consumerLookup.error.code === "not-found", "canonical consumer lookup cannot see the lowercase folder");
+  const before = await folderKinds(host);
+  const created = await createNewProject(caseSensitiveStorage, settings({ starters: ["start-board"] }));
+  ok(!created.ok && created.reason === "conflicts");
+  deepEqual(created.conflicts.map(({ path }) => path), ["boards"]);
+  match(created.conflicts[0]!.message, /reserved folder Boards.*case-sensitive storage/);
+  match(created.message, /Nothing was written/);
+  deepEqual(await folderKinds(host), before, "preflight makes no folders");
   deepEqual(host.bytesOf("boards/keep.brd"), existing);
+  deepEqual(host.bytesOf("boards/start.brd"), undefined);
+  deepEqual(host.bytesOf("Main/MyQuest.gam"), undefined);
   deepEqual(host.bytesOf("notes.txt"), existing, "an unrelated file in the destination stays");
 });
 test("nested starter paths resolve every component with ASCII-folded spelling and refuse nested collisions", async () => {
@@ -268,15 +286,15 @@ test("nested starter paths resolve every component with ASCII-folded spelling an
   const collision = createMemoryPlatformServices({ files: { "pRG/TOOLS/START.PRG": existing } });
   const refused = await createNewProject(collision.fs, settings({ starters: ["nested"] }), nested);
   ok(!refused.ok && refused.reason === "conflicts");
-  deepEqual(refused.conflicts.map(({ path }) => path), ["pRG/TOOLS/START.PRG"]);
+  deepEqual(refused.conflicts.map(({ path }) => path), ["pRG", "pRG/TOOLS/START.PRG"], "both reserved-folder casing and the nested file collision are detected");
   deepEqual(collision.bytesOf("pRG/TOOLS/START.PRG"), existing);
   equal(collision.bytesOf("Main/MyQuest.gam"), undefined);
 
-  const host = createMemoryPlatformServices({ files: { "pRG/tools/keep.txt": existing } });
+  const host = createMemoryPlatformServices({ files: { "Prg/TOOLS/keep.txt": existing } });
   const created = await createNewProject(host.fs, settings({ starters: ["nested"] }), nested);
   ok(created.ok);
-  deepEqual(created.written, ["pRG/tools/start.prg", "Main/MyQuest.gam"]);
-  deepEqual(host.bytesOf("pRG/tools/keep.txt"), existing);
+  deepEqual(created.written, ["Prg/TOOLS/start.prg", "Main/MyQuest.gam"]);
+  deepEqual(host.bytesOf("Prg/TOOLS/keep.txt"), existing);
   const fresh = createMemoryPlatformServices();
   const nestedCreated = await createNewProject(fresh.fs, settings({ starters: ["nested"] }), nested);
   ok(nestedCreated.ok);
