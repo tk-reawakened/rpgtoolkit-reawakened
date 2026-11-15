@@ -2,6 +2,7 @@ import { FIRST_PARTY_PLUGINS, commandDocumentation, encodeCp1252, foldAscii, fol
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import type { EditTextCommand } from "./program-document.ts";
 import { reservedFolder, unusableName, type ProjectLayout } from "./reserved-folders.ts";
+import { resolveDocumentPath } from "./workspace.ts";
 
 /**
  * What both hosts need to edit a program besides its text (story 11.7, docs/spec/engine/rpgcode-tooling.md#tool-10):
@@ -145,8 +146,8 @@ export async function suggestProgramPath(fs: Pick<FileSystemService, "list">, la
 
 /**
  * Create the program at `path` (a project-relative path ending in `.prg`), starting with the expanded header template
- * (T-40). A case-insensitive listing check rejects names that already exist when listed; the subsequent host write is
- * not an atomic exclusive create, so concurrent external creation may still be replaced.
+ * (T-40). Every path component is resolved case-insensitively before writing so differently-cased folder names on
+ * case-sensitive storage cannot bypass the collision check. The subsequent host write is not atomic exclusive create.
  */
 export async function createProgramFile(fs: NewProgramStorage, path: string, headerTemplate: string): Promise<CreateProgramResult> {
   const slash = path.lastIndexOf("/");
@@ -154,9 +155,12 @@ export async function createProgramFile(fs: NewProgramStorage, path: string, hea
   const fileName = path.slice(slash + 1);
   const unusable = unusableName(fileName) ?? (/\.prg$/i.test(fileName) && fileName.length > 4 ? null : "A program's name ends in .prg.");
   if (unusable !== null) return { ok: false, reason: "invalid", message: unusable };
-  const listed = await fs.list(folder);
-  if (!listed.ok && listed.error.code !== "not-found") return { ok: false, reason: "failed", message: `Could not read ${folder === "" ? "the project folder" : folder}: ${listed.error.message}` };
-  if (listed.ok && listed.value.some((entry) => foldPath(entry.name) === foldPath(fileName))) {
+  const resolved = await resolveDocumentPath(fs, path);
+  if (!resolved.ok) {
+    if (resolved.kind === "case-conflict") return { ok: false, reason: "exists", message: `${path} already exists (names are compared without regard to A-Z case). Nothing was created; choose another name.` };
+    return { ok: false, reason: "failed", message: `Could not read ${folder === "" ? "the project folder" : folder}: ${resolved.error.message}` };
+  }
+  if (resolved.exists) {
     return { ok: false, reason: "exists", message: `${path} already exists (names are compared without regard to A-Z case). Nothing was created; choose another name.` };
   }
   const text = expandHeaderTemplate(headerTemplate, path).replace(/\n/g, "\r\n");

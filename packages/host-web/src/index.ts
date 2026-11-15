@@ -297,7 +297,7 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
       apply: (command) => program.apply(command),
       save: () => program.save(),
       resolveConflict: (choice) => program.resolveConflict(choice),
-      // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
+      // The program owns its edit history; the browser toolbar uses this same document history.
       undo: () => program.undo(),
       redo: () => program.redo(),
     };

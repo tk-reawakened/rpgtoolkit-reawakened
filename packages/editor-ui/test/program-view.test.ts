@@ -71,15 +71,17 @@ interface Show {
   readonly project?: { readonly main: string } | null;
   readonly preferences?: ProgramPreferences;
   readonly history?: boolean;
+  readonly document?: ProgramViewDocument;
+  readonly element?: HTMLElement;
 }
 
 function show(s: Setup, options: Show = {}) {
-  const view: ProgramViewDocument = options.history === false
+  const view: ProgramViewDocument = options.document ?? (options.history === false
     ? { kind: s.doc.kind, identity: s.doc.identity, getSnapshot: () => s.doc.getSnapshot(), subscribe: (l) => s.doc.subscribe(l), apply: (c) => s.doc.apply(c), save: () => s.doc.save(), resolveConflict: (c) => s.doc.resolveConflict(c) }
-    : { kind: s.doc.kind, identity: s.doc.identity, getSnapshot: () => s.doc.getSnapshot(), subscribe: (l) => s.doc.subscribe(l), apply: (c) => s.doc.apply(c), save: () => s.doc.save(), resolveConflict: (c) => s.doc.resolveConflict(c), undo: () => s.doc.undo(), redo: () => s.doc.redo() };
+    : { kind: s.doc.kind, identity: s.doc.identity, getSnapshot: () => s.doc.getSnapshot(), subscribe: (l) => s.doc.subscribe(l), apply: (c) => s.doc.apply(c), save: () => s.doc.save(), resolveConflict: (c) => s.doc.resolveConflict(c), undo: () => s.doc.undo(), redo: () => s.doc.redo() });
   let handle: ReturnType<Mount> | undefined;
   void act(() => {
-    handle = mount(s.el, {
+    handle = mount(options.element ?? s.el, {
       document: view,
       services: s.host,
       pendingEdits: s.pending,
@@ -171,6 +173,38 @@ test("undo and redo go to the document, and the text area follows it", async () 
   equal(textOf(s), "x = 1\ny = 22\n");
 });
 
+test("typing after an undo queued behind a slow save remains after the undo and is not saved early", async () => {
+  const s = await setup();
+  const gate = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      const result = await s.doc.save();
+      started.resolve();
+      await gate.promise;
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  show(s, { document: view });
+  await type(s.el, "x = 1\ny = 22\n");
+  await act(async () => { named(s.el, "Save").click(); });
+  await started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "x = 1\ny = 33\n");
+  gate.resolve();
+  await settled();
+  equal(textOf(s), "x = 1\ny = 33\n");
+  deepEqual(s.host.bytesOf(PATH), bytes("x = 1\r\ny = 22\r\n"));
+});
+
 test("a host with no undo leaves the surface's own undo alone", async () => {
   const s = await setup();
   show(s, { history: false });
@@ -229,6 +263,40 @@ test("the command reference filters, and inserting replaces the selection with n
   const written = textOf(s).trimEnd();
   equal(area(s.el).selectionStart, "mwin(".length);
   equal(area(s.el).selectionEnd, written.length - 1);
+});
+test("command insertion still reaches the document when its tab is disposed before the queued command runs", async () => {
+  const s = await setup({ content: "before\n" });
+  const gate = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: async (command) => {
+      entered.resolve();
+      await gate.promise;
+      return s.doc.apply(command);
+    },
+    save: () => s.doc.save(),
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  const handle = show(s, { document: view });
+  const search = s.el.querySelector<HTMLInputElement>('input[type="search"]')!;
+  await act(() => {
+    search.value = "mwin";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const target = [...s.el.querySelectorAll(".tkr-program-reference-list button")].find((row) => /^mwin\(/i.test(row.textContent ?? ""))!;
+  area(s.el).setSelectionRange(0, 6);
+  await act(() => { target.dispatchEvent(new Event("dblclick", { bubbles: true })); });
+  await entered.promise;
+  handle.dispose();
+  gate.resolve();
+  await settled();
+  match(textOf(s), /^mwin\(.*\)\n$/i);
 });
 
 test("a compiled program is read only: no edit, no insert, and the reason is shown", async () => {
@@ -437,6 +505,38 @@ test("a surface change reaches the server as full text with a rising version, th
   await settled();
   ok(seen.some((message) => message.method === "textDocument/didClose"));
   equal(s.host.languageSessions[0]!.disposed(), false, "the shared client lingers for a moment so a tab switch does not restart it");
+});
+
+test("views of the same language document share didOpen and only the last view sends didClose", async () => {
+  const seen: LanguageMessage[] = [];
+  const s = await setup({ capabilities: ["folderWrite", "languageServer"], onLanguageMessage: languageServer([], seen) });
+  const first = show(s, { createSurface: spySurface().factory });
+  await settled();
+  const secondElement = document.createElement("div");
+  document.body.append(secondElement);
+  const second = show(s, { createSurface: spySurface().factory, element: secondElement });
+  await settled();
+  equal(seen.filter((message) => message.method === "textDocument/didOpen").length, 1);
+  first.dispose();
+  await settled();
+  equal(seen.filter((message) => message.method === "textDocument/didClose").length, 0);
+  second.dispose();
+  await settled();
+  equal(seen.filter((message) => message.method === "textDocument/didClose").length, 1);
+});
+
+test("a failed bookmark request clears the outline and announces its error as status", async () => {
+  const s = await setup({
+    capabilities: ["folderWrite", "languageServer"],
+    onLanguageMessage: (message, session) => {
+      if (message.method === "initialize") session.push({ jsonrpc: "2.0", id: message.id as number, result: { capabilities: {} } });
+      else if (message.method === "textDocument/documentSymbol") session.push({ jsonrpc: "2.0", id: message.id as number, error: { code: -32603, message: "outline failed" } });
+    },
+  });
+  show(s);
+  await settled();
+  equal(s.el.querySelectorAll(".tkr-program-bookmarks button").length, 0);
+  equal(s.el.querySelector(".tkr-program-language-note[role=status]")?.textContent?.trim(), "Language request textDocument/documentSymbol failed: outline failed");
 });
 
 test("a server that cannot start leaves editing alone and the note says why", async () => {

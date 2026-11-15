@@ -85,6 +85,9 @@ test("New program writes the expanded template with CRLF and rejects a listed ca
   const clash = await createProgramFile(host.fs, "Prg/intro.prg", "// x");
   ok(!clash.ok && clash.reason === "exists");
   deepEqual(host.bytesOf("Prg/Intro.prg"), new Uint8Array([120]));
+  const differentlyCasedFolder = await createProgramFile(host.fs, "prg/intro.prg", "// must not overwrite");
+  ok(!differentlyCasedFolder.ok && differentlyCasedFolder.reason === "exists");
+  deepEqual(host.bytesOf("Prg/Intro.prg"), new Uint8Array([120]));
   const unusable = await createProgramFile(host.fs, "Prg/notes.txt", "");
   ok(!unusable.ok && unusable.reason === "invalid");
   const bare = await createProgramFile(host.fs, "Prg/.prg", "");
@@ -95,6 +98,30 @@ test("New program writes the expanded template with CRLF and rejects a listed ca
   const root = await createProgramFile(host.fs, "top.prg", "// {path}");
   deepEqual(root, { ok: true, path: "top.prg" });
   deepEqual(host.bytesOf("top.prg"), Uint8Array.from("// top.prg", (ch) => ch.charCodeAt(0)));
+});
+
+test("New program rejects an existing file through differently-cased folder components on case-sensitive storage", async () => {
+  const files = new Map([["Prg/Intro.prg", new Uint8Array([120])]]);
+  const original = files.get("Prg/Intro.prg")!;
+  let writes = 0;
+  const fs = {
+    list: async (path: string) => ({
+      ok: true as const,
+      value: path === ""
+        ? [{ name: "Prg", kind: "directory" as const }]
+        : path === "Prg" ? [{ name: "Intro.prg", kind: "file" as const }] : [],
+    }),
+    write: async (path: string, bytes: Uint8Array) => {
+      writes += 1;
+      files.set(path, bytes);
+      return { ok: true as const, value: undefined };
+    },
+  };
+  const result = await createProgramFile(fs, "prg/intro.prg", "// must not overwrite");
+  ok(!result.ok && result.reason === "exists");
+  equal(writes, 0);
+  deepEqual(files.get("Prg/Intro.prg"), original);
+  equal(files.has("prg/intro.prg"), false);
 });
 
 test("the suggested name is the first free untitled program in the programs folder", async () => {

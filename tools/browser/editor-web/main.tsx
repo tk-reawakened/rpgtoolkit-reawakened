@@ -1,5 +1,5 @@
 import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, openWebProject, reopenWebProject, type DocumentView, type WebProject, type WebProjectOptions, type Workbench } from "@tk-reawakened/host-web";
-import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, type AnyDocument, type ProjectLayout, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
 /**
@@ -33,6 +33,9 @@ interface Shown {
   readonly workbench: Workbench;
   readonly element: HTMLElement;
   readonly unsubscribeTabs: () => void;
+  /** Project context shared with every mounted view, including the second view. */
+  readonly projectLayout: ProjectLayout;
+  readonly main: string;
 }
 let shown: Shown | null = null;
 let mirrorView: DocumentView | null = null;
@@ -294,10 +297,11 @@ async function showProject(project: WebProject, path: string, request: number): 
   const element = document.createElement("section");
   element.hidden = true;
   settings.append(element);
-  const workbench = createWorkbench(project, element, { projectLayout: await projectLayoutOfMain(project.services.fs, project.project.id, path), main: path });
+  const projectLayout = await projectLayoutOfMain(project.services.fs, project.project.id, path);
+  const workbench = createWorkbench(project, element, { projectLayout, main: path });
   let candidate!: Shown;
   const unsubscribeTabs = workbench.tabs.subscribe(() => updateActions(candidate));
-  candidate = { project, workbench, element, unsubscribeTabs };
+  candidate = { project, workbench, element, unsubscribeTabs, projectLayout, main: path };
   let openedDocument: AnyDocument | undefined;
   try {
     await beginDocumentOpen(project.workspace, identityKey);
@@ -536,8 +540,8 @@ function syncMirror(): void {
   mirroredDocument = null;
   mirroredProject = null;
   mirrorElement.replaceChildren();
-  if (visible && active !== null && project !== null) {
-    mirrorView = mountDocumentView(project, active, mirrorElement);
+  if (visible && shown !== null && active !== null && project !== null) {
+    mirrorView = mountDocumentView(project, active, mirrorElement, shown.projectLayout, undefined, undefined, shown.main);
     mirroredDocument = active;
     mirroredProject = project;
   }
@@ -565,12 +569,14 @@ function onActive(button: string, action: (current: Shown, document: AnyDocument
   return run;
 }
 
-const undoActive = onActive("#undo", ({ project }, active) => {
-  const undone = project.workspace.undo(active);
+const undoActive = onActive("#undo", async ({ project }, active) => {
+  if (active.kind === "program") await project.workspace.pendingEdits(active).settle();
+  const undone = active.kind === "program" ? active.undo() : project.workspace.undo(active);
   return undone.ok ? null : "Nothing to undo.";
 });
-const redoActive = onActive("#redo", ({ project }, active) => {
-  const redone = project.workspace.redo(active);
+const redoActive = onActive("#redo", async ({ project }, active) => {
+  if (active.kind === "program") await project.workspace.pendingEdits(active).settle();
+  const redone = active.kind === "program" ? active.redo() : project.workspace.redo(active);
   return redone.ok ? null : "Nothing to redo.";
 });
 const saveActive = activeCommand(async (current, active) => {

@@ -89,14 +89,55 @@ const MAX_BURST_MS = 3000;
 const SETTLE_MS = 600;
 const BOOKMARK_MS = 300;
 
-/** The live parts of one mounted view, held outside render so a keystroke never re-creates the code editor. */
+/** One LSP document is opened once, even when several editor views lease it. */
+interface OpenLanguageDocument {
+  refs: number;
+  version: number;
+  sent: string;
+}
+
+const openLanguageDocuments = new WeakMap<LanguageClient, Map<string, OpenLanguageDocument>>();
+
+function acquireLanguageDocument(client: LanguageClient, uri: string, text: string): OpenLanguageDocument {
+  let documents = openLanguageDocuments.get(client);
+  if (documents === undefined) {
+    documents = new Map();
+    openLanguageDocuments.set(client, documents);
+  }
+  const existing = documents.get(uri);
+  if (existing !== undefined) {
+    existing.refs += 1;
+    return existing;
+  }
+  const opened: OpenLanguageDocument = { refs: 1, version: 1, sent: text };
+  documents.set(uri, opened);
+  client.notify("textDocument/didOpen", { textDocument: { uri, languageId: "rpgcode", version: 1, text } });
+  return opened;
+}
+
+function releaseLanguageDocument(client: LanguageClient, uri: string): void {
+  const documents = openLanguageDocuments.get(client);
+  const opened = documents?.get(uri);
+  if (documents === undefined || opened === undefined) return;
+  opened.refs -= 1;
+  if (opened.refs > 0) return;
+  documents.delete(uri);
+  if (documents.size === 0) openLanguageDocuments.delete(client);
+  try {
+    client.notify("textDocument/didClose", { textDocument: { uri } });
+  } catch {
+    // The server is already gone.
+  }
+}
+
 interface Control {
   surface: TextSurface | null;
   buffer: TextChange[];
   burstStart: number;
   timer: ReturnType<typeof setTimeout> | null;
   bookmarkTimer: ReturnType<typeof setTimeout> | null;
-  lsp: { readonly client: LanguageClient; readonly uri: string; version: number; sent: string } | null;
+  bookmarkRequest: number;
+  lsp: { readonly client: LanguageClient; readonly uri: string; readonly document: OpenLanguageDocument } | null;
 }
 
 let viewsMade = 0;
@@ -115,11 +156,12 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     viewsMade += 1;
     return `tkr-program-${viewsMade}`;
   });
-  const control = useRef<Control>({ surface: null, buffer: [], burstStart: 0, timer: null, bookmarkTimer: null, lsp: null });
+  const control = useRef<Control>({ surface: null, buffer: [], burstStart: 0, timer: null, bookmarkTimer: null, bookmarkRequest: 0, lsp: null });
   const host = useRef<HTMLDivElement>(null);
   const tracker = useMemo(() => createEditTracker(), []);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
   const queuedCommands = useRef(0);
+  const historyQueued = useRef(false);
   const enqueueCommand = <T,>(operation: () => Promise<T>): Promise<T> => {
     queuedCommands.current += 1;
     const result = commandQueue.current.then(operation);
@@ -158,21 +200,33 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     const surface = control.current.surface;
     if (lsp === null || surface === null) return;
     const text = surface.getText();
-    if (text === lsp.sent) return;
-    lsp.version += 1;
-    lsp.sent = text;
-    lsp.client.notify("textDocument/didChange", { textDocument: { uri: lsp.uri, version: lsp.version }, contentChanges: [{ text }] });
+    const document = lsp.document;
+    if (text === document.sent) return;
+    document.version += 1;
+    document.sent = text;
+    lsp.client.notify("textDocument/didChange", { textDocument: { uri: lsp.uri, version: document.version }, contentChanges: [{ text }] });
     scheduleBookmarks();
   };
 
   const refreshBookmarks = (): void => {
     const lsp = control.current.lsp;
     if (lsp === null) return;
+    const request = ++control.current.bookmarkRequest;
     void lsp.client
       .request<readonly SymbolNode[] | null>("textDocument/documentSymbol", { textDocument: { uri: lsp.uri } })
-      .then((symbols) => {
-        if (control.current.lsp === lsp) setBookmarks(flatten(symbols ?? []));
-      }, () => undefined);
+      .then(
+        (symbols) => {
+          if (control.current.lsp === lsp && control.current.bookmarkRequest === request) {
+            setBookmarks(flatten(symbols ?? []));
+          }
+        },
+        (error: unknown) => {
+          if (control.current.lsp === lsp && control.current.bookmarkRequest === request) {
+            setBookmarks([]);
+            setLanguageStatus(`Language request textDocument/documentSymbol failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        },
+      );
   };
 
   /** After typing the outline is asked for once the typing pauses; the server has the new text already. */
@@ -205,7 +259,8 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   };
 
   /** Hand the buffered typing to the document as one edit. Tracking starts now, so Save and close wait for the answer. */
-  const flush = (): void => {
+  const flush = (force = false): void => {
+    if (historyQueued.current && !force) return;
     const ctl = control.current;
     clearTimeout(ctl.timer ?? undefined);
     ctl.timer = null;
@@ -267,28 +322,51 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     }
   };
 
-  const history = (which: "undo" | "redo"): Promise<void> => enqueueCommand(async () => {
+  const history = (which: "undo" | "redo"): Promise<void> => {
+    // Establish the edit boundary at the user's action, not after an earlier queued save finishes.
     flush();
-    await tracker.idle();
-    const step = which === "undo" ? latest.current.doc.undo : latest.current.doc.redo;
-    if (step === undefined) return;
-    try {
-      const result = await step.call(latest.current.doc);
-      setMessage(result.ok ? null : `Nothing to ${which}.`);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-    syncFromDocument(true);
-  });
+    historyQueued.current = true;
+    return enqueueCommand(async () => {
+      try {
+        await tracker.idle();
+        const step = which === "undo" ? latest.current.doc.undo : latest.current.doc.redo;
+        if (step === undefined) return;
+        try {
+          const result = await step.call(latest.current.doc);
+          setMessage(result.ok ? null : `Nothing to ${which}.`);
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : String(error));
+        }
+        const ctl = control.current;
+        if (ctl.buffer.length > 0 && ctl.surface !== null) {
+          // Input after the history action was made against the pre-undo surface. Rebase its final text
+          // onto the document after undo instead of letting it be undone or applying stale offsets.
+          const text = ctl.surface.getText();
+          const before = latest.current.doc.getSnapshot().text;
+          ctl.buffer.splice(0, ctl.buffer.length, { from: 0, to: before.length, text });
+          flush(true);
+          await tracker.idle();
+        } else {
+          syncFromDocument(true);
+        }
+      } finally {
+        historyQueued.current = false;
+        if (control.current.buffer.length > 0) flush();
+      }
+    });
+  };
 
-  const save = (): Promise<SaveResult | null> => enqueueCommand(async () => {
+  const save = (): Promise<SaveResult | null> => {
+    // Typing after Save was requested belongs to the next edit, even if another queued command delays the save.
     flush();
-    await tracker.idle();
-    const result = await latest.current.doc.save();
-    if (!result.ok) setMessage(result.failure.message);
-    else setMessage(null);
-    return result;
-  });
+    return enqueueCommand(async () => {
+      await tracker.idle();
+      const result = await latest.current.doc.save();
+      if (!result.ok) setMessage(result.failure.message);
+      else setMessage(null);
+      return result;
+    });
+  };
 
   // --- the code editor --------------------------------------------------------------------------------------------------
 
@@ -391,8 +469,8 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       const client = leased.lease.client;
       const uri = client.uriOf(latest.current.doc.identity.path);
       const text = surface.getText();
-      ctl.lsp = { client, uri, version: 1, sent: text };
-      client.notify("textDocument/didOpen", { textDocument: { uri, languageId: "rpgcode", version: 1, text } });
+      const document = acquireLanguageDocument(client, uri, text);
+      ctl.lsp = { client, uri, document };
       const viewToken = {};
       const request = <T,>(method: string, params: Readonly<Record<string, unknown>>): Promise<T> => {
         const formatting = method === "textDocument/formatting" || method === "textDocument/rangeFormatting" || method === "textDocument/onTypeFormatting";
@@ -449,13 +527,8 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       const lsp = ctl.lsp;
       ctl.lsp = null;
       for (const stop of stops) stop();
-      if (lsp !== null) {
-        try {
-          lsp.client.notify("textDocument/didClose", { textDocument: { uri: lsp.uri } });
-        } catch {
-          // The server is already gone.
-        }
-      }
+      if (lsp !== null) releaseLanguageDocument(lsp.client, lsp.uri);
+      ctl.bookmarkRequest += 1;
       ctl.surface?.setLanguage(null);
       ctl.surface?.setDiagnostics([]);
       lease?.release();
@@ -480,16 +553,15 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   };
 
   const insertCommand = (entry: CommandReferenceEntry): void => {
+    const surface = control.current.surface;
+    const selection = surface?.getSelection() ?? { from: 0, to: 0 };
+    const { command, select } = insertCommandEdit(entry, selection.from, selection.to);
     void enqueueCommand(async () => {
       flush();
       await tracker.idle();
-      const surface = control.current.surface;
-      if (surface === null) return;
-      const selection = surface.getSelection();
-      const { command, select } = insertCommandEdit(entry, selection.from, selection.to);
       if (await applyTextCommand(command)) {
         syncFromDocument(true);
-        surface.select(select.from, select.to);
+        control.current.surface?.select(select.from, select.to);
       }
     });
   };

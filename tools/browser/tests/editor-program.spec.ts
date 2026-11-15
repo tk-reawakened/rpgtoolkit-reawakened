@@ -107,7 +107,7 @@ async function focusEnd(page: Page): Promise<void> {
 
 /** The visible text in line order: Monaco recycles line elements, so their order in the page is not the order of the lines. */
 const editorText = (page: Page): Promise<string> =>
-  page.locator(".monaco-editor .view-lines").evaluate((node) =>
+  page.locator("#settings .monaco-editor .view-lines").evaluate((node) =>
     [...node.querySelectorAll<HTMLElement>(".view-line")]
       .sort((left, right) => parseFloat(left.style.top) - parseFloat(right.style.top))
       .map((line) => line.innerText.replace(/\u00a0/g, " "))
@@ -191,6 +191,20 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => editorText(page)).toMatch(/^\/\/ Intro scene/);
 
+  // The host toolbar and Monaco use the same program history in both directions.
+  await page.getByRole("button", { name: "Insert header" }).click();
+  await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg\s/);
+  await page.locator("#undo").dispatchEvent("click");
+  await expect.poll(() => editorText(page)).toMatch(/^\/\/ Intro scene/);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => editorText(page)).not.toContain("castint(val)");
+  await page.locator("#redo").dispatchEvent("click");
+  await expect.poll(() => editorText(page)).toContain("castint(val)");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg\s/);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => editorText(page)).toMatch(/^\/\/ Intro scene/);
+
   // Distraction-free mode: only the text and a way out; Escape brings the tools back; nothing changed in the document.
   await page.getByRole("button", { name: "Distraction-free" }).click();
   await expect(page.getByRole("toolbar", { name: "Program tools" })).toHaveCount(0);
@@ -213,10 +227,11 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.keyboard.press("ControlOrMeta+s");
   const saved = await savedText(page, PROGRAM, (text) => text.endsWith("y = 2"));
   await expect(page.locator(".tkr-program-state")).toContainText("All changes saved");
-  expect(saved.startsWith('// Intro scene\r\nfunction greet(name) {\r\n    mwin("Hello, caf\u00e9")\r\n}\r\n:retry\r\n** Wrap up\r\nx = 1 // trailing')).toBe(true);
+  expect(saved.slice(0, '// Intro scene\r\nfunction greet(name) {\r\n    mwin("Hello, caf\u00e9")\r\n}\r\n:retry\r\n** Wrap up\r\nx = 1 // trailing'.length)).toBe('// Intro scene\r\nfunction greet(name) {\r\n    mwin("Hello, caf\u00e9")\r\n}\r\n:retry\r\n** Wrap up\r\nx = 1 // trailing');
   expect(saved).toContain("mwin(");
   expect(saved.endsWith("\r\ny = 2")).toBe(true);
   expect(saved.replace(/\r\n/g, "").includes("\n")).toBe(false);
+
 
   // Reopen: the saved program reads back as the same text.
   // The page toolbar sits below the fold in the merged layout; the click is what a person would make after scrolling.
@@ -233,6 +248,26 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   expect(outside).toEqual([]);
   expect(consoleProblems).toEqual([]);
   expect(await violations(page)).toEqual([]);
+});
+test("a second program view uses the running project's language context", async ({ page }) => {
+  const source = "function greet(name) {\n   mwin(name)\n}\n";
+  await installProject(page, [
+    { path: "Main/example.gam", bytes: main },
+    { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
+  ]);
+  await openProgram(page);
+  await page.locator("#mirror-view").dispatchEvent("click");
+  const mirror = page.locator("#mirror");
+  await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
+  const editorInput = mirror.getByRole("textbox", { name: /^Program text/ });
+  await editorInput.focus();
+  await expect(editorInput).toBeFocused();
+  await page.keyboard.press("F1");
+  await page.keyboard.type("Format Document");
+  await expect(page.locator(".quick-input-widget .quick-input-list-entry").first()).toContainText("Format Document");
+  await page.keyboard.press("Enter");
+  await expect.poll(() => editorText(page)).toContain("\n    mwin(name)");
+  await expect(mirror).not.toContainText(/unassessed|failed/i);
 });
 
 test("the probe can fail: under the strict policy of the other editor pages Monaco is blocked, and the violations are reported", async ({ page }) => {
