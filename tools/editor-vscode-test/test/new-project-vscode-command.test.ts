@@ -237,7 +237,7 @@ test("dismissing a question or the folder dialog writes and opens nothing, and a
     fake.state.answers.folder.push("/games/quest");
     await run(new Map());
     equal(fake.state.errors.length, 1);
-    match(fake.state.errors[0]!, /Main\/Quest\.gam already exists with different content.*Nothing was written/);
+    match(fake.state.errors[0]!, /Main\/Quest\.gam already exists; the editor refuses existing files.*Nothing was written/);
     deepEqual([...fake.files.get("/games/quest/Main/Quest.gam")!], [1, 2, 3]);
     deepEqual(commandCalls(), []);
     equal(fake.folders.has("/games/quest/Boards"), false, "no folder was made");

@@ -44,7 +44,7 @@ export interface NewProjectEnvironment<Handle> {
 }
 
 export type NewProjectOutcome<Handle> =
-  | { readonly ok: true; readonly handle: Handle; readonly mainPath: string; readonly written: readonly string[]; readonly present: readonly string[] }
+  | { readonly ok: true; readonly handle: Handle; readonly mainPath: string; readonly written: readonly string[] }
   | { readonly ok: false; readonly reason: "cancelled" | "refused"; readonly message: string };
 
 const cancelled: NewProjectOutcome<never> = { ok: false, reason: "cancelled", message: "No project was created." };
@@ -86,7 +86,7 @@ export async function runNewProject<Handle>(env: NewProjectEnvironment<Handle>):
   try {
     const created = await createNewProject(destination.storage, settings, starters);
     if (!created.ok) return { ok: false, reason: "refused", message: created.message };
-    return { ok: true, handle: destination.handle, mainPath: created.mainPath, written: created.written, present: created.present };
+    return { ok: true, handle: destination.handle, mainPath: created.mainPath, written: created.written };
   } catch (error) {
     return { ok: false, reason: "refused", message: error instanceof Error ? error.message : String(error) };
   }

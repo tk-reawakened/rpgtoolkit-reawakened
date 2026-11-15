@@ -140,7 +140,7 @@ async function folderKinds(host: MemoryPlatformServices): Promise<Record<string,
 test("creating a blank project makes the 14 reserved folders empty, and the main file resolves", async () => {
   const host = createMemoryPlatformServices();
   const created = await createNewProject(host.fs, settings());
-  deepEqual(created, { ok: true, mainPath: "Main/MyQuest.gam", written: ["Main/MyQuest.gam"], present: [] });
+  deepEqual(created, { ok: true, mainPath: "Main/MyQuest.gam", written: ["Main/MyQuest.gam"] });
   const kinds = await folderKinds(host);
   for (const folder of Object.values(ASSET_FOLDERS)) equal(kinds[folder], "directory", `${folder} exists`);
   equal(kinds.Main, "directory");
@@ -188,6 +188,22 @@ test("an existing project is never replaced: every conflict is listed and nothin
   equal(host.bytesOf("Chrs/start.tem"), undefined, "no starter file was written");
 });
 
+test("a byte-identical existing planned file is still refused", async () => {
+  const planned = planNewProject(settings({ starters: ["start-program"] }));
+  ok(planned.ok);
+  const startProgram = planned.plan.files.find((file) => file.path === "Prg/start.prg")!;
+  const host = createMemoryPlatformServices({ files: { "Prg/start.prg": startProgram.bytes } });
+  const existing = host.bytesOf("Prg/start.prg")!;
+
+  const refused = await createNewProject(host.fs, settings({ starters: ["start-program"] }));
+  ok(!refused.ok && refused.reason === "conflicts");
+  deepEqual(refused.conflicts.map((conflict) => conflict.path), ["Prg/start.prg"]);
+  match(refused.conflicts[0]!.message, /already exists; the editor refuses existing files, even when their contents match/);
+  match(refused.message, /Nothing was written/);
+  deepEqual(host.bytesOf("Prg/start.prg"), existing);
+  equal(host.bytesOf("Main/MyQuest.gam"), undefined);
+});
+
 test("a conflicting main file alone stops creation, and a differently cased existing folder keeps its own spelling", async () => {
   const existing = new Uint8Array([1]);
   const clash = createMemoryPlatformServices({ files: { "main/myquest.GAM": existing } });
@@ -219,7 +235,7 @@ function failingFrom(host: MemoryPlatformServices, nth: number) {
   return storage;
 }
 
-test("a failed creation keeps what it wrote, names what is pending, changes nothing that existed, and running again finishes it", async () => {
+test("a failed creation keeps written files and refuses them on retry until the author removes them", async () => {
   const bystander = new Uint8Array([4, 2]);
   const host = createMemoryPlatformServices({ files: { "notes.txt": bystander } });
   const failed = await createNewProject(failingFrom(host, 3), settings({ starters: AVAILABLE }));
@@ -232,10 +248,16 @@ test("a failed creation keeps what it wrote, names what is pending, changes noth
   equal(host.bytesOf("Main/MyQuest.gam"), undefined, "no main file points at a half-written project");
   deepEqual(host.bytesOf("notes.txt"), bystander);
 
+  const blocked = await createNewProject(host.fs, settings({ starters: AVAILABLE }));
+  ok(!blocked.ok && blocked.reason === "conflicts");
+  deepEqual(blocked.conflicts.map((conflict) => conflict.path), ["Prg/start.prg", "Boards/start.brd"]);
+  match(blocked.message, /Nothing was written/);
+  ok((await host.fs.delete("Prg/start.prg")).ok);
+  ok((await host.fs.delete("Boards/start.brd")).ok);
+
   const again = await createNewProject(host.fs, settings({ starters: AVAILABLE }));
   ok(again.ok, again.ok ? "" : again.message);
-  deepEqual(again.present, ["Prg/start.prg", "Boards/start.brd"], "what the failed run wrote is recognised, not treated as a conflict");
-  deepEqual(again.written, ["Chrs/start.tem", "Main/MyQuest.gam"]);
+  deepEqual(again.written, ["Prg/start.prg", "Boards/start.brd", "Chrs/start.tem", "Main/MyQuest.gam"]);
   notEqual(host.bytesOf("Main/MyQuest.gam"), undefined);
 });
 
@@ -271,7 +293,7 @@ test("an existing empty file is never replaced, and a failed write deletes nothi
   const refused = await createNewProject(host.fs, settings({ starters: ["start-program"] }));
   ok(!refused.ok && refused.reason === "conflicts");
   deepEqual(refused.conflicts.map((conflict) => conflict.path), ["Prg/start.prg", "Main/MyQuest.gam"]);
-  match(refused.conflicts[0]!.message, /already exists and is empty; the editor never replaces an existing file/);
+  match(refused.conflicts[0]!.message, /already exists; the editor refuses existing files, even when their contents match/);
   match(refused.message, /Nothing was written/);
   deepEqual(host.bytesOf("Main/MyQuest.gam"), new Uint8Array(0), "the empty file is untouched");
   deepEqual(host.bytesOf("Prg/start.prg"), new Uint8Array(0));
@@ -319,7 +341,7 @@ test("a failed write keeps partly written content and says so instead of deletin
   deepEqual(half.pending, ["Prg/start.prg", "Main/MyQuest.gam"]);
 });
 
-test("an interrupted browser write leaves an empty file the author must remove; the retry then finishes", async () => {
+test("an interrupted browser write leaves an empty file; all files from the failed attempt must be removed before retry", async () => {
   const host = createMemoryPlatformServices({ files: { "notes.txt": new Uint8Array([4, 2]) } });
   let attempts = 0;
   const createsThenFails = bindProjectFileSystem("memory-project", {
@@ -338,16 +360,17 @@ test("an interrupted browser write leaves an empty file the author must remove; 
   deepEqual(failed.pending, ["Boards/start.brd", "Main/MyQuest.gam"]);
   deepEqual(host.bytesOf("Boards/start.brd"), new Uint8Array(0), "the empty file the failed write left stays: ownership is not provable");
 
-  // Running it again reports that file as the conflict it is, and says what to do; the author removes it and tries again.
+  // Every file already written or left by the failed run is refused; remove all listed paths before retrying.
   const blocked = await createNewProject(host.fs, settings({ starters: ["start-program", "start-board"] }));
   ok(!blocked.ok && blocked.reason === "conflicts");
-  deepEqual(blocked.conflicts.map((conflict) => conflict.path), ["Boards/start.brd"]);
-  match(blocked.conflicts[0]!.message, /already exists and is empty; the editor never replaces an existing file\. Choose another folder or name, or remove it yourself\./);
+  deepEqual(blocked.conflicts.map((conflict) => conflict.path), ["Prg/start.prg", "Boards/start.brd"]);
+  match(blocked.conflicts[1]!.message, /already exists; the editor refuses existing files/);
+  ok((await host.fs.delete("Prg/start.prg")).ok);
   ok((await host.fs.delete("Boards/start.brd")).ok);
+
   const again = await createNewProject(host.fs, settings({ starters: ["start-program", "start-board"] }));
   ok(again.ok, again.ok ? "" : again.message);
-  deepEqual(again.present, ["Prg/start.prg"], "the file the first run wrote is recognised, not treated as a conflict");
-  deepEqual(again.written, ["Boards/start.brd", "Main/MyQuest.gam"]);
+  deepEqual(again.written, ["Prg/start.prg", "Boards/start.brd", "Main/MyQuest.gam"]);
 });
 
 

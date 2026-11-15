@@ -257,7 +257,7 @@ test("an existing project is never replaced: the wizard lists every conflict, st
   await tick(element, "Start-up program");
   await press(element, ".tkr-new-project-choose");
   await submit(element);
-  match(alerts(element), /would be replaced/);
+  match(alerts(element), /conflicting paths were found.*already exists/);
   deepEqual([...element.querySelectorAll(".tkr-new-project-failure li")].map((item) => item.textContent), ["Prg/start.prg", "Main/Quest.gam"]);
   ok(element.querySelector('[role="dialog"]') !== null, "the wizard stays open");
   deepEqual(root.read("Main/Quest.gam"), existing);
@@ -296,7 +296,7 @@ test("a refused write leaves the wizard open with what was written and pending, 
 
   control.refuse = false;
   await submit(element);
-  match(alerts(element), /Prg\/start\.prg already exists and is empty; the editor never replaces an existing file/);
+  match(alerts(element), /Prg\/start\.prg already exists; the editor refuses existing files/);
   ok(element.querySelector('[role="dialog"]') !== null, "the wizard stays open");
 
   // The author removes the file it cannot prove it owns, and the same answers then finish the project.
@@ -383,7 +383,7 @@ test("VS Code makes a blank project and one with starter contents, opens its mai
   const dest = destination(blank);
   const asked = scripted(["Quest", "Quest.gam", []]);
   const made = await runNewProject({ ui: asked.ui, chooseDestination: dest.chooseDestination });
-  deepEqual(made, { ok: true, handle: "destination", mainPath: "Main/Quest.gam", written: ["Main/Quest.gam"], present: [] });
+  deepEqual(made, { ok: true, handle: "destination", mainPath: "Main/Quest.gam", written: ["Main/Quest.gam"] });
   equal(asked.remaining(), 0);
   for (const kind of KINDS) {
     const stat = await blank.fs.stat(ASSET_FOLDERS[kind]);
@@ -418,7 +418,7 @@ test("VS Code refuses an unavailable starter item and an existing project before
   const taken = createMemoryPlatformServices({ files: { "Main/Quest.gam": existing, "notes.txt": bystander } });
   const refused = await runNewProject({ ui: scripted(["Quest", "Quest.gam", []]).ui, chooseDestination: destination(taken).chooseDestination });
   ok(!refused.ok && refused.reason === "refused");
-  match(refused.message, /Main\/Quest\.gam already exists with different content.*Nothing was written/);
+  match(refused.message, /Main\/Quest\.gam already exists; the editor refuses existing files.*Nothing was written/);
   deepEqual(taken.bytesOf("Main/Quest.gam"), existing);
   equal((await taken.fs.stat("Boards")).ok, false, "no folder was made");
 });

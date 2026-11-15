@@ -307,9 +307,9 @@ export function planNewProject(settings: NewProjectSettings, definitions: readon
 }
 
 /** The part of the file system a project is made with: the destination folder is its root. */
-export type NewProjectStorage = Pick<FileSystemService, "list" | "read" | "write" | "createFolder" | "stat">;
+export type NewProjectStorage = Pick<FileSystemService, "list" | "write" | "createFolder" | "stat">;
 
-/** One path the destination already holds that creating the project would have to replace. */
+/** One planned path that the destination already holds and therefore prevents creation. */
 export interface ProjectConflict {
   readonly path: string;
   readonly message: string;
@@ -322,8 +322,6 @@ export type CreateProjectResult =
       readonly mainPath: string;
       /** Files written now. */
       readonly written: readonly string[];
-      /** Files the destination already held with exactly these bytes, left alone. */
-      readonly present: readonly string[];
     }
   | { readonly ok: false; readonly reason: "invalid"; readonly problems: readonly NewProjectProblem[]; readonly message: string }
   | { readonly ok: false; readonly reason: "conflicts"; readonly conflicts: readonly ProjectConflict[]; readonly message: string }
@@ -333,16 +331,10 @@ export type CreateProjectResult =
       readonly message: string;
       /** What reached the destination before the failure; it is kept (ADR 0022 D4.2). */
       readonly written: readonly string[];
-      readonly present: readonly string[];
       /** What was not written, the failed item first. */
       readonly pending: readonly string[];
     };
 
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return false;
-  return true;
-}
 
 interface Listing {
   /** Folded name to the entry as stored. */
@@ -350,14 +342,11 @@ interface Listing {
 }
 
 /**
- * Create the project in the destination (T-04). Everything is compared with the destination first: nothing is written
- * when any path would replace a file or sit on something that is not a folder, and the answer lists each one. Folders are
- * then made, starter files written, and the main file last. A file that already holds exactly the bytes to write is left
- * alone, so a creation interrupted before a write is not blocked by it being there. An existing *file* is never replaced,
- * an empty one included, and the wizard never deletes one. This is a check before the write, not an atomic one: no host
- * surface offers an exclusive create, so a file another program creates between the check and the write can be replaced,
- * and the wizard cannot claim ownership of anything it finds afterwards (issue #2712). Names are compared ASCII-folded and
- * an existing folder keeps its own spelling.
+ * Create the project in the destination (T-04). Every planned path is checked first: any existing destination file blocks
+ * creation, even when its bytes match the planned output, and type mismatches are reported without writing anything.
+ * Folders are then made, starter files written, and the main file last. The wizard never deletes files. This check before
+ * the write is not atomic: an external program can create a file between the check and write, and the wizard may replace
+ * it. Names are compared ASCII-folded and an existing folder keeps its own spelling.
  */
 export async function createNewProject(storage: NewProjectStorage, settings: NewProjectSettings, definitions: readonly StarterDefinition[] = STARTER_DEFINITIONS): Promise<CreateProjectResult> {
   const planned = planNewProject(settings, definitions);
@@ -365,7 +354,7 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
   const { plan } = planned;
 
   const listings = new Map<string, Listing>();
-  const unreadable = (path: string, message: string): CreateProjectResult => ({ ok: false, reason: "failed", message: `Could not read ${path === "" ? "the destination folder" : path}: ${message}`, written: [], present: [], pending: plan.files.map((file) => file.path) });
+  const unreadable = (path: string, message: string): CreateProjectResult => ({ ok: false, reason: "failed", message: `Could not read ${path === "" ? "the destination folder" : path}: ${message}`, written: [], pending: plan.files.map((file) => file.path) });
   const listing = async (folder: string): Promise<Listing | { readonly failure: string }> => {
     const key = foldPath(folder);
     const known = listings.get(key);
@@ -406,45 +395,38 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
     else if (existing.kind !== "directory") conflicts.push({ path: existing.name, message: `${existing.name} is a ${existing.kind === "file" ? "file" : "link"}, and the project needs a folder of that name.` });
   }
 
-  const actions: { readonly file: PlannedFile; readonly path: string; readonly present: boolean }[] = [];
+  const actions: { readonly file: PlannedFile; readonly path: string }[] = [];
   for (const file of plan.files) {
     const slash = file.path.indexOf("/");
     const folder = folderOf(file.path.slice(0, slash));
     const name = file.path.slice(slash + 1);
     let path = `${folder.name}/${name}`;
-    let present = false;
     if (folder.exists) {
       const inside = await listing(folder.name);
       if ("failure" in inside) return unreadable(folder.name, inside.failure);
       const existing = inside.entries.get(foldPath(name));
       if (existing !== undefined) {
         path = `${folder.name}/${existing.name}`;
-        if (existing.kind !== "file") {
-          conflicts.push({ path, message: `${path} is a ${existing.kind === "directory" ? "folder" : "link"}, and the project needs a file of that name.` });
+        if (existing.kind === "file") {
+          conflicts.push({ path, message: `${path} already exists; the editor refuses existing files, even when their contents match. Choose another folder or name, or remove it yourself.` });
         } else {
-          const read = await storage.read(path);
-          if (!read.ok) return unreadable(path, read.error.message);
-          // Every existing file is kept, an empty one included: it is the author's data, not the wizard's to replace.
-          if (sameBytes(read.value, file.bytes)) present = true;
-          else if (read.value.length === 0) conflicts.push({ path, message: `${path} already exists and is empty; the editor never replaces an existing file. Choose another folder or name, or remove it yourself.` });
-          else conflicts.push({ path, message: `${path} already exists with different content; the editor never replaces it. Choose another folder or name.` });
+          conflicts.push({ path, message: `${path} is a ${existing.kind === "directory" ? "folder" : "link"}, and the project needs a file of that name.` });
         }
       }
     }
-    actions.push({ file, path, present });
+    actions.push({ file, path });
   }
   if (conflicts.length > 0) {
     const first = conflicts[0]!;
-    return { ok: false, reason: "conflicts", conflicts, message: conflicts.length === 1 ? `${first.message} Nothing was written.` : `${conflicts.length} paths in the destination would be replaced, starting with: ${first.message} Nothing was written.` };
+    return { ok: false, reason: "conflicts", conflicts, message: conflicts.length === 1 ? `${first.message} Nothing was written.` : `${conflicts.length} conflicting paths were found, starting with: ${first.message} Nothing was written.` };
   }
 
   const written: string[] = [];
-  const present = actions.filter((action) => action.present).map((action) => action.path);
-  const failed = (message: string, pending: readonly string[]): CreateProjectResult => ({ ok: false, reason: "failed", message, written, present, pending });
-  const todo = actions.filter((action) => !action.present);
+  const failed = (message: string, pending: readonly string[]): CreateProjectResult => ({ ok: false, reason: "failed", message, written, pending });
+  const todo = actions;
   for (const folder of toMake) {
     const made = await storage.createFolder(folder);
-    if (!made.ok) return failed(`Could not create the folder ${folder}: ${made.error.message} ${describeProgress(written, present, todo.map((action) => action.path))}`, todo.map((action) => action.path));
+    if (!made.ok) return failed(`Could not create the folder ${folder}: ${made.error.message} ${describeProgress(written, todo.map((action) => action.path))}`, todo.map((action) => action.path));
   }
   for (const [index, action] of todo.entries()) {
     const result = await storage.write(action.path, action.file.bytes);
@@ -452,12 +434,12 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
       const pending = todo.slice(index).map((item) => item.path);
       const leftover = await describeLeftover(storage, action.path);
       const reason = `${result.error.message.replace(/\.$/, "")}.${leftover === "" ? "" : ` ${leftover}`}`;
-      return failed(`Could not write ${action.path}: ${reason} ${describeProgress(written, present, pending)}`, pending);
+      return failed(`Could not write ${action.path}: ${reason} ${describeProgress(written, pending)}`, pending);
     }
     written.push(action.path);
   }
   const main = actions[actions.length - 1]!;
-  return { ok: true, mainPath: main.path, written, present };
+  return { ok: true, mainPath: main.path, written };
 }
 
 /**
@@ -476,9 +458,8 @@ async function describeLeftover(storage: Pick<NewProjectStorage, "stat">, path: 
 }
 
 /** A sentence that says what a failed creation left behind and how to finish it. */
-function describeProgress(written: readonly string[], present: readonly string[], pending: readonly string[]): string {
+function describeProgress(written: readonly string[], pending: readonly string[]): string {
   const parts = [`Written: ${written.length === 0 ? "nothing" : written.join(", ")}.`];
-  if (present.length > 0) parts.push(`Already present and left alone: ${present.join(", ")}.`);
   parts.push(`Not written: ${pending.join(", ")}.`, "Nothing that existed before was changed, and the editor deleted nothing.");
   return parts.join(" ");
 }
