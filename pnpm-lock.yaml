@@ -334,9 +334,15 @@ importers:
       '@tk-reawakened/editor-ui':
         specifier: workspace:*
         version: link:../editor-ui
+      '@tk-reawakened/lsp':
+        specifier: workspace:*
+        version: link:../lsp
       '@tk-reawakened/platform-services':
         specifier: workspace:*
         version: link:../platform-services
+      vscode-languageserver:
+        specifier: 9.0.1
+        version: 9.0.1
     devDependencies:
       '@types/node':
         specifier: 24.0.0

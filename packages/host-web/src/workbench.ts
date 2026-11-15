@@ -6,14 +6,17 @@ import {
   type AssetKind,
   createLayoutModel,
   createPreferences,
+  createProgramFile,
   createProjectTree,
   createTabs,
   createVisits,
   listCandidates,
   newBoardSettingsFrom,
   prepareGamePackage,
+  programPreferencesFrom,
   readBoardTemplate,
   rememberNewBoard,
+  suggestProgramPath,
   uniqueBoardName,
   type AnyDocument,
   type CreateBoardResult,
@@ -37,6 +40,8 @@ const LAYOUT_SETTING = "workbench.layout";
 export interface WorkbenchOptions {
   /** Where the project's type folders are; the project root by default. */
   readonly projectLayout?: ProjectLayout;
+  /** The running project's main file (`.gam`), so program editors give the language server the project; none by default. */
+  readonly main?: string;
 }
 
 /** What an asset picker is asked for: a folder (by asset kind), the extensions the field takes, and what the field is called. */
@@ -74,6 +79,12 @@ export interface Workbench {
    * (cancelled, refused or failed; a refusal is said in a dialog).
    */
   newBoard(): Promise<string | null>;
+  /**
+   * Make a new program (T-40) and open it in a tab. The author names it in the Save dialog, which starts from the first free
+   * name in the programs folder; the file starts with the header template of the preferences and is never made over a file.
+   * Resolves with the new program's path, or `null` when nothing was made (cancelled, refused or failed; a refusal is said in a dialog).
+   */
+  newProgram(): Promise<string | null>;
   /** The layout as identifiers and numbers. */
   saveLayout(): SavedLayout;
   dispose(): void;
@@ -86,6 +97,7 @@ export interface Workbench {
  */
 export function createWorkbench(project: WebProject, element: HTMLElement, options: WorkbenchOptions = {}): Workbench {
   const projectLayout = options.projectLayout ?? { projectFolder: "" };
+  const main = options.main ?? null;
   const { workspace, services } = project;
   const tree = createProjectTree({ services, workspace });
   const tabs = createTabs(workspace);
@@ -139,7 +151,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           slot.append(container);
           entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource, {
             pickAsset: (request) => workbench.pickAsset(request),
-          }), shownIn: container };
+          }, main), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -236,6 +248,24 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     });
   };
 
+  const newProgram = async (): Promise<string | null> => {
+    if (disposed) return null;
+    const chosen = await services.dialogs.pickSavePath({ document: "the new program", suggested: await suggestProgramPath(services.fs, projectLayout) });
+    if (chosen === null) return null;
+    const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
+    await preferences.refresh();
+    const { headerTemplate } = programPreferencesFrom(preferences.getSnapshot());
+    preferences.dispose();
+    const result = await createProgramFile(services.fs, chosen, headerTemplate);
+    if (!result.ok) {
+      await tell(result.message);
+      return null;
+    }
+    await tree.refresh();
+    await openPath(result.path);
+    return result.path;
+  };
+
   const launcher = createLauncher({ services, workspace });
   const shell: ViewHandle = mountShell(element, {
     layout,
@@ -259,6 +289,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         : result.ok ? { ok: true } : { ok: false, message: result.error.message };
     },
     onNewBoard: () => { void newBoard(); },
+    onNewProgram: () => { void newProgram(); },
     onEditorElement: (editorElement) => {
       slot = editorElement;
       sync();
@@ -345,6 +376,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       close.focus();
     },
     newBoard,
+    newProgram,
     saveLayout,
     dispose() {
       openPrefs?.();

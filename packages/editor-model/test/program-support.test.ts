@@ -12,6 +12,10 @@ import {
   insertCommandEdit,
   insertHeaderCommand,
   PREFERENCE_CATALOGUE,
+  DEFAULT_PROGRAM_PREFERENCES,
+  programPathIn,
+  programPreferencesFrom,
+  suggestProgramPath,
 } from "../src/index.ts";
 
 test("the quick reference lists every public command and alias once, with syntax, summary and the canonical name", () => {
@@ -73,19 +77,37 @@ test("the header template is a project-layer preference with the default and a l
   equal(entry.maxLength, 500);
 });
 
-test("New program writes the expanded template into the programs folder with CRLF, and never replaces a file", async () => {
+test("New program writes the expanded template with CRLF, and never replaces a file", async () => {
   const host = createMemoryPlatformServices({ files: { "Prg/Intro.prg": new Uint8Array([120]) } });
-  const made = await createProgramFile(host.fs, { projectFolder: "" }, "scene one", "// {name}\n\n");
+  const made = await createProgramFile(host.fs, "Prg/scene one.prg", "// {name}\n\n");
   deepEqual(made, { ok: true, path: "Prg/scene one.prg" });
   deepEqual(host.bytesOf("Prg/scene one.prg"), Uint8Array.from("// scene one\r\n\r\n", (ch) => ch.charCodeAt(0)));
-  const clash = await createProgramFile(host.fs, { projectFolder: "" }, "intro", "// x");
+  const clash = await createProgramFile(host.fs, "Prg/intro.prg", "// x");
   ok(!clash.ok && clash.reason === "exists");
   deepEqual(host.bytesOf("Prg/Intro.prg"), new Uint8Array([120]));
-  const unusable = await createProgramFile(host.fs, { projectFolder: "" }, "a/b", "");
+  const unusable = await createProgramFile(host.fs, "Prg/notes.txt", "");
   ok(!unusable.ok && unusable.reason === "invalid");
-  const unicode = await createProgramFile(host.fs, { projectFolder: "" }, "snow", "\u2603");
+  const bare = await createProgramFile(host.fs, "Prg/.prg", "");
+  ok(!bare.ok && bare.reason === "invalid");
+  const unicode = await createProgramFile(host.fs, "Prg/snow.prg", "\u2603");
   ok(!unicode.ok && unicode.reason === "invalid");
   equal(host.bytesOf("Prg/snow.prg"), undefined);
-  const inGame = await createProgramFile(host.fs, { projectFolder: "Game/demo" }, "x", "");
-  deepEqual(inGame, { ok: true, path: "Game/demo/Prg/x.prg" });
+  const root = await createProgramFile(host.fs, "top.prg", "// {path}");
+  deepEqual(root, { ok: true, path: "top.prg" });
+  deepEqual(host.bytesOf("top.prg"), Uint8Array.from("// top.prg", (ch) => ch.charCodeAt(0)));
+});
+
+test("the suggested name is the first free untitled program in the programs folder", async () => {
+  const host = createMemoryPlatformServices({ files: { "Prg/Untitled.prg": new Uint8Array([1]), "Prg/untitled 2.prg": new Uint8Array([1]) } });
+  equal(await suggestProgramPath(host.fs, { projectFolder: "" }), "Prg/untitled 3.prg");
+  equal(await suggestProgramPath(host.fs, { projectFolder: "Game/demo" }), "Game/demo/Prg/untitled.prg");
+  equal(programPathIn({ projectFolder: "" }, "go"), "Prg/go.prg");
+});
+
+test("the program preferences are the catalogue's until a layer sets them", () => {
+  const defaults = programPreferencesFrom({ rows: [], problems: [], projectLayerAvailable: false });
+  deepEqual(defaults, DEFAULT_PROGRAM_PREFERENCES);
+  equal(defaults.headerTemplate, DEFAULT_HEADER_TEMPLATE);
+  equal(defaults.keywordColor, "#0000ff");
+  equal(defaults.commentItalic, true);
 });

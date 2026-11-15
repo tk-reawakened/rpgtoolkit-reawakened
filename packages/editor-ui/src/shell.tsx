@@ -26,6 +26,7 @@ export interface ShellProps {
   readonly onEditorElement: (element: HTMLElement | null) => void;
   /** Ask the host for the new-board questions (T-20); no button is shown without it. */
   readonly onNewBoard?: () => void;
+  readonly onNewProgram?: () => void;
   /** Changes when the project's files may have, so the Game panel reads them again. */
   readonly version?: unknown;
   /** Starts runs through the host's `run` service; with it the shell has a Run panel (T-07, T-41). */
@@ -43,7 +44,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, version, launcher }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewProgram, version, launcher }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -52,7 +53,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, onOpened, onOpenP
       layout={layout}
       tabs={<TabStrip tabs={tabs} />}
       panels={{
-        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} />,
+        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} /> }),
       }}

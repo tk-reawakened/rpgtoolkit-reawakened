@@ -203,6 +203,8 @@ export {
   insertHeaderCommand,
   MAX_HEADER_TEMPLATE_LENGTH,
   programFileName,
+  programPathIn,
+  suggestProgramPath,
   type CommandInsertion,
   type CommandReferenceEntry,
   type CreateProgramResult,

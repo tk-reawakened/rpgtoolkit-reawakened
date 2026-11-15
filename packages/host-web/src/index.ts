@@ -1,9 +1,10 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type SpriteViewDocument, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
+import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 import { createWebRunService } from "./run.ts";
@@ -21,6 +22,8 @@ export interface WebProject {
   readonly workspace: DocumentWorkspace;
   /** Browser selection and scroll are retained per this project, shared only by its mounted views. */
   readonly browserSession: BrowserSession;
+  /** The code editor program views use (Monaco on the editor page); a plain text area when the page gives none. */
+  readonly codeEditor: TextSurfaceFactory | null;
   /** Retire this project from its host session; accepted operations remain bound to their original project. */
   deactivate(): void;
 }
@@ -30,6 +33,13 @@ export interface WebProjectOptions {
   readonly dialogs?: DialogService;
   /** URL of this deployment's same-origin runner-web player page. Without it, launching is unavailable. */
   readonly playerUrl?: string;
+  /**
+   * URL of this deployment's same-origin classic worker that runs the language server (`language-worker.js`). Without
+   * it the host declares no `languageServer` capability and programs edit without language features.
+   */
+  readonly languageWorkerUrl?: string;
+  /** The code editor for programs, made by the page (it imports Monaco); a plain text area when absent. */
+  readonly codeEditor?: TextSurfaceFactory;
   /** Where the user layer of the editor settings is kept; the page's `localStorage` by default, memory when there is none. */
   readonly userSettings?: UserSettingsStorage | null;
 }
@@ -127,7 +137,15 @@ function webUserStorage(options: WebProjectOptions): UserSettingsStorage | null 
 export function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle, options: WebProjectOptions = {}): WebProject {
   let active = true;
   const capabilities = new Set(FOLDER_CAPABILITIES);
-  const fs = bindProjectFileSystem(project.id, createWebFileSystem(root, project.id), () => active);
+  // The language service learns of every write through the same door the documents save through.
+  let written: (path: string) => void = () => {};
+  const files = createWebFileSystem(root, project.id);
+  const fs = bindProjectFileSystem(project.id, options.languageWorkerUrl === undefined ? files : notifyOnChange(files, (path) => written(path)), () => active);
+  const language = options.languageWorkerUrl === undefined ? undefined : createWebLanguageService(fs, { workerUrl: options.languageWorkerUrl });
+  if (language !== undefined) {
+    capabilities.add("languageServer");
+    written = language.notifyWritten;
+  }
   const dialogs = options.dialogs ?? pageDialogs();
   // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
   // file tree says so instead of pretending (T-03).
@@ -153,8 +171,9 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
     ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl) }),
+    ...(language === undefined ? {} : { language }),
   };
-  return { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), deactivate: () => { active = false; workspace.dispose(); } };
+  return { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, deactivate: () => { active = false; workspace.dispose(); } };
 }
 
 
@@ -211,7 +230,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
   };
-  return { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), deactivate: () => { active = false; workspace.dispose(); } };
+  return { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, deactivate: () => { active = false; workspace.dispose(); } };
 }
 
 /** One editor tab owns a lease even while its mounted view is hidden. */
@@ -267,6 +286,23 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
     };
     return view;
   }
+  if (document.kind === "program") {
+    const program = document as unknown as Required<Pick<ProgramViewDocument, "undo" | "redo">> & Omit<ProgramViewDocument, "undo" | "redo">;
+    // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
+    const view: ProgramViewDocument = {
+      kind: program.kind,
+      identity: program.identity,
+      getSnapshot: () => program.getSnapshot(),
+      subscribe: (listener) => program.subscribe(listener),
+      apply: (command) => program.apply(command),
+      save: () => program.save(),
+      resolveConflict: (choice) => program.resolveConflict(choice),
+      // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
+      undo: () => program.undo(),
+      redo: () => program.redo(),
+    };
+    return view;
+  }
   if (document.kind !== "board") throw new Error(`No browser view is registered for document kind "${document.kind}".`);
   const board = document as unknown as Omit<BoardViewDocument, "preview" | "undo" | "redo"> & Required<Pick<BoardViewDocument, "undo" | "redo">>;
   // Explicit forwarding: a document's methods read its private fields, so they are called on the document itself.
@@ -302,6 +338,19 @@ function boardPreferencesFor(project: WebProject): BoardPreferencesSource {
   return source;
 }
 
+const programPreferenceSources = new WeakMap<WebProject, ProgramPreferencesSource>();
+
+/** The program-editor preferences of a project (syntax colours, header template), read from its settings once and shared by its program views. */
+function programPreferencesFor(project: WebProject): ProgramPreferencesSource {
+  const known = programPreferenceSources.get(project);
+  if (known !== undefined) return known;
+  const preferences = createPreferences({ settings: project.services.settings, projectLayer: project.services.capabilities.has("folderWrite") });
+  void preferences.refresh();
+  const source: ProgramPreferencesSource = { get: () => programPreferencesFrom(preferences.getSnapshot()), subscribe: (listener) => preferences.subscribe(listener) };
+  programPreferenceSources.set(project, source);
+  return source;
+}
+
 /** A mounted view with no ownership of its document: whoever mounted it holds the document's lease. */
 export interface DocumentView extends ViewHandle {
   hide(): void;
@@ -316,6 +365,8 @@ export function mountDocumentView(
   projectLayout: ProjectLayout = { projectFolder: "" },
   openSource?: (path: string) => Promise<string | null>,
   navigation?: ViewContext["navigation"],
+  /** The running project's main file (`.gam`), which the language server reads the project from; `null` when none. */
+  main: string | null = null,
 ): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
   let mounted: ViewHandle | null = null;
@@ -334,6 +385,11 @@ export function mountDocumentView(
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
+      codeEditor: {
+        ...(project.codeEditor === null ? {} : { createSurface: project.codeEditor }),
+        project: main === null ? null : { main },
+        preferences: programPreferencesFor(project),
+      },
       // The workspace waits for these edits before Save All, close, revert and Save As read the document (#2613).
       pendingEdits: project.workspace.pendingEdits(document),
       ...(navigation === undefined ? {} : { navigation }),
@@ -362,4 +418,5 @@ export const mountGameSettings = mountEditor;
 export { createPageDialogs } from "./dialogs.ts";
 export { createWorkbench, type Workbench, type WorkbenchOptions } from "./workbench.ts";
 export { createWebFileSystem } from "./filesystem.ts";
+export { createWebLanguageService, projectFileUri, readProjectSnapshot, type WebLanguageOptions, type WebLanguageService } from "./language.ts";
 export { createWebSettings, PROJECT_SETTINGS_PATH, type UserSettingsStorage } from "./settings.ts";

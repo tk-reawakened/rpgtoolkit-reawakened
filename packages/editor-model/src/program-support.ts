@@ -124,27 +124,45 @@ export function programFileName(name: string): string {
   return /\.prg$/i.test(trimmed) ? trimmed : `${trimmed}.prg`;
 }
 
+/** The project-relative path of the program `name` in the project's programs folder. */
+export function programPathIn(layout: ProjectLayout, name: string): string {
+  return `${reservedFolder(layout, "programs")}/${programFileName(name)}`;
+}
+
 /**
- * Create a program in the project's programs folder, starting with the expanded header template (T-40). Nothing is
- * written when the name is unusable or a file of that name (compared without regard to A-Z case) already exists:
- * a new program never replaces a file.
+ * The first of `untitled.prg`, `untitled 2.prg`, … that is not in the programs folder, for suggesting a name to someone
+ * making a program; names are compared without regard to A-Z case.
  */
-export async function createProgramFile(fs: NewProgramStorage, layout: ProjectLayout, name: string, headerTemplate: string): Promise<CreateProgramResult> {
-  const unusable = name.trim() === "" ? "Give the program a name." : unusableName(programFileName(name));
-  if (unusable !== null) return { ok: false, reason: "invalid", message: unusable };
+export async function suggestProgramPath(fs: Pick<FileSystemService, "list">, layout: ProjectLayout): Promise<string> {
   const folder = reservedFolder(layout, "programs");
-  const fileName = programFileName(name);
   const listed = await fs.list(folder);
-  if (!listed.ok && listed.error.code !== "not-found") return { ok: false, reason: "failed", message: `Could not read ${folder}: ${listed.error.message}` };
-  if (listed.ok && listed.value.some((entry) => foldPath(entry.name) === foldPath(fileName))) {
-    return { ok: false, reason: "exists", message: `${folder}/${fileName} already exists (names are compared without regard to A-Z case). Nothing was created; choose another name.` };
+  const taken = new Set(listed.ok ? listed.value.map((entry) => foldPath(entry.name)) : []);
+  for (let counter = 1; ; counter += 1) {
+    const name = counter === 1 ? "untitled.prg" : `untitled ${counter}.prg`;
+    if (!taken.has(foldPath(name))) return `${folder}/${name}`;
   }
-  const path = `${folder}/${fileName}`;
+}
+
+/**
+ * Create the program at `path` (a project-relative path ending in `.prg`), starting with the expanded header template
+ * (T-40). Nothing is written when the path is unusable or a file of that name (compared without regard to A-Z case)
+ * already exists: a new program never replaces a file.
+ */
+export async function createProgramFile(fs: NewProgramStorage, path: string, headerTemplate: string): Promise<CreateProgramResult> {
+  const slash = path.lastIndexOf("/");
+  const folder = path.slice(0, Math.max(slash, 0));
+  const fileName = path.slice(slash + 1);
+  const unusable = unusableName(fileName) ?? (/\.prg$/i.test(fileName) && fileName.length > 4 ? null : "A program's name ends in .prg.");
+  if (unusable !== null) return { ok: false, reason: "invalid", message: unusable };
+  const listed = await fs.list(folder);
+  if (!listed.ok && listed.error.code !== "not-found") return { ok: false, reason: "failed", message: `Could not read ${folder === "" ? "the project folder" : folder}: ${listed.error.message}` };
+  if (listed.ok && listed.value.some((entry) => foldPath(entry.name) === foldPath(fileName))) {
+    return { ok: false, reason: "exists", message: `${path} already exists (names are compared without regard to A-Z case). Nothing was created; choose another name.` };
+  }
   const text = expandHeaderTemplate(headerTemplate, path).replace(/\n/g, "\r\n");
   const encoded = encodeCp1252(text);
   if (!encoded.ok) return { ok: false, reason: "invalid", message: `The header template cannot be written: ${encoded.error.message}. Nothing was created.` };
-  const bytes = encoded.value;
-  const written = await fs.write(path, bytes);
+  const written = await fs.write(path, encoded.value);
   if (!written.ok) return { ok: false, reason: "failed", message: `Could not create ${path}: ${written.error.message}` };
   return { ok: true, path };
 }

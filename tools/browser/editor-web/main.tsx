@@ -1,9 +1,19 @@
 import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, openWebProject, reopenWebProject, type DocumentView, type WebProject, type Workbench } from "@tk-reawakened/host-web";
 import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
+// Monaco is chosen here, by the page, and not by `host-web`: importing it loads the editor, which only a browser page does.
+import { createMonacoSurfaceFactory } from "../../../packages/editor-ui/src/monaco-surface.ts";
 
-/** Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). */
-const playerOptions = { playerUrl: "/packages/runner-web/app/index.html" };
+/**
+ * Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). Programs edit in Monaco with a
+ * same-origin classic worker, and the language server runs in another one (story 11.7, ADR 0029): both are scripts the
+ * build emits next to this page, so nothing is fetched from another origin and no `blob:` worker is needed.
+ */
+const playerOptions = {
+  playerUrl: "/packages/runner-web/app/index.html",
+  languageWorkerUrl: "./dist/language-worker.js",
+  codeEditor: createMonacoSurfaceFactory({ workerUrl: "./dist/monaco-editor.worker.js" }),
+};
 const status = document.querySelector<HTMLElement>("#host-status")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
 const folderButton = document.querySelector<HTMLButtonElement>("#open-project")!;
@@ -234,7 +244,7 @@ fileInput.addEventListener("change", () => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (request !== openRequest) return;
     hideProjectChoices();
-    await show(createSessionCopy(file.name, bytes), file.name, request);
+    await show(createSessionCopy(file.name, bytes, playerOptions), file.name, request);
   })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
 });
 
@@ -284,7 +294,7 @@ async function showProject(project: WebProject, path: string, request: number): 
   const element = document.createElement("section");
   element.hidden = true;
   settings.append(element);
-  const workbench = createWorkbench(project, element, { projectLayout: await projectLayoutOfMain(project.services.fs, project.project.id, path) });
+  const workbench = createWorkbench(project, element, { projectLayout: await projectLayoutOfMain(project.services.fs, project.project.id, path), main: path });
   let candidate!: Shown;
   const unsubscribeTabs = workbench.tabs.subscribe(() => updateActions(candidate));
   candidate = { project, workbench, element, unsubscribeTabs };
@@ -563,7 +573,9 @@ const redoActive = onActive("#redo", ({ project }, active) => {
   const redone = project.workspace.redo(active);
   return redone.ok ? null : "Nothing to redo.";
 });
-const saveActive = activeCommand(async (_current, active) => {
+const saveActive = activeCommand(async (current, active) => {
+  // Typing a code editor has buffered is handed to the document first (#2613): a save never leaves out the last words.
+  await current.project.workspace.pendingEdits(active).settle();
   const saved = await active.save();
   return saved.ok ? null : saved.failure.message;
 });
