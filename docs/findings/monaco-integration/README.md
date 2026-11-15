@@ -26,5 +26,5 @@ All four are in `THIRD_PARTY_NOTICES` with texts. `tools/licences/config.json` `
 ## Known limits
 
 - VS Code colours the semantic classes with the author's theme; the `rpgToolkit.syntax.*` preferences are applied to Monaco only.
-- VS Code normalises a file with mixed line endings to its dominant ending when an edited file is saved; the standalone document keeps each ending (TOOL-10).
+- VS Code may normalise a file with mixed line endings to its dominant ending when an edited file is saved; preserving each original ending is not required there (owner ruling in [TOOL-10](../../spec/engine/rpgcode-tooling.md#tool-10)). The standalone document keeps each ending.
 - Go to definition in Monaco shows only targets in the open program; another program is opened from the project tree.
