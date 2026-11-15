@@ -29,6 +29,16 @@
 
 **T-09 Onboarding & help.** Tip of the day, a 9-step tutorial, the HTML user manual, an RPGCode quick reference, and a "what's new" page.
 
+### Reawakened rules for the new-project wizard (story 11.10)
+
+These rules settle what T-04 and T-05 leave open. The layout, stored fields, catalogue and overwrite rules are in [packaging and paths](spec/formats/packaging-and-paths.md#new-project).
+
+* **The questions.** Game name, main file name (suggested from the name), the starter contents to copy (none ticked by default) and the destination folder. The browser host shows them as one form; VS Code asks them one at a time with its own input boxes and pick lists. Both make the same project from the same answers.
+* **Explicit starter contents (T-04).** Each starter item says what it writes, its provenance and licence, and whether it is available. Unavailable items are listed with their reason and cannot be chosen; nothing is substituted. A blank project, with no starter contents, is valid and opens.
+* **Destination and overwrites.** The destination is chosen through the host's folder dialog and becomes the project root. The wizard checks every path first and never overwrites: a conflict is listed and nothing is written. Cancelling any question, or dismissing the folder dialog, writes nothing.
+* **Failure.** Folders and starter files are written first and the main file last ([ADR 0022 D4.2](adr/0022-shared-editor-authoring-contracts.md)). A failed creation keeps what it wrote, reports what is written, already present and pending, and leaves every pre-existing file untouched; running it again with the same answers finishes the project.
+* **Opening (T-05).** A created project opens its main file in the editor. Every stored reference resolves through the reserved folders: `start.prg` to `Prg/start.prg`, `start.brd` to `Boards/start.brd`, `start.tem` to `Chrs/start.tem`.
+
 ---
 
 ## 2. Main file (game settings) editor (T-10 … T-14)
