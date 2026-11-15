@@ -11,6 +11,8 @@ await mkdir(resolve(destination, "player-assets"), { recursive: true });
 for (const file of ["extension.js", "extension.js.map", "extension.browser.js", "extension.browser.js.map", "webview.js", "webview.js.map", "tileset-browser.css", "tileset-art.css", "player.js", "audio-worklet.js", "decode-worker.js"]) {
   await cp(resolve(source, file), resolve(destination, file));
 }
+await cp(resolve(repositoryRoot, "media/icons/png/tkr-128.png"), resolve(destination, "icon.png"));
+await cp(resolve(repositoryRoot, "media/icons/png/tkr-128.png"), resolve(destination, "tkr-128.png"));
 const assetFolders = ["media/fonts", "media/cursors", "media/soundfonts", "stock/stock_menu", "stock/stock_battle", "stock/stock_rpg"];
 for (const folder of assetFolders) {
   await cp(resolve(repositoryRoot, folder), resolve(destination, "player-assets", folder), { recursive: true });

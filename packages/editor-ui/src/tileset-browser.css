@@ -1,9 +1,1945 @@
 @import "./tileset-art.css";
 
+/* ==========================================================================
+   TK Reawakened — Shared IDE Workbench & Editor Stylesheet (#2703)
+   ========================================================================== */
+
+/* 1. Global Reset & Base Primitives for Editor Surfaces -------------------- */
+[hidden] {
+  display: none !important;
+}
+
+.tkr-web-body,
+.tkr-web-shell,
+.tkr-workbench,
+[class^="tkr-"],
+[class*=" tkr-"] {
+  box-sizing: border-box;
+  accent-color: var(--tkr-accent);
+  scrollbar-width: thin;
+  scrollbar-color: var(--tkr-border-strong) transparent;
+}
+
+[class^="tkr-"] *,
+[class*=" tkr-"] * {
+  box-sizing: border-box;
+}
+
+.tkr-web-body {
+  margin: 0;
+  min-block-size: 100dvh;
+  background: var(--tkr-bg-app);
+  color: var(--tkr-fg-primary);
+  font-family: var(--tkr-font-sans);
+  font-size: var(--tkr-text-md);
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Base Interactive Controls (Buttons, Inputs, Selects, Textareas) */
+.tkr-web-shell button,
+.tkr-workbench button,
+[class^="tkr-"] button,
+.tkr-web-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+.tkr-workbench input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+[class^="tkr-"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+.tkr-web-shell select,
+.tkr-workbench select,
+[class^="tkr-"] select,
+.tkr-web-shell textarea,
+.tkr-workbench textarea,
+[class^="tkr-"] textarea {
+  font-family: inherit;
+  font-size: var(--tkr-text-sm);
+  line-height: 1.25;
+  min-block-size: 1.75rem;
+  padding: 0.25rem 0.5rem;
+  color: var(--tkr-fg-primary);
+  background: var(--tkr-bg-control);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-sm);
+  transition: background-color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
+}
+
+.tkr-web-shell button,
+.tkr-workbench button,
+[class^="tkr-"] button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.tkr-web-shell button:hover:not(:disabled):not([aria-disabled="true"]),
+.tkr-workbench button:hover:not(:disabled):not([aria-disabled="true"]),
+[class^="tkr-"] button:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--tkr-bg-control-hover);
+  border-color: var(--tkr-fg-muted);
+}
+
+.tkr-web-shell button[aria-pressed="true"],
+.tkr-workbench button[aria-pressed="true"],
+[class^="tkr-"] button[aria-pressed="true"],
+.tkr-board-tool-active {
+  background: var(--tkr-accent-subtle);
+  border-color: var(--tkr-accent);
+  color: var(--tkr-fg-primary);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--tkr-accent);
+}
+
+/* Primary Save Actions */
+.tkr-board-save:not(:disabled),
+.tkr-bitmap-save:not(:disabled),
+.tkr-tileset-art-save:not(:disabled),
+.tkr-sprite-save:not(:disabled),
+.tkr-character-save:not(:disabled),
+.tkr-settings > button:first-of-type:not(:disabled),
+.tkr-run-start:not(:disabled),
+.tkr-new-board-create:not(:disabled) {
+  background: var(--tkr-accent);
+  border-color: var(--tkr-accent);
+  color: var(--tkr-accent-fg);
+  font-weight: 600;
+}
+
+.tkr-web-shell button:disabled,
+.tkr-workbench button:disabled,
+[class^="tkr-"] button:disabled,
+.tkr-web-shell button[aria-disabled="true"],
+.tkr-workbench button[aria-disabled="true"],
+[class^="tkr-"] button[aria-disabled="true"],
+.tkr-web-shell input:disabled,
+.tkr-workbench input:disabled,
+[class^="tkr-"] input:disabled,
+.tkr-web-shell select:disabled,
+.tkr-workbench select:disabled,
+[class^="tkr-"] select:disabled,
+[class^="tkr-"] input[readonly] {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+/* Keyboard Focus Ring */
+.tkr-web-shell :focus-visible,
+.tkr-workbench :focus-visible,
+[class^="tkr-"] :focus-visible {
+  outline: 2px solid var(--tkr-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Invalid / Error Controls & Parent Fieldset Highlighting (:has) */
+[class^="tkr-"] input[aria-invalid="true"],
+[class^="tkr-"] select[aria-invalid="true"],
+[class^="tkr-"] textarea[aria-invalid="true"],
+[class^="tkr-"] input:user-invalid {
+  border-color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+}
+
+[class^="tkr-"] fieldset {
+  margin: 0;
+  padding: 0.625rem 0.75rem;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+  min-inline-size: 0;
+}
+
+[class^="tkr-"] fieldset:has([aria-invalid="true"], :user-invalid, [role="alert"]) {
+  border-color: var(--tkr-danger);
+}
+
+[class^="tkr-"] legend {
+  padding: 0 0.375rem;
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tkr-fg-muted);
+}
+
+/* 2. Browser Host IDE Chrome (.tkr-web-shell) ------------------------------ */
+.tkr-web-body {
+  margin: 0;
+  block-size: 100dvh;
+  overflow: hidden;
+}
+
+.tkr-web-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  block-size: 100dvh;
+  overflow: hidden;
+}
+
+.tkr-web-topbar {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.375rem 0.75rem;
+  padding: 0.25rem 0.625rem;
+  min-block-size: 2.375rem;
+  background: var(--tkr-bg-panel);
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+/* When a project is open in the workbench, merge .tkr-web-topbar into the single 38px workbench bar */
+.tkr-web-shell:has(#settings > section:not([hidden])) > .tkr-web-topbar {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: 2.375rem;
+  background: transparent;
+  border-block-end: 0;
+  pointer-events: none;
+  z-index: 25;
+}
+
+.tkr-web-shell:has(#settings > section:not([hidden])) > .tkr-web-topbar .tkr-web-brand {
+  margin-inline-start: 2.25rem;
+}
+
+/* Document actions (Undo, Redo, Save all, Save as, Revert, Close, Second view) live inside the ☰ Hamburger Menu */
+.tkr-web-doc-actions {
+  position: fixed;
+  inset-block-start: -9999px;
+  inset-inline-start: -9999px;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tkr-web-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  min-inline-size: 0;
+}
+
+.tkr-web-brand-icon {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.tkr-web-brand h1 {
+  margin: 0;
+  font-size: var(--tkr-text-sm);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.tkr-web-status {
+  margin: 0;
+  margin-inline-start: auto;
+  padding: 0.125rem 0.625rem;
+  font-family: var(--tkr-font-mono);
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: 999px;
+  max-inline-size: min(24rem, 36vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+/* Empty State vs Active Workbench State for .tkr-web-workspace & .tkr-web-project-bar */
+.tkr-web-workspace {
+  flex: 1 1 auto;
+  display: flex;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+/* When NO game/project is open yet: Left Explorer Dock ("No Game Opened", VS Code style) */
+.tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) {
+  flex-direction: row;
+}
+
+.tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) > .tkr-web-project-bar {
+  flex: 0 0 280px;
+  inline-size: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  padding: 0.75rem 0.875rem;
+  background: var(--tkr-bg-panel);
+  border-inline-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-web-empty-explorer-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tkr-web-empty-explorer-title {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-web-empty-explorer-section {
+  font-size: var(--tkr-text-sm);
+  font-weight: 700;
+  color: var(--tkr-fg-primary);
+}
+
+.tkr-web-subtitle {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  line-height: 1.45;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-web-project-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.625rem;
+}
+
+.tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) .tkr-web-primary-open,
+.tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) #reopen-project,
+.tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) #open-selected-game {
+  inline-size: 100%;
+  min-block-size: 2rem !important;
+  background: var(--tkr-accent) !important;
+  border-color: var(--tkr-accent) !important;
+  color: var(--tkr-accent-fg) !important;
+  font-weight: 600 !important;
+}
+
+.tkr-web-session-open,
+.tkr-web-recent-open,
+.tkr-web-game-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+}
+
+.tkr-web-session-open {
+  position: relative;
+}
+
+.tkr-web-session-open label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-block-size: 1.75rem;
+  padding: 0.25rem 0.625rem;
+  font-size: var(--tkr-text-xs);
+  font-weight: 500;
+  color: var(--tkr-fg-primary);
+  background: var(--tkr-bg-control);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tkr-web-session-open label:hover {
+  background: var(--tkr-bg-control-hover);
+}
+
+.tkr-web-session-open input[type="file"] {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tkr-web-recent-open label,
+.tkr-web-game-choice label {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) > #settings {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: var(--tkr-bg-stage);
+}
+
+.tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) > #settings::before {
+  content: "";
+  inline-size: 5rem;
+  block-size: 5rem;
+  background: url("./tkr-128.png") center / contain no-repeat;
+  opacity: 0.85;
+  filter: drop-shadow(0 6px 18px rgb(0 0 0 / 0.45));
+}
+
+.tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) > #settings::after {
+  content: "TK Reawakened IDE — Select Open project folder in the Explorer on the left to begin.";
+  font-size: var(--tkr-text-sm);
+  color: var(--tkr-fg-disabled);
+  padding: 0 1.5rem;
+  text-align: center;
+}
+
+/* When a game/project IS open: collapse .tkr-web-project-bar offscreen (open/reopen actions live in ☰ menu) */
+.tkr-web-workspace:has(> #settings > section:not([hidden])) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.tkr-web-workspace:has(> #settings > section:not([hidden])) > .tkr-web-project-bar {
+  position: fixed;
+  inset-block-start: -9999px;
+  inset-inline-start: -9999px;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tkr-web-workspace:has(> #settings > section:not([hidden])) > .tkr-web-project-bar:has(#project-game:not([hidden])) {
+  inset-block-start: 3rem;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  inline-size: auto;
+  max-inline-size: calc(100vw - 2rem);
+  block-size: auto;
+  overflow: visible;
+  clip-path: none;
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--tkr-bg-elevated);
+  border: 1px solid var(--tkr-border-default);
+  border-radius: var(--tkr-radius-lg);
+  box-shadow: var(--tkr-shadow-overlay);
+}
+
+.tkr-web-workspace:has(> #settings > section:not([hidden])) > #settings {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.tkr-web-workspace:has(> #settings > section:not([hidden])) > #mirror {
+  grid-column: 2;
+  grid-row: 1;
+  inline-size: 48vw;
+}
+
+.tkr-web-workspace > #settings,
+.tkr-web-workspace > #mirror {
+  flex: 1 1 0%;
+  min-inline-size: 0;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tkr-web-workspace > #mirror {
+  border-inline-start: 2px solid var(--tkr-border-strong);
+}
+
+.tkr-web-workspace > #settings > section {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+/* 3. Shared Workbench Docking Layout (.tkr-workbench) ---------------------- */
+.tkr-workbench {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  min-block-size: 0;
+  overflow: hidden;
+  background: var(--tkr-bg-app);
+  color: var(--tkr-fg-primary);
+  font-family: var(--tkr-font-sans);
+  font-size: var(--tkr-text-md);
+}
+
+.tkr-panel-toggles {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  padding: 0.25rem 0.625rem;
+  min-block-size: 2.375rem;
+  background: var(--tkr-bg-panel);
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-web-shell:has(#settings > section:not([hidden])) .tkr-command-palette-trigger {
+  margin-inline-start: auto;
+  margin-inline-end: auto;
+}
+
+/* Application Menu (☰) & Command Palette Bar (.tkr-command-bar) */
+.tkr-command-bar {
+  display: contents;
+}
+
+.tkr-app-menu-wrap {
+  order: 1;
+  position: relative;
+  display: inline-flex;
+  z-index: 30;
+}
+
+.tkr-app-menu-button {
+  min-block-size: 1.75rem !important;
+  min-inline-size: 1.875rem !important;
+  padding: 0.125rem 0.375rem !important;
+  background: var(--tkr-bg-control) !important;
+  border: 1px solid var(--tkr-border-subtle) !important;
+  border-radius: var(--tkr-radius-sm) !important;
+}
+
+.tkr-app-menu-icon {
+  font-size: 0.9375rem;
+  line-height: 1;
+}
+
+.tkr-app-menu-popup {
+  position: absolute;
+  inset-block-start: calc(100% + 4px);
+  inset-inline-start: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: 11.5rem 16rem;
+  background: var(--tkr-bg-elevated);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-md);
+  box-shadow: var(--tkr-shadow-menu);
+  padding: 0.375rem;
+  gap: 0.25rem;
+}
+
+.tkr-app-menu-categories,
+.tkr-app-menu-submenu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tkr-app-menu-submenu {
+  border-inline-start: 1px solid var(--tkr-border-subtle);
+  padding-inline-start: 0.25rem;
+}
+
+.tkr-app-menu-category,
+.tkr-app-menu-item {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between !important;
+  inline-size: 100%;
+  min-block-size: 1.75rem !important;
+  padding: 0.25rem 0.625rem !important;
+  font-size: var(--tkr-text-sm) !important;
+  font-weight: 400 !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  text-align: start;
+}
+
+.tkr-app-menu-category-active,
+.tkr-app-menu-category:hover,
+.tkr-app-menu-item:hover:not(:disabled) {
+  background: var(--tkr-accent-subtle) !important;
+  color: var(--tkr-fg-primary) !important;
+}
+
+.tkr-app-menu-chevron {
+  font-size: 1rem;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-command-palette-trigger {
+  order: 3;
+  flex: 0 1 24rem;
+  margin-inline-start: 0.75rem;
+  margin-inline-end: auto;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: space-between !important;
+  gap: 0.75rem;
+  min-block-size: 1.6875rem !important;
+  padding: 0.125rem 0.625rem !important;
+  background: var(--tkr-bg-input) !important;
+  border: 1px solid var(--tkr-border-subtle) !important;
+  border-radius: var(--tkr-radius-md) !important;
+  color: var(--tkr-fg-muted) !important;
+  font-size: var(--tkr-text-xs) !important;
+}
+
+.tkr-command-palette-trigger:hover {
+  border-color: var(--tkr-border-strong) !important;
+  color: var(--tkr-fg-primary) !important;
+}
+
+.tkr-command-palette-trigger-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tkr-command-kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem 0.3125rem;
+  font-family: var(--tkr-font-mono);
+  font-size: 0.6875rem;
+  color: var(--tkr-fg-muted);
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: 3px;
+}
+
+/* Command Palette Modal Overlay */
+.tkr-command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-block-start: 8vh;
+  background: color-mix(in srgb, #000 50%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.tkr-command-palette-dialog {
+  inline-size: min(38rem, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--tkr-bg-elevated);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-lg);
+  box-shadow: var(--tkr-shadow-modal);
+  overflow: hidden;
+}
+
+.tkr-command-palette-header {
+  padding: 0.5rem;
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-command-palette-input {
+  inline-size: 100%;
+  min-block-size: 2rem !important;
+  padding: 0.25rem 0.625rem !important;
+  font-size: var(--tkr-text-sm) !important;
+  background: var(--tkr-bg-input) !important;
+}
+
+.tkr-command-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.375rem;
+  max-block-size: min(52vh, 22rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tkr-command-palette-option {
+   inline-size: 100%;
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-start !important;
+  gap: 0.5rem;
+  min-block-size: 1.875rem !important;
+  padding: 0.25rem 0.625rem !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  font-size: var(--tkr-text-sm) !important;
+  text-align: start;
+}
+
+.tkr-command-palette-option-active,
+.tkr-command-palette-option:hover {
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-accent) !important;
+}
+
+.tkr-command-palette-category {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tkr-fg-muted);
+  min-inline-size: 4.5rem;
+}
+
+.tkr-command-palette-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tkr-command-palette-empty {
+  padding: 0.75rem;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+  text-align: center;
+}
+
+.tkr-workbench-body {
+  flex: 1 1 0%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.tkr-dock-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  block-size: 1.75rem;
+  padding: 0 0.375rem;
+  background: var(--tkr-bg-panel);
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-dock-header-left {
+  justify-content: flex-start;
+}
+
+.tkr-dock-header-right {
+  justify-content: flex-end;
+}
+
+.tkr-dock-header-bottom {
+  justify-content: space-between;
+  border-block-start: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-dock-header-title {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tkr-fg-primary);
+  padding-inline-start: 0.25rem;
+}
+
+.tkr-dock-collapse-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.375rem !important;
+  block-size: 1.375rem !important;
+  min-block-size: 1.375rem !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  color: var(--tkr-fg-muted) !important;
+}
+
+.tkr-dock-collapse-btn:hover,
+.tkr-dock-collapse-btn:focus-visible {
+  background: var(--tkr-bg-control-hover) !important;
+  color: var(--tkr-fg-primary) !important;
+  border-color: var(--tkr-border-subtle) !important;
+}
+
+.tkr-dock-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.tkr-dock-left {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--tkr-bg-panel);
+  border-inline-end: 1px solid var(--tkr-border-subtle);
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.tkr-dock-left[data-collapsed="true"] {
+  inline-size: 2.125rem;
+}
+
+.tkr-editor-area {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  background: var(--tkr-bg-surface);
+  overflow: hidden;
+}
+
+.tkr-dock-right {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--tkr-bg-panel);
+  border-inline-start: 1px solid var(--tkr-border-subtle);
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.tkr-dock-right[data-collapsed="true"] {
+  inline-size: 2.125rem;
+}
+
+.tkr-dock-right:empty {
+  border-inline-start: 0;
+}
+
+.tkr-dock-bottom {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--tkr-bg-panel);
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.tkr-dock-bottom[data-collapsed="true"] > .tkr-dock-header-bottom {
+  border-block-end: 0;
+}
+
+.tkr-panel {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  overflow-y: auto;
+  min-block-size: 0;
+  min-inline-size: 0;
+}
+
+/* Panel size classes (.tkr-size-8 .. .tkr-size-30, each unit = 16px) */
+.tkr-size-8 { inline-size: 128px; }
+.tkr-size-9 { inline-size: 144px; }
+.tkr-size-10 { inline-size: 160px; }
+.tkr-size-11 { inline-size: 176px; }
+.tkr-size-12 { inline-size: 192px; }
+.tkr-size-13 { inline-size: 208px; }
+.tkr-size-14 { inline-size: 224px; }
+.tkr-size-15 { inline-size: 240px; }
+.tkr-size-16 { inline-size: 256px; }
+.tkr-size-17 { inline-size: 272px; }
+.tkr-size-18 { inline-size: 288px; }
+.tkr-size-19 { inline-size: 304px; }
+.tkr-size-20 { inline-size: 320px; }
+.tkr-size-21 { inline-size: 336px; }
+.tkr-size-22 { inline-size: 352px; }
+.tkr-size-23 { inline-size: 368px; }
+.tkr-size-24 { inline-size: 384px; }
+.tkr-size-25 { inline-size: 400px; }
+.tkr-size-26 { inline-size: 416px; }
+.tkr-size-27 { inline-size: 432px; }
+.tkr-size-28 { inline-size: 448px; }
+.tkr-size-29 { inline-size: 464px; }
+.tkr-size-30 { inline-size: 480px; }
+
+.tkr-dock-left > .tkr-panel {
+  min-inline-size: 100%;
+}
+
+/* When both Files and Game panels are open in the left dock, stack them in a VS Code accordion split */
+.tkr-dock-left:has(> #tkr-panel-files):has(> #tkr-panel-game) > #tkr-panel-files,
+.tkr-dock-left:has(> #tkr-panel-files):has(> #tkr-panel-game) > #tkr-panel-game {
+  flex: 1 1 0%;
+  min-block-size: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.tkr-dock-left:has(> #tkr-panel-files):has(> #tkr-panel-game) > #tkr-panel-files {
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-dock-left > #tkr-panel-files:has(> .tkr-files[data-collapsed="true"]),
+.tkr-dock-left > #tkr-panel-game:has(> .tkr-game[data-collapsed="true"]) {
+  flex: 0 0 auto !important;
+  min-block-size: auto !important;
+}
+
+.tkr-dock-bottom > .tkr-panel {
+  inline-size: 100%;
+  block-size: 9rem;
+  max-block-size: 30vh;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.tkr-dock-bottom .tkr-run {
+  padding: 0.375rem 0.75rem 0.625rem;
+  gap: 0.5rem;
+}
+
+.tkr-dock-bottom .tkr-run > h2 {
+  display: none;
+}
+
+.tkr-run-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.25rem;
+  border-block-end: 1px solid var(--tkr-border-subtle);
+  padding-block-end: 0.375rem;
+}
+
+.tkr-run-tab {
+  min-block-size: 1.625rem !important;
+  padding: 0.1875rem 0.625rem !important;
+  font-size: var(--tkr-text-xs) !important;
+  font-weight: 500 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  color: var(--tkr-fg-muted) !important;
+}
+
+.tkr-run-tab:hover {
+  background: var(--tkr-bg-control-hover) !important;
+  color: var(--tkr-fg-primary) !important;
+}
+
+.tkr-run-tab[aria-selected="true"] {
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-accent) !important;
+  color: var(--tkr-fg-primary) !important;
+  font-weight: 600 !important;
+}
+
+.tkr-run-launch[hidden] {
+  display: none;
+}
+
+.tkr-separator {
+  flex: 0 0 3px;
+  inline-size: 100%;
+  min-block-size: 3px;
+  background: var(--tkr-border-subtle);
+  cursor: row-resize;
+  transition: background-color 120ms ease;
+}
+
+.tkr-dock-right > .tkr-separator {
+  display: none;
+}
+
+.tkr-dock-bottom > .tkr-separator {
+  cursor: row-resize;
+  min-block-size: 4px;
+}
+
+.tkr-separator:hover,
+.tkr-separator:focus-visible {
+  background: var(--tkr-accent);
+}
+
+/* 4. Document Tab Strip & Shell (.tkr-tabs, .tkr-editor-shell) ------------- */
+.tkr-editor-shell {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+.tkr-tabs {
+  display: flex;
+  flex-direction: column;
+  background: var(--tkr-bg-panel);
+  border-block-end: 1px solid var(--tkr-border-subtle);
+  min-block-size: 2.125rem;
+}
+
+.tkr-tabs-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tkr-tab-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-inline-size: 16rem;
+  min-inline-size: 0;
+  background: var(--tkr-bg-panel);
+  border-inline-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-tab-wrap:has(> .tkr-tab-active) {
+  background: var(--tkr-bg-surface);
+}
+
+.tkr-tab {
+  position: relative;
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0.25rem 0.375rem 0.25rem 0.625rem !important;
+  font-size: var(--tkr-text-xs) !important;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tkr-tab-active {
+  background: transparent !important;
+  font-weight: 600 !important;
+}
+
+.tkr-tab-active::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: 0;
+  block-size: 2px;
+  background: var(--tkr-accent);
+  pointer-events: none;
+}
+
+.tkr-tab-dirty {
+  color: var(--tkr-dirty);
+  font-weight: 700;
+  margin-inline-start: 0.125rem;
+}
+
+.tkr-tabs-notice {
+  margin: 0;
+  padding: 0.25rem 0.625rem;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-dirty);
+  background: var(--tkr-dirty-subtle);
+  border-block-start: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-tab-close {
+  flex: 0 0 auto;
+  border: 0 !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  background: transparent !important;
+  padding: 0.125rem 0.375rem !important;
+  margin-inline-end: 0.25rem;
+  min-block-size: 1.375rem !important;
+  font-size: var(--tkr-text-xs) !important;
+  color: var(--tkr-fg-muted) !important;
+}
+
+.tkr-tab-close:hover {
+  background: var(--tkr-bg-control-hover) !important;
+  color: var(--tkr-fg-primary) !important;
+}
+
+.tkr-editor {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: auto;
+}
+
+.tkr-tab-panel,
+.tkr-editor-slot,
+.tkr-editor-pane {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+}
+
+.tkr-tab-empty,
+.tkr-editor-empty {
+  margin: auto;
+  padding: 2rem;
+  font-size: var(--tkr-text-sm);
+  color: var(--tkr-fg-muted);
+  text-align: center;
+}
+
+/* 5. Left Navigation Explorers (.tkr-files, .tkr-game) --------------------- */
+.tkr-files,
+.tkr-game {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-block-size: 0;
+  overflow: hidden;
+  padding: 0.375rem 0.5rem;
+  font-size: var(--tkr-text-sm);
+}
+
+.tkr-files[data-collapsed="true"],
+.tkr-game[data-collapsed="true"] {
+  flex: 0 0 auto;
+  padding-block: 0.125rem;
+}
+
+.tkr-files[data-collapsed="true"] > :not(.tkr-files-heading),
+.tkr-game[data-collapsed="true"] > :not(.tkr-game-heading) {
+  display: none;
+}
+
+.tkr-files h2,
+.tkr-game h2 {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+}
+
+.tkr-accordion-toggle {
+  inline-size: 100%;
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-start !important;
+  gap: 0.375rem;
+  min-block-size: 1.5rem !important;
+  padding: 0.125rem 0.25rem !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tkr-fg-muted) !important;
+  text-align: start;
+}
+
+.tkr-accordion-toggle:hover {
+  background: var(--tkr-bg-control-hover) !important;
+  color: var(--tkr-fg-primary) !important;
+}
+
+.tkr-accordion-toggle::before {
+  content: "▾";
+  font-size: 0.625rem;
+}
+
+.tkr-accordion-toggle[aria-expanded="false"]::before {
+  content: "▸";
+}
+
+.tkr-files-toolbar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.tkr-files-actions,
+.tkr-game-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tkr-files-toolbar button,
+.tkr-files-actions button,
+.tkr-game-header button {
+  inline-size: 100%;
+  font-size: var(--tkr-text-xs);
+  min-block-size: 1.5rem;
+  padding: 0.125rem 0.375rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tkr-files-tree {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-block-size: 0;
+  padding: 0.25rem;
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+  overflow-y: auto;
+}
+
+.tkr-files-row {
+  display: flex;
+  align-items: center;
+  padding: 0.1875rem 0.375rem;
+  min-block-size: 1.5rem;
+  font-size: var(--tkr-text-xs);
+  border: 1px solid transparent;
+  border-radius: var(--tkr-radius-sm);
+  cursor: pointer;
+  user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tkr-files-row[aria-level="2"] {
+  padding-inline-start: 1.125rem;
+}
+
+.tkr-files-row[aria-level="3"] {
+  padding-inline-start: 1.875rem;
+}
+
+.tkr-files-row:hover {
+  background: var(--tkr-bg-control-hover);
+}
+
+.tkr-files-row-selected {
+  background: var(--tkr-accent-subtle);
+  border-color: var(--tkr-accent);
+  font-weight: 600;
+}
+
+.tkr-files-package-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.5rem;
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-xs);
+}
+
+.tkr-files-package-panel h3,
+.tkr-files-package-panel h4,
+.tkr-files-package-panel p {
+  margin: 0;
+}
+
+.tkr-files-package-actions,
+.tkr-files-package-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.tkr-files ul[role="tree"],
+.tkr-files ul[role="group"],
+.tkr-game-groups,
+.tkr-game-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tkr-files ul[role="group"] {
+  padding-inline-start: 0.75rem;
+  border-inline-start: 1px solid var(--tkr-border-subtle);
+  margin-inline-start: 0.375rem;
+}
+
+.tkr-tree-row,
+.tkr-game-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.0625rem 0;
+}
+
+.tkr-tree-item {
+  flex: 1 1 auto;
+  justify-content: flex-start !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  padding: 0.1875rem 0.375rem !important;
+  min-block-size: 1.5rem !important;
+  font-size: var(--tkr-text-xs) !important;
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tkr-tree-selected {
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-accent) !important;
+  font-weight: 600 !important;
+}
+
+.tkr-game-groups {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-block-size: 0;
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+  overflow-y: auto;
+}
+
+.tkr-game-group {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: transparent;
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-game-group:last-child {
+  border-block-end: 0;
+}
+
+.tkr-game-group > h3,
+.tkr-game-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0.3125rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tkr-fg-muted);
+  background: color-mix(in srgb, var(--tkr-bg-panel) 75%, transparent);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tkr-game-group > h3:hover {
+  color: var(--tkr-fg-primary);
+  background: var(--tkr-bg-control-hover);
+}
+
+.tkr-game-group > h3::before {
+  content: "▾";
+  font-size: 0.625rem;
+}
+
+.tkr-game-group[data-collapsed="true"] > h3::before {
+  content: "▸";
+}
+
+.tkr-game-group-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tkr-game-group-count {
+  padding: 0.0625rem 0.375rem;
+  font-family: var(--tkr-font-mono);
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+  background: var(--tkr-bg-control);
+  border-radius: 999px;
+}
+
+.tkr-game-group[data-collapsed="true"] > ul {
+  display: none;
+}
+
+.tkr-game-group > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0.125rem 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tkr-game-group > ul > li {
+  margin: 0;
+  padding: 0;
+  display: flex;
+}
+
+.tkr-game-file,
+.tkr-game-open {
+  flex: 1 1 auto;
+  inline-size: 100%;
+  justify-content: flex-start !important;
+  padding: 0.1875rem 0.5rem 0.1875rem 1rem !important;
+  min-block-size: 1.5rem !important;
+  font-size: var(--tkr-text-xs) !important;
+  font-weight: 400 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tkr-game-file:hover:not([aria-disabled="true"]) {
+  background: var(--tkr-bg-control-hover) !important;
+  border-color: transparent !important;
+}
+
+.tkr-game-file[tabindex="0"]:not([aria-disabled="true"]) {
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-accent) !important;
+  font-weight: 600 !important;
+}
+
+.tkr-game-state,
+.tkr-game-problem {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-files-package {
+  padding: 0.5rem;
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-xs);
+}
+
+.tkr-files-package h3,
+.tkr-files-package h4,
+.tkr-files-package p {
+  margin: 0 0 0.25rem;
+}
+
+.tkr-files-error,
+.tkr-game-error {
+  margin: 0;
+  padding: 0.375rem 0.5rem;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-sm);
+}
+
+/* 6. Board Editor (.tkr-board) — Connected IDE Canvas & Inspector ---------- */
+.tkr-board {
+  container-type: inline-size;
+  container-name: board-editor;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  color: var(--tkr-fg-primary);
+  font-family: var(--tkr-font-sans);
+  min-inline-size: 0;
+}
+
+.tkr-board-header-bar,
+.tkr-bitmap-header-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.625rem;
+}
+
+.tkr-board-heading {
+  margin: 0;
+  font-size: var(--tkr-text-lg);
+  font-weight: 600;
+  display: inline-block;
+}
+
+.tkr-board-summary {
+  margin: 0;
+  font-family: var(--tkr-font-mono);
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-board-readonly,
+.tkr-board-host-note,
+.tkr-board-note,
+.tkr-board-brush-note {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-board-workspace {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 288px;
+  gap: 0;
+  align-items: stretch;
+  min-inline-size: 0;
+  min-block-size: 100%;
+}
+
+.tkr-board-workspace:not(:has(> .tkr-board-browser)),
+.tkr-workbench[data-tileset-hidden="true"] .tkr-board-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tkr-workbench[data-tileset-hidden="true"] .tkr-board-browser,
+.tkr-workbench[data-tileset-hidden="true"] .tkr-bitmap-browser {
+  display: none;
+}
+
+.tkr-board-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  min-inline-size: 0;
+}
+
+.tkr-board-browser,
+.tkr-bitmap-browser {
+  display: flex;
+  flex-direction: column;
+  background: var(--tkr-bg-panel);
+  border-inline-start: 1px solid var(--tkr-border-subtle);
+  min-inline-size: 0;
+  min-block-size: 100%;
+}
+
+.tkr-board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3125rem 0.5rem;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-board-zoom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 3.25rem;
+  padding: 0.125rem 0.375rem;
+  font-family: var(--tkr-font-mono);
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+}
+
+.tkr-board-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+  padding: 0.375rem 0.625rem;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-board-row label {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-board-visibility {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.75rem;
+  padding: 0.375rem 0.625rem;
+}
+
+.tkr-board-visible {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: var(--tkr-text-xs);
+  cursor: pointer;
+}
+
+/* Central Board Canvas Stage */
+.tkr-board-picture {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.875rem;
+  min-block-size: 220px;
+  background-color: var(--tkr-bg-stage);
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, CanvasText 8%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, CanvasText 8%, transparent) 75%),
+    linear-gradient(45deg, color-mix(in srgb, CanvasText 8%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, CanvasText 8%, transparent) 75%);
+  background-position: 0 0, 12px 12px;
+  background-size: 24px 24px;
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+  overflow: auto;
+}
+
+.tkr-board-canvas {
+  display: block;
+  max-inline-size: 100%;
+  block-size: auto;
+  image-rendering: pixelated;
+  box-shadow: var(--tkr-shadow-stage);
+  background: #09090b;
+}
+
+.tkr-board-brush-state {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-family: var(--tkr-font-mono);
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+}
+
+.tkr-board-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+}
+
+.tkr-board-selection input[type="number"] {
+  inline-size: 4.5rem;
+}
+
+/* Compact Keyboard-Accessible Board Cell Matrix (.tkr-board-grid) */
+.tkr-board-grid {
+  display: grid;
+  gap: 2px;
+  padding: 0.375rem;
+  max-inline-size: 100%;
+  max-block-size: 11.5rem;
+  overflow: auto;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-board-grid [role="row"] {
+  display: flex;
+  gap: 2px;
+}
+
+.tkr-board-grid [role="gridcell"] {
+  flex: 0 0 auto;
+}
+
+.tkr-board-cell {
+  inline-size: 4.25rem;
+  block-size: 1.75rem;
+  padding: 0.125rem 0.25rem !important;
+  font-family: var(--tkr-font-mono) !important;
+  font-size: 0.6875rem !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tkr-board-cell-selected,
+.tkr-board-grid [role="gridcell"][aria-selected="true"] > .tkr-board-cell {
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-accent) !important;
+  font-weight: 700 !important;
+  outline: 2px solid var(--tkr-accent);
+  outline-offset: -2px;
+}
+
+.tkr-board-cell-off {
+  opacity: 0.38;
+  background: repeating-linear-gradient(-45deg, transparent, transparent 4px, var(--tkr-border-subtle) 4px, var(--tkr-border-subtle) 8px) !important;
+}
+
+.tkr-board-state {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-board-error,
+.tkr-board-conflict,
+.tkr-board-message[role="alert"] {
+  margin: 0;
+  padding: 0.375rem 0.625rem;
+  color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-xs);
+}
+
+/* 7. Tileset Browser Palette (.tkr-tileset-browser) ------------------------ */
+.tkr-tileset-browser {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem;
+  background: var(--tkr-bg-panel);
+  border: 0;
+  border-radius: 0;
+  color: var(--tkr-fg-primary);
+}
+
+#tkr-panel-tileset {
+  padding: 0;
+}
+
+.tkr-tileset-browser-heading {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-tileset-browser label {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-tileset-browser select {
+  inline-size: 100%;
+}
+
 .tkr-tileset-browser-list {
-  max-height: min(40vh, 24rem);
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  align-content: start;
+  gap: 0.375rem;
+  max-block-size: min(58vh, 30rem);
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding: 0.375rem;
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+}
+
+.tkr-tileset-browser-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.3125rem;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+}
+
+.tkr-tileset-browser-source {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  inline-size: 100%;
+  padding: 0.375rem 0.25rem !important;
+  font-size: var(--tkr-text-xs) !important;
+  text-align: center;
+}
+
+.tkr-tileset-browser-source span {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tkr-tileset-browser-source-selected {
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-accent) !important;
+}
+
+.tkr-tileset-browser-preview {
+  display: block;
+  inline-size: 36px;
+  block-size: 36px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  background: var(--tkr-bg-stage);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: 2px;
+}
+
+.tkr-tileset-browser-select-brush,
+.tkr-tileset-browser-item > button:not(.tkr-tileset-browser-source) {
+  inline-size: 100%;
+  min-block-size: 1.375rem !important;
+  padding: 0.125rem 0.25rem !important;
+  font-size: 0.6875rem !important;
+}
+
+.tkr-tileset-browser-menu {
+  position: absolute;
+  inset-inline: 0.25rem;
+  inset-block-start: 100%;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.375rem;
+  background: var(--tkr-bg-elevated);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-sm);
+  box-shadow: var(--tkr-shadow-menu);
+}
+
+.tkr-tileset-browser-note,
+.tkr-tileset-browser-empty {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-tileset-browser-message {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-sm);
+}
+
+/* 8. Tile Bitmap Editor (.tkr-bitmap) -------------------------------------- */
+.tkr-bitmap {
+  container-type: inline-size;
+  container-name: bitmap-editor;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  color: var(--tkr-fg-primary);
+  font-family: var(--tkr-font-sans);
+  min-inline-size: 0;
+}
+
+.tkr-bitmap-heading {
+  margin: 0;
+  font-size: var(--tkr-text-lg);
+  font-weight: 600;
+}
+
+.tkr-bitmap-summary,
+.tkr-bitmap-readonly,
+.tkr-bitmap-host-note,
+.tkr-bitmap-state {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-bitmap-workspace {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 288px;
+  gap: 0;
+  align-items: stretch;
+  min-inline-size: 0;
+  min-block-size: 100%;
+}
+
+.tkr-bitmap-workspace:not(:has(> .tkr-bitmap-browser)),
+.tkr-workbench[data-tileset-hidden="true"] .tkr-bitmap-workspace {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.tkr-bitmap-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  min-inline-size: 0;
+}
+
+.tkr-bitmap-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+  padding: 0.375rem 0.625rem;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-bitmap-row label {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-bitmap-width,
+.tkr-bitmap-height {
+  inline-size: 4.5rem;
+}
+
+.tkr-bitmap-brush {
+  margin-inline-start: auto;
+  font-family: var(--tkr-font-mono);
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
 }
 
 /* The tile bitmap editor's cell grid (T-62): one row of cells per grid row, so a 2 × 2 bitmap is a square and the arrow
@@ -11,9 +1947,13 @@
 .tkr-bitmap-grid {
   display: grid;
   gap: 2px;
+  padding: 0.5rem;
   overflow: auto;
-  max-width: 100%;
-  max-height: 60vh;
+  max-inline-size: 100%;
+  max-block-size: 50vh;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
 }
 
 .tkr-bitmap-grid [role="row"] {
@@ -27,16 +1967,20 @@
 
 .tkr-bitmap-cell {
   box-sizing: border-box;
-  width: 5.5rem;
-  height: 2.75rem;
+  inline-size: 5.5rem;
+  block-size: 2.75rem;
   padding: 0.125rem;
+  font-family: var(--tkr-font-mono) !important;
+  font-size: var(--tkr-text-xs) !important;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tkr-bitmap-cell-selected {
-  outline: 2px solid currentcolor;
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-accent) !important;
+  outline: 2px solid var(--tkr-accent);
   outline-offset: -2px;
 }
 
@@ -44,11 +1988,185 @@
   font-style: italic;
 }
 
-.tkr-bitmap-canvas {
-  max-width: 100%;
-  image-rendering: pixelated;
+.tkr-bitmap-shading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
 }
 
+.tkr-bitmap-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: var(--tkr-text-xs);
+}
+
+.tkr-bitmap-shade {
+  inline-size: 4.25rem;
+}
+
+.tkr-bitmap-picture {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: var(--tkr-bg-stage);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-bitmap-picture-bar {
+  align-self: stretch;
+  justify-content: space-between;
+}
+
+.tkr-bitmap-canvas {
+  max-inline-size: 100%;
+  image-rendering: pixelated;
+  box-shadow: var(--tkr-shadow-stage);
+}
+
+.tkr-bitmap-error,
+.tkr-bitmap-conflict {
+  margin: 0;
+  padding: 0.375rem 0.625rem;
+  color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-xs);
+}
+
+/* 9. Sprite & Character Authoring (.tkr-sprite-graphics, .tkr-character-authoring) */
+.tkr-sprite-graphics,
+.tkr-character-authoring {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+  padding: 0.75rem 1rem;
+  color: var(--tkr-fg-primary);
+  font-family: var(--tkr-font-sans);
+}
+
+.tkr-sprite-graphics > header,
+.tkr-sprite-graphics > h2,
+.tkr-sprite-graphics > p,
+.tkr-sprite-graphics > .tkr-sprite-conflict,
+.tkr-sprite-graphics > .tkr-sprite-bases,
+.tkr-character-authoring > header,
+.tkr-character-authoring > h2,
+.tkr-character-authoring > p,
+.tkr-character-authoring > .tkr-character-conflict,
+.tkr-character-authoring > .tkr-sprite-graphics {
+  grid-column: 1 / -1;
+}
+
+.tkr-sprite-graphics > header h2,
+.tkr-character-authoring > h2 {
+  margin: 0;
+  font-size: var(--tkr-text-lg);
+  font-weight: 600;
+}
+
+.tkr-sprite-graphics > header p {
+  margin: 0.125rem 0 0;
+  font-family: var(--tkr-font-mono);
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-sprite-graphics fieldset,
+.tkr-character-authoring fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tkr-sprite-direction-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 0.5rem;
+}
+
+.tkr-sprite-file,
+.tkr-sprite-assignment,
+.tkr-sprite-custom,
+.tkr-character-move-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+}
+
+.tkr-sprite-graphics fieldset label:not(:has(> input[type="checkbox"])),
+.tkr-character-authoring fieldset label:not(:has(> input[type="checkbox"])) {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-sprite-graphics fieldset label:has(> input[type="checkbox"]),
+.tkr-character-authoring fieldset label:has(> input[type="checkbox"]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-primary);
+  cursor: pointer;
+}
+
+.tkr-sprite-graphics small,
+.tkr-character-authoring small,
+.tkr-sprite-graphics fieldset p,
+.tkr-character-authoring fieldset p {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--tkr-fg-muted);
+  line-height: 1.3;
+}
+
+.tkr-Character-none,
+.tkr-sprite-readonly,
+.tkr-sprite-host-note,
+.tkr-sprite-note,
+.tkr-sprite-state,
+.tkr-character-readonly,
+.tkr-character-host-note,
+.tkr-character-note,
+.tkr-character-state {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-sprite-bases {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.tkr-sprite-base-canvas {
+  display: block;
+  inline-size: 100%;
+  max-inline-size: 320px;
+  block-size: auto;
+  background: var(--tkr-bg-stage);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-sm);
+  cursor: crosshair;
+}
+
+/* Required by web-proof.ts computed-style contract */
 .tkr-sprite-preview-stage {
   position: relative;
   display: inline-block;
@@ -60,4 +2178,294 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+.tkr-sprite-row,
+.tkr-character-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem;
+  margin-block-end: 0.375rem;
+}
+
+.tkr-sprite-row label,
+.tkr-character-row label {
+  font-size: var(--tkr-text-xs);
+  font-weight: 500;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-sprite-error,
+.tkr-character-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.375rem 0.625rem;
+  color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-xs);
+}
+
+/* 10. Game Settings, Preferences, Run, New Board & Asset Picker ------------ */
+.tkr-settings,
+.tkr-preferences,
+.tkr-run,
+.tkr-new-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  color: var(--tkr-fg-primary);
+  font-family: var(--tkr-font-sans);
+}
+
+.tkr-settings > h2,
+.tkr-preferences > h2,
+.tkr-run > h2,
+.tkr-new-board > h3 {
+  margin: 0;
+  font-size: var(--tkr-text-lg);
+  font-weight: 600;
+}
+
+.tkr-settings > p,
+.tkr-preferences > p,
+.tkr-run > p {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-settings > label {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-settings > input[type="text"] {
+  max-inline-size: 24rem;
+}
+
+.tkr-settings > button:first-of-type {
+  align-self: flex-start;
+}
+
+.tkr-settings-changes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--tkr-dirty-subtle);
+  border: 1px solid var(--tkr-dirty);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-settings-changes h3,
+.tkr-settings-changes p {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+}
+
+.tkr-settings-form,
+.tkr-preferences {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.tkr-settings-notes {
+  grid-column: 1 / -1;
+  padding: 0.5rem 0.75rem;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-settings-notes h3 {
+  margin: 0 0 0.25rem;
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-settings-notes ul {
+  margin: 0;
+  padding-inline-start: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.tkr-preferences > h2,
+.tkr-preferences > p,
+.tkr-preferences > div {
+  grid-column: 1 / -1;
+}
+
+.tkr-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tkr-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  padding-block-end: 0.375rem;
+  border-block-end: 1px solid color-mix(in srgb, var(--tkr-border-subtle) 55%, transparent);
+}
+
+.tkr-settings-field:has(> input[type="checkbox"]) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 0.5rem;
+  row-gap: 0.125rem;
+}
+
+.tkr-settings-field:has(> input[type="checkbox"]) > input[type="checkbox"] {
+  margin: 0;
+}
+
+.tkr-settings-field:has(> input[type="checkbox"]) > .tkr-settings-owner {
+  grid-column: 2;
+}
+
+.tkr-settings-field:last-child {
+  border-block-end: 0;
+  padding-block-end: 0;
+}
+
+.tkr-settings-field > label {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-primary);
+}
+
+.tkr-settings-owner {
+  margin: 0;
+  font-size: 0.6875rem;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-settings-error,
+.tkr-run-error {
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-sm);
+}
+
+/* Modal Asset Picker (.tkr-picker-overlay, .tkr-picker) */
+.tkr-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(9, 9, 11, 0.65);
+  backdrop-filter: blur(2px);
+}
+
+.tkr-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  inline-size: min(100%, 32rem);
+  max-block-size: 80dvh;
+  padding: 1rem;
+  background: var(--tkr-bg-elevated);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-md);
+  box-shadow: var(--tkr-shadow-menu);
+  overflow: auto;
+}
+
+.tkr-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-block-size: 16rem;
+  overflow-y: auto;
+}
+
+/* 11. Responsive Narrow Viewports & Container Queries ---------------------- */
+@container board-editor (max-width: 960px) {
+  .tkr-board-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tkr-board-browser {
+    position: static;
+  }
+}
+
+@container bitmap-editor (max-width: 720px) {
+  .tkr-bitmap-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 860px) {
+  .tkr-workbench-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+  }
+  .tkr-dock-left,
+  .tkr-editor-area,
+  .tkr-dock-right,
+  .tkr-dock-bottom {
+    grid-column: 1;
+    grid-row: auto;
+    border-inline: 0;
+    border-block-end: 1px solid var(--tkr-border-subtle);
+  }
+  .tkr-dock-left > .tkr-panel,
+  .tkr-dock-right > .tkr-panel {
+    inline-size: 100%;
+    max-block-size: 14rem;
+  }
+  .tkr-board-workspace,
+  .tkr-bitmap-workspace,
+  .tkr-sprite-bases {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 12. High-Contrast / Forced-Colors Mode (@media (forced-colors: active)) -- */
+@media (forced-colors: active) {
+  .tkr-web-shell button[aria-pressed="true"],
+  .tkr-workbench button[aria-pressed="true"],
+  [class^="tkr-"] button[aria-pressed="true"],
+  .tkr-board-tool-active,
+  .tkr-tree-selected,
+  .tkr-board-cell-selected,
+  .tkr-bitmap-cell-selected,
+  .tkr-tileset-browser-source-selected {
+    forced-color-adjust: none;
+    background-color: Highlight !important;
+    color: HighlightText !important;
+    border-color: HighlightText !important;
+    outline: 2px solid HighlightText;
+  }
+
+  .tkr-tab-active::after {
+    background-color: Highlight;
+  }
 }

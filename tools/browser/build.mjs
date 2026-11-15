@@ -48,6 +48,9 @@ const editorWebOut = join(here, "editor-web", "dist", "editor-web.js");
 mkdirSync(dirname(editorWebOut), { recursive: true });
 copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(dirname(editorWebOut), "tileset-browser.css"));
 copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(dirname(editorWebOut), "tileset-art.css"));
+copyFileSync(join(root, "media/icons/favicon.ico"), join(dirname(editorWebOut), "favicon.ico"));
+copyFileSync(join(root, "media/icons/png/tkr-32.png"), join(dirname(editorWebOut), "tkr-32.png"));
+copyFileSync(join(root, "media/icons/png/tkr-128.png"), join(dirname(editorWebOut), "tkr-128.png"));
 await build({
   entryPoints: [join(here, "editor-web", "main.tsx")],
   outfile: editorWebOut,

@@ -288,6 +288,7 @@ export {
 export { createVisits, type ReturnResult, type VisitEntry, type VisitResult, type VisitSnapshot, type Visits } from "./visits.ts";
 export {
   createLayoutModel,
+  DEFAULT_WORKBENCH_PANELS,
   PANEL_SIZE_STEP,
   type DockSide,
   type LayoutModel,
@@ -295,6 +296,16 @@ export {
   type PanelState,
   type SavedLayout,
 } from "./layout.ts";
+export {
+  COMMAND_CATEGORIES,
+  createCommandRegistry,
+  createWorkbenchCommands,
+  type CommandCategory,
+  type CommandPaletteFileEntry,
+  type CommandRegistry,
+  type WorkbenchCommand,
+  type WorkbenchCommandSourceOptions,
+} from "./commands.ts";
 export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
 export {
   prepareGamePackage,
