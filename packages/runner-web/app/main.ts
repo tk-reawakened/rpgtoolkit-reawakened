@@ -15,6 +15,10 @@ import { createFallbackTouchControls, isFallbackTouchControlTarget, shouldSuppre
 
 type LiveReport = {
   tick: number;
+  /**
+   * The state hash at `tick`. In the live loop it is computed when first read, and reads `""` once a later `advance`
+   * has started, so it is never paired with the wrong tick (docs/spec/engine/runners.md#state-hash-cadence).
+   */
   stateHash: string;
   drawHash: string;
   board: string | null;
@@ -27,6 +31,20 @@ type LiveReport = {
   /** The last advance's located diagnostics, so a probe can assert what the engine reported. */
   diagnostics?: readonly { code: string; file: string; line: number; message: string }[];
 };
+
+/**
+ * How often the live loop refreshes its report text and posts a status to the editor while nothing else changes.
+ * Each refresh hashes the whole state, which costs more than a frame of simulation, so it is not done every frame.
+ */
+const LIVE_REPORT_INTERVAL_MS = 250;
+
+/** A copy of `live` with new stall counts that keeps its lazy `stateHash` getter rather than evaluating it. */
+function withStalls(live: LiveReport, stalls: NonNullable<LiveReport["stalls"]>): LiveReport {
+  return Object.defineProperties({}, {
+    ...Object.getOwnPropertyDescriptors(live),
+    stalls: { value: stalls, enumerable: true, writable: true, configurable: true },
+  }) as LiveReport;
+}
 
 declare global {
   interface Window {
@@ -479,12 +497,24 @@ async function bootEditorGame(
     phase: "ready", mode: "whole", progress: { received: 0, total: null },
     storage: { persisted: "not-requested", quota: "not-needed", kept: false, error: null }, error: null,
   };
+  // The editor's status is posted at once when what it shows changes, and otherwise at most every
+  // LIVE_REPORT_INTERVAL_MS, so the editor does not re-render on every frame and the state is not hashed every frame.
+  let lastStatusAt = Number.NEGATIVE_INFINITY;
+  let lastStatusKey = "";
   dispose = startLiveLoop(session, screen, report, overlay, () => load, hostViewport, (live) => {
-    updateSnapshotHash(live.stateHash);
-    rememberLiveHash(live.tick, live.stateHash);
-    channel.postMessage({ state: live.error ? "failed" : live.stalls?.blocking ? "stalled" : "running",
-      tick: live.tick, board: live.board, stateHash: live.stateHash, stalledOn: live.stalls?.blocking ?? null,
-      diagnostics: live.diagnostics ?? [], message: live.error ?? null });
+    const state = live.error ? "failed" : live.stalls?.blocking ? "stalled" : "running";
+    const stalledOn = live.stalls?.blocking ?? null;
+    const diagnostics = live.diagnostics ?? [];
+    const key = JSON.stringify([state, live.board, stalledOn, diagnostics.length, live.error ?? null]);
+    const now = performance.now();
+    if (key === lastStatusKey && now - lastStatusAt < LIVE_REPORT_INTERVAL_MS) return;
+    lastStatusKey = key;
+    lastStatusAt = now;
+    const stateHash = live.stateHash;
+    updateSnapshotHash(stateHash);
+    rememberLiveHash(live.tick, stateHash);
+    channel.postMessage({ state, tick: live.tick, board: live.board, stateHash, stalledOn,
+      diagnostics, message: live.error ?? null });
   });
   const stop = (): void => {
     dispose?.();
@@ -544,6 +574,9 @@ function startLiveLoop(
   let pending: PendingInput[] = [];
   let titleFrames = 0;
   let titleWindowStart = performance.now();
+  // Counts `advance` calls, so a report's lazy state hash can tell that a later advance has started.
+  let advanceGeneration = 0;
+  let lastReportTextAt = Number.NEGATIVE_INFINITY;
   const viewSize = session.viewSize();
   const displayGeometry = createObservedHostGeometry(session.displayGeometry());
   const fallbackControlKeys = new Set<string>();
@@ -660,6 +693,8 @@ function startLiveLoop(
         const tickBeforeAdvance = session.tick();
         pending = [];
         advancing = true;
+        advanceGeneration += 1;
+        const generation = advanceGeneration;
         session.advance(wholeTicks, inputs).then(() => {
           if (disposed) return;
           if (session.tick() !== tickBeforeAdvance) touchControls.acknowledgeSubmittedBatch(submittedActionSequence);
@@ -670,9 +705,14 @@ function startLiveLoop(
           const drawn = session.draw(accumulator / stepMs);
           const player = session.playerPosition();
           const state = loadState();
+          let stateHash: string | undefined;
           const live: LiveReport = {
             tick: session.tick(),
-            stateHash: session.stateHash(),
+            // Hashed on first read only, and only while no later advance has started, so the pair stays exact.
+            get stateHash(): string {
+              if (stateHash === undefined && !advancing && generation === advanceGeneration) stateHash = session.stateHash();
+              return stateHash ?? "";
+            },
             drawHash: drawn.drawHash,
             board: session.boardKey(),
             player,
@@ -683,6 +723,9 @@ function startLiveLoop(
           window.__live = live;
           window.__report = live;
           onLive?.(live);
+          const reportNow = performance.now();
+          if (reportNow - lastReportTextAt < LIVE_REPORT_INTERVAL_MS) return;
+          lastReportTextAt = reportNow;
           report.textContent = [
             `live ${location.search.includes("package=") ? "package" : "game"} — tick ${live.tick}`,
             `state ${live.stateHash}`,
@@ -701,7 +744,7 @@ function startLiveLoop(
         });
       }
     } else if (window.__live !== undefined) {
-      window.__live = { ...window.__live, stalls: summary(spinner) };
+      window.__live = withStalls(window.__live, summary(spinner));
     }
     // The project's window title (main-file row 56, `bFpsInTitleBar`) is the host's presentation measurement, so it is
     // recomputed once a second from frames actually presented and never enters simulation state.

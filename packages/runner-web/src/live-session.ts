@@ -28,7 +28,7 @@ import {
   type BattleState,
   type Diagnostic,
   type DrawList,
-  type Engine,
+  type OnRequestEngine,
   type GameState,
   type HostDisplayGeometry,
   type HostFeatures,
@@ -69,10 +69,15 @@ export type LiveBlobHost = {
   list?(area: "saves" | "files", gameId: string): Promise<readonly string[]>;
 };
 export type LiveSession = {
-  readonly engine: Engine;
+  readonly engine: OnRequestEngine;
   readonly gameId: string;
   readonly close: () => Promise<void>;
   readonly tick: () => number;
+  /**
+   * The state hash after the last `advance`, or `""` before the first. The engine runs with
+   * `stateHashInReports: "on-request"`, so the hash is computed on the first read after each `advance` and cached
+   * until the next (docs/spec/engine/runners.md#state-hash-cadence).
+   */
   readonly stateHash: () => string;
   readonly viewSize: () => { readonly width: number; readonly height: number };
   readonly hostState: HostStateSnapshot | null;
@@ -287,6 +292,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   const initialGeometry = displayGeometry;
   const initialFeatures: HostFeatures = hostFeatures ?? { touch: false, pointer: "none", keyboard: false, gamepad: false, haptics: false, orientation: null };
   const engine = createEngine({
+    stateHashInReports: "on-request",
     seed: "seed" in options ? options.seed ?? 0 : plan?.seed ?? 0,
     assetIndex: index,
     assetRoot,
@@ -357,7 +363,8 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   );
   let renderedSurfaceEpoch = engine.surfaceCacheEpoch();
   let currentTick = 0;
-  let currentStateHash = "";
+  // `null` once an `advance` has run and nothing has read the hash since.
+  let currentStateHash: string | null = "";
   const sessionDiagnostics: Diagnostic[] = [];
   const reportDiagnostic = (diagnostic: Diagnostic): void => {
     sessionDiagnostics.push(diagnostic);
@@ -493,7 +500,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       ticks = Math.max(0, ticks - report.ticksRun);
       inputs = [];
       currentTick = report.tickAfter;
-      currentStateHash = report.stateHash;
+      currentStateHash = null;
       for (const diagnostic of report.diagnostics) reportDiagnostic(diagnostic);
       reconcileControllerPolicy();
       // Cues are handed to the player on their own chain, in report order, once the assets they name are cached (the
@@ -563,7 +570,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     gameId,
     close,
     tick: () => currentTick,
-    stateHash: () => currentStateHash,
+    stateHash: () => currentStateHash ??= engine.stateHash(),
     setGamepadResampler(resample) {
       resampleGamepads = resample;
       if (engine.gamepadPolicy()?.enabled === true) resample();

@@ -19,6 +19,7 @@ test("runLog partitions ticks into windows and passes maxTicks = n", () => {
   const calls: { ticks: number; inputs: readonly InputRecord[]; maxTicks?: number | undefined }[] = [];
 
   const spyEngine: Engine = {
+    stateHash: () => "0000000000000000",
     advance(ticks: number, inputs: readonly InputRecord[], maxTicks?: number): TickReport {
       const before = calls.reduce((acc, c) => acc + c.ticks, 0);
       calls.push({ ticks, inputs, maxTicks });
@@ -144,6 +145,7 @@ test("runLog throws naming call and cause for engine violations", () => {
   };
 
   const createFaultyEngine = (modifyReport: (base: TickReport) => TickReport): Engine => ({
+    stateHash: () => "0000000000000000",
     advance(ticks: number, inputs: readonly InputRecord[]): TickReport {
       const base: TickReport = {
         ticksRun: ticks,
@@ -303,6 +305,7 @@ test("runLog accepts non-empty requests and diagnostics and hands them to the ob
   const makeEngine = (): Engine => {
     let now = 0;
     return {
+    stateHash: () => "0000000000000000",
     advance(ticks: number): TickReport {
       now += ticks;
       return {
