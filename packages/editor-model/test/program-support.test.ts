@@ -77,7 +77,7 @@ test("the header template is a project-layer preference with the default and a l
   equal(entry.maxLength, 500);
 });
 
-test("New program writes the expanded template with CRLF, and never replaces a file", async () => {
+test("New program writes the expanded template with CRLF and rejects a listed case-insensitive collision", async () => {
   const host = createMemoryPlatformServices({ files: { "Prg/Intro.prg": new Uint8Array([120]) } });
   const made = await createProgramFile(host.fs, "Prg/scene one.prg", "// {name}\n\n");
   deepEqual(made, { ok: true, path: "Prg/scene one.prg" });

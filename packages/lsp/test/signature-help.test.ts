@@ -23,6 +23,7 @@ function session() {
     onDocumentSymbol: () => disposable,
     onDocumentFormatting: () => disposable,
     showMessage: () => {},
+    onRequest: () => disposable,
     onCodeAction: () => disposable,
     onNotification: () => disposable,
     onSignatureHelp: (handler) => { signature = handler; return disposable; },

@@ -145,8 +145,8 @@ export async function suggestProgramPath(fs: Pick<FileSystemService, "list">, la
 
 /**
  * Create the program at `path` (a project-relative path ending in `.prg`), starting with the expanded header template
- * (T-40). Nothing is written when the path is unusable or a file of that name (compared without regard to A-Z case)
- * already exists: a new program never replaces a file.
+ * (T-40). A case-insensitive listing check rejects names that already exist when listed; the subsequent host write is
+ * not an atomic exclusive create, so concurrent external creation may still be replaced.
  */
 export async function createProgramFile(fs: NewProgramStorage, path: string, headerTemplate: string): Promise<CreateProgramResult> {
   const slash = path.lastIndexOf("/");

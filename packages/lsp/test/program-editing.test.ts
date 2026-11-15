@@ -14,7 +14,7 @@ type Harness = {
 
 const URI = "file:///proj/Prg/intro.prg";
 
-function harness(withRequests = true): Harness {
+function harness(): Harness {
   const absent = { dispose: () => {} };
   let open: (params: DidOpenTextDocumentParams) => void = () => {};
   let symbols: (params: DocumentSymbolParams) => DocumentSymbol[] = () => [];
@@ -34,7 +34,7 @@ function harness(withRequests = true): Harness {
     showMessage: () => {},
     onNotification: () => absent,
     sendDiagnostics: () => {},
-    ...(withRequests ? { onRequest: (method: string, handler: (params: never) => unknown) => { requests.set(method, handler); return absent; } } : {}),
+    onRequest: (method, handler) => { requests.set(method, handler); return absent; },
   };
   createServer(connection);
   return {
@@ -60,9 +60,11 @@ test("the server declares the legend and answers a full semantic-token request w
   ]);
 });
 
-test("a connection without onRequest still serves everything else", () => {
-  const server = harness(false);
+test("the connection registers the advertised semantic-token request", () => {
+  const server = harness();
   server.open("// Setup\nx = 1\n");
+  equal(server.initialize().capabilities.semanticTokensProvider?.full, true);
+  ok(server.tokens().length > 0);
   deepEqual(server.symbols().map((symbol) => symbol.name), ["Setup"]);
 });
 

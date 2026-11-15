@@ -111,11 +111,8 @@ export type ServerConnection = {
   onDocumentFormatting(handler: (params: DocumentFormattingParams) => TextEdit[] | null): Disposable;
   /** `window/showMessage`, which tells the author why a request did nothing. */
   showMessage(params: ShowMessageParams): void;
-  /**
-   * A request handler by method name. The server uses it for `textDocument/semanticTokens/full`, which the real
-   * `Connection` serves through `onRequest`. A connection without it serves no colouring and nothing else changes.
-   */
-  onRequest?(method: string, handler: (params: never) => unknown): Disposable;
+  /** A request handler by method name; required because semantic tokens are advertised at initialize. */
+  onRequest(method: string, handler: (params: never) => unknown): Disposable;
   /** Client notifications outside the LSP's own methods; the server listens for `rpgcode/project`. */
   onNotification(method: string, handler: (params: unknown) => void): Disposable;
   sendDiagnostics(params: PublishDiagnosticsParams): void;
@@ -532,7 +529,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
     return symbols.sort((left, right) => left.range.start.line - right.range.start.line || left.range.start.character - right.range.start.character);
   });
 
-  connection.onRequest?.("textDocument/semanticTokens/full", (params: { readonly textDocument: { readonly uri: string } }) => {
+  connection.onRequest("textDocument/semanticTokens/full", (params: { readonly textDocument: { readonly uri: string } }) => {
     const document = documents.get(params.textDocument.uri);
     if (document === undefined) return { data: [] };
     return { data: encodeSemanticTokens(classifyProgram(document.getText(), { commandNames })) };
