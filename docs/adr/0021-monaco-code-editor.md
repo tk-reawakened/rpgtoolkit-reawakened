@@ -1,6 +1,6 @@
 # ADR 0021 — Monaco for standalone and browser code editing
 
-- **Status:** Accepted (owner ruling, 2026-11-08). Integration delivered by story 11.7 (#1705); see [Monaco integration evidence](../findings/monaco-integration/README.md).
+- **Status:** Accepted (owner ruling, 2026-11-08). Browser/standalone integration delivered by story 11.7 (#1705); the VS Code native-text proof is still open there; see [Monaco integration evidence](../findings/monaco-integration/README.md).
 - **Amends:** the CodeMirror choice in the architecture stack, editor-foundation envelope, package map and architecture-options editor guidance. Does not change G1–G7 or ADR 0013's Electron decision.
 
 ## Context
