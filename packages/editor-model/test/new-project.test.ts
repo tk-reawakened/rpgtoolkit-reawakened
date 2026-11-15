@@ -285,6 +285,31 @@ test("nested starter paths resolve every component with ASCII-folded spelling an
   ok(nestedFolder.ok && nestedFolder.value.kind === "directory");
 });
 
+test("planned starter ancestor case variants are refused before any writes", async () => {
+  const variants: StarterDefinition[] = [
+    {
+      id: "nested-a", label: "Nested A", description: "First nested starter", writes: "Prg/tools/a.prg",
+      provenance: "Written for this project; MIT.", unavailable: null,
+      contribute: () => ({ files: [{ path: "Prg/tools/a.prg", bytes: new Uint8Array([1]) }], main: {} }),
+    },
+    {
+      id: "nested-b", label: "Nested B", description: "Second nested starter", writes: "prg/other/b.prg",
+      provenance: "Written for this project; MIT.", unavailable: null,
+      contribute: () => ({ files: [{ path: "prg/other/b.prg", bytes: new Uint8Array([2]) }], main: {} }),
+    },
+  ];
+  const host = createMemoryPlatformServices();
+  const refused = await createNewProject(host.fs, settings({ starters: ["nested-a", "nested-b"] }), variants);
+  ok(!refused.ok && refused.reason === "invalid");
+  ok(refused.problems.some(({ message }) => message.includes("Prg") && message.includes("prg")));
+  equal(host.bytesOf("Prg/tools/a.prg"), undefined);
+  equal(host.bytesOf("prg/other/b.prg"), undefined);
+  equal(host.bytesOf("Main/MyQuest.gam"), undefined);
+  const firstFolder = await host.fs.stat("Prg");
+  const secondFolder = await host.fs.stat("prg");
+  ok(!firstFolder.ok && !secondFolder.ok, "refusal creates neither spelling of the ambiguous directory");
+});
+
 test("nested starter paths refuse an incompatible intermediate file before writing", async () => {
   const nested: StarterDefinition[] = [{
     id: "nested", label: "Nested", description: "Nested starter", writes: "Prg/tools/start.prg",

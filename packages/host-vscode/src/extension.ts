@@ -187,25 +187,35 @@ async function openCreatedProject(context: vscode.ExtensionContext, destination:
     await vscode.commands.executeCommand("vscode.open", main);
     return;
   }
+  const pending: PendingOpen = { folder: destination.toString(), main: main.toString() };
+  await context.globalState.update(PENDING_OPEN, pending);
   if (folders.length === 0) {
-    const pending: PendingOpen = { folder: destination.toString(), main: main.toString() };
-    await context.globalState.update(PENDING_OPEN, pending);
-    await vscode.commands.executeCommand("vscode.openFolder", destination);
+    try {
+      await vscode.commands.executeCommand("vscode.openFolder", destination);
+    } catch (error) {
+      await context.globalState.update(PENDING_OPEN, undefined);
+      throw error;
+    }
     return;
   }
+  let resolveAdded!: () => void;
   const added = new Promise<void>((resolve) => {
-    const listener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === destination.toString())) return;
-      listener.dispose();
-      resolve();
-    });
-    context.subscriptions.push(listener);
+    resolveAdded = resolve;
   });
+  const listener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === destination.toString())) return;
+    listener.dispose();
+    resolveAdded();
+  });
+  context.subscriptions.push(listener);
   if (!vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri: destination })) {
+    listener.dispose();
+    await context.globalState.update(PENDING_OPEN, undefined);
     await vscode.window.showErrorMessage(`The project was created in ${destination.fsPath}, but VS Code could not add it to the workspace. Open the folder to edit it.`);
     return;
   }
   await added;
+  await context.globalState.update(PENDING_OPEN, undefined);
   await vscode.commands.executeCommand("vscode.open", main);
 }
 

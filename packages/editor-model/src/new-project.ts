@@ -299,6 +299,27 @@ export function planNewProject(settings: NewProjectSettings, definitions: readon
   const files: PlannedFile[] = contributions.flatMap((contribution) => contribution.files.map((file): PlannedFile => ({ ...file, role: "starter" })));
   const duplicate = files.find((file, index) => files.findIndex((other) => foldPath(other.path) === foldPath(file.path)) !== index);
   if (duplicate !== undefined) return { ok: false, problems: [{ field: "starters", message: `Two starter items both write ${duplicate.path}.` }] };
+  const directorySpellings = new Map<string, string>();
+  for (const file of files) {
+    const parts = file.path.split("/");
+    for (let index = 1; index < parts.length; index += 1) {
+      const directory = parts.slice(0, index).join("/");
+      const folded = foldPath(directory);
+      const previous = directorySpellings.get(folded);
+      if (previous !== undefined && previous !== directory) {
+        return { ok: false, problems: [{ field: "starters", message: `Starter paths use both ${previous} and ${directory} for the same folder.` }] };
+      }
+      directorySpellings.set(folded, directory);
+    }
+  }
+  for (const folder of folders) {
+    const folded = foldPath(folder);
+    const previous = directorySpellings.get(folded);
+    if (previous !== undefined && previous !== folder) {
+      return { ok: false, problems: [{ field: "starters", message: `Starter paths use ${previous} where the project needs ${folder}.` }] };
+    }
+    directorySpellings.set(folded, folder);
+  }
   const mainPath = `${MAIN_FOLDER}/${mainFileName(settings.mainFile)}`;
   const written = writeMainFile(buildMainFile(settings, contributions));
   if (!written.ok) return { ok: false, problems: [{ field: "gameName", message: `The main file could not be written: ${written.error.message}` }] };

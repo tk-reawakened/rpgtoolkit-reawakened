@@ -28,15 +28,17 @@ export class Uri {
   get fsPath() { return this.path; }
 }
 const parentOf = (path) => path.slice(0, path.lastIndexOf("/")) || "/";
-const state = { workspaceFolders: undefined, calls: [], errors: [], answers: { input: [], pick: [], folder: [] }, globalState: new Map(), commands: new Map(), updated: [] };
+const state = { workspaceFolders: undefined, calls: [], errors: [], answers: { input: [], pick: [], folder: [] }, globalState: new Map(), commands: new Map(), updated: [], restartOnUpdate: false, refuseWorkspaceUpdate: false, onWorkspaceUpdate: undefined };
 const missing = (uri) => new FileSystemError(uri.path + " was not found", "FileNotFound");
 export const workspace = {
   get workspaceFolders() { return state.workspaceFolders; },
   getWorkspaceFolder(uri) { return (state.workspaceFolders ?? []).find((folder) => uri.path === folder.uri.path || uri.path.startsWith(folder.uri.path.replace(/\\/$/, "") + "/")); },
   updateWorkspaceFolders(start, remove, ...add) {
     state.updated.push(add.map((item) => item.uri.toString()));
+    if (state.refuseWorkspaceUpdate) return false;
     state.workspaceFolders = [...(state.workspaceFolders ?? []), ...add.map((item) => ({ uri: item.uri, name: item.uri.path.split("/").at(-1), index: 0 }))];
-    for (const listener of [...listeners]) listener({});
+    state.onWorkspaceUpdate?.();
+    if (!state.restartOnUpdate) for (const listener of [...listeners]) listener({});
     return true;
   },
   onDidChangeWorkspaceFolders(listener) { listeners.add(listener); return { dispose: () => listeners.delete(listener) }; },
@@ -84,6 +86,9 @@ interface FakeState {
   answers: { input: (string | undefined)[]; pick: (string[] | undefined)[]; folder: (string | undefined)[] };
   commands: Map<string, () => Promise<void>>;
   updated: string[][];
+  restartOnUpdate: boolean;
+  refuseWorkspaceUpdate: boolean;
+  onWorkspaceUpdate?: () => void;
   refuseWrites?: boolean;
 }
 interface Fake { readonly state: FakeState; readonly files: Map<string, Uint8Array>; readonly folders: Set<string> }
@@ -130,6 +135,9 @@ function reset(workspace: FakeState["workspaceFolders"]): void {
   state.answers.pick.length = 0;
   state.answers.folder.length = 0;
   state.refuseWrites = false;
+  state.restartOnUpdate = false;
+  state.refuseWorkspaceUpdate = false;
+  state.onWorkspaceUpdate = undefined;
   fake.files.clear();
   fake.folders.clear();
   // The folders a person can pick already exist, as they do in a real folder dialog.
@@ -201,16 +209,63 @@ test("a project at an exact existing workspace folder opens without adding a dup
   }
 });
 
+test("a new workspace folder survives an extension-host restart and opens the main file on reactivation", async () => {
+  await load();
+  try {
+    reset([folderOf("/work")]);
+    const persisted = new Map<string, unknown>();
+    fake.state.answers.input.push("Quest", "Quest.gam");
+    fake.state.answers.pick.push([]);
+    fake.state.answers.folder.push("/elsewhere/quest");
+    fake.state.restartOnUpdate = true;
+    let signalWorkspaceUpdate!: () => void;
+    const updated = new Promise<void>((resolve) => {
+      signalWorkspaceUpdate = resolve;
+    });
+    fake.state.onWorkspaceUpdate = signalWorkspaceUpdate;
+    void run(persisted);
+    await updated;
+
+    deepEqual([...persisted.values()], [{ folder: "file:///elsewhere/quest", main: "file:///elsewhere/quest/Main/Quest.gam" }]);
+    fake.state.calls.length = 0;
+    extension.registerNewProject(context(persisted));
+    deepEqual(commandCalls(), [["command", "vscode.open", "file:///elsewhere/quest/Main/Quest.gam"]]);
+    equal(persisted.size, 0, "the pending open is consumed on the restarted activation");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a refused workspace-folder update clears the pending open and reports the failure", async () => {
+  await load();
+  try {
+    reset([folderOf("/work")]);
+    const persisted = new Map<string, unknown>();
+    fake.state.refuseWorkspaceUpdate = true;
+    fake.state.answers.input.push("Quest", "Quest.gam");
+    fake.state.answers.pick.push([]);
+    fake.state.answers.folder.push("/elsewhere/quest");
+    await run(persisted);
+    equal(persisted.size, 0, "a failed folder update must not leave a stale open request");
+    deepEqual(commandCalls(), []);
+    match(fake.state.errors[0]!, /could not add it to the workspace/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("a project outside the open folders is added to the workspace and its main file opens once it is there", async () => {
   await load();
   try {
     reset([folderOf("/work")]);
+    const persisted = new Map<string, unknown>();
     fake.state.answers.input.push("Quest", "Quest.gam");
     fake.state.answers.pick.push([]);
     fake.state.answers.folder.push("/elsewhere/quest");
-    await run(new Map());
+    await run(persisted);
     deepEqual(fake.state.updated, [["file:///elsewhere/quest"]]);
     deepEqual(commandCalls(), [["command", "vscode.open", "file:///elsewhere/quest/Main/Quest.gam"]]);
+    equal(persisted.size, 0, "the no-restart path consumes the request before opening the file");
     ok(fake.files.has("/elsewhere/quest/Main/Quest.gam"));
   } finally {
     await rm(dir, { recursive: true, force: true });
