@@ -265,6 +265,7 @@ test("language.connect is present only with the capability, records what the cli
   deepEqual(host.languageSessions[0]!.sent, [{ jsonrpc: "2.0", id: 1, method: "ping" }]);
   deepEqual(host.languageSessions[0]!.options, { project: { main: "Main/game.gam" } });
   deepEqual(received, ["pong"]);
+  equal(connected.value.uriOf("Prg/a.prg"), "file:///project/Prg/a.prg");
   const closed: string[] = [];
   connected.value.onClose((reason) => closed.push(reason.reason));
   host.languageSessions[0]!.stop("the server stopped");

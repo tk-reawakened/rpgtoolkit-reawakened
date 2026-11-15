@@ -368,6 +368,7 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
         closers.add(listener);
         return () => void closers.delete(listener);
       },
+      uriOf: (path) => `file:///project/${path}`,
       dispose: () => {
         disposed = true;
         end({ reason: "disposed", message: "" });

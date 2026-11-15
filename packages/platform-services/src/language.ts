@@ -31,6 +31,11 @@ export interface LanguageConnection {
    * at once). After it, `send` does nothing and no message arrives.
    */
   onClose(listener: (closed: LanguageClosed) => void): () => void;
+  /**
+   * The URI the server knows the project file at `path` by (the one in the `rpgcode/project` snapshot the host sent), so
+   * a document the editor opens is the document the server already holds as part of the project.
+   */
+  uriOf(path: string): string;
   /** End the session and release the server. Calling it again does nothing. */
   dispose(): void;
 }
