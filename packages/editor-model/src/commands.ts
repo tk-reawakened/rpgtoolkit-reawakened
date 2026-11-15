@@ -155,6 +155,7 @@ export interface WorkbenchCommandSourceOptions {
   readonly onNewBoard?: () => void;
   readonly onOpenPreferences?: () => void;
   readonly onOpenProject?: () => void;
+  readonly onReopenProject?: () => void;
   readonly onSaveAll?: () => void;
   readonly onSaveAs?: () => void;
   readonly onRevert?: () => void;
@@ -178,6 +179,7 @@ export function createWorkbenchCommands(options: WorkbenchCommandSourceOptions):
     onNewBoard,
     onOpenPreferences,
     onOpenProject,
+    onReopenProject,
     onSaveAll,
     onSaveAs,
     onRevert,
@@ -212,6 +214,12 @@ export function createWorkbenchCommands(options: WorkbenchCommandSourceOptions):
       category: "File" as const,
       label: "Open Project Folder…",
       run: () => onOpenProject(),
+    }]),
+    ...(onReopenProject === undefined ? [] : [{
+      id: "file.reopenProject",
+      category: "File" as const,
+      label: "Reopen Recent Project",
+      run: () => onReopenProject(),
     }]),
     {
       id: "file.saveAll",

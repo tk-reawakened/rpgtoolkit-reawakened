@@ -38,7 +38,7 @@ const EMPTY_COMMANDS: readonly WorkbenchCommand[] = [];
 function triggerHostButton(selector: string): boolean {
   if (typeof document === "undefined") return false;
   const target = document.querySelector<HTMLElement>(selector);
-  if (target === null || target.hasAttribute("disabled") || target.hidden) return false;
+  if (target === null || target.hasAttribute("disabled")) return false;
   target.click();
   return true;
 }
@@ -145,6 +145,7 @@ export function WorkbenchCommandBar({
       ...(onNewBoard === undefined ? {} : { onNewBoard }),
       ...(onOpenPreferences === undefined ? {} : { onOpenPreferences }),
       onOpenProject: onOpenProject ?? (() => { triggerHostButton("#open-project"); }),
+      onReopenProject: () => { triggerHostButton("#reopen-project"); },
       onSaveAll: () => {
         if (!triggerHostButton("#save-all") && workspace !== undefined) void workspace.saveAll();
       },
