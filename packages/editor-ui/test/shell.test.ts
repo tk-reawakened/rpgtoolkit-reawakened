@@ -221,7 +221,8 @@ test("rename and delete work from F2 and Delete and from their buttons, refuse a
 
 test("the Game panel groups files by what they are, offers only files with an editor, and opens the same document as Files", async () => {
   const s = await setup();
-  await click(button(s.el, "Game"));
+  await act(() => { s.layout.show("game"); });
+  await settle();
   const group = s.el.querySelector('[role="group"][aria-label="Boards"]');
   ok(group !== null);
   const files = [...group.querySelectorAll<HTMLButtonElement>("button")].map((node) => node.textContent);
@@ -271,16 +272,24 @@ test("tabs show unsaved work, move with the arrow keys, and a refused close says
   equal(s.tabs.getSnapshot().tabs.length, 2, "the unsaved document stays open");
 });
 
-test("panels show, hide and resize from buttons and the keyboard, and hiding keeps the document", async () => {
+test("panels show, hide and resize from drawer collapse icons and the keyboard, and hiding keeps the document", async () => {
   const s = await setup();
   const files = (): HTMLElement | null => s.el.querySelector("#tkr-panel-files");
   ok(files() !== null);
   equal(s.el.querySelector("#tkr-panel-game"), null, "a hidden panel draws nothing");
-  const toggle = button(s.el, "Game");
-  equal(toggle.getAttribute("aria-pressed"), "false");
-  await click(toggle);
+  await act(() => { s.layout.show("game"); });
+  await settle();
   ok(s.el.querySelector("#tkr-panel-game") !== null);
-  equal(button(s.el, "Game").getAttribute("aria-pressed"), "true");
+  const collapseLeft = button(s.el, "Collapse left sidebar");
+  equal(collapseLeft.getAttribute("aria-pressed"), "true");
+
+  // Accordion headers for Files and Game roll up and expand in place.
+  const filesAccordion = button(s.el, "Files");
+  equal(filesAccordion.getAttribute("aria-expanded"), "true");
+  await click(filesAccordion);
+  equal(filesAccordion.getAttribute("aria-expanded"), "false");
+  await click(filesAccordion);
+  equal(filesAccordion.getAttribute("aria-expanded"), "true");
 
   const separator = s.el.querySelector<HTMLElement>('[role="separator"][aria-label="Resize Files"]')!;
   equal(separator.getAttribute("aria-valuenow"), "240");
@@ -303,7 +312,9 @@ test("panels show, hide and resize from buttons and the keyboard, and hiding kee
   equal(files(), null, "Enter on the separator hides the panel");
   equal(s.workspace.documents().length, 1, "hiding a panel leaves the document open");
   equal(s.opened[0]!.getSnapshot().dirty, true, "and its unsaved edit untouched");
-  await click(button(s.el, "Files"));
+  await click(button(s.el, "Collapse left sidebar"));
+  equal(s.el.querySelector("#tkr-panel-files"), null);
+  await click(button(s.el, "Expand left sidebar"));
   ok(files() !== null);
   ok(s.editorSlot() !== null, "the editor slot is offered to the host");
 });
@@ -373,7 +384,8 @@ test("package release version remains visible and actionable after closing and r
 
 test("the shell writes no style attribute and no inline handler attribute (strict CSP, ADR 0025 decision 6)", async () => {
   const s = await setup();
-  await click(button(s.el, "Game"));
+  await act(() => { s.layout.show("game"); });
+  await settle();
   await click(row(s.el, "Boards"));
   for (const node of [s.el, ...s.el.querySelectorAll("*")]) {
     for (const name of node.getAttributeNames()) {

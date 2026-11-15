@@ -414,7 +414,6 @@ test("a saved folder game launches in the live player from the editor", async ({
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
   await page.getByLabel("Game title").fill("Saved launch proof");
-  await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   const frame = page.frameLocator('iframe[title="Running game"]');
   await expect(frame.getByLabel("Game screen")).toBeVisible();
@@ -484,10 +483,10 @@ test("a board-backed program runs its declared fixture in the real browser playe
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("tab", { name: "Test program" }).click();
   await page.getByRole("combobox", { name: "Program", exact: true }).selectOption("Game/Example/Prg/start.prg");
   await page.getByRole("combobox", { name: "Start board" }).selectOption("Game/Example/Boards/village.brd");
-  await page.getByRole("listbox", { name: "Party", exact: true }).nth(1).selectOption("Game/Example/Chrs/ada.tem");
+  await page.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
   await page.getByRole("textbox", { name: "Font", exact: true }).fill("Liberation Sans");
   await page.getByRole("spinbutton", { name: "Font size" }).fill("18");
   await page.getByRole("combobox", { name: "Message window picture" }).selectOption("Game/Example/Bitmap/window.png");
@@ -536,7 +535,7 @@ test("a board test starts a fresh selected board, party and position in the real
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("tab", { name: "Test board" }).click();
   await page.getByRole("spinbutton", { name: "Column" }).fill("2");
   await page.getByRole("spinbutton", { name: "Row" }).fill("2");
   const party = page.getByRole("listbox", { name: "Party", exact: true }).first();
@@ -579,7 +578,6 @@ test("an edit before the player handshake prevents a stale game from starting", 
     await gate;
     await route.continue();
   });
-  await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   await requested;
   await page.getByLabel("Game title").fill("Changed during player setup");

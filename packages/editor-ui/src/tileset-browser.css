@@ -164,11 +164,18 @@
 }
 
 /* 2. Browser Host IDE Chrome (.tkr-web-shell) ------------------------------ */
+.tkr-web-body {
+  margin: 0;
+  block-size: 100dvh;
+  overflow: hidden;
+}
+
 .tkr-web-shell {
   position: relative;
   display: flex;
   flex-direction: column;
-  min-block-size: 100dvh;
+  block-size: 100dvh;
+  overflow: hidden;
 }
 
 .tkr-web-topbar {
@@ -448,10 +455,12 @@
 
 /* 3. Shared Workbench Docking Layout (.tkr-workbench) ---------------------- */
 .tkr-workbench {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   display: flex;
   flex-direction: column;
-  min-block-size: 100dvh;
+  block-size: 100%;
+  min-block-size: 0;
+  overflow: hidden;
   background: var(--tkr-bg-app);
   color: var(--tkr-fg-primary);
   font-family: var(--tkr-font-sans);
@@ -459,6 +468,7 @@
 }
 
 .tkr-panel-toggles {
+  flex: 0 0 auto;
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
@@ -470,16 +480,9 @@
   border-block-end: 1px solid var(--tkr-border-subtle);
 }
 
-.tkr-panel-toggle-group {
-  order: 2;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.tkr-web-shell:has(#settings > section:not([hidden])) .tkr-panel-toggle-group {
-  margin-inline-start: 9.75rem;
+.tkr-web-shell:has(#settings > section:not([hidden])) .tkr-command-palette-trigger {
+  margin-inline-start: auto;
+  margin-inline-end: auto;
 }
 
 /* Application Menu (☰) & Command Palette Bar (.tkr-command-bar) */
@@ -697,12 +700,72 @@
 }
 
 .tkr-workbench-body {
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   min-inline-size: 0;
   min-block-size: 0;
+  overflow: hidden;
+}
+
+.tkr-dock-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  block-size: 1.75rem;
+  padding: 0 0.375rem;
+  background: var(--tkr-bg-panel);
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-dock-header-left {
+  justify-content: flex-start;
+}
+
+.tkr-dock-header-right {
+  justify-content: flex-end;
+}
+
+.tkr-dock-header-bottom {
+  justify-content: space-between;
+  border-block-start: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-dock-header-title {
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tkr-fg-primary);
+  padding-inline-start: 0.25rem;
+}
+
+.tkr-dock-collapse-btn {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.375rem !important;
+  block-size: 1.375rem !important;
+  min-block-size: 1.375rem !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  color: var(--tkr-fg-muted) !important;
+}
+
+.tkr-dock-collapse-btn:hover,
+.tkr-dock-collapse-btn:focus-visible {
+  background: var(--tkr-bg-control-hover) !important;
+  color: var(--tkr-fg-primary) !important;
+  border-color: var(--tkr-border-subtle) !important;
+}
+
+.tkr-dock-icon {
+  display: block;
+  flex-shrink: 0;
 }
 
 .tkr-dock-left {
@@ -717,6 +780,10 @@
   overflow: hidden;
 }
 
+.tkr-dock-left[data-collapsed="true"] {
+  inline-size: 2.125rem;
+}
+
 .tkr-editor-area {
   grid-column: 2;
   grid-row: 1;
@@ -725,7 +792,7 @@
   min-inline-size: 0;
   min-block-size: 0;
   background: var(--tkr-bg-surface);
-  overflow: auto;
+  overflow: hidden;
 }
 
 .tkr-dock-right {
@@ -740,18 +807,26 @@
   overflow: hidden;
 }
 
+.tkr-dock-right[data-collapsed="true"] {
+  inline-size: 2.125rem;
+}
+
 .tkr-dock-right:empty {
   border-inline-start: 0;
 }
 
 .tkr-dock-bottom {
-  grid-column: 1 / -1;
-  grid-row: 2;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   background: var(--tkr-bg-panel);
-  border-block-start: 1px solid var(--tkr-border-subtle);
   min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.tkr-dock-bottom[data-collapsed="true"] > .tkr-dock-header-bottom {
+  border-block-end: 0;
 }
 
 .tkr-panel {
@@ -794,20 +869,76 @@
   min-inline-size: 100%;
 }
 
-/* When both Files and Game panels are open in the left dock, stack them in a 50/50 VS Code accordion split */
-.tkr-dock-left:has(> #tkr-panel-files):has(> #tkr-panel-game) > #tkr-panel-files {
-  flex: 0 1 42vh;
-  max-block-size: 42vh;
+/* When both Files and Game panels are open in the left dock, stack them in a VS Code accordion split */
+.tkr-dock-left:has(> #tkr-panel-files):has(> #tkr-panel-game) > #tkr-panel-files,
+.tkr-dock-left:has(> #tkr-panel-files):has(> #tkr-panel-game) > #tkr-panel-game {
+  flex: 1 1 0%;
+  min-block-size: 0;
+  overflow: hidden;
+  padding: 0;
 }
 
-.tkr-dock-left:has(> #tkr-panel-files):has(> #tkr-panel-game) > #tkr-panel-game {
-  flex: 1 1 38vh;
-  min-block-size: 16rem;
+.tkr-dock-left:has(> #tkr-panel-files):has(> #tkr-panel-game) > #tkr-panel-files {
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-dock-left > #tkr-panel-files:has(> .tkr-files[data-collapsed="true"]),
+.tkr-dock-left > #tkr-panel-game:has(> .tkr-game[data-collapsed="true"]) {
+  flex: 0 0 auto !important;
+  min-block-size: auto !important;
 }
 
 .tkr-dock-bottom > .tkr-panel {
   inline-size: 100%;
-  max-block-size: 240px;
+  block-size: 9rem;
+  max-block-size: 30vh;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.tkr-dock-bottom .tkr-run {
+  padding: 0.375rem 0.75rem 0.625rem;
+  gap: 0.5rem;
+}
+
+.tkr-dock-bottom .tkr-run > h2 {
+  display: none;
+}
+
+.tkr-run-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.25rem;
+  border-block-end: 1px solid var(--tkr-border-subtle);
+  padding-block-end: 0.375rem;
+}
+
+.tkr-run-tab {
+  min-block-size: 1.625rem !important;
+  padding: 0.1875rem 0.625rem !important;
+  font-size: var(--tkr-text-xs) !important;
+  font-weight: 500 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  color: var(--tkr-fg-muted) !important;
+}
+
+.tkr-run-tab:hover {
+  background: var(--tkr-bg-control-hover) !important;
+  color: var(--tkr-fg-primary) !important;
+}
+
+.tkr-run-tab[aria-selected="true"] {
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-accent) !important;
+  color: var(--tkr-fg-primary) !important;
+  font-weight: 600 !important;
+}
+
+.tkr-run-launch[hidden] {
+  display: none;
 }
 
 .tkr-separator {
@@ -935,7 +1066,15 @@
   color: var(--tkr-fg-primary) !important;
 }
 
-.tkr-editor,
+.tkr-editor {
+  flex: 1 1 0%;
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: auto;
+}
+
 .tkr-tab-panel,
 .tkr-editor-slot,
 .tkr-editor-pane {
@@ -958,30 +1097,65 @@
 /* 5. Left Navigation Explorers (.tkr-files, .tkr-game) --------------------- */
 .tkr-files,
 .tkr-game {
+  flex: 1 1 0%;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.375rem;
+  min-block-size: 0;
+  overflow: hidden;
+  padding: 0.375rem 0.5rem;
   font-size: var(--tkr-text-sm);
+}
+
+.tkr-files[data-collapsed="true"],
+.tkr-game[data-collapsed="true"] {
+  flex: 0 0 auto;
+  padding-block: 0.125rem;
+}
+
+.tkr-files[data-collapsed="true"] > :not(.tkr-files-heading),
+.tkr-game[data-collapsed="true"] > :not(.tkr-game-heading) {
+  display: none;
 }
 
 .tkr-files h2,
 .tkr-game h2 {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
+  flex: 0 0 auto;
   margin: 0;
-  padding: 0.125rem 0.25rem;
-  font-size: 0.6875rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--tkr-fg-muted);
+  padding: 0;
 }
 
-.tkr-files h2::before,
-.tkr-game h2::before {
+.tkr-accordion-toggle {
+  inline-size: 100%;
+  display: flex !important;
+  align-items: center;
+  justify-content: flex-start !important;
+  gap: 0.375rem;
+  min-block-size: 1.5rem !important;
+  padding: 0.125rem 0.25rem !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: var(--tkr-radius-sm) !important;
+  font-size: 0.6875rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--tkr-fg-muted) !important;
+  text-align: start;
+}
+
+.tkr-accordion-toggle:hover {
+  background: var(--tkr-bg-control-hover) !important;
+  color: var(--tkr-fg-primary) !important;
+}
+
+.tkr-accordion-toggle::before {
   content: "▾";
   font-size: 0.625rem;
+}
+
+.tkr-accordion-toggle[aria-expanded="false"]::before {
+  content: "▸";
 }
 
 .tkr-files-toolbar {
@@ -1010,13 +1184,16 @@
 }
 
 .tkr-files-tree {
+  flex: 1 1 0%;
   display: flex;
   flex-direction: column;
   gap: 1px;
+  min-block-size: 0;
   padding: 0.25rem;
   background: var(--tkr-bg-surface);
   border: 1px solid var(--tkr-border-subtle);
   border-radius: var(--tkr-radius-sm);
+  overflow-y: auto;
 }
 
 .tkr-files-row {
@@ -1119,13 +1296,15 @@
 }
 
 .tkr-game-groups {
+  flex: 1 1 0%;
   display: flex;
   flex-direction: column;
   gap: 0;
+  min-block-size: 0;
   background: var(--tkr-bg-surface);
   border: 1px solid var(--tkr-border-subtle);
   border-radius: var(--tkr-radius-sm);
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .tkr-game-group {

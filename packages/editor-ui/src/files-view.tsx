@@ -45,6 +45,7 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onPackage, onDownloa
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [packageOpen, setPackageOpen] = useState(false);
+  const [sectionCollapsed, setSectionCollapsed] = useState(false);
   const [mainFiles, setMainFiles] = useState<readonly string[]>([]);
   const [mainPath, setMainPath] = useState("");
   const [packageVersion, setPackageVersion] = useState("");
@@ -181,8 +182,17 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onPackage, onDownloa
   };
 
   return (
-    <section class="tkr-files" aria-label="Files">
-      <h2 class="tkr-files-heading">Files</h2>
+    <section class="tkr-files" aria-label="Files" data-collapsed={sectionCollapsed ? "true" : "false"}>
+      <h2 class="tkr-files-heading">
+        <button
+          type="button"
+          class="tkr-accordion-toggle"
+          aria-expanded={!sectionCollapsed}
+          onClick={() => setSectionCollapsed((previous) => !previous)}
+        >
+          Files
+        </button>
+      </h2>
       <div class="tkr-files-toolbar" role="toolbar" aria-label="File actions">
         {onNewBoard === undefined ? null : <button type="button" class="tkr-files-new-board" disabled={busy} onClick={onNewBoard}>New board…</button>}
         <button type="button" class="tkr-files-refresh" disabled={busy} onClick={() => run(() => tree.refresh())}>Refresh</button>

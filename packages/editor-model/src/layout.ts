@@ -38,9 +38,9 @@ export const PANEL_SIZE_STEP = 16;
  */
 export const DEFAULT_WORKBENCH_PANELS: readonly PanelDefinition[] = [
   { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
-  { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
+  { id: "game", title: "Game", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
   { id: "tileset", title: "Tileset", side: "right", visible: true, size: 288, minSize: 192, maxSize: 480 },
-  { id: "run", title: "Run", side: "bottom", visible: false, size: 240, minSize: 128, maxSize: 480 },
+  { id: "run", title: "Run", side: "bottom", visible: true, size: 208, minSize: 128, maxSize: 480 },
 ];
 
 export interface PanelState {

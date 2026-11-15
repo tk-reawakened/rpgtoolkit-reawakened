@@ -173,7 +173,10 @@ for (const system of SYSTEMS) {
     await expect(state(page)).toHaveText("All changes saved");
 
     // Back to 100% (the zoom steps are fixed and the view re-centres the small board), then one drag across the board.
-    await page.mouse.move(focus.x, focus.y);
+    await canvas.scrollIntoViewIfNeeded();
+    box = (await canvas.boundingBox())!;
+    const zoomBackFocus = onPage(box, viewport, shape, centre);
+    await page.mouse.move(zoomBackFocus.x, zoomBackFocus.y);
     await page.keyboard.down("Control");
     await page.mouse.wheel(0, 100);
     await page.keyboard.up("Control");
@@ -221,7 +224,7 @@ for (const system of SYSTEMS) {
 
     // Hiding a layer changes the picture and nothing else: the drawn cell's pixel is the board's own, then the tile's.
     const withTile = drawnPixel;
-    await page.getByLabel("Layer", { exact: true }).selectOption({ index: 1 });
+    await page.getByRole("region", { name: "Board" }).getByLabel("Layer", { exact: true }).selectOption({ index: 1 });
     await page.getByLabel("Layer 1", { exact: false }).first().uncheck();
     await expect.poll(pixel).not.toBe(withTile);
     await expect(state(page)).toHaveText("Unsaved changes", { timeout: 1_000 });

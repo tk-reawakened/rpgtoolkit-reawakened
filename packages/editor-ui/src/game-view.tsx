@@ -20,6 +20,7 @@ export function GameView({ fs, layout, onOpen, version }: GameViewProps) {
   const [groups, setGroups] = useState<readonly GameGroup[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [active, setActive] = useState<string | null>(null);
+  const [sectionCollapsed, setSectionCollapsed] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const focus = useRef(false);
   const root = useRef<HTMLDivElement>(null);
@@ -59,8 +60,17 @@ export function GameView({ fs, layout, onOpen, version }: GameViewProps) {
   };
 
   return (
-    <section class="tkr-game" aria-label="Game">
-      <h2 class="tkr-game-heading">Game</h2>
+    <section class="tkr-game" aria-label="Game" data-collapsed={sectionCollapsed ? "true" : "false"}>
+      <h2 class="tkr-game-heading">
+        <button
+          type="button"
+          class="tkr-accordion-toggle"
+          aria-expanded={!sectionCollapsed}
+          onClick={() => setSectionCollapsed((previous) => !previous)}
+        >
+          Game
+        </button>
+      </h2>
       {groups === null ? <p class="tkr-game-state" role="status">Reading the project…</p> : null}
       {groups !== null && groups.length === 0 ? <p class="tkr-game-state" role="status">This project has no game files yet.</p> : null}
       {problem === null ? null : <p class="tkr-game-problem" role="alert">{problem}</p>}
