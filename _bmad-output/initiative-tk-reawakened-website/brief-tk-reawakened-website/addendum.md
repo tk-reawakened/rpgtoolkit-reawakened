@@ -14,6 +14,14 @@ Give the Vault a distinct homepage shelf and a top-level route. Show extensions 
 
 Treat the named mockup entries as examples. Publish a Final Destiny play link only after permission and browser playback are verified. Open the Web Editor points to a shipped editor. Describe supported imports in the actual dropzone. The legacy `.gam` describes a project and may reference separate assets, so verify the package or folder that the runner can open before writing the label. Offer a keyboard-accessible browse action alongside drag and drop. Shareable hosted links, upload intake and account controls depend on their own service scope. [Main game file](../../../docs/spec/formats/main-file.md)
 
+## Moderated catalogue publishing
+
+Proposed first workflow. Creators follow **Submit a game** or **Submit to the Vault** and send a short description, public links, screenshots or a preview, and the credit and permissions needed to list the work. A simple site form or a forum intake can collect these details. A separate action can accept a lead on a missing classic. Choose the intake channel with the reviewer who will operate it.
+
+A catalogue moderator checks the submitted links, credit and permission, and asks for changes when necessary. For a work in progress, they open the browser build and check its link to the game’s Community topic. For a Vault item, they check its published licence, claimed compatibility and instructions. On approval, a maintainer adds or updates the catalogue entry in a pull request to the website repository. The entry contains display information and links to the actual build or download. Preview and review it before merging.
+
+Start with a person writing the pull request. A contributor comfortable with GitHub could propose the same entry directly. If submission volume warrants automation later, intake could prepare a draft pull request for a human to review. Identify who can correct or remove a published entry when its link breaks or the creator requests a change. [GitHub pull requests](https://docs.github.com/en/pull-requests/reference/pull-requests)
+
 ## Funding the project
 
 Proposed public promise. The open-source engine, editor, exports, core assets, complete docs, public archive and public game playback are free. People can share their work without a subscription, including through links to builds they host themselves. Explain funding as **open-source tools with optional hosted services and patronage**.

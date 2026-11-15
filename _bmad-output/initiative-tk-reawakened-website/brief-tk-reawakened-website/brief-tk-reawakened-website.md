@@ -19,7 +19,7 @@ The home page explains what TK Reawakened is, shows what someone can do with it,
 | Docs | Search responsive, versioned guides. Start with a small game that works against the shipped build. Find RPGCode and editor reference, migration and troubleshooting guides, and links from the guide to tested examples. |
 | Games and showcase | Find preserved Toolkit games, new releases and demos. Browse Work in Progress as a category of Games. A work-in-progress listing includes screenshots and a build visitors can play in the browser. Label catalogue entries by origin and availability. Start with one original example and a small set of approved entries. A “Contribute a game” route can take a link to a new project or a lead on a missing classic. Publish credited entries with permission, a short description and a play, archive or devlog link as appropriate. |
 | The Vault | Find extensions, starter templates, asset packs and reusable RPGCode examples. Help beginners browse by what they want to make as well as by resource type. Show what each entry adds, supported releases, credit and licence, and how to install or use it. Feature resources a beginner can use with a guide. |
-| Community | Meet other beginners, ask for help, share work, playtest, and contribute to the project or its guides. Offer a simple submission path for a link, screenshot or recipe. Publish a code of conduct, a report route, and a short explanation of how submissions are reviewed and credited. |
+| Community | Meet other beginners, ask for help, share work, playtest, and contribute to the project or its guides. Offer a simple submission path for a game or Vault item, and a way to suggest a missing classic. Publish a code of conduct, a report route, and a short explanation of how submissions are reviewed and credited. |
 
 ## Give people a reason to come back
 
@@ -47,7 +47,7 @@ The proposed funding principle keeps the engine, editor, documentation, public g
 
 ## Open decisions
 
-- Pick the home for help and feedback with its moderators. Name the launch owner for submission review, reports, the prompt and its recap. Test the flow with a newcomer and a returning creator.
+- Pick the home for help and feedback with its moderators. Choose the intake channel and name the owner for catalogue review, reports, the prompt and its recap. Try the [moderated publishing proposal](addendum.md#moderated-catalogue-publishing) on a game and a Vault item with a newcomer and a returning creator.
 - Choose the website repository and [hosting for `tk-reawakened.com`](../epic-documentation-website/discovery/hosting-options.md). Decide where public guides are authored and how product releases provide builds, version data and verification inputs. The website is expected to have its own repository.
 - Decide how the public games catalogue presents the [preservation corpus](https://tk-reawakened.github.io/corpus/) alongside new projects, and who reviews new game submissions and recovery leads. Choose the first featured Vault entries from resources with clear permission, verified compatibility and a beginner-friendly use case.
 - Decide whether durable discussions belong on an existing service or a separately hosted forum. Revisit built-in site accounts, file uploads and game hosting after seeing how people use the curated showcase and feedback channel.
