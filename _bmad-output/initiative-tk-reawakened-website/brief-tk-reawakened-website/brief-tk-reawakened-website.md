@@ -30,10 +30,12 @@ Toolkit Zone showed that participation could be visible even to visitors who arr
 - [Toolkit Zone Games Browse](https://web.archive.org/web/20070220112409/http://www.toolkitzone.com:80/games.php?browse) and [Library Browse](https://web.archive.org/web/20100305154633/http://www.toolkitzone.com:80/library.php?browse)
 - [Dark Age Games Expo awards](https://darkagegames.net/fanart.php) and [1-Room RPG Jam](https://itch.io/jam/1-room-rpg-jam)
 
+Give featured projects and community prompts a discussion that is reachable from the page itself. The same discussion links back to the project or prompt. Readers can follow the conversation where they found the work, and the forum holds the replies and moderation. See the [forum integration proposal](../epic-documentation-website/discovery/hosting-options.md#forum-integration).
+
 ## What to prove first
 
 - A first-time visitor picks the right build and completes the first-room tutorial from the public site. A returning creator locates the migration prerequisites and understands what their old project can import.
-- An author submits an available example or work-in-progress link, a reviewer publishes it with consent and credit, and a playtester can respond to its specific ask.
+- An author submits an available example or work-in-progress link, a reviewer publishes it with consent and credit, and a playtester can move from the page to its discussion, respond to the creator’s ask, and return to the project page.
 - The first prompt produces a dated public recap and evidence that makers received feedback. Review submissions, replies and repeat participation before deciding how often to run it.
 
 ## Open decisions
