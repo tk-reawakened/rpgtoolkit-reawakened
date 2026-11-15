@@ -720,3 +720,28 @@ test("a title the document changes under a committed draft replaces it: a revert
   equal(status(s.el), "All changes saved");
   equal(s.doc.getSnapshot().dirty, false);
 });
+
+test("shared IDE stylesheet defines VS Code theme bridges, panel sizing classes, responsive container queries, and forced-colors states (#2703)", () => {
+  const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
+  const artCss = readFileSync(join(src, "tileset-art.css"), "utf8");
+  const browserCss = readFileSync(join(src, "tileset-browser.css"), "utf8");
+  const combined = `${artCss}\n${browserCss}`;
+
+  match(artCss, /color-scheme:\s*light dark/);
+  match(artCss, /--tkr-bg-app:\s*var\(--vscode-sideBar-background,\s*light-dark\(/);
+  match(artCss, /--tkr-accent:\s*var\(--vscode-focusBorder,\s*light-dark\(/);
+  match(artCss, /--tkr-dirty:\s*var\(--vscode-gitDecoration-modifiedResourceForeground,\s*light-dark\(/);
+  match(artCss, /--tkr-danger:\s*var\(--vscode-errorForeground,\s*light-dark\(/);
+
+  for (let size = 8; size <= 30; size += 1) {
+    ok(browserCss.includes(`.tkr-size-${size}`), `defines panel size class .tkr-size-${size}`);
+  }
+  match(browserCss, /\.tkr-board-workspace\s*\{/);
+  match(browserCss, /\.tkr-bitmap-workspace\s*\{/);
+  match(browserCss, /@container\s+board-editor\s*\(max-width:\s*960px\)/);
+  match(browserCss, /@media\s*\(forced-colors:\s*active\)/);
+  match(combined, /:focus-visible/);
+  match(combined, /\[aria-pressed="true"\]/);
+  match(combined, /\[aria-invalid="true"\]/);
+  match(combined, /\.tkr-tab-dirty/);
+});

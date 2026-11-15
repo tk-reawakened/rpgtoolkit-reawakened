@@ -25,6 +25,7 @@ import {
 import type { PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
+import { EmptyExplorerView, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
 import { RunView, type RunViewProps } from "./run-view.tsx";
 import { BoardView } from "./board-view.tsx";
@@ -235,4 +236,9 @@ export function mountPreferences(el: HTMLElement, props: PreferencesViewProps): 
 /** Render the new-board questions into `el`. */
 export function mountNewBoard(el: HTMLElement, props: NewBoardViewProps): ViewHandle {
   return mountElement(el, createElement(NewBoardView, props));
+}
+
+/** Render the IDE "No Game Opened" Explorer panel into `el`. */
+export function mountEmptyExplorer(el: HTMLElement, props: EmptyExplorerViewProps): ViewHandle {
+  return mountElement(el, createElement(EmptyExplorerView, props));
 }

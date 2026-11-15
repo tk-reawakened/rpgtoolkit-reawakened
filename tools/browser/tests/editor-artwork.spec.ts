@@ -108,6 +108,7 @@ async function expectPixel(page: Page, canvas: Locator, x: number, y: number, rg
 }
 
 async function beginStroke(page: Page, canvas: Locator, x: number, y: number, endX = x, endY = y): Promise<{ x: number; y: number }> {
+  await canvas.scrollIntoViewIfNeeded();
   const box = await canvas.boundingBox();
   if (box === null) throw new Error("The actual pixel canvas has no bounds");
   await page.mouse.move(box.x + (x + 0.5) * box.width / 32, box.y + (y + 0.5) * box.height / 32);
@@ -190,8 +191,12 @@ test("actual browser art gestures stay private until accepted, share history, an
   const main = primary(page);
   const canvas = surface(main);
   const initial = decoded(artBytes, "Tiles/art.tst");
-  const mirrorButton = page.getByRole("button", { name: "Second view" });
-  await mirrorButton.click();
+  const toggleSecondView = async (): Promise<void> => {
+    await page.getByRole("button", { name: "Application menu" }).click();
+    await page.getByRole("menuitem", { name: "View", exact: true }).hover();
+    await page.getByRole("menuitem", { name: "Toggle Split Second View" }).click();
+  };
+  await toggleSecondView();
   const mirrorRoot = page.locator("#mirror");
   const mirror = surface(mirrorRoot);
   await expect(mirror).toBeVisible();
@@ -269,9 +274,9 @@ test("actual browser art gestures stay private until accepted, share history, an
   await main.getByRole("button", { name: "Save", exact: true }).click();
   const saved = changed(accepted, [{ x: 14, y: 15, rgba: green }]);
   await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
-  await mirrorButton.click();
+  await toggleSecondView();
   await expect(mirrorRoot).toBeHidden();
-  await mirrorButton.click();
+  await toggleSecondView();
   await expect(mirror).toBeVisible();
   await expectPixel(page, mirror, 14, 15, green);
   await canvas.focus();

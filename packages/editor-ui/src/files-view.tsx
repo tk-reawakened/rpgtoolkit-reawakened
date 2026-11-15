@@ -47,6 +47,7 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onNewProgram, onPack
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [packageOpen, setPackageOpen] = useState(false);
+  const [sectionCollapsed, setSectionCollapsed] = useState(false);
   const [mainFiles, setMainFiles] = useState<readonly string[]>([]);
   const [mainPath, setMainPath] = useState("");
   const [packageVersion, setPackageVersion] = useState("");
@@ -183,8 +184,17 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onNewProgram, onPack
   };
 
   return (
-    <section class="tkr-files" aria-label="Files">
-      <h2 class="tkr-files-heading">Files</h2>
+    <section class="tkr-files" aria-label="Files" data-collapsed={sectionCollapsed ? "true" : "false"}>
+      <h2 class="tkr-files-heading">
+        <button
+          type="button"
+          class="tkr-accordion-toggle"
+          aria-expanded={!sectionCollapsed}
+          onClick={() => setSectionCollapsed((previous) => !previous)}
+        >
+          Files
+        </button>
+      </h2>
       <div class="tkr-files-toolbar" role="toolbar" aria-label="File actions">
         {onNewBoard === undefined ? null : <button type="button" class="tkr-files-new-board" disabled={busy} onClick={onNewBoard}>New board…</button>}
         {onNewProgram === undefined ? null : <button type="button" class="tkr-files-new-program" disabled={busy} onClick={onNewProgram}>New program…</button>}

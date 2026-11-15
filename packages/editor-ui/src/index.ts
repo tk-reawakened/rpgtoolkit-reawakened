@@ -1,7 +1,9 @@
 // The editor's views (ADR 0025). A view is handed to a host as `mount(el, ctx) -> { dispose }`; the host owns the
 // element and the document, the view owns only what it renders into `el`.
-export { mount, mountAssetPicker, mountNewBoard, mountPreferences, mountRun, mountShell, type BoardPreferencesSource, type BoardViewDocument, type CodeEditorContext, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "./mount.ts";
+export { mount, mountAssetPicker, mountEmptyExplorer, mountNewBoard, mountPreferences, mountRun, mountShell, type BoardPreferencesSource, type BoardViewDocument, type CodeEditorContext, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "./mount.ts";
 export type { AssetPickerViewProps } from "./asset-picker-view.tsx";
+export { EmptyExplorerView, type EmptyExplorerRecentProject, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
+export { WorkbenchCommandBar, type CommandPaletteProps } from "./command-palette.tsx";
 export type { NewBoardViewProps } from "./new-board-view.tsx";
 export { SpriteView, type SpriteViewDocument, type SpriteViewProps } from "./sprite-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";

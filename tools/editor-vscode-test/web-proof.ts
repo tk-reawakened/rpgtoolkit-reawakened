@@ -857,7 +857,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   await paintFirst.click();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst2" })).toBeVisible();
   await first.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(first.getByRole("status")).toHaveText("All changes saved");
+  await expect(first.locator(".tkr-board-state")).toHaveText("All changes saved");
   const firstSaved = await host.readBacking(firstPath);
   expect(firstSaved).not.toEqual(firstBefore);
   await closeActiveEditor(page, expect);
@@ -872,7 +872,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   await paintSecond.click();
   await expect(second.getByRole("button", { name: "Column 1, row 1: village.tst2" })).toBeVisible();
   await second.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(second.getByRole("status")).toHaveText("All changes saved");
+  await expect(second.locator(".tkr-board-state")).toHaveText("All changes saved");
   const secondSaved = await host.readBacking(secondPath);
   expect(secondSaved).not.toEqual(secondBefore);
   expect(await host.readBacking(firstPath)).toEqual(firstSaved);

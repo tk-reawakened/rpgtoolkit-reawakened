@@ -10,6 +10,7 @@ import {
   createProjectTree,
   createTabs,
   createVisits,
+  DEFAULT_WORKBENCH_PANELS,
   listCandidates,
   newBoardSettingsFrom,
   prepareGamePackage,
@@ -102,11 +103,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const tree = createProjectTree({ services, workspace });
   const tabs = createTabs(workspace);
   const visits = createVisits(workspace);
-  const layout = createLayoutModel([
-    { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
-    { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
-    { id: "run", title: "Run", side: "bottom", visible: false, size: 240, minSize: 128, maxSize: 480 },
-  ]);
+  const layout = createLayoutModel(DEFAULT_WORKBENCH_PANELS);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
   let version = 0;
@@ -273,7 +270,9 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tree,
     projectLayout,
     fs: services.fs,
+    workspace,
     launcher,
+    browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
     version,
     onOpened: (result) => {
       if (result.via === "document") show(result.document);
@@ -290,6 +289,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     },
     onNewBoard: () => { void newBoard(); },
     onNewProgram: () => { void newProgram(); },
+    onOpenPreferences: () => { workbench.openPreferences(); },
     onEditorElement: (editorElement) => {
       slot = editorElement;
       sync();

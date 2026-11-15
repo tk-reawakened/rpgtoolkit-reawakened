@@ -47,6 +47,9 @@ for (const entry of entries) {
 const editorWebOut = join(here, "editor-web", "dist", "editor-web.js");
 const editorWebDist = dirname(editorWebOut);
 mkdirSync(editorWebDist, { recursive: true });
+copyFileSync(join(root, "media/icons/favicon.ico"), join(editorWebDist, "favicon.ico"));
+copyFileSync(join(root, "media/icons/png/tkr-32.png"), join(editorWebDist, "tkr-32.png"));
+copyFileSync(join(root, "media/icons/png/tkr-128.png"), join(editorWebDist, "tkr-128.png"));
 copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(editorWebDist, "tileset-browser.css"));
 copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(editorWebDist, "tileset-art.css"));
 copyFileSync(join(root, "packages/editor-ui/src/program-view.css"), join(editorWebDist, "program-view.css"));
