@@ -168,6 +168,22 @@ reads: per-tick hashes, save data, revisions and future diagnostics must agree. 
 changes the store moves the hash, while drawing to, reading or refreshing the presented screen and host polling do not.
 It also checks deterministic rebuild before script reads and preserves script-visible screen capture behavior.
 
+<a id="state-hash-cadence"></a>
+**When the state hash is computed (issue #1890).** Computing the state hash is observation, not simulation, so a
+runner chooses how often it reads it. The engine init option `stateHashInReports` takes one of two values:
+
+- `"every-advance"` (the default): every `advance` returns the hash of the state at its end in `TickReport.stateHash`.
+  Golden, closing, replay and parity runners use this and depend on it.
+- `"on-request"`: the report has no `stateHash` field at all, and the type says so, so code that reads it does not
+  compile. The runner calls `engine.stateHash()` when it needs the value, for example for a status line, a run
+  snapshot, a test probe or quit. A live player uses this, because hashing the whole state on every animation frame
+  costs more than running the simulation.
+
+`engine.stateHash()` is available in both modes. Between two `advance` calls it MUST return exactly the hash that an
+`"every-advance"` engine would have reported at the end of the previous `advance`, and reading it MUST NOT change
+state, pixels, sound or diagnostics. A runner that shows a hash next to a tick MUST read both after the same `advance`.
+The choice of mode and of when to read the hash must not change any state, pixel or sound.
+
 <a id="webgl2-agreement"></a>
 ## The WebGL2 agreement bound
 
