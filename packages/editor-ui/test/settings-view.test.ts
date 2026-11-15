@@ -738,7 +738,7 @@ test("shared IDE stylesheet defines VS Code theme bridges, panel sizing classes,
   }
   match(browserCss, /\.tkr-board-workspace\s*\{/);
   match(browserCss, /\.tkr-bitmap-workspace\s*\{/);
-  match(browserCss, /@container\s+board-editor\s*\(max-width:\s*720px\)/);
+  match(browserCss, /@container\s+board-editor\s*\(max-width:\s*960px\)/);
   match(browserCss, /@media\s*\(forced-colors:\s*active\)/);
   match(combined, /:focus-visible/);
   match(combined, /\[aria-pressed="true"\]/);
