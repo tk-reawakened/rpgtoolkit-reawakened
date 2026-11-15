@@ -158,3 +158,41 @@ test("Cancel and Escape create nothing", async () => {
   equal(rig.cancelled, 2);
   equal(rig.created.length, 0);
 });
+test("rejected folder-picker and create promises are shown and leave the wizard usable", async () => {
+  const pickerEl = document.createElement("div");
+  document.body.replaceChildren(pickerEl);
+  await act(() => {
+    mountNewProject(pickerEl, {
+      chooseDestination: () => Promise.reject(new Error("Folder access denied")),
+      onCreate: () => Promise.resolve({ ok: true }),
+      onCancel: () => {},
+    });
+  });
+  await act(async () => {
+    pickerEl.querySelector<HTMLButtonElement>(".tkr-new-project-choose")!.click();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  match(pickerEl.querySelector('[role="alert"]')?.textContent ?? "", /Folder access denied/);
+  equal(pickerEl.querySelector<HTMLButtonElement>(".tkr-new-project-choose")!.disabled, false);
+
+  const createEl = document.createElement("div");
+  document.body.replaceChildren(createEl);
+  await act(() => {
+    mountNewProject(createEl, {
+      chooseDestination: () => Promise.resolve("empty-folder"),
+      onCreate: () => Promise.reject(new Error("Storage unavailable")),
+      onCancel: () => {},
+    });
+  });
+  await type(createEl.querySelector<HTMLInputElement>('input[type="text"]')!, "Quest");
+  await act(() => { createEl.querySelector<HTMLButtonElement>(".tkr-new-project-choose")!.click(); });
+  await act(async () => { await Promise.resolve(); });
+  await act(async () => {
+    createEl.querySelector<HTMLFormElement>("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  match(createEl.querySelector('[role="alert"]')?.textContent ?? "", /Storage unavailable/);
+  equal(createEl.querySelector<HTMLButtonElement>(".tkr-new-project-create")!.disabled, false);
+});

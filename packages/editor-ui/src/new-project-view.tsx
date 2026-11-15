@@ -64,7 +64,11 @@ export function NewProjectView({ starters = STARTER_ITEMS, chooseDestination, on
   const choose = (): void => {
     if (choosing || busy) return;
     setChoosing(true);
-    void chooseDestination().then((picked) => { if (picked !== null) setDestination(picked); }).finally(() => setChoosing(false));
+    setFailure(null);
+    void chooseDestination()
+      .then((picked) => { if (picked !== null) setDestination(picked); })
+      .catch((error: unknown) => setFailure({ message: error instanceof Error ? error.message : String(error), details: [] }))
+      .finally(() => setChoosing(false));
   };
 
   /** Cancelling is closed while the project is being made: it could report "cancelled" and still write. */
@@ -78,7 +82,10 @@ export function NewProjectView({ starters = STARTER_ITEMS, chooseDestination, on
     if (problems.length > 0 || destination === null || busy || choosing) return;
     setBusy(true);
     setFailure(null);
-    void onCreate(settings).then((result) => { if (!result.ok) setFailure({ message: result.message, details: result.details ?? [] }); }).finally(() => setBusy(false));
+    void onCreate(settings)
+      .then((result) => { if (!result.ok) setFailure({ message: result.message, details: result.details ?? [] }); })
+      .catch((error: unknown) => setFailure({ message: error instanceof Error ? error.message : String(error), details: [] }))
+      .finally(() => setBusy(false));
   };
 
   const error = (id: string, field: keyof NewProjectSettings) => (shown(field) === undefined ? null : <p id={`${ids}-${id}-error`} class="tkr-new-project-error" role="alert">{shown(field)}</p>);
