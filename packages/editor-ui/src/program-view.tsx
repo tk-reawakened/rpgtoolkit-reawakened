@@ -88,25 +88,34 @@ function flatten(symbols: readonly SymbolNode[]): BookmarkRow[] {
  * transformed through the difference between the text the surface has and the current document text.
  */
 function rebaseTextChanges(source: string, target: string, changes: readonly TextChange[]): TextChange[] {
-  // Keep the original difference anchored while replaying the burst. Re-diffing after each
-  // change can mistake newly typed repeated text for the text removed by undo.
   const difference = diffText(source, target);
+  let from = difference?.from ?? 0;
+  let to = difference?.to ?? 0;
+  let targetTo = difference === null ? 0 : from + difference.text.length;
   const rebased: TextChange[] = [];
   for (const change of changes) {
-    const from = difference === null || change.from <= difference.from
+    // Keep the original differing text anchored: re-diffing can mistake newly
+    // typed repeated text for the text removed by undo. Shift the anchor only
+    // when an earlier sequential edit moves both texts before that difference.
+    const mappedFrom = difference === null || change.from <= from
       ? change.from
-      : change.from >= difference.to
-        ? change.from + difference.text.length - (difference.to - difference.from)
-        : difference.from;
-    const to = difference === null || change.to <= difference.from
+      : change.from >= to
+        ? change.from + targetTo - to
+        : from;
+    const mappedTo = difference === null || change.to <= from
       ? change.to
-      : change.to >= difference.to
-        ? change.to + difference.text.length - (difference.to - difference.from)
-        : difference.from;
-    const rebasedChange = { from, to, text: change.text };
-    rebased.push(rebasedChange);
+      : change.to >= to
+        ? change.to + targetTo - to
+        : from;
+    rebased.push({ from: mappedFrom, to: mappedTo, text: change.text });
     source = source.slice(0, change.from) + change.text + source.slice(change.to);
-    target = target.slice(0, from) + change.text + target.slice(to);
+    target = target.slice(0, mappedFrom) + change.text + target.slice(mappedTo);
+    if (change.from < from && change.to <= from) {
+      const shift = change.text.length - (change.to - change.from);
+      from += shift;
+      to += shift;
+      targetTo += shift;
+    }
   }
   return rebased;
 }
@@ -190,6 +199,8 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const tracker = useMemo(() => createEditTracker(), []);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
   const queuedCommands = useRef(0);
+  const queuedSaveBoundaries = useRef(0);
+  const queuedHistoryCommands = useRef(0);
   const historyQueued = useRef(false);
   const enqueueCommand = <T,>(operation: () => Promise<T>): Promise<T> => {
     queuedCommands.current += 1;
@@ -274,7 +285,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     const ctl = control.current;
     const surface = ctl.surface;
     if (surface === null) return;
-    if (!force && (ctl.buffer.length > 0 || tracker.busy())) return;
+    if (!force && (ctl.buffer.length > 0 || tracker.busy() || queuedSaveBoundaries.current > 0)) return;
     const text = latest.current.doc.getSnapshot().text;
     if (surface.getText() !== text) surface.setText(text);
     surface.setReadOnly(latest.current.doc.getSnapshot().readOnly !== null);
@@ -354,6 +365,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const history = (which: "undo" | "redo"): Promise<void> => {
     // Establish the edit boundary at the user's action, not after an earlier queued save finishes.
     flush();
+    queuedHistoryCommands.current += 1;
     historyQueued.current = true;
     return enqueueCommand(async () => {
       try {
@@ -370,32 +382,61 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         }
         const after = latest.current.doc.getSnapshot().text;
         const ctl = control.current;
-        if (ctl.buffer.length > 0) {
+        if (ctl.buffer.length > 0 && queuedSaveBoundaries.current === 0) {
           const edits = rebaseTextChanges(before, after, ctl.buffer);
           ctl.buffer.splice(0, ctl.buffer.length, ...edits);
           const text = edits.reduce((value, edit) => value.slice(0, edit.from) + edit.text + value.slice(edit.to), after);
           ctl.surface?.setText(text);
           flush(true);
           await tracker.idle();
-        } else {
+        } else if (queuedSaveBoundaries.current === 0) {
           syncFromDocument(true);
         }
       } finally {
-        historyQueued.current = false;
-        if (control.current.buffer.length > 0) flush();
+        queuedHistoryCommands.current -= 1;
+        historyQueued.current = queuedHistoryCommands.current > 0;
+        if (control.current.buffer.length > 0 && queuedSaveBoundaries.current === 0) flush();
       }
     });
   };
 
   const save = (): Promise<SaveResult | null> => {
-    // A save behind queued history must snapshot the revision after that history and its buffered typing settle.
+    // A save behind queued history owns only the typing that existed when it was requested.
+    // Keep later typing buffered until that captured revision has been applied and saved.
     if (historyQueued.current) {
+      const ctl = control.current;
+      clearTimeout(ctl.timer ?? undefined);
+      ctl.timer = null;
+      const source = latest.current.doc.getSnapshot().text;
+      const edits = ctl.buffer.splice(0);
+      queuedSaveBoundaries.current += 1;
       return enqueueCommand(async () => {
-        await tracker.idle();
-        const result = await latest.current.doc.save();
-        if (!result.ok) setMessage(result.failure.message);
-        else setMessage(null);
-        return result;
+        try {
+          await tracker.idle();
+          if (edits.length > 0) {
+            const rebased = rebaseTextChanges(source, latest.current.doc.getSnapshot().text, edits);
+            const end = tracker.begin();
+            try {
+              const result = await latest.current.doc.apply({ type: "edit-text", edits: rebased, label: "Typing" });
+              if (result.ok) {
+                setMessage(null);
+                latest.current.onEdited({ document: latest.current.doc.identity.key, editId: result.editId, label: "Typing" });
+              } else {
+                setMessage(result.rejection.message);
+              }
+            } finally {
+              end();
+            }
+            await tracker.idle();
+          }
+          const result = await latest.current.doc.save();
+          if (!result.ok) setMessage(result.failure.message);
+          else setMessage(null);
+          return result;
+        } finally {
+          queuedSaveBoundaries.current -= 1;
+          if (control.current.buffer.length > 0 && queuedSaveBoundaries.current === 0) flush();
+        }
       });
     }
     // The document fixes the bytes for this invocation immediately, even when an earlier save is still in flight.

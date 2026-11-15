@@ -213,6 +213,39 @@ test("typing repeated text then deleting it after a queued undo does not resurre
   equal(area(s.el).value, "");
 });
 
+test("queued undo preserves a sequential deletion after an earlier buffered edit", async () => {
+  const s = await setup({ content: "x" });
+  const gate = deferred<void>();
+  const started = deferred<void>();
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      const result = await s.doc.save();
+      started.resolve();
+      await gate.promise;
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  show(s, { document: view });
+  await type(s.el, "xa");
+  await act(async () => { named(s.el, "Save").click(); });
+  await started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "bxa");
+  await type(s.el, "ba");
+  gate.resolve();
+  await settled();
+  equal(textOf(s), "b", "inserting b and then deleting x after undo must not leave x behind");
+  equal(area(s.el).value, "b");
+});
+
 
 test("typing after a queued undo rebases onto the undone text instead of restoring it", async () => {
   const s = await setup({ content: "" });
@@ -280,7 +313,7 @@ test("typing after a queued undo survives disposal without restoring undone text
   deepEqual(s.host.bytesOf(PATH), bytes("a"), "disposal does not change what the earlier save wrote");
 });
 
-test("a save queued behind undo writes its requested typing revision, not later typing", async () => {
+test("a save queued behind undo excludes typing after its invocation", async () => {
   const s = await setup({ content: "" });
   const firstGate = deferred<void>();
   const firstStarted = deferred<void>();
@@ -314,9 +347,9 @@ test("a save queued behind undo writes its requested typing revision, not later 
   await key(area(s.el), { key: "z", ctrlKey: true });
   await type(s.el, "b");
   await act(async () => { named(s.el, "Save").click(); });
+  await type(s.el, "bc");
   firstGate.resolve();
   await secondStarted.promise;
-  await type(s.el, "bc");
   await settled();
   deepEqual(s.host.bytesOf(PATH), bytes("b"), "the queued save writes the typing that preceded its request");
   equal(area(s.el).value, "bc", "typing after the save request stays visible in the surface");
