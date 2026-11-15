@@ -152,7 +152,7 @@ export function validatePreference(entry: PreferenceEntry, value: unknown): Pref
     case "string":
       if (typeof value !== "string") return refuse("Enter text.");
       if (value.length > entry.maxLength) return refuse(`Use at most ${entry.maxLength} characters.`);
-      if (entry.multiline === true ? /[\u0000-\u0008\u000b-\u001f]/.test(value) : /[\u0000-\u001f]/.test(value)) return refuse(entry.multiline === true ? "Use text with no control characters." : "Use a single line of text.");
+      if (entry.multiline === true ? /[\u0000-\u0008\u000b-\u000c\u000e-\u001f]/.test(value) : /[\u0000-\u001f]/.test(value)) return refuse(entry.multiline === true ? "Use text with no control characters." : "Use a single line of text.");
       return { ok: true, value };
     case "enum":
       return typeof value === "string" && entry.options.some((option) => option.value === value)

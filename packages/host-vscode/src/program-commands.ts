@@ -85,13 +85,20 @@ async function insertCommand(entries: readonly CommandReferenceEntry[], args?: I
   }
   const insertion = commandInsertion(chosen);
   const selections = editor.selections;
-  await editor.edit((builder) => {
-    for (const selection of selections) builder.replace(selection, insertion.text);
+  const edits = selections.map((selection) => ({
+    selection,
+    start: editor.document.offsetAt(selection.start),
+    end: editor.document.offsetAt(selection.end),
+  }));
+  const applied = await editor.edit((builder) => {
+    for (const { selection } of edits) builder.replace(selection, insertion.text);
   });
-  // Select the parameter text of each insertion so the author overtypes it (docs/spec/engine/rpgcode-tooling.md#tool-10).
-  editor.selections = selections.map((selection) => {
-    const start = selection.start;
-    return new vscode.Selection(start.translate(0, insertion.select.from), start.translate(0, insertion.select.to));
+  if (!applied) return;
+  // Select the parameter text of each insertion in the post-edit coordinates.
+  editor.selections = edits.map(({ selection, start }, index) => {
+    const shifted = start + edits.reduce((delta, edit, editIndex) =>
+      editIndex !== index && edit.end <= start ? delta + insertion.text.length - (edit.end - edit.start) : delta, 0);
+    return new vscode.Selection(editor.document.positionAt(shifted + insertion.select.from), editor.document.positionAt(shifted + insertion.select.to));
   });
 }
 

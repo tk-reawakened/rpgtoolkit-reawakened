@@ -37,7 +37,7 @@ export async function runNewProgram(env: NewProgramEnvironment): Promise<NewProg
     const suggested = await suggestProgramPath(env.fs, env.layout);
     const chosen = await env.ui.input({
       title: "New program",
-      prompt: "Path of the new program in the project",
+      prompt: "An external application could create this path after the check and before writing; the write may replace that file.",
       value: suggested,
       validate: (value) => (/\.prg$/i.test(value.trim()) && !value.trim().endsWith("/.prg") ? null : "A program's name ends in .prg."),
     });

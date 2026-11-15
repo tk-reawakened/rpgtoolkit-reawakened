@@ -33,7 +33,7 @@ import {
   type Visits,
 } from "@tk-reawakened/editor-model";
 import { mountAssetPicker, mountNewBoard, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
-import { mountDocumentView, type DocumentView, type WebProject } from "./index.ts";
+import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
 const LAYOUT_SETTING = "workbench.layout";
@@ -246,7 +246,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   };
 
   const newProgram = async (): Promise<string | null> => {
-    if (disposed) return null;
+    await tell("New program checks for an existing path before writing. If another application creates the same path after that check, the write may replace that file.");
     const chosen = await services.dialogs.pickSavePath({ document: "the new program", suggested: await suggestProgramPath(services.fs, projectLayout) });
     if (chosen === null) return null;
     const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
@@ -358,13 +358,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       close.textContent = "Close";
       overlay.append(close, body);
       element.append(overlay);
-      const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
+      const preferences = programPreferencesModelFor(project);
       const handle = mountPreferences(body, { preferences });
       const closePreferences = (): void => {
         if (openPrefs === null) return;
         openPrefs = null;
         handle.dispose();
-        preferences.dispose();
         overlay.remove();
         if (before instanceof HTMLElement) before.focus();
       };

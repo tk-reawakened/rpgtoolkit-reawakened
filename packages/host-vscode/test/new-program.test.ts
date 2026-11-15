@@ -43,6 +43,7 @@ test("a dismissed question creates nothing, a name that is taken is refused with
   const asked = ask("Prg/A.prg");
   const taken = await runNewProgram({ fs: host.fs, layout: { projectFolder: "" }, settings: host.settings, ui: asked.ui });
   ok(!taken.ok && taken.reason === "refused" && taken.message.includes("already exists"));
+  ok(asked.seen[0]!.prompt.includes("may replace that file"), "the question discloses the accepted external-creation race");
   deepEqual(host.bytesOf("Prg/a.prg"), text("x"));
   equal(asked.seen[0]!.validate("Prg/b.txt"), "A program's name ends in .prg.");
   equal(asked.seen[0]!.validate("Prg/b.prg"), null);

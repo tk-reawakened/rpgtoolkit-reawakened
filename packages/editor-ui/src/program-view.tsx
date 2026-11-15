@@ -479,7 +479,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
             <button type="button" class="tkr-program-header" disabled={readOnly} onClick={insertHeader}>Insert header</button>
             <button type="button" class="tkr-program-toggle-bookmarks" aria-pressed={showBookmarks} aria-controls={bookmarkId} onClick={() => setShowBookmarks(!showBookmarks)}>Bookmarks</button>
             <button type="button" class="tkr-program-toggle-reference" aria-pressed={showReference} aria-controls={referenceId} onClick={() => setShowReference(!showReference)}>Command reference</button>
-            <button type="button" class="tkr-program-focus" onClick={() => setFocusMode(true)}>Distraction-free</button>
+            <button type="button" class="tkr-program-focus" onClick={() => { setFocusMode(true); control.current.surface?.focus(); }}>Distraction-free</button>
           </div>
           {snapshot.readOnly === null ? null : <p class="tkr-program-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
           {capabilities.has("fileWatch") ? null : (

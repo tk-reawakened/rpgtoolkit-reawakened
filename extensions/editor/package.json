@@ -82,11 +82,11 @@
       "commandPalette": [
         {
           "command": "tkr.insertProgramHeader",
-          "when": "editorLangId == rpgcode"
+          "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2"
         },
         {
           "command": "tkr.insertProgramCommand",
-          "when": "editorLangId == rpgcode"
+          "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2"
         }
       ],
       "explorer/context": [

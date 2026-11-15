@@ -21,6 +21,7 @@ test("each type refuses a value of the wrong kind with a reason, and coerces not
   equal(validatePreference(entry("editor.backgroundImage"), "a\nb").ok, false);
   equal(validatePreference(entry("editor.backgroundImage"), "x".repeat(261)).ok, false);
   deepEqual(validatePreference(entry("syntax.keyword.color"), "#ABCDEF"), { ok: true, value: "#abcdef" });
+  deepEqual(validatePreference(entry("program.headerTemplate"), "// {name}\r\n\r\n"), { ok: true, value: "// {name}\r\n\r\n" });
 });
 
 test("the project value wins over the user value, which wins over the default, and reset restores the next layer down", async () => {

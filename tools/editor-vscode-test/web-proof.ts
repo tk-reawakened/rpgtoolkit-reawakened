@@ -344,6 +344,18 @@ export async function runVscodeSpriteWebProof(
   expect(await host.readBacking(spritePath)).toEqual(savedBytes);
 }
 
+/** Focus the VS Code command-palette autosave proof on a fresh real custom editor. */
+export async function runVscodeAutosaveCommandProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string, autosaveTitle: string,
+  autosaveBytes: Uint8Array, host: ProofHost,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await openGame(page, gamePath, expect);
+  await waitForEditorFrame(page, "focused autosave command proof settings editor");
+  await runAutosaveCommandScenario(page, expect, autosaveTitle, autosaveBytes, host);
+}
+
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
 export async function runVscodeWebProof(
   page: Page,
@@ -1042,6 +1054,12 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
 
+  await runAutosaveCommandScenario(page, expect, autosaveTitle, autosaveBytes, host);
+}
+async function runAutosaveCommandScenario(
+  page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array, host: ProofHost,
+): Promise<void> {
+  const editor = await waitForEditorFrame(page, "autosave proof settings editor");
   const autosaveField = editor.getByLabel("Game title");
   await autosaveField.fill(autosaveTitle);
   await editor.getByRole("button", { name: "Apply changes" }).click();
@@ -1063,9 +1081,8 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
       }
       return marker;
     }, { message: `VS Code completed the autosave ${value} command`, timeout: 30_000 }).toBe(value);
-    await expect.poll(async () => {
-      return autosaveSetting(await host.readBacking(".vscode/settings.json"));
-    }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
+    await expect.poll(async () => autosaveSetting(await host.readBacking(".vscode/settings.json")),
+      { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
   };
   let failure: unknown;
   const cleanupErrors: unknown[] = [];
@@ -1135,30 +1152,35 @@ async function runCommand(page: Page, expect: Expect, title: string): Promise<vo
 /** Dispatch the matching row itself; keyboard focus can change while the palette filters asynchronously. */
 async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false): Promise<void> {
   const widget = page.locator(".quick-input-widget");
+  let commandInput: Locator | undefined;
   let command: Locator | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const commandInput = await commandPalette(page, expect);
+      commandInput = await commandPalette(page, expect);
       await commandInput.fill(`>${search}`);
-      if (dismissFirstAttempt && attempt === 0) {
-        await commandInput.press("Escape");
-        await expect(widget).toBeHidden();
-      }
       const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       command = search === label
         ? page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) })
         : page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
       if (search === label) await expect(command, `VS Code offers exactly one ${label}`).toHaveCount(1);
       await expect(command, `VS Code selects ${label}`).toBeVisible();
+      if (dismissFirstAttempt && attempt === 0) {
+        // Deterministically dismiss after selection; retry only before dispatch.
+        await commandInput.press("Escape");
+        await expect(widget).toBeHidden();
+        continue;
+      }
       break;
     } catch (error) {
       if (attempt === 2 || await widget.isVisible()) throw error;
+      commandInput = undefined;
       command = undefined;
     }
   }
-  if (command === undefined) throw new Error(`VS Code did not select ${label}`);
-  // Retry only before dispatch; never execute the command again after its row is clicked.
-  await command.click();
+  if (commandInput === undefined || command === undefined) throw new Error(`VS Code did not select ${label}`);
+  // The matching quick-pick row is focused. Dispatch once by keyboard, avoiding
+  // a pointer hit-test race as the palette's asynchronous list relayouts.
+  await commandInput.press("Enter");
   await expect(widget).toBeHidden();
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {

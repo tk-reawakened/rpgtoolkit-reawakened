@@ -245,6 +245,7 @@ test("distraction-free mode leaves only the text and an exit; Escape and the but
   show(s);
   await act(async () => { named(s.el, "Distraction-free").click(); });
   ok(s.el.querySelector(".tkr-program--focus") !== null);
+  equal(s.el.ownerDocument.activeElement, area(s.el), "focus moves into the editor when the toolbar disappears");
   equal(s.el.querySelector(".tkr-program-toolbar"), null);
   equal(s.el.querySelector(".tkr-program-reference"), null);
   ok(area(s.el) !== null, "the text stays");

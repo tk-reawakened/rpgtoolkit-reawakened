@@ -1,4 +1,4 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -338,17 +338,21 @@ function boardPreferencesFor(project: WebProject): BoardPreferencesSource {
   return source;
 }
 
-const programPreferenceSources = new WeakMap<WebProject, ProgramPreferencesSource>();
+const programPreferenceModels = new WeakMap<WebProject, Preferences>();
 
-/** The program-editor preferences of a project (syntax colours, header template), read from its settings once and shared by its program views. */
-function programPreferencesFor(project: WebProject): ProgramPreferencesSource {
-  const known = programPreferenceSources.get(project);
+/** One preferences model is shared by the browser views and preferences panel for this project. */
+export function programPreferencesModelFor(project: WebProject): Preferences {
+  const known = programPreferenceModels.get(project);
   if (known !== undefined) return known;
   const preferences = createPreferences({ settings: project.services.settings, projectLayer: project.services.capabilities.has("folderWrite") });
   void preferences.refresh();
-  const source: ProgramPreferencesSource = { get: () => programPreferencesFrom(preferences.getSnapshot()), subscribe: (listener) => preferences.subscribe(listener) };
-  programPreferenceSources.set(project, source);
-  return source;
+  programPreferenceModels.set(project, preferences);
+  return preferences;
+}
+
+function programPreferencesFor(project: WebProject): ProgramPreferencesSource {
+  const preferences = programPreferencesModelFor(project);
+  return { get: () => programPreferencesFrom(preferences.getSnapshot()), subscribe: (listener) => preferences.subscribe(listener) };
 }
 
 /** A mounted view with no ownership of its document: whoever mounted it holds the document's lease. */
