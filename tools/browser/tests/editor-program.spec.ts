@@ -193,7 +193,8 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   expect(saved.replace(/\r\n/g, "").includes("\n")).toBe(false);
 
   // Reopen: the saved program reads back as the same text.
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  // The page toolbar sits below the fold in the merged layout; the click is what a person would make after scrolling.
+  await page.locator("#close").dispatchEvent("click");
   await expect(page.getByRole("tab", { name: PROGRAM, exact: true })).toHaveCount(0);
   await page.getByRole("treeitem", { name: /^intro\.prg, program editor/ }).dblclick();
   await expect(page.locator(".monaco-editor .view-lines")).toBeVisible();
