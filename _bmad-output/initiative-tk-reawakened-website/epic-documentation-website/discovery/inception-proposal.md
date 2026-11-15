@@ -11,6 +11,8 @@ The owner asked for a new epic, to run after the product is finished, that deliv
 
 Two things this draft does not do. It chooses no website stack, hosting provider or domain: those are owner decisions (D-3, D-4) with criteria below. And it enters no `tickets.toml` for the epic: epics 5 to 15 have none either, the providers' entries do not exist yet, and a breakdown that pins entries which have not been written would be guesswork. The breakdown in section 4 is a suggested slicing for the real inception, which runs once the providers are incepted (section 6).
 
+> Update (2026-11-14). [Spike 17.1](../spike-compare-low-cost-website-hosting.md) owns hosting research for D-4. The numbered breakdown below is the original proposal. Reconcile its proposed stack and hosting entry with the spike at inception.
+
 ## 1. Scope restatement
 
 Epic 17 (a new capability, CAP-19, added to the spec as a draft) delivers:

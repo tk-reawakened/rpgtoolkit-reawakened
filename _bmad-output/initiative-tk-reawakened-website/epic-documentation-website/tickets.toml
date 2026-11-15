@@ -1,0 +1,13 @@
+# Epic 17 entries in build order.
+
+[[entry]]
+id = 1
+tracker_id = "#2709"
+type = "spike"
+title = "Compare low-cost website hosting and publishing"
+description = "Compare current hosting costs and limits, then exercise the same static catalogue publishing workflow on the top two candidates."
+verify = "A dated cost comparison and two preview trial logs support a recommendation and fallback for the owner."
+covers = ["CAP-19"]
+after = []
+hitl = true
+risk = "medium"

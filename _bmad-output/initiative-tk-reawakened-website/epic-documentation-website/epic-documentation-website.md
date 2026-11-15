@@ -70,9 +70,10 @@ The web runner also brings in board rendering, audio, battles, menus, party stat
 
 ## Notes
 
-- Audit (2026-10-31, historical). The original envelope had no tracker issue. Epic 17 is now tracked by [#1362](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1362) and its local story index is empty. See the [envelope audit](../../initiative-rpgtoolkit-reawakened/DISCOVERY-envelope-audit.md).
+- Audit (2026-10-31, historical). The original envelope had no tracker issue. Epic 17 is now tracked by [#1362](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1362). See the [envelope audit](../../initiative-rpgtoolkit-reawakened/DISCOVERY-envelope-audit.md).
 
 - Decision (2026-11-14). Epic 17 moves to the TK Reawakened Website initiative. The [website brief](../brief-tk-reawakened-website/brief-tk-reawakened-website.md) proposes launch community features for review.
+- [Spike 17.1](spike-compare-low-cost-website-hosting.md) compares low-cost site hosting and tests the same publishing workflow on the two leading candidates. Its findings inform the hosting decision before the production site and publishing workflow are planned.
 - Historical decision (2026-10-17). The owner originally sequenced the documentation and website epic after product implementation. The release guides still require shipped surfaces.
 - Decision: 2026-10-17 (draft, owner to confirm): epic 17, last in build order, covering a new capability CAP-19 added to the spec as a draft. Not an extension of CAP-12: CAP-12 delivers the runners and a packaged single-file game; CAP-19 delivers the documentation and the website about them.
 - Assumption A-1 (to confirm): the user documentation is written fresh, in our own words, from `docs/spec/`, the built product and original examples. The recovered legacy user guide is copyrighted by its authors ("© 2005, 2007 C.J. Fitzpatrick, Jonathan Hughes, and Samuel Bedwell", `recovery-legacy-docs-and-plugins/docs.md` section 1) and the 3.1.0 code is GPL-3; no page of it is copied, translated or closely paraphrased. It may serve as a topic checklist (which tasks a beginner needs), nothing more. The licence of the guide's text is [INFERENCE: not stated in the recovery]; a rights check, not G7, decides if the owner wants more.
