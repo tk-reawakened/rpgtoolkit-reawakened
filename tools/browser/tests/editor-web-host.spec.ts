@@ -84,9 +84,11 @@ test("browser workbench opens, edits, saves, and reopens character and item spri
   // #2609: the character editor cannot open linked .prg or .spc files, so it discloses that limitation rather than offering actions that fail.
   await expect(authoring.getByLabel("Linked authoring availability")).toContainText("cannot open linked");
   await expect(authoring.getByRole("button", { name: /^Open (level-up program|special-move file)$/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Save all", exact: true }).click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Save All Open Documents/i }).click();
   await expect(page.locator("#host-status")).toContainText(`Saved ${characterPath}.`);
-  await page.locator("#close").click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Close Active Tab/i }).click();
   await character.dblclick();
   await expect(page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue("Misc/ada_walk_s.anm");
   await expect(page.getByRole("region", { name: "Character authoring" }).getByLabel("Character name", { exact: true })).toHaveValue("Ada");
@@ -100,9 +102,11 @@ test("browser workbench opens, edits, saves, and reopens character and item spri
   await expect(page.getByRole("tab", { name: itemPath, exact: true })).toBeVisible();
   const itemAnimation = page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file");
   await itemAnimation.fill("Misc/chest_walk_s.anm");
-  await page.getByRole("button", { name: "Save all", exact: true }).click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Save All Open Documents/i }).click();
   await expect(page.locator("#host-status")).toContainText(`Saved ${itemPath}.`);
-  await page.locator("#close").click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Close Active Tab/i }).click();
   await item.dblclick();
   await expect(page.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue("Misc/chest_walk_s.anm");
 });
@@ -198,8 +202,8 @@ test("browser folder handle and identity survive reload and re-selection", async
   const title = page.getByLabel("Game title");
   await expect(title).toBeVisible();
   await expect(page.locator("#host-status")).toContainText("Games/Only.gam");
-  await expect(page.getByLabel("Recent project")).toBeVisible();
   const identity = await page.locator("#recent-project").inputValue();
+  expect(identity.length).toBeGreaterThan(0);
   await title.fill("Stable browser project");
   await page.getByRole("button", { name: "Apply changes" }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -211,7 +215,8 @@ test("browser folder handle and identity survive reload and re-selection", async
   await expect(page.getByLabel("Game title")).toHaveValue("Stable browser project");
   await expect(page.locator("#host-status")).toContainText("Games/Only.gam");
   await expect(page.locator("#recent-project")).toHaveValue(identity);
-  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Open Project Folder/i }).click();
   await expect(page.getByLabel("Game title")).toHaveValue("Stable browser project");
   await expect(page.locator("#recent-project")).toHaveValue(identity);
 });
@@ -227,7 +232,8 @@ test("browser Save As replaces its sole source tab, then reopening the source re
   await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toBeVisible();
   await title.fill("Saved as a copy");
   await page.getByRole("button", { name: "Apply changes" }).click();
-  await page.getByRole("button", { name: "Save as…", exact: true }).click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Save Active Document As/i }).click();
   const saveDialog = page.getByRole("dialog", { name: "Save Main/example.gam as" });
   await saveDialog.getByLabel("Save Main/example.gam as").fill("Main/copy.gam");
   await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
@@ -303,7 +309,8 @@ test("a cancelled close during project switch keeps the dirty project and cleans
   await expect(title).toBeVisible();
   await title.fill("Unsaved project that must remain open");
   await page.getByRole("button", { name: "Apply changes" }).click();
-  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Open Project Folder/i }).click();
   const confirmation = page.getByRole("dialog");
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -407,7 +414,6 @@ test("a saved folder game launches in the live player from the editor", async ({
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
   await page.getByLabel("Game title").fill("Saved launch proof");
-  await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   const frame = page.frameLocator('iframe[title="Running game"]');
   await expect(frame.getByLabel("Game screen")).toBeVisible();
@@ -477,10 +483,10 @@ test("a board-backed program runs its declared fixture in the real browser playe
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("tab", { name: "Test program" }).click();
   await page.getByRole("combobox", { name: "Program", exact: true }).selectOption("Game/Example/Prg/start.prg");
   await page.getByRole("combobox", { name: "Start board" }).selectOption("Game/Example/Boards/village.brd");
-  await page.getByRole("listbox", { name: "Party", exact: true }).nth(1).selectOption("Game/Example/Chrs/ada.tem");
+  await page.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
   await page.getByRole("textbox", { name: "Font", exact: true }).fill("Liberation Sans");
   await page.getByRole("spinbutton", { name: "Font size" }).fill("18");
   await page.getByRole("combobox", { name: "Message window picture" }).selectOption("Game/Example/Bitmap/window.png");
@@ -529,7 +535,7 @@ test("a board test starts a fresh selected board, party and position in the real
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
-  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByRole("tab", { name: "Test board" }).click();
   await page.getByRole("spinbutton", { name: "Column" }).fill("2");
   await page.getByRole("spinbutton", { name: "Row" }).fill("2");
   const party = page.getByRole("listbox", { name: "Party", exact: true }).first();
@@ -572,7 +578,6 @@ test("an edit before the player handshake prevents a stale game from starting", 
     await gate;
     await route.continue();
   });
-  await page.getByRole("button", { name: "Run", exact: true }).click();
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   await requested;
   await page.getByLabel("Game title").fill("Changed during player setup");

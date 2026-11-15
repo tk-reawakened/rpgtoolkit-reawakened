@@ -115,9 +115,9 @@ export function createWorkbench(project, element) {
     Object.defineProperty(input, "files", { configurable: true, value: [{ name: "B.gam", arrayBuffer: async () => Uint8Array.from(original).buffer }] });
     input.dispatchEvent(new Event("change"));
     await until(() => byId("host-status").textContent?.includes("B.gam") === true);
-    await until(() => document.querySelector<HTMLInputElement>('#settings input[type="text"]') !== null);
+    await until(() => document.querySelector<HTMLInputElement>('#settings .tkr-settings input[type="text"]') !== null);
     assert.match(byId("host-status").textContent ?? "", /B\.gam/);
-    const title = document.querySelector<HTMLInputElement>('#settings input[type="text"]')!;
+    const title = document.querySelector<HTMLInputElement>('#settings .tkr-settings input[type="text"]')!;
     title.value = "Still writable";
     title.dispatchEvent(new Event("input", { bubbles: true }));
     const apply = document.querySelector<HTMLButtonElement>("#settings .tkr-settings-apply")!;

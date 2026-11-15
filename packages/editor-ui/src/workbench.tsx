@@ -12,6 +12,8 @@ export interface WorkbenchProps {
   readonly panels: Readonly<Record<string, ComponentChildren>>;
   /** The tab strip, shown above the editor area. */
   readonly tabs: ComponentChildren;
+  /** Optional IDE application menu and command palette bar rendered in the workbench header strip. */
+  readonly headerBar?: ComponentChildren;
   /** The active editor. */
   readonly children: ComponentChildren;
 }
@@ -29,15 +31,53 @@ function Sized({ panel, children }: { readonly panel: PanelState; readonly child
   );
 }
 
+/** Compact 16×16 drawer toggle icons (left sidebar, right inspector, bottom panel). */
+function DockCollapseIcon({ side }: { readonly side: PanelState["side"] }) {
+  if (side === "left") {
+    return (
+      <svg class="tkr-dock-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25" />
+        <rect x="2.5" y="3.5" width="4" height="9" rx="0.5" fill="currentColor" />
+      </svg>
+    );
+  }
+  if (side === "right") {
+    return (
+      <svg class="tkr-dock-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25" />
+        <rect x="9.5" y="3.5" width="4" height="9" rx="0.5" fill="currentColor" />
+      </svg>
+    );
+  }
+  return (
+    <svg class="tkr-dock-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.25" />
+      <rect x="2.5" y="8.5" width="11" height="4" rx="0.5" fill="currentColor" />
+    </svg>
+  );
+}
+
 /**
- * The browser and desktop workbench (T-01, T-02): panels docked to the sides and bottom, a show/hide button for each,
- * and a separator between each panel and the editors that Left and Right (or Up and Down for the bottom) resize and Enter
- * hides. The keyboard does everything the pointer can. Panels hold views; hiding a panel removes its view and nothing
- * else (ADR 0022 D7.1): the layout holds no document.
+ * The browser and desktop workbench (T-01, T-02): panels docked to the sides and bottom, per-drawer collapse icon
+ * buttons, and a separator between each panel and the editors that Left and Right (or Up and Down for the bottom)
+ * resize and Enter hides. The keyboard does everything the pointer can. Panels hold views; hiding a panel removes its
+ * view and nothing else (ADR 0022 D7.1): the layout holds no document.
  */
-export function Workbench({ layout, panels, tabs, children }: WorkbenchProps) {
+export function Workbench({ layout, panels, tabs, headerBar, children }: WorkbenchProps) {
   const states = useDocumentSnapshot({ getSnapshot: () => layout.getPanels(), subscribe: (listener) => layout.subscribe(listener) });
-  const shown = (side: PanelState["side"]): PanelState[] => states.filter((panel) => panel.side === side && panel.visible && panels[panel.id] !== undefined);
+  const available = (side: PanelState["side"]): PanelState[] =>
+    states.filter((panel) => panel.side === side && panels[panel.id] !== undefined && panels[panel.id] !== null);
+  const shown = (side: PanelState["side"]): PanelState[] => available(side).filter((panel) => panel.visible);
+  const tilesetHidden = states.some((panel) => panel.id === "tileset" && !panel.visible);
+  const toggleSide = (side: PanelState["side"]): void => {
+    const sidePanels = available(side);
+    if (sidePanels.length === 0) return;
+    const anyVisible = sidePanels.some((panel) => panel.visible);
+    for (const panel of sidePanels) {
+      if (anyVisible && panel.visible) layout.hide(panel.id);
+      else if (!anyVisible && !panel.visible) layout.show(panel.id);
+    }
+  };
   const separator = (panel: PanelState) => {
     const vertical = panel.side === "bottom";
     // The arrow that moves the edge away from the panel grows it: a left panel's edge is on its right, a right panel's on
@@ -76,31 +116,67 @@ export function Workbench({ layout, panels, tabs, children }: WorkbenchProps) {
     // The separator sits between the panel and the editor area.
     return side === "left" ? [content, separator(panel)] : [separator(panel), content];
   });
+  const dockHeader = (side: PanelState["side"]) => {
+    const sidePanels = available(side);
+    if (sidePanels.length === 0) return null;
+    const expanded = sidePanels.some((panel) => panel.visible);
+    const label = side === "left"
+      ? (expanded ? "Collapse left sidebar" : "Expand left sidebar")
+      : side === "right"
+        ? (expanded ? "Collapse right inspector" : "Expand right inspector")
+        : (expanded ? "Collapse Run panel" : "Expand Run panel");
+    return (
+      <div class={`tkr-dock-header tkr-dock-header-${side}`}>
+        {side === "bottom" ? <span class="tkr-dock-header-title">{sidePanels.map((p) => p.title).join(" / ")}</span> : null}
+        <button
+          type="button"
+          class="tkr-dock-collapse-btn"
+          aria-label={label}
+          aria-pressed={expanded}
+          title={label}
+          onClick={() => toggleSide(side)}
+        >
+          <DockCollapseIcon side={side} />
+        </button>
+      </div>
+    );
+  };
+
+  const leftAvailable = available("left").length > 0;
+  const leftExpanded = shown("left").length > 0;
+  const rightAvailable = available("right").length > 0;
+  const rightExpanded = shown("right").length > 0;
+  const bottomAvailable = available("bottom").length > 0;
+  const bottomExpanded = shown("bottom").length > 0;
 
   return (
-    <div class="tkr-workbench">
-      <div class="tkr-panel-toggles" role="toolbar" aria-label="Panels">
-        {states.filter((panel) => panels[panel.id] !== undefined).map((panel) => (
-          <button
-            key={panel.id}
-            type="button"
-            class="tkr-panel-toggle"
-            aria-pressed={panel.visible}
-            aria-controls={`tkr-panel-${panel.id}`}
-            onClick={() => layout.toggle(panel.id)}
-          >
-            {panel.title}
-          </button>
-        ))}
+    <div class="tkr-workbench" data-tileset-hidden={tilesetHidden ? "true" : undefined}>
+      <div class="tkr-panel-toggles" role="toolbar" aria-label="Workbench bar">
+        {headerBar}
       </div>
       <div class="tkr-workbench-body">
-        <div class="tkr-dock tkr-dock-left">{dock("left")}</div>
+        {leftAvailable ? (
+          <div class="tkr-dock tkr-dock-left" data-collapsed={leftExpanded ? "false" : "true"}>
+            {dockHeader("left")}
+            {dock("left")}
+          </div>
+        ) : null}
         <main class="tkr-editor-area">
           {tabs}
           <div class="tkr-editor">{children}</div>
-          <div class="tkr-dock tkr-dock-bottom">{dock("bottom")}</div>
+          {bottomAvailable ? (
+            <div class="tkr-dock tkr-dock-bottom" data-collapsed={bottomExpanded ? "false" : "true"}>
+              {dockHeader("bottom")}
+              {dock("bottom")}
+            </div>
+          ) : null}
         </main>
-        <div class="tkr-dock tkr-dock-right">{dock("right")}</div>
+        {rightAvailable ? (
+          <div class="tkr-dock tkr-dock-right" data-collapsed={rightExpanded ? "false" : "true"}>
+            {dockHeader("right")}
+            {dock("right")}
+          </div>
+        ) : null}
       </div>
     </div>
   );
