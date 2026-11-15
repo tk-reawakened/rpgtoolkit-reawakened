@@ -7,18 +7,18 @@ updated: 2026-11-14
 
 # TK Reawakened Website
 
-The official site at `tk-reawakened.com` gives people one place to get TK Reawakened, learn to make or import an RPG, and find other people making games. A newcomer should reach their first working scene. A returning Toolkit creator should know which release to get and what it can import. Both should be able to show what they made and get a useful response. Players and playtesters should be able to find work to try and know what feedback the creator wants.
+The official site at `tk-reawakened.com` introduces TK Reawakened to people who want to learn to make RPGs. It helps them get the software, see what they can make, and meet other beginners who are learning and building together. Returning creators can find the right release for their old projects and share what they know. Players and creators can discover games, share new work, and help preserve Toolkit history.
 
 ## Proposed launch
 
-Test **Play · Create · The Vault · Docs · Community** as primary navigation, with a prominent **Download** action and a direct path to **Get started**. The home page combines a compact playable or illustrated preview, a showcase shelf, and recent community and Vault entries. The [16-bit workshop proposal](addendum.md#16-bit-workshop) records the visual direction and what must be verified before featuring a game, editor, or import action.
+The home page explains what TK Reawakened is, shows what someone can do with it, and makes the software easy to get. It points directly to the first guide under Create or Docs, where the steps live. It also features games from the collection, shows how to contribute another game, and introduces the people making and preserving games together. The [16-bit workshop proposal](addendum.md#16-bit-workshop) records one navigation and visual direction to test.
 
 | Area | What someone can do |
 | --- | --- |
 | Download | Find the current release by platform and role, such as authoring or playing, and see requirements, install/open instructions, release notes and the matching docs. Clearly identify preview builds when available. |
 | Docs | Search responsive, versioned guides. Start with a small game that works against the shipped build. Find RPGCode and editor reference, migration and troubleshooting guides, and links from the guide to tested examples. |
-| Showcase | Find playable games, demos and work in progress, with clear labels. Start with one original example and a small set of creator-approved entries. Publish every entry with the creator's permission and credit. Include a screenshot and short description, a play or devlog link, and the creator's specific feedback request. |
-| Community | Find where to get help, share work, playtest, and contribute to the project or its guides. Offer a simple submission path for a link, screenshot or recipe. Publish a code of conduct, a report route, and a short explanation of how submissions are reviewed and credited. |
+| Games and showcase | Find preserved Toolkit games, new releases, demos and works in progress. Label each entry by origin and whether it is playable. Start with one original example and a small set of approved entries. A “Contribute a game” route can take a link to a new project or a lead on a missing classic. Publish credited entries with permission, a short description and a play, archive or devlog link as appropriate. |
+| Community | Meet other beginners, ask for help, share work, playtest, and contribute to the project or its guides. Offer a simple submission path for a link, screenshot or recipe. Publish a code of conduct, a report route, and a short explanation of how submissions are reviewed and credited. |
 
 ## Give people a reason to come back
 
@@ -35,8 +35,8 @@ Give featured projects and community prompts a discussion that is reachable from
 
 ## What to prove first
 
-- A first-time visitor picks the right build and completes the first-room tutorial from the public site. A returning creator locates the migration prerequisites and understands what their old project can import.
-- An author submits an available example or work-in-progress link, a reviewer publishes it with consent and credit, and a playtester can move from the page to its discussion, respond to the creator’s ask, and return to the project page.
+- From the home page, a first-time visitor can explain what the product does, find the right build and reach the first-room tutorial. A returning creator can find the migration prerequisites and understand what their old project can import.
+- A visitor can identify a preserved game and a newly made project, see what is playable, and find where to contribute a game. A reviewer can publish an approved submission with consent and credit, and a playtester can move between the project and its discussion.
 - The first prompt produces a dated public recap and evidence that makers received feedback. Review submissions, replies and repeat participation before deciding how often to run it.
 
 ## Keeping the site open
@@ -47,5 +47,5 @@ The proposed funding principle keeps the engine, editor, documentation, public g
 
 - Pick the home for help and feedback with its moderators. Name the launch owner for submission review, reports, the prompt and its recap. Test the flow with a newcomer and a returning creator.
 - Choose the website repository and [hosting for `tk-reawakened.com`](../epic-documentation-website/discovery/hosting-options.md). Decide where public guides are authored and how product releases provide builds, version data and verification inputs. The website is expected to have its own repository.
-- Decide how to link to the [public community archive](https://tk-reawakened.github.io/corpus/) and which starter resources have clear permission and useful version information. A curated resources page is a candidate once there is material to share.
+- Decide how the public games catalogue presents the [preservation corpus](https://tk-reawakened.github.io/corpus/) alongside new projects, and who reviews new game submissions and recovery leads. A curated resources page is a candidate once there is material with clear permission and useful version information.
 - Decide whether durable discussions belong on an existing service or a separately hosted forum. Revisit built-in site accounts, file uploads and game hosting after seeing how people use the curated showcase and feedback channel.
