@@ -2384,7 +2384,7 @@
 }
 
 /* 11. Responsive Narrow Viewports & Container Queries ---------------------- */
-@container board-editor (max-width: 720px) {
+@container board-editor (max-width: 960px) {
   .tkr-board-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
