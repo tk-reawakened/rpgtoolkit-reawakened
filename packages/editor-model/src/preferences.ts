@@ -2,6 +2,7 @@
 // the editor and never to a game, a validator for each entry, and a model that works out each setting's effective value
 // from the layers a host stores. DOM-free and framework-free: a view renders the snapshot, a host stores the layers.
 import type { SettingValue, SettingsLayer, SettingsService } from "@tk-reawakened/platform-services";
+import { DEFAULT_HEADER_TEMPLATE, MAX_HEADER_TEMPLATE_LENGTH } from "./program-support.ts";
 
 /** The value types a catalogue entry can have (ADR 0022 D6.2). `list` holds strings. */
 export type PreferenceType = "boolean" | "number" | "string" | "enum" | "color" | "list";
@@ -32,6 +33,7 @@ export type PreferenceEntry =
 
 const EDITOR = "Editor";
 const SYNTAX = "Syntax colours";
+const PROGRAM = "Program editor";
 const BOARD = "Board editor";
 
 const toggle = (id: string, group: string, label: string, description: string, value: boolean, projectLayer = false): PreferenceEntry =>
@@ -70,6 +72,17 @@ export const PREFERENCE_CATALOGUE: readonly PreferenceEntry[] = [
   colour("syntax.number.color", SYNTAX, "Number colour", "The colour of numbers in the program editor.", "#098658"),
   toggle("syntax.keyword.bold", SYNTAX, "Bold keywords", "Draw RPGCode keywords in bold.", false),
   toggle("syntax.comment.italic", SYNTAX, "Italic comments", "Draw comments in italics.", true),
+  {
+    id: "program.headerTemplate",
+    group: PROGRAM,
+    label: "Header for new programs",
+    description:
+      "The text a new program starts with. {file} becomes the file name, {name} the file name without .prg, and {path} the path in the project. A game can set this for everyone who edits it.",
+    type: "string",
+    default: DEFAULT_HEADER_TEMPLATE,
+    maxLength: MAX_HEADER_TEMPLATE_LENGTH,
+    projectLayer: true,
+  },
   toggle("board.revertToDrawAfterFlood", BOARD, "Return to Draw after a flood fill", "After a flood fill, switch the board editor back to the Draw tool.", true),
   toggle("board.showVectorPointIndices", BOARD, "Show vector point numbers", "Draw each point's number beside the points of a vector shape.", false),
   toggle("board.recursiveFlood", BOARD, "Flood fill across layers", "Let a flood fill continue through every layer instead of the current layer only.", false),
@@ -348,4 +361,51 @@ export function vscodeContributions(catalogue: readonly PreferenceEntry[] = PREF
     if (!entry.projectLayer) restricted.push(key);
   }
   return { configuration: { title: "RPG Toolkit", properties }, restrictedConfigurations: restricted };
+}
+
+/** The program-editor preferences in force (T-08 syntax colours and styles, T-40 header template). */
+export interface ProgramPreferences {
+  readonly keywordColor: string;
+  readonly commentColor: string;
+  readonly stringColor: string;
+  readonly numberColor: string;
+  readonly keywordBold: boolean;
+  readonly commentItalic: boolean;
+  /** The text a new program starts with. */
+  readonly headerTemplate: string;
+}
+
+function defaultOf<T extends SettingValue>(id: string): T {
+  const entry = preferenceById(id);
+  if (entry === undefined) throw new Error(`The preference catalogue has no entry ${id}.`);
+  return entry.default as T;
+}
+
+/** The catalogue's own values: what the program editor uses before any layer has been read. */
+export const DEFAULT_PROGRAM_PREFERENCES: ProgramPreferences = {
+  keywordColor: defaultOf<string>("syntax.keyword.color"),
+  commentColor: defaultOf<string>("syntax.comment.color"),
+  stringColor: defaultOf<string>("syntax.string.color"),
+  numberColor: defaultOf<string>("syntax.number.color"),
+  keywordBold: defaultOf<boolean>("syntax.keyword.bold"),
+  commentItalic: defaultOf<boolean>("syntax.comment.italic"),
+  headerTemplate: defaultOf<string>("program.headerTemplate"),
+};
+
+/** The program-editor preferences in a preferences snapshot; a value of the wrong kind or not yet read is the catalogue's default. */
+export function programPreferencesFrom(snapshot: PreferencesSnapshot): ProgramPreferences {
+  const read = <T extends string | boolean>(id: string, fallback: T): T => {
+    const effective = snapshot.rows.find((row) => row.entry.id === id)?.effective;
+    return typeof effective === typeof fallback ? (effective as T) : fallback;
+  };
+  const defaults = DEFAULT_PROGRAM_PREFERENCES;
+  return {
+    keywordColor: read("syntax.keyword.color", defaults.keywordColor),
+    commentColor: read("syntax.comment.color", defaults.commentColor),
+    stringColor: read("syntax.string.color", defaults.stringColor),
+    numberColor: read("syntax.number.color", defaults.numberColor),
+    keywordBold: read("syntax.keyword.bold", defaults.keywordBold),
+    commentItalic: read("syntax.comment.italic", defaults.commentItalic),
+    headerTemplate: read("program.headerTemplate", defaults.headerTemplate),
+  };
 }

@@ -192,6 +192,13 @@
           "type": "boolean",
           "default": true
         },
+        "rpgToolkit.program.headerTemplate": {
+          "description": "Header for new programs. The text a new program starts with. {file} becomes the file name, {name} the file name without .prg, and {path} the path in the project. A game can set this for everyone who edits it.",
+          "scope": "window",
+          "type": "string",
+          "default": "// {file}\n\n",
+          "maxLength": 500
+        },
         "rpgToolkit.board.revertToDrawAfterFlood": {
           "description": "Return to Draw after a flood fill. After a flood fill, switch the board editor back to the Draw tool.",
           "scope": "window",
