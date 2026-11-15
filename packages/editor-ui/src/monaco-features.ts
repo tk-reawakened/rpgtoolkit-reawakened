@@ -43,6 +43,3 @@ import "monaco-editor/editor/contrib/gotoError/browser/markerSelectionStatus";
 import "monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticTokens";
 import "monaco-editor/editor/contrib/suggest/browser/suggestController";
 import "monaco-editor/editor/common/standaloneStrings";
-// The icon font and its modifier classes: Monaco's own widgets draw their icons with it.
-import "../node_modules/monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css";
-import "../node_modules/monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon-modifiers.css";
