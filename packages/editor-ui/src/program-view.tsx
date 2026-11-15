@@ -100,6 +100,8 @@ interface Control {
 }
 
 let viewsMade = 0;
+/** window/showMessage has no document URI. Attribute a refusal only when one view is formatting. */
+const formattingRequests = new WeakMap<LanguageClient, Set<object>>();
 
 /**
  * The RPGCode program editor (T-40, story 11.7). The document is the one copy of the text; the code editor is a surface
@@ -116,12 +118,24 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const control = useRef<Control>({ surface: null, buffer: [], burstStart: 0, timer: null, bookmarkTimer: null, lsp: null });
   const host = useRef<HTMLDivElement>(null);
   const tracker = useMemo(() => createEditTracker(), []);
+  const commandQueue = useRef<Promise<void>>(Promise.resolve());
+  const queuedCommands = useRef(0);
+  const enqueueCommand = <T,>(operation: () => Promise<T>): Promise<T> => {
+    queuedCommands.current += 1;
+    const result = commandQueue.current.then(operation);
+    commandQueue.current = result.then(
+      () => { queuedCommands.current -= 1; },
+      () => { queuedCommands.current -= 1; },
+    );
+    return result;
+  };
   const latest = useRef({ doc, snapshot, onEdited });
   latest.current = { doc, snapshot, onEdited };
 
   const [prefs, setPrefs] = useState<ProgramPreferences>(() => preferences?.get() ?? DEFAULT_PROGRAM_PREFERENCES);
   const [message, setMessage] = useState<string | null>(null);
   const [languageNote, setLanguageNote] = useState<string | null>(null);
+  const [languageStatus, setLanguageStatus] = useState<string | null>(null);
   const [surfaceNote, setSurfaceNote] = useState<string | null>(null);
   const [typing, setTyping] = useState(false);
   const [bookmarks, setBookmarks] = useState<readonly BookmarkRow[]>([]);
@@ -224,18 +238,17 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   };
 
   const work = useMemo<PendingEditWork>(() => ({
-    busy: () => control.current.buffer.length > 0 || tracker.busy(),
-    idle: () => {
+    busy: () => control.current.buffer.length > 0 || tracker.busy() || queuedCommands.current > 0,
+    idle: async () => {
+      await commandQueue.current;
       flush();
-      return tracker.idle();
+      await tracker.idle();
     },
   }), [tracker]);
   useEffect(() => pendingEdits?.register(work), [pendingEdits, work]);
 
   /** Apply a command made by the view itself (header, command insertion) after the typing before it. */
-  const applyCommand = async (command: EditTextCommand): Promise<boolean> => {
-    flush();
-    await tracker.idle();
+  const applyTextCommand = async (command: EditTextCommand): Promise<boolean> => {
     const end = tracker.begin();
     try {
       const result = await latest.current.doc.apply(command);
@@ -254,7 +267,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     }
   };
 
-  const history = async (which: "undo" | "redo"): Promise<void> => {
+  const history = (which: "undo" | "redo"): Promise<void> => enqueueCommand(async () => {
     flush();
     await tracker.idle();
     const step = which === "undo" ? latest.current.doc.undo : latest.current.doc.redo;
@@ -266,16 +279,16 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       setMessage(error instanceof Error ? error.message : String(error));
     }
     syncFromDocument(true);
-  };
+  });
 
-  const save = async (): Promise<SaveResult | null> => {
+  const save = (): Promise<SaveResult | null> => enqueueCommand(async () => {
     flush();
     await tracker.idle();
     const result = await latest.current.doc.save();
     if (!result.ok) setMessage(result.failure.message);
     else setMessage(null);
     return result;
-  };
+  });
 
   // --- the code editor --------------------------------------------------------------------------------------------------
 
@@ -354,6 +367,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   // --- the language server ----------------------------------------------------------------------------------------------
 
   useEffect(() => {
+    setLanguageStatus(null);
     if (language === undefined) {
       setLanguageNote("Language features are not available in this host. You can still edit and save.");
       return undefined;
@@ -379,7 +393,37 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       const text = surface.getText();
       ctl.lsp = { client, uri, version: 1, sent: text };
       client.notify("textDocument/didOpen", { textDocument: { uri, languageId: "rpgcode", version: 1, text } });
-      surface.setLanguage({ uri, capabilities: client.capabilities, request: (method, params) => client.request(method, { textDocument: { uri }, ...params }) });
+      const viewToken = {};
+      const request = <T,>(method: string, params: Readonly<Record<string, unknown>>): Promise<T> => {
+        const formatting = method === "textDocument/formatting" || method === "textDocument/rangeFormatting" || method === "textDocument/onTypeFormatting";
+        if (formatting) {
+          let active = formattingRequests.get(client);
+          if (active === undefined) {
+            active = new Set();
+            formattingRequests.set(client, active);
+          }
+          active.add(viewToken);
+        }
+        return client.request<T>(method, { textDocument: { uri }, ...params }).then(
+          (result) => result,
+          (error: unknown) => {
+            setLanguageStatus(`Language request ${method} failed: ${error instanceof Error ? error.message : String(error)}`);
+            throw error;
+          },
+        ).finally(() => {
+          if (!formatting) return;
+          const active = formattingRequests.get(client);
+          active?.delete(viewToken);
+          if (active?.size === 0) formattingRequests.delete(client);
+        });
+      };
+      stops.push(client.onNotification("window/showMessage", (params) => {
+        const message = params as { readonly type?: number; readonly message?: string };
+        const active = formattingRequests.get(client);
+        if (active?.size !== 1 || !active.has(viewToken) || (message.type !== 1 && message.type !== 2) || !message.message) return;
+        setLanguageStatus(message.message);
+      }));
+      surface.setLanguage({ uri, capabilities: client.capabilities, request });
       stops.push(client.onNotification("textDocument/publishDiagnostics", (params) => {
         const published = params as { readonly uri?: string; readonly diagnostics?: readonly SurfaceDiagnostic[] };
         if (published.uri !== uri) return;
@@ -392,6 +436,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         ctl.surface?.setDiagnostics([]);
         setBookmarks([]);
         setProblems(0);
+        setLanguageStatus(null);
         setLanguageNote(`Language features stopped: ${reason} You can still edit and save.`);
       }));
       sendToServer();
@@ -425,19 +470,24 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       setMessage("The header template is empty, so there is nothing to insert. Change it in the editor preferences.");
       return;
     }
-    void applyCommand(command).then((done) => {
+    void enqueueCommand(async () => {
+      flush();
+      await tracker.idle();
+      return applyTextCommand(command);
+    }).then((done) => {
       if (done) syncFromDocument(true);
     });
   };
 
   const insertCommand = (entry: CommandReferenceEntry): void => {
-    flush();
-    const surface = control.current.surface;
-    if (surface === null) return;
-    void tracker.idle().then(async () => {
+    void enqueueCommand(async () => {
+      flush();
+      await tracker.idle();
+      const surface = control.current.surface;
+      if (surface === null) return;
       const selection = surface.getSelection();
       const { command, select } = insertCommandEdit(entry, selection.from, selection.to);
-      if (await applyCommand(command)) {
+      if (await applyTextCommand(command)) {
         syncFromDocument(true);
         surface.select(select.from, select.to);
       }
@@ -501,8 +551,8 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
             {problems > 0 ? ` · ${problems} ${problems === 1 ? "problem" : "problems"}` : ""}
           </p>
           {message === null ? null : <p class="tkr-program-message" role="alert">{message}</p>}
-          {languageNote === null && surfaceNote === null ? null : (
-            <p class="tkr-program-language-note" role="status">{surfaceNote ?? ""} {languageNote ?? ""}</p>
+          {surfaceNote === null && languageNote === null && languageStatus === null ? null : (
+            <p class="tkr-program-language-note" role="status">{surfaceNote ?? ""} {languageNote ?? ""} {languageStatus ?? ""}</p>
           )}
         </>
       )}

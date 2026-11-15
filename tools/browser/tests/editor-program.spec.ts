@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 // Story 11.7 (#1705), the browser host: a real `.prg` edited in Monaco under the accepted CSP of ADR 0029, with the
 // language server in a worker, over the real standalone page and a project folder. The VS Code half of the proof is
@@ -25,6 +25,16 @@ const programBytes = Array.from(Buffer.from(SOURCE, "latin1"));
 
 /** Monaco's "go to the end of the text": Command+Down on a Mac, Control+End elsewhere. */
 const END_OF_TEXT = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
+async function focusMenuItem(page: Page, item: Locator): Promise<void> {
+  await page.keyboard.press("Home");
+  const focused = (): Promise<boolean> => item.evaluate((element) => element.matches(":focus"));
+  for (let steps = 0; steps < 32; steps += 1) {
+    if (await focused()) return;
+    await page.keyboard.press("ArrowDown");
+  }
+  if (await focused()) return;
+  throw new Error(`Monaco did not focus menu item "${await item.innerText()}" within 32 ArrowDown presses`);
+}
 
 test.use({ trace: "retain-on-failure" });
 
@@ -161,10 +171,23 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await expect(row).toContainText("castint(val, [&dest])");
   await row.dblclick();
   await expect.poll(() => editorText(page)).toContain("castint(val)");
-
-  // Header template: inserted at the start, expanded for this file, undone in one step.
+  // Header insertion changes the document without a Monaco edit; both context-menu actions must still use document history.
   await page.getByRole("button", { name: "Insert header" }).click();
   await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg\s/);
+  await expect.poll(() => editorText(page)).toContain("castint(val)");
+  await page.locator(".monaco-editor .view-lines").click({ position: { x: 4, y: 4 } });
+  await page.keyboard.press("Shift+F10");
+  const undo = page.getByRole("menuitem", { name: "Undo", exact: true });
+  await focusMenuItem(page, undo);
+  await page.keyboard.press("Enter");
+  await expect.poll(() => editorText(page)).toMatch(/^\/\/ Intro scene/);
+  await page.locator(".monaco-editor .view-lines").click({ position: { x: 4, y: 4 } });
+  await page.keyboard.press("Shift+F10");
+  const redo = page.getByRole("menuitem", { name: "Redo", exact: true });
+  await focusMenuItem(page, redo);
+  await page.keyboard.press("Enter");
+  await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg\s/);
+  await expect.poll(() => editorText(page)).toContain("castint(val)");
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(() => editorText(page)).toMatch(/^\/\/ Intro scene/);
 

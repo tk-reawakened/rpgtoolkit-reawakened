@@ -369,6 +369,54 @@ test("with a language service the view opens the document on the server, sends e
   );
 });
 
+test("LSP request errors are announced as status and do not stop editing", async () => {
+  const s = await setup({
+    capabilities: ["folderWrite", "languageServer"],
+    onLanguageMessage: (message, session) => {
+      if (message.method === "initialize") session.push({ jsonrpc: "2.0", id: message.id as number, result: { capabilities: {} } });
+      else if (message.method === "textDocument/documentSymbol") session.push({ jsonrpc: "2.0", id: message.id as number, result: [] });
+      else if (message.method === "textDocument/hover") session.push({ jsonrpc: "2.0", id: message.id as number, error: { code: -32603, message: "hover failed" } });
+    },
+  });
+  const spy = spySurface();
+  show(s, { createSurface: spy.factory });
+  await settled();
+  await spy.features()!.request("textDocument/hover", { position: { line: 0, character: 0 } }).then(
+    () => ok(false, "the rejected request should stay rejected"),
+    (error: unknown) => match(String(error), /hover failed/),
+  );
+  await settled();
+  equal(s.el.querySelector(".tkr-program-language-note[role=status]")?.textContent?.trim(), "Language request textDocument/hover failed: hover failed");
+  spy.edit(0, 0, "z");
+  await act(() => s.pending.settle());
+  equal(textOf(s), "zx = 1\ny = 2\n");
+});
+
+test("formatting showMessage refusals are shown only during an unambiguous formatting request", async () => {
+  const s = await setup({
+    capabilities: ["folderWrite", "languageServer"],
+    onLanguageMessage: (message, session) => {
+      if (message.method === "initialize") session.push({ jsonrpc: "2.0", id: message.id as number, result: { capabilities: {} } });
+      else if (message.method === "textDocument/documentSymbol") session.push({ jsonrpc: "2.0", id: message.id as number, result: [] });
+      else if (message.method === "textDocument/formatting") {
+        session.push({ jsonrpc: "2.0", method: "window/showMessage", params: { type: 2, message: "Formatting is not available." } });
+        session.push({ jsonrpc: "2.0", id: message.id as number, result: null });
+      }
+    },
+  });
+  const spy = spySurface();
+  show(s, { createSurface: spy.factory });
+  await settled();
+  s.host.languageSessions[0]!.push({
+    jsonrpc: "2.0", method: "window/showMessage", params: { type: 2, message: "Unrelated server message." },
+  });
+  await settled();
+  equal(noteOf(s.el).trim(), "");
+  await spy.features()!.request("textDocument/formatting", {});
+  await settled();
+  equal(s.el.querySelector(".tkr-program-language-note[role=status]")?.textContent?.trim(), "Formatting is not available.");
+});
+
 test("a surface change reaches the server as full text with a rising version, then the document; closing the view closes the document", async () => {
   const seen: LanguageMessage[] = [];
   const s = await setup({ capabilities: ["folderWrite", "languageServer"], onLanguageMessage: languageServer([], seen) });

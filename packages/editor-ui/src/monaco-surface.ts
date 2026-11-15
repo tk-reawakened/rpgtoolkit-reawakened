@@ -321,6 +321,24 @@ export function createMonacoSurfaceFactory(options: MonacoSurfaceOptions): TextS
       ariaLabel: "Program text. Press Control+M, or Command+M on a Mac, to let Tab leave the editor.",
       accessibilitySupport: "auto",
     });
+    const undo = editor.addAction({
+      id: "tkr-document-undo",
+      label: "Undo",
+      contextMenuGroupId: "1_modification",
+      contextMenuOrder: 1,
+      run: () => {
+        if (!host.onUndo()) void model.undo();
+      },
+    });
+    const redo = editor.addAction({
+      id: "tkr-document-redo",
+      label: "Redo",
+      contextMenuGroupId: "1_modification",
+      contextMenuOrder: 2,
+      run: () => {
+        if (!host.onRedo()) void model.redo();
+      },
+    });
     // Applying the document's text to the model is not the author editing it.
     let applying = false;
     let providers: monaco.IDisposable[] = [];
@@ -409,6 +427,8 @@ export function createMonacoSurfaceFactory(options: MonacoSurfaceOptions): TextS
         providers = [];
         monaco.editor.setModelMarkers(model, LANGUAGE_ID, []);
         keys.dispose();
+        undo.dispose();
+        redo.dispose();
         blur.dispose();
         changes.dispose();
         editor.dispose();
