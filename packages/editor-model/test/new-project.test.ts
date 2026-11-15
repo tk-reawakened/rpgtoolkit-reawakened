@@ -265,7 +265,7 @@ test("an invalid answer is refused before the destination is read", async () => 
   equal(reads, 0);
 });
 
-test("an existing empty file is never replaced; only the empty file a failed write leaves is removed", async () => {
+test("an existing empty file is never replaced, and a failed write deletes nothing it cannot prove it owns", async () => {
   // The author's own empty file is data: it is a conflict, and it is still there afterwards.
   const host = createMemoryPlatformServices({ files: { "Main/MyQuest.gam": new Uint8Array(0), "Prg/start.prg": new Uint8Array(0) } });
   const refused = await createNewProject(host.fs, settings({ starters: ["start-program"] }));
@@ -276,47 +276,79 @@ test("an existing empty file is never replaced; only the empty file a failed wri
   deepEqual(host.bytesOf("Main/MyQuest.gam"), new Uint8Array(0), "the empty file is untouched");
   deepEqual(host.bytesOf("Prg/start.prg"), new Uint8Array(0));
   equal((await host.fs.stat("Boards")).ok, false, "no folder was made");
+});
 
-  // A failed write's own empty artefact is removed, so a retry is not blocked by it; anything with content is kept.
-  const kept = new Uint8Array([4, 2]);
-  const interrupted = createMemoryPlatformServices({ files: { "notes.txt": kept } });
-  let attempts = 0;
-  const createsThenFails = bindProjectFileSystem("memory-project", {
-    ...interrupted.fs,
+test("a failed write never deletes a file another writer created at the same path after the preflight", async () => {
+  const host = createMemoryPlatformServices();
+  let failed = false;
+  const concurrent = bindProjectFileSystem("memory-project", {
+    ...host.fs,
     write: async (path, bytes) => {
-      attempts += 1;
-      if (attempts !== 2) return interrupted.fs.write(path, bytes);
-      // A browser creates the file before it commits any content, so a failed write can leave it empty.
-      await interrupted.fs.write(path, new Uint8Array(0));
+      if (failed) return host.fs.write(path, bytes);
+      failed = true;
+      // Another writer puts its own empty file at the path after the preflight found none, then our write fails.
+      host.seed(path, new Uint8Array(0));
       return platformError("io-error", "the disk is full");
     },
   });
-  const failed = await createNewProject(createsThenFails, settings({ starters: ["start-program", "start-board"] }));
-  ok(!failed.ok && failed.reason === "failed");
-  match(failed.message, /Could not write Boards\/start\.brd: the disk is full\. The empty file it left at Boards\/start\.brd was removed\./);
-  deepEqual(failed.written, ["Prg/start.prg"]);
-  deepEqual(failed.pending, ["Boards/start.brd", "Main/MyQuest.gam"]);
-  equal(interrupted.bytesOf("Boards/start.brd"), undefined, "its own empty artefact is gone");
-  deepEqual(interrupted.bytesOf("notes.txt"), kept);
-  const again = await createNewProject(interrupted.fs, settings({ starters: ["start-program", "start-board"] }));
-  ok(again.ok, again.ok ? "" : again.message);
-  deepEqual(again.present, ["Prg/start.prg"], "the file the first run wrote is recognised, not treated as a conflict");
-  deepEqual(again.written, ["Boards/start.brd", "Main/MyQuest.gam"]);
+  const result = await createNewProject(concurrent, settings({ starters: ["start-program"] }));
+  ok(!result.ok && result.reason === "failed");
+  deepEqual(host.bytesOf("Prg/start.prg"), new Uint8Array(0), "the other writer's file is still there");
+  match(result.message, /An empty file is at Prg\/start\.prg; the editor deletes nothing here/);
+  match(result.message, /Remove it yourself before running the wizard again/);
+  equal(/was removed/.test(result.message), false, "the failure never claims to have deleted anything");
+});
 
-  // A failed write that left content is left exactly as it is, and the failure does not claim to have removed it.
-  const partialHost = createMemoryPlatformServices();
+test("a failed write keeps partly written content and says so instead of deleting it", async () => {
+  const host = createMemoryPlatformServices();
   let write = 0;
   const partial = bindProjectFileSystem("memory-project", {
-    ...partialHost.fs,
+    ...host.fs,
     write: async (path, bytes) => {
       write += 1;
-      if (write !== 1) return partialHost.fs.write(path, bytes);
-      await partialHost.fs.write(path, new Uint8Array([7]));
+      if (write !== 1) return host.fs.write(path, bytes);
+      await host.fs.write(path, new Uint8Array([7]));
       return platformError("io-error", "the disk is full");
     },
   });
   const half = await createNewProject(partial, settings({ starters: ["start-program"] }));
   ok(!half.ok && half.reason === "failed");
-  deepEqual(partialHost.bytesOf("Prg/start.prg"), new Uint8Array([7]), "a file with content is existing data and is kept");
-  equal(/was removed/.test(half.message), false);
+  deepEqual(host.bytesOf("Prg/start.prg"), new Uint8Array([7]), "existing content is kept, never deleted");
+  match(half.message, /A partly written file is at Prg\/start\.prg and is kept; the editor deletes nothing here/);
+  deepEqual(half.written, []);
+  deepEqual(half.pending, ["Prg/start.prg", "Main/MyQuest.gam"]);
 });
+
+test("an interrupted browser write leaves an empty file the author must remove; the retry then finishes", async () => {
+  const host = createMemoryPlatformServices({ files: { "notes.txt": new Uint8Array([4, 2]) } });
+  let attempts = 0;
+  const createsThenFails = bindProjectFileSystem("memory-project", {
+    ...host.fs,
+    write: async (path, bytes) => {
+      attempts += 1;
+      if (attempts !== 2) return host.fs.write(path, bytes);
+      // A browser creates the file before it commits any content, so a failed write leaves it empty.
+      await host.fs.write(path, new Uint8Array(0));
+      return platformError("io-error", "the disk is full");
+    },
+  });
+  const failed = await createNewProject(createsThenFails, settings({ starters: ["start-program", "start-board"] }));
+  ok(!failed.ok && failed.reason === "failed");
+  deepEqual(failed.written, ["Prg/start.prg"]);
+  deepEqual(failed.pending, ["Boards/start.brd", "Main/MyQuest.gam"]);
+  deepEqual(host.bytesOf("Boards/start.brd"), new Uint8Array(0), "the empty file the failed write left stays: ownership is not provable");
+
+  // Running it again reports that file as the conflict it is, and says what to do; the author removes it and tries again.
+  const blocked = await createNewProject(host.fs, settings({ starters: ["start-program", "start-board"] }));
+  ok(!blocked.ok && blocked.reason === "conflicts");
+  deepEqual(blocked.conflicts.map((conflict) => conflict.path), ["Boards/start.brd"]);
+  match(blocked.conflicts[0]!.message, /already exists and is empty; the editor never replaces an existing file\. Choose another folder or name, or remove it yourself\./);
+  ok((await host.fs.delete("Boards/start.brd")).ok);
+  const again = await createNewProject(host.fs, settings({ starters: ["start-program", "start-board"] }));
+  ok(again.ok, again.ok ? "" : again.message);
+  deepEqual(again.present, ["Prg/start.prg"], "the file the first run wrote is recognised, not treated as a conflict");
+  deepEqual(again.written, ["Boards/start.brd", "Main/MyQuest.gam"]);
+});
+
+
+

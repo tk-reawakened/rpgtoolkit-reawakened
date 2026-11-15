@@ -220,7 +220,7 @@ test("an existing project is never replaced: the wizard lists every conflict, st
   result.project.deactivate();
 });
 
-test("a refused write leaves the wizard open with what was written and pending, existing data untouched, and again finishes the project", async () => {
+test("a refused write leaves the wizard open with what was written and pending, deletes nothing, and finishes once the leftover is removed", async () => {
   const { root, control, element } = folder({ "notes.txt": bystander });
   const made = startWizard(root, element);
   await settle(act);
@@ -230,14 +230,26 @@ test("a refused write leaves the wizard open with what was written and pending, 
   control.refuse = true;
   await submit(element);
   match(alerts(element), /Could not write Prg\/start\.prg/);
-  match(alerts(element), /Nothing that existed before was changed/);
+  match(alerts(element), /deletes nothing here, because it cannot prove that file is this write's own/);
+  match(alerts(element), /Nothing that existed before was changed, and the editor deleted nothing/);
   deepEqual([...element.querySelectorAll(".tkr-new-project-failure li")].map((item) => item.textContent), ["Prg/start.prg", "Main/Quest.gam"]);
   equal(root.read("Main/Quest.gam"), null, "no main file was written");
   deepEqual(root.read("notes.txt"), bystander);
+  // The browser created the file before the refused write committed anything: the wizard leaves it alone.
+  deepEqual(root.read("Prg/start.prg"), new Uint8Array(0), "the empty file stays; the wizard cannot prove it made it");
+
   control.refuse = false;
   await submit(element);
+  match(alerts(element), /Prg\/start\.prg already exists and is empty; the editor never replaces an existing file/);
+  ok(element.querySelector('[role="dialog"]') !== null, "the wizard stays open");
+
+  // The author removes the file it cannot prove it owns, and the same answers then finish the project.
+  const programs = root.children.get("Prg");
+  if (!(programs instanceof MemoryDirectory)) throw new Error("the Prg folder is missing");
+  await act(async () => { await programs.removeEntry("start.prg"); });
+  await submit(element);
   const result = await made;
-  ok(result.ok, "running it again finishes the project");
+  ok(result.ok, result.ok ? "" : result.message);
   ok(root.read("Main/Quest.gam") !== null && root.read("Prg/start.prg") !== null);
   result.project.deactivate();
 });

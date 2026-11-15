@@ -307,7 +307,7 @@ export function planNewProject(settings: NewProjectSettings, definitions: readon
 }
 
 /** The part of the file system a project is made with: the destination folder is its root. */
-export type NewProjectStorage = Pick<FileSystemService, "list" | "read" | "write" | "createFolder" | "stat" | "delete">;
+export type NewProjectStorage = Pick<FileSystemService, "list" | "read" | "write" | "createFolder" | "stat">;
 
 /** One path the destination already holds that creating the project would have to replace. */
 export interface ProjectConflict {
@@ -353,9 +353,11 @@ interface Listing {
  * Create the project in the destination (T-04). Everything is compared with the destination first: nothing is written
  * when any path would replace a file or sit on something that is not a folder, and the answer lists each one. Folders are
  * then made, starter files written, and the main file last. A file that already holds exactly the bytes to write is left
- * alone, so running this again after a failure finishes the project. An existing file is never replaced, an empty one
- * included; the empty file a *failed* write leaves behind is the wizard's own artefact and is removed. Names are compared
- * ASCII-folded and an existing folder keeps its own spelling.
+ * alone, so a creation interrupted before a write is not blocked by it being there. An existing *file* is never replaced,
+ * an empty one included, and the wizard never deletes one. This is a check before the write, not an atomic one: no host
+ * surface offers an exclusive create, so a file another program creates between the check and the write can be replaced,
+ * and the wizard cannot claim ownership of anything it finds afterwards (issue #2712). Names are compared ASCII-folded and
+ * an existing folder keeps its own spelling.
  */
 export async function createNewProject(storage: NewProjectStorage, settings: NewProjectSettings, definitions: readonly StarterDefinition[] = STARTER_DEFINITIONS): Promise<CreateProjectResult> {
   const planned = planNewProject(settings, definitions);
@@ -448,8 +450,8 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
     const result = await storage.write(action.path, action.file.bytes);
     if (!result.ok) {
       const pending = todo.slice(index).map((item) => item.path);
-      const artefact = await removeEmptyArtefact(storage, action.path);
-      const reason = `${result.error.message.replace(/\.$/, "")}.${artefact === "" ? "" : ` ${artefact}`}`;
+      const leftover = await describeLeftover(storage, action.path);
+      const reason = `${result.error.message.replace(/\.$/, "")}.${leftover === "" ? "" : ` ${leftover}`}`;
       return failed(`Could not write ${action.path}: ${reason} ${describeProgress(written, present, pending)}`, pending);
     }
     written.push(action.path);
@@ -459,21 +461,24 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
 }
 
 /**
- * Remove the empty file a failed write may have left, and say so. The preflight found no file at `path`, so a file there
- * now that is still empty is this write's own artefact (a browser creates the file before it commits any content);
- * anything with content in it is left exactly as it is, and a host that cannot remove it says nothing.
+ * Say what a failed write left at `path`, if anything, and never touch it. The wizard cannot prove that a file at a path it
+ * meant to create is its own: another writer can create or replace one between the preflight and this check, or between
+ * this check and any delete, and no host offers an exclusive create that would settle ownership. So nothing is deleted —
+ * not an empty file and not a partly written one — and the author is told what is there and how to go on.
  */
-async function removeEmptyArtefact(storage: NewProjectStorage, path: string): Promise<string> {
+async function describeLeftover(storage: Pick<NewProjectStorage, "stat">, path: string): Promise<string> {
   const stat = await storage.stat(path);
-  if (!stat.ok || stat.value.kind !== "file" || stat.value.size !== 0) return "";
-  const removed = await storage.delete(path);
-  return removed.ok ? `The empty file it left at ${path} was removed.` : "";
+  if (!stat.ok || stat.value.kind !== "file") return "";
+  const ownership = "the editor deletes nothing here, because it cannot prove that file is this write's own and not another program's";
+  return stat.value.size === 0
+    ? `An empty file is at ${path}; ${ownership}. Remove it yourself before running the wizard again.`
+    : `A partly written file is at ${path} and is kept; ${ownership}. Remove it yourself before running the wizard again.`;
 }
 
 /** A sentence that says what a failed creation left behind and how to finish it. */
 function describeProgress(written: readonly string[], present: readonly string[], pending: readonly string[]): string {
   const parts = [`Written: ${written.length === 0 ? "nothing" : written.join(", ")}.`];
   if (present.length > 0) parts.push(`Already present and left alone: ${present.join(", ")}.`);
-  parts.push(`Not written: ${pending.join(", ")}.`, "Nothing that existed before was changed; run the wizard again with the same answers to finish.");
+  parts.push(`Not written: ${pending.join(", ")}.`, "Nothing that existed before was changed, and the editor deleted nothing.");
   return parts.join(" ");
 }
