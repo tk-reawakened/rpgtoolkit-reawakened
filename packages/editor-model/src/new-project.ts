@@ -307,7 +307,7 @@ export function planNewProject(settings: NewProjectSettings, definitions: readon
 }
 
 /** The part of the file system a project is made with: the destination folder is its root. */
-export type NewProjectStorage = Pick<FileSystemService, "list" | "read" | "write" | "createFolder">;
+export type NewProjectStorage = Pick<FileSystemService, "list" | "read" | "write" | "createFolder" | "stat" | "delete">;
 
 /** One path the destination already holds that creating the project would have to replace. */
 export interface ProjectConflict {
@@ -353,8 +353,9 @@ interface Listing {
  * Create the project in the destination (T-04). Everything is compared with the destination first: nothing is written
  * when any path would replace a file or sit on something that is not a folder, and the answer lists each one. Folders are
  * then made, starter files written, and the main file last. A file that already holds exactly the bytes to write is left
- * alone, so running this again after a failure finishes the project; so is a zero-byte file, which has nothing to lose and
- * is what an interrupted browser write leaves. Names are compared ASCII-folded and an existing folder keeps its own spelling.
+ * alone, so running this again after a failure finishes the project. An existing file is never replaced, an empty one
+ * included; the empty file a *failed* write leaves behind is the wizard's own artefact and is removed. Names are compared
+ * ASCII-folded and an existing folder keeps its own spelling.
  */
 export async function createNewProject(storage: NewProjectStorage, settings: NewProjectSettings, definitions: readonly StarterDefinition[] = STARTER_DEFINITIONS): Promise<CreateProjectResult> {
   const planned = planNewProject(settings, definitions);
@@ -421,9 +422,9 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
         } else {
           const read = await storage.read(path);
           if (!read.ok) return unreadable(path, read.error.message);
-          // A zero-byte file holds nothing to lose, and an interrupted browser write leaves exactly that behind.
-          if (read.value.length === 0) present = false;
-          else if (sameBytes(read.value, file.bytes)) present = true;
+          // Every existing file is kept, an empty one included: it is the author's data, not the wizard's to replace.
+          if (sameBytes(read.value, file.bytes)) present = true;
+          else if (read.value.length === 0) conflicts.push({ path, message: `${path} already exists and is empty; the editor never replaces an existing file. Choose another folder or name, or remove it yourself.` });
           else conflicts.push({ path, message: `${path} already exists with different content; the editor never replaces it. Choose another folder or name.` });
         }
       }
@@ -447,12 +448,26 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
     const result = await storage.write(action.path, action.file.bytes);
     if (!result.ok) {
       const pending = todo.slice(index).map((item) => item.path);
-      return failed(`Could not write ${action.path}: ${result.error.message} ${describeProgress(written, present, pending)}`, pending);
+      const artefact = await removeEmptyArtefact(storage, action.path);
+      const reason = `${result.error.message.replace(/\.$/, "")}.${artefact === "" ? "" : ` ${artefact}`}`;
+      return failed(`Could not write ${action.path}: ${reason} ${describeProgress(written, present, pending)}`, pending);
     }
     written.push(action.path);
   }
   const main = actions[actions.length - 1]!;
   return { ok: true, mainPath: main.path, written, present };
+}
+
+/**
+ * Remove the empty file a failed write may have left, and say so. The preflight found no file at `path`, so a file there
+ * now that is still empty is this write's own artefact (a browser creates the file before it commits any content);
+ * anything with content in it is left exactly as it is, and a host that cannot remove it says nothing.
+ */
+async function removeEmptyArtefact(storage: NewProjectStorage, path: string): Promise<string> {
+  const stat = await storage.stat(path);
+  if (!stat.ok || stat.value.kind !== "file" || stat.value.size !== 0) return "";
+  const removed = await storage.delete(path);
+  return removed.ok ? `The empty file it left at ${path} was removed.` : "";
 }
 
 /** A sentence that says what a failed creation left behind and how to finish it. */

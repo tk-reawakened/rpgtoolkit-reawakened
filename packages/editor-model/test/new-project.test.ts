@@ -265,13 +265,58 @@ test("an invalid answer is refused before the destination is read", async () => 
   equal(reads, 0);
 });
 
-test("a zero-byte file left by an interrupted write is completed, while a file with content is still a conflict", async () => {
-  const host = createMemoryPlatformServices({ files: { "Prg/start.prg": new Uint8Array(0) } });
-  const created = await createNewProject(host.fs, settings({ starters: ["start-program"] }));
-  ok(created.ok, created.ok ? "" : created.message);
-  deepEqual(created.written, ["Prg/start.prg", "Main/MyQuest.gam"]);
-  ok((host.bytesOf("Prg/start.prg")?.length ?? 0) > 0);
-  const kept = createMemoryPlatformServices({ files: { "Prg/start.prg": new Uint8Array([1]) } });
-  const refused = await createNewProject(kept.fs, settings({ starters: ["start-program"] }));
+test("an existing empty file is never replaced; only the empty file a failed write leaves is removed", async () => {
+  // The author's own empty file is data: it is a conflict, and it is still there afterwards.
+  const host = createMemoryPlatformServices({ files: { "Main/MyQuest.gam": new Uint8Array(0), "Prg/start.prg": new Uint8Array(0) } });
+  const refused = await createNewProject(host.fs, settings({ starters: ["start-program"] }));
   ok(!refused.ok && refused.reason === "conflicts");
+  deepEqual(refused.conflicts.map((conflict) => conflict.path), ["Prg/start.prg", "Main/MyQuest.gam"]);
+  match(refused.conflicts[0]!.message, /already exists and is empty; the editor never replaces an existing file/);
+  match(refused.message, /Nothing was written/);
+  deepEqual(host.bytesOf("Main/MyQuest.gam"), new Uint8Array(0), "the empty file is untouched");
+  deepEqual(host.bytesOf("Prg/start.prg"), new Uint8Array(0));
+  equal((await host.fs.stat("Boards")).ok, false, "no folder was made");
+
+  // A failed write's own empty artefact is removed, so a retry is not blocked by it; anything with content is kept.
+  const kept = new Uint8Array([4, 2]);
+  const interrupted = createMemoryPlatformServices({ files: { "notes.txt": kept } });
+  let attempts = 0;
+  const createsThenFails = bindProjectFileSystem("memory-project", {
+    ...interrupted.fs,
+    write: async (path, bytes) => {
+      attempts += 1;
+      if (attempts !== 2) return interrupted.fs.write(path, bytes);
+      // A browser creates the file before it commits any content, so a failed write can leave it empty.
+      await interrupted.fs.write(path, new Uint8Array(0));
+      return platformError("io-error", "the disk is full");
+    },
+  });
+  const failed = await createNewProject(createsThenFails, settings({ starters: ["start-program", "start-board"] }));
+  ok(!failed.ok && failed.reason === "failed");
+  match(failed.message, /Could not write Boards\/start\.brd: the disk is full\. The empty file it left at Boards\/start\.brd was removed\./);
+  deepEqual(failed.written, ["Prg/start.prg"]);
+  deepEqual(failed.pending, ["Boards/start.brd", "Main/MyQuest.gam"]);
+  equal(interrupted.bytesOf("Boards/start.brd"), undefined, "its own empty artefact is gone");
+  deepEqual(interrupted.bytesOf("notes.txt"), kept);
+  const again = await createNewProject(interrupted.fs, settings({ starters: ["start-program", "start-board"] }));
+  ok(again.ok, again.ok ? "" : again.message);
+  deepEqual(again.present, ["Prg/start.prg"], "the file the first run wrote is recognised, not treated as a conflict");
+  deepEqual(again.written, ["Boards/start.brd", "Main/MyQuest.gam"]);
+
+  // A failed write that left content is left exactly as it is, and the failure does not claim to have removed it.
+  const partialHost = createMemoryPlatformServices();
+  let write = 0;
+  const partial = bindProjectFileSystem("memory-project", {
+    ...partialHost.fs,
+    write: async (path, bytes) => {
+      write += 1;
+      if (write !== 1) return partialHost.fs.write(path, bytes);
+      await partialHost.fs.write(path, new Uint8Array([7]));
+      return platformError("io-error", "the disk is full");
+    },
+  });
+  const half = await createNewProject(partial, settings({ starters: ["start-program"] }));
+  ok(!half.ok && half.reason === "failed");
+  deepEqual(partialHost.bytesOf("Prg/start.prg"), new Uint8Array([7]), "a file with content is existing data and is kept");
+  equal(/was removed/.test(half.message), false);
 });
