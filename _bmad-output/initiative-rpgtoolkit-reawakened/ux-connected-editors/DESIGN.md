@@ -102,32 +102,45 @@ The atlas has ten concrete compositions: workspace, board, artwork, animation, d
 
 ## Annotated Board-Workbench Mock & Shared Editor Design System (#2703)
 
-The shared editor workbench (`packages/editor-ui`) implements an IDE layout inspired by Figma, VS Code, and the classic RPG Toolkit 3 workbench, keeping project navigation, the active document tab strip, editing tools, the central canvas stage, and the contextual inspector/palette simultaneously visible at desktop sizes while collapsing cleanly at narrow viewports.
+The shared editor workbench (`packages/editor-ui` and `packages/editor-model`) implements a unified IDE layout inspired by Figma, VS Code, and the classic RPG Toolkit 3 workbench, keeping project navigation, the active document tab strip, editing tools, the central canvas stage, and the contextual inspector/palette simultaneously visible at desktop sizes while collapsing cleanly at narrow viewports.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ [Top Command Bar]  RPG Toolkit Editor · Project: demo.gam   [Open folder…] [Save] [Run] [Preferences]  Status  │
+│ [ ☰ ] 🗡️ RPG Toolkit editor [Files] [Game] [Tileset] [Run]   [ Search files & run commands… Ctrl+Shift+P ]     │
 ├──────────────────────┬───────────────────────────────────────────────────────────────┬─────────────────────────┤
-│ [Left Dock: 224px]   │ [Tab Strip: 34px]  [start.brd • ×] [tiles.tst ×] [demo.gam ×] │ [Right Inspector: 280px]│
-│ ▾ Files (Tree)       ├───────────────────────────────────────────────────────────────┤ ▾ Tileset Browser       │
-│   ▸ Boards           │ [Board Header]  Board · 12 × 10 cells, 2 layers   [Save] ✓    │   Set: [village.tst ▾]  │
-│     • start.brd      ├───────────────────────────────────────────────────────────────┤   Filter: [Search…   ]  │
-│   ▸ Tilesets         │ [Toolstrip] [Select][Draw*][Erase][Fill][Line][Rect][Dropper] │   ┌─────────┬─────────┐ │
-│   ▸ Characters       │             | [Undo][Redo] | [-] 100% [+] [Grid*] | Layer [1▾]│   │ [Tile1] │ [Tile2] │ │
-│                      ├───────────────────────────────────────────────────────────────┤   │  #1     │  #2     │ │
-│ ▾ Game (Records)     │                                                               │   ├─────────┼─────────┤ │
-│   Boards (2)         │         ┌───────────────────────────────────────────┐         │   │ [Tile3] │ [Tile4] │ │
-│   Characters (1)     │         │                                           │         │   │  #3     │  #4     │ │
-│   Items (4)          │         │          BOARD CANVAS STAGE               │         │   └─────────┴─────────┘ │
-│                      │         │      (Checkerboard + Crisp Pixel Art)     │         ├─────────────────────────┤
-│                      │         │                                           │         │ ▾ Visible Layers        │
-│                      │         └───────────────────────────────────────────┘         │   [x] Layer 1 – Floor   │
-│                      │                                                               │   [x] Layer 2 – Roof    │
-│                      ├───────────────────────────────────────────────────────────────┤   [x] Background (B)    │
-│                      │ [Active Cell & Matrix]  Col 3, Row 4: [village.tst1] [Paint]  │   [Only curr] [Show all]│
-│                      │   [1,1] [2,1] [3,1*] ... (compact keyboard-navigable grid)    │                         │
+│ [Left Dock: 240px]   │ [Tab Strip: 34px]  [example.gam ×] [village.brd • ×]          │ [Right Inspector: 280px]│
+│ ▾ Files (Tree)       ├───────────────────────────────────────────────────────────────┤ ▾ TILESET BROWSER       │
+│   ▸ Bitmap           │ [Board Header]  Board · 16 × 12 cells, 2 layers   [Save] ✓    │   Source                │
+│   ▸ Boards           ├───────────────────────────────────────────────────────────────┤   [detail.tst (tst)  ▾] │
+│     • village.brd    │ [Toolstrip] [Draw*][Select][Flood fill][Erase][Rect][Dropper] │   ┌─────────┬─────────┐ │
+│   ▸ Chrs             │             [Undo][Redo] [Zoom out] 200% [Zoom in] [Grid*]    │   │ [Tile1] │ [Tile2] │ │
+│                      │             Layer [1 ▾]                                       │   │  #1 *   │  #2     │ │
+│──────────────────────├───────────────────────────────────────────────────────────────┤   │ [Brush] │ [Brush] │ │
+│ ▾ GAME (Accordion)   │ [Visible Layers] [ ] Layer 1  [x] Layer 2 – ground  [Show all]│   └─────────┴─────────┘ │
+│   ▾ BOARDS (1)       ├───────────────────────────────────────────────────────────────┤                         │
+│     • village.brd    │         ┌───────────────────────────────────────────┐         │                         │
+│   ▾ CHARACTERS (1)   │         │                                           │         │                         │
+│     • ada.tem        │         │          BOARD CANVAS STAGE               │         │                         │
+│   ▾ ITEMS (1)        │         │      (Checkerboard + Crisp Pixel Art)     │         │                         │
+│     • chest.itm      │         │                                           │         │                         │
+│   ▾ ENEMIES (1)      │         └───────────────────────────────────────────┘         │                         │
+│     • slime.ene      ├───────────────────────────────────────────────────────────────┤                         │
+│   ▾ SPECIAL MOVES (1)│ [Active Cell & Matrix]  Col 1, Row 1: [detail.tst1] [Paint]   │                         │
+│     • fireball.spc   │   [1,1*] [2,1] [3,1] ... (compact keyboard-navigable grid)    │                         │
 └──────────────────────┴───────────────────────────────────────────────────────────────┴─────────────────────────┘
 ```
+
+### Generalized Workbench Infrastructure (`@tk-reawakened/editor-model` & `@tk-reawakened/editor-ui`)
+
+1. **Unified Top Workbench Bar (`38px`)**:
+   - **Application Menu (`☰`)**: VS Code-style categorized cascade menu (`File`, `Edit`, `Selection`, `View`, `Go`, `Run`, `Help`) housing all document and project lifecycle actions (`New Board…`, `Open Project Folder…`, `Reopen Recent Project`, `Save All Open Documents`, `Save Active Document As…`, `Revert Active Document`, `Close Active Tab`, `Undo`, `Redo`, `Toggle Second View`, panel toggles, and playtest actions).
+   - **TKR Sword Brand Mark & Panel Toggles**: Displays the TKR sword emblem (`media/icons/png/tkr-32.png`) beside `RPG Toolkit editor` and quick-toggle pills (`Files`, `Game`, `Tileset`, `Run`).
+   - **Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P` / `F1`)**: Filterable modal dialog searching both registered `CommandRegistry` commands (`createWorkbenchCommands`) and project files (`Go to File`).
+2. **Stacked Left Explorer Dock (`.tkr-dock-left`)**:
+   - Stacks the `Files` tree above the collapsible `Game` (`▾ GAME`) categorized accordion (`Boards`, `Characters`, `Items`, `Enemies`, `Special moves`, `Status effects`, `Battle backgrounds`, `Animations`), with both enabled by default (`DEFAULT_WORKBENCH_PANELS`).
+   - **Empty Explorer View (`EmptyExplorerView` / `mountEmptyExplorer`)**: When no project folder or `.gam` is open yet, the left explorer dock renders `EXPLORER` → `▾ No Game Opened` with `Open project folder`, `Open .gam session copy`, and `Reopen project` actions while the central stage displays the centered TKR sword hero emblem (`media/icons/png/tkr-128.png`).
+3. **Persistent Right Inspector (`TilesetBrowser`)**:
+   - Remains docked in `.tkr-dock-right` across active tabs by default so tilesets and tile bitmaps stay inspectable while switching documents.
 
 ### Shared CSS Custom Properties (`--tkr-*` with `--vscode-*` & `light-dark()` Fallbacks)
 
@@ -155,3 +168,37 @@ The shared editor workbench (`packages/editor-ui`) implements an IDE layout insp
 | **Unsaved Edits (Dirty)** | Amber dot (`•`) in tab strip + status pill (`Unsaved changes`) next to enabled primary `Save` button. |
 | **Errors & Conflicts (`[role="alert"]`, `[aria-invalid="true"]`)** | Danger border (`--tkr-danger`), tinted alert banner (`--tkr-danger-subtle`), and parent `<fieldset>:has([aria-invalid="true"])` highlight. |
 | **Forced Colors (`@media (forced-colors: active)`)** | System keywords (`Canvas`, `CanvasText`, `Highlight`, `HighlightText`, `GrayText`, `ButtonBorder`) preserve all state distinctions without relying on background fills. |
+
+### Rendered Workbench Captures (`evidence/`)
+
+#### 1. Browser Host Workbench (`tools/browser/editor-web/index.html`)
+
+- **Board Workbench (Dark IDE Mode, 1440×900)** — Unified top bar with `☰` menu, TKR sword icon, stacked `Files` + `Game` left dock, central checkerboard board stage, and right `TilesetBrowser` inspector:
+  ![Board Workbench — Dark IDE Mode](evidence/workbench_board_dark.png)
+- **No Game Opened (Empty Explorer Dock & Hero Stage, 1440×900)** — Left Explorer empty state (`▾ No Game Opened`) and centered TKR sword emblem on the stage:
+  ![No Game Opened — Empty Explorer Dock](evidence/workbench_empty_explorer.png)
+- **Application Menu (`☰` File / Edit / Selection / View / Go / Run / Help)**:
+  ![Application Menu (☰)](evidence/workbench_app_menu_dark.png)
+- **Command Palette (`Ctrl+Shift+P` / `F1` — Commands & Go to File)**:
+  ![Command Palette](evidence/workbench_command_palette_dark.png)
+- **Board Workbench (Light IDE Mode, 1440×900)**:
+  ![Board Workbench — Light IDE Mode](evidence/workbench_board_light.png)
+- **Tileset Artwork Editor (Dark IDE Mode, 1440×900)**:
+  ![Tileset Artwork Editor](evidence/workbench_artwork_dark.png)
+- **Tile Bitmap Editor (2-Column Workspace & Palette, 1440×900)**:
+  ![Tile Bitmap Editor](evidence/workbench_bitmap_dark.png)
+- **Character & Sprite Authoring Workspace (1440×900)**:
+  ![Character & Sprite Authoring Workspace](evidence/workbench_character_dark.png)
+- **Game Settings Editor (2-Column Responsive Fieldset Cards, 1440×900)**:
+  ![Game Settings Editor](evidence/workbench_settings_dark.png)
+- **Narrow Responsive Viewport (`680×900` `@container` Collapse)**:
+  ![Narrow Responsive Viewport](evidence/workbench_board_narrow.png)
+
+#### 2. VS Code for the Web Host (`@vscode/test-web` — `extensions/editor`)
+
+- **VS Code Board Custom Editor**:
+  ![VS Code Board Custom Editor](evidence/vscode_board_dark.png)
+- **VS Code Tileset Artwork Custom Editor**:
+  ![VS Code Tileset Artwork Custom Editor](evidence/vscode_artwork_dark.png)
+- **VS Code Game Settings Custom Editor & Explorer Game View**:
+  ![VS Code Game Settings Custom Editor](evidence/vscode_settings_dark.png)
