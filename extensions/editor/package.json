@@ -15,6 +15,10 @@
     "onCustomEditor:tkr.tileBitmap",
     "onView:tkr.game",
     "onCommand:tkr.packageGame",
+    "onCommand:tkr.newProgram",
+    "onCommand:tkr.insertProgramHeader",
+    "onCommand:tkr.insertProgramCommand",
+    "onCommand:tkr.distractionFree",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
     "onCommand:tkr.startBoard",
@@ -55,9 +59,35 @@
       {
         "command": "tkr.packageGame",
         "title": "RPG Toolkit: Package game"
+      },
+      {
+        "command": "tkr.newProgram",
+        "title": "RPG Toolkit: New program"
+      },
+      {
+        "command": "tkr.insertProgramHeader",
+        "title": "RPG Toolkit: Insert header into the program"
+      },
+      {
+        "command": "tkr.insertProgramCommand",
+        "title": "RPG Toolkit: Insert a command into the program"
+      },
+      {
+        "command": "tkr.distractionFree",
+        "title": "RPG Toolkit: Distraction-free mode"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "tkr.insertProgramHeader",
+          "when": "editorLangId == rpgcode"
+        },
+        {
+          "command": "tkr.insertProgramCommand",
+          "when": "editorLangId == rpgcode"
+        }
+      ],
       "explorer/context": [
         {
           "command": "tkr.packageGame",
@@ -197,7 +227,8 @@
           "scope": "window",
           "type": "string",
           "default": "// {file}\n\n",
-          "maxLength": 500
+          "maxLength": 500,
+          "editPresentation": "multilineText"
         },
         "rpgToolkit.board.revertToDrawAfterFlood": {
           "description": "Return to Draw after a flood fill. After a flood fill, switch the board editor back to the Draw tool.",

@@ -3,7 +3,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createDocumentIdentity, kindForPath, programCodec, type AnyDocument, type ProgramDocument, type ProgramDocumentSnapshot } from "../src/index.ts";
+import { createDocumentIdentity, kindForPath, programCodec, type ProgramDocument, type ProgramDocumentSnapshot } from "../src/index.ts";
 
 const PATH = "Prg/intro.prg";
 const text = (value: string): Uint8Array => Uint8Array.from(value, (ch) => ch.charCodeAt(0));
@@ -125,5 +125,5 @@ test("a save writes the edited bytes and reopening gives the same text", async (
   deepEqual(host.bytesOf(PATH), text("// top\r\n// caf\u00e9\r\nx = 1\r\n"));
   const again = await kindForPath(PATH)!.open(host.fs, createDocumentIdentity("memory-project", PATH));
   ok(again.ok);
-  equal((again.document as AnyDocument & { getSnapshot(): ProgramDocumentSnapshot }).getSnapshot().text, "// top\n// caf\u00e9\nx = 1\n");
+  equal((again.document as unknown as ProgramDocument).getSnapshot().text, "// top\n// caf\u00e9\nx = 1\n");
 });

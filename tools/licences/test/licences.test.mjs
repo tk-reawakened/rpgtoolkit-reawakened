@@ -728,3 +728,29 @@ test("bundled SoundFont: an on-disk bank missing from config fails", () => {
       violation.type === "unlisted-bundled-soundfont" && violation.path === soundfontRel));
   });
 });
+
+test("dependency-shipped assets: a changed hash, a missing notice and an unrecorded font each fail the audit", async () => {
+  const { auditDependencyAssets } = await import("../check.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "dep-asset-"));
+  try {
+    mkdirSync(join(dir, "pkg", "fonts"), { recursive: true });
+    writeFileSync(join(dir, "pkg", "fonts", "icons.ttf"), "font-bytes");
+    writeFileSync(join(dir, "pkg", "fonts", "other.woff2"), "more");
+    const sha256 = createHash("sha256").update("font-bytes").digest("hex");
+    const record = { package: "pkg", from: "pkg", path: "fonts/icons.ttf", license: "CC-BY-4.0", sha256 };
+    const config = { ...defaultPolicy, bundledAssets: { dependencyAssets: [record] } };
+    const notices = `icons.ttf ${sha256} CC-BY-4.0`;
+    const types = (result) => result.violations.map((violation) => violation.type).sort();
+    assert.deepEqual(types(auditDependencyAssets(dir, config, notices, true)), ["unlisted-dependency-asset"]);
+    writeFileSync(join(dir, "pkg", "fonts", "other.woff2"), "x");
+    rmSync(join(dir, "pkg", "fonts", "other.woff2"));
+    assert.deepEqual(types(auditDependencyAssets(dir, config, notices, true)), []);
+    assert.deepEqual(types(auditDependencyAssets(dir, config, "nothing", true)), ["missing-dependency-asset-notice"]);
+    writeFileSync(join(dir, "pkg", "fonts", "icons.ttf"), "changed");
+    assert.deepEqual(types(auditDependencyAssets(dir, config, notices, true)), ["dependency-asset-hash-mismatch"]);
+    const copyleft = { ...config, bundledAssets: { dependencyAssets: [{ ...record, license: "GPL-3.0-only" }] } };
+    assert.ok(types(auditDependencyAssets(dir, copyleft, notices, true)).includes("unapproved-dependency-asset-license"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

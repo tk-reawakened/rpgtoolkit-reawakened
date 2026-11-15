@@ -435,6 +435,85 @@ export function auditBundledFonts(root, config, noticesContent, noticesFilePrese
 
   return { violations, warnings, count: fontRecords.length };
 }
+/** Font files a dependency may ship; every one inside an audited package must be recorded. */
+const DEPENDENCY_FONT_EXTENSIONS = new Set([".ttf", ".otf", ".woff", ".woff2", ".eot"]);
+
+/** Every file below `directory` with a font extension, as paths relative to it with `/` separators. */
+function fontFilesUnder(directory) {
+  const found = [];
+  const visit = (current, prefix) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) visit(join(current, entry.name), relative);
+      else if (DEPENDENCY_FONT_EXTENSIONS.has(entry.name.slice(entry.name.lastIndexOf(".")).toLowerCase())) found.push(relative);
+    }
+  };
+  visit(directory, "");
+  return found;
+}
+
+/**
+ * Audits files a direct dependency ships inside its own package (ADR 0034 decision 2, 4 and 5): each recorded file must
+ * exist in the installed package with the recorded SHA-256, carry a known licence the transitive tier accepts, and be
+ * named with its hash and licence in THIRD_PARTY_NOTICES. A font file the package ships that is not recorded fails, so a
+ * version bump cannot add an asset nobody read the licence of.
+ */
+export function auditDependencyAssets(root, config, noticesContent, noticesFilePresent) {
+  const violations = [];
+  const records = config.bundledAssets?.dependencyAssets || [];
+  const recorded = new Set(records.map((record) => `${record.from}/${record.path}`));
+  const audited = new Set(records.map((record) => record.from));
+
+  for (const record of records) {
+    const label = `${record.package}:${record.path}`;
+    const fullPath = join(root, record.from, record.path);
+    if (!existsSync(fullPath)) {
+      violations.push({ type: "missing-dependency-asset", path: label, message: `Dependency asset ${label} is not in the installed package at ${record.from}` });
+      continue;
+    }
+    const actualHash = createHash("sha256").update(readFileSync(fullPath)).digest("hex");
+    if (actualHash !== record.sha256) {
+      violations.push({
+        type: "dependency-asset-hash-mismatch",
+        path: label,
+        expectedHash: record.sha256,
+        actualHash,
+        message: `Dependency asset ${label} SHA-256 mismatch (expected ${record.sha256}, got ${actualHash}); read what changed and update its record and notice`,
+      });
+    }
+    const evaluated = evaluateLicense(record.license, config, "transitive");
+    if (!evaluated.pass) {
+      violations.push({ type: "unapproved-dependency-asset-license", path: label, license: record.license, message: `Dependency asset ${label} with license '${record.license}' rejected: ${evaluated.reason}` });
+    }
+    if (noticesFilePresent) {
+      const fileName = record.path.slice(record.path.lastIndexOf("/") + 1);
+      const complete = noticesContent.includes(fileName) && noticesContent.includes(record.sha256) && noticesContent.includes(record.license);
+      if (!complete) {
+        violations.push({
+          type: "missing-dependency-asset-notice",
+          path: label,
+          message: `Dependency asset ${label} needs a THIRD_PARTY_NOTICES entry containing its file name, SHA-256 and licence`,
+        });
+      }
+    }
+  }
+
+  for (const from of audited) {
+    const directory = join(root, from);
+    if (!existsSync(directory)) continue;
+    for (const file of fontFilesUnder(directory)) {
+      if (!recorded.has(`${from}/${file}`)) {
+        violations.push({
+          type: "unlisted-dependency-asset",
+          path: `${from}/${file}`,
+          message: `Font file ${from}/${file} ships in an audited dependency but is not recorded in bundledAssets.dependencyAssets`,
+        });
+      }
+    }
+  }
+  return { violations, count: records.length };
+}
+
 /**
  * Audits bundled SoundFont assets against config records, on-disk files, and notices.
  *
@@ -742,6 +821,14 @@ export function checkLicences(root = repoRoot, options = {}) {
     fontCount = fontAudit.count;
   }
 
+  // 6b. Audit files direct dependencies ship inside their own packages
+  let dependencyAssetCount = 0;
+  if (config.bundledAssets?.dependencyAssets) {
+    const dependencyAudit = auditDependencyAssets(root, config, noticesContent, noticesFilePresent);
+    violations.push(...dependencyAudit.violations);
+    dependencyAssetCount = dependencyAudit.count;
+  }
+
   // 7. Audit bundled SoundFont assets
   let soundfontCount = 0;
   if (config.bundledAssets?.soundfonts || existsSync(join(root, "media", "soundfonts"))) {
@@ -757,6 +844,7 @@ export function checkLicences(root = repoRoot, options = {}) {
     productionDependencies,
     allCount: allPackages.size,
     fontCount,
+    dependencyAssetCount,
     soundfontCount,
     violations,
     warnings,
@@ -825,6 +913,9 @@ if (isMain) {
       console.log(`  Total (prod + dev) packages checked: ${result.allCount}`);
       if (result.fontCount !== undefined) {
         console.log(`  Bundled fonts checked: ${result.fontCount}`);
+      }
+      if (result.dependencyAssetCount !== undefined) {
+        console.log(`  Dependency-shipped assets checked: ${result.dependencyAssetCount}`);
       }
       if (result.soundfontCount !== undefined) {
         console.log(`  Bundled SoundFonts checked: ${result.soundfontCount}`);

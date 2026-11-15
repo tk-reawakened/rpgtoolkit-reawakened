@@ -26,7 +26,7 @@ interface PreferenceBase {
 export type PreferenceEntry =
   | (PreferenceBase & { readonly type: "boolean"; readonly default: boolean })
   | (PreferenceBase & { readonly type: "number"; readonly default: number; readonly min: number; readonly max: number; readonly integer: boolean })
-  | (PreferenceBase & { readonly type: "string"; readonly default: string; readonly maxLength: number })
+  | (PreferenceBase & { readonly type: "string"; readonly default: string; readonly maxLength: number; /** The text may span lines (a header template); every other string is one line. */ readonly multiline?: boolean })
   | (PreferenceBase & { readonly type: "enum"; readonly default: string; readonly options: readonly { readonly value: string; readonly label: string }[] })
   | (PreferenceBase & { readonly type: "color"; readonly default: string })
   | (PreferenceBase & { readonly type: "list"; readonly default: readonly string[]; readonly maxItems: number });
@@ -81,6 +81,7 @@ export const PREFERENCE_CATALOGUE: readonly PreferenceEntry[] = [
     type: "string",
     default: DEFAULT_HEADER_TEMPLATE,
     maxLength: MAX_HEADER_TEMPLATE_LENGTH,
+    multiline: true,
     projectLayer: true,
   },
   toggle("board.revertToDrawAfterFlood", BOARD, "Return to Draw after a flood fill", "After a flood fill, switch the board editor back to the Draw tool.", true),
@@ -151,7 +152,7 @@ export function validatePreference(entry: PreferenceEntry, value: unknown): Pref
     case "string":
       if (typeof value !== "string") return refuse("Enter text.");
       if (value.length > entry.maxLength) return refuse(`Use at most ${entry.maxLength} characters.`);
-      if (/[\u0000-\u001f]/.test(value)) return refuse("Use a single line of text.");
+      if (entry.multiline === true ? /[\u0000-\u0008\u000b-\u001f]/.test(value) : /[\u0000-\u001f]/.test(value)) return refuse(entry.multiline === true ? "Use text with no control characters." : "Use a single line of text.");
       return { ok: true, value };
     case "enum":
       return typeof value === "string" && entry.options.some((option) => option.value === value)
@@ -350,7 +351,7 @@ export function vscodeContributions(catalogue: readonly PreferenceEntry[] = PREF
     switch (entry.type) {
       case "boolean": base.type = "boolean"; base.default = entry.default; break;
       case "number": base.type = entry.integer ? "integer" : "number"; base.default = entry.default; base.minimum = entry.min; base.maximum = entry.max; break;
-      case "string": base.type = "string"; base.default = entry.default; base.maxLength = entry.maxLength; break;
+      case "string": base.type = "string"; base.default = entry.default; base.maxLength = entry.maxLength; if (entry.multiline === true) base.editPresentation = "multilineText"; break;
       case "enum": base.type = "string"; base.default = entry.default; base.enum = entry.options.map((option) => option.value); base.enumDescriptions = entry.options.map((option) => option.label); break;
       case "color": base.type = "string"; base.default = entry.default; base.pattern = COLOR.source; base.patternErrorMessage = "Enter a colour as # and six hexadecimal digits."; break;
       case "list": base.type = "array"; base.default = [...entry.default]; base.items = { type: "string" }; base.maxItems = entry.maxItems; break;

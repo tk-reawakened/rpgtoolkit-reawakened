@@ -103,3 +103,13 @@ test("the VS Code block committed in the extension is the one the catalogue gene
   for (const property of Object.values(generated.configuration.properties)) equal(property.scope, "window");
   equal(generated.restrictedConfigurations.includes("rpgToolkit.board.startLocationDisplay"), false);
 });
+
+test("only a multi-line string may hold line breaks, and neither may hold other control characters", () => {
+  const header = preferenceById("program.headerTemplate")!;
+  const board = preferenceById("editor.backgroundImage")!;
+  deepEqual(validatePreference(header, "// {file}\n\n\tnote"), { ok: true, value: "// {file}\n\n\tnote" });
+  equal(validatePreference(header, "a\u0007b").ok, false);
+  equal(validatePreference(board, "a\nb").ok, false);
+  equal(validatePreference(header, "x".repeat(501)).ok, false);
+  equal(vscodeContributions().configuration.properties["rpgToolkit.program.headerTemplate"]!.editPresentation, "multilineText");
+});

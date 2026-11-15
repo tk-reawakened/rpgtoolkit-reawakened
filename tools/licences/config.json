@@ -69,6 +69,18 @@
         "sizeCeiling": 8388608,
         "notice": "TK-16 is an authored General MIDI bank built entirely from deterministic mathematical waveforms; it contains no third-party samples."
       }
+    ],
+    "dependencyAssets": [
+      {
+        "package": "monaco-editor",
+        "from": "packages/editor-ui/node_modules/monaco-editor",
+        "path": "esm/vs/base/browser/ui/codicons/codicon/codicon.ttf",
+        "license": "CC-BY-4.0",
+        "release": "monaco-editor 0.57.0 (vscode 6a598d4a13031703d483d103c1d934a36ad27971)",
+        "source": "https://github.com/microsoft/vscode-codicons",
+        "sha256": "77f902557231f95c4c71ae517d09a1a842753656f5f665086b3e5ad8095538da",
+        "adr": "ADR-0034"
+      }
     ]
   }
 }
