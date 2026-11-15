@@ -284,15 +284,14 @@ test("in an empty window the folder is opened and the main file is opened by the
     deepEqual(commandCalls(), [["command", "vscode.openFolder", "file:///fresh/quest"]]);
     deepEqual([...persisted.values()], [{ folder: "file:///fresh/quest", main: "file:///fresh/quest/Main/Quest.gam" }]);
 
-    // The extension host restarts with another folder open: nothing is opened and the request is dropped.
+    // An unrelated window activation must leave the request for the newly created folder intact.
     fake.state.calls.length = 0;
     fake.state.workspaceFolders = [folderOf("/other")];
     extension.registerNewProject(context(persisted));
     deepEqual(commandCalls(), []);
-    equal(persisted.size, 0, "a request for a folder that did not open is forgotten");
+    deepEqual([...persisted.values()], [{ folder: "file:///fresh/quest", main: "file:///fresh/quest/Main/Quest.gam" }]);
 
-    // And with the right folder open, the main file opens exactly once.
-    persisted.set("tkr.pendingOpenAfterNewProject", { folder: "file:///fresh/quest", main: "file:///fresh/quest/Main/Quest.gam" });
+    // The target window consumes and opens the main file exactly once.
     fake.state.workspaceFolders = [folderOf("/fresh/quest")];
     extension.registerNewProject(context(persisted));
     deepEqual(commandCalls(), [["command", "vscode.open", "file:///fresh/quest/Main/Quest.gam"]]);

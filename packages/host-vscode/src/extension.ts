@@ -223,8 +223,7 @@ async function openCreatedProject(context: vscode.ExtensionContext, destination:
 function resumePendingOpen(context: vscode.ExtensionContext): void {
   const pending = context.globalState.get<PendingOpen>(PENDING_OPEN);
   if (pending === undefined) return;
+  if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === pending.folder)) return;
   void context.globalState.update(PENDING_OPEN, undefined);
-  if ((vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === pending.folder)) {
-    void vscode.commands.executeCommand("vscode.open", vscode.Uri.parse(pending.main));
-  }
+  void vscode.commands.executeCommand("vscode.open", vscode.Uri.parse(pending.main));
 }

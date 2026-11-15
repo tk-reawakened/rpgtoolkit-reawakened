@@ -310,6 +310,32 @@ test("planned starter ancestor case variants are refused before any writes", asy
   ok(!firstFolder.ok && !secondFolder.ok, "refusal creates neither spelling of the ambiguous directory");
 });
 
+test("a planned starter file cannot alias another starter's directory ancestor", async () => {
+  const file = (id: string, path: string): StarterDefinition => ({
+    id, label: id, description: "Starter", writes: path,
+    provenance: "Written for this project; MIT.", unavailable: null,
+    contribute: () => ({ files: [{ path, bytes: new Uint8Array([1]) }], main: {} }),
+  });
+  const definitions = [
+    [file("file", "Prg/tools"), file("nested", "Prg/TOOLS/start.prg")],
+    [file("nested", "Prg/TOOLS/start.prg"), file("file", "Prg/tools")],
+  ];
+  for (const starters of definitions) {
+    const host = createMemoryPlatformServices();
+    const planned = planNewProject(settings({ starters: starters.map(({ id }) => id) }), starters);
+    ok(!planned.ok);
+    ok(planned.problems[0]!.message.includes("file") && planned.problems[0]!.message.includes("folder"));
+
+    const refused = await createNewProject(host.fs, settings({ starters: starters.map(({ id }) => id) }), starters);
+    ok(!refused.ok && refused.reason === "invalid");
+    equal(host.bytesOf("Prg/tools"), undefined);
+    equal(host.bytesOf("Prg/TOOLS/start.prg"), undefined);
+    equal(host.bytesOf("Main/MyQuest.gam"), undefined);
+    const projectFolder = await host.fs.stat("Prg");
+    ok(!projectFolder.ok, "the invalid plan creates no folder");
+  }
+});
+
 test("nested starter paths refuse an incompatible intermediate file before writing", async () => {
   const nested: StarterDefinition[] = [{
     id: "nested", label: "Nested", description: "Nested starter", writes: "Prg/tools/start.prg",

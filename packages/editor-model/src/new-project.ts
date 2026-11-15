@@ -300,23 +300,37 @@ export function planNewProject(settings: NewProjectSettings, definitions: readon
   const duplicate = files.find((file, index) => files.findIndex((other) => foldPath(other.path) === foldPath(file.path)) !== index);
   if (duplicate !== undefined) return { ok: false, problems: [{ field: "starters", message: `Two starter items both write ${duplicate.path}.` }] };
   const directorySpellings = new Map<string, string>();
+  const plannedFiles = new Map<string, string>();
   for (const file of files) {
     const parts = file.path.split("/");
     for (let index = 1; index < parts.length; index += 1) {
       const directory = parts.slice(0, index).join("/");
       const folded = foldPath(directory);
+      const fileAtDirectory = plannedFiles.get(folded);
+      if (fileAtDirectory !== undefined) {
+        return { ok: false, problems: [{ field: "starters", message: `Starter path ${fileAtDirectory} is a file, but ${directory} is needed as a folder.` }] };
+      }
       const previous = directorySpellings.get(folded);
       if (previous !== undefined && previous !== directory) {
         return { ok: false, problems: [{ field: "starters", message: `Starter paths use both ${previous} and ${directory} for the same folder.` }] };
       }
       directorySpellings.set(folded, directory);
     }
+    const fileDirectory = directorySpellings.get(foldPath(file.path));
+    if (fileDirectory !== undefined) {
+      return { ok: false, problems: [{ field: "starters", message: `Starter path ${file.path} is a file, but ${fileDirectory} is needed as a folder.` }] };
+    }
+    plannedFiles.set(foldPath(file.path), file.path);
   }
   for (const folder of folders) {
     const folded = foldPath(folder);
     const previous = directorySpellings.get(folded);
     if (previous !== undefined && previous !== folder) {
       return { ok: false, problems: [{ field: "starters", message: `Starter paths use ${previous} where the project needs ${folder}.` }] };
+    }
+    const file = plannedFiles.get(folded);
+    if (file !== undefined) {
+      return { ok: false, problems: [{ field: "starters", message: `Starter path ${file} is a file, but the project needs ${folder} as a folder.` }] };
     }
     directorySpellings.set(folded, folder);
   }
