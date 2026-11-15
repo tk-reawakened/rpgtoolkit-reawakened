@@ -78,6 +78,7 @@ A vision to realize. RPG Toolkit 3 (final release 2007) is a Windows-only, GPL-2
   - **success:** The same editor-ui build opens and saves a project in VS Code (incl. a `vscode.dev` web build) and in the PWA; neither host imports the other, and no feature exists in only one host.
 
 - **CAP-19**
+  - **owner:** [Epic 17 in the TK Reawakened Website initiative](../../initiative-tk-reawakened-website/epic-documentation-website/epic-documentation-website.md).
   - **intent:** People who have never seen the project can find out what it is, install or open it on every shipped host, and learn to play, make, import, debug, package and share a game from versioned user documentation and a public website that match the released product; contributors and extension authors get developer documentation. The normative spec (`docs/spec/`) stays the separate engine and format contract and is linked, never restated.
   - **success:** A reader who did not write the documentation completes each flagship task (install or open on each shipped host, build a first game, import a legacy game, debug a script, package and share a game) from the published site against the release build; every command name, menu label, file name, format name and code sample in the user documentation is checked against the built product or the normative spec by a gate or a recorded walkthrough; link, accessibility and build checks pass for every published version.
 - **CAP-20**

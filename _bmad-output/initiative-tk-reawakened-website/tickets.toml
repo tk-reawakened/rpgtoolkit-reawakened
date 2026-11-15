@@ -1,0 +1,8 @@
+# Epics in the website initiative, in build order.
+
+[[epic]]
+id = 17
+tracker_id = "#1362"
+slug = "epic-documentation-website"
+title = "Documentation and public website: install, make, import, debug, package and share games"
+covers = ["CAP-19"]
