@@ -95,8 +95,8 @@ function rebaseTextChanges(source: string, target: string, changes: readonly Tex
   const rebased: TextChange[] = [];
   for (const change of changes) {
     // Keep the original differing text anchored: re-diffing can mistake newly
-    // typed repeated text for the text removed by undo. Shift the anchor only
-    // when an earlier sequential edit moves both texts before that difference.
+    // typed repeated text for the text removed by undo. Shift the anchor when a
+    // sequential edit lies wholly before or at the difference's start.
     const mappedFrom = difference === null || change.from <= from
       ? change.from
       : change.from >= to
@@ -108,9 +108,7 @@ function rebaseTextChanges(source: string, target: string, changes: readonly Tex
         ? change.to + targetTo - to
         : from;
     rebased.push({ from: mappedFrom, to: mappedTo, text: change.text });
-    source = source.slice(0, change.from) + change.text + source.slice(change.to);
-    target = target.slice(0, mappedFrom) + change.text + target.slice(mappedTo);
-    if (change.from < from && change.to <= from) {
+    if (change.from <= from && change.to <= from) {
       const shift = change.text.length - (change.to - change.from);
       from += shift;
       to += shift;
@@ -435,7 +433,18 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
           return result;
         } finally {
           queuedSaveBoundaries.current -= 1;
-          if (control.current.buffer.length > 0 && queuedSaveBoundaries.current === 0) flush();
+          if (queuedSaveBoundaries.current === 0) {
+            if (control.current.buffer.length > 0) {
+              // Later surface changes follow the captured edits, even though the document has moved through history.
+              // Rebase them against the saved document before flushing so their offsets still address that text.
+              const pendingSource = edits.reduce((text, edit) => text.slice(0, edit.from) + edit.text + text.slice(edit.to), source);
+              const rebased = rebaseTextChanges(pendingSource, latest.current.doc.getSnapshot().text, control.current.buffer);
+              control.current.buffer.splice(0, control.current.buffer.length, ...rebased);
+              flush();
+            } else {
+              syncFromDocument(true);
+            }
+          }
         }
       });
     }

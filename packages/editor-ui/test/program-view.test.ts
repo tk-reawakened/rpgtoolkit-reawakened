@@ -313,7 +313,74 @@ test("typing after a queued undo survives disposal without restoring undone text
   deepEqual(s.host.bytesOf(PATH), bytes("a"), "disposal does not change what the earlier save wrote");
 });
 
-test("a save queued behind undo excludes typing after its invocation", async () => {
+test("an insertion at the undo anchor can be deleted without leaving it behind", async () => {
+  const s = await setup({ content: "x" });
+  const gate = deferred<void>();
+  const started = deferred<void>();
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      const result = await s.doc.save();
+      started.resolve();
+      await gate.promise;
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  show(s, { document: view });
+  await type(s.el, "xa");
+  await act(async () => { named(s.el, "Save").click(); });
+  await started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "xba");
+  await type(s.el, "xa");
+  gate.resolve();
+  await settled();
+  equal(textOf(s), "x", "inserting b at the deleted text's start and deleting it leaves the original x");
+  equal(area(s.el).value, "x");
+});
+
+test("a queued undo followed by Save synchronizes the surface even with no later typing", async () => {
+  const s = await setup({ content: "" });
+  const gate = deferred<void>();
+  const started = deferred<void>();
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      const result = await s.doc.save();
+      started.resolve();
+      await gate.promise;
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  show(s, { document: view });
+  await type(s.el, "a");
+  await act(async () => { named(s.el, "Save").click(); });
+  await started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await act(async () => { named(s.el, "Save").click(); });
+  gate.resolve();
+  await settled();
+  equal(textOf(s), "");
+  equal(area(s.el).value, "", "the visible surface follows the undo after the queued Save completes");
+  deepEqual(s.host.bytesOf(PATH), bytes(""), "the queued Save writes the empty document");
+});
+
+
+test("typing after a queued undo and Save is rebased from the saved prefix", async () => {
   const s = await setup({ content: "" });
   const firstGate = deferred<void>();
   const firstStarted = deferred<void>();
@@ -345,13 +412,14 @@ test("a save queued behind undo excludes typing after its invocation", async () 
   await act(async () => { named(s.el, "Save").click(); });
   await firstStarted.promise;
   await key(area(s.el), { key: "z", ctrlKey: true });
-  await type(s.el, "b");
+  await type(s.el, "ab");
   await act(async () => { named(s.el, "Save").click(); });
-  await type(s.el, "bc");
+  await type(s.el, "abc");
   firstGate.resolve();
   await secondStarted.promise;
   await settled();
   deepEqual(s.host.bytesOf(PATH), bytes("b"), "the queued save writes the typing that preceded its request");
+  equal(textOf(s), "bc", "typing after the queued Save is rebased onto the saved b in the document");
   equal(area(s.el).value, "bc", "typing after the save request stays visible in the surface");
 });
 
