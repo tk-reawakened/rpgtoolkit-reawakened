@@ -65,3 +65,6 @@ __pycache__/
 apps/
 test-results/
 playwright-report/
+
+# Local profiles from tools/perf
+/.perf/
