@@ -17,7 +17,7 @@ The home page explains what TK Reawakened is, shows what someone can do with it,
 | --- | --- |
 | Download | Find the current release by platform and role, such as authoring or playing, and see requirements, install/open instructions, release notes and the matching docs. Clearly identify preview builds when available. |
 | Docs | Search responsive, versioned guides. Start with a small game that works against the shipped build. Find RPGCode and editor reference, migration and troubleshooting guides, and links from the guide to tested examples. |
-| Games and showcase | Find preserved Toolkit games, new releases, demos and works in progress. Label each entry by origin and whether it is playable. Start with one original example and a small set of approved entries. A “Contribute a game” route can take a link to a new project or a lead on a missing classic. Publish credited entries with permission, a short description and a play, archive or devlog link as appropriate. |
+| Games and showcase | Find preserved Toolkit games, new releases and demos. Browse Work in Progress as a category of Games. Label each entry by origin and whether it is playable. Start with one original example and a small set of approved entries. A “Contribute a game” route can take a link to a new project or a lead on a missing classic. Publish credited entries with permission, a short description and a play, archive or devlog link as appropriate. |
 | Community | Meet other beginners, ask for help, share work, playtest, and contribute to the project or its guides. Offer a simple submission path for a link, screenshot or recipe. Publish a code of conduct, a report route, and a short explanation of how submissions are reviewed and credited. |
 
 ## Give people a reason to come back
@@ -31,12 +31,12 @@ Both rpgtoolkit.com and Toolkit Zone gave people a way into the community from t
 - [Toolkit Zone Games Browse](https://web.archive.org/web/20070220112409/http://www.toolkitzone.com:80/games.php?browse) and [Library Browse](https://web.archive.org/web/20100305154633/http://www.toolkitzone.com:80/library.php?browse)
 - [Dark Age Games Expo awards](https://darkagegames.net/fanart.php) and [1-Room RPG Jam](https://itch.io/jam/1-room-rpg-jam)
 
-Give featured projects and community prompts a discussion that is reachable from the page itself. The same discussion links back to the project or prompt. Readers can follow the conversation where they found the work, and the forum holds the replies and moderation. See the [forum integration proposal](../epic-documentation-website/discovery/hosting-options.md#forum-integration).
+A work-in-progress game links directly to its own topic in Community, where visitors can follow updates or respond to the creator’s feedback request. That topic links back to the game. Featured releases and community prompts can use the same pattern. Readers can follow the conversation where they found the work, and the forum holds the replies and moderation. See the [forum integration proposal](../epic-documentation-website/discovery/hosting-options.md#forum-integration).
 
 ## What to prove first
 
 - From the home page, a first-time visitor can explain what the product does, find the right build and reach the first-room tutorial. A returning creator can find the migration prerequisites and understand what their old project can import.
-- A visitor can identify a preserved game and a newly made project, see what is playable, and find where to contribute a game. A reviewer can publish an approved submission with consent and credit, and a playtester can move between the project and its discussion.
+- A visitor can identify a preserved game and a newly made project, see what is playable, and find where to contribute a game. A reviewer can publish an approved submission with consent and credit, and a visitor can open a work in progress in Games, follow its link to the specific Community topic, and return to the same game page.
 - The first prompt produces a dated public recap and evidence that makers received feedback. Review submissions, replies and repeat participation before deciding how often to run it.
 
 ## Keeping the site open
