@@ -1,4 +1,4 @@
-import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, openWebProject, reopenWebProject, type DocumentView, type WebProject, type Workbench } from "@tk-reawakened/host-web";
+import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, newWebProject, openWebProject, reopenWebProject, type DocumentView, type WebProject, type Workbench } from "@tk-reawakened/host-web";
 import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
@@ -7,6 +7,7 @@ const playerOptions = { playerUrl: "/packages/runner-web/app/index.html" };
 const status = document.querySelector<HTMLElement>("#host-status")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
 const folderButton = document.querySelector<HTMLButtonElement>("#open-project")!;
+const newProjectButton = document.querySelector<HTMLButtonElement>("#new-project")!;
 const fileInput = document.querySelector<HTMLInputElement>("#open-session")!;
 const gameLabel = document.querySelector<HTMLLabelElement>("#project-game-label")!;
 const gameSelect = document.querySelector<HTMLSelectElement>("#project-game")!;
@@ -146,6 +147,21 @@ folderButton.addEventListener("click", () => {
     await openProjectGame(project, request);
   })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
 });
+newProjectButton.addEventListener("click", () => {
+  const request = ++openRequest;
+  void (async () => {
+    const result = await newWebProject({ ...playerOptions, element: document.querySelector("main")! });
+    if (request !== openRequest) {
+      if (result.ok) retireProjectIfUnowned(result.project);
+      return;
+    }
+    if (!result.ok) {
+      status.textContent = result.message;
+      return;
+    }
+    await openCreatedProject(result.project, result.mainPath, request);
+  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
+});
 reopenButton.addEventListener("click", () => {
   const request = ++openRequest;
   void (async () => {
@@ -191,6 +207,19 @@ async function refreshRecentProjects(): Promise<void> {
   recentLabel.hidden = !hasProjects;
   recentSelect.hidden = !hasProjects;
   reopenButton.hidden = !hasProjects;
+}
+
+/** Open the main file a new project was just made with; the project holds nothing else the person has not seen. */
+async function openCreatedProject(project: WebProject, mainPath: string, request: number): Promise<void> {
+  retainProjectUse(project);
+  try {
+    hideProjectChoices();
+    await refreshRecentProjects();
+    if (request !== openRequest) return;
+    await show(project, mainPath, request);
+  } finally {
+    releaseProjectUse(project);
+  }
 }
 
 async function openProjectGame(project: WebProject, request: number): Promise<void> {
