@@ -54,7 +54,7 @@ copyFileSync(join(root, "packages/editor-ui/src/program-view.css"), join(editorW
 // to the bundle under its own name and the bundle's stylesheet points at it, so the page loads it from its own origin
 // (`font-src 'self'`, ADR 0029). `docs/findings/monaco-integration/README.md` records what the bundle holds.
 await build({
-  entryPoints: [join(here, "editor-web", "main.tsx")],
+  entryPoints: [join(here, "editor-web", "page.ts")],
   outfile: editorWebOut,
   ...bundleOptions,
   loader: { ".ttf": "file" },

@@ -1,18 +1,18 @@
-import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, openWebProject, reopenWebProject, type DocumentView, type WebProject, type Workbench } from "@tk-reawakened/host-web";
+import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, openWebProject, reopenWebProject, type DocumentView, type WebProject, type WebProjectOptions, type Workbench } from "@tk-reawakened/host-web";
 import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
-// Monaco is chosen here, by the page, and not by `host-web`: importing it loads the editor, which only a browser page does.
-import { createMonacoSurfaceFactory } from "@tk-reawakened/editor-ui/monaco";
 
 /**
  * Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). Programs edit in Monaco with a
  * same-origin classic worker, and the language server runs in another one (story 11.7, ADR 0029): both are scripts the
  * build emits next to this page, so nothing is fetched from another origin and no `blob:` worker is needed.
  */
+/** The code editor the page entry (`page.ts`) chose before this module ran; none leaves programs in a plain text area. */
+const codeEditor = (globalThis as { __tkrCodeEditor?: WebProjectOptions["codeEditor"] }).__tkrCodeEditor;
 const playerOptions = {
   playerUrl: "/packages/runner-web/app/index.html",
   languageWorkerUrl: "./dist/language-worker.js",
-  codeEditor: createMonacoSurfaceFactory({ workerUrl: "./dist/monaco-editor.worker.js" }),
+  ...(codeEditor === undefined ? {} : { codeEditor }),
 };
 const status = document.querySelector<HTMLElement>("#host-status")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
