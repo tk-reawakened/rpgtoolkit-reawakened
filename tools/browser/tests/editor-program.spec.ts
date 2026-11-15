@@ -61,25 +61,28 @@ async function openProgram(page: Page): Promise<void> {
   await expect(page.locator(".monaco-editor .view-lines")).toBeVisible();
 }
 
-const bytesOf = (page: Page, path: string): Promise<number[]> =>
-  page.evaluate(async (target) => {
-    let handle: FileSystemDirectoryHandle = (window as ProofWindow).__tkrTestFolder!;
-    const parts = target.split("/");
-    for (const part of parts.slice(0, -1)) handle = await handle.getDirectoryHandle(part);
-    const file = await (await handle.getFileHandle(parts.at(-1)!)).getFile();
-    return Array.from(new Uint8Array(await file.arrayBuffer()));
-  }, path);
-
 /** The file as the host stores it, as Latin-1 text, once it satisfies `accept` (a save is asynchronous). */
 const savedText = async (page: Page, path: string, accept: (text: string) => boolean): Promise<string> => {
   let text = "";
   await expect.poll(async () => {
-    text = Buffer.from(await bytesOf(page, path)).toString("latin1");
+    const bytes = await page.evaluate(async (target) => {
+      try {
+        let handle: FileSystemDirectoryHandle = (window as ProofWindow).__tkrTestFolder!;
+        const parts = target.split("/");
+        for (const part of parts.slice(0, -1)) handle = await handle.getDirectoryHandle(part);
+        const file = await (await handle.getFileHandle(parts.at(-1)!)).getFile();
+        return Array.from(new Uint8Array(await file.arrayBuffer()));
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "NotFoundError") return null;
+        throw error;
+      }
+    }, path);
+    if (bytes === null) return false;
+    text = Buffer.from(bytes).toString("latin1");
     return accept(text);
   }).toBe(true);
   return text;
 };
-
 const violations = (page: Page): Promise<readonly { readonly directive: string; readonly blocked: string }[]> =>
   page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? []);
 
