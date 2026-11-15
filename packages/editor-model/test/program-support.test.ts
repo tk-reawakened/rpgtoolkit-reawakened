@@ -101,7 +101,7 @@ test("New program writes the expanded template with CRLF and rejects a listed ca
 });
 
 test("New program rejects an existing file through differently-cased folder components on case-sensitive storage", async () => {
-  const files = new Map([["Prg/Intro.prg", new Uint8Array([120])]]);
+  const files = new Map<string, Uint8Array>([["Prg/Intro.prg", new Uint8Array([120])]]);
   const original = files.get("Prg/Intro.prg")!;
   let writes = 0;
   const fs = {

@@ -21,6 +21,13 @@ import type { LanguageFeatures, SurfaceDiagnostic, TextSurface, TextSurfaceFacto
 
 const PATH = "Prg/intro.prg";
 const bytes = (value: string): Uint8Array => Uint8Array.from(value, (ch) => ch.charCodeAt(0));
+function deferred<T = void>(): { readonly promise: Promise<T>; readonly resolve: T extends void ? () => void : (value: T) => void } {
+  let resolvePromise!: (value: T) => void;
+  const promise = new Promise<T>((resolve) => { resolvePromise = resolve; });
+  const resolve = ((value?: T) => resolvePromise(value as T)) as T extends void ? () => void : (value: T) => void;
+  return { promise, resolve };
+}
+
 
 type Mount = typeof mountView;
 let mount: Mount;
@@ -173,10 +180,44 @@ test("undo and redo go to the document, and the text area follows it", async () 
   equal(textOf(s), "x = 1\ny = 22\n");
 });
 
+test("typing repeated text then deleting it after a queued undo does not resurrect the undone text", async () => {
+  const s = await setup({ content: "" });
+  const gate = deferred<void>();
+  const started = deferred<void>();
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      const result = await s.doc.save();
+      started.resolve();
+      await gate.promise;
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  show(s, { document: view });
+  await type(s.el, "a");
+  await act(async () => { named(s.el, "Save").click(); });
+  await started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "aa");
+  await type(s.el, "a");
+  gate.resolve();
+  await settled();
+  equal(textOf(s), "", "the appended a and its deletion remain edits to the new empty text");
+  equal(area(s.el).value, "");
+});
+
+
 test("typing after a queued undo rebases onto the undone text instead of restoring it", async () => {
   const s = await setup({ content: "" });
-  const gate = Promise.withResolvers<void>();
-  const started = Promise.withResolvers<void>();
+  const gate = deferred<void>();
+  const started = deferred<void>();
   const view: ProgramViewDocument = {
     kind: s.doc.kind,
     identity: s.doc.identity,
@@ -208,8 +249,8 @@ test("typing after a queued undo rebases onto the undone text instead of restori
 
 test("typing after a queued undo survives disposal without restoring undone text", async () => {
   const s = await setup({ content: "" });
-  const gate = Promise.withResolvers<void>();
-  const started = Promise.withResolvers<void>();
+  const gate = deferred<void>();
+  const started = deferred<void>();
   const view: ProgramViewDocument = {
     kind: s.doc.kind,
     identity: s.doc.identity,
@@ -239,11 +280,87 @@ test("typing after a queued undo survives disposal without restoring undone text
   deepEqual(s.host.bytesOf(PATH), bytes("a"), "disposal does not change what the earlier save wrote");
 });
 
+test("a save queued behind undo writes its requested typing revision, not later typing", async () => {
+  const s = await setup({ content: "" });
+  const firstGate = deferred<void>();
+  const firstStarted = deferred<void>();
+  const secondStarted = deferred<void>();
+  let saveCalls = 0;
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      saveCalls += 1;
+      const result = await s.doc.save();
+      if (saveCalls === 1) {
+        firstStarted.resolve();
+        await firstGate.promise;
+      } else {
+        secondStarted.resolve();
+      }
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  show(s, { document: view });
+  await type(s.el, "a");
+  await act(async () => { named(s.el, "Save").click(); });
+  await firstStarted.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "b");
+  await act(async () => { named(s.el, "Save").click(); });
+  firstGate.resolve();
+  await secondStarted.promise;
+  await type(s.el, "bc");
+  await settled();
+  deepEqual(s.host.bytesOf(PATH), bytes("b"), "the queued save writes the typing that preceded its request");
+  equal(area(s.el).value, "bc", "typing after the save request stays visible in the surface");
+});
+
+test("queued undo and insertion preserve untouched mixed line endings", async () => {
+  const s = await setup({ content: "one\r\ntwo\nthree\r\n" });
+  const gate = deferred<void>();
+  const started = deferred<void>();
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      const result = await s.doc.save();
+      started.resolve();
+      await gate.promise;
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  show(s, { document: view });
+  await type(s.el, "one\ntwo!\nthree\n");
+  await act(async () => { named(s.el, "Save").click(); });
+  await started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "one\ntwo!x\nthree\n");
+  gate.resolve();
+  await settled();
+  equal(textOf(s), "one\ntwox\nthree\n");
+  await act(async () => { named(s.el, "Save").click(); });
+  await settled();
+  deepEqual(s.host.bytesOf(PATH), bytes("one\r\ntwox\nthree\r\n"));
+});
+
 test("a second Save writes the revision that existed when it was invoked", async () => {
   const s = await setup({ content: "" });
-  const firstGate = Promise.withResolvers<void>();
-  const firstStarted = Promise.withResolvers<void>();
-  const secondStarted = Promise.withResolvers<void>();
+  const firstGate = deferred<void>();
+  const firstStarted = deferred<void>();
+  const secondStarted = deferred<void>();
   let saveCalls = 0;
   const view: ProgramViewDocument = {
     kind: s.doc.kind,
@@ -273,7 +390,7 @@ test("a second Save writes the revision that existed when it was invoked", async
   await type(s.el, "second");
   await act(async () => { named(s.el, "Save").click(); });
   await type(s.el, "third");
-  await act(() => area(s.el).dispatchEvent(new Event("blur")));
+  await act(() => { area(s.el).dispatchEvent(new Event("blur")); });
   await settled();
   firstGate.resolve();
   await secondStarted.promise;
@@ -344,8 +461,8 @@ test("the command reference filters, and inserting replaces the selection with n
 });
 test("command insertion still reaches the document when its tab is disposed before the queued command runs", async () => {
   const s = await setup({ content: "before\n" });
-  const gate = Promise.withResolvers<void>();
-  const entered = Promise.withResolvers<void>();
+  const gate = deferred<void>();
+  const entered = deferred<void>();
   const view: ProgramViewDocument = {
     kind: s.doc.kind,
     identity: s.doc.identity,

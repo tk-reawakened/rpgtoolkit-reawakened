@@ -87,9 +87,12 @@ function flatten(symbols: readonly SymbolNode[]): BookmarkRow[] {
  * Reapply edits made against a stale surface after history changed the document underneath it. Each input change is
  * transformed through the difference between the text the surface has and the current document text.
  */
-function rebaseTextChanges(source: string, target: string, changes: readonly TextChange[]): string {
+function rebaseTextChanges(source: string, target: string, changes: readonly TextChange[]): TextChange[] {
+  // Keep the original difference anchored while replaying the burst. Re-diffing after each
+  // change can mistake newly typed repeated text for the text removed by undo.
+  const difference = diffText(source, target);
+  const rebased: TextChange[] = [];
   for (const change of changes) {
-    const difference = diffText(source, target);
     const from = difference === null || change.from <= difference.from
       ? change.from
       : change.from >= difference.to
@@ -100,10 +103,12 @@ function rebaseTextChanges(source: string, target: string, changes: readonly Tex
       : change.to >= difference.to
         ? change.to + difference.text.length - (difference.to - difference.from)
         : difference.from;
+    const rebasedChange = { from, to, text: change.text };
+    rebased.push(rebasedChange);
     source = source.slice(0, change.from) + change.text + source.slice(change.to);
     target = target.slice(0, from) + change.text + target.slice(to);
   }
-  return target;
+  return rebased;
 }
 
 
@@ -355,18 +360,20 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         await tracker.idle();
         const step = which === "undo" ? latest.current.doc.undo : latest.current.doc.redo;
         if (step === undefined) return;
-        const before = latest.current.doc.getSnapshot().text;
+        const beforeSnapshot = latest.current.doc.getSnapshot();
+        const before = beforeSnapshot.text;
         try {
           const result = await step.call(latest.current.doc);
           setMessage(result.ok ? null : `Nothing to ${which}.`);
         } catch (error) {
           setMessage(error instanceof Error ? error.message : String(error));
         }
+        const after = latest.current.doc.getSnapshot().text;
         const ctl = control.current;
         if (ctl.buffer.length > 0) {
-          const after = latest.current.doc.getSnapshot().text;
-          const text = rebaseTextChanges(before, after, ctl.buffer);
-          ctl.buffer.splice(0, ctl.buffer.length, { from: 0, to: after.length, text });
+          const edits = rebaseTextChanges(before, after, ctl.buffer);
+          ctl.buffer.splice(0, ctl.buffer.length, ...edits);
+          const text = edits.reduce((value, edit) => value.slice(0, edit.from) + edit.text + value.slice(edit.to), after);
           ctl.surface?.setText(text);
           flush(true);
           await tracker.idle();
@@ -381,6 +388,16 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   };
 
   const save = (): Promise<SaveResult | null> => {
+    // A save behind queued history must snapshot the revision after that history and its buffered typing settle.
+    if (historyQueued.current) {
+      return enqueueCommand(async () => {
+        await tracker.idle();
+        const result = await latest.current.doc.save();
+        if (!result.ok) setMessage(result.failure.message);
+        else setMessage(null);
+        return result;
+      });
+    }
     // The document fixes the bytes for this invocation immediately, even when an earlier save is still in flight.
     flush();
     const saving = latest.current.doc.save();
