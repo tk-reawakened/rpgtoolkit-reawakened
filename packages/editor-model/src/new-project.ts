@@ -335,6 +335,9 @@ export function planNewProject(settings: NewProjectSettings, definitions: readon
     directorySpellings.set(folded, folder);
   }
   const mainPath = `${MAIN_FOLDER}/${mainFileName(settings.mainFile)}`;
+  if (plannedFiles.has(foldPath(mainPath)) || directorySpellings.has(foldPath(mainPath))) {
+    return { ok: false, problems: [{ field: "starters", message: `A starter path conflicts with the main file ${mainPath}.` }] };
+  }
   const written = writeMainFile(buildMainFile(settings, contributions));
   if (!written.ok) return { ok: false, problems: [{ field: "gameName", message: `The main file could not be written: ${written.error.message}` }] };
   files.push({ path: mainPath, bytes: written.value, role: "main" });

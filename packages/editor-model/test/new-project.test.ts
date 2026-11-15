@@ -336,6 +336,21 @@ test("a planned starter file cannot alias another starter's directory ancestor",
   }
 });
 
+test("starters cannot alias the generated main file or use it as a folder", async () => {
+  for (const path of ["Main/MyQuest.gam", "Main/MYQUEST.gam/start.prg"]) {
+    const starter: StarterDefinition = {
+      id: "collision", label: "Collision", description: "Starter", writes: path,
+      provenance: "Written for this project; MIT.", unavailable: null,
+      contribute: () => ({ files: [{ path, bytes: new Uint8Array([1]) }], main: {} }),
+    };
+    const host = createMemoryPlatformServices();
+    const result = await createNewProject(host.fs, settings({ starters: ["collision"] }), [starter]);
+    ok(!result.ok && result.reason === "invalid");
+    equal(host.bytesOf(path), undefined);
+    ok(!(await host.fs.stat("Main")).ok);
+  }
+});
+
 test("nested starter paths refuse an incompatible intermediate file before writing", async () => {
   const nested: StarterDefinition[] = [{
     id: "nested", label: "Nested", description: "Nested starter", writes: "Prg/tools/start.prg",
