@@ -173,8 +173,8 @@ test("undo and redo go to the document, and the text area follows it", async () 
   equal(textOf(s), "x = 1\ny = 22\n");
 });
 
-test("typing after an undo queued behind a slow save remains after the undo and is not saved early", async () => {
-  const s = await setup();
+test("typing after a queued undo rebases onto the undone text instead of restoring it", async () => {
+  const s = await setup({ content: "" });
   const gate = Promise.withResolvers<void>();
   const started = Promise.withResolvers<void>();
   const view: ProgramViewDocument = {
@@ -194,15 +194,93 @@ test("typing after an undo queued behind a slow save remains after the undo and 
     redo: () => s.doc.redo(),
   };
   show(s, { document: view });
-  await type(s.el, "x = 1\ny = 22\n");
+  await type(s.el, "a");
   await act(async () => { named(s.el, "Save").click(); });
   await started.promise;
   await key(area(s.el), { key: "z", ctrlKey: true });
-  await type(s.el, "x = 1\ny = 33\n");
+  await type(s.el, "ab");
   gate.resolve();
   await settled();
-  equal(textOf(s), "x = 1\ny = 33\n");
-  deepEqual(s.host.bytesOf(PATH), bytes("x = 1\r\ny = 22\r\n"));
+  equal(textOf(s), "b", "only the insertion made after undo survives");
+  equal(area(s.el).value, "b");
+  deepEqual(s.host.bytesOf(PATH), bytes("a"), "the queued undo and later typing do not change the earlier save");
+});
+
+test("typing after a queued undo survives disposal without restoring undone text", async () => {
+  const s = await setup({ content: "" });
+  const gate = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      const result = await s.doc.save();
+      started.resolve();
+      await gate.promise;
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  const handle = show(s, { document: view });
+  await type(s.el, "a");
+  await act(async () => { named(s.el, "Save").click(); });
+  await started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "ab");
+  handle.dispose();
+  gate.resolve();
+  await settled();
+  equal(textOf(s), "b", "closing the surface does not lose input queued behind undo or bring back the undone insertion");
+  deepEqual(s.host.bytesOf(PATH), bytes("a"), "disposal does not change what the earlier save wrote");
+});
+
+test("a second Save writes the revision that existed when it was invoked", async () => {
+  const s = await setup({ content: "" });
+  const firstGate = Promise.withResolvers<void>();
+  const firstStarted = Promise.withResolvers<void>();
+  const secondStarted = Promise.withResolvers<void>();
+  let saveCalls = 0;
+  const view: ProgramViewDocument = {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      saveCalls += 1;
+      const result = await s.doc.save();
+      if (saveCalls === 1) {
+        firstStarted.resolve();
+        await firstGate.promise;
+      } else if (saveCalls === 2) {
+        secondStarted.resolve();
+      }
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+  show(s, { document: view });
+  await type(s.el, "first");
+  await act(async () => { named(s.el, "Save").click(); });
+  await firstStarted.promise;
+  await type(s.el, "second");
+  await act(async () => { named(s.el, "Save").click(); });
+  await type(s.el, "third");
+  await act(() => area(s.el).dispatchEvent(new Event("blur")));
+  await settled();
+  firstGate.resolve();
+  await secondStarted.promise;
+  await settled();
+  deepEqual(s.host.bytesOf(PATH), bytes("second"));
+  equal(textOf(s), "third");
+  equal(s.doc.getSnapshot().dirty, true, "typing after the second Save remains unsaved");
 });
 
 test("a host with no undo leaves the surface's own undo alone", async () => {
@@ -524,6 +602,70 @@ test("views of the same language document share didOpen and only the last view s
   await settled();
   equal(seen.filter((message) => message.method === "textDocument/didClose").length, 1);
 });
+
+test("typing in either shared view refreshes bookmarks in both views", async (t) => {
+  let currentText = "x = 1\ny = 2\n";
+  const s = await setup({
+    capabilities: ["folderWrite", "languageServer"],
+    onLanguageMessage: (message, session) => {
+      if (message.method === "initialize") {
+        session.push({ jsonrpc: "2.0", id: message.id as number, result: { capabilities: {} } });
+      } else if (message.method === "textDocument/didChange") {
+        const params = message.params;
+        if (params !== null && typeof params === "object" && "contentChanges" in params) {
+          const changes = params.contentChanges;
+          if (Array.isArray(changes)) {
+            const change = changes[0];
+            if (change !== undefined && typeof change === "object" && change !== null && "text" in change && typeof change.text === "string") {
+              currentText = change.text;
+            }
+          }
+        }
+      } else if (message.method === "textDocument/documentSymbol") {
+        const name = currentText === "first edit" ? "First" : currentText === "second edit" ? "Second" : "Initial";
+        session.push({
+          jsonrpc: "2.0",
+          id: message.id as number,
+          result: [{ name, kind: 12, range: { start: { line: 0, character: 0 }, end: { line: 0, character: name.length } } }],
+        });
+      }
+    },
+  });
+  const firstSpy = spySurface();
+  const first = show(s, { createSurface: firstSpy.factory });
+  await settled();
+  const secondElement = document.createElement("div");
+  document.body.append(secondElement);
+  const secondSpy = spySurface();
+  const second = show(s, { createSurface: secondSpy.factory, element: secondElement });
+  await settled();
+  const names = (element: HTMLElement): string[] => [...element.querySelectorAll(".tkr-program-bookmarks button")].map((node) => node.textContent?.replace(/\s+/g, " ").trim() ?? "");
+  deepEqual(names(s.el), ["Function Initial line 1"]);
+  deepEqual(names(secondElement), ["Function Initial line 1"]);
+
+  const timers = t.mock.timers;
+  const editAndRefresh = async (spy: Spy, text: string): Promise<void> => {
+    timers.enable({ apis: ["setTimeout"] });
+    try {
+      spy.edit(0, spy.text().length, text);
+      await act(() => s.pending.settle());
+      timers.tick(300);
+    } finally {
+      timers.reset();
+    }
+    await settled();
+  };
+  await editAndRefresh(firstSpy, "first edit");
+  deepEqual(names(s.el), ["Function First line 1"]);
+  deepEqual(names(secondElement), ["Function First line 1"]);
+  await editAndRefresh(secondSpy, "second edit");
+  deepEqual(names(s.el), ["Function Second line 1"]);
+  deepEqual(names(secondElement), ["Function Second line 1"]);
+  first.dispose();
+  second.dispose();
+  await settled();
+});
+
 
 test("a failed bookmark request clears the outline and announces its error as status", async () => {
   const s = await setup({

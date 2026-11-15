@@ -146,8 +146,8 @@ export async function suggestProgramPath(fs: Pick<FileSystemService, "list">, la
 
 /**
  * Create the program at `path` (a project-relative path ending in `.prg`), starting with the expanded header template
- * (T-40). Every path component is resolved case-insensitively before writing so differently-cased folder names on
- * case-sensitive storage cannot bypass the collision check. The subsequent host write is not atomic exclusive create.
+ * (T-40). Existing path components keep their stored spelling, even when the requested path uses different casing.
+ * The subsequent host write is not atomic exclusive create.
  */
 export async function createProgramFile(fs: NewProgramStorage, path: string, headerTemplate: string): Promise<CreateProgramResult> {
   const slash = path.lastIndexOf("/");
@@ -163,10 +163,11 @@ export async function createProgramFile(fs: NewProgramStorage, path: string, hea
   if (resolved.exists) {
     return { ok: false, reason: "exists", message: `${path} already exists (names are compared without regard to A-Z case). Nothing was created; choose another name.` };
   }
-  const text = expandHeaderTemplate(headerTemplate, path).replace(/\n/g, "\r\n");
+  const canonicalPath = resolved.path;
+  const text = expandHeaderTemplate(headerTemplate, canonicalPath).replace(/\n/g, "\r\n");
   const encoded = encodeCp1252(text);
   if (!encoded.ok) return { ok: false, reason: "invalid", message: `The header template cannot be written: ${encoded.error.message}. Nothing was created.` };
-  const written = await fs.write(path, encoded.value);
-  if (!written.ok) return { ok: false, reason: "failed", message: `Could not create ${path}: ${written.error.message}` };
-  return { ok: true, path };
+  const written = await fs.write(canonicalPath, encoded.value);
+  if (!written.ok) return { ok: false, reason: "failed", message: `Could not create ${canonicalPath}: ${written.error.message}` };
+  return { ok: true, path: canonicalPath };
 }

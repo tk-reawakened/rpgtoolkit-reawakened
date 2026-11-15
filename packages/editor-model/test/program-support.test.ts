@@ -124,6 +124,27 @@ test("New program rejects an existing file through differently-cased folder comp
   equal(files.has("prg/intro.prg"), false);
 });
 
+test("New program keeps the stored directory casing on case-sensitive storage", async () => {
+  const files = new Map<string, Uint8Array>();
+  const writes: string[] = [];
+  const fs = {
+    list: async (path: string) => ({
+      ok: true as const,
+      value: path === "" ? [{ name: "Prg", kind: "directory" as const }] : [],
+    }),
+    write: async (path: string, bytes: Uint8Array) => {
+      writes.push(path);
+      files.set(path, bytes);
+      return { ok: true as const, value: undefined };
+    },
+  };
+  const result = await createProgramFile(fs, "prg/new.prg", "// {path}");
+  deepEqual(result, { ok: true, path: "Prg/new.prg" });
+  deepEqual(writes, ["Prg/new.prg"]);
+  deepEqual(files.get("Prg/new.prg"), Uint8Array.from("// Prg/new.prg", (ch) => ch.charCodeAt(0)));
+  equal(files.has("prg/new.prg"), false);
+});
+
 test("the suggested name is the first free untitled program in the programs folder", async () => {
   const host = createMemoryPlatformServices({ files: { "Prg/Untitled.prg": new Uint8Array([1]), "Prg/untitled 2.prg": new Uint8Array([1]) } });
   equal(await suggestProgramPath(host.fs, { projectFolder: "" }), "Prg/untitled 3.prg");

@@ -21,7 +21,7 @@ import {
 import type { Capabilities, DocumentEdited, LanguageConnectOptions, LanguageService } from "@tk-reawakened/platform-services";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { leaseLanguageClient, type LanguageClient, type LanguageLease } from "./language-client.ts";
-import { createPlainTextSurface, type SurfaceDiagnostic, type TextChange, type TextSurface, type TextSurfaceFactory } from "./text-surface.ts";
+import { createPlainTextSurface, diffText, type SurfaceDiagnostic, type TextChange, type TextSurface, type TextSurfaceFactory } from "./text-surface.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { ViewDocument } from "./mount.ts";
 
@@ -83,6 +83,29 @@ function flatten(symbols: readonly SymbolNode[]): BookmarkRow[] {
   visit(symbols);
   return rows.sort((left, right) => left.line - right.line);
 }
+/**
+ * Reapply edits made against a stale surface after history changed the document underneath it. Each input change is
+ * transformed through the difference between the text the surface has and the current document text.
+ */
+function rebaseTextChanges(source: string, target: string, changes: readonly TextChange[]): string {
+  for (const change of changes) {
+    const difference = diffText(source, target);
+    const from = difference === null || change.from <= difference.from
+      ? change.from
+      : change.from >= difference.to
+        ? change.from + difference.text.length - (difference.to - difference.from)
+        : difference.from;
+    const to = difference === null || change.to <= difference.from
+      ? change.to
+      : change.to >= difference.to
+        ? change.to + difference.text.length - (difference.to - difference.from)
+        : difference.from;
+    source = source.slice(0, change.from) + change.text + source.slice(change.to);
+    target = target.slice(0, from) + change.text + target.slice(to);
+  }
+  return target;
+}
+
 
 /** The typing a burst may last before it is applied even with no pause, so the dirty mark and undo stay close to the text. */
 const MAX_BURST_MS = 3000;
@@ -94,6 +117,7 @@ interface OpenLanguageDocument {
   refs: number;
   version: number;
   sent: string;
+  bookmarkRefreshers: Set<() => void>;
 }
 
 const openLanguageDocuments = new WeakMap<LanguageClient, Map<string, OpenLanguageDocument>>();
@@ -109,7 +133,7 @@ function acquireLanguageDocument(client: LanguageClient, uri: string, text: stri
     existing.refs += 1;
     return existing;
   }
-  const opened: OpenLanguageDocument = { refs: 1, version: 1, sent: text };
+  const opened: OpenLanguageDocument = { refs: 1, version: 1, sent: text, bookmarkRefreshers: new Set() };
   documents.set(uri, opened);
   client.notify("textDocument/didOpen", { textDocument: { uri, languageId: "rpgcode", version: 1, text } });
   return opened;
@@ -205,7 +229,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     document.version += 1;
     document.sent = text;
     lsp.client.notify("textDocument/didChange", { textDocument: { uri: lsp.uri, version: document.version }, contentChanges: [{ text }] });
-    scheduleBookmarks();
+    for (const refresh of document.bookmarkRefreshers) refresh();
   };
 
   const refreshBookmarks = (): void => {
@@ -331,6 +355,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         await tracker.idle();
         const step = which === "undo" ? latest.current.doc.undo : latest.current.doc.redo;
         if (step === undefined) return;
+        const before = latest.current.doc.getSnapshot().text;
         try {
           const result = await step.call(latest.current.doc);
           setMessage(result.ok ? null : `Nothing to ${which}.`);
@@ -338,12 +363,11 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
           setMessage(error instanceof Error ? error.message : String(error));
         }
         const ctl = control.current;
-        if (ctl.buffer.length > 0 && ctl.surface !== null) {
-          // Input after the history action was made against the pre-undo surface. Rebase its final text
-          // onto the document after undo instead of letting it be undone or applying stale offsets.
-          const text = ctl.surface.getText();
-          const before = latest.current.doc.getSnapshot().text;
-          ctl.buffer.splice(0, ctl.buffer.length, { from: 0, to: before.length, text });
+        if (ctl.buffer.length > 0) {
+          const after = latest.current.doc.getSnapshot().text;
+          const text = rebaseTextChanges(before, after, ctl.buffer);
+          ctl.buffer.splice(0, ctl.buffer.length, { from: 0, to: after.length, text });
+          ctl.surface?.setText(text);
           flush(true);
           await tracker.idle();
         } else {
@@ -357,11 +381,12 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   };
 
   const save = (): Promise<SaveResult | null> => {
-    // Typing after Save was requested belongs to the next edit, even if another queued command delays the save.
+    // The document fixes the bytes for this invocation immediately, even when an earlier save is still in flight.
     flush();
+    const saving = latest.current.doc.save();
     return enqueueCommand(async () => {
       await tracker.idle();
-      const result = await latest.current.doc.save();
+      const result = await saving;
       if (!result.ok) setMessage(result.failure.message);
       else setMessage(null);
       return result;
@@ -455,6 +480,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     let cancelled = false;
     let lease: LanguageLease | null = null;
     const stops: Array<() => void> = [];
+    let bookmarkRefresh: (() => void) | null = null;
     void leaseLanguageClient(language, project ?? null).then((leased) => {
       const surface = ctl.surface;
       if (cancelled || surface === null) {
@@ -471,6 +497,8 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       const text = surface.getText();
       const document = acquireLanguageDocument(client, uri, text);
       ctl.lsp = { client, uri, document };
+      bookmarkRefresh = scheduleBookmarks;
+      document.bookmarkRefreshers.add(bookmarkRefresh);
       const viewToken = {};
       const request = <T,>(method: string, params: Readonly<Record<string, unknown>>): Promise<T> => {
         const formatting = method === "textDocument/formatting" || method === "textDocument/rangeFormatting" || method === "textDocument/onTypeFormatting";
@@ -526,6 +554,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       ctl.bookmarkTimer = null;
       const lsp = ctl.lsp;
       ctl.lsp = null;
+      if (lsp !== null && bookmarkRefresh !== null) lsp.document.bookmarkRefreshers.delete(bookmarkRefresh);
       for (const stop of stops) stop();
       if (lsp !== null) releaseLanguageDocument(lsp.client, lsp.uri);
       ctl.bookmarkRequest += 1;
