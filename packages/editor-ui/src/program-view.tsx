@@ -5,7 +5,6 @@ import {
   filterCommandReference,
   insertCommandEdit,
   insertHeaderCommand,
-  type ApplyResult,
   type CommandReferenceEntry,
   type ConflictChoice,
   type ConflictResult,
@@ -21,7 +20,7 @@ import {
 import type { Capabilities, DocumentEdited, LanguageConnectOptions, LanguageService } from "@tk-reawakened/platform-services";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { leaseLanguageClient, type LanguageClient, type LanguageLease } from "./language-client.ts";
-import { createPlainTextSurface, diffText, type SurfaceDiagnostic, type TextChange, type TextSurface, type TextSurfaceFactory } from "./text-surface.ts";
+import { createPlainTextSurface, type SurfaceDiagnostic, type TextChange, type TextSurface, type TextSurfaceFactory } from "./text-surface.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { ViewDocument } from "./mount.ts";
 
@@ -83,39 +82,370 @@ function flatten(symbols: readonly SymbolNode[]): BookmarkRow[] {
   visit(symbols);
   return rows.sort((left, right) => left.line - right.line);
 }
-/**
- * Reapply edits made against a stale surface after history changed the document underneath it. Each input change is
- * transformed through the difference between the text the surface has and the current document text.
- */
-function rebaseTextChanges(source: string, target: string, changes: readonly TextChange[]): TextChange[] {
-  const difference = diffText(source, target);
-  let from = difference?.from ?? 0;
-  let to = difference?.to ?? 0;
-  let targetTo = difference === null ? 0 : from + difference.text.length;
-  const rebased: TextChange[] = [];
-  for (const change of changes) {
-    // Keep the original differing text anchored: re-diffing can mistake newly
-    // typed repeated text for the text removed by undo. Shift the anchor when a
-    // sequential edit lies wholly before or at the difference's start.
-    const mappedFrom = difference === null || change.from <= from
-      ? change.from
-      : change.from >= to
-        ? change.from + targetTo - to
-        : from;
-    const mappedTo = difference === null || change.to <= from
-      ? change.to
-      : change.to >= to
-        ? change.to + targetTo - to
-        : from;
-    rebased.push({ from: mappedFrom, to: mappedTo, text: change.text });
-    if (change.from <= from && change.to <= from) {
-      const shift = change.text.length - (change.to - change.from);
-      from += shift;
-      to += shift;
-      targetTo += shift;
+interface TextRun {
+  readonly chunks: string[];
+  length: number;
+}
+
+const TEXT_RUN_CHUNK = 1024;
+
+interface TextPiece {
+  readonly id: number;
+  readonly source: TextRun;
+  readonly from: number;
+  readonly to: number;
+}
+
+interface TrackedText {
+  readonly text: string;
+  readonly pieces: readonly TextPiece[];
+}
+
+interface PendingText {
+  base: TrackedText;
+  current: TrackedText;
+}
+
+interface PieceRange {
+  readonly from: number;
+  readonly to: number;
+}
+
+interface PiecePosition extends PieceRange {
+  readonly index: number;
+  readonly start: number;
+}
+
+function textRun(text: string): TextRun {
+  const chunks: string[] = [];
+  for (let offset = 0; offset < text.length; offset += TEXT_RUN_CHUNK) {
+    chunks.push(text.slice(offset, offset + TEXT_RUN_CHUNK));
+  }
+  return { chunks, length: text.length };
+}
+
+function appendTextRun(run: TextRun, text: string): void {
+  let offset = 0;
+  while (offset < text.length) {
+    const lastIndex = run.chunks.length - 1;
+    const last = run.chunks[lastIndex];
+    if (last !== undefined && last.length < TEXT_RUN_CHUNK) {
+      const count = Math.min(TEXT_RUN_CHUNK - last.length, text.length - offset);
+      run.chunks[lastIndex] = last + text.slice(offset, offset + count);
+      offset += count;
+    } else {
+      const end = Math.min(offset + TEXT_RUN_CHUNK, text.length);
+      run.chunks.push(text.slice(offset, end));
+      offset = end;
     }
   }
-  return rebased;
+  run.length += text.length;
+}
+
+function sliceTextRun(run: TextRun, from: number, to: number): string {
+  if (from === to) return "";
+  const parts: string[] = [];
+  let offset = 0;
+  for (const chunk of run.chunks) {
+    const end = offset + chunk.length;
+    if (end > from && offset < to) parts.push(chunk.slice(Math.max(from, offset) - offset, Math.min(to, end) - offset));
+    offset = end;
+    if (offset >= to) break;
+  }
+  return parts.join("");
+}
+
+function trackedText(text: string, allocate: () => number): TrackedText {
+  if (text.length === 0) return { text, pieces: [] };
+  return { text, pieces: [{ id: allocate(), source: textRun(text), from: 0, to: text.length }] };
+}
+
+function copyTracked(text: TrackedText): TrackedText {
+  return { text: text.text, pieces: text.pieces.slice() };
+}
+
+function textOfPieces(pieces: readonly TextPiece[]): string {
+  return pieces.map((piece) => sliceTextRun(piece.source, piece.from, piece.to)).join("");
+}
+
+function compactPieces(pieces: TextPiece[]): void {
+  let write = 0;
+  for (const piece of pieces) {
+    const previous = pieces[write - 1];
+    if (previous !== undefined && previous.id === piece.id && previous.source === piece.source && previous.to === piece.from) {
+      pieces[write - 1] = { ...previous, to: piece.to };
+    } else {
+      pieces[write] = piece;
+      write += 1;
+    }
+  }
+  pieces.length = write;
+}
+
+/** Split the piece at a UTF-16 offset and return the index immediately after that offset. */
+function splitPiecesAt(pieces: TextPiece[], offset: number): number {
+  let start = 0;
+  for (let index = 0; index < pieces.length; index += 1) {
+    const piece = pieces[index]!;
+    const end = start + piece.to - piece.from;
+    if (offset === start) return index;
+    if (offset === end) return index + 1;
+    if (offset > start && offset < end) {
+      const split = piece.from + offset - start;
+      pieces.splice(index, 1, { ...piece, to: split }, { ...piece, from: split });
+      return index + 1;
+    }
+    start = end;
+  }
+  return pieces.length;
+}
+
+/** Apply sequential replacements without expanding unchanged text into per-character identities. */
+function applyTrackedChanges(text: TrackedText, changes: readonly TextChange[], allocate: () => number, resultText?: string): TrackedText {
+  const pieces = text.pieces.slice();
+  for (const change of changes) {
+    const from = splitPiecesAt(pieces, change.from);
+    const to = splitPiecesAt(pieces, change.to);
+    if (change.text.length > 0 && change.from === change.to && from > 0) {
+      const previous = pieces[from - 1]!;
+      if (previous.to === previous.source.length) {
+        appendTextRun(previous.source, change.text);
+        pieces[from - 1] = { ...previous, to: previous.source.length };
+      } else {
+        pieces.splice(from, to - from, { id: allocate(), source: textRun(change.text), from: 0, to: change.text.length });
+      }
+    } else if (change.text.length === 0) {
+      pieces.splice(from, to - from);
+    } else {
+      pieces.splice(from, to - from, { id: allocate(), source: textRun(change.text), from: 0, to: change.text.length });
+    }
+    compactPieces(pieces);
+  }
+  let length = 0;
+  for (const piece of pieces) length += piece.to - piece.from;
+  if (resultText === undefined || length !== resultText.length) return trackedText(resultText ?? textOfPieces(pieces), allocate);
+  return { text: resultText, pieces };
+}
+
+function rangesById(pieces: readonly TextPiece[]): Map<number, PieceRange[]> {
+  const ranges = new Map<number, PieceRange[]>();
+  for (const piece of pieces) {
+    const same = ranges.get(piece.id);
+    if (same === undefined) ranges.set(piece.id, [{ from: piece.from, to: piece.to }]);
+    else same.push({ from: piece.from, to: piece.to });
+  }
+  return ranges;
+}
+
+function positionsById(pieces: readonly TextPiece[]): Map<number, PiecePosition[]> {
+  const positions = new Map<number, PiecePosition[]>();
+  let start = 0;
+  for (let index = 0; index < pieces.length; index += 1) {
+    const piece = pieces[index]!;
+    const same = positions.get(piece.id);
+    const position = { from: piece.from, to: piece.to, index, start };
+    if (same === undefined) positions.set(piece.id, [position]);
+    else same.push(position);
+    start += piece.to - piece.from;
+  }
+  return positions;
+}
+
+function firstRangeEndingAfter(ranges: readonly PieceRange[], offset: number): number {
+  let low = 0;
+  let high = ranges.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (ranges[middle]!.to <= offset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function piecePosition(piece: TextPiece, positions: ReadonlyMap<number, readonly PiecePosition[]>): number | null {
+  const same = positions.get(piece.id);
+  if (same === undefined) return null;
+  for (let index = firstRangeEndingAfter(same, piece.from); index < same.length; index += 1) {
+    const match = same[index]!;
+    if (match.from >= piece.to) break;
+    const from = Math.max(piece.from, match.from);
+    if (from < Math.min(piece.to, match.to)) return match.start + from - match.from;
+  }
+  return null;
+}
+
+function intersectPieces(piece: TextPiece, ranges: readonly PieceRange[], output: TextPiece[]): void {
+  for (let index = firstRangeEndingAfter(ranges, piece.from); index < ranges.length; index += 1) {
+    const range = ranges[index]!;
+    if (range.from >= piece.to) break;
+    const from = Math.max(piece.from, range.from);
+    const to = Math.min(piece.to, range.to);
+    if (from < to) output.push({ ...piece, from, to });
+  }
+}
+
+function missingPieceRanges(piece: TextPiece, present: readonly PieceRange[] | undefined): PieceRange[] {
+  if (present === undefined || present.length === 0) return [{ from: piece.from, to: piece.to }];
+  const missing: PieceRange[] = [];
+  let cursor = piece.from;
+  for (let index = firstRangeEndingAfter(present, piece.from); index < present.length; index += 1) {
+    const range = present[index]!;
+    if (range.from >= piece.to) break;
+    if (range.from > cursor) missing.push({ from: cursor, to: Math.min(range.from, piece.to) });
+    cursor = Math.max(cursor, range.to);
+    if (cursor >= piece.to) break;
+  }
+  if (cursor < piece.to) missing.push({ from: cursor, to: piece.to });
+  return missing;
+}
+
+/**
+ * Merge edits made against a stale surface onto the current document. Piece identities distinguish repeated text and
+ * preserve unchanged islands; history-inserted pieces survive unless the surface explicitly deleted their identity.
+ */
+function mergePendingText(document: TrackedText, pending: PendingText): TrackedText {
+  const baseRanges = rangesById(pending.base.pieces);
+  const currentRanges = rangesById(pending.current.pieces);
+  const pieces: TextPiece[] = [];
+  for (const piece of document.pieces) {
+    const base = baseRanges.get(piece.id);
+    if (base === undefined) pieces.push(piece);
+    else intersectPieces(piece, currentRanges.get(piece.id) ?? [], pieces);
+  }
+  compactPieces(pieces);
+
+  const targetPositions = positionsById(pieces);
+  const targetRanges = rangesById(pieces);
+  const nextAnchor = new Array<number | null>(pending.current.pieces.length);
+  let next: number | null = null;
+  for (let index = pending.current.pieces.length - 1; index >= 0; index -= 1) {
+    nextAnchor[index] = next;
+    const at = piecePosition(pending.current.pieces[index]!, targetPositions);
+    if (at !== null) next = at;
+  }
+
+  let targetLength = 0;
+  for (const piece of pieces) targetLength += piece.to - piece.from;
+  const additions = new Map<number, TextPiece[]>();
+  for (let index = 0; index < pending.current.pieces.length; index += 1) {
+    const piece = pending.current.pieces[index]!;
+    const candidates = missingPieceRanges(piece, baseRanges.get(piece.id));
+    for (const candidate of candidates) {
+      const addition = { ...piece, from: candidate.from, to: candidate.to };
+      const missing = missingPieceRanges(addition, targetRanges.get(piece.id));
+      if (missing.length === 0) continue;
+      const at = nextAnchor[index] ?? targetLength;
+      let atPieces = additions.get(at);
+      if (atPieces === undefined) {
+        atPieces = [];
+        additions.set(at, atPieces);
+      }
+      for (const range of missing) atPieces.push({ ...piece, from: range.from, to: range.to });
+    }
+  }
+
+  const anchors = [...additions.keys()].sort((left, right) => left - right);
+  const merged: TextPiece[] = [];
+  let anchorIndex = 0;
+  let offset = 0;
+  for (const piece of pieces) {
+    const end = offset + piece.to - piece.from;
+    let cursor = offset;
+    while (anchorIndex < anchors.length && anchors[anchorIndex]! <= end) {
+      const anchor = anchors[anchorIndex]!;
+      const at = Math.max(anchor, offset);
+      if (at > cursor) merged.push({ ...piece, from: piece.from + cursor - offset, to: piece.from + at - offset });
+      for (const addition of additions.get(anchor)!) merged.push(addition);
+      cursor = at;
+      anchorIndex += 1;
+    }
+    if (cursor < end) merged.push({ ...piece, from: piece.from + cursor - offset, to: piece.to });
+    offset = end;
+  }
+  while (anchorIndex < anchors.length) {
+    for (const addition of additions.get(anchors[anchorIndex]!)!) merged.push(addition);
+    anchorIndex += 1;
+  }
+  compactPieces(merged);
+  return { text: textOfPieces(merged), pieces: merged };
+}
+
+/** Return compact, right-to-left replacements between two piece-identified revisions. */
+function trackedTextChanges(before: TrackedText, after: TrackedText): TextChange[] {
+  if (before.text === after.text) return [];
+  const targetPositions = new Map<number, Array<PiecePosition & { readonly start: number }>>();
+  let targetOffset = 0;
+  for (let index = 0; index < after.pieces.length; index += 1) {
+    const piece = after.pieces[index]!;
+    const same = targetPositions.get(piece.id);
+    const position = { from: piece.from, to: piece.to, index, start: targetOffset };
+    if (same === undefined) targetPositions.set(piece.id, [position]);
+    else same.push(position);
+    targetOffset += piece.to - piece.from;
+  }
+
+  const matches: Array<{ readonly from: number; readonly to: number; readonly length: number }> = [];
+  let sourceOffset = 0;
+  for (const piece of before.pieces) {
+    const same = targetPositions.get(piece.id);
+    if (same !== undefined) {
+      for (let index = firstRangeEndingAfter(same, piece.from); index < same.length; index += 1) {
+        const position = same[index]!;
+        if (position.from >= piece.to) break;
+        const from = Math.max(piece.from, position.from);
+        const to = Math.min(piece.to, position.to);
+        if (from >= to) continue;
+        const match = {
+          from: sourceOffset + from - piece.from,
+          to: position.start + from - position.from,
+          length: to - from,
+        };
+        const previous = matches.at(-1);
+        if (previous !== undefined && previous.from + previous.length === match.from && previous.to + previous.length === match.to) {
+          matches[matches.length - 1] = { ...previous, length: previous.length + match.length };
+        } else {
+          matches.push(match);
+        }
+      }
+    }
+    sourceOffset += piece.to - piece.from;
+  }
+
+  const gaps: Array<{ readonly from: number; readonly to: number; readonly targetFrom: number; readonly targetTo: number }> = [];
+  let from = 0;
+  let to = 0;
+  for (const match of matches) {
+    if (match.from < from || match.to < to) continue;
+    if (match.from > from || match.to > to) gaps.push({ from, to: match.from, targetFrom: to, targetTo: match.to });
+    from = match.from + match.length;
+    to = match.to + match.length;
+  }
+  if (from < before.text.length || to < after.text.length) {
+    gaps.push({ from, to: before.text.length, targetFrom: to, targetTo: after.text.length });
+  }
+  return gaps.reverse().map((gap) => ({
+    from: gap.from,
+    to: gap.to,
+    text: after.text.slice(gap.targetFrom, gap.targetTo),
+  }));
+}
+
+/** Recover the inverse of a sequential text command while its pre-undo text is available. */
+function inverseTextEdits(base: string, expected: string, command: EditTextCommand): TextChange[] | null {
+  let text = base;
+  const removed: string[] = [];
+  for (const edit of command.edits) {
+    if (edit.from < 0 || edit.to < edit.from || edit.to > text.length) return null;
+    removed.push(text.slice(edit.from, edit.to));
+    text = text.slice(0, edit.from) + edit.text + text.slice(edit.to);
+  }
+  if (text !== expected) return null;
+  const inverse: TextChange[] = [];
+  for (let index = command.edits.length - 1; index >= 0; index -= 1) {
+    const edit = command.edits[index]!;
+    inverse.push({ from: edit.from, to: edit.from + edit.text.length, text: removed[index]! });
+  }
+  return inverse;
 }
 
 
@@ -166,9 +496,17 @@ function releaseLanguageDocument(client: LanguageClient, uri: string): void {
   }
 }
 
+interface QueuedSaveStage {
+  readonly pending: PendingText | null;
+}
+
 interface Control {
   surface: TextSurface | null;
-  buffer: TextChange[];
+  document: TrackedText;
+  visible: TrackedText;
+  pending: PendingText | null;
+  nextTextId: number;
+  documentKey: string;
   burstStart: number;
   timer: ReturnType<typeof setTimeout> | null;
   bookmarkTimer: ReturnType<typeof setTimeout> | null;
@@ -192,7 +530,24 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     viewsMade += 1;
     return `tkr-program-${viewsMade}`;
   });
-  const control = useRef<Control>({ surface: null, buffer: [], burstStart: 0, timer: null, bookmarkTimer: null, bookmarkRequest: 0, lsp: null });
+  const [initialControl] = useState<Control>(() => {
+    let nextTextId = 1;
+    const initial = trackedText(snapshot.text, () => nextTextId++);
+    return {
+      surface: null,
+      document: initial,
+      visible: initial,
+      pending: null,
+      nextTextId,
+      documentKey: doc.identity.key,
+      burstStart: 0,
+      timer: null,
+      bookmarkTimer: null,
+      bookmarkRequest: 0,
+      lsp: null,
+    };
+  });
+  const control = useRef(initialControl);
   const host = useRef<HTMLDivElement>(null);
   const tracker = useMemo(() => createEditTracker(), []);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
@@ -200,6 +555,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const queuedSaveBoundaries = useRef(0);
   const queuedHistoryCommands = useRef(0);
   const historyQueued = useRef(false);
+  const queuedSaveStages = useRef<QueuedSaveStage[]>([]);
   const enqueueCommand = <T,>(operation: () => Promise<T>): Promise<T> => {
     queuedCommands.current += 1;
     const result = commandQueue.current.then(operation);
@@ -279,59 +635,101 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   };
 
   /** Give the surface the document's text when the surface is not holding typing the document has yet to take. */
-  const syncFromDocument = (force: boolean): void => {
+  const allocateTextId = (): number => {
     const ctl = control.current;
-    const surface = ctl.surface;
-    if (surface === null) return;
-    if (!force && (ctl.buffer.length > 0 || tracker.busy() || queuedSaveBoundaries.current > 0)) return;
-    const text = latest.current.doc.getSnapshot().text;
-    if (surface.getText() !== text) surface.setText(text);
-    surface.setReadOnly(latest.current.doc.getSnapshot().readOnly !== null);
+    const id = ctl.nextTextId;
+    ctl.nextTextId += 1;
+    return id;
+  };
+
+  const setVisibleText = (text: TrackedText): void => {
+    const ctl = control.current;
+    ctl.visible = text;
+    if (ctl.surface !== null && ctl.surface.getText() !== text.text) ctl.surface.setText(text.text);
     sendToServer();
   };
 
-  const refused = (reason: string): void => {
-    control.current.buffer.length = 0;
-    setMessage(reason);
-    syncFromDocument(true);
+  const alignDocumentTrack = (): void => {
+    const ctl = control.current;
+    const current = latest.current.doc.getSnapshot();
+    if (ctl.documentKey !== latest.current.doc.identity.key || ctl.document.text !== current.text) {
+      ctl.document = trackedText(current.text, allocateTextId);
+      ctl.documentKey = latest.current.doc.identity.key;
+    }
+  };
+
+  const rebasePendingToDocument = (): void => {
+    const ctl = control.current;
+    if (ctl.pending === null) {
+      setVisibleText(copyTracked(ctl.document));
+      return;
+    }
+    const current = mergePendingText(ctl.document, ctl.pending);
+    ctl.pending.base = copyTracked(ctl.document);
+    ctl.pending.current = current;
+    setVisibleText(current);
+  };
+
+  /** Give the surface the document's text when the surface is not holding typing the document has yet to take. */
+  const syncFromDocument = (force: boolean): void => {
+    const ctl = control.current;
+    if (ctl.surface === null) return;
+    if (!force && (ctl.pending !== null || tracker.busy() || queuedSaveBoundaries.current > 0)) return;
+    alignDocumentTrack();
+    if (ctl.pending === null) setVisibleText(copyTracked(ctl.document));
+    else rebasePendingToDocument();
+    ctl.surface.setReadOnly(latest.current.doc.getSnapshot().readOnly !== null);
+  };
+
+
+  const applyPendingText = async (pending: PendingText): Promise<boolean> => {
+    const ctl = control.current;
+    alignDocumentTrack();
+    const merged = mergePendingText(ctl.document, pending);
+    const edits = trackedTextChanges(ctl.document, merged);
+    if (edits.length === 0) return true;
+
+    const end = tracker.begin();
+    try {
+      const result = await latest.current.doc.apply({ type: "edit-text", edits, label: "Typing" });
+      if (!result.ok) {
+        setMessage(result.rejection.message);
+        return false;
+      }
+      const current = latest.current.doc.getSnapshot();
+      ctl.document = merged.text === current.text ? merged : trackedText(current.text, allocateTextId);
+      ctl.documentKey = latest.current.doc.identity.key;
+      setMessage(null);
+      latest.current.onEdited({ document: latest.current.doc.identity.key, editId: result.editId, label: "Typing" });
+      return true;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      end();
+    }
   };
 
   /** Hand the buffered typing to the document as one edit. Tracking starts now, so Save and close wait for the answer. */
-  const flush = (force = false): void => {
-    if (historyQueued.current && !force) return;
+  const flush = (): void => {
+    if (historyQueued.current || queuedSaveBoundaries.current > 0) return;
     const ctl = control.current;
     clearTimeout(ctl.timer ?? undefined);
     ctl.timer = null;
-    if (ctl.buffer.length === 0) return;
-    const edits = ctl.buffer.splice(0);
-    const end = tracker.begin();
-    const label = "Typing";
-    let outcome: ApplyResult | Promise<ApplyResult>;
-    try {
-      outcome = latest.current.doc.apply({ type: "edit-text", edits, label });
-    } catch (error) {
-      outcome = Promise.reject(error);
-    }
-    void Promise.resolve(outcome)
-      .then(
-        (result) => {
-          if (result.ok) {
-            setMessage(null);
-            latest.current.onEdited({ document: latest.current.doc.identity.key, editId: result.editId, label });
-          } else {
-            refused(result.rejection.message);
-          }
-        },
-        (error: unknown) => refused(error instanceof Error ? error.message : String(error)),
-      )
-      .finally(() => {
-        end();
-        setTyping(control.current.buffer.length > 0);
-      });
+    const pending = ctl.pending;
+    if (pending === null) return;
+    ctl.pending = null;
+    void applyPendingText(pending)
+      .then((accepted) => {
+        if (accepted) return;
+        if (control.current.pending === null) syncFromDocument(true);
+        else rebasePendingToDocument();
+      })
+      .finally(() => setTyping(control.current.pending !== null));
   };
 
   const work = useMemo<PendingEditWork>(() => ({
-    busy: () => control.current.buffer.length > 0 || tracker.busy() || queuedCommands.current > 0,
+    busy: () => control.current.pending !== null || tracker.busy() || queuedCommands.current > 0,
     idle: async () => {
       await commandQueue.current;
       flush();
@@ -342,6 +740,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
 
   /** Apply a command made by the view itself (header, command insertion) after the typing before it. */
   const applyTextCommand = async (command: EditTextCommand): Promise<boolean> => {
+    const ctl = control.current;
     const end = tracker.begin();
     try {
       const result = await latest.current.doc.apply(command);
@@ -349,6 +748,10 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         setMessage(result.rejection.message);
         return false;
       }
+      const current = latest.current.doc.getSnapshot();
+      const changed = applyTrackedChanges(ctl.document, command.edits, allocateTextId, current.text);
+      ctl.document = changed;
+      ctl.documentKey = latest.current.doc.identity.key;
       setMessage(null);
       latest.current.onEdited({ document: latest.current.doc.identity.key, editId: result.editId, label: command.label ?? "Edit text" });
       return true;
@@ -368,32 +771,59 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     return enqueueCommand(async () => {
       try {
         await tracker.idle();
-        const step = which === "undo" ? latest.current.doc.undo : latest.current.doc.redo;
+        const document = latest.current.doc;
+        const step = which === "undo" ? document.undo : document.redo;
         if (step === undefined) return;
-        const beforeSnapshot = latest.current.doc.getSnapshot();
-        const before = beforeSnapshot.text;
+        const beforeSnapshot = document.getSnapshot();
+        const ctl = control.current;
+        if (ctl.document.text !== beforeSnapshot.text) ctl.document = trackedText(beforeSnapshot.text, allocateTextId);
+        let result: HistoryResult | null = null;
         try {
-          const result = await step.call(latest.current.doc);
+          result = await step.call(document);
           setMessage(result.ok ? null : `Nothing to ${which}.`);
         } catch (error) {
           setMessage(error instanceof Error ? error.message : String(error));
         }
-        const after = latest.current.doc.getSnapshot().text;
-        const ctl = control.current;
-        if (ctl.buffer.length > 0 && queuedSaveBoundaries.current === 0) {
-          const edits = rebaseTextChanges(before, after, ctl.buffer);
-          ctl.buffer.splice(0, ctl.buffer.length, ...edits);
-          const text = edits.reduce((value, edit) => value.slice(0, edit.from) + edit.text + value.slice(edit.to), after);
-          ctl.surface?.setText(text);
-          flush(true);
-          await tracker.idle();
-        } else if (queuedSaveBoundaries.current === 0) {
-          syncFromDocument(true);
+        const afterSnapshot = document.getSnapshot();
+        if (result?.ok) {
+          const record = (which === "undo" ? beforeSnapshot.edits : afterSnapshot.edits).find((edit) => edit.editId === result!.editId);
+          if (record !== undefined) {
+            const changes = which === "undo"
+              ? inverseTextEdits(afterSnapshot.text, beforeSnapshot.text, record.command)
+              : record.command.edits;
+            if (changes !== null) {
+              const changed = applyTrackedChanges(ctl.document, changes, allocateTextId, afterSnapshot.text);
+              ctl.document = changed;
+            } else {
+              ctl.document = trackedText(afterSnapshot.text, allocateTextId);
+            }
+          } else {
+            ctl.document = trackedText(afterSnapshot.text, allocateTextId);
+          }
+          ctl.documentKey = document.identity.key;
+        }
+        if (queuedSaveStages.current.length === 0) {
+          if (ctl.pending !== null) {
+            const current = mergePendingText(ctl.document, ctl.pending);
+            ctl.pending.base = copyTracked(ctl.document);
+            ctl.pending.current = current;
+            setVisibleText(current);
+          } else {
+            setVisibleText(copyTracked(ctl.document));
+          }
+          ctl.surface?.setReadOnly(afterSnapshot.readOnly !== null);
         }
       } finally {
         queuedHistoryCommands.current -= 1;
         historyQueued.current = queuedHistoryCommands.current > 0;
-        if (control.current.buffer.length > 0 && queuedSaveBoundaries.current === 0) flush();
+        if (queuedHistoryCommands.current === 0 && queuedSaveBoundaries.current === 0 && queuedSaveStages.current.length === 0) {
+          if (control.current.pending !== null) {
+            flush();
+            await tracker.idle();
+          } else {
+            syncFromDocument(true);
+          }
+        }
       }
     });
   };
@@ -401,46 +831,39 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const save = (): Promise<SaveResult | null> => {
     // A save behind queued history owns only the typing that existed when it was requested.
     // Keep later typing buffered until that captured revision has been applied and saved.
-    if (historyQueued.current) {
+    if (historyQueued.current || queuedSaveBoundaries.current > 0) {
       const ctl = control.current;
       clearTimeout(ctl.timer ?? undefined);
       ctl.timer = null;
-      const source = latest.current.doc.getSnapshot().text;
-      const edits = ctl.buffer.splice(0);
+      const stage: QueuedSaveStage = {
+        pending: ctl.pending === null
+          ? null
+          : {
+              base: copyTracked(ctl.pending.base),
+              current: copyTracked(ctl.pending.current),
+            },
+      };
+      ctl.pending = null;
+      queuedSaveStages.current.push(stage);
       queuedSaveBoundaries.current += 1;
       return enqueueCommand(async () => {
         try {
           await tracker.idle();
-          if (edits.length > 0) {
-            const rebased = rebaseTextChanges(source, latest.current.doc.getSnapshot().text, edits);
-            const end = tracker.begin();
-            try {
-              const result = await latest.current.doc.apply({ type: "edit-text", edits: rebased, label: "Typing" });
-              if (result.ok) {
-                setMessage(null);
-                latest.current.onEdited({ document: latest.current.doc.identity.key, editId: result.editId, label: "Typing" });
-              } else {
-                setMessage(result.rejection.message);
-              }
-            } finally {
-              end();
-            }
-            await tracker.idle();
-          }
+          if (stage.pending !== null) await applyPendingText(stage.pending);
+          await tracker.idle();
           const result = await latest.current.doc.save();
           if (!result.ok) setMessage(result.failure.message);
           else setMessage(null);
           return result;
         } finally {
+          const index = queuedSaveStages.current.indexOf(stage);
+          if (index !== -1) queuedSaveStages.current.splice(index, 1);
           queuedSaveBoundaries.current -= 1;
-          if (queuedSaveBoundaries.current === 0) {
-            if (control.current.buffer.length > 0) {
-              // Later surface changes follow the captured edits, even though the document has moved through history.
-              // Rebase them against the saved document before flushing so their offsets still address that text.
-              const pendingSource = edits.reduce((text, edit) => text.slice(0, edit.from) + edit.text + text.slice(edit.to), source);
-              const rebased = rebaseTextChanges(pendingSource, latest.current.doc.getSnapshot().text, control.current.buffer);
-              control.current.buffer.splice(0, control.current.buffer.length, ...rebased);
+          if (queuedHistoryCommands.current === 0 && queuedSaveBoundaries.current === 0 && queuedSaveStages.current.length === 0) {
+            if (control.current.pending !== null) {
+              rebasePendingToDocument();
               flush();
+              await tracker.idle();
             } else {
               syncFromDocument(true);
             }
@@ -467,18 +890,29 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     if (element === null) return undefined;
     const ctl = control.current;
     const start = latest.current.snapshot;
+    if (ctl.documentKey !== latest.current.doc.identity.key || (ctl.pending === null && ctl.document.text !== start.text)) {
+      ctl.document = trackedText(start.text, () => ctl.nextTextId++);
+      ctl.visible = copyTracked(ctl.document);
+      ctl.documentKey = latest.current.doc.identity.key;
+    }
     const surfaceHost = {
       text: start.text,
       readOnly: start.readOnly !== null,
       name: `${ids}/${latest.current.doc.identity.path}`,
       preferences: prefs,
       onChange(changes: readonly TextChange[]) {
-        if (ctl.buffer.length === 0) ctl.burstStart = Date.now();
-        ctl.buffer.push(...changes);
+        if (ctl.pending === null) {
+          ctl.burstStart = Date.now();
+          const base = copyTracked(ctl.visible);
+          ctl.pending = { base, current: copyTracked(base) };
+        }
+        const actual = ctl.surface?.getText();
+        ctl.pending.current = applyTrackedChanges(ctl.pending.current, changes, () => ctl.nextTextId++, actual);
+        ctl.visible = ctl.pending.current;
         setTyping(true);
         sendToServer();
         clearTimeout(ctl.timer ?? undefined);
-        ctl.timer = setTimeout(flush, Date.now() - ctl.burstStart >= MAX_BURST_MS ? 0 : settle);
+        ctl.timer = setTimeout(() => flush(), Date.now() - ctl.burstStart >= MAX_BURST_MS ? 0 : settle);
       },
       onUndo() {
         if (latest.current.doc.undo === undefined) return false;
@@ -508,6 +942,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       surface = createPlainTextSurface(element, surfaceHost);
     }
     ctl.surface = surface;
+    if (surface.getText() !== ctl.visible.text) surface.setText(ctl.visible.text);
     return () => {
       clearTimeout(ctl.timer ?? undefined);
       ctl.timer = null;

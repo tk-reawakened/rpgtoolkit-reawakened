@@ -135,6 +135,40 @@ async function key(target: HTMLElement, init: KeyboardEventInit): Promise<Keyboa
 
 const textOf = (s: Setup): string => s.doc.getSnapshot().text;
 
+type DeferredVoid = { readonly promise: Promise<void>; readonly resolve: () => void };
+
+interface SaveGate {
+  readonly started: DeferredVoid;
+  readonly release: DeferredVoid;
+}
+
+function saveGate(): SaveGate {
+  return { started: deferred<void>(), release: deferred<void>() };
+}
+
+function gatedProgramView(s: Setup, gates: readonly SaveGate[]): ProgramViewDocument {
+  let saveCalls = 0;
+  return {
+    kind: s.doc.kind,
+    identity: s.doc.identity,
+    getSnapshot: () => s.doc.getSnapshot(),
+    subscribe: (listener) => s.doc.subscribe(listener),
+    apply: (command) => s.doc.apply(command),
+    save: async () => {
+      const gate = gates[saveCalls++];
+      const result = await s.doc.save();
+      if (gate !== undefined) {
+        gate.started.resolve();
+        await gate.release.promise;
+      }
+      return result;
+    },
+    resolveConflict: (choice) => s.doc.resolveConflict(choice),
+    undo: () => s.doc.undo(),
+    redo: () => s.doc.redo(),
+  };
+}
+
 test("the text area shows the document's LF text; typing becomes one labelled edit once the view settles, and Save writes the bytes", async () => {
   const s = await setup();
   show(s);
@@ -457,6 +491,141 @@ test("queued undo and insertion preserve untouched mixed line endings", async ()
   deepEqual(s.host.bytesOf(PATH), bytes("one\r\ntwox\nthree\r\n"));
 });
 
+test("#2760 typing cannot flush and be rejected while a queued Save is pending", async () => {
+  const s = await setup({ content: "" });
+  const first = saveGate();
+  const second = saveGate();
+  show(s, { document: gatedProgramView(s, [first, second]) });
+  await type(s.el, "a");
+  await act(() => { named(s.el, "Save").click(); });
+  await first.started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await act(() => { named(s.el, "Save").click(); });
+
+  first.release.resolve();
+  await second.started.promise;
+  await type(s.el, "ab");
+  await act(() => { area(s.el).blur(); });
+  await settled();
+  equal(textOf(s), "", "typing stays buffered while the queued save owns its revision");
+  equal(area(s.el).value, "ab");
+
+  second.release.resolve();
+  await settled();
+  equal(textOf(s), "b", "the insertion survives after the stale leading a is undone");
+  equal(area(s.el).value, "b");
+});
+
+test("#2761 queued saves each write the revision captured at their request", async () => {
+  const s = await setup({ content: "" });
+  const first = saveGate();
+  const second = saveGate();
+  const third = saveGate();
+  show(s, { document: gatedProgramView(s, [first, second, third]) });
+  await type(s.el, "a");
+  await act(() => { named(s.el, "Save").click(); });
+  await first.started.promise;
+  deepEqual(s.host.bytesOf(PATH), bytes("a"), "Save 1 writes the original revision");
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "ab");
+  await act(() => { named(s.el, "Save").click(); });
+  await type(s.el, "abc");
+  await act(() => { named(s.el, "Save").click(); });
+
+  first.release.resolve();
+  await second.started.promise;
+  deepEqual(s.host.bytesOf(PATH), bytes("b"), "Save 2 owns b, not later typing");
+  second.release.resolve();
+  await third.started.promise;
+  deepEqual(s.host.bytesOf(PATH), bytes("bc"), "Save 3 includes c typed after Save 2");
+  third.release.resolve();
+  await settled();
+  equal(textOf(s), "bc");
+  deepEqual(s.host.bytesOf(PATH), bytes("bc"));
+});
+
+test("#2762 deleting repeated text after the queued save keeps the live document dirty", async () => {
+  const s = await setup({ content: "" });
+  const first = saveGate();
+  const second = saveGate();
+  show(s, { document: gatedProgramView(s, [first, second]) });
+  await type(s.el, "a");
+  await act(() => { named(s.el, "Save").click(); });
+  await first.started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "aa");
+  await act(() => { named(s.el, "Save").click(); });
+
+  first.release.resolve();
+  await second.started.promise;
+  deepEqual(s.host.bytesOf(PATH), bytes("a"), "Save 2 writes the newly appended a");
+  await type(s.el, "a");
+  second.release.resolve();
+  await settled();
+  equal(textOf(s), "", "backspace removes the new a rather than preserving the repeated old a");
+  equal(area(s.el).value, "");
+  match(stateOf(s.el), /Unsaved/);
+  deepEqual(s.host.bytesOf(PATH), bytes("a"), "the earlier saved a remains on disk");
+});
+
+test("#2763 inserting and deleting inside an undone span does not resurrect the inserted character", async () => {
+  const s = await setup({ content: "x" });
+  const first = saveGate();
+  show(s, { document: gatedProgramView(s, [first]) });
+  await type(s.el, "xab");
+  await act(() => { named(s.el, "Save").click(); });
+  await first.started.promise;
+  deepEqual(s.host.bytesOf(PATH), bytes("xab"));
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "xacb");
+  await type(s.el, "xab");
+
+  first.release.resolve();
+  await settled();
+  equal(textOf(s), "x");
+  equal(area(s.el).value, "x");
+});
+
+test("#2764 typing after queued Undo and Redo does not invalidate Redo", async () => {
+  const s = await setup({ content: "x" });
+  const first = saveGate();
+  show(s, { document: gatedProgramView(s, [first]) });
+  await type(s.el, "xa");
+  await act(() => { named(s.el, "Save").click(); });
+  await first.started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
+  await type(s.el, "xab");
+
+  first.release.resolve();
+  await settled();
+  equal(textOf(s), "xab");
+  equal(area(s.el).value, "xab");
+});
+
+test("#2765 multi-cursor undo preserves typing after the untouched middle line and mixed endings", async () => {
+  const s = await setup({ content: "first\r\nmiddle\nthird\r\n" });
+  const spy = spySurface();
+  show(s, { createSurface: spy.factory });
+  await act(() => {
+    spy.editMany([
+      { from: 0, to: 5, text: "FIRST" },
+      { from: 13, to: 18, text: "THIRD" },
+    ]);
+  });
+  await act(() => {
+    ok(spy.host().onUndo(), "the document accepts Undo");
+    spy.edit(12, 12, "!");
+  });
+
+  await settled();
+  equal(textOf(s), "first\nmiddle!\nthird\n");
+  equal(spy.text(), "first\nmiddle!\nthird\n");
+  await act(async () => { await named(s.el, "Save").click(); });
+  await settled();
+  deepEqual(s.host.bytesOf(PATH), bytes("first\r\nmiddle!\nthird\r\n"));
+});
+
 test("a second Save writes the revision that existed when it was invoked", async () => {
   const s = await setup({ content: "" });
   const firstGate = deferred<void>();
@@ -643,6 +812,7 @@ interface Spy {
   text(): string;
   /** The author edits the surface: its own text changes first, then it reports, as Monaco does. */
   edit(from: number, to: number, inserted: string): void;
+  editMany(changes: readonly { readonly from: number; readonly to: number; readonly text: string }[]): void;
 }
 
 /** A surface that records what the view tells it and holds its text, standing in for Monaco. */
@@ -652,6 +822,10 @@ function spySurface(): Spy {
   let features: LanguageFeatures | null = null;
   let diagnostics: readonly SurfaceDiagnostic[] = [];
   let text = "";
+  const editMany = (changes: readonly { readonly from: number; readonly to: number; readonly text: string }[]): void => {
+    for (const change of changes) text = text.slice(0, change.from) + change.text + text.slice(change.to);
+    hostRef!.onChange(changes);
+  };
   const surface: TextSurface = {
     setText: (value) => { text = value; calls.push(`setText:${JSON.stringify(value)}`); },
     getText: () => text,
@@ -676,10 +850,8 @@ function spySurface(): Spy {
     features: () => features,
     diagnostics: () => diagnostics,
     text: () => text,
-    edit: (from, to, inserted) => {
-      text = text.slice(0, from) + inserted + text.slice(to);
-      hostRef!.onChange([{ from, to, text: inserted }]);
-    },
+    edit: (from, to, inserted) => editMany([{ from, to, text: inserted }]),
+    editMany,
   };
 }
 
