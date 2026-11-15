@@ -422,6 +422,29 @@
   pointer-events: none;
 }
 
+.tkr-web-workspace:has(> #settings > section:not([hidden])) > .tkr-web-project-bar:has(#project-game:not([hidden])) {
+  inset-block-start: 3rem;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  inline-size: auto;
+  max-inline-size: calc(100vw - 2rem);
+  block-size: auto;
+  overflow: visible;
+  clip-path: none;
+  opacity: 1;
+  pointer-events: auto;
+  z-index: 60;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--tkr-bg-elevated);
+  border: 1px solid var(--tkr-border-default);
+  border-radius: var(--tkr-radius-lg);
+  box-shadow: var(--tkr-shadow-overlay);
+}
+
 .tkr-web-workspace:has(> #settings > section:not([hidden])) > #settings {
   grid-column: 1;
   grid-row: 1;
