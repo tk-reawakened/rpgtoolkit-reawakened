@@ -36,6 +36,8 @@ export interface LanguageFeatures {
   request<T>(method: string, params: Readonly<Record<string, unknown>>): Promise<T>;
   /** The document's identity for the server: `{ textDocument: { uri } }` goes in every request. */
   readonly uri: string;
+  /** What the server said it can do (the `capabilities` of its `initialize` answer): which features to offer, and their triggers. */
+  readonly capabilities: Readonly<Record<string, unknown>>;
 }
 
 /** Everything a surface is given when it is made, and the callbacks it reports to. */

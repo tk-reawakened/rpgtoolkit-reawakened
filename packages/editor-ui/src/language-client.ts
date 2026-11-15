@@ -12,6 +12,8 @@ export interface LanguageClient {
   notify(method: string, params: Readonly<Record<string, unknown>>): void;
   /** Listen to a notification the server sends; the returned function stops listening. */
   onNotification(method: string, handler: (params: unknown) => void): () => void;
+  /** The `capabilities` the server answered `initialize` with. */
+  readonly capabilities: Readonly<Record<string, unknown>>;
   /** The URI the server knows the project file `path` by. */
   uriOf(path: string): string;
   /** Be told once if the connection ends (a listener added after it ended is called at once). */
@@ -34,6 +36,7 @@ export async function startLanguageClient(service: LanguageService, options: Lan
   const closers = new Set<(message: string) => void>();
   let nextId = 1;
   let closedWith: string | null = null;
+  let capabilities: Readonly<Record<string, unknown>> = {};
 
   const failPending = (message: string): void => {
     for (const waiter of pending.values()) waiter.reject(new Error(message));
@@ -65,6 +68,9 @@ export async function startLanguageClient(service: LanguageService, options: Lan
   });
 
   const client: LanguageClient = {
+    get capabilities() {
+      return capabilities;
+    },
     request<T>(method: string, params: Readonly<Record<string, unknown>>): Promise<T> {
       if (closedWith !== null) return Promise.reject(new Error(closedWith));
       const id = nextId;
@@ -100,7 +106,8 @@ export async function startLanguageClient(service: LanguageService, options: Lan
     },
   };
   try {
-    await client.request("initialize", { processId: null, rootUri: null, capabilities: {} });
+    const initialized = await client.request<{ readonly capabilities?: Readonly<Record<string, unknown>> } | null>("initialize", { processId: null, rootUri: null, capabilities: {} });
+    capabilities = initialized?.capabilities ?? {};
     client.notify("initialized", {});
   } catch (error) {
     connection.dispose();

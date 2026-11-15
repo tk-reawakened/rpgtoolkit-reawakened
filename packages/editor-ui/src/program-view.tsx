@@ -379,7 +379,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
       const text = surface.getText();
       ctl.lsp = { client, uri, version: 1, sent: text };
       client.notify("textDocument/didOpen", { textDocument: { uri, languageId: "rpgcode", version: 1, text } });
-      surface.setLanguage({ uri, request: (method, params) => client.request(method, { textDocument: { uri }, ...params }) });
+      surface.setLanguage({ uri, capabilities: client.capabilities, request: (method, params) => client.request(method, { textDocument: { uri }, ...params }) });
       stops.push(client.onNotification("textDocument/publishDiagnostics", (params) => {
         const published = params as { readonly uri?: string; readonly diagnostics?: readonly SurfaceDiagnostic[] };
         if (published.uri !== uri) return;
