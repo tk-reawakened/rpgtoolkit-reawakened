@@ -11,7 +11,7 @@ The official site at `tk-reawakened.com` gives people one place to get TK Reawak
 
 ## Proposed launch
 
-Use **Download · Docs · Showcase · Community** as the primary navigation. The home page leads with **Get TK Reawakened** and **Get started**, followed by a current project spotlight and a specific invitation to participate.
+Test **Play · Create · The Vault · Docs · Community** as primary navigation, with a prominent **Download** action and a direct path to **Get started**. The home page combines a compact playable or illustrated preview, a showcase shelf, and recent community and Vault entries. The [16-bit workshop proposal](addendum.md#16-bit-workshop) records the visual direction and what must be verified before featuring a game, editor, or import action.
 
 | Area | What someone can do |
 | --- | --- |
@@ -38,6 +38,10 @@ Give featured projects and community prompts a discussion that is reachable from
 - A first-time visitor picks the right build and completes the first-room tutorial from the public site. A returning creator locates the migration prerequisites and understands what their old project can import.
 - An author submits an available example or work-in-progress link, a reviewer publishes it with consent and credit, and a playtester can move from the page to its discussion, respond to the creator’s ask, and return to the project page.
 - The first prompt produces a dated public recap and evidence that makers received feedback. Review submissions, replies and repeat participation before deciding how often to run it.
+
+## Keeping the site open
+
+The proposed funding principle keeps the engine, editor, documentation, public game playback and community archive free. Start by considering a low-key Support link with actual operating costs and optional links to creators’ own support pages. The [funding proposal](addendum.md#funding-the-project) records hosted service and creator pack options for later review.
 
 ## Open decisions
 
