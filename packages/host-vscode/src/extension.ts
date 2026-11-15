@@ -183,7 +183,7 @@ export function registerNewProject(context: vscode.ExtensionContext): void {
 async function openCreatedProject(context: vscode.ExtensionContext, destination: vscode.Uri, mainPath: string): Promise<void> {
   const main = vscode.Uri.joinPath(destination, ...mainPath.split("/"));
   const folders = vscode.workspace.workspaceFolders ?? [];
-  if (vscode.workspace.getWorkspaceFolder(main) !== undefined) {
+  if (folders.some((folder) => folder.uri.toString() === destination.toString())) {
     await vscode.commands.executeCommand("vscode.open", main);
     return;
   }
@@ -195,7 +195,7 @@ async function openCreatedProject(context: vscode.ExtensionContext, destination:
   }
   const added = new Promise<void>((resolve) => {
     const listener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      if (vscode.workspace.getWorkspaceFolder(main) === undefined) return;
+      if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === destination.toString())) return;
       listener.dispose();
       resolve();
     });

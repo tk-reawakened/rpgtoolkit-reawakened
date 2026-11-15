@@ -145,10 +145,10 @@ async function run(persisted: Map<string, unknown>): Promise<void> {
   await fake.state.commands.get("tkr.newProject")!();
 }
 
-test("the extension's New project command asks, writes through the workspace adapter and opens the main file inside an open folder", async () => {
+test("the extension's New project command asks and writes through the workspace adapter", async () => {
   await load();
   try {
-    reset([folderOf("/games")]);
+    reset([folderOf("/games/quest")]);
     fake.state.answers.input.push("Quest", "Quest.gam");
     fake.state.answers.pick.push(["start-program", "start-board"]);
     fake.state.answers.folder.push("/games/quest");
@@ -160,8 +160,42 @@ test("the extension's New project command asks, writes through the workspace ada
     for (const name of FOLDERS) ok(fake.folders.has(`/games/quest/${name}`), `${name} exists`);
     ok(fake.files.has("/games/quest/Main/Quest.gam") && fake.files.has("/games/quest/Prg/start.prg") && fake.files.has("/games/quest/Boards/start.brd"));
     equal(fake.files.has("/games/quest/Chrs/start.tem"), false);
-    deepEqual(commandCalls(), [["command", "vscode.open", "file:///games/quest/Main/Quest.gam"]], "the main file opens in the editor");
+    deepEqual(commandCalls(), [["command", "vscode.open", "file:///games/quest/Main/Quest.gam"]]);
     deepEqual(fake.state.errors, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a nested project gets its own workspace folder and opens its main file there", async () => {
+  await load();
+  try {
+    reset([folderOf("/games")]);
+    fake.state.answers.input.push("Quest", "Quest.gam");
+    fake.state.answers.pick.push([]);
+    fake.state.answers.folder.push("/games/quest");
+    await run(new Map());
+    deepEqual(fake.state.updated, [["file:///games/quest"]]);
+    ok(fake.state.workspaceFolders?.some((folder) => folder.uri.path === "/games/quest"), "the destination is a workspace folder, not only covered by its parent");
+    deepEqual(commandCalls(), [["command", "vscode.open", "file:///games/quest/Main/Quest.gam"]]);
+    ok(fake.files.has("/games/quest/Main/Quest.gam"));
+    deepEqual(fake.state.errors, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a project at an exact existing workspace folder opens without adding a duplicate", async () => {
+  await load();
+  try {
+    reset([folderOf("/games")]);
+    fake.state.answers.input.push("Quest", "Quest.gam");
+    fake.state.answers.pick.push([]);
+    fake.state.answers.folder.push("/games");
+    await run(new Map());
+    deepEqual(fake.state.updated, []);
+    deepEqual(commandCalls(), [["command", "vscode.open", "file:///games/Main/Quest.gam"]]);
+    ok(fake.state.workspaceFolders?.some((folder) => folder.uri.path === "/games"));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

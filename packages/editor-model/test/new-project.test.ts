@@ -258,6 +258,47 @@ test("a conflicting main file alone stops creation, and a differently cased exis
   deepEqual(host.bytesOf("boards/keep.brd"), existing);
   deepEqual(host.bytesOf("notes.txt"), existing, "an unrelated file in the destination stays");
 });
+test("nested starter paths resolve every component with ASCII-folded spelling and refuse nested collisions", async () => {
+  const nested: StarterDefinition[] = [{
+    id: "nested", label: "Nested", description: "Nested starter", writes: "Prg/tools/start.prg",
+    provenance: "Written for this project; MIT.", unavailable: null,
+    contribute: () => ({ files: [{ path: "Prg/tools/start.prg", bytes: new Uint8Array([1, 2, 3]) }], main: {} }),
+  }];
+  const existing = new Uint8Array([9]);
+  const collision = createMemoryPlatformServices({ files: { "pRG/TOOLS/START.PRG": existing } });
+  const refused = await createNewProject(collision.fs, settings({ starters: ["nested"] }), nested);
+  ok(!refused.ok && refused.reason === "conflicts");
+  deepEqual(refused.conflicts.map(({ path }) => path), ["pRG/TOOLS/START.PRG"]);
+  deepEqual(collision.bytesOf("pRG/TOOLS/START.PRG"), existing);
+  equal(collision.bytesOf("Main/MyQuest.gam"), undefined);
+
+  const host = createMemoryPlatformServices({ files: { "pRG/tools/keep.txt": existing } });
+  const created = await createNewProject(host.fs, settings({ starters: ["nested"] }), nested);
+  ok(created.ok);
+  deepEqual(created.written, ["pRG/tools/start.prg", "Main/MyQuest.gam"]);
+  deepEqual(host.bytesOf("pRG/tools/keep.txt"), existing);
+  const fresh = createMemoryPlatformServices();
+  const nestedCreated = await createNewProject(fresh.fs, settings({ starters: ["nested"] }), nested);
+  ok(nestedCreated.ok);
+  deepEqual(nestedCreated.written, ["Prg/tools/start.prg", "Main/MyQuest.gam"]);
+  const nestedFolder = await fresh.fs.stat("Prg/tools");
+  ok(nestedFolder.ok && nestedFolder.value.kind === "directory");
+});
+
+test("nested starter paths refuse an incompatible intermediate file before writing", async () => {
+  const nested: StarterDefinition[] = [{
+    id: "nested", label: "Nested", description: "Nested starter", writes: "Prg/tools/start.prg",
+    provenance: "Written for this project; MIT.", unavailable: null,
+    contribute: () => ({ files: [{ path: "Prg/tools/start.prg", bytes: new Uint8Array([1]) }], main: {} }),
+  }];
+  const existing = new Uint8Array([9]);
+  const host = createMemoryPlatformServices({ files: { "Prg/tools": existing } });
+  const refused = await createNewProject(host.fs, settings({ starters: ["nested"] }), nested);
+  ok(!refused.ok && refused.reason === "conflicts");
+  deepEqual(refused.conflicts.map(({ path }) => path), ["Prg/tools"]);
+  deepEqual(host.bytesOf("Prg/tools"), existing);
+  equal(host.bytesOf("Main/MyQuest.gam"), undefined);
+});
 
 /** A storage that fails the nth write (counting from 1) and every one after it, to stop a creation part-way. */
 function failingFrom(host: MemoryPlatformServices, nth: number) {

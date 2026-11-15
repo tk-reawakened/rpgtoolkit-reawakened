@@ -390,11 +390,6 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
     conflicts.push({ path: reserved.name, message: `${reserved.name} is a link; the editor cannot safely check where this project's folders would be read from.` });
   }
 
-  /** The folder spelled the way the destination already spells it. */
-  const folderOf = (folder: string): { readonly name: string; readonly exists: boolean } => {
-    const existing = root.entries.get(foldPath(folder));
-    return existing !== undefined && existing.kind === "directory" ? { name: existing.name, exists: true } : { name: folder, exists: false };
-  };
   const toMake: string[] = [];
   for (const folder of plan.folders) {
     const existing = root.entries.get(foldPath(folder));
@@ -402,26 +397,54 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
     else if (existing.kind !== "directory") conflicts.push({ path: existing.name, message: `${existing.name} is a ${existing.kind === "file" ? "file" : "link"}, and the project needs a folder of that name.` });
   }
 
+  /** Resolve each component independently so nested starter paths cannot hide a file or link in an ancestor. */
+  const resolvePath = async (path: string): Promise<{ readonly path: string; readonly conflict?: ProjectConflict; readonly failure?: string }> => {
+    const parts = path.split("/");
+    let parent = "";
+    const resolved: string[] = [];
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index]!;
+      const current = await listing(parent);
+      if ("failure" in current) return { path, failure: `${parent}: ${current.failure}` };
+      const existing = current.entries.get(foldPath(part));
+      const final = index === parts.length - 1;
+      if (existing === undefined) {
+        resolved.push(part, ...parts.slice(index + 1));
+        break;
+      }
+      const actual = [...resolved, existing.name].join("/");
+      if (final) {
+        const message = existing.kind === "file"
+          ? `${actual} already exists; the editor refuses existing files, even when their contents match. Choose another folder or name, or remove it yourself.`
+          : `${actual} is a ${existing.kind === "directory" ? "folder" : "link"}, and the project needs a file of that name.`;
+        return { path: actual, conflict: { path: actual, message } };
+      }
+      if (existing.kind !== "directory") {
+        return { path: actual, conflict: { path: actual, message: `${actual} is a ${existing.kind === "file" ? "file" : "link"}, and the project needs a folder of that name.` } };
+      }
+      resolved.push(existing.name);
+      parent = resolved.join("/");
+    }
+    return { path: resolved.join("/") };
+  };
+
+  const nestedFolders: string[] = [];
   const actions: { readonly file: PlannedFile; readonly path: string }[] = [];
   for (const file of plan.files) {
-    const slash = file.path.indexOf("/");
-    const folder = folderOf(file.path.slice(0, slash));
-    const name = file.path.slice(slash + 1);
-    let path = `${folder.name}/${name}`;
-    if (folder.exists) {
-      const inside = await listing(folder.name);
-      if ("failure" in inside) return unreadable(folder.name, inside.failure);
-      const existing = inside.entries.get(foldPath(name));
-      if (existing !== undefined) {
-        path = `${folder.name}/${existing.name}`;
-        if (existing.kind === "file") {
-          conflicts.push({ path, message: `${path} already exists; the editor refuses existing files, even when their contents match. Choose another folder or name, or remove it yourself.` });
-        } else {
-          conflicts.push({ path, message: `${path} is a ${existing.kind === "directory" ? "folder" : "link"}, and the project needs a file of that name.` });
-        }
+    const resolved = await resolvePath(file.path);
+    if (resolved.failure !== undefined) return unreadable(resolved.path, resolved.failure);
+    if (resolved.conflict !== undefined && !conflicts.some((conflict) => foldPath(conflict.path) === foldPath(resolved.conflict!.path))) conflicts.push(resolved.conflict);
+    const parts = resolved.path.split("/");
+    for (let index = 1; index < parts.length; index += 1) {
+      const folder = parts.slice(0, index).join("/");
+      if (!nestedFolders.some((existing) => foldPath(existing) === foldPath(folder)) && !toMake.some((existing) => foldPath(existing) === foldPath(folder))) {
+        const stat = await storage.stat(folder);
+        if (stat.ok) continue;
+        if (stat.error.code !== "not-found") return unreadable(folder, stat.error.message);
+        nestedFolders.push(folder);
       }
     }
-    actions.push({ file, path });
+    actions.push({ file, path: resolved.path });
   }
   if (conflicts.length > 0) {
     const first = conflicts[0]!;
@@ -432,6 +455,10 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
   const failed = (message: string, pending: readonly string[]): CreateProjectResult => ({ ok: false, reason: "failed", message, written, pending });
   const todo = actions;
   for (const folder of toMake) {
+    const made = await storage.createFolder(folder);
+    if (!made.ok) return failed(`Could not create the folder ${folder}: ${made.error.message} ${describeProgress(written, todo.map((action) => action.path))}`, todo.map((action) => action.path));
+  }
+  for (const folder of nestedFolders) {
     const made = await storage.createFolder(folder);
     if (!made.ok) return failed(`Could not create the folder ${folder}: ${made.error.message} ${describeProgress(written, todo.map((action) => action.path))}`, todo.map((action) => action.path));
   }
