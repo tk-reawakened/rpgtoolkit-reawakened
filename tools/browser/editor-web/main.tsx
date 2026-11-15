@@ -2,7 +2,7 @@ import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumen
 import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 // Monaco is chosen here, by the page, and not by `host-web`: importing it loads the editor, which only a browser page does.
-import { createMonacoSurfaceFactory } from "../../../packages/editor-ui/src/monaco-surface.ts";
+import { createMonacoSurfaceFactory } from "@tk-reawakened/editor-ui/monaco";
 
 /**
  * Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). Programs edit in Monaco with a

@@ -63,6 +63,7 @@ await build({
     ...bundleOptions.alias,
     "@tk-reawakened/host-web": join(root, "packages/host-web/src/index.ts"),
     "@tk-reawakened/editor-model": join(root, "packages/editor-model/src/index.ts"),
+    "@tk-reawakened/editor-ui/monaco": join(root, "packages/editor-ui/src/monaco-surface.ts"),
     "@tk-reawakened/editor-ui": join(root, "packages/editor-ui/src/index.ts"),
   },
 });

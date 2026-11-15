@@ -40,12 +40,12 @@ function projectPath(uri: vscode.Uri): string {
 async function insertHeader(): Promise<void> {
   const editor = activeProgram();
   if (editor === undefined) {
-    await vscode.window.showInformationMessage("Open a program first: the header goes at the start of the open RPGCode file.");
+    void vscode.window.showInformationMessage("Open a program first: the header goes at the start of the open RPGCode file.");
     return;
   }
   const command = insertHeaderCommand(headerTemplateFor(editor.document.uri), projectPath(editor.document.uri));
   if (command === null) {
-    await vscode.window.showInformationMessage("The header template is empty, so there is nothing to insert. Change rpgToolkit.program.headerTemplate in the settings.");
+    void vscode.window.showInformationMessage("The header template is empty, so there is nothing to insert. Change rpgToolkit.program.headerTemplate in the settings.");
     return;
   }
   // The template has `LF` breaks; VS Code writes the document's own ending when it saves.
@@ -64,14 +64,14 @@ interface InsertArguments {
 async function insertCommand(entries: readonly CommandReferenceEntry[], args?: InsertArguments): Promise<void> {
   const editor = activeProgram();
   if (editor === undefined) {
-    await vscode.window.showInformationMessage("Open a program first: the command is inserted at the cursor of the open RPGCode file.");
+    void vscode.window.showInformationMessage("Open a program first: the command is inserted at the cursor of the open RPGCode file.");
     return;
   }
   let chosen: CommandReferenceEntry | undefined;
   if (args?.name !== undefined) {
     chosen = entries.find((entry) => entry.name.toLowerCase() === args.name!.toLowerCase());
     if (chosen === undefined) {
-      await vscode.window.showErrorMessage(`There is no RPGCode command named ${args.name}.`);
+      void vscode.window.showErrorMessage(`There is no RPGCode command named ${args.name}.`);
       return;
     }
   } else {
@@ -103,7 +103,7 @@ interface NewProgramArguments {
 async function newProgram(context: vscode.ExtensionContext, generation: () => number, args?: NewProgramArguments): Promise<void> {
   const folders = vscode.workspace.workspaceFolders ?? [];
   if (folders.length === 0) {
-    await vscode.window.showErrorMessage("Open a project folder first: a new program is made in the project's Prg folder.");
+    void vscode.window.showErrorMessage("Open a project folder first: a new program is made in the project's Prg folder.");
     return;
   }
   const folder = folders.length === 1 ? folders[0]! : (await vscode.window.showQuickPick(folders.map((item) => ({ label: item.name, item })), { title: "New program: project", ignoreFocusOut: true }))?.item;
@@ -124,7 +124,7 @@ async function newProgram(context: vscode.ExtensionContext, generation: () => nu
     },
   });
   if (!outcome.ok) {
-    if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);
+    if (outcome.reason === "refused") void vscode.window.showErrorMessage(outcome.message);
     return;
   }
   await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(folder.uri, ...outcome.path.split("/")));

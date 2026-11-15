@@ -260,18 +260,19 @@ function semanticRows(document: vscode.TextDocument, legend: vscode.SemanticToke
 export async function programEditingScenario(folder: vscode.WorkspaceFolder): Promise<void> {
   const uri = vscode.Uri.joinPath(folder.uri, "Prg", "intro.prg");
   const source = '// Intro scene\r\nfunction greet(name) {\r\n    mwin("Hello, caf\u00e9")\r\n}\r\n:retry\r\n** Wrap up\r\nx = 1 // trailing\r\n';
-  await vscode.workspace.fs.writeFile(uri, latin1(source));
+  log("step: write"); await withTimeout(Promise.resolve(vscode.workspace.fs.writeFile(uri, latin1(source))), "write");
 
   // The language registers semantic highlighting and Windows-1252 as its defaults, so the file opens as the bytes are.
   const language = { languageId: "rpgcode" };
   equal(vscode.workspace.getConfiguration("editor", language).get("semanticHighlighting.enabled"), true, "semantic highlighting is on for RPGCode");
   equal(vscode.workspace.getConfiguration("files", language).get("encoding"), "windows1252", "RPGCode files open as Windows-1252");
-  const document = await vscode.workspace.openTextDocument(uri);
-  const editor = await vscode.window.showTextDocument(document);
+  log("step: open"); const document = await withTimeout(Promise.resolve(vscode.workspace.openTextDocument(uri)), "openTextDocument", 20000);
+  log("step: show"); const editor = await withTimeout(Promise.resolve(vscode.window.showTextDocument(document)), "showTextDocument", 20000);
   equal(document.languageId, "rpgcode", "a .prg opens in the RPGCode language");
   equal(document.getText(), source, "the Windows-1252 byte reads as one character and the endings are kept");
   await diagnosticsOf(uri, (items) => items.some((item) => codeOf(item) === "project.unassessed"), "the server to have analysed the program");
 
+  log("step: tokens");
   // Live colouring: the server's semantic tokens, with the legend the extension declared.
   const legend = await withTimeout(vscode.commands.executeCommand<vscode.SemanticTokensLegend>("vscode.provideDocumentSemanticTokensLegend", uri), "the semantic token legend");
   const tokens = await withTimeout(vscode.commands.executeCommand<vscode.SemanticTokens>("vscode.provideDocumentSemanticTokens", uri), "semantic tokens");
@@ -287,26 +288,31 @@ export async function programEditingScenario(folder: vscode.WorkspaceFolder): Pr
     "6:comment:// trailing",
   ]), "the program is coloured by class");
 
+  log("step: symbols");
   // Navigation: the Outline lists the functions, labels and the comments that start a line, in source order.
   const symbols = await withTimeout(vscode.commands.executeCommand<vscode.DocumentSymbol[]>("vscode.executeDocumentSymbolProvider", uri), "document symbols");
   equal(JSON.stringify(symbols.map((symbol) => [symbol.range.start.line, symbol.name])), JSON.stringify([[0, "Intro scene"], [1, "greet"], [4, "retry"], [5, "Wrap up"]]), "comments, functions and labels are bookmarks");
 
+  log("step: tip");
   // Call tips: the signature of the call the cursor is in.
   const tip = await withTimeout(vscode.commands.executeCommand<vscode.SignatureHelp>("vscode.executeSignatureHelpProvider", uri, new vscode.Position(2, 10)), "signature help");
   equal(tip?.signatures[0]?.label.startsWith("mwin("), true, "the call tip names the command");
 
+  log("step: header");
   // Header template: the setting's text, expanded for the file, at the start of the open program.
   await vscode.workspace.getConfiguration("rpgToolkit", uri).update("program.headerTemplate", "// {name} ({file})\n", vscode.ConfigurationTarget.Workspace);
   await vscode.commands.executeCommand("tkr.insertProgramHeader");
   equal(document.lineAt(0).text, "// intro (intro.prg)", "the header is expanded for this file");
   equal(document.lineAt(1).text, "// Intro scene", "the program follows the header");
 
+  log("step: command");
   // Command insertion: the command and its required parameters, with the parameters selected for overtyping.
   editor.selection = new vscode.Selection(new vscode.Position(8, 0), new vscode.Position(8, 0));
   await vscode.commands.executeCommand("tkr.insertProgramCommand", { name: "mwin" });
   equal(document.lineAt(8).text, "mwin(text)", "the command is inserted at the cursor");
   equal(document.getText(editor.selection), "text", "the parameter text is selected");
 
+  log("step: save");
   // Save: the edited file is still Windows-1252 with its CRLF endings; nothing became UTF-8.
   equal(await document.save(), true, "the program saves");
   const saved = await vscode.workspace.fs.readFile(uri);
@@ -314,14 +320,19 @@ export async function programEditingScenario(folder: vscode.WorkspaceFolder): Pr
   equal(String.fromCharCode(...saved), expected, "the saved bytes are Windows-1252 with CRLF");
   equal(saved.includes(0xe9), true, "the accented letter is one byte");
 
+  log("step: new program");
   // New program: a new file starts with the header and opens in the editor.
-  await vscode.commands.executeCommand("tkr.newProgram", { path: "Prg/made.prg" });
+  log("new: command 1");
+  await withTimeout(Promise.resolve(vscode.commands.executeCommand("tkr.newProgram", { path: "Prg/made.prg" })), "tkr.newProgram", 20000);
+  log("new: command 1 done");
   const made = vscode.Uri.joinPath(folder.uri, "Prg", "made.prg");
   equal(String.fromCharCode(...await vscode.workspace.fs.readFile(made)), "// made (made.prg)\r\n", "the new program begins with the expanded header");
   equal(vscode.window.activeTextEditor?.document.uri.toString(), made.toString(), "the new program opens");
-  await vscode.commands.executeCommand("tkr.newProgram", { path: "Prg/made.prg" });
+  log("new: command 2");
+  await withTimeout(Promise.resolve(vscode.commands.executeCommand("tkr.newProgram", { path: "Prg/made.prg" })), "second tkr.newProgram", 20000);
   equal(String.fromCharCode(...await vscode.workspace.fs.readFile(made)), "// made (made.prg)\r\n", "a new program never replaces a file");
 
+  log("step: zen");
   // Distraction-free: the command is registered and runs VS Code's own Zen mode (twice, so it is left as it was found).
   equal((await vscode.commands.getCommands(true)).includes("tkr.distractionFree"), true, "the distraction-free command is contributed");
   await vscode.commands.executeCommand("tkr.distractionFree");
@@ -351,7 +362,7 @@ export async function run(): Promise<void> {
   // A dialect preview is a new unsaved document, never an in-place project edit.
   await extension.activate();
   await runningProjectScenario(folder);
-  // programEditingScenario is not run by default: its first run in VS Code for the Web did not complete (#1705 PR notes).
+  await programEditingScenario(folder);
   const previewText = 'Mwin("Hello there")\n';
   await vscode.commands.executeCommand("rpgcode.previewTk2Conversion", previewText);
   const preview = vscode.window.activeTextEditor?.document;
