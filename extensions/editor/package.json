@@ -5,6 +5,7 @@
   "version": "0.0.1",
   "publisher": "tk-reawakened",
   "license": "MIT",
+  "icon": "dist/icon.png",
   "engines": {
     "vscode": "^1.90.0"
   },
