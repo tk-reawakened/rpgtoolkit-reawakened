@@ -204,6 +204,44 @@ test("a byte-identical existing planned file is still refused", async () => {
   equal(host.bytesOf("Main/MyQuest.gam"), undefined);
 });
 
+test("ASCII-folded duplicate destination entries refuse creation before any write", async () => {
+  const host = createMemoryPlatformServices({ files: { "Main/keep.txt": new Uint8Array([7]), "Notes/keep.txt": new Uint8Array([7]) } });
+  const originalList = host.fs.list;
+  const storage = bindProjectFileSystem("memory-project", {
+    ...host.fs,
+    list: async (path) => {
+      const listed = await originalList(path);
+      if (path !== "" || !listed.ok) return listed;
+      return { ok: true, value: [...listed.value, { name: "main", kind: "directory" }] };
+    },
+  });
+  const before = await folderKinds(host);
+  const refused = await createNewProject(storage, settings());
+  ok(!refused.ok && refused.reason === "failed");
+  match(refused.message, /Main and main have the same case-insensitive name/);
+  deepEqual(await folderKinds(host), before);
+  equal(host.bytesOf("Main/MyQuest.gam"), undefined);
+});
+
+test("a Game symbolic link refuses project creation before any write", async () => {
+  const host = createMemoryPlatformServices({ files: { "Notes/keep.txt": new Uint8Array([7]) } });
+  const originalList = host.fs.list;
+  const storage = bindProjectFileSystem("memory-project", {
+    ...host.fs,
+    list: async (path) => {
+      const listed = await originalList(path);
+      if (path !== "" || !listed.ok) return listed;
+      return { ok: true, value: [...listed.value, { name: "Game", kind: "link" }] };
+    },
+  });
+  const before = await folderKinds(host);
+  const refused = await createNewProject(storage, settings());
+  ok(!refused.ok && refused.reason === "conflicts");
+  deepEqual(refused.conflicts.map((conflict) => conflict.path), ["Game"]);
+  deepEqual(await folderKinds(host), before);
+  equal(host.bytesOf("Main/MyQuest.gam"), undefined);
+});
+
 test("a conflicting main file alone stops creation, and a differently cased existing folder keeps its own spelling", async () => {
   const existing = new Uint8Array([1]);
   const clash = createMemoryPlatformServices({ files: { "main/myquest.GAM": existing } });

@@ -365,7 +365,12 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
       // The destination itself must exist; a missing reserved folder is simply empty.
       if (folder === "" || listed.error.code !== "not-found") return { failure: listed.error.message };
     } else {
-      for (const entry of listed.value) entries.set(foldPath(entry.name), entry);
+      for (const entry of listed.value) {
+        const key = foldPath(entry.name);
+        const previous = entries.get(key);
+        if (previous !== undefined) return { failure: `${previous.name} and ${entry.name} have the same case-insensitive name.` };
+        entries.set(key, entry);
+      }
     }
     const made = { entries };
     listings.set(key, made);
@@ -381,6 +386,8 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
     if ("failure" in inner) return unreadable(reserved.name, inner.failure);
     const clash = inner.entries.get(foldPath(plan.reservedGameFolder.slice("Game/".length)));
     if (clash !== undefined) conflicts.push({ path: `${reserved.name}/${clash.name}`, message: `${reserved.name}/${clash.name} exists, and the editor would read this project's folders from it instead of from the project root.` });
+  } else if (reserved?.kind === "link") {
+    conflicts.push({ path: reserved.name, message: `${reserved.name} is a link; the editor cannot safely check where this project's folders would be read from.` });
   }
 
   /** The folder spelled the way the destination already spells it. */
