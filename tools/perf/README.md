@@ -37,7 +37,21 @@ The profile is written to `.perf/<package>.cpuprofile`; load it in Chrome DevToo
 | `hashGameState` | ~71% of CPU, ~50 ms per call, once per `advance` |
 | Game simulation (`runPhase`) | ~0.4 ms per frame |
 
-The cause is the state hash over `vm.defOwners`, which repeats the bundled `stock_battle` (112 KB) and `stock_menu`
+The cause was the state hash over `vm.defOwners`, which repeats the bundled `stock_battle` (112 KB) and `stock_menu`
 (76 KB) source once per function they define (151 entries, ~14.6 MB). `stock_menu`'s source has a non-ASCII em dash,
-so its copies miss the ASCII transition cache in `packages/core/src/save/hash.ts` and are UTF-8 encoded and hashed
-byte by byte on every frame.
+so its copies missed the ASCII transition cache in `packages/core/src/save/hash.ts` and were UTF-8 encoded and hashed
+byte by byte on every frame. The repetition itself is #2767 (needs an owner ruling).
+
+## Before and after (2026-11-15, demo, Apple-silicon Mac, real GPU, 120 Hz display, `--headed`)
+
+| Measurement | Before | After #2766 (non-ASCII transition cache) | After #2766 + #1890 (hash on request) |
+|---|---|---|---|
+| Frame rate | 8.5 fps | 111 fps | 119 fps (display cap) |
+| Frame p50 / p99 | 117 ms / 354 ms | 8.3 ms / 31 ms | 8.3 ms / 16.5 ms |
+| Long tasks in 8 s | 73 (9.2 s) | 2 (0.17 s) | 0 |
+| Main thread idle | ~0% | 12.5% | 71% |
+| Hashing self time (`process`, `utf8Encode`, `serialize`, `hashGameState`, `tagNonFinite`) | ~89% | ~42% | ~5% |
+
+With #1890 the live player creates its engine with `stateHashInReports: "on-request"`, reads the hash only when it
+posts a status to the editor or refreshes its report text (at most every 250 ms, or at once when the status changes),
+and hashes lazily for `window.__live.stateHash`.
