@@ -38,6 +38,8 @@ createServer({
   onSignatureHelp: (handler) => connection.onSignatureHelp(handler),
   onCodeAction: (handler) => connection.onCodeAction(handler),
   onDocumentFormatting: (handler) => connection.onDocumentFormatting(handler),
+  // Colouring is served as `textDocument/semanticTokens/full` (docs/spec/engine/rpgcode-tooling.md#tool-10).
+  onRequest: (method, handler) => connection.onRequest(method, handler),
   showMessage: (params) => void connection.sendNotification("window/showMessage", params),
   // The running project arrives as `rpgcode/project` (docs/spec/engine/rpgcode-tooling.md#tool-1-project).
   onNotification: (method, handler) => connection.onNotification(method, handler),
