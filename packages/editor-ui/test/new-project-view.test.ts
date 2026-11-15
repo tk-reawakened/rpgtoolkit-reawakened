@@ -59,6 +59,9 @@ const click = (button: Element): Promise<void> | void => act(async () => {
 const submit = (rig: Rig): Promise<void> | void => act(async () => {
   rig.el.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
   await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
 });
 const alerts = (rig: Rig): string[] => [...rig.el.querySelectorAll('[role="alert"]')].map((node) => node.textContent ?? "");
 const choose = async (rig: Rig): Promise<void> => {

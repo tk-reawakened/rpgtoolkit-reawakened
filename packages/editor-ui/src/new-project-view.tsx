@@ -1,10 +1,10 @@
 import {
   NEW_PROJECT_MAX_NAME,
-  STARTER_ITEMS,
+  STARTER_DEFINITIONS,
   suggestedMainFile,
   validateNewProject,
   type NewProjectSettings,
-  type StarterItem,
+  type StarterDefinition,
 } from "@tk-reawakened/editor-model";
 import { useEffect, useRef, useState } from "preact/hooks";
 
@@ -12,8 +12,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 let wizardsMade = 0;
 
 export interface NewProjectViewProps {
-  /** What the wizard offers to copy in: the catalogue, with the unavailable items and their reasons. */
-  readonly starters?: readonly StarterItem[];
+  /** The catalogue the host can actually build, including each item's contribution. */
+  readonly starters?: readonly StarterDefinition[];
   /** Ask the host for the folder the project is made in; its name, or `null` when the person cancels. */
   readonly chooseDestination: () => Promise<string | null>;
   /**
@@ -24,6 +24,7 @@ export interface NewProjectViewProps {
   readonly onCancel: () => void;
 }
 
+
 /**
  * The new-project wizard (T-04): the game's name, its main file, the starter contents to copy in and the destination
  * folder. Nothing is ticked at first, so a blank project is what Create makes unless the person asks for more; each item
@@ -31,7 +32,7 @@ export interface NewProjectViewProps {
  * Every field has a visible label, a problem is said beside its field, and Cancel (or Escape) creates nothing. Only
  * classes and ARIA attributes are used (ADR 0025 decision 6).
  */
-export function NewProjectView({ starters = STARTER_ITEMS, chooseDestination, onCreate, onCancel }: NewProjectViewProps) {
+export function NewProjectView({ starters = STARTER_DEFINITIONS, chooseDestination, onCreate, onCancel }: NewProjectViewProps) {
   const [ids] = useState(() => {
     wizardsMade += 1;
     return `tkr-new-project-${wizardsMade}`;
@@ -50,7 +51,7 @@ export function NewProjectView({ starters = STARTER_ITEMS, chooseDestination, on
   useEffect(() => first.current?.focus(), []);
 
   const settings: NewProjectSettings = { gameName: name, mainFile, starters: chosen };
-  const problems = validateNewProject(settings);
+  const problems = validateNewProject(settings, starters);
   const problemOf = (field: keyof NewProjectSettings): string | undefined => problems.find((problem) => problem.field === field)?.message;
   // A field that is still empty is not scolded before the person has tried to create.
   const shown = (field: keyof NewProjectSettings): string | undefined => (!attempted && (field === "gameName" ? name === "" : field === "mainFile" && mainFile === "") ? undefined : problemOf(field));
@@ -108,7 +109,7 @@ export function NewProjectView({ starters = STARTER_ITEMS, chooseDestination, on
         <legend>Starter contents</legend>
         <p id={`${ids}-starters-note`} class="tkr-new-project-note">Nothing is copied unless you tick it. Leave everything unticked for a blank project with its folders.</p>
         {starters.map((item) => {
-          const unavailable = item.unavailable !== null;
+          const unavailable = item.unavailable !== null || item.contribute === null;
           const on = chosen.includes(item.id);
           return (
             <div key={item.id} class={unavailable ? "tkr-new-project-starter tkr-new-project-starter-unavailable" : "tkr-new-project-starter"}>

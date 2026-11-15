@@ -6,7 +6,7 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { ASSET_FOLDERS, BinaryReader, PACKAGE_ROOT, readBoard, readMainFile, type AssetKind } from "@tk-reawakened/core";
-import { createDocumentWorkspace, projectLayoutOfMain, referencePath, reservedFolder, type ProjectLayout } from "@tk-reawakened/editor-model";
+import { STARTER_DEFINITIONS, createDocumentWorkspace, projectLayoutOfMain, referencePath, reservedFolder, type ProjectLayout, type StarterDefinition } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { DialogQuestion, DialogService, ProjectHandle } from "@tk-reawakened/platform-services";
 import type { createWorkbench as CreateWorkbench, newWebProject as NewWebProject } from "@tk-reawakened/host-web/testing";
@@ -63,7 +63,7 @@ function folder(files: Readonly<Record<string, Uint8Array>> = {}) {
 const field = (element: HTMLElement, label: string): HTMLInputElement => {
   const target = [...element.querySelectorAll("label")].find((candidate) => candidate.textContent === label);
   const found = target === undefined ? null : element.querySelector<HTMLInputElement>(`#${CSS.escape(target.htmlFor)}`);
-  if (found === null) throw new Error(`no field ${label}`);
+  if (found === null) throw new Error(`no field ${label}: ${element.innerHTML}`);
   return found;
 };
 const type = async (target: HTMLInputElement, value: string): Promise<void> => {
@@ -93,15 +93,71 @@ function mainOf(bytes: Uint8Array | null) {
 }
 
 /** Start the wizard over `element`, as the page's "New project…" button does. */
-function startWizard(root: MemoryDirectory, element: HTMLElement, options: { picks?: () => Promise<FileSystemDirectoryHandle | null>; register?: () => Promise<ProjectHandle | null> } = {}) {
+function startWizard(root: MemoryDirectory, element: HTMLElement, options: { picks?: () => Promise<FileSystemDirectoryHandle | null>; register?: () => Promise<ProjectHandle | null>; starters?: readonly StarterDefinition[] } = {}) {
   return newWebProject({
     element,
     dialogs: new Dialogs(),
     userSettings: userStorage(),
     pickDirectory: options.picks ?? (async () => root as unknown as FileSystemDirectoryHandle),
     register: options.register ?? (async () => REGISTERED),
+    ...(options.starters === undefined ? {} : { starters: options.starters }),
   });
 }
+test("browser modal contains forward and reverse Tab focus", async () => {
+  const { root, element } = folder();
+  const made = startWizard(root, element);
+  await settle(act);
+  const first = field(element, "Game name");
+  const last = element.querySelector<HTMLButtonElement>(".tkr-new-project-cancel")!;
+  equal(document.activeElement, first);
+  await act(() => { first.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })); });
+  equal(document.activeElement, last, "Shift+Tab from the first control wraps to the last control");
+  await act(() => { last.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })); });
+  equal(document.activeElement, first, "Tab from the last control wraps to the first control");
+  await act(() => { element.querySelector<HTMLFormElement>("form")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+  const cancelled = await made;
+  equal(cancelled.ok, false);
+});
+
+function customStarter(): StarterDefinition {
+  return {
+    id: "custom-start-script",
+    label: "Custom start script",
+    description: "A project-specific starter.",
+    writes: "Prg/custom.prg",
+    provenance: "Test fixture.",
+    unavailable: null,
+    contribute: () => ({ files: [{ path: "Prg/custom.prg", bytes: new Uint8Array([99]) }], main: { startupPrg: "custom.prg" } }),
+  };
+}
+
+test("injected starter definitions validate and are written by both hosts", async () => {
+  const custom = customStarter();
+  const { root, element } = folder();
+  const made = startWizard(root, element, { starters: [custom] });
+  await settle(act);
+  await type(field(element, "Game name"), "Quest");
+  equal(field(element, "Custom start script").disabled, false);
+  await tick(element, "Custom start script");
+  await press(element, ".tkr-new-project-choose");
+  await submit(element);
+  const web = await made;
+  ok(web.ok);
+  deepEqual([...root.read("Prg/custom.prg")!], [99]);
+  equal(mainOf(root.read("Main/Quest.gam")).startupPrg, "custom.prg");
+  web.project.deactivate();
+
+  const host = createMemoryPlatformServices();
+  const destinationFolder = destination(host);
+  const vscode = await runNewProject({
+    ui: scripted(["Quest", "Quest.gam", ["custom-start-script"]]).ui,
+    chooseDestination: destinationFolder.chooseDestination,
+    starters: [custom],
+  });
+  ok(vscode.ok, vscode.ok ? "" : vscode.message);
+  deepEqual(host.bytesOf("Prg/custom.prg"), new Uint8Array([99]));
+  equal(mainOf(host.bytesOf("Main/Quest.gam") ?? null).startupPrg, "custom.prg");
+});
 
 test("the browser wizard makes a blank project: the 14 folders, a main file that reads back, and the project opens on it", async () => {
   const { root, element } = folder({ "notes.txt": bystander });

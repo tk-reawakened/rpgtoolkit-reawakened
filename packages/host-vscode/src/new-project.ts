@@ -1,12 +1,12 @@
 import {
-  STARTER_ITEMS,
+  STARTER_DEFINITIONS,
   createNewProject,
   suggestedMainFile,
   validateNewProject,
   type NewProjectProblem,
   type NewProjectSettings,
   type NewProjectStorage,
-  type StarterItem,
+  type StarterDefinition,
 } from "@tk-reawakened/editor-model";
 
 /**
@@ -39,8 +39,8 @@ export interface NewProjectEnvironment<Handle> {
   readonly ui: NewProjectUi;
   /** Ask for the destination folder; `undefined` when the user dismisses the dialog. */
   readonly chooseDestination: () => Promise<NewProjectDestination<Handle> | undefined>;
-  /** The starter items to offer; the catalogue by default. */
-  readonly starters?: readonly StarterItem[];
+  /** The starter items to offer and create; the catalogue by default. */
+  readonly starters?: readonly StarterDefinition[];
 }
 
 export type NewProjectOutcome<Handle> =
@@ -49,42 +49,42 @@ export type NewProjectOutcome<Handle> =
 
 const cancelled: NewProjectOutcome<never> = { ok: false, reason: "cancelled", message: "No project was created." };
 
-/** Ask the questions and create the project in the chosen folder. */
 export async function runNewProject<Handle>(env: NewProjectEnvironment<Handle>): Promise<NewProjectOutcome<Handle>> {
+  const starters = env.starters ?? STARTER_DEFINITIONS;
   const { ui } = env;
   const title = "New project";
   const message = (problems: readonly NewProjectProblem[], field: keyof NewProjectSettings): string | null => problems.find((problem) => problem.field === field)?.message ?? null;
 
-  const gameName = await ui.input({ title, prompt: "Game name", value: "", validate: (value) => message(validateNewProject({ gameName: value, mainFile: "x.gam", starters: [] }), "gameName") });
+  const gameName = await ui.input({ title, prompt: "Game name", value: "", validate: (value) => message(validateNewProject({ gameName: value, mainFile: "x.gam", starters: [] }, starters), "gameName") });
   if (gameName === undefined) return cancelled;
   const mainFile = await ui.input({
     title,
     prompt: "Main file name (kept in the Main folder)",
     value: suggestedMainFile(gameName),
-    validate: (value) => message(validateNewProject({ gameName, mainFile: value, starters: [] }), "mainFile"),
+    validate: (value) => message(validateNewProject({ gameName, mainFile: value, starters: [] }, starters), "mainFile"),
   });
   if (mainFile === undefined) return cancelled;
   const picked = await ui.pickMany({
     title: `${title}: starter contents (nothing is copied unless you tick it)`,
-    items: (env.starters ?? STARTER_ITEMS).map((item) => ({
+    items: starters.map((item) => ({
       id: item.id,
       label: item.label,
-      description: item.unavailable === null ? item.writes : "Not available",
-      detail: item.unavailable === null ? `${item.description} Provenance: ${item.provenance}` : item.unavailable,
-      available: item.unavailable === null,
+      description: item.unavailable === null && item.contribute !== null ? item.writes : "Not available",
+      detail: item.unavailable === null && item.contribute !== null ? `${item.description} Provenance: ${item.provenance}` : item.unavailable ?? "No material is available.",
+      available: item.unavailable === null && item.contribute !== null,
     })),
   });
   if (picked === undefined) return cancelled;
 
   const settings: NewProjectSettings = { gameName, mainFile, starters: picked };
   // Refused before the folder dialog, so a mistake is said while the person is still answering questions.
-  const problems = validateNewProject(settings);
+  const problems = validateNewProject(settings, starters);
   if (problems.length > 0) return { ok: false, reason: "refused", message: problems[0]!.message };
   const destination = await env.chooseDestination();
   if (destination === undefined) return cancelled;
 
   try {
-    const created = await createNewProject(destination.storage, settings);
+    const created = await createNewProject(destination.storage, settings, starters);
     if (!created.ok) return { ok: false, reason: "refused", message: created.message };
     return { ok: true, handle: destination.handle, mainPath: created.mainPath, written: created.written, present: created.present };
   } catch (error) {

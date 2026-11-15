@@ -1,4 +1,4 @@
-import { createNewProject, type NewProjectSettings } from "@tk-reawakened/editor-model";
+import { createNewProject, type NewProjectSettings, type StarterDefinition } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 import { mountNewProject, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { createWebFileSystem } from "./filesystem.ts";
@@ -20,6 +20,8 @@ export interface NewWebProjectOptions extends WebProjectOptions {
   readonly pickDirectory?: () => Promise<FileSystemDirectoryHandle | null>;
   /** Remember the folder as a stable project (the browser's IndexedDB registry by default); `null` when it cannot. */
   readonly register?: (root: FileSystemDirectoryHandle) => Promise<ProjectHandle | null>;
+  /** The starter catalogue the wizard can display and write; the built-in catalogue by default. */
+  readonly starters?: readonly StarterDefinition[];
 }
 
 export type NewWebProjectResult =
@@ -71,6 +73,22 @@ export function newWebProject(options: NewWebProjectOptions): Promise<NewWebProj
   overlay.setAttribute("aria-modal", "true");
   overlay.setAttribute("aria-label", "New project");
   element.append(overlay);
+  const focusable = (): HTMLElement[] => [...overlay.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])')];
+  const containFocus = (event: KeyboardEvent): void => {
+    if (event.key !== "Tab") return;
+    const controls = focusable();
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (first === undefined || last === undefined) return;
+    if (event.shiftKey && (doc.activeElement === first || !overlay.contains(doc.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (doc.activeElement === last || !overlay.contains(doc.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+  overlay.addEventListener("keydown", containFocus);
   let destination: FileSystemDirectoryHandle | null = null;
 
   // The host's TypeScript library predates `Promise.withResolvers`, so the resolver is taken from the executor.
@@ -81,9 +99,11 @@ export function newWebProject(options: NewWebProjectOptions): Promise<NewWebProj
     handle?.dispose();
     overlay.remove();
     if (before instanceof HTMLElement) before.focus();
+    overlay.removeEventListener("keydown", containFocus);
     resolve(result);
   };
   handle = mountNewProject(overlay, {
+    ...(options.starters === undefined ? {} : { starters: options.starters }),
     chooseDestination: async () => {
       const chosen = await pick();
       if (chosen === null) return null;
@@ -94,7 +114,7 @@ export function newWebProject(options: NewWebProjectOptions): Promise<NewWebProj
     onCreate: async (settings: NewProjectSettings) => {
       const root = destination;
       if (root === null) return { ok: false, message: "Choose the folder to make the project in." };
-      const created = await createNewProject(createWebFileSystem(root, STAGING_ID), settings);
+      const created = await createNewProject(createWebFileSystem(root, STAGING_ID), settings, options.starters);
       if (!created.ok) {
         return { ok: false, message: created.message, ...(created.reason === "conflicts" ? { details: created.conflicts.map((conflict) => conflict.path) } : created.reason === "failed" ? { details: created.pending } : {}) };
       }
