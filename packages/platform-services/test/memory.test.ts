@@ -13,6 +13,7 @@ test("project binding preserves prototype methods and their receiver", async () 
     list(path: string) { return this.delegate.list(path); }
     read(path: string) { return this.delegate.read(path); }
     write(path: string, value: Uint8Array) { return this.delegate.write(path, value); }
+    createFolder(path: string) { return this.delegate.createFolder(path); }
     stat(path: string) { return this.delegate.stat(path); }
     delete(path: string) { return this.delegate.delete(path); }
     rename(from: string, to: string) { return this.delegate.rename(from, to); }
@@ -246,4 +247,34 @@ test("shell.openExternal records an existing project file and refuses a missing 
   ok(bad !== undefined && !bad.ok);
   equal(bad.error.code, "invalid-path");
   deepEqual(host.openedExternally, ["Misc/readme.txt"]);
+});
+
+test("createFolder makes empty folders that list, stat, rename and delete like folders with files", async () => {
+  const host = createMemoryPlatformServices({ files: { "Main/game.gam": bytes(1) } });
+  ok((await host.fs.createFolder("Game/Boards")).ok);
+  ok((await host.fs.createFolder("game/BOARDS")).ok, "an existing folder, under another case, is fine");
+  const root = await host.fs.list("");
+  ok(root.ok);
+  deepEqual(root.value.map((entry) => entry.name).sort(), ["Game", "Main"]);
+  const inner = await host.fs.list("Game");
+  ok(inner.ok);
+  deepEqual(inner.value, [{ name: "Boards", kind: "directory" }]);
+  const stat = await host.fs.stat("Game/Boards");
+  ok(stat.ok);
+  equal(stat.value.kind, "directory");
+  const code = async (result: Promise<{ readonly ok: boolean; readonly error?: { readonly code: string } }>) => {
+    const settled = await result;
+    return settled.ok ? "ok" : settled.error?.code;
+  };
+  equal(await code(host.fs.createFolder("Main/game.gam")), "not-a-directory", "a file is not a folder");
+  equal(await code(host.fs.createFolder("Main/game.gam/inside")), "not-a-directory", "nothing is made below a file");
+  equal(await code(host.fs.createFolder("")), "invalid-path");
+  ok((await host.fs.rename("Game/Boards", "Game/Maps")).ok);
+  const renamed = await host.fs.list("Game");
+  ok(renamed.ok);
+  deepEqual(renamed.value, [{ name: "Maps", kind: "directory" }]);
+  ok((await host.fs.delete("Game")).ok);
+  equal(await code(host.fs.stat("Game")), "not-found");
+  host.failWrites({ code: "io-error", message: "disk full" });
+  equal(await code(host.fs.createFolder("Later")), "io-error", "a refused host refuses folders as it refuses files");
 });

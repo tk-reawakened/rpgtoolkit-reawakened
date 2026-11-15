@@ -124,6 +124,8 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
   const project = options.project ?? DEFAULT_PROJECT;
   const capabilities = new Set<Capability>(options.capabilities ?? DEFAULT_CAPABILITIES);
   const files = new Map<string, Entry>();
+  /** Folders made with `createFolder`, by folded path; they exist even when empty. A folder with files needs no entry. */
+  const folders = new Map<string, string>();
   const watches = new Set<{ readonly root: string; readonly onChange: (change: FileChange) => void }>();
   const settingValues = new Map<string, SettingValue>();
   const edited: DocumentEdited[] = [];
@@ -149,6 +151,7 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
   };
   const folderExists = (key: string): boolean => {
     if (key === "") return true;
+    for (const candidate of folders.keys()) if (candidate === key || candidate.startsWith(`${key}/`)) return true;
     for (const candidate of files.keys()) if (candidate.startsWith(`${key}/`)) return true;
     return false;
   };
@@ -188,6 +191,13 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
         const kind: FileKind = slash === -1 ? "file" : "directory";
         found.set(fold(name), { name, kind });
       }
+      for (const [candidate, stored] of folders) {
+        if (!candidate.startsWith(prefix) || candidate === key) continue;
+        const rest = stored.slice(prefix.length);
+        const slash = rest.indexOf("/");
+        const name = slash === -1 ? rest : rest.slice(0, slash);
+        if (!found.has(fold(name))) found.set(fold(name), { name, kind: "directory" });
+      }
       return Promise.resolve(platformOk([...found.values()]));
     },
     read(path): Promise<PlatformResult<Uint8Array>> {
@@ -213,6 +223,20 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
       emit({ kind, path: files.get(key)?.path ?? path });
       return Promise.resolve(platformOk(undefined));
     },
+    createFolder(path): Promise<PlatformResult<void>> {
+      const invalid = invalidPath(path, false);
+      if (invalid !== undefined) return Promise.resolve(platformError("invalid-path", invalid));
+      if (writeFailure !== null) return Promise.resolve({ ok: false, error: writeFailure });
+      const key = fold(path);
+      if (files.has(key)) return Promise.resolve(platformError("not-a-directory", `${path} is a file`));
+      const blocker = fileAncestor(key);
+      if (blocker !== undefined) return Promise.resolve(platformError("not-a-directory", `${blocker} is a file`));
+      if (!folderExists(key)) {
+        folders.set(key, path);
+        touch();
+      }
+      return Promise.resolve(platformOk(undefined));
+    },
     stat(path): Promise<PlatformResult<FileStat>> {
       const invalid = invalidPath(path, true);
       if (invalid !== undefined) return Promise.resolve(platformError("invalid-path", invalid));
@@ -235,7 +259,14 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
           removed.push(entry);
         }
       }
-      if (removed.length === 0) return Promise.resolve(platformError("not-found", `${path} does not exist`));
+      let removedFolders = 0;
+      for (const candidate of [...folders.keys()]) {
+        if (candidate === key || candidate.startsWith(`${key}/`)) {
+          folders.delete(candidate);
+          removedFolders += 1;
+        }
+      }
+      if (removed.length === 0 && removedFolders === 0) return Promise.resolve(platformError("not-found", `${path} does not exist`));
       touch();
       for (const entry of removed) emit({ kind: "deleted", path: entry.path });
       return Promise.resolve(platformOk(undefined));
@@ -248,7 +279,8 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
       const fromKey = fold(from);
       const toKey = fold(to);
       const moving = [...files].filter(([key]) => key === fromKey || key.startsWith(`${fromKey}/`));
-      if (moving.length === 0) return Promise.resolve(platformError("not-found", `${from} does not exist`));
+      const movingFolders = [...folders].filter(([key]) => key === fromKey || key.startsWith(`${fromKey}/`));
+      if (moving.length === 0 && movingFolders.length === 0) return Promise.resolve(platformError("not-found", `${from} does not exist`));
       if (toKey.startsWith(`${fromKey}/`)) {
         return Promise.resolve(platformError("invalid-path", `${from} cannot be moved into itself (${to})`));
       }
@@ -258,6 +290,10 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
       }
       const blocker = fileAncestor(toKey);
       if (blocker !== undefined) return Promise.resolve(platformError("not-a-directory", `${blocker} is a file`));
+      for (const [key, stored] of movingFolders) {
+        folders.delete(key);
+        folders.set(`${toKey}${key.slice(fromKey.length)}`, `${to}${stored.slice(from.length)}`);
+      }
       for (const [key, entry] of moving) {
         files.delete(key);
         const movedPath = `${to}${entry.path.slice(from.length)}`;
