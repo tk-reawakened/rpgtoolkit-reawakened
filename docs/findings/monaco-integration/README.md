@@ -14,7 +14,7 @@ Measured 2026-11-14 on macOS arm64, Node 26.13.0, Chromium from Playwright 1.64.
 |---|---|---|
 | monaco-editor 0.57.0 (and the vscode code it vendors, Node `path` copy) | MIT | direct dependency, Blue Oak Gold |
 | marked 14.0.0 | MIT | transitive |
-| dompurify 3.4.15 | MPL-2.0 OR Apache-2.0 | transitive, used under Apache-2.0 |
+| dompurify 3.4.17 (overridden from the 3.4.15 monaco-editor pins, for advisory GHSA-c6gr-qvv4-5v3f) | MPL-2.0 OR Apache-2.0 | transitive, used under Apache-2.0 |
 | `codicon.ttf` | CC-BY-4.0 (vscode-codicons `LICENSE`; the font file carries no licence metadata, its name table only says "Version 1.15", fontello.com) | file inside the direct dependency, ADR 0034 decision 2 |
 
 All four are in `THIRD_PARTY_NOTICES` with texts. `tools/licences/config.json` `bundledAssets.dependencyAssets` pins the codicon file by SHA-256 (`77f90255…38da`); `pnpm run licence` fails if it changes, if another font appears in the package, or if the notice lacks its name, hash and licence. TypeScript, W3C HTML draft, js-beautify, Ionic and vscode-swift material listed in Monaco's `ThirdPartyNotices.txt` belongs to language features that are not bundled.
