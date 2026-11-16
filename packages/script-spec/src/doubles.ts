@@ -24,7 +24,7 @@ import {
   type Value,
 } from "@tk-reawakened/core";
 import { captureArg, type Snap } from "./snapshot.ts";
-import { createCreatorActionScheduler, type CreatorActionScheduler } from "./creator-actions.ts";
+import { createCreatorActionScheduler, type CreatorActionScheduler, type CreatorActionSnapshot } from "./creator-actions.ts";
 import type { FixtureDeclaration } from "./fixture.ts";
 
 /** The plugin id whose commands no spy may target. */
@@ -77,11 +77,12 @@ export function createDoubles(
   registeredActions: () => readonly string[] = () => [],
   creatorActionsEnabled = false,
   creatorState: CreatorStateBridge | null = null,
+  initialActions?: CreatorActionSnapshot,
 ): SpecDoubles {
   return {
     fixtures: new Map(),
     pending: [],
-    creatorActions: createCreatorActionScheduler(),
+    creatorActions: createCreatorActionScheduler(initialActions),
     registeredActions,
     creatorActionsEnabled,
     creatorState,

@@ -138,6 +138,7 @@ export function readFixture(input: unknown): FixtureDefinition {
       const value = members[name];
       if (typeof value === "string") {
         if (value.length > 255) bad(`variables.${name} is over 255 characters`);
+        if (/["\r\n\u0000]/.test(value)) bad(`variables.${name} contains a character the fixture cannot represent`);
         if (name.endsWith("!")) bad(`variables.${name} must hold a number`);
         variables[name] = value;
       } else if (typeof value === "number" && Number.isFinite(value)) {

@@ -53,6 +53,13 @@ test("fixture values enforce path, type, and matching RPGCode variable suffix ru
       error instanceof FixtureError && error.code === "spec.bad-fixture");
   }
 });
+test("fixture string values reject quote, carriage return, line feed and NUL before setup code generation", () => {
+  for (const value of ['quoted"', "carriage\rreturn", "line\nfeed", "nul\u0000byte"]) {
+    throws(() => readFixture(definition({ variables: { label$: value } })), (error: unknown) =>
+      error instanceof FixtureError && error.code === "spec.bad-fixture");
+  }
+});
+
 
 test("fixture size cap measures UTF-8 bytes rather than UTF-16 code units", () => {
   const variables: Record<string, string> = {};

@@ -11,16 +11,20 @@
  * the fresh fixture"). The snapshot is the VM's own (`snapshot`/`restoreGameState`),
  * taken at the library's checkpoint report, so a restored run resumes in the middle
  * of the group's walk. Every task runs twice and must give identical outcomes and
- * state hashes. Each run has its own host-side test doubles (`doubles.ts`), so a
- * case's scheduled keys, scripted draws and spies never reach another run.
+ * state hashes. Each run has its own host-side test doubles (`doubles.ts`). A
+ * beforeAll checkpoint carries the creator action scheduler's action log, pending
+ * input edges and next ordinal so restored runs finish held actions without ID reuse.
  * With `coverage`, each counted run also counts the instructions it executes
  * (`coverage.ts`, TOOL-5 "Line coverage").
  */
 
 import {
   addActor,
-  assetKey,
   advanceScriptTick,
+  assetKey,
+  BinaryReader,
+  boardPixelSize,
+  coordLayout,
   createAssetIndex,
   createGameState,
   createScriptServices,
@@ -31,17 +35,19 @@ import {
   fileProgramRef,
   hashGameState,
   PACKAGE_ROOT,
-  ScriptError,
+  readBoard,
   registerActorObject,
   restoreGameState,
+  ScriptError,
   snapshot,
   startProgram,
   STEP_BUDGET,
-  type EffectRecord,
-  type InputRecord,
-  type GameState,
-  type PluginDefinition,
+  usesPixelCoordinates,
   type CommandView,
+  type EffectRecord,
+  type GameState,
+  type InputRecord,
+  type PluginDefinition,
   type ProgramLoader,
   type ScriptServices,
 } from "@tk-reawakened/core";
@@ -49,7 +55,7 @@ import { addCounts, createCoverageProbe, toCoverage, type LineCounts, type Posit
 import { FixtureError, type FixtureDeclaration, type FixtureDefinition } from "./fixture.ts";
 import { createFixtureWorld, fixtureWorldSha256, type FixtureWorld, type FixtureWorldInputFile } from "./fixture-world.ts";
 import { sha256Hex } from "./sha256.ts";
-import type { CreatorAction } from "./creator-actions.ts";
+import type { CreatorAction, CreatorActionSnapshot } from "./creator-actions.ts";
 import { createCreatorScene, type CreatorFrameObservation, type CreatorScene, type CreatorSceneProgram, type CreatorSceneSnapshot } from "./creator-scene.ts";
 export type { CreatorFrameObservation } from "./creator-scene.ts";
 import { applyDue, createDoubles, wrapPlugins, type SpecDoubles } from "./doubles.ts";
@@ -164,6 +170,8 @@ export type SpecOutcome = {
   readonly actual: string;
   readonly line: number;
   readonly column: number;
+  /** Project-relative file that owns this source position; falls back to the spec file for generated diagnostics. */
+  readonly sourcePath: string;
   readonly context?: CreatorOutcomeContext;
 };
 
@@ -231,6 +239,7 @@ type CreatorTask = {
   readonly fixtureDeclarations: readonly FixtureDeclaration[];
   readonly world: FixtureWorld | null;
   readonly from: CreatorSceneSnapshot | null;
+  readonly actionSnapshot: CreatorActionSnapshot | null;
   readonly error: TaskError | null;
   readonly file: string;
   readonly groups: readonly string[];
@@ -239,7 +248,7 @@ type CreatorTask = {
   readonly onFrame: ((frame: CreatorFrameObservation) => void) | null;
 };
 
-type TaskError = { readonly code: string; readonly message: string; readonly line: number };
+type TaskError = { readonly code: string; readonly message: string; readonly line: number; readonly sourcePath?: string };
 
 function creatorRunReport(
   file: string,
@@ -302,6 +311,7 @@ type TaskRun = {
   readonly actionLog: readonly InputRecord[];
   /** Fixture-world source paths served to the engine in request order. */
   readonly loaded: readonly string[];
+  readonly creatorActionSnapshot: CreatorActionSnapshot | null;
   readonly creatorRun: CreatorFixtureRun | null;
   readonly creatorContext: CreatorOutcomeContext | null;
   /** This run's line counts, when coverage was asked for. */
@@ -349,6 +359,31 @@ function placement(file: string, source: string, loader: SpecProgramLoader | und
     return loader?.sourcePath?.(key) ?? indexed.get(key) ?? key;
   };
 }
+/** Map an engine's folded asset key to the project-relative source file used by the editor. */
+function sourcePathFor(file: string, key: string, loader: SpecProgramLoader | undefined): string {
+  if (key === SPEC_FILE_KEY || key === LIBRARY_KEY || key === "") return file;
+  const indexedPath = loader?.index.paths.find((path) => assetKey(path) === key);
+  return loader?.sourcePath?.(key) ?? indexedPath ?? key;
+}
+
+
+function validateFixtureStart(world: FixtureWorld, fixture: FixtureDefinition): void {
+  const boardFile = world.byKey.get(assetKey(fixture.board));
+  if (boardFile === undefined) throw new FixtureError("spec.fixture-load", `specFixture: board "${fixture.board}" is not in the fixture world`);
+  const parsed = readBoard(new BinaryReader(boardFile.bytes, boardFile.sourcePath));
+  if (!parsed.ok) throw new FixtureError("spec.fixture-load", `specFixture: board "${fixture.board}" is invalid: ${parsed.error.message}`);
+  const board = parsed.value;
+  const { x, y, layer } = fixture.start;
+  const inBounds = usesPixelCoordinates(board.coordType)
+    ? (() => {
+      const size = boardPixelSize(coordLayout(board.coordType), board.sizeX, board.sizeY);
+      return x >= 0 && x < size.width && y >= 0 && y < size.height;
+    })()
+    : x >= 1 && x <= board.sizeX && y >= 1 && y <= board.sizeY;
+  if (!inBounds || layer < 1 || layer > board.sizeL) {
+    throw new FixtureError("spec.fixture-load", `specFixture: start (${x}, ${y}, ${layer}) lies outside board "${fixture.board}"`);
+  }
+}
 
 /** A fresh 1×1 board, one selected party actor and no variables. */
 function freshState(seed: number): GameState {
@@ -390,13 +425,14 @@ function runCreatorTask(
     loaded: [],
     creatorRun: null,
     creatorContext: null,
+    creatorActionSnapshot: null,
     lines: null,
   });
   if (creator.error !== null) return empty(creator.error);
   if (creator.world === null) return empty({ code: "spec.fixture-load", message: "fixture world was not created", line: 0 });
 
   let scene: CreatorScene | null = null;
-  const resultContexts = new Map<number, CreatorOutcomeContext>();
+  const resultContexts = new Map<number, { readonly context: CreatorOutcomeContext; readonly sourcePath: string }>();
   const bridge = {
     tick: () => scene?.tick() ?? 0,
     value: (path: string, view: CommandView) => {
@@ -408,7 +444,7 @@ function runCreatorTask(
       return scene.bridge.wait(path, expected, maxTicks, elapsed, view);
     },
   };
-  const doubles = createDoubles(() => scene?.engine.registeredActionNames() ?? [], true, bridge);
+  const doubles = createDoubles(() => scene?.engine.registeredActionNames() ?? [], true, bridge, creator.actionSnapshot ?? undefined);
   for (const fixture of creator.fixtureDeclarations) doubles.fixtures.set(fixture.group, fixture);
   const plugins = wrapPlugins([
     ...DEFAULT_ENGINE_PLUGINS,
@@ -416,7 +452,7 @@ function runCreatorTask(
     { definition: createSpecPlugin(doubles) },
   ], doubles);
   const runtimeSeed = creator.fixture.seed ?? seed;
-  const program: CreatorSceneProgram = { source, librarySource, mode: task.mode, target: task.target };
+  const program: CreatorSceneProgram = { source, sourcePath: creator.file, librarySource, mode: task.mode, target: task.target };
   scene = createCreatorScene(
     creator.world,
     creator.fixture,
@@ -431,13 +467,13 @@ function runCreatorTask(
       const context = current === null
         ? { tick: observed.tick, lastAction: null, board: observed.board }
         : creatorContext(current, doubles);
-      resultContexts.set(effect.seq, context);
+      resultContexts.set(effect.seq, { context, sourcePath: observed.sourcePath });
     },
   );
   let diagnosticsSeen = scene.diagnostics.length;
-  const errors: TaskError[] = scene.diagnostics.map((item) => ({ code: item.code, message: item.message, line: item.line }));
+  const errors: TaskError[] = scene.diagnostics.map((item) => ({ code: item.code, message: item.message, line: item.line, sourcePath: item.sourcePath }));
   const collectDiagnostics = (): void => {
-    errors.push(...scene!.diagnostics.slice(diagnosticsSeen).map((item) => ({ code: item.code, message: item.message, line: item.line })));
+    errors.push(...scene!.diagnostics.slice(diagnosticsSeen).map((item) => ({ code: item.code, message: item.message, line: item.line, sourcePath: item.sourcePath })));
     diagnosticsSeen = scene!.diagnostics.length;
   };
   const actionLog: InputRecord[] = [];
@@ -502,7 +538,8 @@ function runCreatorTask(
       actual: String(record.args[3] ?? ""),
       line: typeof record.args[5] === "number" ? record.args[5] : 0,
       column: typeof record.args[6] === "number" ? record.args[6] : 0,
-      context: resultContexts.get(record.seq) ?? context,
+      sourcePath: resultContexts.get(record.seq)?.sourcePath ?? creator.file,
+      context: resultContexts.get(record.seq)?.context ?? context,
     });
   }
   if (checkpoints.at(-1)?.tick !== scene.tick()) checkpoints.push({ tick: scene.tick(), stateHash: scene.stateHash() });
@@ -527,6 +564,7 @@ function runCreatorTask(
     loaded: scene.loaded,
     creatorRun: run,
     creatorContext: context,
+    creatorActionSnapshot: doubles.creatorActions.snapshot(),
     lines: place === null ? null : scene.coverage(),
   };
 }
@@ -539,6 +577,7 @@ function runTask(
   task: Task,
   place: Placement | null = null,
   creator: CreatorTask | null = null,
+  sourceFile = "Prg/__spec.prg",
 ): TaskRun {
   if (creator !== null) return runCreatorTask(source, librarySource, seed, task, creator, place);
   const state = task.from === null ? freshState(seed) : restoreGameState(task.from);
@@ -548,8 +587,8 @@ function runTask(
   state.vm.globals.spectarget = task.target;
   if (task.mode === COLLECT && task.from === null) state.vm.globals.speccurrent = 0;
   const specProgram = specLoader(loader, source, librarySource);
-  const specRef = fileProgramRef(specProgram, SPEC_PROGRAM);
-  const positions = new Map<number, { line: number; column: number }>();
+  const specRef = fileProgramRef(specProgram, SPEC_FILE_KEY);
+  const positions = new Map<number, { readonly line: number; readonly column: number; readonly sourcePath: string }>();
   let checkpoint: string | null = null;
   let lastSeq = state.vm.effectSeq;
   const probe = place === null ? null : createCoverageProbe(() => state.vm, () => services, place);
@@ -567,11 +606,15 @@ function runTask(
         for (let index = (thread?.frames.length ?? 0) - 1; index >= 0; index -= 1) {
           const frame = thread!.frames[index]!;
           const op = services.programs.get(frame.program).ops[frame.ip - 1];
-          if (op !== undefined && specRef.kind === "file" && op.pos.file === SPEC_FILE_KEY) {
-            positions.set(seq, { line: op.pos.line, column: op.pos.col ?? 0 });
-            return;
-          }
+          if (op !== undefined && op.pos.file !== LIBRARY_KEY && op.pos.file !== "") {
+            positions.set(seq, {
+              line: op.pos.line,
+              column: op.pos.col ?? 0,
+              sourcePath: sourcePathFor(sourceFile, op.pos.file, loader),
+            });
+            break;
         }
+      }
       },
       ...(task.mode !== SETUP && probe === null ? {} : {
         postStep: (_op: unknown, threadId: number) => {
@@ -604,6 +647,7 @@ function runTask(
     code: error.code,
     message: error.message,
     line: error.line,
+    sourcePath: sourcePathFor(sourceFile, error.file, loader),
   }));
   if (!finished) errors.push({ code: "spec.timeout", message: "spec did not finish within 1000 ticks", line: 0 });
   for (const item of doubles.pending) {
@@ -623,6 +667,7 @@ function runTask(
       actual: String(record.args[3] ?? ""),
       line: position?.line ?? 0,
       column: position?.column ?? 0,
+      sourcePath: position?.sourcePath ?? sourceFile,
     });
   }
   const fixtures = task.mode === COLLECT
@@ -639,6 +684,7 @@ function runTask(
     loaded: [],
     creatorRun: null,
     creatorContext: null,
+    creatorActionSnapshot: null,
     lines: probe?.finish() ?? null,
   };
 }
@@ -653,9 +699,10 @@ function runTwice(
   task: Task,
   place: Placement | null,
   creator: CreatorTask | null = null,
+  sourceFile = "Prg/__spec.prg",
 ): TaskRun {
-  const first = runTask(source, librarySource, seed, loader, task, place, creator);
-  const second = runTask(source, librarySource, seed, loader, task, place, creator);
+  const first = runTask(source, librarySource, seed, loader, task, place, creator, sourceFile);
+  const second = runTask(source, librarySource, seed, loader, task, place, creator, sourceFile);
   if (first.hash !== second.hash) {
     throw new Error(`${what}: two runs gave different state hashes (${first.hash} vs ${second.hash})`);
   }
@@ -667,6 +714,7 @@ function runTwice(
     || JSON.stringify(first.loaded) !== JSON.stringify(second.loaded)
     || JSON.stringify(first.creatorRun) !== JSON.stringify(second.creatorRun)
     || JSON.stringify(first.creatorContext) !== JSON.stringify(second.creatorContext)
+    || JSON.stringify(first.creatorActionSnapshot) !== JSON.stringify(second.creatorActionSnapshot)
     // The replay is compared, never counted: coverage is one logical run (TOOL-5 coverage rule 4).
     || (first.lines !== null && JSON.stringify(toCoverage(first.lines)) !== JSON.stringify(toCoverage(second.lines!)))) {
     throw new Error(`${what}: two runs gave different outcomes`);
@@ -773,6 +821,7 @@ function runtimeFailures(
   label: string,
   expected: string,
   errors: readonly TaskError[],
+  sourceFile: string,
   context: CreatorOutcomeContext | null = null,
 ): SpecOutcome[] {
   return errors.map((error) => ({
@@ -782,6 +831,7 @@ function runtimeFailures(
     actual: `${error.code}: ${error.message}`,
     line: error.line,
     column: 0,
+    sourcePath: error.sourcePath ?? sourceFile,
     ...(context === null ? {} : { context }),
   }));
 }
@@ -789,6 +839,7 @@ function runtimeFailures(
 /** The result of one group's `beforeAll` hooks: what they recorded and the snapshot every case of the group starts from. */
 type Setup = {
   readonly outcomes: readonly SpecOutcome[];
+  readonly creatorActionSnapshot: CreatorActionSnapshot | null;
   readonly errors: readonly TaskError[];
   readonly snapshot: string | null;
   readonly creatorSnapshot: CreatorSceneSnapshot | null;
@@ -816,7 +867,8 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
   };
   if (structure.cases.length === 0) {
     const outcome: SpecOutcome = {
-      kind: "fail", label: NO_CASES, expected: "at least one case", actual: "no case is registered", line: 1, column: 1,
+      kind: "fail", label: NO_CASES, expected: "at least one case", actual: "no case is registered",
+      line: 1, column: 1, sourcePath: file,
     };
     return {
       file,
@@ -837,16 +889,18 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
   };
   const groupsFor = (group: number): string[] =>
     lineage(group).filter((id) => id !== 0).reverse().map((id) => structure.groups.get(id)!.name);
-  const creatorFor = (group: number, from: CreatorSceneSnapshot | null): CreatorTask | null => {
+  const creatorFor = (group: number, from: CreatorSceneSnapshot | null, actionSnapshot: CreatorActionSnapshot | null = null): CreatorTask | null => {
     const declaration = structure.fixtures.find((fixture) => lineage(group).includes(fixture.group)) ?? null;
     if (declaration === null) return null;
     try {
       const world = createFixtureWorld(loader?.fixtureFiles ?? [], declaration.definition);
+      validateFixtureStart(world, declaration.definition);
       return {
         fixtureDeclarations: structure.fixtures,
         fixture: declaration.definition,
         world,
         from,
+        actionSnapshot,
         error: null,
         file,
         groups: groupsFor(declaration.group),
@@ -860,11 +914,13 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
         fixtureDeclarations: structure.fixtures,
         fixture: declaration.definition,
         world: null,
+        actionSnapshot,
         from: null,
         error: {
           code: error instanceof FixtureError ? error.code : "spec.fixture-load",
           message,
           line: declaration.line,
+          sourcePath: file,
         },
         file,
         groups: groupsFor(declaration.group),
@@ -884,7 +940,8 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
     const above = lineage(group).slice(1).find((id) => structure.groups.get(id)!.hasBeforeAll);
     const from = above === undefined ? null : setupOf(above).snapshot;
     const creatorFrom = above === undefined ? null : setupOf(above).creatorSnapshot;
-    const creator = creatorFor(group, creatorFrom);
+    const creatorActionFrom = above === undefined ? null : setupOf(above).creatorActionSnapshot;
+    const creator = creatorFor(group, creatorFrom, creatorActionFrom);
     const run = runTwice(
       `beforeAll of group ${group}`,
       source,
@@ -894,10 +951,12 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
       { mode: SETUP, target: group, from },
       place,
       creator,
+      file,
     );
     count(run);
     const setup: Setup = {
       outcomes: run.outcomes,
+      creatorActionSnapshot: run.creatorActionSnapshot,
       errors: run.errors,
       snapshot: run.checkpoint,
       creatorSnapshot: run.creatorCheckpoint,
@@ -916,6 +975,10 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
   const creatorSnapshotFor = (group: number): CreatorSceneSnapshot | null => {
     const owner = lineage(group).find((id) => structure.groups.get(id)!.hasBeforeAll);
     return owner === undefined ? null : setupOf(owner).creatorSnapshot;
+  };
+  const creatorActionSnapshotFor = (group: number): CreatorActionSnapshot | null => {
+    const owner = lineage(group).find((id) => structure.groups.get(id)!.hasBeforeAll);
+    return owner === undefined ? null : setupOf(owner).creatorActionSnapshot;
   };
   /** Whether the beforeAll of a proper ancestor of `group` failed; outermost first, so no setup resumes from a failed one. */
   const failedAbove = (group: number): boolean =>
@@ -939,6 +1002,7 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
     let hash = structure.hash;
     let from: string | null = null;
     let creatorFrom: CreatorSceneSnapshot | null = null;
+    let creatorActionFrom: CreatorActionSnapshot | null = null;
     let caseRun: CreatorFixtureRun | null = null;
     let blocked = false;
     if (item.kind !== "skip") {
@@ -948,24 +1012,25 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
         const setup = setupOf(owner);
         prefix.push(
           ...setup.outcomes,
-          ...runtimeFailures(`${name}/beforeAll`, "beforeAll without a runtime error", setup.errors, setup.creatorContext),
+          ...runtimeFailures(`${name}/beforeAll`, "beforeAll without a runtime error", setup.errors, file, setup.creatorContext),
         );
         hash = setup.hash;
         if (setupFailed(setup)) {
           blocked = true;
           if (setup.errors.length === 0 && !setup.outcomes.some((outcome) => outcome.kind === "fail")) {
-            prefix.push({ kind: "fail", label: `${name}/beforeAll`, expected: "beforeAll completes", actual: "beforeAll did not reach its checkpoint", line: 0, column: 0 });
+            prefix.push({ kind: "fail", label: `${name}/beforeAll`, expected: "beforeAll completes", actual: "beforeAll did not reach its checkpoint", line: 0, column: 0, sourcePath: file });
           }
           break;
         }
         from = setup.snapshot;
         creatorFrom = setup.creatorSnapshot;
+        creatorActionFrom = setup.creatorActionSnapshot;
       }
     }
     if (!blocked) {
-      const run = runTwice(name, source, librarySource, seed, loader, { mode: CASE, target: item.id, from }, place, creatorFor(item.group, creatorFrom));
+      const run = runTwice(name, source, librarySource, seed, loader, { mode: CASE, target: item.id, from }, place, creatorFor(item.group, creatorFrom, creatorActionFrom), file);
       count(run);
-      own.push(...run.outcomes, ...runtimeFailures(`${name}/runtime error`, "no runtime error", run.errors, run.creatorContext));
+      own.push(...run.outcomes, ...runtimeFailures(`${name}/runtime error`, "no runtime error", run.errors, file, run.creatorContext));
       caseRun = run.creatorRun;
       hash = run.hash;
     }
@@ -978,7 +1043,8 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
         if (remaining.get(group) !== 0 || !info.hasAfterAll || failedAbove(group)) continue;
         const from = info.hasBeforeAll ? setupOf(group).snapshot : snapshotFor(group);
         const creatorFrom = info.hasBeforeAll ? setupOf(group).creatorSnapshot : creatorSnapshotFor(group);
-        const creator = creatorFor(group, creatorFrom);
+        const creatorActionFrom = info.hasBeforeAll ? setupOf(group).creatorActionSnapshot : creatorActionSnapshotFor(group);
+        const creator = creatorFor(group, creatorFrom, creatorActionFrom);
         if (info.hasBeforeAll && (creator === null ? from === null : creatorFrom === null)) continue;
         const run = runTwice(
           `afterAll of group ${group}`,
@@ -989,9 +1055,10 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
           { mode: TEARDOWN, target: group, from },
           place,
           creator,
+          file,
         );
         count(run);
-        suffix.push(...run.outcomes, ...runtimeFailures(`${name}/afterAll`, "afterAll without a runtime error", run.errors, run.creatorContext));
+        suffix.push(...run.outcomes, ...runtimeFailures(`${name}/afterAll`, "afterAll without a runtime error", run.errors, file, run.creatorContext));
       }
     }
     const outcomes = [...prefix, ...own, ...suffix];

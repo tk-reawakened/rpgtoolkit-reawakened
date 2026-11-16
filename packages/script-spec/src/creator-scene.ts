@@ -38,6 +38,7 @@ const SPEC_LIBRARY_KEY = assetKey(SPEC_LIBRARY_PATH);
 
 export type CreatorSceneProgram = {
   readonly source: string;
+  readonly sourcePath: string;
   readonly librarySource: string;
   readonly mode: number;
   readonly target: number;
@@ -93,7 +94,7 @@ export type CreatorFrameObservation = {
   readonly assetBytes: (key: AssetKey) => Uint8Array | null;
 };
 
-export type CreatorSceneDiagnostic = { readonly code: string; readonly message: string; readonly line: number };
+export type CreatorSceneDiagnostic = { readonly code: string; readonly message: string; readonly line: number; readonly sourcePath: string };
 
 export type CreatorScene = {
   readonly engine: Engine;
@@ -158,7 +159,7 @@ export function createCreatorScene(
   initial?: CreatorSceneSnapshot,
   onFrame?: (frame: CreatorFrameObservation) => void,
   place?: PositionFilter,
-  onResult?: (effect: EffectRecord, context: { readonly tick: number; readonly board: string | null }) => void,
+  onResult?: (effect: EffectRecord, context: { readonly tick: number; readonly board: string | null; readonly sourcePath: string }) => void,
 ): CreatorScene {
   const effects = new Map(initial?.effects ?? []);
   const results: EffectRecord[] = [];
@@ -209,6 +210,10 @@ export function createCreatorScene(
   /** The innermost call site the author wrote: the spec itself or an included program, never the bundled library. */
   const ownSourcePosition = (threadId: number): SourcePos | null =>
     lastOwnPositions.get(threadId) ?? lastSpecPositions.get(threadId) ?? lastAuthoredCallPosition;
+  const sourcePathForPosition = (position: SourcePos | null): string => {
+    if (position === null || position.file === SPEC_FILE_KEY || position.file === SPEC_LIBRARY_KEY || position.file === "") return program.sourcePath;
+    return world.byKey.get(assetKey(position.file))?.sourcePath ?? program.sourcePath;
+  };
   const activeAuthoredCallPosition = (view: CommandView): SourcePos | null => {
     const thread = view.state?.vm.threads.find((item) => item.id === view.thread);
     if (thread === undefined) return null;
@@ -277,7 +282,7 @@ export function createCreatorScene(
         if (effect.name === "specresult" && effect.args[2] !== "checkpoint") {
           const board = typeof reported.args[7] === "string" ? reported.args[7] : reported.args[7] === null ? null : state?.world.board?.key ?? null;
           const resultTick = typeof reported.args[8] === "number" ? reported.args[8] : state?.time.tick ?? 0;
-          onResult?.(reported, { tick: resultTick, board });
+          onResult?.(reported, { tick: resultTick, board, sourcePath: sourcePathForPosition(position) });
         }
       },
       postStep: (operation, thread) => {
@@ -330,8 +335,8 @@ export function createCreatorScene(
     },
   };
 
-  const diagnostic = (code: string, message: string, line = 0): void => {
-    diagnostics.push({ code, message, line });
+  const diagnostic = (code: string, message: string, line = 0, sourcePath = program.sourcePath): void => {
+    diagnostics.push({ code, message, line, sourcePath });
   };
   const serve = (report: ReturnType<Engine["advance"]>): InputRecord[] => {
     let current = report;
@@ -355,7 +360,10 @@ export function createCreatorScene(
     if (current.loading) diagnostic("spec.fixture-load", "fixture engine remained blocked after frozen asset replies");
     for (const item of current.diagnostics) {
       const authoredTimeout = item.code === "spec.timeout" ? waitTimeoutPosition : null;
-      diagnostic(item.code, item.message, authoredTimeout?.line ?? item.line);
+      const sourcePath = authoredTimeout === null
+        ? sourcePathForPosition({ file: item.file as AssetKey, line: item.line, col: 0 })
+        : sourcePathForPosition(authoredTimeout);
+      diagnostic(item.code, item.message, authoredTimeout?.line ?? item.line, sourcePath);
     }
     if (!current.loading && onFrame !== undefined && frameReaders !== null) {
       onFrame({ tick: current.tickAfter, drawList: engine.drawList(0, drawInclude), ...frameReaders });

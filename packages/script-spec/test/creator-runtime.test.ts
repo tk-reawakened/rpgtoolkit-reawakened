@@ -5,13 +5,16 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import {
   BinaryReader,
+  boardPixelSize,
   assetKey,
+  coordLayout,
   createEmptyBoard,
   createEmptyCharacter,
   rasterize,
   readBoard,
   writeBoard,
   writeCharacter,
+  usesPixelCoordinates,
   type AssetKey,
   type DecodedTexture,
   type DrawList,
@@ -255,6 +258,7 @@ test("an included program keeps its own source coordinates", () => {
   const failure = result.outcomes.find((outcome) => outcome.kind === "fail");
   ok(failure !== undefined, JSON.stringify(result.outcomes, null, 2));
   equal(failure.line, 1, "the included program's own line 1, not the including spec's line");
+  equal(failure.sourcePath, ".tkr-tests/Prg/Misc/helper.prg");
   equal(failure.actual, "1");
   equal(failure.expected, "2");
 });
@@ -412,4 +416,100 @@ test("a nested group runs inherited and nested hooks on a fresh checkpoint", () 
   const { result } = selectedCase(classicFiles(), "runs inherited and nested setup in the live fixture");
   equal(result.ok, true, JSON.stringify(result.outcomes, null, 2));
   notEqual(result.stateHash, "");
+});
+
+function positionFixtureFiles(
+  x: number,
+  y: number,
+  layer = 1,
+  pixelCoordinates = false,
+): { readonly files: File[]; readonly width: number; readonly height: number; readonly sizeX: number; readonly sizeL: number } {
+  const files = createCreatorTestFiles();
+  const boardFile = files.find((file) => file.path.endsWith("Boards/wall.brd"));
+  if (boardFile === undefined) throw new Error("the shared creator fixture has no wall board");
+  const parsed = readBoard(new BinaryReader(boardFile.bytes, boardFile.path));
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  const coordType = pixelCoordinates ? parsed.value.coordType | 4 : parsed.value.coordType & ~4;
+  const written = writeBoard({ ...parsed.value, coordType });
+  if (!written.ok) throw new Error(written.error.message);
+  const size = boardPixelSize(coordLayout(coordType), parsed.value.sizeX, parsed.value.sizeY);
+  const source = [
+    `specFixture({ board: "Boards/wall.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: ${x}, y: ${y}, layer: ${layer} })`,
+    'it("fixture position is valid", () => { expect(specValue("board")).toBe("boards/wall.brd") })',
+  ].join("\n");
+  const withBoard = replaceFile(files, boardFile.path, written.value);
+  return {
+    files: replaceFile(withBoard, CREATOR_TEST_SPEC_PATH, encode(source)),
+    width: size.width,
+    height: size.height,
+    sizeX: parsed.value.sizeX,
+    sizeL: parsed.value.sizeL,
+  };
+}
+
+test("fixture starts are checked against saved tile bounds and layers", () => {
+  const fixture = positionFixtureFiles(1, 1);
+  const outside = selectedCase(positionFixtureFiles(fixture.sizeX + 1, 1).files, "fixture position is valid").result;
+  const missingLayer = selectedCase(positionFixtureFiles(1, 1, fixture.sizeL + 1).files, "fixture position is valid").result;
+  for (const result of [outside, missingLayer]) {
+    equal(result.ok, false);
+    const failure = result.outcomes.find((outcome) => outcome.actual.startsWith("spec.fixture-load:"));
+    ok(failure !== undefined);
+    equal(failure.sourcePath, CREATOR_TEST_SPEC_PATH);
+    equal(failure.line, 1);
+    equal(result.run, undefined, "invalid saved-board placement must fail before creating the fixture engine");
+  }
+});
+
+test("fixture start bounds honor saved pixel-coordinate flags", () => {
+  const dimensions = positionFixtureFiles(0, 0, 1, true);
+  equal(usesPixelCoordinates(4), true);
+  const valid = selectedCase(positionFixtureFiles(dimensions.width - 1, dimensions.height - 1, 1, true).files, "fixture position is valid").result;
+  equal(valid.ok, true, JSON.stringify(valid.outcomes, null, 2));
+  const outside = selectedCase(positionFixtureFiles(dimensions.width, 0, 1, true).files, "fixture position is valid").result;
+  equal(outside.ok, false);
+  const failure = outside.outcomes.find((outcome) => outcome.actual.startsWith("spec.fixture-load:"));
+  ok(failure !== undefined);
+  equal(failure.sourcePath, CREATOR_TEST_SPEC_PATH);
+  equal(failure.line, 1);
+});
+
+test("beforeAll restores pending creator action releases and their ordinal across all cases", () => {
+  const source = [
+    'specFixture({ board: "Boards/door.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: 1, y: 1 })',
+    'beforeAll(() => { Thread("pending.prg", false); specTicks(1) })',
+    'it("first restored case", () => { specTicks(8); specAction("confirm", 1); specTicks(2); expect(1).toBe(1) })',
+    'it("second restored case", () => { specTicks(8); specAction("confirm", 1); specTicks(2); expect(1).toBe(1) })',
+  ].join("\n");
+  const files = [
+    ...classicFiles().filter((file) => file.path !== "Prg/classic.spec.prg"),
+    { path: "Prg/pending.spec.prg", bytes: encode(source) },
+    { path: ".tkr-tests/Prg/pending.prg", bytes: encode('specAction("right", 4)') },
+  ];
+  const report = runCreatorSpecs(files);
+  const cases = report.files.flatMap((entry) => entry.cases);
+  deepEqual(cases.map((item) => item.name), ["first restored case", "second restored case"]);
+  for (const item of cases) {
+    equal(item.ok, true, JSON.stringify(item.outcomes, null, 2));
+    const actions = item.run?.actionLog.flatMap((record) => record.event.kind === "action" ? [record.event] : []) ?? [];
+    const resumed = actions.filter((event) => event.source === "spec.action:1");
+    const next = actions.filter((event) => event.source === "spec.action:2");
+    equal(resumed.length, 1);
+    equal(resumed[0]?.down, false);
+    equal(next.length, 2);
+    equal(next[0]?.down, true);
+    equal(next[1]?.down, false);
+  }
+});
+
+test("fixture string command results cannot inject setup RPGCode", () => {
+  const files = createCreatorTestFiles();
+  const source = [
+    'specFixture({ board: "Boards/wall.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: 1, y: 2, variables: { attack$: chr(34) + "GiveGP(999)" } })',
+    'it("must not run injected setup code", () => { expect(1).toBe(1) })',
+  ].join("\n");
+  const report = runCreatorSpecs(replaceFile(files, CREATOR_TEST_SPEC_PATH, encode(source)));
+  equal(report.files[0]?.cases.length, 0);
+  ok(report.failures.some((failure) => failure.includes("line 1 (spec.bad-fixture)")));
+  ok(!report.failures.some((failure) => failure.includes("GiveGP(999)")), "the rejected value never enters a generated setup program");
 });
