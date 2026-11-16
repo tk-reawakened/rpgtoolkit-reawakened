@@ -3,7 +3,7 @@ title: 'Prove VS Code web recovery with persistent test files'
 type: 'bugfix'
 ticket: 21
 created: '2026-11-13'
-status: 'built'
+status: 'done'
 baseline_revision: 'a6f2e8792aae5f425d75267b8bb9e0d8e03f223e'
 route: 'full'
 route_source: 'auto'
@@ -120,3 +120,7 @@ Rejected:
 - The fixture is the authored `docs/spec/examples/game/Main/example.gam`, copied to a temporary workspace; the placeholder identifies the temporary location rather than an unknown fixture.
 - The edge-review body-size finding duplicates #2282.
 - The edge-review claims concern the pre-implementation commit narrative, not a defect in the implementation; the plan explicitly records the completed work.
+
+## Merged-state reconciliation, 2026-11-15
+
+PR #2285 merged as `8ced308800843d98b83f9a4ee562f993943422d2` and issue #2246 is closed. The recorded real-workbench restart/independent-backing-store proof above is retained. The shared host conformance suite passed again at `3e61f3c2aedd2cd86dc0c29b5ebd750f5708f7bf`; that adapter proof alone would not establish persistent workbench restart behavior.

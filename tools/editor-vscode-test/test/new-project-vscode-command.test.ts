@@ -8,7 +8,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import { build } from "esbuild";
 
 const FAKE_VSCODE = `
@@ -99,23 +99,41 @@ let dir = "";
 let extension: Extension;
 let fake: Fake;
 
+let extensionSource = "";
+
+before(async () => {
+  const buildDirectory = await mkdtemp(join(tmpdir(), "tkr-vscode-command-build-"));
+  try {
+    const fakePath = join(buildDirectory, "fake-vscode.mjs");
+    await writeFile(fakePath, FAKE_VSCODE);
+    const bundle = await build({
+      // Keep the real registration path, without retaining unrelated extension commands in this fixture.
+      stdin: {
+        contents: 'export { registerNewProject } from "./packages/host-vscode/src/extension.ts";',
+        resolveDir: resolve("."),
+        sourcefile: "new-project-command-fixture.ts",
+        loader: "ts",
+      },
+      bundle: true,
+      write: false,
+      platform: "node",
+      format: "esm",
+      jsx: "automatic",
+      jsxImportSource: "preact",
+      alias: { vscode: fakePath },
+      logLevel: "silent",
+    });
+    extensionSource = bundle.outputFiles[0]!.text;
+  } finally {
+    await rm(buildDirectory, { recursive: true, force: true });
+  }
+});
+
 async function load(): Promise<void> {
   dir = await mkdtemp(join(tmpdir(), "tkr-vscode-command-"));
-  const fakePath = join(dir, "fake-vscode.mjs");
-  await writeFile(fakePath, FAKE_VSCODE);
-  const bundle = await build({
-    entryPoints: [resolve("packages/host-vscode/src/extension.ts")],
-    bundle: true,
-    write: false,
-    platform: "node",
-    format: "esm",
-    jsx: "automatic",
-    jsxImportSource: "preact",
-    alias: { vscode: fakePath },
-    logLevel: "silent",
-  });
   const bundled = join(dir, "extension.mjs");
-  await writeFile(bundled, bundle.outputFiles[0]!.text);
+  await writeFile(bundled, extensionSource);
+  // Each runtime-selected temporary module owns fresh VS Code state; a static import would share it between cases.
   extension = await import(pathToFileURL(bundled).href) as Extension;
   // The bundle holds its own copy of the fake, which publishes its state here when it loads.
   fake = (globalThis as { __tkrFakeVscode?: Fake }).__tkrFakeVscode!;

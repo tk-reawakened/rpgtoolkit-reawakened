@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- New-project command tests compile their shared extension fixture once while keeping each case's workspace and module state isolated (#2798).
 - Program editor insertions, undo, redo and save now preserve their order; Monaco's context-menu history uses the shared document. Language-service errors and formatting refusals are shown without blocking editing (#2727–#2729).
 - Program editing preserves pending insertions and typing order across saves and view changes, shares language-document ownership across views, and keeps browser history and project context consistent between views. New programs refuse detected collisions in differently cased folders (#2732–#2738).
 - Pending Undo and Redo preserve subsequent typing, including repeated text and multi-cursor edits, even when the view closes; each Save keeps its requested revision and leaves later typing unsaved, and untouched mixed line endings survive rebasing. Bookmarks refresh across views, and new files use existing folder casing (#2741–#2745, #2747–#2749, #2753, #2754, #2756–#2758, #2760–#2765).
