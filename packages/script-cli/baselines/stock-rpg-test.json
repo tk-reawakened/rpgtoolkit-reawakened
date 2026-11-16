@@ -16,7 +16,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 14
+                  "line": 14,
+                  "sourcePath": "bridge.spec.prg"
                 },
                 {
                   "actual": "",
@@ -24,7 +25,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 15
+                  "line": 15,
+                  "sourcePath": "bridge.spec.prg"
                 },
                 {
                   "actual": "",
@@ -32,7 +34,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 16
+                  "line": 16,
+                  "sourcePath": "bridge.spec.prg"
                 },
                 {
                   "actual": "",
@@ -40,7 +43,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 17
+                  "line": 17,
+                  "sourcePath": "bridge.spec.prg"
                 },
                 {
                   "actual": "",
@@ -48,7 +52,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 18
+                  "line": 18,
+                  "sourcePath": "bridge.spec.prg"
                 },
                 {
                   "actual": "",
@@ -56,10 +61,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 19
+                  "line": 19,
+                  "sourcePath": "bridge.spec.prg"
                 }
               ],
-              "stateHash": "693b8d053e673cee"
+              "stateHash": "8ff2fc6ffa67c6ba"
             }
           ],
           "failures": [],

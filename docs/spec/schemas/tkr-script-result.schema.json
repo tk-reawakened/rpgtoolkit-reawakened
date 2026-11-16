@@ -57,7 +57,7 @@
       }
     },
     "results": {
-      "description": "The subcommand's own payload: changed paths for fmt, cases with expected and actual for test, the written path or a drift list for docs, the TOOL-6 document for index, and for check the lint summary under `lint`: `disabledRules`, `ignoredRanges` and `unassessed` (TOOL-3 assessment)."
+      "description": "The subcommand's own payload: changed paths for fmt, cases with expected and actual plus each outcome's owning project-relative `sourcePath`, one-based line and column for test, the written path or a drift list for docs, the TOOL-6 document for index, and for check the lint summary under `lint`: `disabledRules`, `ignoredRanges` and `unassessed` (TOOL-3 assessment). Test case hashes use the canonical whole-game-state contract, including canonical program paths."
     }
   },
   "$defs": {
