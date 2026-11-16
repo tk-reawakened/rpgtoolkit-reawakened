@@ -91,7 +91,7 @@ export type BoardView = {
   readonly blits?: readonly BoardBlit[];
   /** Script ambient is summed with board ambient once per tile blit (E-17). */
   readonly globalAmbient?: Tint;
-  /** `spriteTranslucency(percent)`: how visible a sprite stays under higher-layer tiles (E-31). Absent means opaque cover. */
+  /** `spriteTranslucency(percent)`: how visible a sprite stays under higher-layer tiles (E-31). Absent means the original default, 50. */
   readonly spriteTranslucency?: number;
 };
 
@@ -482,8 +482,7 @@ function emitSprite(
   }
 
   if (!redrawUnder) return;
-  const percent = view.spriteTranslucency;
-  const underRows: Rect[] | undefined = percent !== undefined && percent > 0 ? [] : undefined;
+  const underRows: Rect[] | undefined = spritePercent(view) > 0 ? [] : undefined;
   emitUnderVectorRedraw(commands, sprite, board, view, layers, boardLeft, boardTop, spriteW, spriteH, worldX, worldY, underRows);
   // E-31: under-vector promotion hides the sprite behind the promoted rows; show it through them translucently.
   if (underRows !== undefined && underRows.length > 0) {
@@ -496,13 +495,19 @@ function emitSprite(
   }
 }
 
+/** E-31: the global ghost opacity, 50 unless a script set it. Stored values are unclamped; drawing clamps to 0..100. */
+function spritePercent(view: BoardView): number {
+  const value = view.spriteTranslucency ?? 50;
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+}
+
 type BlitCommand = Extract<DrawCommand, { readonly kind: "blit" }>;
 
 /** The sprite's picture as translucent blits at the `spriteTranslucency` percentage (a `normal` blit would ignore alpha). */
 function translucentFrames(sprite: SpriteDraw, board: WorldBoard, view: BoardView, layers: readonly WorldLayer[]): BlitCommand[] {
-  const percent = view.spriteTranslucency ?? 0;
+  const percent = spritePercent(view);
   const drawn: DrawCommand[] = [];
-  emitSprite(drawn, { ...sprite, blend: "translucent", translucency: Math.floor(Math.min(100, percent) * 255 / 100 + 0.5) }, board, view, layers, false);
+  emitSprite(drawn, { ...sprite, blend: "translucent", translucency: Math.floor(percent * 255 / 100 + 0.5) }, board, view, layers, false);
   return drawn.filter((command): command is BlitCommand => command.kind === "blit");
 }
 
@@ -533,8 +538,7 @@ function emitCoveredSprite(
   view: BoardView,
   layers: readonly WorldLayer[],
 ): void {
-  const percent = view.spriteTranslucency;
-  if (percent === undefined || percent <= 0 || sprite.layer >= layers.length) return;
+  if (spritePercent(view) <= 0 || sprite.layer >= layers.length) return;
   if (isIsometric(coordLayout(board.coordType))) return;
   const frames = translucentFrames(sprite, board, view, layers);
   if (frames.length === 0) return;
@@ -811,7 +815,7 @@ function composeBoardView(view: BoardView): DrawList {
       }
     }
   }
-  if (view.include.sprites && view.spriteTranslucency !== undefined) {
+  if (view.include.sprites) {
     for (const sprite of sortedSprites) emitCoveredSprite(commands, sprite, board, view, layers);
   }
   if (view.include.sprites && sortedSprites.length > 0) {

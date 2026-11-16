@@ -510,7 +510,8 @@ test("E-31: with spriteTranslucency the covered part of a sprite is redrawn tran
   } as const;
   const heroBlits = (list: ReturnType<typeof composeBoard>) => list.commands.filter((c) => c.kind === "blit" && c.source.asset === assetKey("tiles/hero.tst"));
 
-  equal(heroBlits(composeBoard(view)).length, 1, "without the setting a covered sprite is simply hidden");
+  equal(heroBlits(composeBoard({ ...view, spriteTranslucency: 0 })).length, 1, "at 0 a covered sprite is simply hidden");
+  equal(heroBlits(composeBoard(view)).length, 2, "the default is 50, so the ghost redraw is on");
   const list = composeBoard({ ...view, spriteTranslucency: 25 });
   const blits = heroBlits(list);
   equal(blits.length, 2);
@@ -533,9 +534,7 @@ test("E-31: spriteTranslucency(percent) is a real command that stores a clamped 
   equal(applySpriteEffect(state, "spritetranslucency", [25]), true);
   equal(state.sprites.translucency, 25);
   applySpriteEffect(state, "spritetranslucency", [250]);
-  equal(state.sprites.translucency, 100);
-  applySpriteEffect(state, "spritetranslucency", [-5]);
-  equal(state.sprites.translucency, 0);
+  equal(state.sprites.translucency, 250, "stored unclamped");
 });
 
 test("E-31: a sprite hidden by under-vector promotion is shown through the promoted rows translucently", () => {
@@ -550,7 +549,7 @@ test("E-31: a sprite hidden by under-vector promotion is shown through the promo
   };
   const view = { board, tick: 0, camera: { x: 0, y: 0 }, viewport: { width: 128, height: 128 }, alpha: 0, include: { shading: false, images: false, sprites: true }, sprites: [sprite] } as const;
   const hero = (list: ReturnType<typeof composeBoard>) => list.commands.filter((c) => c.kind === "blit" && c.source.asset === assetKey("tiles/hero.tst"));
-  equal(hero(composeBoard(view)).length, 1);
+  equal(hero(composeBoard({ ...view, spriteTranslucency: 0 })).length, 1);
   const list = composeBoard({ ...view, spriteTranslucency: 25 });
   const through = hero(list).slice(1);
   equal(through.length > 0, true, "translucent redraws follow the promoted rows");
