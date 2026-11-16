@@ -969,7 +969,9 @@ async function verifyBitmapHistoryPreview(
   await expect(preview.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true })).toHaveAttribute("readonly", "");
   await expect(preview.getByLabel("Width in tiles")).toHaveAttribute("readonly", "");
   await expect(preview.getByLabel("Height in tiles")).toHaveAttribute("readonly", "");
-  await expect(preview.locator(".tkr-bitmap-shading")).toBeDisabled();
+  const shadingInputs = preview.locator(".tkr-bitmap-shading input");
+  await expect(shadingInputs).toHaveCount(3);
+  for (let index = 0; index < 3; index += 1) await expect(shadingInputs.nth(index)).toBeDisabled();
 
   await beforeRender();
 
