@@ -85,8 +85,7 @@ export function listEntries(value: unknown, what: string): readonly Plain[] {
 /** Validate one fixture definition read from the RPGCode dictionary (plain data, no snapshot text). */
 export function readFixture(input: unknown): FixtureDefinition {
   const definition = record(input, "the definition");
-  for (const key of Object.keys(definition)) if (!KEYS.has(key)) bad(`"${key}" is not a fixture key`);
-  if (typeof input === "object" && input !== null && JSON.stringify(input).length > MAX_JSON) bad(`the definition is over ${MAX_JSON} bytes`);
+  if (typeof input === "object" && input !== null && new TextEncoder().encode(JSON.stringify(input)).byteLength > MAX_JSON) bad(`the definition is over ${MAX_JSON} bytes`);
   const board = fixturePath(definition["board"], "board", ".brd");
   const party = listEntries(definition["party"], "party").map((member) => fixturePath(member, "a party member", ".tem"));
   if (party.length < 1 || party.length > 5) bad("party must hold 1 to 5 character files");
@@ -113,7 +112,7 @@ export function readFixture(input: unknown): FixtureDefinition {
       stats[name] = whole(members[name], `stats.${name}`, 0, 1_000_000);
     }
   }
-  const inventory: Record<string, number> = {};
+  const inventory: Record<string, number> = Object.create(null) as Record<string, number>;
   if (definition["inventory"] !== undefined) {
     const members = record(definition["inventory"], "inventory");
     const names = Object.keys(members);
