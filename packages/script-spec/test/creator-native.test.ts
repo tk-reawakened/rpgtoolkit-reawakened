@@ -11,7 +11,7 @@ function actionCommand(doubles: SpecDoubles) {
 }
 
 const commandView = { clock: { tick: () => 5 } } as unknown as CommandView;
-const args = (action: unknown, ticks: unknown) => [{ value: action, ref: null }, { value: ticks, ref: null }] as unknown as Arg[];
+const args = (...values: unknown[]) => values.map((value) => ({ value, ref: null })) as unknown as Arg[];
 
 test("native action command refuses script-only runs instead of simulating a creator fixture", () => {
   const doubles = createDoubles();
@@ -32,4 +32,40 @@ test("native action command schedules a claimed edge and waits through the relea
   equal(doubles.creatorActions.actions[0]?.completedAt, null);
   doubles.creatorActions.completeTick(9);
   equal(doubles.creatorActions.actions[0]?.completedAt, 9);
+});
+
+test("specValue and specWait delegate reads and bounded waits only to a live fixture bridge", () => {
+  const calls: unknown[][] = [];
+  const bridge = {
+    value: (path: string, view: CommandView) => {
+      calls.push(["value", path, view]);
+      return 17;
+    },
+    wait: (path: string, expected: number | string, maxTicks: number, view: CommandView) => {
+      calls.push(["wait", path, expected, maxTicks, view]);
+      return { value: 3 };
+    },
+  };
+  const doubles = createDoubles(() => [], true, bridge);
+  const value = specCommands(doubles).find((item) => item.name === "specvalue")!;
+  const wait = specCommands(doubles).find((item) => item.name === "specwait")!;
+
+  equal(value.call(commandView, args("player.x"), (() => ({ value: null })) as never).value, 17);
+  equal(wait.call(commandView, args("board", "boards/open.brd", 12), (() => ({ value: null })) as never).value, 3);
+  deepEqual(calls, [
+    ["value", "player.x", commandView],
+    ["wait", "board", "boards/open.brd", 12, commandView],
+  ]);
+});
+
+test("specValue and specWait reject runs without a live fixture bridge and validate wait bounds", () => {
+  const value = specCommands(createDoubles(() => [], true)).find((item) => item.name === "specvalue")!;
+  const wait = specCommands(createDoubles(() => [], true)).find((item) => item.name === "specwait")!;
+  throws(() => value.call(commandView, args("board"), (() => ({ value: null })) as never), (error: unknown) => error instanceof ScriptError && error.code === "spec.no-fixture");
+  throws(() => wait.call(commandView, args("board", "Boards/open.brd", 1001), (() => ({ value: null })) as never), (error: unknown) => error instanceof ScriptError && error.code === "spec.no-fixture");
+
+  const live = createDoubles(() => [], true, { value: () => 0, wait: () => ({ value: 0 }) });
+  const liveWait = specCommands(live).find((item) => item.name === "specwait")!;
+  throws(() => liveWait.call(commandView, args("board", "open", -1), (() => ({ value: null })) as never), (error: unknown) => error instanceof ScriptError && error.code === "spec.bad-ticks");
+  throws(() => liveWait.call(commandView, args("board", null, 0), (() => ({ value: null })) as never), (error: unknown) => error instanceof ScriptError && error.code === "spec.bad-wait");
 });

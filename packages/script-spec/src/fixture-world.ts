@@ -23,6 +23,8 @@ export type FixtureWorld = {
   readonly files: readonly FixtureWorldFile[];
   /** Asset-key lookup shared by asset and program-loader requests. */
   readonly byKey: ReadonlyMap<string, FixtureWorldFile>;
+  /** Hash of only the source identities that this frozen world can serve. */
+  readonly revisionHash: string;
 };
 
 const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
@@ -62,5 +64,6 @@ export function createFixtureWorld(files: readonly FixtureWorldInputFile[], fixt
   }
 
   const ordered = [...selected.values()].sort((left, right) => compare(left.path, right.path));
-  return { files: ordered, byKey: new Map(ordered.map((file) => [assetKey(file.path), file])) };
+  const revisions = ordered.map(({ path, sourcePath, revision }) => [path, sourcePath, revision]);
+  return { files: ordered, byKey: new Map(ordered.map((file) => [assetKey(file.path), file])), revisionHash: sha256Hex(JSON.stringify(revisions)) };
 }

@@ -1,14 +1,12 @@
 /**
- * The twelve native commands of the `script-spec` package (TOOL-5, ADR 0014 amendments of 2026-11-11 and
+ * The sixteen native commands of the `script-spec` package (TOOL-5, ADR 0014 amendments of 2026-11-11 and
  * 2026-11-12): `specResult` records an outcome and the position of its call, seven matcher helpers read what a
- * library program cannot (docs/spec/engine/rpgcode-tooling.md#tool-5-natives), and four test doubles act on the
- * runner's side of the VM (#tool-5-doubles). The set is closed: a command joins it by editing TOOL-5 first. They are
+ * library program cannot, four test doubles act on the runner's side of the VM, and four creator operations connect
+ * the controller to a real fixture world. The set is closed: a command joins it by editing TOOL-5 first. They are
  * registered only by the `script-spec` plugin, never by the engine's default manifest.
- *
- * No command here re-enters the interpreter. The two error commands bracket a call the library makes itself, so the
- * VM runs that call as an ordinary call, and `specTicks` waits through the ordinary cooperative sleep (G1). The
- * doubles reach the run's host-side `SpecDoubles`; without one (the static `SPEC_PLUGIN`) they raise
- * `spec.no-doubles`.
+ * No command here re-enters the interpreter. The error commands bracket a call the library makes itself, so the VM
+ * runs that call as an ordinary call, and `specTicks` waits through the ordinary cooperative sleep (G1). The doubles
+ * reach the run's host-side `SpecDoubles`; without one (the static `SPEC_PLUGIN`) they raise `spec.no-doubles`.
  */
 
 import {
@@ -100,6 +98,7 @@ const SPEC_RESULT: BuiltinSpec = {
         wait: null,
         request: null,
       });
+      doubles?.creatorState?.effect?.("specresult");
     }
     return { value: null };
   },
@@ -461,6 +460,68 @@ function specFixture(doubles: SpecDoubles | undefined): BuiltinSpec {
     },
   };
 }
+function specValue(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specvalue",
+    aliases: [],
+    params: [param("path", "One documented fixture-state projection.")],
+    doc: {
+      summary: "Read one documented value from the real fixture engine.",
+      behaviour: "Reads the named closed projection from the fixture simulation without changing it. Outside a real-engine fixture case, raises `spec.no-fixture`; an unknown path raises `spec.bad-path`.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "never", summary: "Reads the current fixture state immediately." },
+      see: SEE,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specValue");
+      if (!run.creatorActionsEnabled || run.creatorState === null) {
+        throw new ScriptError("spec.no-fixture", "specValue: requires a real-engine creator fixture");
+      }
+      const path = args[0]?.value;
+      if (typeof path !== "string") throw new ScriptError("spec.bad-path", "specValue: path must be a string");
+      return { value: run.creatorState.value(path, view) };
+    },
+  };
+}
+
+function specWait(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specwait",
+    aliases: [],
+    params: [
+      param("path", "One documented fixture-state projection."),
+      param("expected", "A number or string to compare strictly."),
+      param("maxTicks", "The maximum number of fixture ticks to wait, from 0 to 1,000."),
+    ],
+    doc: {
+      summary: "Wait a bounded number of fixture ticks for a state value.",
+      behaviour: "Reads the named fixture projection now and at each following tick, returning the elapsed tick count on a strict match. On timeout, raises `spec.timeout` with the condition and last value. Outside a real-engine fixture case, raises `spec.no-fixture`.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "ticks", summary: "Parks the caller while the real fixture simulation advances, up to maxTicks." },
+      see: SEE,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specWait");
+      if (!run.creatorActionsEnabled || run.creatorState === null) {
+        throw new ScriptError("spec.no-fixture", "specWait: requires a real-engine creator fixture");
+      }
+      const path = args[0]?.value;
+      const expected = args[1]?.value;
+      const maxTicks = wholeNumber(args[2]?.value);
+      if (typeof path !== "string") throw new ScriptError("spec.bad-path", "specWait: path must be a string");
+      if (typeof expected !== "number" && typeof expected !== "string") {
+        throw new ScriptError("spec.bad-wait", "specWait: expected must be a number or string");
+      }
+      if (maxTicks === null || maxTicks < 0 || maxTicks > MAX_TICKS) {
+        throw new ScriptError("spec.bad-ticks", "specWait: maxTicks must be a whole number from 0 to 1,000");
+      }
+      return run.creatorState.wait(path, expected, maxTicks, view);
+    },
+  };
+}
+
 
 function specAction(doubles: SpecDoubles | undefined): BuiltinSpec {
   return {
@@ -492,7 +553,7 @@ function specAction(doubles: SpecDoubles | undefined): BuiltinSpec {
       if (ticks === null) throw new ScriptError("spec.bad-ticks", "specAction: ticks must be a whole number from 1 to 1,000");
       let scheduled: CreatorAction;
       try {
-        scheduled = run.creatorActions.schedule(action, ticks, view.clock.tick(), run.registeredActions());
+        scheduled = run.creatorActions.schedule(action, ticks, run.creatorState?.tick?.() ?? view.clock.tick(), run.registeredActions());
       } catch (error) {
         if (error instanceof Error && "code" in error && typeof error.code === "string") {
           throw new ScriptError(error.code, error.message);
@@ -599,6 +660,8 @@ export function specCommands(doubles?: SpecDoubles): readonly BuiltinSpec[] {
     specTicks(doubles),
     specAction(doubles),
     specFixture(doubles),
+    specValue(doubles),
+    specWait(doubles),
     specRng(doubles),
     spyOn(doubles),
   ];

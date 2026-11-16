@@ -67,6 +67,7 @@ function loaderFor(files: readonly SpecProjectFile[]): SpecProgramLoader {
     root: PACKAGE_ROOT,
     read: (key) => contents.get(key),
     sourcePath: (key) => sourcePaths.get(key),
+    fixtureFiles: normalized.map(({ path, bytes, revision }) => ({ path, bytes, ...(revision === undefined ? {} : { revision }) })),
     ...(nativePlugin === undefined ? {} : { nativePlugin }),
   };
 }

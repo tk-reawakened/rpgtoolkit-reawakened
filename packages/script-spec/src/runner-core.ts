@@ -31,6 +31,7 @@ import {
   fileProgramRef,
   hashGameState,
   PACKAGE_ROOT,
+  ScriptError,
   registerActorObject,
   restoreGameState,
   snapshot,
@@ -39,9 +40,13 @@ import {
   type EffectRecord,
   type GameState,
   type PluginDefinition,
+  type CommandView,
   type ProgramLoader,
   type ScriptServices,
 } from "@tk-reawakened/core";
+import type { FixtureDeclaration, FixtureDefinition } from "./fixture.ts";
+import { createFixtureWorld, type FixtureWorld, type FixtureWorldInputFile } from "./fixture-world.ts";
+import { createCreatorScene, type CreatorScene, type CreatorSceneSnapshot } from "./creator-scene.ts";
 import { addCounts, createCoverageProbe, toCoverage, type LineCounts, type SpecCoverage } from "./coverage.ts";
 import { applyDue, createDoubles, wrapPlugins } from "./doubles.ts";
 import { createSpecPlugin } from "./plugin.ts";
@@ -69,6 +74,8 @@ const LIBRARY_PATH = `Prg/${LIBRARY_INCLUDE}`;
 export type SpecProgramLoader = ProgramLoader & {
   readonly nativePlugin?: PluginDefinition;
   readonly sourcePath?: (key: string) => string | undefined;
+  /** Exact immutable project files made available to creator fixtures. */
+  readonly fixtureFiles?: readonly FixtureWorldInputFile[];
 };
 const SPEC_FILE_KEY = assetKey(`Prg/${SPEC_PROGRAM}`);
 const LIBRARY_KEY = assetKey(LIBRARY_PATH);
@@ -164,6 +171,12 @@ type Task = {
   /** The snapshot to resume from, or `null` for a fresh fixture. */
   readonly from: string | null;
 };
+type CreatorTask = {
+  readonly fixture: FixtureDefinition;
+  readonly world: FixtureWorld | null;
+  readonly from: CreatorSceneSnapshot | null;
+  readonly error: TaskError | null;
+};
 
 type TaskError = { readonly code: string; readonly message: string; readonly line: number };
 
@@ -171,8 +184,16 @@ type TaskRun = {
   readonly outcomes: readonly SpecOutcome[];
   readonly errors: readonly TaskError[];
   readonly hash: string;
-  /** The snapshot taken at a setup run's checkpoint, or `null`. */
+  /** Fixture declarations captured during the file's registration-only pass. */
+  readonly fixtures: readonly FixtureDeclaration[];
+  /** The controller state captured by beforeAll. */
   readonly checkpoint: string | null;
+  /** Complete real-engine scene checkpoint and host effect counters. */
+  readonly creatorCheckpoint: CreatorSceneSnapshot | null;
+  /** Inputs consumed by the fixture engine in their exact replay order. */
+  readonly actionLog: readonly InputRecord[];
+  /** Fixture-world source paths served to the engine in request order. */
+  readonly loaded: readonly string[];
   /** This run's line counts, when coverage was asked for. */
   readonly lines: LineCounts | null;
 };
@@ -216,7 +237,15 @@ function freshState(seed: number): GameState {
   return state;
 }
 
-function runTask(source: string, librarySource: string, seed: number, loader: SpecProgramLoader | undefined, task: Task, place: Placement | null = null): TaskRun {
+function runTask(
+  source: string,
+  librarySource: string,
+  seed: number,
+  loader: SpecProgramLoader | undefined,
+  task: Task,
+  place: Placement | null = null,
+  creator: CreatorTask | null = null,
+): TaskRun {
   const state = task.from === null ? freshState(seed) : restoreGameState(task.from);
   // The snapshot carries the effect log of the run that took it; this run reports only its own.
   if (task.from !== null) drainEffects(state.vm);
@@ -224,21 +253,37 @@ function runTask(source: string, librarySource: string, seed: number, loader: Sp
   state.vm.globals.spectarget = task.target;
   const specProgram = specLoader(loader, source, librarySource);
   const specRef = fileProgramRef(specProgram, SPEC_PROGRAM);
-  if (task.from === null) startProgram(state.vm, specRef);
-  // The record carries `specResult`'s own library position, not the assertion's, so the
-  // spec-file line is captured where the handler runs and keyed by the effect sequence the
-  // call is about to take: the effect log may evict records, so pairing by array index would
-  // silently drift.
   const positions = new Map<number, { line: number; column: number }>();
   let checkpoint: string | null = null;
-  let checkpointFailure: string | null = null;
+  let creatorCheckpoint: CreatorSceneSnapshot | null = null;
   let lastSeq = state.vm.effectSeq;
-  // The probe reads the services only while steps run, after they exist.
   const probe = place === null ? null : createCoverageProbe(() => state.vm, () => services, place);
+  let checkpointFailure: string | null = null;
   const nativePlugin = loader?.nativePlugin;
-  // TOOL-5 test doubles: host-side, made afresh for this run, never saved or hashed.
-  const doubles = createDoubles();
+  let creatorScene: CreatorScene | null = null;
+  const creatorBridge = creator === null ? null : {
+    tick: () => creatorScene?.tick() ?? state.time.tick,
+    value: (path: string, view: CommandView) => {
+      if (creatorScene === null) throw new ScriptError("spec.fixture-load", "creator fixture engine is not ready");
+      return creatorScene.bridge.value(path, view);
+    },
+    wait: (path: string, expected: number | string, maxTicks: number, view: CommandView) => {
+      if (creatorScene === null) throw new ScriptError("spec.fixture-load", "creator fixture engine is not ready");
+      return creatorScene.bridge.wait(path, expected, maxTicks, view);
+    },
+    effect: (name: string) => {
+      if (creatorScene !== null) creatorScene.effects.set(name, (creatorScene.effects.get(name) ?? 0) + 1);
+    },
+  };
+  // Test doubles are host-side, fresh for every counted run, and never part of either simulation snapshot.
+  const doubles = createDoubles(() => creatorScene?.engine.registeredActionNames() ?? [], creator !== null, creatorBridge);
   const plugins = wrapPlugins([...DEFAULT_ENGINE_PLUGINS, ...(nativePlugin === undefined ? [] : [{ definition: nativePlugin }]), { definition: createSpecPlugin(doubles) }], doubles);
+  if (creator !== null && creator.world !== null) {
+    creatorScene = createCreatorScene(creator.world, creator.fixture, creator.fixture.seed ?? seed, plugins, creator.from ?? undefined);
+    if (task.from === null) state.time.tick = creatorScene.tick();
+    if (!creatorScene.ready()) checkpointFailure = "creator fixture setup did not finish";
+  }
+  if (task.from === null && (creator === null || creator.error === null)) startProgram(state.vm, specRef);
   const services: ScriptServices = createScriptServices(state, plugins, undefined, undefined, specProgram,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       postHandler: (handler, threadId) => {
@@ -269,20 +314,44 @@ function runTask(source: string, librarySource: string, seed: number, loader: Sp
           if (checkpoint !== null || last.name !== "specresult" || last.args[2] !== "checkpoint") return;
           try {
             checkpoint = snapshot(state);
+            creatorCheckpoint = creatorScene?.checkpoint() ?? null;
           } catch (error) {
             checkpointFailure = error instanceof Error ? error.message : String(error);
           }
         },
       }),
     });
+  if (creator?.error !== null && creator?.error !== undefined) {
+    return {
+      outcomes: [],
+      errors: [creator.error],
+      hash: hashGameState(state),
+      fixtures: [],
+      checkpoint: null,
+      creatorCheckpoint: null,
+      actionLog: [],
+      loaded: [],
+      lines: probe?.finish() ?? null,
+    };
+  }
   const records: EffectRecord[] = [];
+  const actionLog: InputRecord[] = [];
   let finished = false;
   for (let tick = 0; tick < 1000; tick += 1) {
-    // Scheduled key edges enter the input section before this tick's wait poll, in scheduling order.
-    applyDue(doubles, state.input, state.time.tick);
+    // Host doubles and semantic creator actions are applied in their scheduled input phase.
+    const currentTick = state.time.tick;
+    const keyInputs = creatorScene === null ? [] : doubles.pending
+      .filter((item) => item.tick === currentTick)
+      .map((item): InputRecord => ({ tick: item.tick, event: item.event }));
+    const actionInputs = creatorScene === null ? [] : doubles.creatorActions.takeInputs(currentTick);
+    applyDue(doubles, state.input, currentTick);
     const status = advanceScriptTick(state, services, STEP_BUDGET);
-    // The effect log is a bounded ring: drain it every tick so no record is evicted.
     for (const record of drainEffects(state.vm)) records.push(record);
+    if (creatorScene !== null) {
+      const consumed = creatorScene.advance([...actionInputs, ...keyInputs]);
+      doubles.creatorActions.completeTick(creatorScene.tick());
+      actionLog.push(...consumed.filter((record) => record.event.kind === "action" || record.event.kind === "key"));
+    }
     if (status === "finished") {
       finished = true;
       break;
@@ -293,6 +362,10 @@ function runTask(source: string, librarySource: string, seed: number, loader: Sp
     message: error.message,
     line: error.line,
   }));
+  for (const message of creatorScene?.diagnostics ?? []) {
+    const match = /^([a-z0-9.-]+): (.*)$/i.exec(message);
+    errors.push({ code: match?.[1] ?? "spec.fixture-load", message: match?.[2] ?? message, line: 0 });
+  }
   if (!finished) errors.push({ code: "spec.timeout", message: "spec did not finish within 1000 ticks", line: 0 });
   for (const item of doubles.pending) {
     errors.push({ code: "spec.input-pending", message: `a key edge (${item.event.name}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`, line: 0 });
@@ -314,19 +387,41 @@ function runTask(source: string, librarySource: string, seed: number, loader: Sp
       column: position?.column ?? 0,
     });
   }
-  return { outcomes, errors, hash: hashGameState(state), checkpoint, lines: probe?.finish() ?? null };
+  const fixtures = task.mode === COLLECT
+    ? [...doubles.fixtures.values()].sort((left, right) => left.group - right.group)
+    : [];
+  const finalCreator = creatorScene?.checkpoint() ?? null;
+  return {
+    outcomes, errors, hash: hashGameState(state), checkpoint, fixtures,
+    creatorCheckpoint: creatorCheckpoint ?? finalCreator,
+    actionLog,
+    loaded: creatorScene?.loaded ?? [],
+    lines: probe?.finish() ?? null,
+  };
 }
 
 /** Run a task twice: determinism is part of the contract, so a difference is a runner failure. */
-function runTwice(what: string, source: string, librarySource: string, seed: number, loader: SpecProgramLoader | undefined, task: Task, place: Placement | null): TaskRun {
-  const first = runTask(source, librarySource, seed, loader, task, place);
-  const second = runTask(source, librarySource, seed, loader, task, place);
+function runTwice(
+  what: string,
+  source: string,
+  librarySource: string,
+  seed: number,
+  loader: SpecProgramLoader | undefined,
+  task: Task,
+  place: Placement | null,
+  creator: CreatorTask | null = null,
+): TaskRun {
+  const first = runTask(source, librarySource, seed, loader, task, place, creator);
+  const second = runTask(source, librarySource, seed, loader, task, place, creator);
   if (first.hash !== second.hash) {
     throw new Error(`${what}: two runs gave different state hashes (${first.hash} vs ${second.hash})`);
   }
   if (JSON.stringify(first.outcomes) !== JSON.stringify(second.outcomes)
     || JSON.stringify(first.errors) !== JSON.stringify(second.errors)
     || first.checkpoint !== second.checkpoint
+    || JSON.stringify(first.creatorCheckpoint) !== JSON.stringify(second.creatorCheckpoint)
+    || JSON.stringify(first.actionLog) !== JSON.stringify(second.actionLog)
+    || JSON.stringify(first.loaded) !== JSON.stringify(second.loaded)
     // The replay is compared, never counted: coverage is one logical run (TOOL-5 coverage rule 4).
     || (first.lines !== null && JSON.stringify(toCoverage(first.lines)) !== JSON.stringify(toCoverage(second.lines!)))) {
     throw new Error(`${what}: two runs gave different outcomes`);
@@ -347,6 +442,7 @@ type Group = {
   readonly name: string;
   readonly hasBeforeAll: boolean;
   readonly hasAfterAll: boolean;
+  readonly hasHook: boolean;
 };
 
 type RegisteredCase = {
@@ -359,40 +455,57 @@ type RegisteredCase = {
 type Structure = {
   readonly groups: ReadonlyMap<number, Group>;
   readonly cases: readonly RegisteredCase[];
+  readonly fixtures: readonly FixtureDeclaration[];
   readonly hash: string;
 };
 
 const CASE_KINDS = ["normal", "skip", "only"] as const;
 
-/**
- * Run the spec file's registration alone: the library reports every group, case and group hook it registers
- * (collect mode records them and executes no body). A failure while registering fails discovery.
- */
+/** Whether a fixture's parent chain already owns a hook or fixture world. */
+function fixtureAncestorHasHookOrFixture(group: number, groups: ReadonlyMap<number, Group>, fixtures: readonly FixtureDeclaration[]): boolean {
+  let current = groups.get(group)?.parent;
+  while (current !== undefined) {
+    const ancestor = groups.get(current);
+    if (ancestor === undefined) return false;
+    if (ancestor.hasHook || fixtures.some((fixture) => fixture.group === current)) return true;
+    if (current === 0) return false;
+    current = ancestor.parent;
+  }
+  return false;
+}
+
+/** Run registration once and reject fixture worlds that would replay or inherit an incompatible ancestor. */
 function collect(source: string, librarySource: string, seed: number, loader?: SpecProgramLoader): Structure {
   const run = runTask(source, librarySource, seed, loader, { mode: COLLECT, target: 0, from: null });
   if (run.errors.length > 0) {
     const error = run.errors[0]!;
     throw new Error(`spec discovery failed at line ${error.line} (${error.code}): ${error.message}`);
   }
-  const groups = new Map<number, { id: number; parent: number; name: string; hasBeforeAll: boolean; hasAfterAll: boolean }>();
-  groups.set(0, { id: 0, parent: 0, name: "", hasBeforeAll: false, hasAfterAll: false });
+  const groups = new Map<number, { id: number; parent: number; name: string; hasBeforeAll: boolean; hasAfterAll: boolean; hasHook: boolean }>();
+  groups.set(0, { id: 0, parent: 0, name: "", hasBeforeAll: false, hasAfterAll: false, hasHook: false });
   const cases: RegisteredCase[] = [];
   for (const outcome of run.outcomes) {
     if (outcome.kind !== "pass") continue;
     const parts = outcome.actual.split(":").map(Number);
     if (outcome.expected === "group") {
-      groups.set(parts[0]!, { id: parts[0]!, parent: parts[1]!, name: outcome.label, hasBeforeAll: false, hasAfterAll: false });
+      groups.set(parts[0]!, { id: parts[0]!, parent: parts[1]!, name: outcome.label, hasBeforeAll: false, hasAfterAll: false, hasHook: false });
     } else if (outcome.expected === "case") {
       cases.push({ id: parts[1]!, name: outcome.label, kind: CASE_KINDS[parts[0]!] ?? "normal", group: parts[2]! });
     } else if (outcome.expected === "hook") {
       const group = groups.get(parts[0]!);
       if (group !== undefined) {
+        group.hasHook = true;
         if (outcome.label === "beforeAll") group.hasBeforeAll = true;
-        else group.hasAfterAll = true;
+        else if (outcome.label === "afterAll") group.hasAfterAll = true;
       }
     }
   }
-  return { groups, cases, hash: run.hash };
+  for (const fixture of run.fixtures) {
+    if (fixtureAncestorHasHookOrFixture(fixture.group, groups, run.fixtures)) {
+      throw new Error(`spec discovery failed at line ${fixture.line} (spec.fixture-nested): fixture group ${fixture.group} is nested under a hook or fixture group`);
+    }
+  }
+  return { groups, cases, fixtures: run.fixtures, hash: run.hash };
 }
 
 /** The registered cases in source order, without executing their bodies. */
@@ -421,6 +534,7 @@ type Setup = {
   readonly outcomes: readonly SpecOutcome[];
   readonly errors: readonly TaskError[];
   readonly snapshot: string | null;
+  readonly creatorSnapshot: CreatorSceneSnapshot | null;
   readonly hash: string;
 };
 

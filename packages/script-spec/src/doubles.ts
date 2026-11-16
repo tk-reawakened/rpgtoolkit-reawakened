@@ -15,11 +15,13 @@ import {
   CATALOGUE_STUBS_PLUGIN,
   ScriptError,
   type CommandHandler,
+  type CommandResult,
   type CommandView,
   type InputSection,
   type KeyInput,
   type ResolvedPlugin,
   type RngPort,
+  type Value,
 } from "@tk-reawakened/core";
 import { captureArg, type Snap } from "./snapshot.ts";
 import { createCreatorActionScheduler, type CreatorActionScheduler } from "./creator-actions.ts";
@@ -38,6 +40,12 @@ export type Spy = {
   /** One argument-picture list per recorded call, in call order. */
   readonly calls: Snap[][];
 };
+export type CreatorStateBridge = {
+  readonly tick?: () => number;
+  readonly value: (path: string, view: CommandView) => Value;
+  readonly wait: (path: string, expected: number | string, maxTicks: number, view: CommandView) => CommandResult;
+  readonly effect?: (name: string) => void;
+};
 
 export type SpecDoubles = {
   /** Key edges not yet applied, in scheduling order. */
@@ -50,6 +58,8 @@ export type SpecDoubles = {
   readonly registeredActions: () => readonly string[];
   /** False for the script-only runner; true only when a real engine fixture host consumes action records. */
   creatorActionsEnabled: boolean;
+  /** Projection and bounded-wait operations backed by the live fixture scene, absent in script-only runs. */
+  readonly creatorState: CreatorStateBridge | null;
   /** The scripted draws, or `null` when the seeded generator serves every draw. */
   draws: readonly number[] | null;
   /** The next scripted draw to hand out. */
@@ -65,6 +75,7 @@ export type SpecDoubles = {
 export function createDoubles(
   registeredActions: () => readonly string[] = () => [],
   creatorActionsEnabled = false,
+  creatorState: CreatorStateBridge | null = null,
 ): SpecDoubles {
   return {
     fixtures: new Map(),
@@ -72,6 +83,7 @@ export function createDoubles(
     creatorActions: createCreatorActionScheduler(),
     registeredActions,
     creatorActionsEnabled,
+    creatorState,
     draws: null,
     drawAt: 0,
     spies: new Map(),

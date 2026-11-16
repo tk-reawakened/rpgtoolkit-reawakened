@@ -51,6 +51,22 @@ test("fixture world shares overlay precedence across the restricted asset and pr
   equal(world.byKey.has("prg/unlisted.prg"), false);
 });
 
+test("fixture revision hash changes only with source revisions in its frozen world", () => {
+  const base = [
+    file("Boards/wall.brd", "board", "board-r1"),
+    file("Chrs/Hero.tem", "hero", "hero-r1"),
+    file("Item/Keys/brass.itm", "key", "key-r1"),
+    file("Prg/open.prg", "program", "program-r1"),
+  ];
+  const first = createFixtureWorld(base, fixture());
+  const irrelevantEdit = createFixtureWorld([...base, file("Prg/unlisted.prg", "unrelated", "other-r2")], fixture());
+  const usedEdit = createFixtureWorld([...base.slice(0, 3), file("Prg/open.prg", "changed program", "program-r2")], fixture());
+
+  equal(first.revisionHash.length, 64);
+  equal(irrelevantEdit.revisionHash, first.revisionHash);
+  equal(usedEdit.revisionHash === first.revisionHash, false);
+});
+
 test("overlay files satisfy named fixture paths without the project copy", () => {
   const world = createFixtureWorld([
     file(".tkr-tests/Boards/wall.brd", "board"),
