@@ -426,6 +426,8 @@ test("Application menu and palette trigger quick reference inserts at the last f
   await expect(row).toContainText("castint(val, [&dest])");
   await row.dblclick();
   await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
+  await mirrorInput.focus();
+  await page.keyboard.press(END_OF_TEXT);
   await page.getByRole("button", { name: "Command palette" }).click();
   const paletteSearch = page.getByLabel("Search commands and files");
   await expect(paletteSearch).toBeFocused();
