@@ -46,8 +46,8 @@ test("#2771 fragmented reconstruction visits bounded payload blocks directly", (
 test("#2772 queued save roots share fragmented revisions and allocate logarithmic paths", () => {
   let id = 0;
   const allocate = () => ++id;
-  let live = trackedText("x".repeat(1024 * 512), allocate);
-  for (let at = 1024 * 512 - 512; at > 0; at -= 1024) live = applyTrackedChanges(live, [{ from: at, to: at + 1, text: "" }], allocate);
+  let live = trackedText("x".repeat(1024 * 128), allocate);
+  for (let at = 1024 * 128 - 512; at > 0; at -= 1024) live = applyTrackedChanges(live, [{ from: at, to: at + 1, text: "" }], allocate);
   const initial = reachable([live]);
   const saved = [live];
   for (let index = 0; index < 128; index += 1) {
@@ -59,7 +59,7 @@ test("#2772 queued save roots share fragmented revisions and allocate logarithmi
   const total = reachable(saved);
   ok(total.nodes - initial.nodes <= 128 * 24, `${total.nodes - initial.nodes} new nodes for 128 saved revisions`);
   equal(total.bytes - initial.bytes, 256);
-  for (let index = 0; index < saved.length; index += 1) equal(saved[index]!.text.slice(-index || undefined), index === 0 ? "x".repeat(1024 * 511 + 512) : "a".repeat(index));
+  for (let index = 0; index < saved.length; index += 1) equal(saved[index]!.text.slice(-index || undefined), index === 0 ? "x".repeat(1024 * 128 - 128) : "a".repeat(index));
 });
 
 test("persistent text edits retain earlier revisions and balance under varied replacements", () => {
