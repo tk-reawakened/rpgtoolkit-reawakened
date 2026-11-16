@@ -124,7 +124,7 @@ async function chooseWorkspace(): Promise<vscode.Uri | undefined> {
 function validSourceLocation(path: string, line: number, column: number): boolean {
   return typeof path === "string" && path.length > 0 && path.length <= MAX_SOURCE_PATH && !path.startsWith("/")
     && !path.includes("\\") && path.split("/").every((part) => part.length > 0 && part !== "." && part !== "..")
-    && path.toLowerCase().endsWith(".prg") && Number.isSafeInteger(line) && line >= 1 && line <= 1_000_000
+    && /\.(?:prg|rnc)$/i.test(path) && Number.isSafeInteger(line) && line >= 1 && line <= 1_000_000
     && Number.isSafeInteger(column) && column >= 1 && column <= 100_000;
 }
 
