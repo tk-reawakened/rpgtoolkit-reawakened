@@ -169,6 +169,7 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
       const [, bridgePort] = persistentFs.authority.split(".");
       const token = persistentFs.token;
       const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
+      const restoreGate = `async (uri) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "armNativeRestoreRead", path: uri.path }) }); if (!response.ok) throw new Error("Native restore proof gate failed"); }`;
       const probes = [
         [
           "if (event.document.model.kind === kind) listener(event);",
@@ -185,6 +186,10 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
         [
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
           `saveCustomDocument: (document2) => { void (${trace})("save", document2.uri.path).then(() => (${trace})("save-uri", document2.uri.toString())).catch((error) => console.error("[proof trace]", error)); return core.saveCustomDocument(document2); }`,
+        ],
+        [
+          "const current = wasDirty ? new TextEncoder().encode(textBeforeRead) : await vscode8.workspace.fs.readFile(uri);",
+          `const current = wasDirty ? new TextEncoder().encode(textBeforeRead) : await (async () => { await (${restoreGate})(uri); return vscode8.workspace.fs.readFile(uri); })();`,
         ],
       ];
       for (const [before, after] of probes) {
@@ -297,9 +302,10 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
         previewTrace: () => historyPreviewTraceDiagnostics.slice(),
         pauseWrite: persistentFs.pauseWrite,
         resumeWrite: persistentFs.resumeWrite,
-        pauseRead: persistentFs.pauseRead,
+        pauseNativeRestoreRead: persistentFs.pauseNativeRestoreRead,
         resumeRead: persistentFs.resumeRead,
         writeEvents: persistentFs.writeEvents,
+        nativeRestoreReadEvents: persistentFs.nativeRestoreReadEvents,
         readEvents: persistentFs.readEvents,
       });
       console.log("vscode.dev real New project picker, creation and automatic-open proof passed");

@@ -103,7 +103,7 @@ test("the proof filesystem can pause a workspace write before it reaches disk", 
     await rm(root, { recursive: true, force: true });
   }
 });
-test("the proof filesystem can pause a workspace read before it reaches the caller", async () => {
+test("the proof filesystem can pause a matching workspace read before it reaches the caller", async () => {
   const root = await mkdtemp(join(tmpdir(), "tkr-proof-read-gate-test-"));
   const origin = "http://localhost:34567";
   let bridge;
@@ -111,14 +111,43 @@ test("the proof filesystem can pause a workspace read before it reaches the call
     await writeFile(join(root, "game.gam"), "saved");
     bridge = await startPersistentFs(root, origin);
     const [, port] = bridge.authority.split(".");
-    const reached = bridge.pauseRead("/game.gam");
-    const pending = fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+    const request = () => fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: origin },
       body: JSON.stringify({ op: "readFile", path: "/game.gam" }),
     });
+    const reached = bridge.pauseRead("/game.gam");
+    const pending = request();
     await reached;
     assert.deepEqual(bridge.readEvents(), [{ kind: "readFile", path: "/game.gam" }]);
+    bridge.resumeRead();
+    const response = await pending;
+    assert.equal(response.status, 200);
+    assert.equal(Buffer.from((await response.json()).result, "base64").toString(), "saved");
+  } finally {
+    if (bridge) { bridge.resumeRead(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("a native restore seam arms the existing filesystem read gate for exactly its matching read", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-native-restore-gate-test-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    await writeFile(join(root, "game.prg"), "saved");
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const request = (body) => fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify(body),
+    });
+    const reached = bridge.pauseNativeRestoreRead("/game.prg");
+    assert.equal((await request({ op: "armNativeRestoreRead", path: "/game.prg" })).status, 200);
+    const pending = request({ op: "readFile", path: "/game.prg" });
+    await reached;
+    assert.deepEqual(bridge.nativeRestoreReadEvents(), [{ kind: "readFile", path: "/game.prg" }]);
+    assert.deepEqual(bridge.readEvents(), [{ kind: "readFile", path: "/game.prg" }]);
     bridge.resumeRead();
     const response = await pending;
     assert.equal(response.status, 200);

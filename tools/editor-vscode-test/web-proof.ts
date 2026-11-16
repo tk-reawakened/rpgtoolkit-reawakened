@@ -17,9 +17,10 @@ type ProofRunSnapshot = { readonly stateHash: string | null };
 type NewProjectHistoryProofHost = {
   pauseWrite(path: string): Promise<void>;
   resumeWrite(): void;
-  pauseRead(path: string): Promise<void>;
+  pauseNativeRestoreRead(path: string): Promise<void>;
   resumeRead(): void;
   readEvents(): { kind: "readDirectory" | "readFile"; path: string }[];
+  nativeRestoreReadEvents(): readonly { readonly kind: "readFile"; readonly path: string }[];
   writeEvents(): readonly { readonly kind: "write-request" | "write"; readonly path: string }[];
   readonly bitmapPath: string;
   bitmapPictureForBytes(bytes: Uint8Array): { width: number; height: number; data: number[] };
@@ -520,9 +521,11 @@ async function proveNativeTextHistory(
   const projectPath = "__tkr_new_project/Prg/start.prg";
   const historyPath = "Prg/start.prg";
   const before = await readBacking(projectPath);
+  await closeRecoverySourceEditor(page, expect, /^History preview: Main\/Quest\.gam(?:,|$)/);
+  await closeRecoverySourceEditor(page, expect, /^Quest\.gam(?:,|$)/);
   await openNativeQuickOpenFile(page, expect, projectPath);
-  const editor = page.locator(".monaco-editor:visible").last();
-  const lines = editor.locator(".view-lines");
+  let editor = page.locator(".monaco-editor:visible").last();
+  let lines = editor.locator(".view-lines");
   await expect(lines).toBeVisible();
   await lines.click();
   await page.keyboard.press("ControlOrMeta+End");
@@ -543,29 +546,33 @@ async function proveNativeTextHistory(
     createHash("sha256").update(saved).digest("hex"),
   ].sort());
 
+  await closeRecoverySourceEditor(page, expect, /^start\.prg(?:,|$)/);
+  await openNativeQuickOpenFile(page, expect, projectPath);
+  editor = page.locator(".monaco-editor:visible").last();
+  lines = editor.locator(".view-lines");
+  await expect(lines).toBeVisible();
   await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
   const picker = page.locator(".quick-input-widget");
   const checkpoint = picker.getByRole("option").filter({ hasText: "checkpoint" });
   await expect(checkpoint).toHaveCount(1);
   const writeEventsStart = host.writeEvents().length;
   const readEventsStart = host.readEvents().length;
-  const readReached = host.pauseRead(`/${projectPath}`);
+  const readReached = host.pauseNativeRestoreRead(`/${projectPath}`);
   try {
     await checkpoint.click();
-    await expect.poll(
-      () => host.readEvents().slice(readEventsStart).some((event) => event.kind === "readFile" && event.path === `/${projectPath}`),
-      { timeout: 30_000, intervals: [100, 250, 500] },
-    ).toBe(true);
     await readReached;
+    expect(host.nativeRestoreReadEvents()).toEqual([{ kind: "readFile", path: `/${projectPath}` }]);
     await lines.click();
     await page.keyboard.press("ControlOrMeta+End");
     await page.keyboard.press("Enter");
     await page.keyboard.type("// Concurrent native edit must survive history restore");
+    await expect(lines).toContainText("Concurrent native edit must survive history restore");
   } finally {
     host.resumeRead();
   }
-  await expect.poll(async () => page.locator("body").innerText()).toContain("changed while restore was checking the saved file");
+  await expect.poll(async () => page.locator("body").innerText()).toMatch(/start\.prg:\s+failed/i);
   expect(await readBacking(projectPath)).toEqual(saved);
+  await expect(lines).toContainText("Concurrent native edit must survive history restore");
   expect(host.writeEvents().slice(writeEventsStart).filter((event) => event.path === `/${projectPath}`)).toEqual([]);
   await lines.click();
   await page.keyboard.press("ControlOrMeta+Z");

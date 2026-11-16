@@ -13,6 +13,7 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   const workbench = new URL(allowedOrigin);
   const events = [];
   const readEvents = [];
+  const nativeRestoreReadEvents = [];
   const writeEvents = [];
   let pausedRead;
   let pausedWrite;
@@ -55,9 +56,22 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
           await gate.promise;
         }
         result = null;
+      } else if (input.op === "armNativeRestoreRead") {
+        if (typeof input.path !== "string" || pausedRead?.armed !== false || pausedRead.path !== input.path) {
+          throw Object.assign(new Error("No matching native restore read gate is waiting"), { code: "EINVAL" });
+        }
+        pausedRead.armed = true;
+        result = null;
       } else {
-        const readGate = input.op === "readFile" && pausedRead?.path === input.path ? pausedRead : undefined;
-        if (input.op === "readDirectory" || input.op === "readFile") readEvents.push({ kind: input.op, path: input.path });
+        let readGate;
+        if (input.op === "readDirectory" || input.op === "readFile") {
+          const event = { kind: input.op, path: input.path };
+          readEvents.push(event);
+          if (input.op === "readFile" && pausedRead?.armed && pausedRead.path === input.path) {
+            readGate = pausedRead;
+            if (readGate.nativeRestore) nativeRestoreReadEvents.push(event);
+          }
+        }
         if (readGate !== undefined) {
           readGate.reach();
           await readGate.promise;
@@ -84,6 +98,7 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
     token,
     events: () => events.slice(),
     readEvents: () => readEvents.slice(),
+    nativeRestoreReadEvents: () => nativeRestoreReadEvents.slice(),
     writeEvents: () => writeEvents.slice(),
     pauseSave: () => {
       if (pausedSave) throw new Error("A save is already paused");
@@ -101,7 +116,16 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       let reach;
       const reached = new Promise((resolveReached) => { reach = resolveReached; });
       const promise = new Promise((resolveGate) => { release = resolveGate; });
-      pausedRead = { path, promise, release, reach: () => reach() };
+      pausedRead = { path, armed: true, promise, release, reach: () => reach() };
+      return reached;
+    },
+    pauseNativeRestoreRead: (path) => {
+      if (pausedRead) throw new Error("A filesystem read is already paused");
+      let release;
+      let reach;
+      const reached = new Promise((resolveReached) => { reach = resolveReached; });
+      const promise = new Promise((resolveGate) => { release = resolveGate; });
+      pausedRead = { path, armed: false, nativeRestore: true, promise, release, reach: () => reach() };
       return reached;
     },
     resumeRead: () => { pausedRead?.release(); pausedRead = undefined; },
