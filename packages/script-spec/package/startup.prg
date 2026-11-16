@@ -1,12 +1,9 @@
 // The script-spec library (docs/spec/engine/rpgcode-tooling.md#tool-5,
 // docs/spec/engine/rpgcode-functions.md#tooling-the-rpgcode-spec-package).
-// Every name here is RPGCode. The native commands are the closed set of twelve the
-// test runner registers: specResult records one outcome with this call's position;
-// specCapture, specEqual, specContain, specClose, specThrowBegin, specThrowEnd and
-// specCalled read what a library program cannot (a value's type, an element
-// array's indices, a stored double, an error raised in a called function, the calls
-// a spy recorded); specInput, specTicks, specRng and spyOn are test doubles a case
-// calls directly (TOOL-5 "Test doubles and spies").
+// Every name here is RPGCode. The native commands are the closed set of sixteen the
+// test runner registers: specResult reports a located result; the matcher natives
+// capture opaque values; specInput, specTicks, specRng and spyOn are test doubles;
+// specFixture, specAction, specValue and specWait operate on a real fixture world.
 //
 // Registration and running are separate. `describe`, `it`, `test`, `skip`, `only`
 // and the four hooks only fill the tables below; the runner then calls `specRun()`
@@ -159,12 +156,16 @@ function only(name, body) {
 // kind: "be" beforeEach, "ae" afterEach, "ba" beforeAll, "aa" afterAll.
 function specAddHook(kind, body) {
   local(key)
+  local(name)
   key = specCurrent + ":" + kind
   specHookCount[key] = specHookCount[key] + 1
   specHookBody[key + ":" + specHookCount[key]] = body
   if (specMode == 1) {
-    if (kind == "ba") { specResult("pass", "beforeAll", "hook", specCurrent) }
-    if (kind == "aa") { specResult("pass", "afterAll", "hook", specCurrent) }
+    if (kind == "be") { name = "beforeEach" }
+    if (kind == "ae") { name = "afterEach" }
+    if (kind == "ba") { name = "beforeAll" }
+    if (kind == "aa") { name = "afterAll" }
+    specResult("pass", name, "hook", specCurrent)
   }
 }
 
@@ -281,6 +282,19 @@ function specRunChildren(group) {
     if (specChildKind[group + ":" + n] == 1) { specEnter(specChildId[group + ":" + n]) }
     else { specRunCase(specChildId[group + ":" + n]) }
   }
+}
+
+function specWait(path, expected, maxTicks) {
+  local(elapsed)
+  local(result)
+  elapsed = 0
+  while (elapsed <= maxTicks) {
+    result = specWaitCheck(path, expected, maxTicks, elapsed)
+    if (result >= 0) { return result }
+    specTicks(1)
+    elapsed = elapsed + 1
+  }
+  return -1
 }
 
 // Enter a group whose registration is complete. A setup run runs the group's

@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "lib": ["ES2022", "WebWorker"], "types": ["vscode"], "rootDir": "src", "outDir": "dist" },
   "include": ["src"],
-  "exclude": ["src/webview.tsx"],
+  "exclude": ["src/webview.tsx", "src/creator-tests-webview.tsx"],
   "references": [
     { "path": "../editor-model" },
     { "path": "../editor-ui" },

@@ -275,6 +275,11 @@ export interface Engine {
    * `EVALUATE_STEP_BUDGET` instructions and leaves the state hash unchanged.
    */
   evaluate(expression: string, threadId: number, frameDepth?: number): EvalResult;
+  /**
+   * The complete canonical scene envelope, including historical presentation state, for scene resume
+   * (docs/spec/engine/main-loop-and-startup.md#reawakened-scene-program-loader). Absent on boot engines.
+   */
+  checkpoint?(): string;
 }
 
 /**

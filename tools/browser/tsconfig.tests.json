@@ -4,7 +4,7 @@
     "composite": false,
     "declaration": false,
     "noEmit": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
     "types": ["node"],
     "rootDir": "../..",
     "paths": {
@@ -12,5 +12,5 @@
       "@tk-reawakened/platform-services": ["../../packages/platform-services/dist/index.d.ts"]
     }
   },
-  "include": ["tests/diagnostics-mode.spec.ts", "tests/editor-web-host.spec.ts", "tests/editor-lifecycle.spec.ts", "tests/editor-artwork.spec.ts", "tests/editor-board-canvas.spec.ts", "tests/closing.spec.ts", "tests/package-export-boot.spec.ts", "tests/editor-animation.spec.ts", "editor-web/main.tsx"]
+  "include": ["tests/diagnostics-mode.spec.ts", "tests/editor-web-host.spec.ts", "tests/editor-lifecycle.spec.ts", "tests/editor-artwork.spec.ts", "tests/editor-board-canvas.spec.ts", "tests/closing.spec.ts", "tests/package-export-boot.spec.ts", "tests/editor-animation.spec.ts", "tests/editor-creator-tests.spec.ts", "editor-web/main.tsx"]
 }

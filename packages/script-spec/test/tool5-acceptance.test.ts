@@ -1,4 +1,4 @@
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -65,6 +65,19 @@ test("A2 every case starts on a fresh board, party actor and variable set", () =
   const report = runSpecFile("fixture.spec.prg", source, {});
   deepEqual(report.cases.map((item) => item.ok), [true, true]);
   deepEqual(report.failures, []);
+});
+
+test("a fixture cannot start below an ancestor hook", () => {
+  const source = [
+    'describe("outer", () => {',
+    "  beforeEach(() => {})",
+    '  describe("inner", () => {',
+    '    specFixture({ board: "Boards/wall.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: 1, y: 1 })',
+    '    it("uses a fixture", () => { expect(1).toBe(1) })',
+    "  })",
+    "})",
+  ].join("\n");
+  throws(() => runSpecFile("nested-fixture.spec.prg", source, {}), /spec\.fixture-nested/);
 });
 
 test("A3 the seeded RNG and injected clock are deterministic, and a different seed moves the hash", () => {
@@ -140,11 +153,11 @@ test("B1 the tolerance is required: one argument is the arity failure callable.a
   equal(two.cases[0]?.ok, true);
 });
 
-test("A8/A9 script-spec stays out of the default manifest and registers its closed set of twelve", () => {
+test("A8/A9 script-spec stays out of the default manifest and registers its closed set of sixteen", () => {
   equal(ENGINE_DEFAULT_MANIFEST.map((entry) => entry.id).includes("script-spec"), false);
   deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), [
     "specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend",
-    "speccalled", "specinput", "specticks", "specrng", "spyon",
+    "speccalled", "specinput", "specticks", "specaction", "specfixture", "specvalue", "specwaitcheck", "specrng", "spyon",
   ]);
 });
 

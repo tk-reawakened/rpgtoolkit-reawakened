@@ -15,13 +15,17 @@ import {
   CATALOGUE_STUBS_PLUGIN,
   ScriptError,
   type CommandHandler,
+  type CommandResult,
   type CommandView,
   type InputSection,
   type KeyInput,
   type ResolvedPlugin,
   type RngPort,
+  type Value,
 } from "@tk-reawakened/core";
 import { captureArg, type Snap } from "./snapshot.ts";
+import { createCreatorActionScheduler, type CreatorActionScheduler, type CreatorActionSnapshot } from "./creator-actions.ts";
+import type { FixtureDeclaration } from "./fixture.ts";
 
 /** The plugin id whose commands no spy may target. */
 const SPEC_PLUGIN_ID = "script-spec";
@@ -36,10 +40,27 @@ export type Spy = {
   /** One argument-picture list per recorded call, in call order. */
   readonly calls: Snap[][];
 };
+export type CreatorStateBridge = {
+  readonly tick?: () => number;
+  readonly value: (path: string, view: CommandView) => Value;
+  readonly wait: (path: string, expected: number | string, maxTicks: number, elapsed: number, view: CommandView) => CommandResult;
+  readonly sourcePosition?: (threadId: number) => CommandView["pos"] | null;
+  readonly effect?: (name: string) => void;
+};
 
 export type SpecDoubles = {
   /** Key edges not yet applied, in scheduling order. */
   readonly pending: ScheduledKey[];
+  /** Valid declarations captured during the registration-only pass. */
+  readonly fixtures: Map<number, FixtureDeclaration>;
+  /** Creator actions are host-injected semantic edges, never saved or hashed with the game. */
+  readonly creatorActions: CreatorActionScheduler;
+  /** Resolves after scene startup so `game.*` actions use the runtime registry. */
+  readonly registeredActions: () => readonly string[];
+  /** False for the script-only runner; true only when a real engine fixture host consumes action records. */
+  creatorActionsEnabled: boolean;
+  /** Projection and bounded-wait operations backed by the live fixture scene, absent in script-only runs. */
+  readonly creatorState: CreatorStateBridge | null;
   /** The scripted draws, or `null` when the seeded generator serves every draw. */
   draws: readonly number[] | null;
   /** The next scripted draw to hand out. */
@@ -52,8 +73,25 @@ export type SpecDoubles = {
   readonly topLayer: ReadonlyMap<string, { readonly key: string; readonly plugin: string; readonly name: string; readonly stub: boolean }>;
 };
 
-export function createDoubles(): SpecDoubles {
-  return { pending: [], draws: null, drawAt: 0, spies: new Map(), byTarget: new Map(), topLayer: new Map() };
+export function createDoubles(
+  registeredActions: () => readonly string[] = () => [],
+  creatorActionsEnabled = false,
+  creatorState: CreatorStateBridge | null = null,
+  initialActions?: CreatorActionSnapshot,
+): SpecDoubles {
+  return {
+    fixtures: new Map(),
+    pending: [],
+    creatorActions: createCreatorActionScheduler(initialActions),
+    registeredActions,
+    creatorActionsEnabled,
+    creatorState,
+    draws: null,
+    drawAt: 0,
+    spies: new Map(),
+    byTarget: new Map(),
+    topLayer: new Map(),
+  };
 }
 
 /**

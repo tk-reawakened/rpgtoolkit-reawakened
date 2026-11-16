@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.editor-ui.json",
   // The host project owns document-bridge.ts; consume its declaration instead of emitting the file twice.
   "compilerOptions": { "rootDir": "src", "outDir": "dist-webview", "disableSourceOfProjectReferenceRedirect": true },
-  "include": ["src/webview.tsx"],
+  "include": ["src/webview.tsx", "src/creator-tests-webview.tsx"],
   "references": [
     { "path": "../editor-model" },
     { "path": "../editor-ui" },

@@ -27,7 +27,7 @@ function packageHost(files: Readonly<Record<string, Uint8Array>> = {}) {
   return { host, workspace, services: { fs: host.fs, dialogs: host.dialogs, packageExport } };
 }
 
-function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd"): Readonly<Record<string, Uint8Array>> {
+function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd", scriptSpecPath = "Prg/script-spec/startup.prg"): Readonly<Record<string, Uint8Array>> {
   return {
     "Main/demo.gam": authoredMain(startupPrg, initBoard),
     "Prg/start.prg": utf8Encode("END\n"),
@@ -35,15 +35,22 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd"): Reado
     "Main/other.gam": utf8Encode("not the selected game"),
     "Saved/save.sav": utf8Encode("save"),
     "Prg/smoke.spec.prg": utf8Encode("test only"),
+    [scriptSpecPath]: utf8Encode("test-only library"),
     "Boards/editor.tkrscn": utf8Encode("editor scene"),
     "Tiles/editor.tkrTile": utf8Encode("editor tiles"),
     "Packs/editor.tkrpack": utf8Encode("editor package"),
     ".tkr-history/snapshot.bin": utf8Encode("history"),
+    ".TKR-Tests/Boards/wall.brd": utf8Encode("fixture board"),
+    ".TKR-Tests/Prg/helper.prg": utf8Encode("fixture helper"),
   };
 }
 
 test("preflight creates a readable playable TPK and exact sibling install descriptor with auditable exclusions", async () => {
-  const { workspace, services } = packageHost(authoredFiles());
+  const { workspace, services } = packageHost({
+    ...authoredFiles("start.prg", "start.brd", "Prg/Script-Spec/startup.prg"),
+    "Prg/script-spec-extra/startup.prg": utf8Encode("ordinary sibling program"),
+    "Media/Prg/script-spec/startup.prg": utf8Encode("ordinary media asset"),
+  });
   const groups = createCheckpointGroups({ fs: services.fs, projectId: "memory-project", hash: async (bytes) => createHash("sha256").update(bytes).digest("hex"), newId: () => "export-proof", time: () => "2026-11-15", guard: async () => null, consent: async () => true });
   const checkpoint = await groups.commit([{ path: "Prg/start.prg", bytes: utf8Encode("END\n") }]); ok(checkpoint.ok);
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3" });
@@ -53,8 +60,8 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/contents/")));
   ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/progress/")));
 
-  deepEqual([...prepared.includedFiles].sort(), ["Boards/start.brd", "Main/demo.gam", "Prg/start.prg"]);
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Boards/editor.tkrscn", "Tiles/editor.tkrTile", "Packs/editor.tkrpack", ".tkr-history/snapshot.bin"]) {
+  deepEqual([...prepared.includedFiles].sort(), ["Boards/start.brd", "Main/demo.gam", "Media/Prg/script-spec/startup.prg", "Prg/script-spec-extra/startup.prg", "Prg/start.prg"]);
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Boards/editor.tkrscn", "Tiles/editor.tkrTile", "Packs/editor.tkrpack", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
     ok(prepared.excludedFiles.includes(path), `${path} should be reported as excluded`);
   }
 
@@ -66,6 +73,10 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   equal(manifest.value.main, "Main/demo.gam");
   ok(!loaded.value.files.some((file) => file.path.startsWith(".tkr-history")), "the produced archive holds no history record");
   deepEqual(new Set(manifest.value.index), new Set(prepared.includedFiles));
+  const shipped = loaded.value.files.map((file) => file.path.toLowerCase());
+  deepEqual(shipped.filter((path) => path.includes(".tkr-tests") || path.endsWith(".spec.prg")), [], "the produced package holds no creator-test file");
+  deepEqual(shipped.filter((path) => path.startsWith("prg/script-spec/")), [], "the produced package holds no root-relative script-spec helper");
+  ok(shipped.includes("media/prg/script-spec/startup.prg"), "a similarly named folder outside Prg remains an asset");
 
   const descriptor = JSON.parse(utf8Decode(prepared.descriptor.bytes)) as Record<string, unknown>;
   deepEqual(Object.keys(descriptor), ["schema", "file", "sha256", "size", "gameId", "title", "version"]);

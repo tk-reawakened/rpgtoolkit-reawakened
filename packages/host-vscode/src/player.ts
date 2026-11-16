@@ -5,7 +5,8 @@ import { boardStartUnit } from "@tk-reawakened/editor-model";
 import { createVscodeFileSystem } from "./filesystem.ts";
 
 
-type RunGeneration = () => number;
+import { saveBeforeRun, type RunGeneration } from "./saved-run.ts";
+
 
 function playerStatus(value: unknown): RunStatus | undefined {
   if (typeof value !== "object" || value === null) return undefined;
@@ -56,20 +57,6 @@ async function projectFolderChoices(root: vscode.Uri): Promise<Array<{ label: st
   return choices;
 }
 
-async function saveBeforeRun(generation: RunGeneration): Promise<PlatformResult<number>> {
-  const before = generation();
-  let saved: boolean;
-  try {
-    saved = await vscode.workspace.saveAll();
-  } catch (error) {
-    return platformError("io-error", `VS Code could not save open files: ${String(error)}`);
-  }
-  if (!saved) return platformError("io-error", "VS Code could not save all open files; nothing was run.");
-  if (generation() !== before) return platformError("unavailable", "A document changed while VS Code was saving it; save again and retry the run.");
-  const dirty = vscode.workspace.textDocuments.find((document) => document.isDirty);
-  if (dirty !== undefined) return platformError("unavailable", "An open document is still unsaved; nothing was run.");
-  return platformOk(generation());
-}
 
 function playerHtml(webview: vscode.Webview, playerUri: vscode.Uri): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");

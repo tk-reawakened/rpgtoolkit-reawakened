@@ -7,6 +7,7 @@ import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lif
 import { runVscodeArtProof } from "./art-proof.ts";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 import { runVscodeContextualHelpProof } from "./contextual-help-proof.ts";
+export { runVscodeCreatorTestsProof } from "./creator-tests-proof.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 

@@ -54,6 +54,8 @@ export interface ProgramViewProps {
   readonly reference?: readonly CommandReferenceEntry[];
   /** How long, in milliseconds, a burst of typing may pause before it becomes one edit. */
   readonly settleMs?: number;
+  /** Navigation only: bind the existing surface's one-based source revealer; `null` retires it on disposal. */
+  readonly onRevealReady?: (reveal: ((line: number, column: number) => void) | null) => void;
 }
 
 interface BookmarkRow {
@@ -177,7 +179,7 @@ const formattingRequests = new WeakMap<LanguageClient, Set<object>>();
  * command insertion go to the document and come back to the surface. The language server is a helper: if it is absent or
  * stops, the text still edits, undoes, saves and reopens (docs/spec/engine/rpgcode-tooling.md#tool-10).
  */
-export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createSurface, language, project, preferences, reference, settleMs }: ProgramViewProps) {
+export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createSurface, language, project, preferences, reference, settleMs, onRevealReady }: ProgramViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -615,15 +617,31 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     }
     ctl.surface = surface;
     if (surface.getText() !== ctl.visible.text) surface.setText(ctl.visible.text);
+    onRevealReady?.((line, column) => {
+      const text = surface.getText();
+      const wantedLine = Math.max(0, line - 1);
+      let start = 0;
+      for (let index = 0; index < wantedLine; index += 1) {
+        const next = text.indexOf("\n", start);
+        if (next < 0) { start = text.length; break; }
+        start = next + 1;
+      }
+      const newline = text.indexOf("\n", start);
+      const end = newline < 0 ? text.length : newline;
+      const at = Math.min(end, start + Math.max(0, column - 1));
+      surface.revealLine(wantedLine);
+      surface.select(at, at);
+    });
     return () => {
       clearTimeout(ctl.timer ?? undefined);
       ctl.timer = null;
       // Typing buffered at disposal still reaches the document: closing a view never discards text (ADR 0022 D3.7).
       flush();
+      onRevealReady?.(null);
       surface.dispose();
       ctl.surface = null;
     };
-  }, [doc, createSurface]);
+  }, [doc, createSurface, onRevealReady]);
 
   // The document changed (undo, revert, an external reload, our own edit): the surface follows.
   useEffect(() => {

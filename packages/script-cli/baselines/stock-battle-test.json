@@ -18,10 +18,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "continues while both parties have living fighters/toBe",
-                  "line": 8
+                  "line": 8,
+                  "sourcePath": "battle.spec.prg"
                 }
               ],
-              "stateHash": "e739be5cd3f60bc2"
+              "stateHash": "1d3f810fea8e288d"
             },
             {
               "groups": [
@@ -36,10 +37,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "declares victory when all enemies have fallen/toBe",
-                  "line": 14
+                  "line": 14,
+                  "sourcePath": "battle.spec.prg"
                 }
               ],
-              "stateHash": "a6ad8c20a2bb1f14"
+              "stateHash": "72621683829bf7e3"
             },
             {
               "groups": [
@@ -54,10 +56,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "prioritizes defeat when both parties have fallen/toBe",
-                  "line": 20
+                  "line": 20,
+                  "sourcePath": "battle.spec.prg"
                 }
               ],
-              "stateHash": "c3032ad2ce5d7e1b"
+              "stateHash": "b1140ac9a81905fc"
             }
           ],
           "failures": [],

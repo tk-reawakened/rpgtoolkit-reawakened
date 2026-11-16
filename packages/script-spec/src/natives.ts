@@ -1,14 +1,12 @@
 /**
- * The twelve native commands of the `script-spec` package (TOOL-5, ADR 0014 amendments of 2026-11-11 and
+ * The sixteen native commands of the `script-spec` package (TOOL-5, ADR 0014 amendments of 2026-11-11 and
  * 2026-11-12): `specResult` records an outcome and the position of its call, seven matcher helpers read what a
- * library program cannot (docs/spec/engine/rpgcode-tooling.md#tool-5-natives), and four test doubles act on the
- * runner's side of the VM (#tool-5-doubles). The set is closed: a command joins it by editing TOOL-5 first. They are
+ * library program cannot, four test doubles act on the runner's side of the VM, and four creator operations connect
+ * the controller to a real fixture world. The set is closed: a command joins it by editing TOOL-5 first. They are
  * registered only by the `script-spec` plugin, never by the engine's default manifest.
- *
- * No command here re-enters the interpreter. The two error commands bracket a call the library makes itself, so the
- * VM runs that call as an ordinary call, and `specTicks` waits through the ordinary cooperative sleep (G1). The
- * doubles reach the run's host-side `SpecDoubles`; without one (the static `SPEC_PLUGIN`) they raise
- * `spec.no-doubles`.
+ * No command here re-enters the interpreter. The error commands bracket a call the library makes itself, so the VM
+ * runs that call as an ordinary call, and `specTicks` waits through the ordinary cooperative sleep (G1). The doubles
+ * reach the run's host-side `SpecDoubles`; without one (the static `SPEC_PLUGIN`) they raise `spec.no-doubles`.
  */
 
 import {
@@ -18,10 +16,13 @@ import {
   type Arg,
   type BuiltinSpec,
   type CommandResult,
+  type CommandView,
   type ParamSpec,
   type Value,
 } from "@tk-reawakened/core";
 import { installSpy, type SpecDoubles } from "./doubles.ts";
+import type { CreatorAction } from "./creator-actions.ts";
+import { FixtureError, readFixture } from "./fixture.ts";
 import { captureArg, display, finiteNumber, parseSnap, snapContains, snapsEqual, type Snap } from "./snapshot.ts";
 
 const SEE = [
@@ -62,7 +63,8 @@ function snapshotOf(value: Value | undefined, command: string): Snap {
   return snap;
 }
 
-const SPEC_RESULT: BuiltinSpec = {
+function specResult(doubles?: SpecDoubles): BuiltinSpec {
+  return {
   name: "specresult",
   aliases: [],
   // One variadic parameter: `specResult` accepts kind, name, expected and actual in any arity the library uses,
@@ -90,7 +92,18 @@ const SPEC_RESULT: BuiltinSpec = {
         thread: view.thread ?? 0,
         name: "specresult",
         kind: "pure",
-        args: [kind, text(args[1]?.value ?? null), text(args[2]?.value ?? null), text(args[3]?.value ?? null), pos?.file ?? "", pos?.line ?? 0, pos?.col ?? 0],
+        args: [
+          kind,
+          text(args[1]?.value ?? null),
+          text(args[2]?.value ?? null),
+          text(args[3]?.value ?? null),
+          pos?.file ?? "",
+          pos?.line ?? 0,
+          pos?.col ?? 0,
+          ...(doubles?.creatorActionsEnabled && view.state !== undefined
+            ? [view.state.world.board?.key ?? null, view.state.time.tick]
+            : []),
+        ],
         out: {},
         result: null,
         patch: null,
@@ -98,9 +111,16 @@ const SPEC_RESULT: BuiltinSpec = {
         request: null,
       });
     }
+    if (doubles?.creatorActionsEnabled && view.state?.vm.globals.specmode === 3
+      && text(args[1]?.value ?? null) === "" && text(args[2]?.value ?? null) === "checkpoint"
+      && text(args[3]?.value ?? null) !== "fixture-ready") {
+      // Park the real Engine thread so its checkpoint can resume at the next library instruction.
+      return { value: null, wait: { kind: "sleep", global: false, until: view.clock.tick() + 1, resumesCall: true } };
+    }
     return { value: null };
   },
-};
+  };
+}
 
 const SPEC_CAPTURE: BuiltinSpec = {
   name: "speccapture",
@@ -380,6 +400,202 @@ function specInput(doubles: SpecDoubles | undefined): BuiltinSpec {
   };
 }
 
+type FixtureBudget = { nodes: number; text: number };
+
+function fixturePlain(value: Value, view: CommandView, active: Set<number>, budget: FixtureBudget, depth = 0): unknown {
+  budget.nodes += 1;
+  if (budget.nodes > 4096) throw new FixtureError("spec.bad-fixture", "specFixture: the definition exceeds the 16 KiB limit");
+  if (typeof value === "string") {
+    budget.text += value.length;
+    if (budget.text > 16_384) throw new FixtureError("spec.bad-fixture", "specFixture: the definition exceeds the 16 KiB limit");
+    return value;
+  }
+  if (value === null || typeof value === "number") return value;
+  if (!("kind" in value) || value.kind !== "object" || value.className !== "" || depth > 32) {
+    throw new FixtureError("spec.bad-fixture", "specFixture: nested values must be plain dictionaries and scalar values");
+  }
+  if (active.has(value.handle)) throw new FixtureError("spec.bad-fixture", "specFixture: the definition must not contain cycles");
+  const members = view.objectMembers?.(value.handle);
+  if (members === undefined) throw new FixtureError("spec.bad-fixture", "specFixture: the definition dictionary is unavailable");
+  if (Object.keys(members).length > 512) throw new FixtureError("spec.bad-fixture", "specFixture: a definition dictionary is too large");
+  active.add(value.handle);
+  const plain: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const key of Object.keys(members)) {
+    if (key.length > 255) throw new FixtureError("spec.bad-fixture", "specFixture: a definition key is too large");
+    budget.text += key.length;
+    if (budget.text > 16_384) throw new FixtureError("spec.bad-fixture", "specFixture: the definition exceeds the 16 KiB limit");
+    plain[key] = fixturePlain(members[key]!, view, active, budget, depth + 1);
+  }
+  active.delete(value.handle);
+  return plain;
+}
+
+function specFixture(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specfixture",
+    aliases: [],
+    params: [param("definition", "A plain-data creator fixture definition.")],
+    doc: {
+      summary: "Choose the small board a group of tests plays on, who stands where, what they carry and which project files the scene may use, so every test starts from that same fresh scene.",
+      behaviour:
+        "Valid only while the test runner registers the file or a describe body. Each group may declare one validated fixture definition; invalid or late declarations are located `spec.bad-fixture` or `spec.fixture-late` errors.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "never", summary: "Captures and validates fixture data at once." },
+      see: SEE,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specFixture");
+      const state = view.state;
+      if (state !== undefined && state.vm.globals.specmode !== 1) {
+        const pos = view.pos;
+        const replay = run.creatorActionsEnabled && pos !== undefined
+          && [...run.fixtures.values()].some((fixture) => fixture.line === pos.line && fixture.column === (pos.col ?? 0));
+        if (replay) return { value: null };
+        throw new ScriptError("spec.fixture-late", "specFixture: fixtures may only be declared while the runner registers the spec");
+      }
+      if (state === undefined) {
+        throw new ScriptError("spec.fixture-late", "specFixture: fixtures may only be declared while the runner registers the spec");
+      }
+      const group = wholeNumber(state.vm.globals.speccurrent);
+      if (group === null || group < 0) throw new ScriptError("spec.bad-fixture", "specFixture: the current spec group is invalid");
+      if (run.fixtures.has(group)) throw new ScriptError("spec.fixture-twice", "specFixture: a group may declare only one fixture");
+      let definition;
+      try {
+        definition = readFixture(fixturePlain(args[0]?.value ?? null, view, new Set(), { nodes: 0, text: 0 }));
+      } catch (error) {
+        if (error instanceof FixtureError) throw new ScriptError(error.code, error.message);
+        throw error;
+      }
+      const declaration = { group, definition, line: view.pos?.line ?? 0, column: view.pos?.col ?? 0 };
+      run.fixtures.set(group, declaration);
+      recordEffect(state.vm, {
+        tick: state.time.tick,
+        thread: view.thread ?? 0,
+        name: "specfixture",
+        kind: "pure",
+        args: [JSON.stringify(definition), group],
+        out: {},
+        result: null,
+        patch: null,
+        wait: null,
+        request: null,
+      });
+      return { value: null };
+    },
+  };
+}
+function specValue(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specvalue",
+    aliases: [],
+    params: [param("path", "One documented fixture-state projection.")],
+    doc: {
+      summary: "Read one thing the game knows right now, such as where the player stands, which board it is, an item count or a variable.",
+      behaviour: "Reads the named closed projection from the fixture simulation without changing it. Outside a real-engine fixture case, raises `spec.no-fixture`; an unknown path raises `spec.bad-path`.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "never", summary: "Reads the current fixture state immediately." },
+      see: SEE,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specValue");
+      if (!run.creatorActionsEnabled || run.creatorState === null) {
+        throw new ScriptError("spec.no-fixture", "specValue: requires a real-engine creator fixture");
+      }
+      const path = args[0]?.value;
+      if (typeof path !== "string") throw new ScriptError("spec.bad-path", "specValue: path must be a string");
+      return { value: run.creatorState.value(path, view) };
+    },
+  };
+}
+
+function specWaitCheck(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specwaitcheck",
+    aliases: [],
+    params: [
+      param("path", "One documented fixture-state projection."),
+      param("expected", "A number or string to compare strictly."),
+      param("maxTicks", "The maximum number of fixture ticks to wait, from 0 to 1,000."),
+      param("elapsed", "The whole number of ticks already waited."),
+    ],
+    doc: {
+      summary: "Check one bounded fixture-state wait poll.",
+      behaviour: "Used by the `specWait` library function. Reads the named fixture projection once; returns elapsed ticks on a strict match, returns -1 while more ticks may run, and raises `spec.timeout` with the condition and last value at the deadline. Outside a real-engine fixture case, raises `spec.no-fixture`.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      returns: { summary: "Elapsed ticks on a match, otherwise -1." },
+      waits: { kind: "never", summary: "Checks one fixture-state poll at once." },
+      see: SEE,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specWait");
+      if (!run.creatorActionsEnabled || run.creatorState === null) {
+        throw new ScriptError("spec.no-fixture", "specWait: requires a real-engine creator fixture");
+      }
+      const path = args[0]?.value;
+      const expected = args[1]?.value;
+      const maxTicks = wholeNumber(args[2]?.value);
+      const elapsed = wholeNumber(args[3]?.value);
+      if (typeof path !== "string") throw new ScriptError("spec.bad-path", "specWait: path must be a string");
+      if (typeof expected !== "number" && typeof expected !== "string") {
+        throw new ScriptError("spec.bad-wait", "specWait: expected must be a number or string");
+      }
+      if (maxTicks === null || maxTicks < 0 || maxTicks > MAX_TICKS) {
+        throw new ScriptError("spec.bad-ticks", "specWait: maxTicks must be a whole number from 0 to 1,000");
+      }
+      if (elapsed === null || elapsed < 0 || elapsed > maxTicks) {
+        throw new ScriptError("spec.bad-ticks", "specWait: elapsed must be a whole number from 0 to maxTicks");
+      }
+      return run.creatorState.wait(path, expected, maxTicks, elapsed, view);
+    },
+  };
+}
+
+
+function specAction(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specaction",
+    aliases: [],
+    params: [
+      param("action", "A built-in or registered game action name."),
+      param("ticks", "The number of complete simulation ticks to hold the action."),
+    ],
+    doc: {
+      summary: "Make the player press one action, such as \"right\" or \"confirm\", and hold it for a number of game ticks, then let go.",
+      behaviour:
+        "Called from a fixture case. Each call creates a unique `spec.action:<n>` claim; its press enters the next engine input phase, its release enters the phase exactly `ticks` later, and the caller resumes in that release tick's wait poll. The real-engine fixture host consumes the scheduled edges.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "ticks", summary: "Sleeps until the semantic action's scheduled release tick." },
+      see: SEE_DOUBLES,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specAction");
+      if (!run.creatorActionsEnabled) {
+        throw new ScriptError("spec.no-fixture", "specAction: requires a real-engine creator fixture");
+      }
+      const action = args[0]?.value;
+      if (typeof action !== "string") {
+        throw new ScriptError("spec.bad-action", "specAction: action must be a string");
+      }
+      const ticks = wholeNumber(args[1]?.value);
+      if (ticks === null) throw new ScriptError("spec.bad-ticks", "specAction: ticks must be a whole number from 1 to 1,000");
+      let scheduled: CreatorAction;
+      try {
+        scheduled = run.creatorActions.schedule(action, ticks, run.creatorState?.tick?.() ?? view.clock.tick(), run.registeredActions());
+      } catch (error) {
+        if (error instanceof Error && "code" in error && typeof error.code === "string") {
+          throw new ScriptError(error.code, error.message);
+        }
+        throw error;
+      }
+      return { value: null, wait: { kind: "sleep", global: false, until: scheduled.releaseAt, resumesCall: true } };
+    },
+  };
+}
+
 function specTicks(doubles: SpecDoubles | undefined): BuiltinSpec {
   return {
     name: "specticks",
@@ -460,10 +676,10 @@ function spyOn(doubles: SpecDoubles | undefined): BuiltinSpec {
   };
 }
 
-/** The twelve natives, the doubles bound to one run's host-side state (or to none). */
+/** The native commands, with doubles bound to one run's host-side state (or to none). */
 export function specCommands(doubles?: SpecDoubles): readonly BuiltinSpec[] {
   return [
-    SPEC_RESULT,
+    specResult(doubles),
     SPEC_CAPTURE,
     SPEC_EQUAL,
     SPEC_CONTAIN,
@@ -473,6 +689,10 @@ export function specCommands(doubles?: SpecDoubles): readonly BuiltinSpec[] {
     specCalled(doubles),
     specInput(doubles),
     specTicks(doubles),
+    specAction(doubles),
+    specFixture(doubles),
+    specValue(doubles),
+    specWaitCheck(doubles),
     specRng(doubles),
     spyOn(doubles),
   ];

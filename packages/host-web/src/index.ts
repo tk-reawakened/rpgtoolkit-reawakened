@@ -413,6 +413,12 @@ export function mountDocumentView(
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
   let disposed = false;
+  let sourceRequest: { readonly line: number; readonly column: number } | null = null;
+  const revealSource = (line: number, column: number): void => {
+    if (disposed) return;
+    if (mounted?.revealSource === undefined) sourceRequest = { line, column };
+    else mounted.revealSource(line, column);
+  };
   const hide = (): void => {
     mounted?.dispose();
     mounted = null;
@@ -439,6 +445,11 @@ export function mountDocumentView(
       pendingEdits: project.workspace.pendingEdits(document),
       ...(navigation === undefined ? {} : { navigation }),
     });
+    if (sourceRequest !== null && mounted.revealSource !== undefined) {
+      const request = sourceRequest;
+      sourceRequest = null;
+      mounted.revealSource(request.line, request.column);
+    }
     notice = project.sessionCopy ? container.ownerDocument.createElement("p") : null;
     if (notice) {
       notice.setAttribute("role", "status");
@@ -447,14 +458,14 @@ export function mountDocumentView(
     }
   };
   show(element);
-  return { hide, show, dispose: () => { hide(); disposed = true; } };
+  return { hide, show, ...(document.kind === "program" ? { revealSource } : {}), dispose: () => { hide(); disposed = true; } };
 }
 
 /** Make a view owner over a document the project already has open. */
 export function mountEditor(project: WebProject, document: AnyDocument, element: HTMLElement): EditorView {
   const lease = project.workspace.attachView(document);
   const view = mountDocumentView(project, document, element);
-  return { close: () => lease.close(), hide: view.hide, show: view.show, dispose: () => { view.dispose(); lease.dispose(); } };
+  return { close: () => lease.close(), hide: view.hide, show: view.show, ...(view.revealSource === undefined ? {} : { revealSource: view.revealSource }), dispose: () => { view.dispose(); lease.dispose(); } };
 }
 
 /** @deprecated The name of the first editor; it mounts a document of any registered kind. */

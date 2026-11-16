@@ -17,6 +17,8 @@ import type { DocumentWorkspace } from "./workspace.ts";
 
 const RESERVED_HISTORY_FOLDER = ".tkr-history";
 const RESERVED_EXPORT_FOLDER = ".tkr-exports";
+const RESERVED_TESTS_FOLDER = ".tkr-tests";
+const RESERVED_SCRIPT_SPEC_PATH = "prg/script-spec";
 const EDITOR_ONLY_EXTENSIONS = new Set([".tkrscn", ".tkrtile", ".tkrpack"]);
 
 /**
@@ -83,7 +85,8 @@ function failure(message: string): { readonly ok: false; readonly message: strin
 function isExcluded(path: string, mainPath: string, kind: "file" | "directory"): boolean {
   const folded = foldPath(path);
   const segments = folded.split("/");
-  if (segments[0] === RESERVED_HISTORY_FOLDER || segments[0] === RESERVED_EXPORT_FOLDER) return true;
+  if (segments[0] === RESERVED_HISTORY_FOLDER || segments[0] === RESERVED_EXPORT_FOLDER || segments[0] === RESERVED_TESTS_FOLDER) return true;
+  if (folded === RESERVED_SCRIPT_SPEC_PATH || folded.startsWith(`${RESERVED_SCRIPT_SPEC_PATH}/`)) return true;
   if (segments[0] === "saved") return true;
   if (segments[0] === "main" && segments.length > 1 && folded !== foldPath(mainPath)) return true;
   if (kind === "directory") return false;

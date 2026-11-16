@@ -86,7 +86,8 @@ test("the browser workbench asks the questions, makes the board, opens it and re
   await type(field(element, "Width in tiles"), "9");
   await type(field(element, "Height in tiles"), "7");
   await type(field(element, "Layers"), "3");
-  await act(() => { element.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  const submitEvent = new Event("submit", { bubbles: true, cancelable: true });
+  await act(() => { element.querySelector('[role="dialog"][aria-label="New board"] form')!.dispatchEvent(submitEvent); });
   await settle(act);
   equal(await made, "Boards/meadow.brd");
   equal(element.querySelector('[role="dialog"]'), null, "the questions close");
@@ -104,7 +105,7 @@ test("the browser workbench asks the questions, makes the board, opens it and re
   equal(field(element, "Layout").value, "iso-rotated");
   equal(field(element, "Width in tiles").value, "9");
   await type(field(element, "Name"), "MEADOW");
-  await act(() => { element.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  await act(() => { element.querySelector('[role="dialog"][aria-label="New board"] form')!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
   await settle(act);
   match(element.querySelector('[role="alert"]')?.textContent ?? "", /already exists/);
   equal(element.querySelector('[role="dialog"]') !== null, true, "a refused creation keeps the questions open");
