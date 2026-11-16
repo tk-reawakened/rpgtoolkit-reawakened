@@ -1,4 +1,4 @@
-import { trackedText, copyTracked, changePendingText, applyTrackedChanges, mergePendingText, trackedTextChanges, type TrackedText, type PendingText } from "./program-text.ts";
+import { trackedText, copyTracked, changePendingText, applyTrackedChanges, mergePendingText, trackedTextChanges, type TrackedText, type PendingText, type TextTree } from "./program-text.ts";
 import {
   commandReference,
   createEditTracker,
@@ -209,7 +209,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const queuedHistoryCommands = useRef(0);
   const historyQueued = useRef(false);
   const queuedSaveStages = useRef<QueuedSaveStage[]>([]);
-  const historyRevisions = useRef(new Map<string, { before: TrackedText; after: TrackedText }>());
+  const historyRevisions = useRef(new Map<string, readonly TextTree[]>());
   const enqueueCommand = <T,>(operation: () => Promise<T>): Promise<T> => {
     queuedCommands.current += 1;
     const result = commandQueue.current.then(operation);
@@ -431,7 +431,6 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         const beforeSnapshot = document.getSnapshot();
         const ctl = control.current;
         if (ctl.document.text !== beforeSnapshot.text) ctl.document = trackedText(beforeSnapshot.text, allocateTextId);
-        const beforeTrack = ctl.document;
         let result: HistoryResult | null = null;
         try {
           result = await step.call(document);
@@ -447,7 +446,11 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
               ? inverseTextEdits(afterSnapshot.text, beforeSnapshot.text, record.command)
               : record.command.edits;
             if (changes !== null) {
-              const changed = applyTrackedChanges(ctl.document, changes, allocateTextId, afterSnapshot.text);
+              const removed: TextTree[] = [];
+              const insert = historyRevisions.current.get(String(result.editId));
+              const changed = applyTrackedChanges(ctl.document, changes, allocateTextId, afterSnapshot.text,
+                which === "undo" ? { removed } : insert === undefined ? undefined : { insert });
+              if (which === "undo") historyRevisions.current.set(String(result.editId), removed.reverse());
               ctl.document = changed;
             } else {
               ctl.document = trackedText(afterSnapshot.text, allocateTextId);
@@ -455,17 +458,9 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
           } else {
             ctl.document = trackedText(afterSnapshot.text, allocateTextId);
           }
-          if (which === "undo") {
-            historyRevisions.current.set(String(result.editId), { before: beforeTrack, after: ctl.document });
-          } else {
-            const restored = historyRevisions.current.get(String(result.editId));
-            if (restored !== undefined && restored.after.text === beforeSnapshot.text && restored.before.text === afterSnapshot.text) {
-              ctl.document = restored.before;
-            }
-          }
           ctl.documentKey = document.identity.key;
         }
-        if (queuedSaveStages.current.length === 0) {
+        if (queuedSaveStages.current.length === 0 && queuedHistoryCommands.current === 1) {
           if (ctl.pending !== null) {
             const current = mergePendingText(ctl.document, ctl.pending);
             ctl.pending.base = copyTracked(ctl.document);

@@ -1149,3 +1149,23 @@ for (const [original, edited, replacement] of [["x", "xa", "xb"], ["x", "ax", "b
     handle.dispose();
   });
 }
+
+test("#2769 Redo after a net-zero queued Save preserves the newer unchanged identities", async () => {
+  const s = await setup({ content: "x" });
+  const first = saveGate();
+  const handle = show(s, { document: gatedProgramView(s, [first]) });
+  await type(s.el, "xa");
+  await act(() => { named(s.el, "Save").click(); });
+  await first.started.promise;
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await type(s.el, "y");
+  await type(s.el, "x");
+  await act(() => { named(s.el, "Save").click(); });
+  await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
+  await type(s.el, "z");
+  first.release.resolve();
+  await act(() => s.pending.settle());
+  equal(textOf(s), "za");
+  deepEqual(s.host.bytesOf(PATH), bytes("x"));
+  handle.dispose();
+});

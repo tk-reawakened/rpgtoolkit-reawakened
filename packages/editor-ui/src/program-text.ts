@@ -7,6 +7,7 @@ interface TextLeaf {
   readonly piece: TextPiece;
   readonly length: number;
   readonly height: number;
+  readonly maxId: number;
 }
 interface TextBranch {
   readonly kind: "branch";
@@ -14,6 +15,7 @@ interface TextBranch {
   readonly right: Exclude<TextTree, null>;
   readonly length: number;
   readonly height: number;
+  readonly maxId: number;
 }
 export interface TextPiece {
   readonly id: number;
@@ -37,12 +39,12 @@ interface PiecePosition extends PieceRange { readonly index: number; readonly st
 
 const TEXT_BLOCK = 1024;
 function leaf(piece: TextPiece): TextTree {
-  return piece.to === piece.from ? null : { kind: "leaf", piece, length: piece.to - piece.from, height: 1 };
+  return piece.to === piece.from ? null : { kind: "leaf", piece, length: piece.to - piece.from, height: 1, maxId: piece.id };
 }
 function branch(left: TextTree, right: TextTree): TextTree {
   if (left === null) return right;
   if (right === null) return left;
-  return { kind: "branch", left, right, length: left.length + right.length, height: 1 + Math.max(left.height, right.height) };
+  return { kind: "branch", left, right, length: left.length + right.length, height: 1 + Math.max(left.height, right.height), maxId: Math.max(left.maxId, right.maxId) };
 }
 function balance(left: Exclude<TextTree, null>, right: Exclude<TextTree, null>): TextTree {
   if (left.height > right.height + 1 && left.kind === "branch") {
@@ -95,6 +97,34 @@ function treeOf(pieces: readonly TextPiece[], from = 0, to = pieces.length): Tex
   const middle = (from + to) >>> 1;
   return branch(treeOf(pieces, from, middle), treeOf(pieces, middle, to));
 }
+/** Reuse every unchanged contiguous span, including islands between separate edits. */
+function revisedPieces(previous: TrackedText, pieces: readonly TextPiece[]): TrackedText {
+  const offsets = new Map<string, number>();
+  const key = (piece: TextPiece) => `${piece.id}:${piece.from}:${piece.to}`;
+  let offset = 0;
+  for (const piece of previous.pieces) { offsets.set(key(piece), offset); offset += piece.to - piece.from; }
+  let root: TextTree = null;
+  let runFrom = -1;
+  let runTo = -1;
+  const flush = () => {
+    if (runFrom < 0) return;
+    const [, tail] = split(previous.root, runFrom);
+    const [shared] = split(tail, runTo - runFrom);
+    root = join(root, shared);
+    runFrom = -1;
+  };
+  for (const piece of pieces) {
+    const at = offsets.get(key(piece));
+    if (at === undefined) { flush(); root = join(root, leaf(piece)); }
+    else {
+      if (runFrom < 0 || at !== runTo) { flush(); runFrom = at; }
+      runTo = at + piece.to - piece.from;
+    }
+  }
+  flush();
+  return revision(root);
+}
+
 export function trackedText(text: string, allocate: () => number): TrackedText {
   const pieces: TextPiece[] = [];
   for (let offset = 0; offset < text.length; offset += TEXT_BLOCK) {
@@ -118,12 +148,15 @@ function compactPieces(pieces: TextPiece[]): void {
   }
   pieces.length = write;
 }
-export function applyTrackedChanges(text: TrackedText, changes: readonly TextChange[], allocate: () => number, resultText?: string): TrackedText {
+export function applyTrackedChanges(text: TrackedText, changes: readonly TextChange[], allocate: () => number, resultText?: string, fragments?: { removed?: TextTree[]; insert?: readonly TextTree[] }): TrackedText {
   let root = text.root;
-  for (const change of changes) {
+  for (const [index, change] of changes.entries()) {
     const [left, tail] = split(root, change.from);
-    const [, right] = split(tail, change.to - change.from);
-    root = join(join(left, trackedText(change.text, allocate).root), right);
+    const [removed, right] = split(tail, change.to - change.from);
+    fragments?.removed?.push(removed);
+    const restored = fragments?.insert?.[index];
+    const inserted = restored !== undefined && revision(restored).text === change.text ? restored : trackedText(change.text, allocate).root;
+    root = join(join(left, inserted), right);
   }
   if (resultText !== undefined && (root?.length ?? 0) !== resultText.length) return trackedText(resultText, allocate);
   return revision(root);
@@ -137,7 +170,10 @@ export function changePendingText(pending: PendingText, changes: readonly TextCh
     const [removed] = split(tail, change.to - change.from);
     const pieces: TextPiece[] = [];
     collect(removed, pieces);
-    for (const piece of pieces) pending.deleted = { id: piece.id, from: piece.from, to: piece.to, next: pending.deleted };
+    // IDs allocated after this base belong to transient typing; history cannot restore them.
+    for (const piece of pieces) {
+      if (piece.id <= (pending.base.root?.maxId ?? 0)) pending.deleted = { id: piece.id, from: piece.from, to: piece.to, next: pending.deleted };
+    }
     current = applyTrackedChanges(current, [change], allocate);
   }
   pending.current = resultText !== undefined && (current.root?.length ?? 0) !== resultText.length
@@ -266,6 +302,42 @@ export function mergePendingText(document: TrackedText, pending: PendingText): T
 
   let targetLength = 0;
   for (const piece of pieces) targetLength += piece.to - piece.from;
+  const originalPositions = positionsById(document.pieces);
+  const retainedPositions: Array<{ from: number; to: number; start: number }> = [];
+  let retainedOffset = 0;
+  for (const piece of pieces) {
+    const at = piecePosition(piece, originalPositions);
+    if (at !== null) retainedPositions.push({ from: at, to: at + piece.to - piece.from, start: retainedOffset });
+    retainedOffset += piece.to - piece.from;
+  }
+  const basePositions: Array<PieceRange & { piece: TextPiece }> = [];
+  let baseOffset = 0;
+  for (const piece of basePieces) {
+    basePositions.push({ from: baseOffset, to: baseOffset + piece.to - piece.from, piece });
+    baseOffset += piece.to - piece.from;
+  }
+  const replacements: Array<PieceRange & { anchor: number }> = [];
+  let shift = 0;
+  for (const edit of trackedTextChanges(pending.base, pending.current, true).reverse()) {
+    if (edit.to > edit.from && edit.text.length > 0) {
+      let originalAt: number | null = null;
+      for (let i = firstRangeEndingAfter(basePositions, edit.from); i < basePositions.length; i += 1) {
+        const position = basePositions[i]!;
+        if (position.from >= edit.to) break;
+        const piece = position.piece;
+        originalAt = piecePosition({ ...piece, from: piece.from + Math.max(0, edit.from - position.from), to: piece.from + Math.min(position.to, edit.to) - position.from }, originalPositions);
+        if (originalAt !== null) break;
+      }
+      if (originalAt !== null) {
+        const i = firstRangeEndingAfter(retainedPositions, originalAt);
+        const next = retainedPositions[i];
+        const anchor = next === undefined ? targetLength : next.start + Math.max(0, originalAt - next.from);
+        replacements.push({ from: edit.from + shift, to: edit.from + shift + edit.text.length, anchor });
+      }
+    }
+    shift += edit.text.length - (edit.to - edit.from);
+  }
+  let currentOffset = 0;
   const additions = new Map<number, TextPiece[]>();
   for (let index = 0; index < currentPieces.length; index += 1) {
     const piece = currentPieces[index]!;
@@ -274,7 +346,9 @@ export function mergePendingText(document: TrackedText, pending: PendingText): T
       const addition = { ...piece, from: candidate.from, to: candidate.to };
       const missing = missingPieceRanges(addition, targetRanges.get(piece.id));
       if (missing.length === 0) continue;
-      const at = nextAnchor[index] ?? targetLength;
+      const replacement = replacements[firstRangeEndingAfter(replacements, currentOffset + candidate.from - piece.from)];
+      const at = replacement !== undefined && replacement.from <= currentOffset + candidate.from - piece.from
+        ? replacement.anchor : nextAnchor[index] ?? targetLength;
       let atPieces = additions.get(at);
       if (atPieces === undefined) {
         atPieces = [];
@@ -282,6 +356,7 @@ export function mergePendingText(document: TrackedText, pending: PendingText): T
       }
       for (const range of missing) atPieces.push({ ...piece, from: range.from, to: range.to });
     }
+    currentOffset += piece.to - piece.from;
   }
 
   const anchors = [...additions.keys()].sort((left, right) => left - right);
@@ -307,12 +382,14 @@ export function mergePendingText(document: TrackedText, pending: PendingText): T
     anchorIndex += 1;
   }
   compactPieces(merged);
-  return revision(treeOf(merged));
+  return revisedPieces(document, merged);
 }
 
 /** Return compact, right-to-left replacements between two piece-identified revisions. */
-export function trackedTextChanges(before: TrackedText, after: TrackedText): TextChange[] {
-  if (before.text === after.text) return [];
+export function trackedTextChanges(before: TrackedText, after: TrackedText, includeIdentityChanges = false): TextChange[] {
+  const beforeText = before.text;
+  const afterText = after.text;
+  if (!includeIdentityChanges && beforeText === afterText) return [];
   const afterPieces = after.pieces;
   const targetPositions = new Map<number, Array<PiecePosition & { readonly start: number }>>();
   let targetOffset = 0;
@@ -361,13 +438,13 @@ export function trackedTextChanges(before: TrackedText, after: TrackedText): Tex
     from = match.from + match.length;
     to = match.to + match.length;
   }
-  if (from < before.text.length || to < after.text.length) {
-    gaps.push({ from, to: before.text.length, targetFrom: to, targetTo: after.text.length });
+  if (from < beforeText.length || to < afterText.length) {
+    gaps.push({ from, to: beforeText.length, targetFrom: to, targetTo: afterText.length });
   }
   return gaps.reverse().map((gap) => ({
     from: gap.from,
     to: gap.to,
-    text: after.text.slice(gap.targetFrom, gap.targetTo),
+    text: afterText.slice(gap.targetFrom, gap.targetTo),
   }));
 }
 
