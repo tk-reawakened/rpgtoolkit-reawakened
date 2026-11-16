@@ -389,11 +389,11 @@ async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Prom
     readonly id: string; readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number;
   }));
   const gameEntries = storedEntries.filter((entry) => entry.path === "Main/Quest.gam");
-  expect(gameEntries).toHaveLength(2);
-  expect(gameEntries.map((entry) => entry.reason).sort()).toEqual(["manual", "manual"]);
+  expect(gameEntries).toHaveLength(3);
+  expect(gameEntries.map((entry) => entry.reason).sort()).toEqual(["checkpoint", "manual", "manual"]);
   expect(createHash("sha256").update(firstSaved).digest("hex")).not.toBe(createHash("sha256").update(secondSaved).digest("hex"));
 
-  await runCommand(page, expect, "RPG Toolkit: Document history");
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
   const picker = page.locator(".quick-input-widget");
   let options = picker.getByRole("option").filter({ hasText: "saved" });
   const savedCount = await options.count();
@@ -404,15 +404,16 @@ async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Prom
     throw new Error(`Expected two saved versions in the real History picker; found ${savedCount}. Picker: ${pickerText}; notifications: ${notifications}; persisted history entries: ${JSON.stringify(gameEntries)}; history paths: ${persisted.join(", ")}`);
   }
   await expect(options).toHaveCount(2);
-  await options.first().click();
+  await options.last().click();
   await verifyHistoryPreview(page, expect, "History first");
   await expect.poll(() => readBacking("__tkr_new_project/Main/Quest.gam"), { timeout: 30_000 }).toEqual(firstSaved);
-  const report = page.getByText(/Each file is reported separately; the restore is itself in history, so it can be undone\./);
+  const reportText = /Each file is reported separately; the restore is itself in history, so it can be undone\./;
+  const report = page.getByRole("dialog", { name: /Info: Restored/ }).getByText(reportText);
   await expect(report).toBeVisible({ timeout: 30_000 });
   editor = await waitForEditorFrame(page, "History editor after restoring the first save");
   await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History first");
 
-  await runCommand(page, expect, "RPG Toolkit: Document history");
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
   options = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "before a restore" });
   await expect(options).toHaveCount(1);
   await options.click();
@@ -1377,12 +1378,12 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 /** Run a command from the palette and wait for its quick-pick row. */
-async function runCommand(page: Page, expect: Expect, title: string): Promise<void> {
-  await runCommandMatching(page, expect, title, title);
+async function runCommand(page: Page, expect: Expect, title: string, quickInputName?: string): Promise<void> {
+  await runCommandMatching(page, expect, title, title, false, quickInputName);
 }
 
 /** Dispatch one verified palette row atomically; never retry an attempted dispatch (#2720, #2726). */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false): Promise<void> {
+async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false, quickInputName?: string): Promise<void> {
   const widget = page.locator(".quick-input-widget");
   let dismissalInjected = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -1438,7 +1439,8 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
     }
     if (dismissed && dispatched) throw new Error(`Dismissed palette row ${label} was dispatched by the negative control`);
     if (dispatched) {
-      await expect(widget).toBeHidden();
+      if (quickInputName === undefined) await expect(widget).toBeHidden();
+      else await expect(page.getByRole("textbox", { name: quickInputName })).toBeVisible();
       return;
     }
     // Only an explicit false proves no command was dispatched.
