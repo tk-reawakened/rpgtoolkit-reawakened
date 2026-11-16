@@ -84,7 +84,8 @@ async function formatDocumentFromContextMenu(page: Page, editorInput: Locator): 
   await expect(item).toBeVisible();
   await focusMenuItem(page, item);
   await page.keyboard.press("Enter");
-  await expect(page.locator(".tkr-program-language-note")).not.toContainText("RPGCode did not format");
+  const languageNotes = await page.locator(".tkr-program-language-note").allTextContents();
+  expect(languageNotes.join(" ")).not.toContain("RPGCode did not format");
 }
 
 
