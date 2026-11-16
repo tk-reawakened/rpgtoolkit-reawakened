@@ -52,11 +52,11 @@ context: ['docs/guardrails.md', 'docs/spec/engine/rpgcode-tooling.md']
 ## Tasks & Acceptance
 
 **Execution:**
-- [x] `packages/editor-ui/src/command-palette.tsx` -- add reference, manual and What's New help entries in the workspace menu and searchable command palette; report unavailable content without inventing destinations.
+- [x] `packages/editor-ui/src/command-palette.tsx` -- connect the shared reference, repository-sourced RPGCode authoring guide and current changelog in the workspace menu and searchable command palette; render documentation in a safe, focus-returning dialog.
 - [x] `packages/editor-ui/src/program-view.tsx`, `program-view.css` -- make the reference entry descriptive and keyboard-operable; focus search on opening, insert through the shared document command and return focus to text/toggle.
-- [ ] `packages/host-vscode/src/program-commands.ts` -- verify native command-palette insertion in an actual VS Code host and add help entry points where supported without creating a competing text document.
-- [ ] `packages/editor-ui/src/preferences-view.tsx`, `game-settings-form.tsx` -- establish contextual field help links against an authoritative manual or settings reference; do not invent text or URLs.
-- [x] `packages/editor-ui/test/program-view.test.ts`, `packages/editor-ui/test/shell.test.ts`, `tools/browser/tests/editor-program.spec.ts` -- prove focus return, unavailable documentation notices, and real-browser keyboard search/insertion. No external link test can be written until an authoritative destination exists.
+- [ ] `packages/host-vscode/src/program-commands.ts` -- verify native command-palette insertion in an actual VS Code host without creating a competing text document.
+- [x] `packages/editor-ui/src/command-palette.tsx`, `help-document.tsx` -- F1 opens the focused settings field's existing accessible description and its authoritative editor/game-settings documentation link; help returns focus to the invoking field.
+- [ ] `packages/editor-ui/test/program-view.test.ts`, `packages/editor-ui/test/shell.test.ts`, `tools/browser/tests/editor-program.spec.ts` -- focused tests cover help content, safe links, field focus return and keyboard search/insertion; fresh browser proof remains pending.
 
 **Acceptance Criteria:**
 - Given a keyboard-only creator editing a program in either host, when they open the reference, search for a built-in and insert it, then the exact documented invocation is inserted into the active document and focus returns with its required parameters selected.
@@ -66,10 +66,10 @@ context: ['docs/guardrails.md', 'docs/spec/engine/rpgcode-tooling.md']
 
 ## Implementation Notes
 
-- The workspace Help menu and command palette now route to the active program's generated quick reference; it reuses `commandReference()` and host-authoritative insertion. Opening focuses search, insertion returns focus to the text surface, and closing restores focus to the reference toggle.
-- Manual and What's New actions explicitly report that their content is unavailable instead of linking to an unverified or fabricated destination. Repository search found no maintained manual/What's New page or published safe URL to connect.
-- Native VS Code already exposes `tkr.insertProgramCommand` as a command-palette action, filtering the same shared catalogue and editing only the active VS Code `TextEditor`; no second text model or host-side workaround was added.
-- Preference fields already expose their catalogue descriptions through `aria-describedby`; game settings already expose storage-owner/version notes. No new field explanations or external documentation links were invented. Those existing surfaces remain an acceptance gap for linking contextual manual material once authoritative content exists.
+- The workspace Help menu and command palette route to the active program's generated quick reference; it reuses `commandReference()` and host-authoritative insertion. Opening focuses search, insertion returns focus to the text surface, and closing restores focus to the reference toggle.
+- `tools/editor-ui-toolchain/generate-help-content.mjs` packages the TOOL-10 program-editing reference and the latest 12 entries from the repository's `CHANGELOG.md` Unreleased section into generated static help text. The renderer builds semantic DOM nodes from text, makes only HTTPS links to this repository clickable, and labels the authoring guide honestly as spec-derived rather than the legacy HTML manual.
+- F1 on a focused editor-preference or game-setting input opens its already-rendered `aria-describedby` text plus the relevant maintained docs page. Native `<dialog>` provides modal keyboard behavior and returns focus to the field or command that opened it.
+- Native VS Code already exposes `tkr.insertProgramCommand` as a command-palette action, filtering the same shared catalogue and editing only the active VS Code `TextEditor`; no second text model or host-side workaround was added. Actual native integration proof is pending.
 
 ## Plan Change Log
 

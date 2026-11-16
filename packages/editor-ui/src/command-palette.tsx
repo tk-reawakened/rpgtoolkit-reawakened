@@ -14,6 +14,8 @@ import {
 } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { AUTHORING_GUIDE_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
+import { focusedFieldHelp, HelpDocument, type HelpInvokerRef } from "./help-document.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
 
 export type { CommandCategory, CommandPaletteFileEntry, CommandRegistry, WorkbenchCommand };
@@ -77,11 +79,13 @@ export function WorkbenchCommandBar({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [projectFiles, setProjectFiles] = useState<readonly CommandPaletteFileEntry[]>([]);
+  const [helpDocument, setHelpDocument] = useState<{ readonly title: string; readonly markdown: string } | null>(null);
   const [helpNotice, setHelpNotice] = useState<string | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
+  const helpInvokerRef = useRef<HTMLElement | null>(null) as HelpInvokerRef;
 
   useEffect(() => {
     let current = true;
@@ -123,10 +127,21 @@ export function WorkbenchCommandBar({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || helpDocument !== null) return;
       const cmdOrCtrl = event.ctrlKey || event.metaKey;
-      if (event.key === "F1" || (cmdOrCtrl && event.shiftKey && event.key.toLowerCase() === "p")) {
+      if (event.key === "F1") {
         event.preventDefault();
+        event.stopPropagation();
+        const helpTarget = event.target instanceof Element ? event.target : document.activeElement;
+        const fieldHelp = focusedFieldHelp(helpTarget);
+        if (fieldHelp !== null) {
+          helpInvokerRef.current = helpTarget instanceof HTMLElement ? helpTarget : null;
+          setHelpDocument(fieldHelp);
+        } else if (paletteOpen) closePalette();
+        else openPalette("");
+      } else if (cmdOrCtrl && event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        event.stopPropagation();
         if (paletteOpen) closePalette();
         else openPalette("");
       } else if (event.key === "Escape" && menuOpen) {
@@ -134,9 +149,9 @@ export function WorkbenchCommandBar({
         setMenuOpen(false);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [paletteOpen, menuOpen]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [paletteOpen, menuOpen, helpDocument]);
 
   useEffect(() => {
     if (!menuOpen || typeof document === "undefined") return;
@@ -215,14 +230,14 @@ export function WorkbenchCommandBar({
       {
         id: "help.manual",
         category: "Help",
-        label: "User manual (not available)",
-        run: () => setHelpNotice("The user manual is not available in this workspace yet; no manual link is configured."),
+        label: "Open RPGCode authoring guide",
+        run: () => setHelpDocument({ title: "RPGCode program authoring", markdown: AUTHORING_GUIDE_MARKDOWN }),
       },
       {
         id: "help.whatsNew",
         category: "Help",
-        label: "What's New (not available)",
-        run: () => setHelpNotice("What's New content is not available in this workspace yet."),
+        label: "What's New",
+        run: () => setHelpDocument({ title: "What's New", markdown: WHATS_NEW_MARKDOWN }),
       },
     ]);
   }, [layout, tabs, workspace, onNewBoard, onOpenPreferences, onOpenProject, extraCommands]);
@@ -235,6 +250,9 @@ export function WorkbenchCommandBar({
 
   const runCommand = (item: WorkbenchCommand): void => {
     const fromPalette = paletteOpen;
+    if (item.id === "help.manual" || item.id === "help.whatsNew") {
+      helpInvokerRef.current = fromPalette ? invokerRef.current : menuButtonRef.current;
+    }
     if (fromPalette) closePalette();
     else setMenuOpen(false);
     void item.run();
@@ -373,6 +391,14 @@ export function WorkbenchCommandBar({
           </div>
         </div>
       ) : null}
+      {helpDocument === null ? null : (
+        <HelpDocument
+          title={helpDocument.title}
+          markdown={helpDocument.markdown}
+          invoker={helpInvokerRef}
+          onClose={() => setHelpDocument(null)}
+        />
+      )}
       {helpNotice === null ? null : <p class="tkr-help-notice" role="status">{helpNotice}</p>}
     </div>
   );

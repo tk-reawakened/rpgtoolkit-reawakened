@@ -209,6 +209,30 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await expect(row).toContainText("castint(val, [&dest])");
   await row.dblclick();
   await expect.poll(() => editorText(page)).toContain("castint(val)");
+
+  // Repository help and release notes are available without leaving the active program; native dialog close returns focus.
+  await page.keyboard.press("F1");
+  await page.keyboard.type("Open RPGCode authoring guide");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode authoring guide");
+  await page.keyboard.press("Enter");
+  const authoringDialog = page.getByRole("dialog", { name: "RPGCode program authoring" });
+  await expect(authoringDialog).toBeVisible();
+  await expect(authoringDialog).toContainText("same catalogue as hover");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+
+  await page.keyboard.press("F1");
+  await page.keyboard.type("What's New");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("What's New");
+  await page.keyboard.press("Enter");
+  const releaseNotes = page.getByRole("dialog", { name: "What's New" });
+  await expect(releaseNotes).toContainText("accessible descriptions for focused settings");
+  const changelogLink = releaseNotes.getByRole("link", { name: "Read the full changelog" });
+  await expect(changelogLink).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(changelogLink).toHaveAttribute("href", "https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+
   // F1 exposes the generated reference from the workspace; search, select, and insert using only the keyboard.
   await page.keyboard.press("F1");
   await page.keyboard.type("Open RPGCode Quick Reference");

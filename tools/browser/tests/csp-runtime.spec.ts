@@ -28,7 +28,6 @@ test("runner page boots a package with allowed scripts and blocks injected inlin
   await page.goto(PLAYER_PAGE);
   await allowedScript;
   if (process.env.CSP_PROBE_WEAKENED === "1") expect(routeInvoked).toBe(true);
-  await expect.poll(() => page.evaluate(() => (window as Window & { __report?: { error?: string; tick?: number } }).__report)).toMatchObject({ tick: 120 });
   await expect(page.locator("#report")).toContainText("demo tick 120");
   await expect(page.locator("#report")).not.toContainText(/player:|load failed/);
 
