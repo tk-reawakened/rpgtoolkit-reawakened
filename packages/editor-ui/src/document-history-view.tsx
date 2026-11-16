@@ -313,7 +313,7 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
     </div>}
     {shown !== null && mountPreview === undefined && <p>This host cannot show a saved version in the editor, so only restore is available.</p>}
     {shown !== null && tab !== "checkpoints" && <label>Compare with{" "}
-      <select value={compareWith} onChange={(event) => void compare((event.currentTarget as HTMLSelectElement).value)}>
+      <select aria-label="Compare with" value={compareWith} onChange={(event) => void compare((event.currentTarget as HTMLSelectElement).value)}>
         <option value="none">Nothing</option>
         <option value="current">The file as it is now</option>
         {comparable.map((entry) => <option key={entry.id} value={entry.id}>{entryLabel(entry, false)}</option>)}

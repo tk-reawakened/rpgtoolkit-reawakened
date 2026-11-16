@@ -628,7 +628,7 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
     reportProblem: (path, message) => { issues.push({ at: now(), path, message }); notify(); },
     clearProblems: (path) => { for (let position = issues.length - 1; position >= 0; position -= 1) if (issues[position]!.path === path) issues.splice(position, 1); notify(); },
     subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    reload: () => serial(async () => { await load(true); notify(); }),
+    reload: () => serial(async () => { await load(true); }),
   };
 
 }
