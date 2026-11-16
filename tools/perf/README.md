@@ -23,7 +23,7 @@ pnpm perf:player
 
 That is `node tools/perf/profile-player.mjs --package demo --seconds 8`; call the script directly to pass options.
 These timings are advisory and never gate CI. The checks that gate are deterministic work-count budgets
-(`packages/*/test/perf-budget-*.test.ts`), per [ADR 0035](../../docs/adr/0035-performance-budgets.md).
+(`packages/*/test/perf-budget-*.test.ts`), per [ADR 0036](../../docs/adr/0036-performance-budgets.md).
 
 Options: `--headed` shows the browser; `--swiftshader` forces software GL (use it only where there is no GPU, such as a
 cloud container, because it caps the frame rate); `--out <dir>` (default `.perf/`); `--port <n>` (default 4173); `--executable <path>` uses a specific Chromium binary.

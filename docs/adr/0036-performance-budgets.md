@@ -1,4 +1,4 @@
-# ADR 0035 — Performance budgets: count work in CI, measure time outside it
+# ADR 0036 — Performance budgets: count work in CI, measure time outside it
 
 * **Status:** Proposed (2026-11-15). Pending owner acceptance.
 * **Date:** 2026-11-15
@@ -34,11 +34,11 @@ A **budget test** asserts that a deterministic work count stays at or below a st
 - **Proof it bites.** When a budget is added for a known regression, the PR records that the test fails against the code before the fix, as #2766's budget does.
 - **Changing a budget.** Raising a limit is like changing a golden (G5). It is deliberate, and the PR explains why the extra work is necessary. Lowering a limit after an improvement is encouraged.
 
-The first budget is `packages/core/test/perf-budget-state-hash.test.ts`. Re-hashing a demo-shaped state that the cache has already seen scans at most 64 KiB, however many times a program owner repeats. Before #2766 it scanned about 1 MB.
+The first budget is `packages/core/test/perf-budget-state-hash.test.ts`. Re-hashing a demo-shaped state that the cache has already seen scans at most 64 KiB, with each owner program stored once in `vm.programs` (#2767). The non-ASCII source alone exceeds the budget without #2766’s transition cache.
 
 Budgets to add next, each with its own issue:
 
-- The canonical size of the demo's state after boot. It is bounded today by #2767's repetition, so its limit is set when that is ruled on.
+- The canonical size of the demo's state after boot is now covered by `perf-budget-state-size.test.ts` (#2767), which landed before this proposal.
 - Bytes serialized per steady-state live frame, once the live loop's remaining per-frame canonicalization is counted.
 
 ### 2. Timing is measured, recorded and advisory
