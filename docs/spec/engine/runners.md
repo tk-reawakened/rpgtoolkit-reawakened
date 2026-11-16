@@ -200,7 +200,9 @@ player), the desktop player and the mobile player — starts with diagnostics mo
 - With it on, the player shows its status text, the mobile page title is `mobile: <board> <tick> <stateHash>`, and the
   live report carries the state hash read after the same `advance` as its tick on every presented frame. That costs a
   whole-state hash per frame, which is the price of looking.
-- An error that stops the player is shown whether or not the mode is on.
+- An error that stops the player is shown whether or not the mode is on. The desktop player also keeps audio
+  initialization and decoder failure messages visible while gameplay continues. Showing that error does not enable
+  diagnostic counters or read the state hash, and turning diagnostics off does not hide it.
 - Measurement pages that exist to report numbers (the web player's `?parity` and `?tracer` pages, the desktop
   measurement player) always show them; they are diagnostics by purpose.
 
