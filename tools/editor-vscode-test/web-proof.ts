@@ -487,6 +487,8 @@ async function proveNativeHistoryUi(
   editor = await waitForWritableEditorFrame(page, "History editor after restoring the first save", "Game title");
   await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History first");
 
+  await expectOpenRecoveryRefusal(page, expect, historyHost, "Main/Quest.gam", gamePath, firstSaved, readBacking);
+  await closeRecoverySourceEditor(page, expect, /^Quest\.gam(?:,|$)/);
   const restoreAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Main/Quest.gam");
   const undoEventsStart = historyHost.writeEvents().length;
   const undoWriteReached = historyHost.pauseWrite(`/${gamePath}`);
@@ -497,7 +499,8 @@ async function proveNativeHistoryUi(
     historyHost.resumeWrite();
   }
   await expectNativeHistoryRestorePersisted(historyHost, undoEventsStart, gamePath, readBacking, secondSaved, expect);
-  await expect(report).toBeVisible({ timeout: 30_000 });
+  await confirmRecoveryGroupReport(page, expect, "Main/Quest.gam");
+  await openNativeQuickOpenFile(page, expect, gamePath);
   editor = await waitForWritableEditorFrame(page, "History editor after restoring the restore", "Game title");
   await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History second");
 }
@@ -559,12 +562,43 @@ async function selectRecoveryRestoreAction(page: Page, expect: Expect, projectRo
   await expect(page.getByRole("textbox", { name: "Choose a persistent recovery group" })).toBeVisible();
   const groups = page.locator(".quick-input-widget").getByRole("option")
     .filter({ hasText: "before-restore" })
-    .filter({ hasText: historyPath });
+    .filter({ hasText: `${historyPath}: written` });
   await expect(groups).toHaveCount(1);
   await groups.click();
   const restoreAction = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "Restore group" });
   await expect(restoreAction).toHaveCount(1);
   return restoreAction;
+}
+
+async function expectOpenRecoveryRefusal(
+  page: Page,
+  expect: Expect,
+  historyHost: NewProjectHistoryProofHost,
+  historyPath: string,
+  backingPath: string,
+  expectedBytes: Uint8Array,
+  readBacking: (path: string) => Promise<Uint8Array>,
+): Promise<void> {
+  const eventsStart = historyHost.writeEvents().length;
+  const action = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", historyPath);
+  await action.click();
+  await expect(page.getByText(`Save or resolve your work and close ${historyPath} before replacing or removing it.`, { exact: true })).toBeVisible({ timeout: 30_000 });
+  expect(historyHost.writeEvents().slice(eventsStart).filter((event) => event.path === `/${backingPath}`)).toEqual([]);
+  expect(await readBacking(backingPath)).toEqual(expectedBytes);
+}
+
+async function closeRecoverySourceEditor(page: Page, expect: Expect, tabName: RegExp): Promise<void> {
+  const sourceTab = page.getByRole("tab", { name: tabName });
+  await expect(sourceTab).toHaveCount(1);
+  await sourceTab.click();
+  await closeActiveEditor(page, expect);
+  await expect(sourceTab).toHaveCount(0);
+}
+
+async function confirmRecoveryGroupReport(page: Page, expect: Expect, historyPath: string): Promise<void> {
+  const report = page.getByRole("dialog").filter({ hasText: `${historyPath}: written` }).last();
+  await expect(report).toBeVisible({ timeout: 30_000 });
+  await report.getByRole("button", { name: "OK", exact: true }).click();
 }
 
 function assertHistoryPreviewSourceIdentity(historyHost: NewProjectHistoryProofHost, sourcePath: string, expect: Expect): void {
@@ -758,6 +792,8 @@ async function proveNativeNewBoard(
   await expectNativeHistoryRestorePersisted(historyHost, restoreEventsStart, boardPath, readBacking, firstSaved, expect);
   await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
 
+  await expectOpenRecoveryRefusal(page, expect, historyHost, "Boards/Native history board.brd", boardPath, firstSaved, readBacking);
+  await closeRecoverySourceEditor(page, expect, /^Native history board\.brd(?:,|$)/);
   const undoAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Boards/Native history board.brd");
   const undoEventsStart = historyHost.writeEvents().length;
   const undoWriteReached = historyHost.pauseWrite(`/${boardPath}`);
@@ -768,8 +804,9 @@ async function proveNativeNewBoard(
     historyHost.resumeWrite();
   }
   await expectNativeHistoryRestorePersisted(historyHost, undoEventsStart, boardPath, readBacking, secondSaved, expect);
-  await expect(boardEditor.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true })).toHaveValue("village.tst2");
-  await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
+  await confirmRecoveryGroupReport(page, expect, "Boards/Native history board.brd");
+  const restoredBoard = await openProjectFile(page, boardPath, expect, ".tkr-board-editor");
+  await expect(restoredBoard.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true })).toHaveValue("village.tst2");
 }
 
 async function proveNativeBitmapHistory(
@@ -853,6 +890,8 @@ async function proveNativeBitmapHistory(
   await expect(editor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
   await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
 
+  await expectOpenRecoveryRefusal(page, expect, historyHost, "Bitmap/history.tbm", bitmapPath, firstSaved, readBacking);
+  await closeRecoverySourceEditor(page, expect, /^history\.tbm(?:,|$)/);
   const undoAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Bitmap/history.tbm");
   const undoEventsStart = historyHost.writeEvents().length;
   const undoWriteReached = historyHost.pauseWrite(`/${bitmapPath}`);
@@ -863,9 +902,10 @@ async function proveNativeBitmapHistory(
     historyHost.resumeWrite();
   }
   await expectNativeHistoryRestorePersisted(historyHost, undoEventsStart, bitmapPath, readBacking, secondSaved, expect);
-  await expectCanvasPixels(editor, expect, historyHost.bitmapPictureForBytes(secondSaved));
-  await expect(editor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
-  await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
+  await confirmRecoveryGroupReport(page, expect, "Bitmap/history.tbm");
+  const restoredEditor = await openProjectFile(page, bitmapPath, expect, ".tkr-bitmap");
+  await expectCanvasPixels(restoredEditor, expect, historyHost.bitmapPictureForBytes(secondSaved));
+  await expect(restoredEditor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
 }
 
 async function verifyBitmapHistoryPreview(
