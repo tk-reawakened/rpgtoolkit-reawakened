@@ -148,6 +148,11 @@ export async function runVscodeCreatorTestsProof(
   await expect(sourceEditor).toBeVisible();
   const sourcePosition = page.locator(".statusbar-item").filter({ hasText: new RegExp(`Ln ${failureOutcome.line},\\s*Col ${failureOutcome.column}`) });
   await expect(sourcePosition).toBeVisible();
+  // Opening source changes the active editor group; return to the real saved-tests tab before the next action.
+  const creatorTestsTab = page.getByRole("tab", { name: /RPG Toolkit: Run saved tests/ });
+  await expect(creatorTestsTab).toBeVisible();
+  await creatorTestsTab.click();
+  await expect(tests.getByRole("button", { name: "Run saved tests" })).toBeVisible();
 
   // Independent control: with the authored wall vector removed, the same one-based assertion must go red through the real host.
   const passBoard = passFiles.find((file) => file.path === CREATOR_TEST_BOARD_PATH);
