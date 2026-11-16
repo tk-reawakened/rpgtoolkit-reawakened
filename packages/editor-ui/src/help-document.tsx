@@ -165,6 +165,7 @@ export function HelpDocument({ title, markdown, invoker, onClose }: HelpDocument
       ref={dialogRef}
       class="tkr-help-document"
       aria-labelledby="tkr-help-document-title"
+      onCancel={(event) => { event.preventDefault(); close(); }}
       onClose={onClose}
     >
       <header class="tkr-help-document-header">
