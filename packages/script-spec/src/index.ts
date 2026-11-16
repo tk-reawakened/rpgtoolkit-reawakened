@@ -2,12 +2,8 @@
  * `@tk-reawakened/script-spec` — the RPGCode test package (TOOL-5,
  * docs/spec/engine/rpgcode-tooling.md#tool-5; ADR 0014 and its 2026-11-11 amendment).
  *
- * The package is a library program (`package/startup.prg`, plain RPGCode) plus a **closed, test-only set of twelve
- * native commands** (`natives.ts`): `specResult`, which records an outcome together with the source position of
- * its call, seven matcher helpers (`specCapture`, `specEqual`, `specContain`, `specClose`, `specThrowBegin`,
- * `specThrowEnd`, `specCalled`) that read what a library program cannot, and four test doubles (`specInput`,
- * `specTicks`, `specRng`, `spyOn`; #tool-5-doubles). The package is loadable only by the test runner and is never
- * part of a game's manifest.
+ * This library program and its closed, test-only native command set (`natives.ts`) are loadable only by the test runner
+ * and are never part of a game's manifest.
  */
 
 export { discoverCases, failureMessage, hasOnlyCases, NO_CASES, ONLY_WARNING, runSpecFile } from "./runner.ts";
@@ -17,4 +13,7 @@ export { discoverProjectSpecs, runSpecProject, watchSpecProject } from "./projec
 export { mergeCoverage, toLcov } from "./coverage.ts";
 export type { SpecCoverage, SpecFileCoverage, SpecLineCoverage } from "./coverage.ts";
 export type { SpecProjectOptions, SpecProjectReport } from "./project.ts";
-
+export { FixtureError, fixturePath, listEntries, readFixture } from "./fixture.ts";
+export type { FixtureDefinition, FixtureStart, Plain } from "./fixture.ts";
+export { createFixtureWorld } from "./fixture-world.ts";
+export type { FixtureWorld, FixtureWorldFile, FixtureWorldInputFile } from "./fixture-world.ts";

@@ -1,6 +1,6 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import test from "node:test";
-import { FixtureError, readFixture } from "../src/fixture.ts";
+import { FixtureError, readFixture } from "../src/index.ts";
 
 function definition(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
