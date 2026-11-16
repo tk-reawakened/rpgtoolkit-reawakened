@@ -46,9 +46,12 @@ async function settleUntil(check: () => boolean, what: string): Promise<void> {
 
 const settle = (): Promise<void> => settleUntil(() => true, "nothing");
 
+const buttonWithOrNull = (root: HTMLElement, text: string): HTMLButtonElement | null =>
+  [...root.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes(text)) ?? null;
+
 const buttonWith = (root: HTMLElement, text: string): HTMLButtonElement => {
-  const found = [...root.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes(text));
-  if (found === undefined) throw new Error(`no button with "${text}" in: ${root.textContent}`);
+  const found = buttonWithOrNull(root, text);
+  if (found === null) throw new Error(`no button with "${text}" in: ${root.textContent}`);
   return found;
 };
 
@@ -71,9 +74,9 @@ interface Fixture {
   readonly el: HTMLElement;
 }
 
-async function setUp(): Promise<Fixture> {
+async function setUp(policy: Partial<{ mergeWindowMs: number; autoFloorMs: number; warnBytes: number; maxCoveredBytes: number }> = {}): Promise<Fixture> {
   const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) } });
-  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host, historyPolicy: () => ({ mergeWindowMs: 0, autoFloorMs: 1000, warnBytes: 1 << 30, maxCoveredBytes: 1 << 20 }) });
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host, historyPolicy: () => ({ mergeWindowMs: 0, autoFloorMs: 1000, warnBytes: 1 << 30, maxCoveredBytes: 1 << 20, ...policy }) });
   const opened = await workspace.open(PATH);
   if (!opened.ok) throw new Error("open failed");
   const el = document.createElement("div");
@@ -145,6 +148,36 @@ test("compare shows two saved versions side by side, and the comparison is read-
   match(fixture.el.textContent ?? "", /Compared with the file as it is now/, "the second pane names what it compares");
   equal(fixture.el.querySelector("[aria-label='Line comparison']"), null, "a binary game file is never shown as a line diff (D12.10 item 13)");
   equal(fixture.el.querySelectorAll(".tkr-history-preview").length, 2, "two read-only editors side by side");
+});
+
+test("crossing the warning offers thinning, and nothing is removed unless the creator confirms", async () => {
+  const fixture = await setUp({ warnBytes: 1, autoFloorMs: 0 });
+  ok(fixture.document.apply({ type: "set-game-title", title: "One" }).ok);
+  ok((await fixture.document.save("auto")).ok);
+  ok(fixture.document.apply({ type: "set-game-title", title: "Two" }).ok);
+  ok((await fixture.document.save("auto")).ok);
+  show(fixture);
+  await settleUntil(() => buttonWithOrNull(fixture.el, "Show what could be thinned") !== null, "the thinning offer");
+  match(fixture.el.textContent ?? "", /larger than 1 bytes\. Nothing has been removed|Nothing has been removed/);
+  const before = (await fixture.workspace.history.documentTimeline(PATH)).length;
+  await click(fixture.el, "Show what could be thinned", () => /Remove these|old enough/.test(fixture.el.textContent ?? ""));
+  ok((await fixture.workspace.history.documentTimeline(PATH)).length === before, "offering removed nothing");
+  if (buttonWithOrNull(fixture.el, "Keep everything") !== null) {
+    await click(fixture.el, "Keep everything", () => buttonWithOrNull(fixture.el, "Keep everything") === null);
+    equal((await fixture.workspace.history.documentTimeline(PATH)).length, before, "declining the offer removed nothing");
+  }
+});
+
+test("the ignore offer asks before writing .gitignore and records nothing when declined", async () => {
+  const fixture = await setUp();
+  await fixture.host.fs.createFolder(".git");
+  await fixture.host.fs.write(".git/HEAD", new TextEncoder().encode("ref: refs/heads/main"));
+  show(fixture);
+  await settleUntil(() => fixture.el.querySelector("[aria-label='Git ignore offer']") !== null, "the ignore offer");
+  match(fixture.el.textContent ?? "", /Nothing is written unless you accept/);
+  equal(fixture.host.bytesOf(".gitignore"), undefined, "the offer wrote nothing");
+  await click(fixture.el, "Add the line", () => fixture.host.bytesOf(".gitignore") !== undefined);
+  match(new TextDecoder().decode(fixture.host.bytesOf(".gitignore")!), /\.tkr-history\//);
 });
 
 test("a history problem is shown to the creator instead of being hidden", async () => {
