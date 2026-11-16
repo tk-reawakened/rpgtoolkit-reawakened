@@ -1523,19 +1523,12 @@ async function findBytesPanelFrame(page: Page, selector: string): Promise<Frame 
 
 async function openGame(page: Page, gamePath: string, expect: Expect): Promise<void> {
   await focusWorkbench(page);
-  const segments = gamePath.split("/");
-  for (const folder of segments.slice(0, -1)) {
-    const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
-    await folderItem.click();
-    await expect(folderItem).toBeVisible();
-    await folderItem.press("ArrowRight");
-    await expect(folderItem).toBeVisible();
-    if (await folderItem.getAttribute("aria-expanded") !== "true") await folderItem.click();
-  }
-  const gameFile = page.getByRole("treeitem", { name: segments.at(-1)!, exact: true });
-  await expect(gameFile).toBeVisible();
-  await gameFile.dblclick();
-  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: segments.at(-1)! }).first()).toBeVisible();
+  // Explorer virtualizes off-screen rows. Earlier proofs may expand or scroll it, so
+  // an existing root file need not have a treeitem (#2834). Open its exact URI through
+  // VS Code's native command, retaining the real custom-editor activation assertions.
+  await page.waitForTimeout(100);
+  await openNativeQuickOpenFile(page, expect, gamePath);
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! }).first()).toBeVisible();
   await expect(page.locator("iframe.webview:visible")).toBeVisible({ timeout: 30_000 });
 }
 
