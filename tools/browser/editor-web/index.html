@@ -3,10 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'">
+    <!-- ADR 0029: a standalone page that hosts Monaco allows inline styles and its own font; scripts stay strict, with no eval and no blob: workers (a classic same-origin worker is `worker-src 'self'`). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; worker-src 'self'">
     <link rel="icon" href="./dist/favicon.ico" sizes="16x16 32x32 48x48">
     <link rel="icon" type="image/png" sizes="32x32" href="./dist/tkr-32.png">
     <link rel="stylesheet" href="./dist/tileset-browser.css">
+    <link rel="stylesheet" href="./dist/program-view.css">
+    <link rel="stylesheet" href="./dist/editor-web.css">
     <title>RPG Toolkit editor</title>
   </head>
   <body class="tkr-web-body">
@@ -32,10 +35,11 @@
           <div class="tkr-web-empty-explorer-header">
             <span class="tkr-web-empty-explorer-title">Explorer</span>
             <span class="tkr-web-empty-explorer-section">▾ No Game Opened</span>
-            <p class="tkr-web-subtitle">Looks like you don't have a game open yet. Open a project folder for direct writes and package publication, or open one game as a session copy.</p>
+            <p class="tkr-web-subtitle">Looks like you don't have a game open yet. Open a project folder for direct writes and package publication, create a new project in a folder you choose, or open one game as a session copy.</p>
           </div>
           <div class="tkr-web-project-controls">
             <button id="open-project" type="button" class="tkr-web-primary-open">Open project folder</button>
+            <button id="new-project" type="button">New project…</button>
             <div class="tkr-web-session-open">
               <label for="open-session">Open .gam session copy</label>
               <input id="open-session" type="file" accept=".gam">

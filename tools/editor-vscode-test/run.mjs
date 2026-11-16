@@ -2,12 +2,12 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader } from "@tk-reawakened/core";
 import { buildNewBoard } from "@tk-reawakened/editor-model";
-import { requestNativeReload, runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -58,8 +58,11 @@ const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
 const boardProof = process.env.TKR_VSCODE_BOARD_PROOF === "1";
 const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
 const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
-if ((launchProof || boardProof || programProof || guardProof) && game !== "Main/example.gam") throw new Error("The launch proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of launchProof || boardProof || programProof || guardProof ? ["cancel"] : ["cancel", "keep"]) {
+const newProjectProof = process.env.TKR_VSCODE_NEW_PROJECT_PROOF === "1";
+const autosaveCommandProof = process.env.TKR_VSCODE_AUTOSAVE_COMMAND_PROOF === "1";
+const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
+if ((launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
@@ -249,7 +252,14 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
       const combined = combineProofErrors(failure, cleanupErrors);
       if (combined !== undefined) throw combined;
     };
-    if (guardProof) {
+    if (newProjectProof) {
+      const tree = async () => (await readdir(proofWorkspace, { recursive: true, withFileTypes: true }))
+        .filter((entry) => entry.isFile())
+        .map((entry) => relative(proofWorkspace, resolve(entry.parentPath ?? proofWorkspace, entry.name)))
+        .sort();
+      await runVscodeNewProjectProof(page, expect, workbenchUrl, tree);
+      console.log("vscode.dev New project command activation and first-question proof passed");
+    } else if (guardProof) {
       await runVscodeGuardProof(page, expect, workbenchUrl, game, readBacking,
         new Uint8Array(await readFile(gameFiles[0])), await createWebAdapterBytes(gameFiles[0], game, "Race saved"));
       console.log("vscode.dev save and concurrent-edit guard proof passed");
@@ -263,8 +273,17 @@ for (const choice of launchProof || boardProof || programProof || guardProof ? [
       const launchBytes = await createWebAdapterBytes(gameFiles[0], game, "VS Code launch proof");
       await runVscodeLaunchProof(page, expect, workbenchUrl, game, readBacking, launchBytes);
       console.log("vscode.dev live player launch proof passed");
+    } else if (autosaveCommandProof) {
+      await runVscodeAutosaveCommandProof(page, expect, workbenchUrl, game, autosaveTitle, autosaveBytes, {
+        readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
+        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes,
+        choice, boardPath, otherBoardPath, artPath, otherArtPath, bitmapPath, otherBitmapPath,
+        bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)),
+        canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
+      });
+      console.log("vscode.dev autosave command palette proof passed");
     } else {
-      if (choice === "cancel") {
+      if (choice === "cancel" && !skipSpriteProof) {
         await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
         console.log("vscode.dev sprite save/reopen proof passed");
       }

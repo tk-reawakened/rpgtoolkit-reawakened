@@ -12,6 +12,8 @@ export { analyse } from "./analyse.ts";
 export type { Analysis, AnalyseOptions } from "./analyse.ts";
 export { applyEdits, legacyFixes, sameLowering, tk2ConversionRefusal } from "./fixes.ts";
 export type { LegacyFix, LegacyReview } from "./fixes.ts";
+export { classifyProgram, programBookmarks, publicCommandNames, PROGRAM_TOKEN_MODIFIERS, PROGRAM_TOKEN_TYPES } from "./program-text.ts";
+export type { ClassifyOptions, ProgramBookmark, ProgramToken, ProgramTokenModifier, ProgramTokenType } from "./program-text.ts";
 export { canonicalNames, formatChanged, formatCheck, formatSource } from "./format.ts";
 export type { FormatCheck, FormatDialect, FormatFile, FormatOptions, FormatResult, FormatSkipReason } from "./format.ts";
 export { lint, readLintConfig, RULES } from "./lint.ts";

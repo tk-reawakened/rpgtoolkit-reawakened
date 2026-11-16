@@ -7,6 +7,7 @@
 
 import { ScriptError } from "../errors.ts";
 import type { BuiltinSpec } from "../builtins.ts";
+import { codePoints, toWellFormed } from "../text.ts";
 import { foldAscii, toInt32, toStringValue } from "../values.ts";
 
 export const STRING_SPECS: readonly BuiltinSpec[] = [
@@ -18,8 +19,7 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       { name: "ret", optional: true, byRef: true, variadic: false },
     ],
     call: (_view, args) => {
-      const s = toStringValue(args[0]?.value ?? "");
-      const len = s.length;
+      const len = codePoints(toStringValue(args[0]?.value ?? "")).length;
       return args.length > 1 ? { value: len, out: [[1, len]] } : { value: len };
     },
   },
@@ -31,8 +31,7 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       { name: "ret", optional: true, byRef: true, variadic: false },
     ],
     call: (_view, args) => {
-      const s = toStringValue(args[0]?.value ?? "");
-      const len = s.length;
+      const len = codePoints(toStringValue(args[0]?.value ?? "")).length;
       return args.length > 1 ? { value: len, out: [[1, len]] } : { value: len };
     },
   },
@@ -45,9 +44,9 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       { name: "ret", optional: true, byRef: true, variadic: false },
     ],
     call: (_view, args) => {
-      const s = toStringValue(args[0]?.value ?? "");
+      const s = codePoints(toStringValue(args[0]?.value ?? ""));
       const count = Math.max(0, toInt32(args[1]?.value ?? 0));
-      const res = s.slice(0, count);
+      const res = s.slice(0, count).join("");
       return args.length > 2 ? { value: res, out: [[2, res]] } : { value: res };
     },
   },
@@ -60,9 +59,9 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       { name: "ret", optional: true, byRef: true, variadic: false },
     ],
     call: (_view, args) => {
-      const s = toStringValue(args[0]?.value ?? "");
+      const s = codePoints(toStringValue(args[0]?.value ?? ""));
       const count = Math.max(0, toInt32(args[1]?.value ?? 0));
-      const res = count === 0 ? "" : count >= s.length ? s : s.slice(s.length - count);
+      const res = count === 0 ? "" : s.slice(Math.max(0, s.length - count)).join("");
       return args.length > 2 ? { value: res, out: [[2, res]] } : { value: res };
     },
   },
@@ -76,11 +75,11 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       { name: "dest", optional: true, byRef: true, variadic: false },
     ],
     call: (_view, args) => {
-      const s = toStringValue(args[0]?.value ?? "");
+      const s = codePoints(toStringValue(args[0]?.value ?? ""));
       const start = toInt32(args[1]?.value ?? 0);
       const length = Math.max(0, toInt32(args[2]?.value ?? 0));
-      const jsStart = start < 1 ? 0 : start - 1;
-      const res = jsStart >= s.length || length <= 0 ? "" : s.slice(jsStart, jsStart + length);
+      const first = start < 1 ? 0 : start - 1;
+      const res = first >= s.length || length <= 0 ? "" : s.slice(first, first + length).join("");
       return args.length > 3 ? { value: res, out: [[3, res]] } : { value: res };
     },
   },
@@ -94,14 +93,13 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       { name: "ret", optional: true, byRef: true, variadic: false },
     ],
     call: (_view, args) => {
-      const haystack = toStringValue(args[0]?.value ?? "");
-      const needle = toStringValue(args[1]?.value ?? "");
+      const haystack = codePoints(toStringValue(args[0]?.value ?? ""));
+      const needle = codePoints(toStringValue(args[1]?.value ?? ""));
       const offset = args.length > 2 ? Math.max(1, toInt32(args[2]?.value ?? 1)) : 1;
-      const jsOffset = offset - 1;
       let pos = 0;
-      if (jsOffset <= haystack.length) {
-        const idx = haystack.indexOf(needle, jsOffset);
-        pos = idx === -1 ? 0 : idx + 1;
+      // Compare whole characters, so a match can never start or end inside one (#string-positions).
+      for (let at = offset - 1; pos === 0 && at + needle.length <= haystack.length; at += 1) {
+        if (needle.every((char, index) => haystack[at + index] === char)) pos = at + 1;
       }
       return args.length > 3 ? { value: pos, out: [[3, pos]] } : { value: pos };
     },
@@ -136,13 +134,20 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       const subject = toStringValue(args[0]?.value ?? "");
       const pattern = toStringValue(args[1]?.value ?? "");
       const rep = toStringValue(args[2]?.value ?? "");
-      let regex: RegExp;
+      // Unicode mode first, so `.` matches a whole character; a pattern valid only in the older syntax falls back to
+      // it, and any half character that leaves becomes U+FFFD (#string-positions).
+      let res: string;
       try {
-        regex = new RegExp(pattern, "g");
+        res = subject.replace(new RegExp(pattern, "gu"), rep);
       } catch {
-        throw new ScriptError("builtin.bad-arg", "regExpReplace: invalid regular expression");
+        let regex: RegExp;
+        try {
+          regex = new RegExp(pattern, "g");
+        } catch {
+          throw new ScriptError("builtin.bad-arg", "regExpReplace: invalid regular expression");
+        }
+        res = toWellFormed(subject.replace(regex, rep));
       }
-      const res = subject.replace(regex, rep);
       return args.length > 3 ? { value: res, out: [[3, res]] } : { value: res };
     },
   },
@@ -161,7 +166,7 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       if (!arrArg || arrArg.ref === null) {
         throw new ScriptError("builtin.out-not-by-ref", "split: array parameter must be a variable");
       }
-      const parts = str.split(delim);
+      const parts = delim === "" ? codePoints(str) : str.split(delim);
       return {
         value: parts.length + 1,
         effects: [{ kind: "vm.control", args: ["split", arrArg.ref, ...parts] }],
@@ -219,8 +224,7 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       { name: "ret", optional: true, byRef: true, variadic: false },
     ],
     call: (_view, args) => {
-      const s = toStringValue(args[0]?.value ?? "");
-      const res = s.length === 0 ? 0 : s.charCodeAt(0);
+      const res = toStringValue(args[0]?.value ?? "").codePointAt(0) ?? 0;
       return args.length > 1 ? { value: res, out: [[1, res]] } : { value: res };
     },
   },
@@ -233,7 +237,8 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
     ],
     call: (_view, args) => {
       const code = toInt32(args[0]?.value ?? 0);
-      const res = String.fromCharCode(code & 0xffff);
+      const scalar = code >= 0 && code <= 0x10ffff && (code < 0xd800 || code > 0xdfff);
+      const res = scalar ? String.fromCodePoint(code) : "\ufffd";
       return args.length > 1 ? { value: res, out: [[1, res]] } : { value: res };
     },
   },
@@ -246,7 +251,7 @@ export const STRING_SPECS: readonly BuiltinSpec[] = [
       { name: "ret", optional: true, byRef: true, variadic: false },
     ],
     call: (_view, args) => {
-      const s = toStringValue(args[0]?.value ?? "");
+      const s = codePoints(toStringValue(args[0]?.value ?? ""));
       const pos = toInt32(args[1]?.value ?? 0);
       const res = pos >= 1 && pos <= s.length ? s[pos - 1]! : "";
       return args.length > 2 ? { value: res, out: [[2, res]] } : { value: res };

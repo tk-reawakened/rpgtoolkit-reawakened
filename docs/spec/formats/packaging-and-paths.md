@@ -32,6 +32,43 @@ How a game is laid out on disk, how names inside files are turned into paths, an
 
 The editor creates all 14 folders for a new project. The project folder name is the game title with `\`, `/`, `:`, space and `.` removed. A new project made from the template gets `startupPrg = start.prg`, `initBoard = start.brd`, `initChar = start.tem`, `menuPlugin = tk3menu.dll`, `fightPlugin = tk3fight.dll` and `menuKey = 13`.
 
+<a id="new-project"></a>
+## New project from the editor — Reawakened rule (T-04, story 11.10)
+
+The editor's **New project** wizard writes a project in the **loose-folder form** ([below](#loose-folder)): the folder the author chooses is the project root, the main file sits at `Main/<name>.gam` and the 14 type folders above sit directly in the root. It does not nest them under `Game/<Title>/`. *Reason:* the editor hosts read the type folders directly under the folder they opened ([ADR 0022](../../adr/0022-shared-editor-authoring-contracts.md) D1.1 and "Provider gaps"), the package exporter keeps the main file at `Main/<game>.gam` with the project folder at the archive root, and the stored `projectPath` is ignored in that form.
+
+| Part | Rule |
+|---|---|
+| Game name | the `.gam` `gameTitle`: one to 100 characters, no control characters. Its **folder-safe form** is the title with `\`, `/`, `:`, space and `.` removed, and it must not be empty. |
+| Main file | a file name inside `Main/` (the author may type it with or without `.gam`; the default is the folder-safe form). It has no folder separator, no NUL or other control character, none of the characters `<`, `>`, `:`, `"`, `\|`, `?` and `*`, and does not end in a space or `.`. Names are compared with the [ASCII fold](README.md#paths-inside-files). |
+| `projectPath` | `Game\<folder-safe title>\`, the form the 3.1 template stores. Because the editor reads the type folders from the project root unless that `Game/<…>` folder exists, **the wizard refuses a destination that already holds a `Game/<folder-safe title>` folder**. |
+| Folders | all 14 type folders are created, empty when no starter content goes in them. |
+| Header and settings | minor 9. A new project stores `startupPrg`, `initBoard` and `initChar` **only for starter content the author chose** (below); with none chosen they are empty (an empty `startupPrg` is valid, [package export](#distribution-package-this-projects-own)). Always stored: registered flag 1, `NOCODE`, screen type 1, windowed 640×480, language file `0english.lng`, menu key 13, activation key 32 (as the Example game), mouse cursor `TK DEFAULT` with transparent red, path-finding mode 2, path colour white, movement controls 1 + 4 with the arrow-key scan codes, tile movement, random battles 1 in 20 with an empty enemy list. No input-settings or audio block is written, so the action defaults of [ACT-5](../engine/display-input-audio.md#act-5) apply. |
+| Overwrites | **never.** Before anything is written the wizard lists every planned path and compares it, [ASCII-folded](README.md#paths-inside-files), with the destination. **Any existing planned file is refused, even when its bytes exactly match the planned output; an empty file is existing data too.** Folder/file mismatches and the reserved `Game/<…>` folder are also reported by path, and nothing is written. Existing non-conflicting folders are reused. The author removes anything they want gone; the wizard never deletes a file. The check is not atomic — see [below](#the-check-is-not-atomic). |
+| Order and failure | per [ADR 0022 D4.2](../../adr/0022-shared-editor-authoring-contracts.md): every destination is checked first, folders are created, starter files are written, and the **main file is written last**; a failure stops, keeps what was written, deletes nothing, names any file the failed write left, and reports written and pending items. No rollback is promised. Since retry also refuses files written by the failed attempt, the author must remove every existing planned file listed as a conflict before trying again. Cancelling at any step writes nothing. |
+
+<a id="the-check-is-not-atomic"></a>
+**Accepted host limitation — owner clarification (2026-11-15; #2713).** The wizard refuses every detected existing planned file, even if its bytes already match; empty files are refused too. Folder/file mismatches and the reserved `Game/<…>` folder are also refused before any write. The wizard never deletes files. This is the no-overwrite guarantee.
+
+The check and write are separate host operations, so another program can create a file after the check and before the wizard writes that path; that external concurrent-creation race can result in replacement. The current browser File System Access API has no create-only-if-absent option ([`getFileHandle`](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemDirectoryHandle/getFileHandle), [`createWritable`](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemFileHandle/createWritable)); VS Code's extension API likewise exposes no exclusive create for `workspace.fs.writeFile` ([VS Code API](https://code.visualstudio.com/api/references/vscode-api#FileSystem)). The workflow discloses this limitation and does not claim atomic protection. If a future host API supports true atomic create, the host may use it; a pre-check followed by a write is not equivalent. Issue #2713 records this limitation, not an unmet acceptance blocker.
+
+After a failed write, a file found at that path **cannot be shown to be the wizard's own**, so no cleanup deletes it ([#2712](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2712)). A browser creates a file before committing content, so a failed write can leave an empty file, and a host can leave a partly written one; both are kept, named in the failure, and left for the author to remove. The wizard will also refuse any other files already written by that failed attempt, even when their bytes match; remove all planned conflicts before retrying.
+
+
+**Starter contents are explicit.** Nothing is copied unless the author ticks it. Each item names what it writes, who made it and under which licence, and whether it is available; an item whose material is not rights-cleared in this repository is **listed as unavailable with the reason and is never replaced by a placeholder**. A host refuses a request for an unavailable item instead of dropping it. The catalogue (the code is `packages/editor-model/src/new-project.ts`):
+
+| Item | Writes | Stored reference | Provenance | Available |
+|---|---|---|---|---|
+| Start-up program | `Prg/start.prg`, a four-line `mwin`/`wait`/`mwincls` welcome | `startupPrg = start.prg` | written for this project, MIT | yes |
+| Empty start board | `Boards/start.brd`, 20×15 tiles, 2 layers, no tiles or background | `initBoard = start.brd` | generated by the editor's board writer, no artwork | yes |
+| Empty first character | `Chrs/start.tem`, the character writer's default character with no graphics | `initChar = start.tem` | generated by the editor's character writer, no artwork | yes |
+| Built-in menu and battle | nothing is copied | `menuPlugin = tk3menu.dll`, `fightPlugin = tk3fight.dll` (the engine maps them to its built-in `stock_menu` and `stock_battle` packages, [package loader](../engine/rpgcode-package-loader.md)) | this repository's `stock/` packages, MIT | yes |
+| Default tiles | — | — | no rights-cleared tile art is shipped | no |
+| System programs | — | — | no rights-cleared system programs are shipped beyond the built-in packages | no |
+| Music pack | — | — | no rights-cleared music is shipped; `media/soundfonts` are instruments, not songs | no |
+
+No legacy asset bundle is assumed redistributable: starter material joins this table only with provider evidence.
+
 ## Resolving names
 
 | Name stored in | Resolved as |

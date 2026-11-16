@@ -16,12 +16,18 @@
       "types": "./dist/brush.d.ts",
       "default": "./dist/brush.js"
     },
-    "./tileset-browser.css": "./src/tileset-browser.css"
+    "./monaco": {
+      "types": "./dist/monaco-surface.d.ts",
+      "default": "./dist/monaco-surface.js"
+    },
+    "./tileset-browser.css": "./src/tileset-browser.css",
+    "./program-view.css": "./src/program-view.css"
   },
   "dependencies": {
     "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/editor-model": "workspace:*",
     "@tk-reawakened/platform-services": "workspace:*",
+    "monaco-editor": "0.57.0",
     "preact": "11.2.0"
   },
   "devDependencies": {

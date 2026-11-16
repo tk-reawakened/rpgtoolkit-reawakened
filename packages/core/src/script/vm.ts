@@ -52,7 +52,7 @@ import {
 } from "./errors.ts";
 import { NULL_LOGGER } from "./logging.ts";
 import { ENGINE_DEFAULT_MANIFEST, foldNamespace, isPlainData } from "./manifest.ts";
-import { collectCells, eachLiveRoot, recordOwner } from "./cells.ts";
+import { collectCells, eachLiveRoot, ownerProgram, recordOwner } from "./cells.ts";
 import {
   addNativeMenuProvider,
   addRegistration,
@@ -2549,7 +2549,7 @@ function findDefinition(
     if (exported !== undefined) return { program: exported.program, infos: exported.infos };
   }
   let owner = services.programs.find(def);
-  const recorded = vm.defOwners !== undefined && Object.hasOwn(vm.defOwners, def) ? vm.defOwners[def] : undefined;
+  const recorded = ownerProgram(vm, def);
   if (owner === undefined && recorded !== undefined) {
     try {
       owner = services.programs.get(recorded);

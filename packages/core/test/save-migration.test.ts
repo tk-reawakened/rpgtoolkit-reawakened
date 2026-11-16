@@ -46,7 +46,7 @@ function fixtureText(name: string): string {
 test("a v2 save (no effect log) restores cleanly as the current vm schema", () => {
   const restored = restoreGameState(fixtureText("v2-vm.json"));
 
-  equal(SCHEMA_VERSIONS.vm, 7);
+  equal(SCHEMA_VERSIONS.vm, 8);
   equal(restored.schema.vm, SCHEMA_VERSIONS.vm);
   deepEqual(restored.vm.effects, []);
   equal(restored.vm.effectSeq, 0);
@@ -73,10 +73,10 @@ test("a v3 save restores with its thread and sleep wait migrated to the v4 shape
   equal(canon(restoreGameState(snapshot(restored))), canon(restored));
 });
 
-test("a v4 save (no module fields) restores unchanged apart from the v7 section version", () => {
+test("a v4 save (no module fields) restores unchanged apart from the v8 section version", () => {
   const restored = restoreGameState(fixtureText("v4-vm.json"));
 
-  equal(SCHEMA_VERSIONS.vm, 7);
+  equal(SCHEMA_VERSIONS.vm, 8);
   equal(restored.schema.vm, SCHEMA_VERSIONS.vm);
   const frame = restored.vm.threads[0]!.frames[0]!;
   // The module fields are optional and stay absent: the ref is the v4 ref.
@@ -86,12 +86,12 @@ test("a v4 save (no module fields) restores unchanged apart from the v7 section 
   equal(canon(restoreGameState(snapshot(restored))), canon(restored));
 });
 
-test("vm schema 6 saves, out of and mid battle, migrate to vm 7 changing only the schema version", () => {
+test("vm schema 6 saves, out of and mid battle, migrate to vm 8 changing only the schema version", () => {
   for (const [previous, current] of [["vm6-battle-out.json", "engine1-battle-v2-out.json"], ["vm6-battle-mid.json", "engine1-battle-v2-mid.json"]] as const) {
     const saved = JSON.parse(fixtureText(previous)) as { schema: { vm: number } };
     equal(saved.schema.vm, 6, `${previous} is a real vm-6 save`);
     const restored = restoreGameState(fixtureText(previous));
-    equal(restored.schema.vm, 7);
+    equal(restored.schema.vm, 8);
     equal(snapshot(restored), snapshot(restoreGameState(fixtureText(current))), `${previous} restores to its vm-7 counterpart`);
     equal(snapshot(restoreGameState(snapshot(restored))), snapshot(restored), "migration is idempotent");
   }

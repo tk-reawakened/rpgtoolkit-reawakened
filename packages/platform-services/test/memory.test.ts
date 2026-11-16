@@ -13,6 +13,7 @@ test("project binding preserves prototype methods and their receiver", async () 
     list(path: string) { return this.delegate.list(path); }
     read(path: string) { return this.delegate.read(path); }
     write(path: string, value: Uint8Array) { return this.delegate.write(path, value); }
+    createFolder(path: string) { return this.delegate.createFolder(path); }
     stat(path: string) { return this.delegate.stat(path); }
     delete(path: string) { return this.delegate.delete(path); }
     rename(from: string, to: string) { return this.delegate.rename(from, to); }
@@ -246,4 +247,82 @@ test("shell.openExternal records an existing project file and refuses a missing 
   ok(bad !== undefined && !bad.ok);
   equal(bad.error.code, "invalid-path");
   deepEqual(host.openedExternally, ["Misc/readme.txt"]);
+});
+
+test("language.connect is present only with the capability, records what the client sends and plays the server", async () => {
+  equal(createMemoryPlatformServices({}).language, undefined);
+  const host = createMemoryPlatformServices({
+    capabilities: ["languageServer"],
+    onLanguageMessage: (message, session) => {
+      if (message.method === "ping") session.push({ jsonrpc: "2.0", id: message.id as number, result: "pong" });
+    },
+  });
+  const connected = await host.language!.connect({ project: { main: "Main/game.gam" } });
+  ok(connected.ok);
+  if (!connected.ok) return;
+  const received: unknown[] = [];
+  connected.value.onMessage((message) => received.push(message.result));
+  connected.value.send({ jsonrpc: "2.0", id: 1, method: "ping" });
+  deepEqual(host.languageSessions[0]!.sent, [{ jsonrpc: "2.0", id: 1, method: "ping" }]);
+  deepEqual(host.languageSessions[0]!.options, { project: { main: "Main/game.gam" } });
+  deepEqual(received, ["pong"]);
+  equal(connected.value.uriOf("Prg/a.prg"), "file:///project/Prg/a.prg");
+  const closed: string[] = [];
+  connected.value.onClose((reason) => closed.push(reason.reason));
+  host.languageSessions[0]!.stop("the server stopped");
+  deepEqual(closed, ["server-stopped"]);
+  connected.value.send({ jsonrpc: "2.0", id: 2, method: "ping" });
+  equal(host.languageSessions[0]!.sent.length, 1);
+  const late: string[] = [];
+  connected.value.onClose((reason) => late.push(reason.message));
+  deepEqual(late, ["the server stopped"]);
+});
+
+test("a refused language connection says so, and a disposed one is told it ended", async () => {
+  const host = createMemoryPlatformServices({ capabilities: ["languageServer"] });
+  host.failLanguage("the worker could not start");
+  const refused = await host.language!.connect({ project: null });
+  ok(!refused.ok);
+  if (!refused.ok) equal(refused.error.code, "unavailable");
+  host.failLanguage(null);
+  const connected = await host.language!.connect({ project: null });
+  ok(connected.ok);
+  if (!connected.ok) return;
+  const reasons: string[] = [];
+  connected.value.onClose((closed) => reasons.push(closed.reason));
+  connected.value.dispose();
+  connected.value.dispose();
+  deepEqual(reasons, ["disposed"]);
+  equal(host.languageSessions.length, 1);
+  equal(host.languageSessions[0]!.disposed(), true);
+});
+
+test("createFolder makes empty folders that list, stat, rename and delete like folders with files", async () => {
+  const host = createMemoryPlatformServices({ files: { "Main/game.gam": bytes(1) } });
+  ok((await host.fs.createFolder("Game/Boards")).ok);
+  ok((await host.fs.createFolder("game/BOARDS")).ok, "an existing folder, under another case, is fine");
+  const root = await host.fs.list("");
+  ok(root.ok);
+  deepEqual(root.value.map((entry) => entry.name).sort(), ["Game", "Main"]);
+  const inner = await host.fs.list("Game");
+  ok(inner.ok);
+  deepEqual(inner.value, [{ name: "Boards", kind: "directory" }]);
+  const stat = await host.fs.stat("Game/Boards");
+  ok(stat.ok);
+  equal(stat.value.kind, "directory");
+  const code = async (result: Promise<{ readonly ok: boolean; readonly error?: { readonly code: string } }>) => {
+    const settled = await result;
+    return settled.ok ? "ok" : settled.error?.code;
+  };
+  equal(await code(host.fs.createFolder("Main/game.gam")), "not-a-directory", "a file is not a folder");
+  equal(await code(host.fs.createFolder("Main/game.gam/inside")), "not-a-directory", "nothing is made below a file");
+  equal(await code(host.fs.createFolder("")), "invalid-path");
+  ok((await host.fs.rename("Game/Boards", "Game/Maps")).ok);
+  const renamed = await host.fs.list("Game");
+  ok(renamed.ok);
+  deepEqual(renamed.value, [{ name: "Maps", kind: "directory" }]);
+  ok((await host.fs.delete("Game")).ok);
+  equal(await code(host.fs.stat("Game")), "not-found");
+  host.failWrites({ code: "io-error", message: "disk full" });
+  equal(await code(host.fs.createFolder("Later")), "io-error", "a refused host refuses folders as it refuses files");
 });

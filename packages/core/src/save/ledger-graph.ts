@@ -22,7 +22,7 @@
  */
 
 import type { Value } from "../ports/value.ts";
-import { cellNumber, isRecord } from "../script/cells.ts";
+import { cellNumber, isRecord, ownerProgram } from "../script/cells.ts";
 import type { VmState } from "../script/state.ts";
 
 /** A candidate that cannot be projected: the ledger is never built from it. */
@@ -481,11 +481,12 @@ export function projectScriptLedger(vm: VmState, emitters?: Readonly<Record<stri
 
   let defOwners: LedgerPresence<{ [def: string]: LedgerProgramRef }> = { state: "absent" };
   if (vm.defOwners !== undefined) {
+    // The ledger keeps its own per-definition shape; it reads each owner through `vm.programs` (#2767).
     const owners = ledgerRecord(vm.defOwners, "vm.defOwners");
     const kept: { [def: string]: LedgerProgramRef } = {};
     for (const def of Object.keys(owners)) {
       if (!reachedDefs.has(def)) continue;
-      const ref = ledgerProgramRef(owners[def], `vm.defOwners.${def}`);
+      const ref = ledgerProgramRef(ownerProgram(vm, def), `vm.defOwners.${def}`);
       if (ref === null) failLedger(LEDGER_SHAPE, `vm.defOwners.${def}`, "expected a program reference");
       setField(kept, def, ref);
     }

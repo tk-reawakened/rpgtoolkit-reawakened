@@ -6,6 +6,7 @@
 // envelope rather than `hashGameState`.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
+import { pruneOwnerPrograms, recordOwner } from "../src/script/cells.ts";
 import {
   actorId,
   addActor,
@@ -247,10 +248,8 @@ function fixture(): GameState {
   ];
   state.vm.cells = { cell1: 7, cell4: { kind: "object", handle: 6, className: "" } };
   state.vm.cellSeq = 6;
-  state.vm.defOwners = {
-    loot: { kind: "inline", text: "function loot()\nendFunction\n", ir: "1" },
-    dead: { kind: "inline", text: "function dead()\nendFunction\n", ir: "1" },
-  };
+  recordOwner(state.vm, "loot", { kind: "inline", text: "function loot()\nendFunction\n", ir: "1" });
+  recordOwner(state.vm, "dead", { kind: "inline", text: "function dead()\nendFunction\n", ir: "1" });
   state.vm.redirects = [["oldname", "newname"]];
   state.vm.effectSeq = 3;
   state.vm.messagesOff = true;
@@ -555,7 +554,7 @@ test("each ledger-bearing field changes the projection hash independently", () =
     ["object member", (state) => { (state.vm.objects[0]!.members.gold) = 11; }],
     ["object keys order", (state) => { const record0 = state.vm.objects[0]!; state.vm.objects[0] = { ...record0, keys: ["next", "gold", "self"] }; }],
     ["object handle", (state) => { state.vm.globals.party = { kind: "object", handle: 6, className: "" }; }],
-    ["def owners", (state) => { state.vm.defOwners!.loot = { kind: "inline", text: "function loot(a)\nendFunction\n", ir: "1" }; }],
+    ["def owners", (state) => { recordOwner(state.vm, "loot", { kind: "inline", text: "function loot(a)\nendFunction\n", ir: "1" }, true); pruneOwnerPrograms(state.vm); }],
     ["emitters", (state) => { state.events.emitters = { [boardEmitterKey(BOARD_KEY)]: 5, battle: 5 }; }],
     ["board key", (state) => { state.world = { ...state.world, board: { ...state.world.board!, key: assetKey("other.brd") } }; state.triggers.boardKey = "other.brd"; state.sprites.randomEncounter = { boardKey: "other.brd", tile: { x: 1, y: 2 }, tiles: 5 }; }],
     ["board size", (state) => { state.world = { ...state.world, board: { ...state.world.board!, sizeX: 9 } }; }],
@@ -722,7 +721,7 @@ test("the persistent-root walker keeps rooted cycles and refuses stale handles",
     ["malformed callable", (mutated) => { mutated.vm.globals.loot = { type: "callable", def: "", captures: [], receiver: null }; }, "ledger.shape", "vm.globals.loot.def"],
     ["cell above seq", (mutated) => { mutated.vm.cellSeq = 3; }, "ledger.identity", "vm.cells.cell4"],
     ["cells without seq", (mutated) => { delete mutated.vm.cellSeq; }, "ledger.shape", "vm.cellSeq"],
-    ["bad def owner", (mutated) => { mutated.vm.defOwners!.loot = { kind: "sideways", ir: "1" } as never; }, "ledger.shape", "vm.defOwners.loot.kind"],
+    ["bad def owner", (mutated) => { mutated.vm.programs![mutated.vm.defOwners!.loot!] = { kind: "sideways", ir: "1" } as never; }, "ledger.shape", "vm.defOwners.loot.kind"],
     ["not a script value", (mutated) => { mutated.vm.globals.flag = true as never; }, "ledger.shape", "vm.globals.flag"],
   ];
   for (const [name, change, code, path] of cases) {
@@ -823,6 +822,7 @@ test("optional and nullable source fields keep their three-way presence", () => 
   delete bare.vm.cells;
   delete bare.vm.cellSeq;
   delete bare.vm.defOwners;
+  delete bare.vm.programs;
   bare.vm.globals = { count: 1 };
   const bareLedger = projectGameLedger(bare);
   deepEqual(bareLedger.script.persistentGraph.cells, { state: "absent" });
@@ -892,7 +892,8 @@ test("file program references and animated durable tiles project whole", () => {
       owner: "pkg",
     },
   };
-  state.vm.defOwners!.loot = { kind: "file", path: "Prg/loot.prg", sourceHash: "def", ir: "1" };
+  recordOwner(state.vm, "loot", { kind: "file", path: "Prg/loot.prg", sourceHash: "def", ir: "1" }, true);
+  pruneOwnerPrograms(state.vm);
   const board0 = state.world.board!;
   const animated = {
     asset: assetKey("Tiles/water.tle"),

@@ -192,13 +192,20 @@ export type VmState = {
   cellSeq?: number;
   /**
    * The program that owns each definition a live callable names (FUN-8; entry
-   * 18.6): `def` to the reference of the program that defines it, written when
-   * the callable is made. Compiled programs are not saved, so this is what lets
-   * a restore compile the program a handle's `def` lives in even when no frame
-   * is running it. A callable naming a command has no entry. Absent until the
-   * first callable is made; an entry is dropped when no live callable names its `def`.
+   * 18.6): `def` to the `programs` key of the program that defines it, written
+   * when the callable is made. Compiled programs are not saved, so this is what
+   * lets a restore compile the program a handle's `def` lives in even when no
+   * frame is running it. A callable naming a command has no entry. Absent until
+   * the first callable is made; an entry is dropped when no live callable names its `def`.
    */
-  defOwners?: { [def: string]: ProgramRef };
+  defOwners?: { [def: string]: string };
+  /**
+   * Each distinct owner program `defOwners` names, stored once under its
+   * owner-qualified content key (#2767), so an inline program's text is kept
+   * once however many of its definitions are live. Present exactly when
+   * `defOwners` is; an entry is dropped when no `defOwners` entry names it.
+   */
+  programs?: { [key: string]: ProgramRef };
   /**
    * Number of executed VM instructions by owning package (PKG-8). Absent until
    * the first instruction from an owned program runs; counters are excluded from

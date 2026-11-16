@@ -47,3 +47,28 @@ test("VS Code workspace filesystem rejects traversal and preserves old bytes on 
   equal(missing.ok, false);
   if (!missing.ok) equal(missing.error.code, "not-found");
 });
+
+test("VS Code createFolder asks the workspace for the folder itself and maps a file in the way to not-a-directory", async () => {
+  const made: string[] = [];
+  const exists = Object.assign(new Error("a file exists"), { code: "FileExists" });
+  const folderPort: VscodeFileSystemPort<Uri> = {
+    ...port,
+    async createDirectory(uri) {
+      if (uri.path === "/project/Main.gam") throw exists;
+      if (uri.path === "/project/locked") throw permission;
+      made.push(uri.path);
+    },
+  };
+  const fs = createVscodeFileSystemWithPort(root, folderPort, "file:///project");
+  ok((await fs.createFolder("Boards")).ok);
+  ok((await fs.createFolder("Game/Boards")).ok);
+  deepEqual(made, ["/project/Boards", "/project/Game/Boards"], "the folder itself, not its parent");
+  const onFile = await fs.createFolder("Main.gam");
+  ok(!onFile.ok && onFile.error.code === "not-a-directory");
+  const denied = await fs.createFolder("locked");
+  ok(!denied.ok && denied.error.code === "permission-denied");
+  for (const path of ["", "../x", "a//b"]) {
+    const invalid = await fs.createFolder(path);
+    ok(!invalid.ok && invalid.error.code === "invalid-path", `"${path}"`);
+  }
+});

@@ -78,6 +78,25 @@ function PreferenceField({ row, preferences, id }: { readonly row: PreferenceRow
         ))}
       </select>
     );
+  } else if (entry.type === "string" && entry.multiline === true) {
+    control = (
+      <textarea
+        id={fieldId}
+        rows={4}
+        value={draft ?? text}
+        aria-invalid={refusal === null ? undefined : "true"}
+        aria-describedby={describedBy}
+        onInput={(event) => setDraft((event.currentTarget as HTMLTextAreaElement).value)}
+        onBlur={commitText}
+        onKeyDown={(event) => {
+          // Enter is a new line here; the text is stored when the field loses focus.
+          if (event.key === "Escape") {
+            setDraft(null);
+            refuse(null);
+          }
+        }}
+      />
+    );
   } else {
     control = (
       <input

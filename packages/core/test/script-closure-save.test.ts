@@ -24,6 +24,7 @@ import {
   type ScriptError,
   type ScriptServices,
 } from "../src/index.ts";
+import { ownerProgram } from "../src/script/cells.ts";
 import { advanceOrFail } from "./script-failures.ts";
 import { createScriptServices } from "./script-test-services.ts";
 
@@ -95,6 +96,7 @@ type RawSnapshot = {
     cells?: Record<string, unknown>;
     cellSeq?: number;
     defOwners?: Record<string, unknown>;
+    programs?: Record<string, unknown>;
     objects: Array<{ members: Record<string, unknown> }>;
     threads: Array<{
       wait: unknown;
@@ -234,7 +236,7 @@ test("a callable stored in a global outlives the program that made it and still 
     [["b.prg"]],
     "no frame is running the program that made f",
   );
-  deepEqual(state.vm.defOwners?.["prg/main.prg#lambda_1"], fileProgramRef(loader, "main.prg"));
+  deepEqual(ownerProgram(state.vm, "prg/main.prg#lambda_1"), fileProgramRef(loader, "main.prg"));
 
   const json = snapshot(state);
   const { state: restored, services: restoredServices } = restoreChecked(json, loader);
@@ -253,6 +255,7 @@ test("a save from before defOwners existed (no owner entry) still restores when 
   advanceOrFail(state, createScriptServices(state));
   const older = edited(snapshot(state), (raw) => {
     delete raw.vm.defOwners;
+    delete raw.vm.programs;
   });
   const { state: restored, services } = restoreChecked(older);
   runToRest(restored, services);
@@ -273,8 +276,8 @@ test("a state with no callable and no cell is not checked and compiles nothing",
 
 test("closures add optional fields only: the instruction version does not move for them and the vm schema carries the item-action shape", () => {
   const plain = createGameState({ seed: 0 });
-  equal(SCHEMA_VERSIONS.vm, 7);
-  equal(plain.schema.vm, 7);
+  equal(SCHEMA_VERSIONS.vm, 8);
+  equal(plain.schema.vm, 8);
   equal(plain.schema.ir, "1");
   deepEqual(Object.keys(plain.vm).sort(), [
     "block",
@@ -398,13 +401,54 @@ test("a cellSeq that would collide with an existing cell id, or that disagrees w
   restoreGameState(edited(json, (raw) => { raw.vm.cellSeq = 40; }));
 });
 
-test("a vm.defOwners entry that is not a program reference is refused as restore.shape", () => {
+test("a vm.programs entry that is not a program reference is refused as restore.shape", () => {
   const json = snapshot(runOnce(COUNTERS));
   const error = failure(() =>
-    restoreGameState(edited(json, (raw) => { raw.vm.defOwners = { "<inline>#lambda_1": { kind: "file" } }; })),
+    restoreGameState(edited(json, (raw) => { raw.vm.programs = { p: { kind: "file" } }; raw.vm.defOwners = { "<inline>#lambda_1": "p" }; })),
   );
   equal(error.code, "restore.shape");
-  ok(error.message.includes("vm.defOwners.<inline>#lambda_1"), error.message);
+  ok(error.message.includes("vm.programs.p"), error.message);
+});
+
+test("each owner program is saved once, and vm.defOwners names it by key (#2767)", () => {
+  const state = runOnce('f = (x) => x * 2\ng = (x) => x + 1\nh = (x) => x - 1\n');
+  const raw = parsed(snapshot(state));
+  deepEqual(Object.keys(raw.vm.defOwners ?? {}).sort(), ["<inline>#lambda_1", "<inline>#lambda_2", "<inline>#lambda_3"]);
+  const keys = Object.keys(raw.vm.programs ?? {});
+  equal(keys.length, 1, "three definitions of one program share one reference");
+  for (const key of Object.values(raw.vm.defOwners ?? {})) equal(key, keys[0]);
+  ok(/^[0-9a-f]{16}$/.test(keys[0]!), `an unowned program's key is its 16-digit content hash (${keys[0]})`);
+});
+
+test("a malformed owner table is refused as restore.shape, naming the place (#2767)", () => {
+  const json = snapshot(runOnce(COUNTERS));
+  const cases: Array<[string, (raw: RawSnapshot) => void, string]> = [
+    ["dangling key", (raw) => { raw.vm.defOwners = { "<inline>#lambda_1": "missing" }; }, "vm.defOwners.<inline>#lambda_1"],
+    ["key not text", (raw) => { raw.vm.defOwners = { "<inline>#lambda_1": 3 }; }, "vm.defOwners.<inline>#lambda_1"],
+    ["orphan program", (raw) => { raw.vm.programs = { ...raw.vm.programs, extra: { kind: "inline", text: "x = 1\n", ir: "1" } }; }, "vm.programs.extra"],
+    ["owners without programs", (raw) => { delete raw.vm.programs; }, "vm.programs"],
+    ["programs without owners", (raw) => { delete raw.vm.defOwners; }, "vm.defOwners"],
+  ];
+  for (const [name, change, place] of cases) {
+    const error = failure(() => restoreGameState(edited(json, change)));
+    equal(error.code, "restore.shape", name);
+    ok(error.message.includes(place), `${name}: ${error.message}`);
+  }
+});
+
+test("a save from before vm schema 8 that holds definition owners is refused, not migrated (#2767)", () => {
+  const json = snapshot(runOnce(COUNTERS));
+  const error = failure(() =>
+    restoreGameState(edited(json, (raw) => {
+      const owners = raw.vm.defOwners ?? {};
+      raw.vm.defOwners = Object.fromEntries(Object.entries(owners).map(([def, key]) => [def, raw.vm.programs?.[key as string]]));
+      delete raw.vm.programs;
+      (raw as unknown as { schema: { vm: number } }).schema.vm = 7;
+    })),
+  );
+  equal(error.code, "restore.shape");
+  ok(error.message.includes("vm.defOwners"), error.message);
+  ok(error.message.includes("version 7"), error.message);
 });
 
 test("a handle whose def is in no compiled program is refused as restore.callable-unknown-def", () => {
@@ -467,7 +511,8 @@ test("an owner that does not define the def it is recorded for is refused as res
   const error = failure(() =>
     restoreChecked(
       edited(json, (raw) => {
-        raw.vm.defOwners = { "<inline>#lambda_1": { kind: "inline", text: "x = 1\n", ir: "1" } };
+        raw.vm.programs = { other: { kind: "inline", text: "x = 1\n", ir: "1" } };
+        raw.vm.defOwners = { "<inline>#lambda_1": "other" };
       }),
     ),
   );

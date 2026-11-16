@@ -15,7 +15,13 @@
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
     "onView:tkr.game",
+    "workspaceContains:Main/*.gam",
+    "onCommand:tkr.newProject",
     "onCommand:tkr.packageGame",
+    "onCommand:tkr.newProgram",
+    "onCommand:tkr.insertProgramHeader",
+    "onCommand:tkr.insertProgramCommand",
+    "onCommand:tkr.distractionFree",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
     "onCommand:tkr.startBoard",
@@ -54,11 +60,41 @@
         "title": "RPG Toolkit: New board"
       },
       {
+        "command": "tkr.newProject",
+        "title": "RPG Toolkit: New project"
+      },
+      {
         "command": "tkr.packageGame",
         "title": "RPG Toolkit: Package game"
+      },
+      {
+        "command": "tkr.newProgram",
+        "title": "RPG Toolkit: New program"
+      },
+      {
+        "command": "tkr.insertProgramHeader",
+        "title": "RPG Toolkit: Insert header into the program"
+      },
+      {
+        "command": "tkr.insertProgramCommand",
+        "title": "RPG Toolkit: Insert a command into the program"
+      },
+      {
+        "command": "tkr.distractionFree",
+        "title": "RPG Toolkit: Distraction-free mode"
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "tkr.insertProgramHeader",
+          "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2"
+        },
+        {
+          "command": "tkr.insertProgramCommand",
+          "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2"
+        }
+      ],
       "explorer/context": [
         {
           "command": "tkr.packageGame",
@@ -192,6 +228,14 @@
           "scope": "window",
           "type": "boolean",
           "default": true
+        },
+        "rpgToolkit.program.headerTemplate": {
+          "description": "Header for new programs. The text a new program starts with. {file} becomes the file name, {name} the file name without .prg, and {path} the path in the project. A game can set this for everyone who edits it.",
+          "scope": "window",
+          "type": "string",
+          "default": "// {file}\n\n",
+          "maxLength": 500,
+          "editPresentation": "multilineText"
         },
         "rpgToolkit.board.revertToDrawAfterFlood": {
           "description": "Return to Draw after a flood fill. After a flood fill, switch the board editor back to the Draw tool.",
