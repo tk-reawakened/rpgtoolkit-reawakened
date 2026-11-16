@@ -75,6 +75,7 @@ graph LR
   lsp --> hostweb[host-web]
   lsp --> hostdesktop[host-desktop]
   dap --> hostvscode
+  scriptspec --> editorui
   editormodel --> editorui
   editormodel --> hostvscode
   editormodel --> hostweb
