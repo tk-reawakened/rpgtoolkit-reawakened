@@ -107,7 +107,7 @@ const leaf = (page: Page) => page.locator(".monaco-editor .view-line span:not(:h
 
 /** Click into the text and go to its end: the editor's input element is Monaco's own, so the test reaches it as a person does. */
 async function focusEnd(page: Page): Promise<void> {
-  await page.locator(".monaco-editor .view-lines").click({ position: { x: 4, y: 4 } });
+  await page.locator(".monaco-editor .view-line").first().click();
   await page.keyboard.press(END_OF_TEXT);
 }
 
@@ -212,6 +212,7 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
 
   // Repository help and release notes are available without leaving the active program; native dialog close returns focus.
   await page.keyboard.press("F1");
+  await expect(page.getByLabel("Search commands and files")).toBeFocused();
   await page.keyboard.type("Open RPGCode authoring guide");
   await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode authoring guide");
   await page.keyboard.press("Enter");
@@ -222,6 +223,7 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
 
   await page.keyboard.press("F1");
+  await expect(page.getByLabel("Search commands and files")).toBeFocused();
   await page.keyboard.type("What's New");
   await expect(page.locator(".tkr-command-palette-option").first()).toContainText("What's New");
   await page.keyboard.press("Enter");
@@ -234,7 +236,9 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
 
   // F1 exposes the generated reference from the workspace; search, select, and insert using only the keyboard.
+  await focusEnd(page);
   await page.keyboard.press("F1");
+  await expect(page.getByLabel("Search commands and files")).toBeFocused();
   await page.keyboard.type("Open RPGCode Quick Reference");
   await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode Quick Reference");
   await page.keyboard.press("Enter");
@@ -254,13 +258,13 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.getByRole("button", { name: "Insert header" }).click();
   await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg\s/);
   await expect.poll(() => editorText(page)).toContain("castint(val)");
-  await page.locator(".monaco-editor .view-lines").click({ position: { x: 4, y: 4 } });
+  await page.locator(".monaco-editor .view-line").filter({ hasText: "// intro.prg" }).first().click();
   await page.keyboard.press("Shift+F10");
   const undo = page.getByRole("menuitem", { name: "Undo", exact: true });
   await focusMenuItem(page, undo);
   await page.keyboard.press("Enter");
   await expect.poll(() => editorText(page)).toMatch(/^\/\/ Intro scene/);
-  await page.locator(".monaco-editor .view-lines").click({ position: { x: 4, y: 4 } });
+  await page.locator(".monaco-editor .view-line").filter({ hasText: "// Intro scene" }).first().click();
   await page.keyboard.press("Shift+F10");
   const redo = page.getByRole("menuitem", { name: "Redo", exact: true });
   await focusMenuItem(page, redo);
@@ -296,12 +300,8 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.keyboard.type("\n   y = 2");
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
-  // Format Document: the server's formatter answers and Monaco computes the minimal edit in its editor worker.
-  // Through the command palette: the key chord differs between platforms, the command does not.
-  await page.keyboard.press("F1");
-  await page.keyboard.type("Format Document");
-  await expect(page.locator(".quick-input-widget .quick-input-list-entry").first()).toContainText("Format Document");
-  await page.keyboard.press("Enter");
+  // Format Document remains available through Monaco's keyboard shortcut while F1 opens the workbench help palette.
+  await page.keyboard.press("Shift+Alt+f");
   await expect.poll(() => editorText(page)).toContain("\ny = 2");
   await page.keyboard.press("ControlOrMeta+s");
   const saved = await savedText(page, PROGRAM, (text) => text.endsWith("y = 2"));

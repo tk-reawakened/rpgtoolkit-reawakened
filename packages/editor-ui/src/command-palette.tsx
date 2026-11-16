@@ -127,7 +127,7 @@ export function WorkbenchCommandBar({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || helpDocument !== null) return;
+      if (event.defaultPrevented || document.querySelector(".tkr-help-document[open]") !== null) return;
       const cmdOrCtrl = event.ctrlKey || event.metaKey;
       if (event.key === "F1") {
         event.preventDefault();
@@ -151,7 +151,7 @@ export function WorkbenchCommandBar({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [paletteOpen, menuOpen, helpDocument]);
+  }, [paletteOpen, menuOpen]);
 
   useEffect(() => {
     if (!menuOpen || typeof document === "undefined") return;

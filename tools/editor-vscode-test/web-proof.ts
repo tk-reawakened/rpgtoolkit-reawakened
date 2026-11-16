@@ -6,6 +6,7 @@ import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } 
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
+import { runVscodeContextualHelpProof } from "./contextual-help-proof.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -119,6 +120,7 @@ export async function runVscodeLaunchProof(
 export async function runVscodeProgramProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runVscodeContextualHelpProof(page, expect, workbenchUrl);
   await runCommand(page, expect, "Test: Run Example Program");
   let player: Frame | undefined;
   await expect.poll(async () => {
