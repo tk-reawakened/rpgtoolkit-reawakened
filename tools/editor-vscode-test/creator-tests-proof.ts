@@ -103,6 +103,44 @@ export async function runVscodeCreatorTestsProof(
     throw new Error(`The failure source location did not point to the authored wall assertion at line ${wallLines.join(",")}: ${JSON.stringify(failureOutcome)}`);
   }
   const sourceLink = tests.getByRole("button", { name: `Line ${failureOutcome.line}, column ${failureOutcome.column}` });
+  await sourceLink.scrollIntoViewIfNeeded();
+  const sourceHitTest = await sourceLink.evaluate((button) => {
+    const describe = (element: Element | null) => {
+      if (element === null) return null;
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        tag: element.tagName,
+        className: typeof element.className === "string" ? element.className : "",
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        display: style.display,
+        position: style.position,
+        zIndex: style.zIndex,
+        pointerEvents: style.pointerEvents,
+        whiteSpace: style.whiteSpace,
+        overflow: style.overflow,
+      };
+    };
+    const rect = button.getBoundingClientRect();
+    const x = rect.x + rect.width / 2;
+    const y = rect.y + rect.height / 2;
+    return {
+      point: { x, y },
+      button: describe(button),
+      cell: describe(button.closest("td")),
+      hit: describe(button.ownerDocument.elementFromPoint(x, y)),
+      hits: button.ownerDocument.elementsFromPoint(x, y).slice(0, 5).map(describe),
+      ancestors: Array.from((function* () {
+        for (let ancestor = button.parentElement; ancestor !== null && ancestor !== button.ownerDocument.body; ancestor = ancestor.parentElement) {
+          yield ancestor;
+        }
+      })()).slice(0, 6).map(describe),
+    };
+  });
+  console.log(`creator source-link hit test: ${JSON.stringify(sourceHitTest)}`);
+  if (sourceHitTest.hit?.tag !== "BUTTON") {
+    throw new Error(`The source link's visible center is not hit-testable: ${JSON.stringify(sourceHitTest)}`);
+  }
   await sourceLink.click();
   await expect(page.getByRole("tab", { name: /wall\.spec\.prg/ })).toBeVisible();
   const sourceEditor = page.locator(".monaco-editor").filter({ has: page.locator(".view-lines") });
@@ -306,7 +344,7 @@ function verifyCanonical(actual: Case, expected: Case, label: string): void {
 function verifySnapshotHashes(actual: Case, files: readonly File[]): void {
   const snapshot = actual.run?.snapshot as { readonly documents?: readonly { readonly role: string; readonly path: string; readonly sha256: string }[] } | undefined;
   if (snapshot?.documents === undefined) throw new Error("Saved case report omitted source and fixture-board snapshot hashes.");
-  const hashes = new Map(files.map((file) => [file.path.replace(/^\.tkr-tests\//, ""), sha256(file.bytes)]));
+  const hashes = new Map(files.map((file) => [file.path, sha256(file.bytes)]));
   for (const document of snapshot.documents) {
     const expected = hashes.get(document.path);
     if (expected === undefined || document.sha256 !== expected) throw new Error(`Saved snapshot hash mismatch for ${document.path}: ${document.sha256}`);
@@ -328,7 +366,8 @@ async function visibleCanvas(tests: Frame): Promise<{ readonly tick: number; rea
   await canvas.waitFor({ state: "visible" });
   const frameText = await tests.locator("figcaption").textContent();
   const tick = Number(frameText?.match(/tick (\d+)/)?.[1] ?? 0);
-  const frame = await canvas.evaluate(async (element) => {
+  const frame = await canvas.evaluate(async (element, actorColors: readonly string[]) => {
+    const actorPalette = new Set(actorColors);
     const canvasElement = element as HTMLCanvasElement;
     const width = canvasElement.width;
     const height = canvasElement.height;
@@ -338,13 +377,13 @@ async function visibleCanvas(tests: Frame): Promise<{ readonly tick: number; rea
     let actorPixels = 0;
     let backgroundPixels = 0;
     for (let index = 0; index < pixels.length; index += 4) {
-      if (HERO_VISIBLE_RGB[`${pixels[index]},${pixels[index + 1]},${pixels[index + 2]}`] !== undefined) actorPixels += 1;
+      if (actorPalette.has(`${pixels[index]},${pixels[index + 1]},${pixels[index + 2]}`)) actorPixels += 1;
       if (pixels[index] === 22 && pixels[index + 1] === 58 && pixels[index + 2] === 84) backgroundPixels += 1;
     }
     const digest = await crypto.subtle.digest("SHA-256", pixels);
     const pixelHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
     return { width, height, actorPixels, backgroundPixels, pixelHash };
-  });
+  }, Object.keys(HERO_VISIBLE_RGB));
   return { tick, ...frame };
 }
 
@@ -359,12 +398,13 @@ async function creatorTestsFrame(page: Page, expect: Expect): Promise<Frame> {
 }
 
 async function runPaletteCommand(page: Page, expect: Expect, title: string): Promise<void> {
-  await page.keyboard.press("Control+Shift+P");
-  const input = page.locator(".quick-input-widget input");
-  await input.fill(title);
-  const command = page.getByRole("option", { name: title, exact: true });
+  await page.keyboard.press("ControlOrMeta+Shift+p");
+  const input = page.locator(".quick-input-widget input:visible");
+  await expect(input).toHaveCount(1);
+  await input.fill(`>${title}`);
+  const command = page.getByRole("option", { name: new RegExp(`^${title}(?:,|$)`) });
   await expect(command).toBeVisible({ timeout: 30_000 });
-  await command.click();
+  await input.press("Enter");
 }
 
 function sha256(bytes: Uint8Array): string {
