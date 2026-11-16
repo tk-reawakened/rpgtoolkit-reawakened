@@ -10,11 +10,11 @@ import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
 import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
-import { createProjectWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
-import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
+import { createProjectWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
+import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap"] as const;
 

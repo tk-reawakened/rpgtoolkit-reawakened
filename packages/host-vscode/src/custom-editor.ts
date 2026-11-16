@@ -1,9 +1,9 @@
 import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
-import type { HistoryPolicy, HistoryReason } from "@tk-reawakened/editor-model";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
+import type { HistoryPolicy, HistoryReason } from "@tk-reawakened/editor-model";
 
 /**
  * The custom editor of every registered document kind (ADR 0026) without the `vscode` module: the provider methods VS Code's workbench calls, written
