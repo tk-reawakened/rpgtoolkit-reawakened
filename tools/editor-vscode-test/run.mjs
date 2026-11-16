@@ -11,7 +11,7 @@ import { runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandP
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
-import { createCreatorTestFiles } from "../creator-tests-fixture.mjs";
+import { createCreatorTestFiles } from "./creator-tests-fixture.mjs";
 import { runVscodeCreatorTestsProof } from "./creator-tests-proof.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));

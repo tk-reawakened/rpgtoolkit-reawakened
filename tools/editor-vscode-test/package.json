@@ -22,6 +22,10 @@
     "typescript": "5.9.3"
   },
   "exports": {
+    ".": {
+      "types": "./creator-tests-fixture.d.mts",
+      "import": "./creator-tests-fixture.mjs"
+    },
     "./animation-proof": "./animation-proof.ts"
   }
 }

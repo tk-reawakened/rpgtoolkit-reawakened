@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
-import { CREATOR_TEST_CASE_NAME, CREATOR_TEST_SPEC_PATH, createCreatorTestFiles } from "../creator-tests-fixture.mjs";
+import { CREATOR_TEST_CASE_NAME, CREATOR_TEST_SPEC_PATH, createCreatorTestFiles } from "./creator-tests-fixture.mjs";
 
 type Expect = typeof playwrightExpect;
 type File = { readonly path: string; readonly bytes: Uint8Array };
