@@ -27,6 +27,7 @@
     "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/editor-model": "workspace:*",
     "@tk-reawakened/platform-services": "workspace:*",
+    "@tk-reawakened/script-spec": "workspace:*",
     "monaco-editor": "0.57.0",
     "preact": "11.2.0"
   },

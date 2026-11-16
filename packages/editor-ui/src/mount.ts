@@ -30,6 +30,7 @@ import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.
 import { EmptyExplorerView, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
 import { RunView, type RunViewProps } from "./run-view.tsx";
+import { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
 import { BoardView } from "./board-view.tsx";
 import { NewBoardView, type NewBoardViewProps } from "./new-board-view.tsx";
 import { NewProjectView, type NewProjectViewProps } from "./new-project-view.tsx";
@@ -125,6 +126,8 @@ export interface ViewContext {
 export interface ViewHandle {
   /** Remove the view from the page and everything it subscribed to. Calling it again does nothing. */
   dispose(): void;
+  /** Present only for a program view. Queue a one-based location without changing its document or undo stack. */
+  revealSource?(line: number, column: number): void;
 }
 
 function isBoardView(document: ViewContext["document"]): document is BoardViewDocument {
@@ -159,6 +162,14 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const fs = ctx.services.fs;
   if ((isSpriteView(document) || isAnimationView(document)) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
   const pendingEdits = ctx.pendingEdits ?? createPendingEdits();
+  let disposed = false;
+  let reveal: ((line: number, column: number) => void) | null = null;
+  let sourceRequest: { readonly line: number; readonly column: number } | null = null;
+  const revealSource = (line: number, column: number): void => {
+    if (disposed) return;
+    if (reveal === null) sourceRequest = { line, column };
+    else reveal(line, column);
+  };
   let view: Parameters<typeof render>[0];
   if (isBoardView(document)) {
     view = createElement(BoardView, {
@@ -194,6 +205,14 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.services.language === undefined ? {} : { language: ctx.services.language }),
       ...(editor?.project === undefined ? {} : { project: editor.project }),
       ...(editor?.preferences === undefined ? {} : { preferences: editor.preferences }),
+      onRevealReady: (handler) => {
+        reveal = handler;
+        if (handler !== null && sourceRequest !== null) {
+          const request = sourceRequest;
+          sourceRequest = null;
+          handler(request.line, request.column);
+        }
+      },
     });
   } else if (isAnimationView(document)) {
     view = createElement(AnimationView, {
@@ -210,8 +229,8 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }
   render(view, el);
-  let disposed = false;
   return {
+    ...(isProgramView(document) ? { revealSource } : {}),
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -230,6 +249,11 @@ function mountElement(el: HTMLElement, vnode: Parameters<typeof render>[0]): Vie
       render(null, el);
     },
   };
+}
+
+/** Render the shared saved-test view without giving the view ownership of the project controller. */
+export function mountCreatorTests(el: HTMLElement, props: CreatorTestsViewProps): ViewHandle {
+  return mountElement(el, createElement(CreatorTestsView, props));
 }
 
 /** Render the browser and desktop shell (workbench, panels, tabs) into `el`. */

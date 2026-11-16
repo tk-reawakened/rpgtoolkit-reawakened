@@ -6,6 +6,7 @@ import { FilesView, type PackageActionOutcome } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
 import { TabStrip } from "./tab-strip.tsx";
 import { RunView } from "./run-view.tsx";
+import type { CreatorTestsController } from "./creator-tests-controller.ts";
 import { TilesetBrowser, type TilesetBrowserContext } from "./tileset-browser.tsx";
 import { WorkbenchCommandBar } from "./command-palette.tsx";
 import { Workbench } from "./workbench.tsx";
@@ -43,6 +44,7 @@ export interface ShellProps {
   readonly version?: unknown;
   /** Starts runs through the host's `run` service; with it the shell has a Run panel (T-07, T-41). */
   readonly launcher?: Launcher;
+  readonly creatorTests?: CreatorTestsController;
 }
 
 /** The editor slot: an element the host mounts the active editor into, and the shell never draws into. */
@@ -56,7 +58,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, creatorTests }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -83,7 +85,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
         files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewAnimation === undefined ? {} : { onNewAnimation })} {...(onRecovery === undefined ? {} : { onRecovery })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
-        ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} /> }),
+        ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} {...(creatorTests === undefined ? {} : { creatorTests })} /> }),
       }}
     >
       <EditorSlot onElement={onEditorElement} />
