@@ -8,6 +8,7 @@ import { createLoadController, type LoadModeRequest, type LoadState } from "../s
 import { createOpfsPackageStore, createOpfsStaging } from "../src/opfs-store.ts";
 import { attachPointerInput } from "../src/pointer.ts";
 import { createLiveSession, formatTitleBar, type LiveSession } from "../src/live-session.ts";
+import { createDiagnosticsMode, diagnosticsRequested, exposeDiagnosticsMode, isDiagnosticsToggle, type DiagnosticsHook } from "../src/diagnostics-mode.ts";
 import { createObservedHostGeometry, observeHostState, reapplyObservedGeometryBeforePointer, reconcileObservedGeometryAfterAdvance, reconcileObservedHostFeaturesAfterAdvance, stampPendingInputs, type HostViewport, type PendingInput } from "../src/host-state.ts";
 import { registerPlayerWorker, type RegistrationResult } from "../src/register-worker.ts";
 import { createStallOverlay, type StallOverlay } from "../src/stall-overlay.ts";
@@ -15,6 +16,10 @@ import { createFallbackTouchControls, isFallbackTouchControlTarget, shouldSuppre
 
 type LiveReport = {
   tick: number;
+  /**
+   * The state hash at `tick`. In the live loop it is computed when first read, and reads `""` once a later `advance`
+   * has started, so it is never paired with the wrong tick (docs/spec/engine/runners.md#state-hash-cadence).
+   */
   stateHash: string;
   drawHash: string;
   board: string | null;
@@ -27,6 +32,20 @@ type LiveReport = {
   /** The last advance's located diagnostics, so a probe can assert what the engine reported. */
   diagnostics?: readonly { code: string; file: string; line: number; message: string }[];
 };
+
+/**
+ * How often the live loop refreshes its report text and posts a status to the editor while nothing else changes.
+ * Each refresh hashes the whole state, which costs more than a frame of simulation, so it is not done every frame.
+ */
+const LIVE_REPORT_INTERVAL_MS = 250;
+
+/** A copy of `live` with new stall counts that keeps its lazy `stateHash` getter rather than evaluating it. */
+function withStalls(live: LiveReport, stalls: NonNullable<LiveReport["stalls"]>): LiveReport {
+  return Object.defineProperties({}, {
+    ...Object.getOwnPropertyDescriptors(live),
+    stalls: { value: stalls, enumerable: true, writable: true, configurable: true },
+  }) as LiveReport;
+}
 
 declare global {
   interface Window {
@@ -45,6 +64,8 @@ declare global {
     __session?: LiveSession;
     /** The offline service worker's registration, or why none was registered (`app:` desktop, `capacitor:`, absent). */
     __worker?: Promise<RegistrationResult>;
+    /** Turns diagnostics mode on or off for tooling (docs/spec/engine/runners.md#diagnostics-mode). */
+    __tkrDiagnostics?: DiagnosticsHook;
   }
 }
 
@@ -56,9 +77,27 @@ let editorChannel: MessagePort | null = null;
 const canvas = document.querySelector<HTMLCanvasElement>("#screen");
 const output = document.querySelector<HTMLPreElement>("#report");
 if (canvas === null || output === null) throw new Error("player: the page is missing its canvas or report");
+/**
+ * Diagnostics mode (docs/spec/engine/runners.md#diagnostics-mode): the report under the game is hidden unless the address
+ * carries `?diagnostics`, F3 toggles it, and the `?parity` and `?tracer` measurement pages always show it.
+ */
+const pageParams = new URLSearchParams(location.search);
+const diagnosticsMode = createDiagnosticsMode(diagnosticsRequested(location.search) || pageParams.has("parity") || pageParams.has("tracer"));
+exposeDiagnosticsMode(diagnosticsMode, window);
+const syncReportVisibility = (): void => {
+  if (output.dataset["error"] === undefined) output.hidden = !diagnosticsMode.on();
+};
+diagnosticsMode.onChange(syncReportVisibility);
+syncReportVisibility();
+/** An error that stops the player, or loses its saves, is shown whether or not diagnostics mode is on. */
+function showReportError(report: HTMLPreElement, text: string): void {
+  report.textContent = text;
+  report.dataset["error"] = "";
+  report.hidden = false;
+}
 const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false, alpha: false, preserveDrawingBuffer: true });
 if (gl === null) {
-  output.textContent = "player: this browser has no WebGL2 context";
+  showReportError(output, "player: this browser has no WebGL2 context");
   window.__report = { error: "no-webgl2" };
   vscodeApi?.postMessage({ type: "status", status: { state: "failed", tick: 0, board: null, stalledOn: null, diagnostics: [], message: "This browser has no WebGL2 context." } });
   if (new URLSearchParams(location.search).has("editor") && window.parent !== window) {
@@ -125,7 +164,7 @@ async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, 
     await runParity(session, report, game, pack);
   } catch (error) {
     window.__report = { error: String(error) };
-    report.textContent = `player: ${String(error)}`;
+    showReportError(report, `player: ${String(error)}`);
     editorChannel?.postMessage({ state: "failed", tick: 0, board: null, stalledOn: null, diagnostics: [], message: String(error) });
   }
 }
@@ -144,7 +183,7 @@ async function durableBlobs(report: HTMLPreElement): Promise<BlobHost | null> {
   try {
     return createBlobHost({ backend: await createIndexedDbBlobBackend(indexedDB, "tkr-saves"), storage: navigator.storage });
   } catch (error) {
-    report.textContent = `${report.textContent ?? ""}\nsaves unavailable: ${String(error)}`;
+    showReportError(report, `${report.textContent ?? ""}\nsaves unavailable: ${String(error)}`);
     return null;
   }
 }
@@ -169,7 +208,8 @@ async function loadPackage(params: URLSearchParams, report: HTMLPreElement, pack
   });
   controller.subscribe((state) => {
     window.__load = state;
-    report.textContent = describeLoad(packageName, state);
+    if (state.phase === "failed") showReportError(report, describeLoad(packageName, state));
+    else report.textContent = describeLoad(packageName, state);
   });
   const listing = fetch("/apps/browser/bundled.json").then(async (response) => {
     if (!response.ok) throw new Error(`apps/browser/bundled.json answered ${response.status}`);
@@ -308,7 +348,7 @@ async function bootInteractive(
       activeSession = null;
       delete window.__session;
       window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
-      report.textContent = `player: ${String(error)}`;
+      showReportError(report, `player: ${String(error)}`);
     }
   };
 
@@ -479,12 +519,24 @@ async function bootEditorGame(
     phase: "ready", mode: "whole", progress: { received: 0, total: null },
     storage: { persisted: "not-requested", quota: "not-needed", kept: false, error: null }, error: null,
   };
+  // The editor's status is posted at once when what it shows changes, and otherwise at most every
+  // LIVE_REPORT_INTERVAL_MS, so the editor does not re-render on every frame and the state is not hashed every frame.
+  let lastStatusAt = Number.NEGATIVE_INFINITY;
+  let lastStatusKey = "";
   dispose = startLiveLoop(session, screen, report, overlay, () => load, hostViewport, (live) => {
-    updateSnapshotHash(live.stateHash);
-    rememberLiveHash(live.tick, live.stateHash);
-    channel.postMessage({ state: live.error ? "failed" : live.stalls?.blocking ? "stalled" : "running",
-      tick: live.tick, board: live.board, stateHash: live.stateHash, stalledOn: live.stalls?.blocking ?? null,
-      diagnostics: live.diagnostics ?? [], message: live.error ?? null });
+    const state = live.error ? "failed" : live.stalls?.blocking ? "stalled" : "running";
+    const stalledOn = live.stalls?.blocking ?? null;
+    const diagnostics = live.diagnostics ?? [];
+    const key = JSON.stringify([state, live.board, stalledOn, diagnostics.length, live.error ?? null]);
+    const now = performance.now();
+    if (key === lastStatusKey && now - lastStatusAt < LIVE_REPORT_INTERVAL_MS) return;
+    lastStatusKey = key;
+    lastStatusAt = now;
+    const stateHash = live.stateHash;
+    updateSnapshotHash(stateHash);
+    rememberLiveHash(live.tick, stateHash);
+    channel.postMessage({ state, tick: live.tick, board: live.board, stateHash, stalledOn,
+      diagnostics, message: live.error ?? null });
   });
   const stop = (): void => {
     dispose?.();
@@ -544,6 +596,9 @@ function startLiveLoop(
   let pending: PendingInput[] = [];
   let titleFrames = 0;
   let titleWindowStart = performance.now();
+  // Counts `advance` calls, so a report's lazy state hash can tell that a later advance has started.
+  let advanceGeneration = 0;
+  let lastReportTextAt = Number.NEGATIVE_INFINITY;
   const viewSize = session.viewSize();
   const displayGeometry = createObservedHostGeometry(session.displayGeometry());
   const fallbackControlKeys = new Set<string>();
@@ -589,7 +644,14 @@ function startLiveLoop(
     dispatchFallbackAction,
     () => session.engine.surfaceCacheEpoch(),
   );
+  // Turning diagnostics on fills the report on the next presented frame rather than after the refresh interval.
+  const stopModeListener = diagnosticsMode.onChange(() => { lastReportTextAt = Number.NEGATIVE_INFINITY; });
   const key = (event: KeyboardEvent, down: boolean): void => {
+    if (isDiagnosticsToggle(event)) {
+      event.preventDefault();
+      if (down && !event.repeat) diagnosticsMode.toggle();
+      return;
+    }
     if (shouldSuppressGameplayKey(event.code, event.repeat, down, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
@@ -621,6 +683,7 @@ function startLiveLoop(
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
+    stopModeListener();
     hostObserver.dispose();
     if (frameId !== null) window.cancelAnimationFrame(frameId);
     if (spinnerTimer !== null) window.clearInterval(spinnerTimer);
@@ -660,6 +723,8 @@ function startLiveLoop(
         const tickBeforeAdvance = session.tick();
         pending = [];
         advancing = true;
+        advanceGeneration += 1;
+        const generation = advanceGeneration;
         session.advance(wholeTicks, inputs).then(() => {
           if (disposed) return;
           if (session.tick() !== tickBeforeAdvance) touchControls.acknowledgeSubmittedBatch(submittedActionSequence);
@@ -670,9 +735,14 @@ function startLiveLoop(
           const drawn = session.draw(accumulator / stepMs);
           const player = session.playerPosition();
           const state = loadState();
+          let stateHash: string | undefined;
           const live: LiveReport = {
             tick: session.tick(),
-            stateHash: session.stateHash(),
+            // Hashed on first read only, and only while no later advance has started, so the pair stays exact.
+            get stateHash(): string {
+              if (stateHash === undefined && !advancing && generation === advanceGeneration) stateHash = session.stateHash();
+              return stateHash ?? "";
+            },
             drawHash: drawn.drawHash,
             board: session.boardKey(),
             player,
@@ -683,6 +753,13 @@ function startLiveLoop(
           window.__live = live;
           window.__report = live;
           onLive?.(live);
+          // The report text is diagnostics: with the mode off it is neither written nor hashed for.
+          if (!diagnosticsMode.on()) return;
+          // Capture this frame before throttling text, so retained diagnostic reports stay exact.
+          live.stateHash;
+          const reportNow = performance.now();
+          if (reportNow - lastReportTextAt < LIVE_REPORT_INTERVAL_MS) return;
+          lastReportTextAt = reportNow;
           report.textContent = [
             `live ${location.search.includes("package=") ? "package" : "game"} — tick ${live.tick}`,
             `state ${live.stateHash}`,
@@ -696,12 +773,12 @@ function startLiveLoop(
           if (disposed) return;
           window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error), stalls: summary(false) };
           onLive?.(window.__live);
-          report.textContent = `player: ${String(error)}`;
+          showReportError(report, `player: ${String(error)}`);
           dispose();
         });
       }
     } else if (window.__live !== undefined) {
-      window.__live = { ...window.__live, stalls: summary(spinner) };
+      window.__live = withStalls(window.__live, summary(spinner));
     }
     // The project's window title (main-file row 56, `bFpsInTitleBar`) is the host's presentation measurement, so it is
     // recomputed once a second from frames actually presented and never enters simulation state.

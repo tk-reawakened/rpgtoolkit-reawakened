@@ -177,6 +177,19 @@ export {
   type CharacterAuthoringFields,
 } from "./sprite-document.ts";
 export {
+  ANIMATION_FRAME_LIMIT,
+  animationCodec,
+  createAnimationDocument,
+  createNewAnimationDocument,
+  newAnimationBytes,
+  openAnimationDocument,
+  type AnimationCommand,
+  type AnimationDocument,
+  type AnimationDocumentFields,
+  type AnimationDocumentSnapshot,
+  type AnimationOpenResult,
+} from "./animation-document.ts";
+export {
   colourOfShade,
   createTileBitmapDocument,
   lightnessOfShade,
@@ -201,7 +214,7 @@ export {
 } from "./tile-bitmap-document.ts";
 export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
-export { asBoardDocument, asMainDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asAnimationDocument, asBoardDocument, asMainDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export {
   createProgramDocument,
   openProgramDocument,
@@ -394,3 +407,7 @@ export {
   type ProgramPreferences,
   type VscodeConfiguration,
 } from "./preferences.ts";
+export * from "./checkpoint-groups.ts";
+export * from "./animation-authoring.ts";
+
+export type { AnimationFrame } from "./animation-document.ts";

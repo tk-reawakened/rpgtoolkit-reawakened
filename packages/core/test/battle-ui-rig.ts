@@ -35,7 +35,7 @@ import {
   writeTileset,
   type ActorRecord,
   type AudioCue,
-  type Engine,
+  type OnRequestEngine,
   type GameState,
   type PackageCatalogueEntry,
 } from "../src/index.ts";
@@ -596,7 +596,7 @@ function catalogue(options: RigOptions): readonly PackageCatalogueEntry[] {
 type Reply = { readonly tick: number; readonly event: { readonly kind: "asset"; readonly reqId: number; readonly bytes: Uint8Array | null } | { readonly kind: "key"; readonly name: string; readonly code: string; readonly char: string | null; readonly down: boolean } | { readonly kind: "action"; readonly action: string; readonly down: boolean; readonly source: string; readonly modalId: number | null } };
 
 export type UiRig = {
-  readonly engine: Engine;
+  readonly engine: OnRequestEngine;
   readonly files: Map<string, Uint8Array>;
   readonly diagnostics: { readonly code: string; readonly message: string }[];
   readonly requested: string[];
@@ -637,6 +637,7 @@ export function bootUiRig(options: RigOptions = {}): UiRig {
   let seeded = false;
   const font = new Uint8Array(readFileSync(join(repoRoot, "media", "fonts", "tkr-8x8.fnt")));
   const engine = createEngine({
+    stateHashInReports: "on-request",
     seed: options.seed ?? 291,
     assetIndex: createAssetIndex(game.paths),
     assetRoot: PACKAGE_ROOT,

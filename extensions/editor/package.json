@@ -14,18 +14,23 @@
     "onCustomEditor:tkr.board",
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
+    "onCustomEditor:tkr.animation",
     "onView:tkr.game",
-    "workspaceContains:Main/*.gam",
+    "onStartupFinished",
     "onCommand:tkr.newProject",
     "onCommand:tkr.packageGame",
     "onCommand:tkr.newProgram",
     "onCommand:tkr.insertProgramHeader",
     "onCommand:tkr.insertProgramCommand",
+    "onCommand:tkr.openProgramAuthoringGuide",
+    "onCommand:tkr.openWhatsNew",
     "onCommand:tkr.distractionFree",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
     "onCommand:tkr.startBoard",
-    "onCommand:tkr.testProgram"
+    "onCommand:tkr.testProgram",
+    "onCommand:tkr.newAnimation",
+    "onCommand:tkr.animationRecovery"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -77,11 +82,29 @@
       },
       {
         "command": "tkr.insertProgramCommand",
-        "title": "RPG Toolkit: Insert a command into the program"
+        "title": "RPG Toolkit: Search and insert an RPGCode command from the quick reference"
+      },
+      {
+        "command": "tkr.openProgramAuthoringGuide",
+        "title": "RPG Toolkit: Open RPGCode authoring guide"
+      },
+      {
+        "command": "tkr.openWhatsNew",
+        "title": "RPG Toolkit: What's New"
       },
       {
         "command": "tkr.distractionFree",
         "title": "RPG Toolkit: Distraction-free mode"
+      },
+      {
+        "command": "tkr.newAnimation",
+        "title": "New animation",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.animationRecovery",
+        "title": "Project recovery",
+        "category": "TK Reawakened"
       }
     ],
     "menus": {
@@ -146,6 +169,16 @@
         "selector": [
           {
             "filenamePattern": "*.tbm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.animation",
+        "displayName": "RPG Toolkit Animation Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.anm"
           }
         ],
         "priority": "default"

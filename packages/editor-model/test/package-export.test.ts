@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { exampleBoard } from "./fixtures.ts";
-import { createDocumentWorkspace, prepareGamePackage } from "../src/index.ts";
+import { createCheckpointGroups, createDocumentWorkspace, prepareGamePackage } from "../src/index.ts";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { platformOk } from "@tk-reawakened/platform-services";
 import { PACKAGE_LIMITS, loadPackage, newProjectMainFile, readDistributionManifest, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
@@ -47,9 +47,14 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd"): Reado
 
 test("preflight creates a readable playable TPK and exact sibling install descriptor with auditable exclusions", async () => {
   const { workspace, services } = packageHost(authoredFiles());
+  const groups = createCheckpointGroups({ fs: services.fs, projectId: "memory-project", hash: async (bytes) => createHash("sha256").update(bytes).digest("hex"), newId: () => "export-proof", time: () => "2026-11-15", guard: async () => null, consent: async () => true });
+  const checkpoint = await groups.commit([{ path: "Prg/start.prg", bytes: utf8Encode("END\n") }]); ok(checkpoint.ok);
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3" });
   ok(outcome.ok, outcome.ok ? "" : outcome.message);
   const prepared = outcome.value;
+  ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/groups/")));
+  ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/contents/")));
+  ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/progress/")));
 
   deepEqual([...prepared.includedFiles].sort(), ["Boards/start.brd", "Main/demo.gam", "Prg/start.prg"]);
   for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/script-spec/startup.prg", "Boards/editor.tkrscn", "Tiles/editor.tkrTile", "Packs/editor.tkrpack", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {

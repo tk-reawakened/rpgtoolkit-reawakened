@@ -3,7 +3,7 @@
 // authored fixture for its kind and no engine (the owner's test-speed rule).
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { TILE_BITMAP_MAGIC, writeTileBitmap } from "@tk-reawakened/core";
+import { ANIMATION_MAGIC, TILE_BITMAP_MAGIC, writeAnimation, writeTileBitmap } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyCommand, type AnyDocument } from "../src/index.ts";
 import { exampleBoard, exampleCharacter, exampleItem, exampleMain, exampleTileset } from "./fixtures.ts";
@@ -34,6 +34,21 @@ function exampleTileBitmap(): Uint8Array {
   return written.value;
 }
 
+function exampleAnimation(): Uint8Array {
+  const written = writeAnimation({
+    magic: ANIMATION_MAGIC,
+    major: 2,
+    minor: 3,
+    width: 32,
+    height: 32,
+    frames: [{ image: "walk.png", transparent: { r: 255, g: 0, b: 255 }, sound: "" }],
+    delay: 0.1,
+    residue: new Uint8Array(),
+  });
+  if (!written.ok) throw new Error(written.error.message);
+  return written.value;
+}
+
 const CASES: readonly KindCase[] = [
   {
     kind: "main",
@@ -55,6 +70,13 @@ const CASES: readonly KindCase[] = [
     bytes: exampleTileBitmap(),
     accepted: { type: "set-bitmap-cell", x: 1, y: 0, tile: "village.tst2" },
     rejected: { type: "set-bitmap-cell", x: 2, y: 0, tile: "village.tst2" },
+  },
+  {
+    kind: "animation",
+    path: "Misc/walk.anm",
+    bytes: exampleAnimation(),
+    accepted: { type: "insert-animation-frame", index: 1, frame: { image: "run.png", transparent: { r: 0, g: 0, b: 0 }, sound: "step.wav" } },
+    rejected: { type: "insert-animation-frame", index: 3, frame: { image: "bad.png", transparent: { r: 0, g: 0, b: 0 }, sound: "" } },
   },
   {
     kind: "character",

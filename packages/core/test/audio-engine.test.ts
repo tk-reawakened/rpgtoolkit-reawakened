@@ -52,7 +52,7 @@ type Hosted = { readonly engine: Engine; readonly state: () => GameState };
 
 function startEngine(game: Game, program: string, hook: (state: GameState) => void = () => undefined): Hosted {
   let latest: GameState | null = null;
-  const init: EngineInit = {
+  const init: EngineInit & { readonly stateHashInReports?: "every-advance" } = {
     seed: 5,
     assetIndex: game.index,
     assetRoot: PACKAGE_ROOT,

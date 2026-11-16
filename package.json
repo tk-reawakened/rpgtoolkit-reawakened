@@ -45,8 +45,9 @@
     "icons": "node tools/icons/build.mjs",
     "icons:test": "node --test tools/icons/test/icons.test.mjs",
     "editor-ui-toolchain:test": "node --test tools/editor-ui-toolchain/test/*.test.mjs",
-    "editor-ui-toolchain:check": "node tools/editor-ui-toolchain/check-bundles.mjs",
+    "editor-ui-toolchain:check": "node tools/editor-ui-toolchain/check-bundles.mjs && node tools/editor-ui-toolchain/generate-help-content.mjs --check",
     "no-skips:test": "node --test tools/no-skips/test/*.test.mjs",
+    "help-content:generate": "node tools/editor-ui-toolchain/generate-help-content.mjs",
     "audio-protocol:check": "node tools/fixtures/audio-protocol/generate.mjs --check",
     "runner-protocol:check": "node tools/fixtures/runner-protocol/generate.mjs --check && node tools/fixtures/runner-protocol/generate-v2.mjs --check && node tools/fixtures/runner-protocol/generate-v3.mjs --check",
     "browser:build": "node tools/browser/build.mjs",
@@ -86,7 +87,8 @@
     "saveload:record": "tsc -b && node tools/fixtures/saveload/record.mjs",
     "saveload:check": "tsc -b && node tools/fixtures/saveload/record.mjs --check",
     "closing:suite": "tsc -b && node tools/closing/suite.mjs",
-    "test:affected": "node tools/no-skips/affected.mjs"
+    "test:affected": "node tools/no-skips/affected.mjs",
+    "perf:player": "node tools/perf/profile-player.mjs --package demo --seconds 8"
   },
   "devDependencies": {
     "@capacitor/android": "8.4.3",
@@ -97,7 +99,9 @@
     "@happy-dom/global-registrator": "21.0.4",
     "@playwright/test": "1.64.0",
     "@tk-reawakened/core": "workspace:*",
+    "@tk-reawakened/host-vscode": "workspace:*",
     "@tk-reawakened/editor-model": "workspace:*",
+    "@tk-reawakened/editor-vscode-test": "workspace:*",
     "@tk-reawakened/runner-harness": "workspace:*",
     "@tk-reawakened/runner-headless": "workspace:*",
     "@tk-reawakened/runner-web": "workspace:*",

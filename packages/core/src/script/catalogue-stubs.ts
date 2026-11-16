@@ -121,13 +121,6 @@ const STUBS: readonly CatalogueStub[] = [
     params: [{ name: "h", optional: true, byRef: false, variadic: false }, { name: "flag", optional: false, byRef: true, variadic: false }],
   },
   {
-    name: "spritetranslucency",
-    kind: "state-write",
-    sections: ["sprites"],
-    obsolete: false,
-    params: [{ name: "percent", optional: false, byRef: false, variadic: false }],
-  },
-  {
     name: "pathfind",
     kind: "pure",
     sections: [],

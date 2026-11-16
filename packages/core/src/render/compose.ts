@@ -58,6 +58,8 @@ export type SpriteDraw = {
   readonly translucency?: number;
   readonly blend?: "normal" | "additive" | "translucent";
   readonly prev?: readonly [number, number] | { readonly x: number; readonly y: number };
+  /** Walk glide: draw from `from` toward (x, y) over `span` ticks, `elapsed` of which have passed (presentation only). */
+  readonly glide?: { readonly from: { readonly x: number; readonly y: number }; readonly elapsed: number; readonly span: number };
   readonly under?: readonly number[];
   readonly collisionBase?: readonly WorldPoint[];
 
@@ -89,6 +91,8 @@ export type BoardView = {
   readonly blits?: readonly BoardBlit[];
   /** Script ambient is summed with board ambient once per tile blit (E-17). */
   readonly globalAmbient?: Tint;
+  /** `spriteTranslucency(percent)`: how visible a sprite stays under higher-layer tiles (E-31). Absent means the original default, 50. */
+  readonly spriteTranslucency?: number;
 };
 
 function visible(rect: Rect, viewport: { readonly width: number; readonly height: number }): boolean {
@@ -200,6 +204,10 @@ function spritePosition(
   sprite: SpriteDraw,
   alpha: number,
 ): { readonly x: number; readonly y: number } {
+  if (sprite.glide !== undefined && sprite.glide.span > 1) {
+    const t = Math.max(0, Math.min(1, (sprite.glide.elapsed + alpha) / sprite.glide.span));
+    return { x: sprite.glide.from.x + (sprite.x - sprite.glide.from.x) * t, y: sprite.glide.from.y + (sprite.y - sprite.glide.from.y) * t };
+  }
   if (sprite.prev === undefined) return { x: sprite.x, y: sprite.y };
   const prev = sprite.prev;
   let prevX = sprite.x;
@@ -244,6 +252,7 @@ function emitUnderVectorRedraw(
   spriteH: number,
   worldX: number,
   worldY: number,
+  covered?: Rect[],
 ): void {
   const vectors = board.vectors;
   if (vectors === undefined || vectors.length === 0) return;
@@ -302,6 +311,7 @@ function emitUnderVectorRedraw(
           rgb: board.background,
           filled: true,
         });
+        covered?.push({ x: dstX, y: dstY, w: spanW, h: 1 });
       }
     }
 
@@ -349,6 +359,7 @@ function emitUnderVectorRedraw(
           const srcY = y - tileY * TILE_SIZE;
           const dstX = subX1 - view.camera.x;
           if (!visible({ x: dstX, y: dstY, w: subW, h: 1 }, view.viewport)) continue;
+          covered?.push({ x: dstX, y: dstY, w: subW, h: 1 });
           commands.push({
             kind: "blit",
             source: { asset: selected.asset, tile: selected.tile },
@@ -372,6 +383,7 @@ function emitSprite(
   board: WorldBoard,
   view: BoardView,
   layers: readonly WorldLayer[],
+  redrawUnder = true,
 ): void {
   const pos = spritePosition(sprite, view.alpha);
   const worldX = pos.x;
@@ -469,7 +481,84 @@ function emitSprite(
     }
   }
 
-  emitUnderVectorRedraw(commands, sprite, board, view, layers, boardLeft, boardTop, spriteW, spriteH, worldX, worldY);
+  if (!redrawUnder) return;
+  const underRows: Rect[] | undefined = spritePercent(view) > 0 ? [] : undefined;
+  emitUnderVectorRedraw(commands, sprite, board, view, layers, boardLeft, boardTop, spriteW, spriteH, worldX, worldY, underRows);
+  // E-31: under-vector promotion hides the sprite behind the promoted rows; show it through them translucently.
+  if (underRows !== undefined && underRows.length > 0) {
+    for (const frame of translucentFrames(sprite, board, view, layers)) {
+      for (const row of underRows) {
+        const clipped = clipBlit(frame, row);
+        if (clipped !== null) commands.push(clipped);
+      }
+    }
+  }
+}
+
+/** E-31: the global ghost opacity, 50 unless a script set it. Stored values are unclamped; drawing clamps to 0..100. */
+function spritePercent(view: BoardView): number {
+  const value = view.spriteTranslucency ?? 50;
+  return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+}
+
+type BlitCommand = Extract<DrawCommand, { readonly kind: "blit" }>;
+
+/** The sprite's picture as translucent blits at the `spriteTranslucency` percentage (a `normal` blit would ignore alpha). */
+function translucentFrames(sprite: SpriteDraw, board: WorldBoard, view: BoardView, layers: readonly WorldLayer[]): BlitCommand[] {
+  const percent = spritePercent(view);
+  const drawn: DrawCommand[] = [];
+  emitSprite(drawn, { ...sprite, blend: "translucent", translucency: Math.floor(percent * 255 / 100 + 0.5) }, board, view, layers, false);
+  return drawn.filter((command): command is BlitCommand => command.kind === "blit");
+}
+
+/** Intersect a blit with a clip rectangle, keeping the source slice aligned with the visible part of the destination. */
+function clipBlit(command: Extract<DrawCommand, { readonly kind: "blit" }>, clip: Rect): DrawCommand | null {
+  const left = Math.max(command.dst.x, clip.x);
+  const top = Math.max(command.dst.y, clip.y);
+  const right = Math.min(command.dst.x + command.dst.w, clip.x + clip.w);
+  const bottom = Math.min(command.dst.y + command.dst.h, clip.y + clip.h);
+  if (right <= left || bottom <= top) return null;
+  if (command.dst.w !== command.src.w || command.dst.h !== command.src.h) return null;
+  return {
+    ...command,
+    src: { x: command.src.x + (left - command.dst.x), y: command.src.y + (top - command.dst.y), w: right - left, h: bottom - top },
+    dst: { x: left, y: top, w: right - left, h: bottom - top },
+  };
+}
+
+/**
+ * E-31 (a `normal` blit replaces pixels and ignores alpha, so the redraw must be `translucent`): the parts of a sprite that higher-layer tiles cover are drawn again, translucently, over those tiles so the
+ * sprite stays visible behind trees and roofs. The redraw is clipped to the covering tile cells; a sprite blended
+ * with its own opaque pixels is unchanged, so cells that only partly cover the sprite do not alter the rest of it.
+ */
+function emitCoveredSprite(
+  commands: DrawCommand[],
+  sprite: SpriteDraw,
+  board: WorldBoard,
+  view: BoardView,
+  layers: readonly WorldLayer[],
+): void {
+  if (spritePercent(view) <= 0 || sprite.layer >= layers.length) return;
+  if (isIsometric(coordLayout(board.coordType))) return;
+  const frames = translucentFrames(sprite, board, view, layers);
+  if (frames.length === 0) return;
+  for (const frame of frames) {
+    const firstX = Math.floor((frame.dst.x + view.camera.x) / TILE_SIZE);
+    const lastX = Math.floor((frame.dst.x + frame.dst.w - 1 + view.camera.x) / TILE_SIZE);
+    const firstY = Math.floor((frame.dst.y + view.camera.y) / TILE_SIZE);
+    const lastY = Math.floor((frame.dst.y + frame.dst.h - 1 + view.camera.y) / TILE_SIZE);
+    for (let ty = Math.max(0, firstY); ty <= Math.min(board.sizeY - 1, lastY); ty += 1) {
+      for (let tx = Math.max(0, firstX); tx <= Math.min(board.sizeX - 1, lastX); tx += 1) {
+        let covered = false;
+        for (let index = Math.max(1, sprite.layer); index < layers.length; index += 1) {
+          if ((layers[index]?.tiles[ty * board.sizeX + tx] ?? null) !== null) { covered = true; break; }
+        }
+        if (!covered) continue;
+        const clipped = clipBlit(frame, { x: tx * TILE_SIZE - view.camera.x, y: ty * TILE_SIZE - view.camera.y, w: TILE_SIZE, h: TILE_SIZE });
+        if (clipped !== null) commands.push(clipped);
+      }
+    }
+  }
 }
 
 function textureFor(
@@ -725,6 +814,9 @@ function composeBoardView(view: BoardView): DrawList {
         emitSprite(commands, sprite, board, view, layers);
       }
     }
+  }
+  if (view.include.sprites) {
+    for (const sprite of sortedSprites) emitCoveredSprite(commands, sprite, board, view, layers);
   }
   if (view.include.sprites && sortedSprites.length > 0) {
     const higherSprites = sortedSprites.filter((s) => s.layer > layers.length);

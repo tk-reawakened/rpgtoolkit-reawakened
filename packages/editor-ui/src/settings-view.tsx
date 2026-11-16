@@ -2,6 +2,7 @@ import type { ConflictChoice, SaveFailure } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { GameSettingsForm } from "./game-settings-form.tsx";
+import { focusedFieldHelp, HelpDocument, type HelpInvokerRef } from "./help-document.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { ViewDocument } from "./mount.ts";
 
@@ -21,10 +22,12 @@ export interface SettingsViewProps {
  */
 export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps) {
   const snapshot = useDocumentSnapshot(doc);
+  const [fieldHelp, setFieldHelp] = useState<{ readonly title: string; readonly markdown: string } | null>(null);
+  const helpInvoker = useRef<HelpInvokerRef>({ current: null });
   const [savePending, setSavePending] = useState(false);
   const [resolving, setResolving] = useState(false);
-  const [resolveError, setResolveError] = useState<string | null>(null);
   const [conflictChoicesDismissed, setConflictChoicesDismissed] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
   useEffect(() => {
     if (snapshot.conflict === null) setConflictChoicesDismissed(false);
   }, [snapshot.conflict]);
@@ -63,7 +66,20 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
   const conflict = snapshot.conflict;
 
   return (
-    <section class="tkr-settings" aria-label="Game settings">
+    <section
+      class="tkr-settings"
+      aria-label="Game settings"
+      onKeyDown={(event) => {
+        if (event.defaultPrevented || event.key !== "F1") return;
+        const target = event.target instanceof Element ? event.target : null;
+        const help = focusedFieldHelp(target);
+        if (help === null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        helpInvoker.current.current = target instanceof HTMLElement ? target : null;
+        setFieldHelp(help);
+      }}
+    >
       <h2 class="tkr-settings-heading">Game settings</h2>
       {snapshot.readOnly === null ? null : (
         <p class="tkr-settings-readonly" role="note">
@@ -135,6 +151,14 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
         </p>
       )}
       <GameSettingsForm doc={doc} snapshot={snapshot} ids={ids} readOnly={readOnly} onEdited={onEdited} />
+      {fieldHelp === null ? null : (
+        <HelpDocument
+          title={fieldHelp.title}
+          markdown={fieldHelp.markdown}
+          invoker={helpInvoker.current}
+          onClose={() => setFieldHelp(null)}
+        />
+      )}
     </section>
   );
 }

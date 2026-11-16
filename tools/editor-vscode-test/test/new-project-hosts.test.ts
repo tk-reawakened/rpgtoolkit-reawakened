@@ -105,6 +105,9 @@ function startWizard(root: MemoryDirectory, element: HTMLElement, options: { pic
 }
 test("browser modal contains forward and reverse Tab focus", async () => {
   const { root, element } = folder();
+  const invoker = document.createElement("button");
+  element.before(invoker);
+  invoker.focus();
   const made = startWizard(root, element);
   await settle(act);
   const first = field(element, "Game name");
@@ -117,6 +120,7 @@ test("browser modal contains forward and reverse Tab focus", async () => {
   await act(() => { element.querySelector<HTMLFormElement>("form")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
   const cancelled = await made;
   equal(cancelled.ok, false);
+  equal(document.activeElement === invoker, true, "closing the modal returns focus to its invoker");
 });
 
 function customStarter(): StarterDefinition {

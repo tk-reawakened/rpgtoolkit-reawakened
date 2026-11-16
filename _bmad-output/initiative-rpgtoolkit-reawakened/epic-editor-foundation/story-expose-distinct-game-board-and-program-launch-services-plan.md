@@ -2,7 +2,7 @@
 type: feature
 title: "Expose distinct game board and program launch services"
 ticket: 8
-status: built
+status: done
 baseline_revision: df4b811ae6d44f07e5f15f680e9b628e5a9643e0
 ---
 
@@ -67,3 +67,7 @@ Independent same-model adversarial review of the full PR diff against main `597d
 | 6 | VS Code proof compared two player-side hashes, not the recorded service snapshot | #2658 | Probe publishes the returned `RunHandle`; proofs match its hash against the player's live-hash history and check retention after stop | nulling the extension's hash forwarding fails the board proof (`RunHandle hash never matched a player live hash`) |
 
 Review gaps also closed: a five-member ordered party starts, and a missing party member is refused by name (`run.test.ts`).
+
+## Merged-state reconciliation, 2026-11-15
+
+PR #2290 merged as `faafd71756f277aab5b0804723dc03c643ae4346` and #1706 is closed. At `3e61f3c2aedd2cd86dc0c29b5ebd750f5708f7bf`, `launch.test.ts` and `board-launch.test.ts` passed in the 37-test adapter/launch run (zero skips), including deterministic fresh party/board state. Existing native/browser launch proofs remain required. This does not close #1707's semantic creator-test/action API.

@@ -620,6 +620,8 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         run: |
           pnpm --dir extensions/editor build
+          npm --prefix extensions/rpgcode ci --ignore-scripts --no-audit --no-fund
+          node extensions/rpgcode/build.mjs
       # The image should already provide `xvfb-run`. Install that one package only if it is missing, so a missing
       # package is visible in the log rather than hidden. The parity spec launches the built Electron player beside the
       # PWA page (`ELECTRON_DISABLE_SANDBOX` covers root in the container), so the lane builds the desktop bundles

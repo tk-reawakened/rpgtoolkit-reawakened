@@ -24,6 +24,19 @@ const OFFSET_BASIS_LOW = 0x84222325;
 // limb is 0x1b3.
 const PRIME_LOW = 0x1b3;
 
+// Bytes scanned by the FNV loops since the module loaded. Observation only: nothing in the simulation reads it, so it
+// cannot change a hash, a pixel or a sound. Performance budget tests read it (docs/adr/0035-performance-budgets.md).
+let scannedBytes = 0;
+
+/**
+ * How many bytes the FNV-1a loops have scanned since this module loaded. A deterministic work count for performance
+ * budget tests, which compare it before and after an operation (docs/adr/0035-performance-budgets.md); it never feeds
+ * the simulation.
+ */
+export function fnv1a64ScannedBytes(): number {
+  return scannedBytes;
+}
+
 /**
  * The 16-lowercase-hex FNV-1a 64-bit hash of `input`. A string is encoded to
  * UTF-8 first, so `fnv1a64("a")` hashes the same byte as `fnv1a64(utf8Encode("a"))`.
@@ -42,6 +55,7 @@ export function fnv1a64Update(input: string | Uint8Array, state: Fnv1a64State): 
 
 /** Continue over ASCII text without constructing an intermediate UTF-8 buffer. */
 export function fnv1a64UpdateAscii(input: string, state: Fnv1a64State): void {
+  scannedBytes += input.length;
   let high = state.high;
   let low = state.low;
   for (let i = 0; i < input.length; i += 1) {
@@ -76,6 +90,7 @@ function process(
   updateOnly: boolean,
 ): string | undefined {
   const bytes = typeof input === "string" ? utf8Encode(input) : input;
+  scannedBytes += bytes.length;
   let high = state?.high ?? OFFSET_BASIS_HIGH;
   let low = state?.low ?? OFFSET_BASIS_LOW;
 

@@ -1,3 +1,4 @@
+import { registerAnimationCommands } from "./animation-commands.ts";
 import * as vscode from "vscode";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
@@ -8,11 +9,11 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
-const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap"] as const;
+const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation"] as const;
 
 function html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
@@ -28,6 +29,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
   registerPackageGameCommand(context);
+  registerAnimationCommands(context, () => generation);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
   const port: GameEditorPort<vscode.Uri> = {
@@ -44,6 +46,9 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       return destination.toString();
     },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
+    isTextDocumentOpen: (uri) => vscode.workspace.textDocuments.some((document) => !document.isClosed
+      && document.uri.scheme === uri.scheme && document.uri.authority === uri.authority
+      && createDocumentIdentity("", document.uri.path).key === createDocumentIdentity("", uri.path).key),
     saveEditor: async (uri) => await vscode.workspace.save(uri),
     uriFor: (folder, path) => vscode.Uri.joinPath(folder.uri, ...path.split("/")),
     // `vscode.open` opens the file in the editor registered for it (a board opens in the board editor, by default).
@@ -139,8 +144,8 @@ interface PendingOpen {
 /**
  * The new-project command (T-04): the questions are VS Code's own input boxes and pick lists, then the folder dialog. The
  * created folder is opened as a workspace folder (the custom editors work on files inside one) and its main file in the
- * editor. Opening a folder into an empty window makes VS Code restart the extension host, so that case leaves the main file
- * to be opened by the next activation.
+ * editor. Opening a folder into an empty window, or converting a single-folder window into a workspace, restarts the
+ * extension host; those cases leave the main file to be opened by the next activation.
  */
 export function registerNewProject(context: vscode.ExtensionContext): void {
   const ui: NewProjectUi = {
@@ -167,7 +172,8 @@ export function registerNewProject(context: vscode.ExtensionContext): void {
           title: "New project: choose the destination folder",
           openLabel: "Create project here",
         });
-        const uri = chosen?.[0];
+        const selected = chosen?.[0];
+        const uri = selected === undefined ? undefined : vscode.Uri.joinPath(selected, ".");
         return uri === undefined ? undefined : { handle: uri, storage: createVscodeFileSystem(uri) };
       },
     });
@@ -198,22 +204,24 @@ async function openCreatedProject(context: vscode.ExtensionContext, destination:
     }
     return;
   }
-  let resolveAdded!: () => void;
-  const added = new Promise<void>((resolve) => {
-    resolveAdded = resolve;
+  // A folder-window conversion can emit a folder event before it restarts: only the next host may consume the request.
+  const restarting = folders.length === 1 && vscode.workspace.workspaceFile === undefined;
+  let listener: vscode.Disposable | undefined;
+  const added = restarting ? undefined : new Promise<void>((resolve) => {
+    listener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === pending.folder)) return;
+      listener?.dispose();
+      resolve();
+    });
+    context.subscriptions.push(listener);
   });
-  const listener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-    if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === destination.toString())) return;
-    listener.dispose();
-    resolveAdded();
-  });
-  context.subscriptions.push(listener);
   if (!vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri: destination })) {
-    listener.dispose();
+    listener?.dispose();
     await context.globalState.update(PENDING_OPEN, undefined);
     await vscode.window.showErrorMessage(`The project was created in ${destination.fsPath}, but VS Code could not add it to the workspace. Open the folder to edit it.`);
     return;
   }
+  if (added === undefined) return;
   await added;
   await context.globalState.update(PENDING_OPEN, undefined);
   await vscode.commands.executeCommand("vscode.open", main);

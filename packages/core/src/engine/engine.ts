@@ -36,7 +36,7 @@ import type { AssetKind } from "../formats/main-file/layout.ts";
 import type { AssetIndex, AssetRoot } from "../formats/resolver/model.ts";
 import type { DrawCommand, DrawList, Rgb, Tint } from "../ports/draw.ts";
 import type { InputRecord } from "../ports/input.ts";
-import type { Engine, Diagnostic, Breakpoint, DrawListInclude, RecoveryStatus, ResumeMode, SurfacePixels, TickObservation } from "../ports/engine.ts";
+import type { Engine, Diagnostic, Breakpoint, DrawListInclude, OnRequestEngine, RecoveryStatus, ResumeMode, StateHashInReports, SurfacePixels, TickObservation, TickReport } from "../ports/engine.ts";
 import type { HostDisplayGeometry, HostFeatures, NormalizedHostFeatures } from "../ports/host.ts";
 import type { InputConfig } from "../input/input.ts";
 import type { RegisteredAction } from "../save/sections/input.ts";
@@ -204,6 +204,12 @@ type EngineCommonInit = {
   readonly effectAppliers?: readonly { readonly section: SectionKey; readonly applier: EffectApplier }[];
   /** Optional observation-only hashes (docs/spec/engine/main-loop-and-startup.md#completed-tick-observation-test-and-diagnostic-runners). */
   readonly tickObserver?: (observation: TickObservation) => void;
+  /**
+   * When `advance` hashes the state (docs/spec/engine/runners.md#state-hash-cadence). The default `"every-advance"`
+   * puts the hash in every report, as golden, closing and replay runners need. `"on-request"` leaves it out, and the
+   * runner calls `stateHash()` when it needs the value, so a live player does not hash the state on every frame.
+   */
+  readonly stateHashInReports?: StateHashInReports;
   readonly cameraTarget?: CameraTarget;
   readonly spriteRuntime?: SpriteRuntime;
   /** The author's default SoundFont (docs/spec/engine/audio-media.md#soundfont-layers rank 3); `null` or absent for none. */
@@ -343,7 +349,10 @@ const DEFAULT_GAME_AUDIO_SETTINGS = {
   tracks: BUILTIN_TRACKS.map(([name, voiceCount]) => ({ name, voiceCount })),
   voiceCap: MAX_VOICES,
 };
-export function createEngine(init: EngineInit): Engine {
+export function createEngine(init: EngineInit & { readonly stateHashInReports: "on-request" }): OnRequestEngine;
+export function createEngine(init: EngineInit & { readonly stateHashInReports?: "every-advance" }): Engine;
+export function createEngine(init: EngineInit): Engine | OnRequestEngine;
+export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   const index = init.assetIndex;
   let recoveryCandidateBytes = init.mainFile === undefined || init.recoveryCandidate == null
     ? null
@@ -4941,7 +4950,7 @@ export function createEngine(init: EngineInit): Engine {
   }
 
   function currentDrawList(alpha = 0, include = init.include ?? { shading: false, images: false, sprites: false }): DrawList {
-    const spriteInput = [...spriteDraws(state.sprites, spriteFrameFor), ...(presentation.sprites ?? [])];
+    const spriteInput = [...spriteDraws(state.sprites, spriteFrameFor, state.time.tick), ...(presentation.sprites ?? [])];
     const board: WorldBoard | null = state.world.board ?? null;
     const camera = positionAt(state.camera, Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0);
     /** The selected player's remaining route, or `null` when it has nothing queued. */
@@ -5004,6 +5013,7 @@ export function createEngine(init: EngineInit): Engine {
         alpha: Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0,
         include,
         assets: decodedAssets(),
+        ...(state.sprites.translucency === undefined ? {} : { spriteTranslucency: state.sprites.translucency }),
         ...presentation,
         sprites: spriteInput,
       });
@@ -5290,8 +5300,12 @@ export function createEngine(init: EngineInit): Engine {
         diagnostics: reportDiagnostics,
         loading: !failed && (pending.size > 0 || pendingBlobs.size > 0),
         paused,
-        stateHash: hashGameState(state),
-      };
+        // An "on-request" engine's report has no hash; its type (`OnRequestTickReport`) says so.
+        ...(init.stateHashInReports === "on-request" ? {} : { stateHash: hashGameState(state) }),
+      } as TickReport;
+    },
+    stateHash() {
+      return hashGameState(state);
     },
     registeredActionNames() {
       return ["up", "down", "left", "right", "confirm", "cancel", "menu", ...state.input.registeredActions.map((action) => action.name)];

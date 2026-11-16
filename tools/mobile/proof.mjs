@@ -95,7 +95,12 @@ async function livePage(page, timeoutMs = PROTOCOL_TIMEOUT_MS) {
 }
 
 async function report(page, timeoutMs = PROTOCOL_TIMEOUT_MS) {
-  return protocolCall("reading the mobile page report", () => page.evaluate(() => window.__mobile ?? null), timeoutMs);
+  return protocolCall("reading the mobile page report", () => page.evaluate(() => {
+    // The installed app cannot be given `?diagnostics`; the proof turns the mode on so the report carries its state hash
+    // on every frame and the title mirrors it (docs/spec/engine/runners.md#diagnostics-mode).
+    window.__tkrDiagnostics?.(true);
+    return window.__mobile ?? null;
+  }), timeoutMs);
 }
 
 async function waitFor(page, predicate, description, timeoutMs = 90_000) {
@@ -125,10 +130,10 @@ async function captureReading(page, label, options, timeoutMs = 90_000) {
   while (Date.now() < deadline) {
     try {
       const remaining = Math.max(5_000, Math.min(sliceMs, deadline - Date.now()));
-      const captured = await protocolCall(`capturing ${label} page reading`, () => page.evaluate(() => ({
-        report: window.__mobile ?? null,
-        documentTitle: document.title,
-      })), remaining);
+      const captured = await protocolCall(`capturing ${label} page reading`, () => page.evaluate(() => {
+        window.__tkrDiagnostics?.(true);
+        return { report: window.__mobile ?? null, documentTitle: document.title };
+      }), remaining);
       const pageReport = assertReport(captured.report, label, options);
       assertDocumentTitle(pageReport, captured.documentTitle, label);
       return { report: pageReport, documentTitle: captured.documentTitle };
@@ -313,10 +318,10 @@ async function settledPlayer(page, initialReport = null, timeoutMs = 90_000) {
     const remaining = Math.max(5_000, Math.min(sliceMs, deadline - Date.now()));
     let reading = null;
     try {
-      reading = await protocolCall("reading settled player report", () => page.evaluate(() => ({
-        report: window.__mobile ?? null,
-        documentTitle: document.title,
-      })), remaining);
+      reading = await protocolCall("reading settled player report", () => page.evaluate(() => {
+        window.__tkrDiagnostics?.(true);
+        return { report: window.__mobile ?? null, documentTitle: document.title };
+      }), remaining);
     } catch {
       sliceMs = Math.min(sliceMs * 1.5, PROTOCOL_TIMEOUT_MS);
       await delay(1_000);

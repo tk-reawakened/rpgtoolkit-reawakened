@@ -16,6 +16,9 @@ Players and board items are both "sprites". This page describes how they move, w
 
 **Reawakened rule (OWNER; presentation alpha; amended 2026-11-07).** `alpha` is presentation-only interpolation of the camera and optional prior sprite positions. It is never stored in simulation state and is excluded from state and draw-list hashes. A sprite's prior position represents only the immediately preceding movement tick: advance that history before updating the actor, including cadence-only, frozen and idle ticks. A tick without displacement therefore interpolates from the current position to itself, rather than replaying an older movement.
 
+<a id="reawakened-walk-glide"></a>
+**Reawakened rule (OWNER; walk glide, 2026-11-15; amends the paragraph above for a *walking* actor only).** In plain terms: a walking character slides smoothly from one 4-pixel advance to the next instead of hopping 4 pixels at a time, as the original engine looks on screen (the demo's old man walks smoothly, not in jerks). Technically, and deterministically: each time an actor's position changes in the movement phase, the actor records the position it left and the tick of that advance (`advanced`, plain data in the actor's state). For `ticksPerAdvance` ticks after that advance (R-50), a renderer draws the actor at `from + (current − from) × min(1, (ticksSince + alpha) / ticksPerAdvance)`, where `ticksSince` is the current tick minus the advance tick. After that interval, or when `ticksPerAdvance` is 1, the actor is drawn at its current position, so a stationary actor never slides back toward an old position. The simulation position, collision, triggers, hashes of positions and everything else the engine decides still use the current position, never the glide; only the drawn position lags by at most one advance interval (50 ms at the default speed). Sprite ordering uses the drawn position.
+
 ## Movement modes
 
 | Main-file `pixelMovement` | Behaviour |

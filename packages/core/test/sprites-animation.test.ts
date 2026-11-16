@@ -134,3 +134,21 @@ test("actor animation is deterministic across snapshot restore and fixed-tick ba
   equal(snapshot(right), snapshot(left));
   equal(hashState(right), hashState(left));
 });
+test("walk glide: a walking actor is drawn moving smoothly between 4 px advances and settles on its position", () => {
+  const board = sceneBoard();
+  const sprites = hydrateSprites({ board, players: [{ id: "hero", kind: "player", source: "hero.tem", x: 48, y: 63, layer: 1, controlled: true }] });
+  enqueueDirectionMove(sprites, "hero", "E");
+  const xs: number[] = [];
+  for (let tick = 0; tick < 9; tick += 1) {
+    runMovementPhase(sprites, board, tick);
+    // The engine draws after the tick's movement with the tick counter already advanced.
+    const draw = spriteDraws(sprites, undefined, tick + 1)[0]!;
+    xs.push(draw.glide === undefined ? draw.x : draw.glide.from.x + (draw.x - draw.glide.from.x) * Math.min(1, draw.glide.elapsed / draw.glide.span));
+  }
+  const steps = xs.slice(1).map((x, i) => x - xs[i]!);
+  // Default speed: 3 ticks per 4 px advance, so an unglided walk would move 4 px every third tick and 0 between.
+  equal(steps.every((step) => step > 0), true, `every tick moves forward: ${steps.join(",")}`);
+  equal(steps.every((step) => step <= 4 / 3 + 1e-9), true, `no tick moves more than a third of an advance: ${steps.join(",")}`);
+  const resting = spriteDraws(sprites, undefined, 100)[0]!;
+  equal(resting.glide, undefined, "a stationary actor has no glide");
+});

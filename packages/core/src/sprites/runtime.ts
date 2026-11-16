@@ -24,6 +24,7 @@ import {
   type WaypointLink,
 } from "./model.ts";
 import { findPath, type PathMode, type PathResult } from "./pathfinding.ts";
+import { ticksPerAdvance } from "./movement.ts";
 
 export type SpriteThreadResolver = (program: string) => ProgramRef | null;
 export type SpriteRuntimeOptions = {
@@ -297,7 +298,7 @@ export function setWaypoint(section: SpritesSection, id: string, points: readonl
  */
 export type SpriteFrameSource = (file: string, frame: number) => SpriteFrame | null;
 
-function drawFor(actor: SpriteActor, drawId: number, frameSource?: SpriteFrameSource): SpriteDraw {
+function drawFor(actor: SpriteActor, drawId: number, frameSource?: SpriteFrameSource, tick?: number): SpriteDraw {
   const file = actor.visual.file;
   const frame = file === null || file === undefined ? null : (frameSource?.(file, actor.visual.frame) ?? null);
   const draw: SpriteDraw = {
@@ -311,14 +312,20 @@ function drawFor(actor: SpriteActor, drawId: number, frameSource?: SpriteFrameSo
     ...(file === null || file === undefined ? {} : { frame: frame ?? { file } }),
     collisionBase: actor.collisionBase.points,
   };
-  return actor.prev === null ? draw : { ...draw, prev: actor.prev };
+  const withPrev = actor.prev === null ? draw : { ...draw, prev: actor.prev };
+  // Walk glide (movement-and-collision.md#reawakened-walk-glide): spread the latest 4 px advance over its whole interval.
+  if (tick === undefined || actor.advanced === undefined) return withPrev;
+  const span = ticksPerAdvance(actor.speed, 0);
+  const elapsed = tick - actor.advanced.tick - 1;
+  if (span <= 1 || elapsed < 0 || elapsed >= span) return withPrev;
+  return { ...withPrev, glide: { from: { x: actor.advanced.x, y: actor.advanced.y }, elapsed, span } };
 }
 
 /** Build SpriteDraw data in stable player-before-item category order. */
-export function spriteDraws(section: SpritesSection, frameSource?: SpriteFrameSource): SpriteDraw[] {
+export function spriteDraws(section: SpritesSection, frameSource?: SpriteFrameSource, tick?: number): SpriteDraw[] {
   const playerCount = section.players.length;
-  const players = section.players.map((actor) => drawFor(actor, actor.index, frameSource));
-  const items = section.items.filter((item) => item.visible).map((actor) => drawFor(actor, playerCount + actor.index, frameSource));
+  const players = section.players.map((actor) => drawFor(actor, actor.index, frameSource, tick));
+  const items = section.items.filter((item) => item.visible).map((actor) => drawFor(actor, playerCount + actor.index, frameSource, tick));
   return [...players, ...items];
 }
 

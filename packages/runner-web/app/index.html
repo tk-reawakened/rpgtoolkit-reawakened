@@ -7,10 +7,10 @@
     <title>TK Reawakened player</title>
     <style>
       :root { color-scheme: dark; }
-      body { box-sizing: border-box; margin: 0; height: 100dvh; overflow: hidden; background: #111; color: #ddd; font: 13px/1.4 ui-monospace, monospace; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+      body { box-sizing: border-box; margin: 0; height: 100dvh; overflow: hidden; background: #111; color: #ddd; font: 13px/1.4 ui-monospace, monospace; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
       #stage { position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; overflow: hidden; }
       canvas { image-rendering: pixelated; display: block; width: 100%; height: 100%; margin: auto; background: #000; touch-action: none; outline: none; }
-      pre { margin: 8px 12px 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+      pre { position: fixed; z-index: 10; left: 0; right: 0; bottom: 0; max-height: 30dvh; overflow: auto; padding: 8px 12px; background: rgba(0,0,0,0.8); margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
       /* Shown over the last presented frame only after an asset wait of more than 300 ms (stall-overlay.ts). */
       #spinner { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
       #spinner[hidden] { display: none; }
@@ -24,7 +24,7 @@
       <canvas id="screen" width="640" height="480" tabindex="0" aria-label="Game screen"></canvas>
       <div id="spinner" role="status" aria-label="Loading" hidden></div>
     </div>
-    <pre id="report">booting…</pre>
+    <pre id="report" hidden>booting…</pre>
     <script src="/apps/browser/player.js"></script>
   </body>
 </html>

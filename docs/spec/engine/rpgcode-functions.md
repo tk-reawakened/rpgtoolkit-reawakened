@@ -468,6 +468,8 @@ Unlike 3.1, Reawakened saves and restores both runtime settings. For an older sa
 <a id="e-31"></a>
 **E-31 Sprite translucency.** The parts of a sprite that are covered by higher content are drawn translucently (`SpriteTranslucency(%)`), so the player stays visible behind trees and roofs.
 
+**Reawakened rule (OWNER; E-31 detail, from the owner's source read; not run-confirmed).** In plain terms: `spriteTranslucency(percent)` sets how strongly a character shows through scenery that covers it; it is not the character's ordinary opacity. Technically: sprites are drawn normally on their own layer, covering content is drawn over them, then each sprite on a lower layer is redrawn at `percent` opacity (`percent` sprite + `100 − percent` of what is on screen), so only the covered pixels change and uncovered pixels stay opaque; transparent sprite pixels stay transparent; sprites on the top layer get no redraw. It is one global setting for players and items, default 50. `0` leaves covered sprites hidden and `100` shows them fully. The setter stores the value unclamped (drawing treats it as 0 to 100); calling it with no argument returns the current percentage. The demo calls `spriteTranslucency(25)`.
+
 <a id="e-32"></a>
 **E-32 Scripted sprite control.** Place, erase, create and destroy items; get or set a location and a facing; set a speed; play a stance; swap a player's graphics (`NewPlayer`); wander randomly, optionally restricted; query the queued path.
 
