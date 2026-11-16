@@ -230,7 +230,7 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
   try {
     await tests.getByRole("button", { name: "Run saved tests" }).click();
     await expect.poll(() => host.readHostEvents().slice(eventStart), { timeout: 30_000 })
-      .toContainEqual({ kind: "save-request", value: `/${gamePath}` });
+      .toContainEqual({ kind: "save", value: `/${gamePath}` });
     await openNativeQuickOpenFile(page, expect, "CreatorRaceNote.txt");
     await expect(page.getByRole("tab", { name: /CreatorRaceNote\.txt/ })).toBeVisible();
     const textEditor = page.locator(".monaco-editor").filter({ has: page.locator(".view-lines") }).last();
