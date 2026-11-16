@@ -22,6 +22,7 @@ import {
   type Value,
 } from "@tk-reawakened/core";
 import { installSpy, type SpecDoubles } from "./doubles.ts";
+import type { CreatorAction } from "./creator-actions.ts";
 import { captureArg, display, finiteNumber, parseSnap, snapContains, snapsEqual, type Snap } from "./snapshot.ts";
 
 const SEE = [
@@ -380,6 +381,48 @@ function specInput(doubles: SpecDoubles | undefined): BuiltinSpec {
   };
 }
 
+function specAction(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specaction",
+    aliases: [],
+    params: [
+      param("action", "A built-in or registered game action name."),
+      param("ticks", "The number of complete simulation ticks to hold the action."),
+    ],
+    doc: {
+      summary: "Hold one semantic player action for whole fixture ticks.",
+      behaviour:
+        "Called from a fixture case. Each call creates a unique `spec.action:<n>` claim; its press enters the next engine input phase, its release enters the phase exactly `ticks` later, and the caller resumes in that release tick's wait poll. The real-engine fixture host consumes the scheduled edges.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "ticks", summary: "Sleeps until the semantic action's scheduled release tick." },
+      see: SEE_DOUBLES,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specAction");
+      if (!run.creatorActionsEnabled) {
+        throw new ScriptError("spec.no-fixture", "specAction: requires a real-engine creator fixture");
+      }
+      const action = args[0]?.value;
+      if (typeof action !== "string") {
+        throw new ScriptError("spec.bad-action", "specAction: action must be a string");
+      }
+      const ticks = wholeNumber(args[1]?.value);
+      if (ticks === null) throw new ScriptError("spec.bad-ticks", "specAction: ticks must be a whole number from 1 to 1,000");
+      let scheduled: CreatorAction;
+      try {
+        scheduled = run.creatorActions.schedule(action, ticks, view.clock.tick(), run.registeredActions());
+      } catch (error) {
+        if (error instanceof Error && "code" in error && typeof error.code === "string") {
+          throw new ScriptError(error.code, error.message);
+        }
+        throw error;
+      }
+      return { value: null, wait: { kind: "sleep", global: false, until: scheduled.releaseAt, resumesCall: true } };
+    },
+  };
+}
+
 function specTicks(doubles: SpecDoubles | undefined): BuiltinSpec {
   return {
     name: "specticks",
@@ -460,7 +503,7 @@ function spyOn(doubles: SpecDoubles | undefined): BuiltinSpec {
   };
 }
 
-/** The twelve natives, the doubles bound to one run's host-side state (or to none). */
+/** The native commands, with doubles bound to one run's host-side state (or to none). */
 export function specCommands(doubles?: SpecDoubles): readonly BuiltinSpec[] {
   return [
     SPEC_RESULT,
@@ -473,6 +516,7 @@ export function specCommands(doubles?: SpecDoubles): readonly BuiltinSpec[] {
     specCalled(doubles),
     specInput(doubles),
     specTicks(doubles),
+    specAction(doubles),
     specRng(doubles),
     spyOn(doubles),
   ];

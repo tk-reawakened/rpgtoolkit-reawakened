@@ -22,6 +22,7 @@ import {
   type RngPort,
 } from "@tk-reawakened/core";
 import { captureArg, type Snap } from "./snapshot.ts";
+import { createCreatorActionScheduler, type CreatorActionScheduler } from "./creator-actions.ts";
 
 /** The plugin id whose commands no spy may target. */
 const SPEC_PLUGIN_ID = "script-spec";
@@ -40,6 +41,12 @@ export type Spy = {
 export type SpecDoubles = {
   /** Key edges not yet applied, in scheduling order. */
   readonly pending: ScheduledKey[];
+  /** Creator actions are host-injected semantic edges, never saved or hashed with the game. */
+  readonly creatorActions: CreatorActionScheduler;
+  /** Resolves after scene startup so `game.*` actions use the runtime registry. */
+  readonly registeredActions: () => readonly string[];
+  /** False for the script-only runner; true only when a real engine fixture host consumes action records. */
+  creatorActionsEnabled: boolean;
   /** The scripted draws, or `null` when the seeded generator serves every draw. */
   draws: readonly number[] | null;
   /** The next scripted draw to hand out. */
@@ -52,8 +59,21 @@ export type SpecDoubles = {
   readonly topLayer: ReadonlyMap<string, { readonly key: string; readonly plugin: string; readonly name: string; readonly stub: boolean }>;
 };
 
-export function createDoubles(): SpecDoubles {
-  return { pending: [], draws: null, drawAt: 0, spies: new Map(), byTarget: new Map(), topLayer: new Map() };
+export function createDoubles(
+  registeredActions: () => readonly string[] = () => [],
+  creatorActionsEnabled = false,
+): SpecDoubles {
+  return {
+    pending: [],
+    creatorActions: createCreatorActionScheduler(),
+    registeredActions,
+    creatorActionsEnabled,
+    draws: null,
+    drawAt: 0,
+    spies: new Map(),
+    byTarget: new Map(),
+    topLayer: new Map(),
+  };
 }
 
 /**
