@@ -79,3 +79,13 @@ References: [boot](../spec/engine/main-loop-and-startup.md#reawakened-boot-seque
 [threads](../spec/engine/rpgcode-errors-and-threads.md#threads),
 [callables](../spec/engine/rpgcode-language.md#keywords-and-structure),
 [modules](../spec/engine/rpgcode-modules-and-objects.md#modules).
+
+## Amendment (2026-11-15) — effect observer
+
+**Context.** The creator-test `effect.<name>` projection ([TOOL-5](../spec/engine/rpgcode-tooling.md#tool-5-creator-api), entry 11.9) must count effects cumulatively. The VM's effect log is a ring of 256 records and section owners drain it, so a count read from the surviving log can lose records or fall back to zero.
+
+**Decision.** `ScriptObservers` gains an optional `postEffect(effect, thread)`. It runs synchronously once for each effect record **at the moment the record is produced**, whether a command's result produced it in the VM or the engine posted it for a phase or the boot and board-entry sequences, after the record is appended to the log and before any owner can drain it or the ring can evict it. The payload is detached and recursively frozen like every other observer payload. Every invariant above holds: absent, it is a no-op with no allocation; an exception in it is isolated; it changes no state, hash, diagnostic or wait. The observer is part of the services and engine configuration, not of state, so replacing the state (a restore) does not detach it. A native command that appends a record itself (the runner's own `specResult`) is not an effect production site of the VM and is not observed.
+
+**Consequences.** The runner keeps the counts host-side; they are reset when a fixture is ready and saved and restored with a group snapshot by the runner, and never enter state or any hash.
+
+**Rejected.** Reading the effect log after each tick (it evicts and owners drain it, so a count can be lost or reset); registering an effect applier per section (an applier replaces the section owner, so it would change the engine).
