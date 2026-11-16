@@ -126,6 +126,7 @@ function programText(model: ProgramModel): string {
 
 function writeProgram(model: ProgramModel): Result<Uint8Array> {
   if (model.compiled !== null) return ok(model.compiled.slice());
+  if (model.text.startsWith("\0")) return err({ offset: 0, section: "docs/spec/engine/rpgcode-tooling.md#tool-10-text", message: "Source text cannot start with NUL: byte 0 marks a compiled program (line 1)" });
   const encoded = encodeCp1252(programText(model));
   if (encoded.ok) return encoded;
   return err({ ...encoded.error, message: `${encoded.error.message}${lineNote(model, encoded.error.offset)}` });

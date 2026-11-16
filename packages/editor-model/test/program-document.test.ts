@@ -127,3 +127,17 @@ test("a save writes the edited bytes and reopening gives the same text", async (
   ok(again.ok);
   equal((again.document as unknown as ProgramDocument).getSnapshot().text, "// top\n// caf\u00e9\nx = 1\n");
 });
+
+test("#2781 source edits cannot expose the compiled marker at byte zero", async () => {
+  for (const source of ["abc", "a\0bc"]) {
+    const { doc } = await open(text(source));
+    const result = doc.apply({ type: "edit-text", edits: source.includes("\0") ? [{ from: 0, to: 1, text: "" }] : [{ from: 0, to: 0, text: "\0" }] });
+    ok(!result.ok);
+    equal(snapshot(doc).text, source);
+    deepEqual(doc.serialize(), text(source));
+    ok((await doc.save()).ok);
+    const reopened = await open(doc.serialize());
+    equal(snapshot(reopened.doc).compiled, false);
+    equal(snapshot(reopened.doc).text, source);
+  }
+});

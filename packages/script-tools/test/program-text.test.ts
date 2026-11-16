@@ -108,3 +108,18 @@ test("bookmarks list comments that start their line, skip trailing, ruled and la
     [[0, "Setup the party"], [3, "Second part"], [4, "Third"], [5, "A block"], [8, "indented"]],
   );
 });
+
+test("#2782 only a whitespace-preceded final underscore continues the line", () => {
+  for (const source of ["x = 1+_\n* comment", "x = 1 _;\n* comment", "x = 1 _ ** trailing\n* comment"]) {
+    equal(classifyProgram(source).filter((token) => token.line === 1 && token.type === "comment").length, 1);
+    equal(programBookmarks(source).at(-1)?.name, "comment");
+  }
+  for (const source of ["x = 1 _\n* comment", "x = 1 _ // trailing\n* comment"]) {
+    equal(classifyProgram(source).filter((token) => token.line === 1 && token.type === "comment").length, 0);
+  }
+});
+
+test("#2783 destructor declarations retain method-name colouring", () => {
+  deepEqual(described("method ~Thing() {}"), ["0:keyword:method", "0:function+declaration:~Thing"]);
+  deepEqual(described("x = ~Thing()"), []);
+});

@@ -1210,9 +1210,9 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
     }
   }
   if (commandInput === undefined || command === undefined) throw new Error(`VS Code did not select ${label}`);
-  // The matching quick-pick row is focused. Dispatch once by keyboard, avoiding
-  // a pointer hit-test race as the palette's asynchronous list relayouts.
-  await commandInput.press("Enter");
+  // Dispatch the verified row itself. A visible exact match need not be the focused row;
+  // Enter can otherwise run Close All Editors instead of Close Editor (#2726).
+  await command.click();
   await expect(widget).toBeHidden();
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {

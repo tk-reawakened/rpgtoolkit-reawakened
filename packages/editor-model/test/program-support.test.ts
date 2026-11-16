@@ -159,3 +159,10 @@ test("the program preferences are the catalogue's until a layer sets them", () =
   equal(defaults.keywordColor, "#0000ff");
   equal(defaults.commentItalic, true);
 });
+
+test("#2781 New program refuses a leading compiled marker in the header", async () => {
+  const host = createMemoryPlatformServices({ files: { "Prg/existing.prg": new Uint8Array([120]) } });
+  const made = await createProgramFile(host.fs, "Prg/new.prg", "\0source");
+  ok(!made.ok && made.reason === "invalid");
+  equal(host.bytesOf("Prg/new.prg"), undefined);
+});

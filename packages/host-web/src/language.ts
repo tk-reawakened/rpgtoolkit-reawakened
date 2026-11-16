@@ -84,12 +84,6 @@ export async function readProjectSnapshot(fs: FileSystemService, main: string | 
   }
 }
 
-/** Whether a write to `path` can change what the server knows about the running project. */
-function concernsServer(path: string): boolean {
-  const lower = path.toLowerCase();
-  return isProgramPath(lower) || isHookAssetPath(lower) || lower.endsWith(".gam") || lower.endsWith("tkr-lint.json");
-}
-
 export interface WebLanguageService extends LanguageService {
   /** Tell the service the project file `path` was written, so open sessions send the server a fresh snapshot. */
   notifyWritten(path: string): void;
@@ -103,8 +97,7 @@ export interface WebLanguageOptions {
 export function createWebLanguageService(fs: FileSystemService, options: WebLanguageOptions): WebLanguageService {
   const sessions = new Set<{ refresh(): void }>();
   return {
-    notifyWritten(path) {
-      if (!concernsServer(path)) return;
+    notifyWritten(_path) {
       for (const session of [...sessions]) session.refresh();
     },
     async connect(connectOptions: LanguageConnectOptions): Promise<PlatformResult<LanguageConnection>> {

@@ -165,6 +165,7 @@ export async function createProgramFile(fs: NewProgramStorage, path: string, hea
   }
   const canonicalPath = resolved.path;
   const text = expandHeaderTemplate(headerTemplate, canonicalPath).replace(/\n/g, "\r\n");
+  if (text.startsWith("\0")) return { ok: false, reason: "invalid", message: "The header cannot start with NUL: byte 0 marks a compiled program. Nothing was created." };
   const encoded = encodeCp1252(text);
   if (!encoded.ok) return { ok: false, reason: "invalid", message: `The header template cannot be written: ${encoded.error.message}. Nothing was created.` };
   const written = await fs.write(canonicalPath, encoded.value);

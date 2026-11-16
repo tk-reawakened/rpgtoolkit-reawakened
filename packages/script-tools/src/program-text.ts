@@ -162,7 +162,7 @@ export function classifyProgram(source: string, options: ClassifyOptions = {}): 
         const folded = foldAscii(word);
         const member = lastSignificant === "." || lastSignificant === "->";
         const afterWord = text.slice(i + word.length);
-        if (word === "_" && NOTHING_MORE.test(afterWord) && !member) {
+        if (word === "_" && i > 0 && /\s/.test(text[i - 1]!) && /^\s*(?:\/\/.*)?$/.test(afterWord) && !member) {
           // A standalone `_` ends the line and continues the statement.
           i += 1;
           lastSignificant = "_";
@@ -201,6 +201,15 @@ export function classifyProgram(source: string, options: ClassifyOptions = {}): 
           lastSignificant = "label";
           continue;
         }
+      }
+      if (ch === "~" && declaring && lastSignificant === "method" && isWordChar(next)) {
+        const name = IDENTIFIER.exec(text.slice(i + 1))![0];
+        add(i, name.length + 1, "function", ["declaration"]);
+        i += name.length + 1;
+        atStart = false;
+        declaring = false;
+        lastSignificant = "word";
+        continue;
       }
       if (ch === "-" && next === ">") {
         i += 2;
