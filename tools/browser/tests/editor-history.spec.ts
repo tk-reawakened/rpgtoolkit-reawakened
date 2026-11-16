@@ -40,6 +40,7 @@ async function readStoredHistory(page: Page, folderName: string): Promise<readon
     const blobs = await history.getDirectoryHandle("blobs");
     const stored: { path: string; reason: string; savedAt: number; sha256: string; bytes: number[] }[] = [];
     for await (const handle of entries.values()) {
+      if (handle.kind !== "file") throw new Error("The history entries directory unexpectedly contains a folder");
       const file = await handle.getFile();
       const entry = JSON.parse(await file.text()) as { path: string; reason: string; savedAt: number; sha256: string };
       const blob = await blobs.getFileHandle(entry.sha256);
@@ -127,8 +128,9 @@ test("history is kept in the project, previews a saved version read-only, restor
   await panel.getByRole("button", { name: "Confirm restore" }).click();
   await expect(page.locator(".tkr-history > p[role='status']")).toHaveText(/Restore finished/);
   await expect(title).toHaveValue(original);
-  expect(createHash("sha256").update(new Uint8Array(await readProjectFile(page, folder, "Main/one.gam"))).digest("hex")).toBe(checkpoint!.sha256);
+  await expect.poll(async () => createHash("sha256").update(new Uint8Array(await readProjectFile(page, folder, "Main/one.gam"))).digest("hex"), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(checkpoint!.sha256);
   await panel.getByRole("button", { name: "Undo this restore" }).click();
   await expect(title).toHaveValue("Second saved");
-  expect(createHash("sha256").update(new Uint8Array(await readProjectFile(page, folder, "Main/one.gam"))).digest("hex")).toBe(latestSave!.sha256);
+  // The model title changes before the async restore reaches storage; only the real saved-byte hash proves completion.
+  await expect.poll(async () => createHash("sha256").update(new Uint8Array(await readProjectFile(page, folder, "Main/one.gam"))).digest("hex"), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(latestSave!.sha256);
 });

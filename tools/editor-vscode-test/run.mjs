@@ -255,11 +255,19 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
     const proveNewProject = async () => {
       await mkdir(resolve(proofWorkspace, "__tkr_new_project"), { recursive: true });
       await writeFile(resolve(proofWorkspace, "__tkr_new_project/keep.txt"), "Keep this file");
+      const bitmapPath = "__tkr_new_project/Bitmap/history.tbm";
+      await mkdir(resolve(proofWorkspace, "__tkr_new_project/Bitmap"), { recursive: true });
+      await mkdir(resolve(proofWorkspace, "__tkr_new_project/Tiles"), { recursive: true });
+      await writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false));
+      await copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "__tkr_new_project/Tiles/village.tst"));
       const tree = async () => (await readdir(proofWorkspace, { recursive: true, withFileTypes: true }))
         .filter((entry) => entry.isFile() || entry.isDirectory())
         .map((entry) => relative(proofWorkspace, resolve(entry.parentPath ?? proofWorkspace, entry.name)).replaceAll("\\", "/") + (entry.isDirectory() ? "/" : ""))
         .sort();
-      await runVscodeNewProjectProof(page, expect, workbenchUrl, tree, readBacking);
+      await runVscodeNewProjectProof(page, expect, workbenchUrl, tree, readBacking, {
+        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, readHostEvents: persistentFs.events,
+        bitmapPath, bitmapPictureForBytes: expectedBitmapPicture,
+      });
       console.log("vscode.dev real New project picker, creation and automatic-open proof passed");
     };
     if (newProjectProof) {
