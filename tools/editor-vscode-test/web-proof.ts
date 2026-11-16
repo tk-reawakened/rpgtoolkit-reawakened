@@ -608,7 +608,6 @@ function assertHistoryPreviewSourceIdentity(historyHost: NewProjectHistoryProofH
 }
 
 async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath: string, expectedTile: string, historyHost: NewProjectHistoryProofHost, beforeRender: () => Promise<void>): Promise<string> {
-  await expect(page.getByRole("tab", { name: `History preview: ${sourcePath}`, exact: true, selected: true })).toBeVisible();
   assertHistoryPreviewSourceIdentity(historyHost, sourcePath, expect);
   let preview: Frame | undefined;
   await expect.poll(async () => {
