@@ -9,6 +9,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./diagnostics-mode": {
+      "types": "./dist/diagnostics-mode.d.ts",
+      "default": "./dist/diagnostics-mode.js"
+    },
     "./live-session": {
       "types": "./dist/live-session.d.ts",
       "default": "./dist/live-session.js"

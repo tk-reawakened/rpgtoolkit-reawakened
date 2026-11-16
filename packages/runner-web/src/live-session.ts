@@ -79,6 +79,12 @@ export type LiveSession = {
    * until the next (docs/spec/engine/runners.md#state-hash-cadence).
    */
   readonly stateHash: () => string;
+  /**
+   * A reader for the state hash after the `advance` that finished last: it hashes on its first call, and returns `""`
+   * once a later `advance` has started, so a report that pairs it with a tick is never wrong
+   * (docs/spec/engine/runners.md#diagnostics-mode).
+   */
+  readonly stateHashReader: () => () => string;
   readonly viewSize: () => { readonly width: number; readonly height: number };
   readonly hostState: HostStateSnapshot | null;
   /** Current measured Plane 2 content, Plane 1 presentation rectangle, and physical safe-area insets. */
@@ -365,6 +371,8 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   let currentTick = 0;
   // `null` once an `advance` has run and nothing has read the hash since.
   let currentStateHash: string | null = "";
+  // Counts `advance` calls, so a `stateHashReader` can tell that a later advance has started.
+  let advanceGeneration = 0;
   const sessionDiagnostics: Diagnostic[] = [];
   const reportDiagnostic = (diagnostic: Diagnostic): void => {
     sessionDiagnostics.push(diagnostic);
@@ -571,6 +579,14 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     close,
     tick: () => currentTick,
     stateHash: () => currentStateHash ??= engine.stateHash(),
+    stateHashReader() {
+      const generation = advanceGeneration;
+      let hash: string | undefined;
+      return () => {
+        if (hash === undefined && generation === advanceGeneration) hash = currentStateHash ??= engine.stateHash();
+        return hash ?? "";
+      };
+    },
     setGamepadResampler(resample) {
       resampleGamepads = resample;
       if (engine.gamepadPolicy()?.enabled === true) resample();
@@ -586,7 +602,10 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
         ?? latest?.sprites.players[0];
       return actor === undefined ? null : { x: actor.x, y: actor.y };
     },
-    async advance(ticks, inputs = []) { await queue(ticks, inputs); },
+    async advance(ticks, inputs = []) {
+      advanceGeneration += 1;
+      await queue(ticks, inputs);
+    },
     draw(alpha) {
       const surfaceEpoch = engine.surfaceCacheEpoch();
       if (surfaceEpoch !== renderedSurfaceEpoch) {
