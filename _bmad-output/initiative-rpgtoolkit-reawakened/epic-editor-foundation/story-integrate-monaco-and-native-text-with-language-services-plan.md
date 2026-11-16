@@ -2,7 +2,7 @@
 type: feature
 title: "Integrate Monaco and native text with language services"
 ticket: 7
-status: draft
+status: done
 ---
 
 ## Scope
@@ -52,3 +52,7 @@ The independent whole-PR review found four additional defects, all tracked and f
 CI follow-up for #2720: a verified command-palette row disappeared during Playwright's pointer-stability wait. The harness now checks visibility/identity and invokes the normal list click handler in one browser task. Only an explicit no-dispatch result can retry; evaluation errors, timeouts and all post-dispatch failures propagate. An independent reviewer inspected the control flow and cached VS Code list handler. The negative control dismisses the first successfully prepared palette and explicitly requires a no-dispatch result; existing autosave completion barriers remain mandatory. Host focus transitions use bounded settling/backoff pacing.
 
 CI follow-up #2784: a save invalidated a File snapshot during browser verification. The saved-file helper now retries NotReadableError only from the snapshot read, acquiring a new File within its existing bounded poll; permission failures still propagate. A controlled browser test requires fresh snapshots and immediate permission-error failure. Independent review found no remaining issue; all six focused Chromium scenarios passed.
+
+## Merged-state reconciliation, 2026-11-15
+
+PR #2708 merged as `3e61f3c2aedd2cd86dc0c29b5ebd750f5708f7bf`; its required `gate` and browser, VS Code web, unit, golden and desktop checks report success, and #1705 is closed. On that revision, `program-document.test.ts`, `program-view.test.ts` and `program-editing.test.ts` passed in the 162-test focused run (zero skips). Creator gameplay tests remain #1707; contextual help remains #1709, rather than being inferred from this editor integration.
