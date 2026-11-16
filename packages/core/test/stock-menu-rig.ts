@@ -28,13 +28,13 @@ import {
   type AssetIndex,
   type AssetKey,
   type AudioCue,
-  type Engine,
+  type OnRequestEngine,
   type EngineInit,
   type GameState,
   type InputEvent,
   type InputRecord,
   type PackageCatalogueEntry,
-  type TickReport,
+  type OnRequestTickReport,
 } from "../src/index.ts";
 export type Files = Map<string, Uint8Array>;
 export const testDir = dirname(fileURLToPath(import.meta.url));
@@ -278,7 +278,7 @@ export type HostConfig = {
 };
 
 export type Session = {
-  readonly engine: Engine;
+  readonly engine: OnRequestEngine;
   state(): GameState;
   /** Advance until `until` holds, answering every host request with the authored game's files. */
   pump(until: (state: GameState) => boolean, key?: string, limit?: number, initial?: InputRecord[]): GameState;
@@ -294,7 +294,7 @@ export type Session = {
    * Advance exactly `ticks` ticks delivering `inputs` (absolute ticks), answering the host requests the ticks raise, and
    * return the report. Unlike `pump` it waits for nothing: it is how a replay applies one input log in any chunking.
    */
-  advance(ticks: number, inputs?: readonly InputRecord[]): TickReport;
+  advance(ticks: number, inputs?: readonly InputRecord[]): OnRequestTickReport;
 };
 
 /** Boot the authored stock-menu game described by `options`. */
@@ -324,6 +324,7 @@ export function bootHost(config: HostConfig): Session {
   /** Host answers to the last tick's requests, delivered with the next tick's input. */
   let pending: InputRecord[] = [];
   const engine = createEngine({
+    stateHashInReports: "on-request",
     seed: config.seed ?? 7,
     assetIndex: game.index,
     assetRoot: PACKAGE_ROOT,
@@ -365,7 +366,7 @@ export function bootHost(config: HostConfig): Session {
     }
     return [];
   }
-  function advance(ticks: number, inputs: readonly InputRecord[] = []): TickReport {
+  function advance(ticks: number, inputs: readonly InputRecord[] = []): OnRequestTickReport {
     const report = engine.advance(ticks, [...pending, ...inputs]);
     diagnostics.push(...report.diagnostics.map((diagnostic) => `${diagnostic.code}: ${diagnostic.message}`));
     cues.push(...report.audioCues);
@@ -430,7 +431,7 @@ export function giveGear(count: number, screen: string): string {
 }
 
 /** The overlay blit the menu contributes to the draw list (E-80 §4). */
-export function overlayBlits(engine: Engine): number {
+export function overlayBlits(engine: OnRequestEngine): number {
   return engine.drawList().commands.filter((command) => command.kind === "blit" && "surface" in command.source).length;
 }
 

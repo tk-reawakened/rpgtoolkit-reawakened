@@ -202,6 +202,10 @@ export function createTestEngine(): Engine {
       };
     },
 
+    stateHash(): string {
+      return hashState(state);
+    },
+
     drawList(_alpha?: number): DrawList {
       const commands: DrawCommand[] = [
         {

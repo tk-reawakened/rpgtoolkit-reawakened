@@ -126,6 +126,13 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
     await waitFor("window.__live?.tick > 0 || !!window.__live?.error");
     const reloaded = await evaluate("window.__live");
     if (reloaded.error !== undefined) throw new Error(`desktop failed to start before worklet failure probe: ${JSON.stringify(reloaded)}`);
+    await evaluate(`(() => {
+      window.__audioErrorHashReads = 0;
+      const engine = window.__session.engine;
+      const stateHash = engine.stateHash.bind(engine);
+      engine.stateHash = () => { window.__audioErrorHashReads += 1; return stateHash(); };
+      return true;
+    })()`);
     await evaluate(`fetch('/packages/synth/test/fixtures/test-minimal.sf3').then(r => r.arrayBuffer()).then(bytes => {
       window.__probeProcessor.port.postMessage({kind:'message', message:{kind:'setBank', bankKind:'soundfont', bank:{source:'bundled',id:'test',sha256:null}, bankBytes:new Uint8Array(bytes), bankSha:'test'}});
       window.__probeContext.resume();
@@ -133,6 +140,16 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
       return true;
     })`);
     await waitFor("document.querySelector('#live-status')?.textContent.includes('worklet-decoder-probe-failure')");
+    const audioErrorPresentation = await evaluate(`(() => {
+      window.__tkrDiagnostics(true);
+      window.__tkrDiagnostics(false);
+      const status = document.querySelector('#live-status');
+      return { hidden: status.hidden, text: status.textContent, diagnostics: window.__tkrDiagnostics(), hashReads: window.__audioErrorHashReads };
+    })()`);
+    if (audioErrorPresentation.hidden || audioErrorPresentation.diagnostics || audioErrorPresentation.hashReads !== 0
+      || !audioErrorPresentation.text.startsWith('audio: ') || !audioErrorPresentation.text.includes('worklet-decoder-probe-failure')) {
+      throw new Error(`desktop audio error presentation failed: ${JSON.stringify(audioErrorPresentation)}`);
+    }
     await page.send("Page.removeScriptToEvaluateOnNewDocument", { identifier: injection.identifier });
     await evaluate("delete window.__probeControl; delete window.__live; true");
     await page.send("Page.reload");
@@ -171,7 +188,7 @@ export async function probeDesktopCsp(page, evaluate, root, sleep) {
     await waitFor("!!window.__live?.error");
     const failure = await evaluate("window.__live.error");
     if (!String(failure).includes("decoder-probe-failure")) throw new Error(`decoder failure was not reported: ${failure}`);
-    return { inline, energy: sound.energy, evalBlocked: sound.evalBlocked, readinessWaited: true, failureReported: true, workletRace: race, workletFailureVisible: true };
+    return { inline, energy: sound.energy, evalBlocked: sound.evalBlocked, readinessWaited: true, failureReported: true, workletRace: race, workletFailureVisible: true, audioErrorPresentation };
   } finally {
     rmSync(output, { force: true });
     rmSync(workletOutput, { force: true });

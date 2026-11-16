@@ -118,10 +118,14 @@ async function waitForPreemptionReady(page: Page, kind: "author" | "modal"): Pro
   }
 }
 
-async function openSilentDemo(page: Page, name: string): Promise<void> {
+/**
+ * `diagnostics` shows the player's report under the stage (docs/spec/engine/runners.md#diagnostics-mode); the tests that
+ * need a page area outside the game stage to move the pointer to ask for it.
+ */
+async function openSilentDemo(page: Page, name: string, { diagnostics = false } = {}): Promise<void> {
   const fixture = packageWithSilentDemoStartup(name);
   await servePackage(page, fixture);
-  await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+  await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}${diagnostics ? "&diagnostics" : ""}`);
 }
 
 async function installInputTrace(page: Page): Promise<void> {
@@ -376,7 +380,8 @@ test("leaving the host cancels a modal-preempted fallback press", async ({ brows
   const page = await context.newPage();
   try {
     await servePackage(page, modal);
-    await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${modal.name}`);
+    // Diagnostics mode keeps the report visible: it is the page area outside the stage this test moves the pointer to.
+    await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${modal.name}&diagnostics`);
     const confirm = page.getByRole("button", { name: "Confirm" });
     await confirm.waitFor({ state: "visible", timeout: 45_000 });
     await page.waitForFunction(() => window.__session?.engine.runnerControlPointerPreemption(0, 0) === 1);
@@ -436,7 +441,8 @@ test("a genuine fallback press retires a modal pointer whose outside-window rele
   const page = await context.newPage();
   try {
     await servePackage(page, fixture);
-    await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}`);
+    // Diagnostics mode keeps the report visible: it is the page area outside the stage this test moves the pointer to.
+    await page.goto(`/packages/runner-web/app/index.html?package=fixtures/packages/${fixture.name}&diagnostics`);
     const confirm = page.getByRole("button", { name: "Confirm" });
     await confirm.waitFor({ state: "visible", timeout: 45_000 });
     await page.waitForFunction(() => window.__session?.engine.runnerControlPointerPreemption(0, 0) === 1);
@@ -825,7 +831,7 @@ test("blur suppresses a held gameplay pointer until physical release", async ({ 
   const context = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 430, height: 932 } });
   const page = await context.newPage();
   try {
-    await openSilentDemo(page, "touch-blur-gameplay.tpk");
+    await openSilentDemo(page, "touch-blur-gameplay.tpk", { diagnostics: true });
     await page.getByRole("button", { name: "Confirm" }).waitFor({ state: "visible", timeout: 45_000 });
     await installInputTrace(page);
     const stage = await page.locator("#stage").boundingBox();

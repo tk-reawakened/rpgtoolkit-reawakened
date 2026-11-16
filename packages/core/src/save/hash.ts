@@ -11,7 +11,8 @@ import {
   fnv1a64UpdateAscii,
   type Fnv1a64State,
 } from "../canon/fnv1a.ts";
-import { applyFnvAsciiTransition, createFnvAsciiTransition, staleFnvTransitionKeys, type FnvAsciiTransition } from "../canon/fnv1a-transition.ts";
+import { applyFnvAsciiTransition, applyFnvByteTransition, createFnvAsciiTransition, staleFnvTransitionKeys, type FnvAsciiTransition } from "../canon/fnv1a-transition.ts";
+import { utf8Encode } from "../canon/utf8.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import { withoutSettings } from "../audio/model.ts";
 import type { GameState } from "./state.ts";
@@ -23,8 +24,14 @@ type SurfaceHashCache = {
   working: Fnv1a64State;
   plan: TransitionPlan | null | false;
   transitions: Map<string, FnvAsciiTransition>;
-  vmTransitions: Map<string, FnvAsciiTransition>;
+  vmTransitions: Map<string, VmTransition>;
 };
+
+/**
+ * A reusable VM segment's transition. `bytes` holds a non-ASCII segment's UTF-8 encoding, computed once so a
+ * repeated segment is not re-encoded on every hash; it is null for ASCII text, which is hashed from the string.
+ */
+type VmTransition = { readonly transition: FnvAsciiTransition; readonly bytes: Uint8Array | null };
 
 const surfaceHashCaches = new WeakMap<GameState, SurfaceHashCache>();
 
@@ -288,26 +295,31 @@ export function hashGameState(state: GameState): string {
     if (typeof segment === "string") {
       if (/[^\x00-\x7f]/.test(segment)) fnv1a64Update(segment, cache.working);
       else fnv1a64UpdateAscii(segment, cache.working);
-    } else if (!segment.ascii) {
-      fnv1a64Update(segment.text, cache.working);
     } else if (segment.text.length < MIN_VM_TRANSITION_SIZE || segment.text.length > MAX_VM_TRANSITION_SIZE) {
-      fnv1a64UpdateAscii(segment.text, cache.working);
+      if (segment.ascii) fnv1a64UpdateAscii(segment.text, cache.working);
+      else fnv1a64Update(segment.text, cache.working);
     } else {
-      let transition = cache.vmTransitions.get(segment.text);
-      if (transition === undefined && cache.vmTransitions.size >= MAX_VM_TRANSITIONS && !prunedVmTransitions) {
-        const active = new Set(parts.after.flatMap((part) =>
-          typeof part !== "string" && part.ascii ? [part.text] : []));
+      let entry = cache.vmTransitions.get(segment.text);
+      if (entry === undefined && cache.vmTransitions.size >= MAX_VM_TRANSITIONS && !prunedVmTransitions) {
+        const active = new Set(parts.after.flatMap((part) => typeof part !== "string" ? [part.text] : []));
         for (const text of cache.vmTransitions.keys()) {
           if (!active.has(text)) cache.vmTransitions.delete(text);
         }
         prunedVmTransitions = true;
       }
-      if (transition === undefined && cache.vmTransitions.size < MAX_VM_TRANSITIONS) {
-        transition = createFnvAsciiTransition(segment.text.length);
-        cache.vmTransitions.set(segment.text, transition);
+      if (entry === undefined && cache.vmTransitions.size < MAX_VM_TRANSITIONS) {
+        const bytes = segment.ascii ? null : utf8Encode(segment.text);
+        entry = { transition: createFnvAsciiTransition(bytes?.length ?? segment.text.length), bytes };
+        cache.vmTransitions.set(segment.text, entry);
       }
-      if (transition === undefined) fnv1a64UpdateAscii(segment.text, cache.working);
-      else applyFnvAsciiTransition(transition, segment.text, cache.working);
+      if (entry === undefined) {
+        if (segment.ascii) fnv1a64UpdateAscii(segment.text, cache.working);
+        else fnv1a64Update(segment.text, cache.working);
+      } else if (entry.bytes === null) {
+        applyFnvAsciiTransition(entry.transition, segment.text, cache.working);
+      } else {
+        applyFnvByteTransition(entry.transition, entry.bytes, cache.working);
+      }
     }
   }
   fnv1a64Update("}", cache.working);

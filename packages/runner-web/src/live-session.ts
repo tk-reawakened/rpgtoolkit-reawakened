@@ -28,7 +28,7 @@ import {
   type BattleState,
   type Diagnostic,
   type DrawList,
-  type Engine,
+  type OnRequestEngine,
   type GameState,
   type HostDisplayGeometry,
   type HostFeatures,
@@ -69,11 +69,22 @@ export type LiveBlobHost = {
   list?(area: "saves" | "files", gameId: string): Promise<readonly string[]>;
 };
 export type LiveSession = {
-  readonly engine: Engine;
+  readonly engine: OnRequestEngine;
   readonly gameId: string;
   readonly close: () => Promise<void>;
   readonly tick: () => number;
+  /**
+   * The state hash after the last `advance`, or `""` before the first. The engine runs with
+   * `stateHashInReports: "on-request"`, so the hash is computed on the first read after each `advance` and cached
+   * until the next (docs/spec/engine/runners.md#state-hash-cadence).
+   */
   readonly stateHash: () => string;
+  /**
+   * A reader for the state hash after the `advance` that finished last: it hashes on its first call, and returns `""`
+   * once a later `advance` has started, so a report that pairs it with a tick is never wrong
+   * (docs/spec/engine/runners.md#diagnostics-mode).
+   */
+  readonly stateHashReader: () => () => string;
   readonly viewSize: () => { readonly width: number; readonly height: number };
   readonly hostState: HostStateSnapshot | null;
   /** Current measured Plane 2 content, Plane 1 presentation rectangle, and physical safe-area insets. */
@@ -287,6 +298,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   const initialGeometry = displayGeometry;
   const initialFeatures: HostFeatures = hostFeatures ?? { touch: false, pointer: "none", keyboard: false, gamepad: false, haptics: false, orientation: null };
   const engine = createEngine({
+    stateHashInReports: "on-request",
     seed: "seed" in options ? options.seed ?? 0 : plan?.seed ?? 0,
     assetIndex: index,
     assetRoot,
@@ -357,7 +369,11 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   );
   let renderedSurfaceEpoch = engine.surfaceCacheEpoch();
   let currentTick = 0;
-  let currentStateHash = "";
+  // `null` once an `advance` has run and nothing has read the hash since.
+  let currentStateHash: string | null = "";
+  // Counts `advance` calls, so a `stateHashReader` can tell that a later advance has started.
+  let advanceGeneration = 0;
+  let pendingAdvances = 0;
   const sessionDiagnostics: Diagnostic[] = [];
   const reportDiagnostic = (diagnostic: Diagnostic): void => {
     sessionDiagnostics.push(diagnostic);
@@ -489,11 +505,13 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
         }
       }
       inputs.push(...audioEvents.splice(0));
+      advanceGeneration += 1;
+      currentStateHash = null;
       const report = engine.advance(ticks, inputs);
       ticks = Math.max(0, ticks - report.ticksRun);
       inputs = [];
       currentTick = report.tickAfter;
-      currentStateHash = report.stateHash;
+      currentStateHash = null;
       for (const diagnostic of report.diagnostics) reportDiagnostic(diagnostic);
       reconcileControllerPolicy();
       // Cues are handed to the player on their own chain, in report order, once the assets they name are cached (the
@@ -544,7 +562,9 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   };
   const queue = (ticks: number, inputs: readonly InputRecord[] = []): Promise<void> => {
     const queuedInputs = [...inputs];
-    processing = processing.then(() => pump(ticks, queuedInputs));
+    advanceGeneration += 1;
+    pendingAdvances += 1;
+    processing = processing.then(() => pump(ticks, queuedInputs)).finally(() => { pendingAdvances -= 1; });
     return processing;
   };
   void queue(0);
@@ -563,7 +583,16 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     gameId,
     close,
     tick: () => currentTick,
-    stateHash: () => currentStateHash,
+    stateHash: () => currentStateHash ??= engine.stateHash(),
+    stateHashReader() {
+      // No completed-report reader can be created while a queued pump may still change the state.
+      const generation = pendingAdvances === 0 ? advanceGeneration : -1;
+      let hash: string | undefined;
+      return () => {
+        if (hash === undefined && generation === advanceGeneration) hash = currentStateHash ??= engine.stateHash();
+        return hash ?? "";
+      };
+    },
     setGamepadResampler(resample) {
       resampleGamepads = resample;
       if (engine.gamepadPolicy()?.enabled === true) resample();
@@ -579,7 +608,9 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
         ?? latest?.sprites.players[0];
       return actor === undefined ? null : { x: actor.x, y: actor.y };
     },
-    async advance(ticks, inputs = []) { await queue(ticks, inputs); },
+    async advance(ticks, inputs = []) {
+      await queue(ticks, inputs);
+    },
     draw(alpha) {
       const surfaceEpoch = engine.surfaceCacheEpoch();
       if (surfaceEpoch !== renderedSurfaceEpoch) {
