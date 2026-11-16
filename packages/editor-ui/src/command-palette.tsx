@@ -46,11 +46,9 @@ function triggerHostButton(selector: string): boolean {
 }
 
 /** Open the active program's shared reference without closing a panel that is already open. */
-function openProgramReference(): boolean {
+function openProgramReference(program: HTMLElement | null): boolean {
   if (typeof document === "undefined") return false;
-  const active = document.activeElement;
-  const program = active instanceof Element ? active.closest<HTMLElement>(".tkr-program") : null;
-  const scope: ParentNode = program ?? document;
+  const scope: ParentNode = program !== null && program.isConnected ? program : document;
   const toggle = scope.querySelector<HTMLButtonElement>(".tkr-program-toggle-reference");
   if (toggle === null) return false;
   if (toggle.getAttribute("aria-pressed") !== "true") toggle.click();
@@ -88,7 +86,17 @@ export function WorkbenchCommandBar({
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
+  const lastProgramViewRef = useRef<HTMLElement | null>(null);
   const helpInvokerRef = useRef<HTMLElement | null>(null) as HelpInvokerRef;
+  useEffect(() => {
+    const rememberProgramView = (event: FocusEvent): void => {
+      if (!(event.target instanceof Element)) return;
+      const view = event.target.closest<HTMLElement>(".tkr-program");
+      if (view !== null) lastProgramViewRef.current = view;
+    };
+    document.addEventListener("focusin", rememberProgramView);
+    return () => document.removeEventListener("focusin", rememberProgramView);
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -224,7 +232,7 @@ export function WorkbenchCommandBar({
         category: "Help",
         label: "Open RPGCode Quick Reference",
         run: () => {
-          if (!openProgramReference()) {
+          if (!openProgramReference(lastProgramViewRef.current)) {
             setHelpNotice("Open a program to search and insert RPGCode built-ins.");
             queueMicrotask(() => menuButtonRef.current?.focus());
           }

@@ -400,6 +400,34 @@ test("F1 quick reference inserts into the invoking mirrored program view", async
   await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
 });
 
+test("Application menu quick reference inserts at the last focused mirrored caret", async ({ page }) => {
+  const source = "first\nsecond\n";
+  await installProject(page, [
+    { path: "Main/example.gam", bytes: main },
+    { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
+  ]);
+  await openProgram(page);
+  await page.locator("#mirror-view").click();
+  const mirror = page.locator("#mirror");
+  await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
+  const primaryInput = page.getByRole("textbox", { name: /^Program text/ }).first();
+  const mirrorInput = mirror.getByRole("textbox", { name: /^Program text/ });
+  await primaryInput.focus();
+  await page.keyboard.press("ControlOrMeta+Home");
+  await mirrorInput.focus();
+  await page.keyboard.press(END_OF_TEXT);
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Help", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Open RPGCode Quick Reference", exact: true }).click();
+  const referenceSearch = mirror.getByLabel("Find a command");
+  await expect(referenceSearch).toBeFocused();
+  await referenceSearch.fill("castint");
+  const row = mirror.locator(".tkr-program-reference-list button").first();
+  await expect(row).toContainText("castint(val, [&dest])");
+  await row.dblclick();
+  await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
+});
+
 test("the probe can fail: under the strict policy of the other editor pages Monaco is blocked, and the violations are reported", async ({ page }) => {
   await installProject(page, [{ path: "Main/example.gam", bytes: main }, { path: PROGRAM, bytes: programBytes }]);
   await page.route((url) => url.pathname === PAGE, async (route) => {
