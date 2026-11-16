@@ -60,7 +60,7 @@ export async function runVscodeCreatorTestsProof(
   await tests.getByRole("button", { name: "Run saved tests" }).click();
   await expect(tests.getByRole("status")).toHaveText(/Passed: 1 passing cases, 0 failing cases/);
   const passVisible = await visibleCase(tests, "Pass");
-  verifyCanonical(passVisible, passExpected, "passing");
+  verifyCanonical(passVisible, passExpected, "passing", passFiles);
   verifySnapshotHashes(passVisible, passFiles);
   await verifySourceRevisions(tests, passFiles);
   const frame = await visibleCanvas(tests);
@@ -79,7 +79,7 @@ export async function runVscodeCreatorTestsProof(
   await tests.getByRole("button", { name: "Run saved tests" }).click();
   await expect(tests.getByRole("status")).toHaveText(/Failed: 0 passing cases, 1 failing cases/);
   const failed = await visibleCase(tests, "Fail");
-  verifyCanonical(failed, failExpected, "failing");
+  verifyCanonical(failed, failExpected, "failing", failFiles);
   verifySnapshotHashes(failed, failFiles);
   await verifySourceRevisions(tests, failFiles);
   const failedFrame = await visibleCanvas(tests);
@@ -172,8 +172,9 @@ export async function runVscodeCreatorTestsProof(
   await tests.getByRole("button", { name: "Run saved tests" }).click();
   await expect(tests.getByRole("status")).toHaveText(/Failed: 0 passing cases, 1 failing cases/);
   const openVisible = await visibleCase(tests, "Fail");
-  verifyCanonical(openVisible, openHeadless.result, "wall-removed");
   verifySnapshotHashes(openVisible, openFiles);
+  await verifySourceRevisions(tests, openFiles);
+  verifyCanonical(openVisible, openHeadless.result, "wall-removed", openFiles);
   const openOutcome = openVisible.outcomes.find((outcome) => outcome.expected !== outcome.actual);
   if (openOutcome === undefined || openOutcome.expected !== "2" || openOutcome.actual !== "4" || openOutcome.line !== failureOutcome.line) {
     throw new Error(`The visible wall-removed run did not report the authored tile assertion as expected tile 2 against actual tile 4: ${JSON.stringify(openVisible.outcomes)}`);
@@ -335,9 +336,12 @@ async function visibleCase(tests: Frame, outcome: "Pass" | "Fail"): Promise<Case
   return { name: CREATOR_TEST_CASE_NAME, ok: title?.startsWith("Pass:") ?? false, stateHash: hash, outcomes, run: { ...actionData, snapshot } };
 }
 
-function verifyCanonical(actual: Case, expected: Case, label: string): void {
+function verifyCanonical(actual: Case, expected: Case, label: string, files: readonly File[]): void {
   if (JSON.stringify(actual.run?.actionLog) !== JSON.stringify(expected.run?.actionLog)) throw new Error(`Visible and headless ${label} action logs differ.`);
-  if (JSON.stringify(actual.run?.checkpoints) !== JSON.stringify(expected.run?.checkpoints)) throw new Error(`Visible and headless ${label} checkpoints differ.`);
+  if (JSON.stringify(actual.run?.checkpoints) !== JSON.stringify(expected.run?.checkpoints)) {
+    const inputs = files.map((file) => ({ path: file.path, bytes: file.bytes.byteLength, sha256: sha256(file.bytes) }));
+    throw new Error(`Visible and headless ${label} checkpoints differ: visible=${JSON.stringify(actual.run?.checkpoints)} headless=${JSON.stringify(expected.run?.checkpoints)} inputs=${JSON.stringify(inputs)} visibleSnapshot=${JSON.stringify(actual.run?.snapshot)} headlessSnapshot=${JSON.stringify(expected.run?.snapshot)}`);
+  }
   if (actual.stateHash !== expected.stateHash) throw new Error(`Visible and headless ${label} final state hashes differ.`);
   const actualRun = actual.run as NonNullable<Case["run"]>;
   const expectedRun = expected.run as NonNullable<Case["run"]>;
