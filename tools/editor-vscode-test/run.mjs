@@ -7,12 +7,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader } from "@tk-reawakened/core";
 import { buildNewBoard } from "@tk-reawakened/editor-model";
-import { runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
 import { createCreatorTestFiles } from "./creator-tests-fixture.mjs";
-import { runVscodeCreatorTestsProof } from "./creator-tests-proof.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
