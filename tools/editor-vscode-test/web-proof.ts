@@ -240,6 +240,38 @@ export async function runVscodeGuardProof(
   expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
 }
 
+/**
+ * Real VS Code for the Web: the "RPG Toolkit: New project" command is contributed, the extension activates, and the command
+ * asks its first question (the game name) in VS Code's own input box — and dismissing it writes nothing. The folder dialog
+ * cannot be driven from the workbench, so creating a project itself is proved by
+ * `new-project-vscode-command.test.ts` (the real `extension.ts` over a fake workspace) and by the browser host's
+ * real File System Access proof in `editor-web-host.spec.ts`.
+ */
+export async function runVscodeNewProjectProof(
+  page: Page,
+  expect: Expect,
+  workbenchUrl: string,
+  tree: () => Promise<readonly string[]>,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  const before = await tree();
+  const widget = page.locator(".quick-input-widget");
+  const commandInput = await commandPalette(page, expect);
+  await commandInput.fill(">RPG Toolkit: New project");
+  const row = page.getByRole("option", { name: /^RPG Toolkit: New project(?:,|$)/ });
+  await expect(row, "the New project command is contributed exactly once").toHaveCount(1);
+  await row.click();
+  // The command's first question is an input box; Escape dismisses it and the command reports a cancel.
+  await expect(widget, "the first question is shown").toBeVisible();
+  const answer = widget.getByRole("textbox");
+  await expect(answer).toBeVisible();
+  await expect(widget).toContainText("Game name");
+  await answer.press("Escape");
+  await expect(widget).toBeHidden();
+  expect(await tree(), "dismissing the wizard wrote nothing").toEqual(before);
+}
+
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
 export async function runVscodeSpriteWebProof(
   page: Page,

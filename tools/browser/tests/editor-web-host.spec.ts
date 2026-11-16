@@ -587,6 +587,55 @@ test("an edit before the player handshake prevents a stale game from starting", 
   await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
 });
 
+test("browser workbench creates a new project in the chosen folder, copies only the ticked starter contents, and opens its main file", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.addEventListener("securitypolicyviolation", (event) => {
+      const target = window as ProofWindow;
+      (target.__tkrCspViolations ??= []).push(event.effectiveDirective);
+    });
+  });
+  const bystander = [4, 2, 4, 2];
+  await installFolderPicker(page, [{ path: "notes.txt", bytes: bystander }]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "New project…" }).click();
+  const wizard = page.getByRole("dialog", { name: "New project" });
+  await expect(wizard).toBeVisible();
+  await wizard.getByLabel("Game name").fill("Quest");
+  await expect(wizard.getByLabel("Main file")).toHaveValue("Quest.gam");
+  await expect(wizard.getByLabel("Start-up program")).not.toBeChecked();
+  await expect(wizard.getByLabel("Music pack")).toBeDisabled();
+  await wizard.getByLabel("Start-up program").check();
+  await wizard.getByLabel("Empty start board").check();
+  await wizard.getByRole("button", { name: "Choose folder…" }).click();
+  await expect(wizard.getByRole("status").filter({ hasText: /^TkrTest-/ })).toBeVisible();
+  await wizard.getByRole("button", { name: "Create project" }).click();
+  await expect(page.getByLabel("Game title")).toHaveValue("Quest");
+  await expect(wizard).toHaveCount(0);
+
+  const disk = await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder!;
+    const found: string[] = [];
+    const walk = async (directory: FileSystemDirectoryHandle, prefix: string): Promise<void> => {
+      for await (const [name, handle] of directory.entries()) {
+        if (handle.kind === "directory") {
+          found.push(`${prefix}${name}/`);
+          await walk(handle as FileSystemDirectoryHandle, `${prefix}${name}/`);
+        } else found.push(`${prefix}${name}`);
+      }
+    };
+    await walk(root, "");
+    const notes = await (await root.getFileHandle("notes.txt")).getFile();
+    return { found: found.sort(), notes: [...new Uint8Array(await notes.arrayBuffer())] };
+  });
+  expect(disk.found).toEqual([
+    "Bitmap/", "Bkrounds/", "Boards/", "Boards/start.brd", "Chrs/", "Enemy/", "Font/", "Item/", "Main/", "Main/Quest.gam", "Media/", "Misc/", "Plugin/",
+    "Prg/", "Prg/start.prg", "SpcMove/", "StatusE/", "Tiles/", "notes.txt",
+  ].sort());
+  expect(disk.notes).toEqual(bystander);
+  await expect.poll(() => page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
+});
+
 type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean; readonly delayMainRead: boolean };
 
 async function installFolderPicker(

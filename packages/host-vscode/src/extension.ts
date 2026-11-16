@@ -7,6 +7,7 @@ import { createVscodeServices } from "./services.ts";
 import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
+import { runNewProject, type NewProjectUi } from "./new-project.ts";
 import { DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
@@ -126,4 +127,103 @@ export function registerNewBoard(context: vscode.ExtensionContext, generation: (
 async function pickFolder(folders: readonly vscode.WorkspaceFolder[]): Promise<vscode.WorkspaceFolder | undefined> {
   const chosen = await vscode.window.showQuickPick(folders.map((folder) => ({ label: folder.name, folder })), { title: "New board: project", ignoreFocusOut: true });
   return chosen?.folder;
+}
+
+/** The main file a new project asked to open before VS Code restarted its extension host into the new folder. */
+const PENDING_OPEN = "tkr.pendingOpenAfterNewProject";
+interface PendingOpen {
+  readonly folder: string;
+  readonly main: string;
+}
+
+/**
+ * The new-project command (T-04): the questions are VS Code's own input boxes and pick lists, then the folder dialog. The
+ * created folder is opened as a workspace folder (the custom editors work on files inside one) and its main file in the
+ * editor. Opening a folder into an empty window makes VS Code restart the extension host, so that case leaves the main file
+ * to be opened by the next activation.
+ */
+export function registerNewProject(context: vscode.ExtensionContext): void {
+  const ui: NewProjectUi = {
+    input: (question) => Promise.resolve(vscode.window.showInputBox({
+      title: question.title,
+      prompt: question.prompt,
+      value: question.value,
+      ignoreFocusOut: true,
+      validateInput: (value) => question.validate(value) ?? undefined,
+    })),
+    pickMany: async (question) => {
+      const rows = question.items.map((item) => ({ label: item.label, description: item.description, detail: item.detail, id: item.id, picked: false }));
+      return (await vscode.window.showQuickPick(rows, { title: question.title, canPickMany: true, ignoreFocusOut: true }))?.map((row) => row.id);
+    },
+  };
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.newProject", async () => {
+    const outcome = await runNewProject<vscode.Uri>({
+      ui,
+      chooseDestination: async () => {
+        const chosen = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          title: "New project: choose the destination folder",
+          openLabel: "Create project here",
+        });
+        const uri = chosen?.[0];
+        return uri === undefined ? undefined : { handle: uri, storage: createVscodeFileSystem(uri) };
+      },
+    });
+    if (!outcome.ok) {
+      if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);
+      return;
+    }
+    await openCreatedProject(context, outcome.handle, outcome.mainPath);
+  }));
+  resumePendingOpen(context);
+}
+
+async function openCreatedProject(context: vscode.ExtensionContext, destination: vscode.Uri, mainPath: string): Promise<void> {
+  const main = vscode.Uri.joinPath(destination, ...mainPath.split("/"));
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  if (folders.some((folder) => folder.uri.toString() === destination.toString())) {
+    await vscode.commands.executeCommand("vscode.open", main);
+    return;
+  }
+  const pending: PendingOpen = { folder: destination.toString(), main: main.toString() };
+  await context.globalState.update(PENDING_OPEN, pending);
+  if (folders.length === 0) {
+    try {
+      await vscode.commands.executeCommand("vscode.openFolder", destination);
+    } catch (error) {
+      await context.globalState.update(PENDING_OPEN, undefined);
+      throw error;
+    }
+    return;
+  }
+  let resolveAdded!: () => void;
+  const added = new Promise<void>((resolve) => {
+    resolveAdded = resolve;
+  });
+  const listener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === destination.toString())) return;
+    listener.dispose();
+    resolveAdded();
+  });
+  context.subscriptions.push(listener);
+  if (!vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri: destination })) {
+    listener.dispose();
+    await context.globalState.update(PENDING_OPEN, undefined);
+    await vscode.window.showErrorMessage(`The project was created in ${destination.fsPath}, but VS Code could not add it to the workspace. Open the folder to edit it.`);
+    return;
+  }
+  await added;
+  await context.globalState.update(PENDING_OPEN, undefined);
+  await vscode.commands.executeCommand("vscode.open", main);
+}
+
+/** Open the main file a new project asked for before the extension host restarted, once, and only if its folder is what opened. */
+function resumePendingOpen(context: vscode.ExtensionContext): void {
+  const pending = context.globalState.get<PendingOpen>(PENDING_OPEN);
+  if (pending === undefined) return;
+  if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === pending.folder)) return;
+  void context.globalState.update(PENDING_OPEN, undefined);
+  void vscode.commands.executeCommand("vscode.open", vscode.Uri.parse(pending.main));
 }

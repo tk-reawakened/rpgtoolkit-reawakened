@@ -92,3 +92,22 @@ test("web filesystem reports a refused durable write and preserves the prior byt
   equal(result.error.code, "permission-denied");
   deepEqual([...file.bytes], [1, 2, 3]);
 });
+
+test("web createFolder makes an empty folder and its parents, accepts an existing folder, and refuses a file in the way", async () => {
+  const { root, fs } = fixture();
+  ok((await fs.createFolder("Boards")).ok);
+  ok((await fs.createFolder("Game/Boards/old")).ok, "missing parents are made");
+  ok((await fs.createFolder("Boards")).ok, "an existing folder is not an error");
+  const listed = await fs.list("Boards");
+  ok(listed.ok);
+  deepEqual(listed.value, [], "the folder is empty");
+  ok(root.children.get("Game") instanceof FakeDirectory);
+  const onFile = await fs.createFolder("game.gam");
+  ok(!onFile.ok && onFile.error.code === "not-a-directory");
+  const belowFile = await fs.createFolder("game.gam/inside");
+  ok(!belowFile.ok && belowFile.error.code === "not-a-directory");
+  for (const path of ["", "../x", "/x", "a\\b", "a//b"]) {
+    const invalid = await fs.createFolder(path);
+    ok(!invalid.ok && invalid.error.code === "invalid-path", `"${path}"`);
+  }
+});

@@ -30,6 +30,7 @@ import { Shell, type ShellProps } from "./shell.tsx";
 import { RunView, type RunViewProps } from "./run-view.tsx";
 import { BoardView } from "./board-view.tsx";
 import { NewBoardView, type NewBoardViewProps } from "./new-board-view.tsx";
+import { NewProjectView, type NewProjectViewProps } from "./new-project-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 import { TileBitmapView } from "./tile-bitmap-view.tsx";
@@ -236,6 +237,11 @@ export function mountPreferences(el: HTMLElement, props: PreferencesViewProps): 
 /** Render the new-board questions into `el`. */
 export function mountNewBoard(el: HTMLElement, props: NewBoardViewProps): ViewHandle {
   return mountElement(el, createElement(NewBoardView, props));
+}
+
+/** Render the new-project wizard into `el` (T-04). */
+export function mountNewProject(el: HTMLElement, props: NewProjectViewProps): ViewHandle {
+  return mountElement(el, createElement(NewProjectView, props));
 }
 
 /** Render the IDE "No Game Opened" Explorer panel into `el`. */

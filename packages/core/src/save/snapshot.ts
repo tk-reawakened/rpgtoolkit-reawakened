@@ -36,8 +36,12 @@
  * the effect log that ticket 3.21 introduced, v3 → v4 the thread, wait and
  * request fields of ticket 3.9, v4 → v5 advances both ticket 3.8 module
  * metadata and ticket 3.16's sandboxed file-handle table, v5 → v6 renames
- * each program reference's `compiler` to `ir`, and v6 → v7 establishes the
- * composable same-thread item-action continuation shape. The `schema` section
+ * each program reference's `compiler` to `ir`, v6 → v7 establishes the
+ * composable same-thread item-action continuation shape, and v7 → v8 moves
+ * each definition owner's program reference into `vm.programs` (#2767). A
+ * pre-v8 save that holds `vm.defOwners` is refused with `restore.shape` at
+ * `vm.defOwners` rather than migrated (owner ruling 2026-11-15:
+ * docs/spec/formats/save-game.md#save-compatibility-and-instruction-versions-owner-ruling). The `schema` section
  * v1 → v2 turns its `compiler` into `ir` the same way. A save whose
  * `schema.audio` is 1 carried the empty placeholder; it is replaced by a fresh
  * schema-2 audio section (docs/spec/engine/audio-media.md#audio-state), because
@@ -49,7 +53,7 @@
  */
 
 import { canon, reviveNonFinite, tagNonFinite } from "../canon/index.ts";
-import { cellIdOfRef, cellNumber, eachRootValue, isRecord, migratePackageInlineLambdaDefs } from "../script/cells.ts";
+import { cellIdOfRef, cellNumber, eachRootValue, isRecord } from "../script/cells.ts";
 import { parseObjectRef } from "../script/objects.ts";
 import {
   RESTORE_CALLABLE_MALFORMED,
@@ -108,7 +112,7 @@ function renameProgramRef(value: unknown): void {
   delete value.compiler;
 }
 
-/** Rename every saved program reference: frame programs, object programs and definition owners. */
+/** Rename every saved program reference: frame programs and object programs. */
 function migrateProgramRefs(record: Record<string, unknown>): void {
   const vm = record.vm;
   if (!isRecord(vm)) return;
@@ -120,9 +124,6 @@ function migrateProgramRefs(record: Record<string, unknown>): void {
   }
   if (Array.isArray(vm.objects)) {
     for (const object of vm.objects) if (isRecord(object)) renameProgramRef(object.program);
-  }
-  if (isRecord(vm.defOwners)) {
-    for (const ref of Object.values(vm.defOwners)) renameProgramRef(ref);
   }
 }
 
@@ -137,6 +138,12 @@ function migrateVm(record: Record<string, unknown>, schema: Record<string, unkno
     throw new ScriptError("restore.shape", "the snapshot's `schema` has no numeric `vm` version");
   }
   if (version > SCHEMA_VERSIONS.vm) shapeError(`the snapshot's vm schema version ${String(version)} is newer than supported version ${SCHEMA_VERSIONS.vm}`);
+  if (version < 8 && isRecord(record.vm) && record.vm.defOwners !== undefined) {
+    shapeError(
+      `the snapshot's vm.defOwners was written by vm schema version ${String(version)}, which stored a program reference per definition; ` +
+        `saves from before version 8 that hold definition owners are not migrated (#2767)`,
+    );
+  }
   if (version < SCHEMA_VERSIONS.vm) migrateProgramRefs(record);
   if (version >= SCHEMA_VERSIONS.vm) return;
 
@@ -178,6 +185,7 @@ function migrateVm(record: Record<string, unknown>, schema: Record<string, unkno
     if (!Array.isArray(vmRecord.files)) vmRecord.files = [];
   }
   // v6 → v7 adds an optional per-frame itemActions stack; older frames remain absent until needed.
+  // v7 → v8 changes only `vm.defOwners`/`vm.programs`, which a save without definition owners lacks.
   schema.vm = SCHEMA_VERSIONS.vm;
 }
 
@@ -664,6 +672,31 @@ function migrateAudio(record: Record<string, unknown>, schema: Record<string, un
   schema.audio = SCHEMA_VERSIONS.audio;
 }
 
+/**
+ * `vm.programs` and `vm.defOwners` (FUN-8; entry 18.6, #2767): both present or both absent, every
+ * program entry a program reference, every owner value the key of a program entry, and every program
+ * entry named by at least one owner.
+ */
+function validateOwnerPrograms(vm: Record<string, unknown>): void {
+  if (vm.defOwners === undefined && vm.programs === undefined) return;
+  if (vm.defOwners === undefined) shapeError("the snapshot's vm.programs is present but vm.defOwners is not");
+  if (vm.programs === undefined) shapeError("the snapshot's vm.defOwners is present but vm.programs is not");
+  const owners = recordAt(vm.defOwners, "vm.defOwners");
+  const programs = recordAt(vm.programs, "vm.programs");
+  for (const key of Object.keys(programs)) validateProgramRef(programs[key], `vm.programs.${key}`);
+  const named = new Set<string>();
+  for (const def of Object.keys(owners)) {
+    const key = owners[def];
+    if (typeof key !== "string" || !Object.hasOwn(programs, key)) {
+      shapeError(`the snapshot's vm.defOwners.${def} must be the key of a vm.programs entry`);
+    }
+    named.add(key);
+  }
+  for (const key of Object.keys(programs)) {
+    if (!named.has(key)) shapeError(`the snapshot's vm.programs.${key} is named by no vm.defOwners entry`);
+  }
+}
+
 function shapeError(message: string): never {
   throw new ScriptError("restore.shape", message);
 }
@@ -1017,10 +1050,7 @@ function validateVmHandles(vm: Record<string, unknown>, objects: ReadonlyMap<num
     }
   }
   const table: Readonly<Record<string, unknown>> = isRecord(cells) ? cells : {};
-  if (vm.defOwners !== undefined) {
-    const owners = recordAt(vm.defOwners, "vm.defOwners");
-    for (const def of Object.keys(owners)) validateProgramRef(owners[def], `vm.defOwners.${def}`);
-  }
+  validateOwnerPrograms(vm);
   for (const id of Object.keys(table)) checkValue(`vm.cells.${id}`, table[id], table, objects);
   eachRootValue(
     vm,
@@ -1443,7 +1473,7 @@ export function refuseNewerFrameIr(record: Record<string, unknown>): void {
  * Apply the instruction-version rule to every saved thread: an older frame
  * restarts that thread (or, for a recovery candidate, refuses the save). A newer
  * one was already refused before payload validation. Position-free program
- * references — object records and `vm.defOwners` — carry no `ip` and are left for
+ * references — object records and `vm.programs` — carry no `ip` and are left for
  * the host to recompile.
  */
 function applyIrCompatibility(record: Record<string, unknown>, options: RestoreOptions): void {
@@ -1512,7 +1542,6 @@ export function restoreGameState(
   migrateWorld(record, schema as Record<string, unknown>);
 
   migrateVm(record, schema as Record<string, unknown>);
-  migratePackageInlineLambdaDefs(record.vm, record.events);
   migrateSprites(record, schema as Record<string, unknown>);
   migrateInput(record, schema as Record<string, unknown>);
   rebuildKeyboardActionClaimIndex(record.input as GameState["input"]);

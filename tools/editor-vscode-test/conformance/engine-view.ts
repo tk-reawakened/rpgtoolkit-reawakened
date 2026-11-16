@@ -50,6 +50,9 @@ export function engineBoardView(files: Readonly<Record<string, Uint8Array>>, boa
   return surface.rgba;
 }
 
+/** Where the engine finds a project's assets: under a Toolkit folder's `Game/<projectPath>`, or at a package's root. */
+export type EngineAssetRoot = { readonly kind: "game"; readonly projectPath: string } | typeof PACKAGE_ROOT;
+
 /** What a boot reached: its stage, the board it entered, and every diagnostic it reported. */
 export interface EngineBoot {
   readonly stage: string | null;
@@ -62,7 +65,7 @@ export interface EngineBoot {
  * main file's `projectPath` locates the project), the way the core boot tests do (E-02): every asset request is answered
  * from `files`, and one Enter press at `pressAt` lets a start-up `wait()` finish.
  */
-export function engineBoot(files: Readonly<Record<string, Uint8Array>>, mainPath: string, ticks: number, pressAt: number): EngineBoot {
+export function engineBoot(files: Readonly<Record<string, Uint8Array>>, mainPath: string, ticks: number, pressAt: number, assetRoot: EngineAssetRoot = { kind: "game", projectPath: "" }): EngineBoot {
   const byKey = new Map<string, Uint8Array>(Object.entries(files).map(([path, bytes]) => [assetKey(path), bytes]));
   let latest: GameState | undefined;
   let hasPlayer = false;
@@ -77,7 +80,7 @@ export function engineBoot(files: Readonly<Record<string, Uint8Array>>, mainPath
   const engine = createEngine({
     seed: 3,
     assetIndex: createAssetIndex(Object.keys(files)),
-    assetRoot: { kind: "game", projectPath: "" },
+    assetRoot,
     mainFile: mainPath,
     gameIdentity: "editor-settings-proof",
     startup: { presence: { hasPlayer: () => hasPlayer }, savedGame: { load: () => ({ kind: "missing" as const }), restored: () => false } },

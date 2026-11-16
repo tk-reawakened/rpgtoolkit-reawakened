@@ -47,6 +47,11 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle, projectId: 
       try { const target = await file(parts, true); const writable = await target.createWritable({ keepExistingData: false }); const buffer = new ArrayBuffer(bytes.byteLength); new Uint8Array(buffer).set(bytes); await writable.write(buffer); await writable.close(); return platformOk(undefined); }
       catch (error) { return fail(error, path); }
     },
+    async createFolder(path) {
+      const parts = valid(path); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);
+      try { await dir(parts, true); return platformOk(undefined); }
+      catch (error) { return fail(error, path); }
+    },
     async stat(path) {
       const parts = valid(path, true); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);
       try { if (!parts.length) return platformOk({ kind: "directory", size: 0, modifiedMs: 0 }); const target = await dir(parts.slice(0, -1)); try { const handle = await target.getFileHandle(parts.at(-1)!); const entry = await handle.getFile(); return platformOk({ kind: "file", size: entry.size, modifiedMs: entry.lastModified }); } catch (error) { if (!(error instanceof DOMException) || error.name !== "TypeMismatchError") throw error; await target.getDirectoryHandle(parts.at(-1)!); return platformOk({ kind: "directory", size: 0, modifiedMs: 0 }); } }

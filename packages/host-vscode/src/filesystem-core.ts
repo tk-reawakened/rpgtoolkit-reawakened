@@ -58,6 +58,15 @@ export function createVscodeFileSystemWithPort<Uri extends VscodeUriLike>(root: 
       try { await port.createDirectory(port.parent(uri)); await port.writeFile(uri, bytes); return platformOk(undefined); }
       catch (error) { return failure(error, value); }
     },
+    async createFolder(value) {
+      const uri = path(value);
+      if (!uri) return invalid(value);
+      try { await port.createDirectory(uri); return platformOk(undefined); }
+      catch (error) {
+        // A file where the folder belongs is not an error of the host's own: it is the contract's `not-a-directory`.
+        return port.errorCode(error) === "FileExists" ? platformError("not-a-directory", `${value} is a file`) : failure(error, value);
+      }
+    },
     async stat(value) {
       const uri = value === "" ? root : path(value);
       if (!uri) return invalid(value);

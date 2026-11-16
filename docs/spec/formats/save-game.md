@@ -215,7 +215,7 @@ jobs. These rules follow and must not be merged:
   `Load` returns failure to the calling thread, raises the diagnostic, and replaces
   nothing.
 - **Position-free references never gate the save.** An object record's `program`, a
-  `vm.defOwners` entry and a callable (which names a `def`, not a program) carry no
+  `vm.programs` entry and a callable (which names a `def`, not a program) carry no
   instruction position; the load rebuilds them from source. A `def` that only a
   restarted program defined is reported as unknown, as today.
 - **Recovery is stricter than `Load`.** A recovery candidate needs like-for-like
@@ -245,15 +245,30 @@ its saved position cannot be honoured — while a newer one refuses the save. Th
 no `restore.restarted` diagnostic, and `restore.compiler-mismatch` retires with the
 old gate.
 
-The save shape is `schema` version 2 (`ir` replaces `compiler`) and `vm` version 7
+The save shape is `schema` version 2 (`ir` replaces `compiler`) and `vm` version 8
 (`ProgramRef.ir` replaces `ProgramRef.compiler`; version 7 adds the optional
 per-frame `itemActions` stack of pending item actions, see
-[the item-action contract](../engine/plugins-and-battle.md#epic-85-item-action-proposal)).
+[the item-action contract](../engine/plugins-and-battle.md#epic-85-item-action-proposal);
+version 8 stores each owner program reference once in `vm.programs` and makes each
+`vm.defOwners` value a key into it, see
+[FUN-8, entry 18.6](../engine/rpgcode-language.md#keywords-and-structure)).
 A version-1 `schema` migrates its `compiler` to `ir`, a version-5 `vm` migrates every
 saved program reference the same way, and a version-6 `vm` migrates with no change
 beyond its version because the new field is absent until an action starts; every
 committed save fixture from before the split exercises the first two, and the
 `vm6-battle-*` fixtures exercise the last.
+
+**Owner references are not migrated (OWNER: Jensen, 2026-11-15; issue #2767).**
+A `vm` section older than version 8 that holds `vm.defOwners` stored a whole
+program reference per definition. It is refused whole with `restore.shape` located
+at `vm.defOwners` and is not migrated; an older section with no `vm.defOwners`
+migrates as above, because nothing else in its shape changed. The owner ruled that
+before release 1.0 breaking saves without a migration is fine. Evidence: the `demo`
+sample's state repeated the text of its two bundled inline package programs once
+per live definition, about 14.6 MB of canonical text, and every save wrote all of
+it. Rejected alternatives: keeping the per-definition copies, and an adapter that
+interns an older save's owners, which would be code kept only for saves that do not
+exist.
 
 The world section is version 3. A version-2 save's `world.board.runtime.tileEdits`
 indices use the old per-layer `sizeX × sizeY` stride even on iso-rotated boards.

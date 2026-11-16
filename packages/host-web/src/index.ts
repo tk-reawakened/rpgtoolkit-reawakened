@@ -212,6 +212,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
       const data = memory.get(path);
       return data ? platformOk({ kind: "file", size: data.length, modifiedMs: 0 }) : platformError("not-found", `File not found: ${path}`);
     },
+    createFolder: async (path) => !valid(path) ? invalid(path) : unavailable(),
     delete: async (path) => {
       if (!valid(path)) return invalid(path);
       return memory.delete(path) ? platformOk(undefined) : platformError("not-found", `File not found: ${path}`);
@@ -421,6 +422,7 @@ export const mountGameSettings = mountEditor;
 
 export { createPageDialogs } from "./dialogs.ts";
 export { createWorkbench, type Workbench, type WorkbenchOptions } from "./workbench.ts";
+export { newWebProject, type NewWebProjectOptions, type NewWebProjectResult } from "./new-project.ts";
 export { createWebFileSystem } from "./filesystem.ts";
 export { createWebLanguageService, projectFileUri, readProjectSnapshot, type WebLanguageOptions, type WebLanguageService } from "./language.ts";
 export { createWebSettings, PROJECT_SETTINGS_PATH, type UserSettingsStorage } from "./settings.ts";
