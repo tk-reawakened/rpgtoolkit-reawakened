@@ -62,6 +62,8 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   context.subscriptions.push(changes);
   const nativeRestoreGroups = new Map<string, string>();
   const nativeSaveReasons = new Map<string, "auto" | "manual">();
+  const nativeSavePrepared = new Set<string>();
+  const nativeSaveFailures = new Map<string, string>();
   const findTextDocument = (uri: vscode.Uri) => vscode.workspace.textDocuments.find((document) => !document.isClosed
     && document.uri.scheme === uri.scheme && document.uri.authority === uri.authority
     && createDocumentIdentity("", document.uri.path).key === createDocumentIdentity("", uri.path).key);
@@ -90,19 +92,39 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       const document = findTextDocument(uri);
       if (document === undefined) return null;
       if (bytes === null) return { ok: false, message: "Close the native text editor before removing its file." };
-      const current = document.isDirty
-        ? new TextEncoder().encode(document.getText())
+      const version = document.version;
+      const wasDirty = document.isDirty;
+      const textBeforeRead = document.getText();
+      const current = wasDirty
+        ? new TextEncoder().encode(textBeforeRead)
         : await vscode.workspace.fs.readFile(uri);
+      if (document.version !== version || document.isDirty !== wasDirty || document.getText() !== textBeforeRead) {
+        return { ok: false, message: "The native text editor changed while restore was checking the saved file; nothing was replaced." };
+      }
       if (current.length !== expected?.length || current.some((byte, index) => byte !== expected[index])) {
         return { ok: false, message: "The native text editor changed after restore confirmation; nothing was replaced." };
       }
       let target: string;
       try { target = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
       catch { return { ok: false, message: "The saved version is not valid UTF-8 and cannot be restored into a native text editor." }; }
-      const edit = new vscode.WorkspaceEdit();
-      edit.replace(uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), target);
-      if (!await vscode.workspace.applyEdit(edit)) return { ok: false, message: "VS Code refused the native editor restore." };
-      if (document.getText() !== target) return { ok: false, message: "The native editor changed during restore; the restored content remains unsaved." };
+      let editor = vscode.window.visibleTextEditors.find((candidate) => candidate.document === document);
+      if (editor === undefined) {
+        try { editor = await vscode.window.showTextDocument(document, { preserveFocus: true, preview: false }); }
+        catch { return { ok: false, message: "The native text editor could not be shown for a safe restore." }; }
+      }
+      if (document.version !== version || document.isDirty !== wasDirty || document.getText() !== textBeforeRead) {
+        return { ok: false, message: "The native text editor changed before restore could be applied; nothing was replaced." };
+      }
+      let changedDuringApply = false;
+      const applied = await editor.edit((edit) => {
+        if (document.version !== version || document.getText() !== textBeforeRead) {
+          changedDuringApply = true;
+          return;
+        }
+        edit.replace(new vscode.Range(document.positionAt(0), document.positionAt(textBeforeRead.length)), target);
+      });
+      if (!applied || changedDuringApply) return { ok: false, message: "The native text editor changed during restore; nothing was replaced." };
+      if (document.getText() !== target) return { ok: false, message: "The native text editor changed during restore; the restored content remains unsaved." };
       const key = uri.toString();
       nativeRestoreGroups.set(key, groupId);
       try {
@@ -141,13 +163,34 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     changes.fire(event);
   });
   context.subscriptions.push(vscode.workspace.onWillSaveTextDocument((event) => {
-    const folder = vscode.workspace.getWorkspaceFolder(event.document.uri);
+    const document = event.document;
+    if (!document.isDirty) return;
+    const folder = vscode.workspace.getWorkspaceFolder(document.uri);
     if (folder === undefined) return;
     const root = folder.uri.path.replace(/\/$/, "");
-    if (!event.document.uri.path.startsWith(`${root}/`)) return;
-    const path = event.document.uri.path.slice(root.length + 1);
+    if (!document.uri.path.startsWith(`${root}/`)) return;
+    const path = document.uri.path.slice(root.length + 1);
     if (kindForPath(path) === null) return;
-    nativeSaveReasons.set(event.document.uri.toString(), event.reason === vscode.TextDocumentSaveReason.Manual ? "manual" : "auto");
+    const key = document.uri.toString();
+    const groupId = nativeRestoreGroups.get(key) ?? null;
+    const reason = event.reason === vscode.TextDocumentSaveReason.Manual ? "manual" : "auto";
+    const prepare = (async () => {
+      if (groupId === null) {
+        const { fs, workspace } = core.workspaceFor({ uri: folder.uri, key: folder.uri.toString() });
+        const previous = await fs.readProject(folder.uri.toString(), path);
+        if (previous.ok) await workspace.history.keep(path, previous.value, "checkpoint");
+        else if (previous.error.code !== "not-found") throw new Error(previous.error.message);
+      }
+      nativeSavePrepared.add(key);
+      nativeSaveFailures.delete(key);
+      nativeSaveReasons.set(key, reason);
+    })().catch((error: unknown) => {
+      const message = `${path} was not saved because its previous version could not be kept in recovery history: ${error instanceof Error ? error.message : String(error)}`;
+      nativeSaveFailures.set(key, message);
+      void vscode.window.showErrorMessage(message);
+      throw error;
+    });
+    event.waitUntil(prepare);
   }));
   context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(async (document) => {
     const folder = vscode.workspace.getWorkspaceFolder(document.uri);
@@ -156,8 +199,16 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     if (!document.uri.path.startsWith(`${root}/`)) return;
     const path = document.uri.path.slice(root.length + 1);
     if (kindForPath(path) === null) return;
-    const reason = nativeSaveReasons.get(document.uri.toString()) ?? "manual";
-    nativeSaveReasons.delete(document.uri.toString());
+    const key = document.uri.toString();
+    const prepared = nativeSavePrepared.delete(key);
+    const failedBeforeSave = nativeSaveFailures.get(key);
+    nativeSaveFailures.delete(key);
+    const reason = nativeSaveReasons.get(key) ?? "manual";
+    nativeSaveReasons.delete(key);
+    const groupId = nativeRestoreGroups.get(key) ?? null;
+    if (!prepared && groupId === null) {
+      await vscode.window.showWarningMessage(failedBeforeSave ?? `${path} was saved without pre-save recovery capture; its previous bytes may be unavailable.`);
+    }
     const { fs, workspace } = core.workspaceFor({ uri: folder.uri, key: folder.uri.toString() });
     const saved = await fs.readProject(folder.uri.toString(), path);
     if (!saved.ok) {
@@ -165,7 +216,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       return;
     }
     try {
-      const recorded = await workspace.history.recordSave(path, saved.value, reason, nativeRestoreGroups.get(document.uri.toString()) ?? null);
+      const recorded = await workspace.history.recordSave(path, saved.value, reason, groupId);
       if (recorded.outcome === "uncovered") await vscode.window.showWarningMessage(`${path} was saved, but it is not covered by recovery history (${recorded.reason}).`);
     } catch (error) {
       await vscode.window.showWarningMessage(`${path} was saved, but its recovery history could not be recorded: ${error instanceof Error ? error.message : String(error)}`);

@@ -10,6 +10,7 @@ import {
   createBoardFile,
   createDocumentHistoryStore,
   createDocumentWorkspace,
+  createMemoryHistoryStorage,
   createNewProject,
   createProjectWizardHistory,
   createWizardHistory,
@@ -464,9 +465,27 @@ test("without folderWrite history lives in memory and says so; the project folde
   retitle(doc, "x");
   await doc.save("manual");
   equal((await workspace.history.documentTimeline(PATH)).length, 2);
+  const usage = await workspace.history.usage();
+  ok(usage.bytes > 0, "the session filesystem lists nested history folders so usage is counted");
   equal((await host.fs.list(".tkr-history")).ok, false, "nothing was written into the project");
   const withFolder = createDocumentWorkspace({ projectId: "memory-project", services: createMemoryPlatformServices({}) });
   equal(withFolder.history.location.kind, "project-folder");
+});
+
+test("session-memory history reports bytes from its real recursive memory storage", async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) } });
+  const storage = createMemoryHistoryStorage();
+  const history = createDocumentHistoryStore({
+    project: host.fs,
+    storage,
+    location: { kind: "session-memory", description: "lost when the page closes" },
+    policy: () => DEFAULT_HISTORY_POLICY,
+    coveredType: (path) => path.endsWith(".gam"),
+  });
+  await history.keep(PATH, exampleMain(9), "checkpoint");
+  const usage = await history.usage();
+  ok(usage.bytes > 0);
+  equal(usage.entries, 1);
 });
 
 test("the ignore offer is only an offer: nothing is written until accepted, existing lines stay, and a present ignore removes it", async () => {

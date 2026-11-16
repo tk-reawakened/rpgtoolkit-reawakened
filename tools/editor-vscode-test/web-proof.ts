@@ -17,6 +17,8 @@ type ProofRunSnapshot = { readonly stateHash: string | null };
 type NewProjectHistoryProofHost = {
   pauseWrite(path: string): Promise<void>;
   resumeWrite(): void;
+  pauseRead(path: string): Promise<void>;
+  resumeRead(): void;
   readEvents(): { kind: "readDirectory" | "readFile"; path: string }[];
   writeEvents(): readonly { readonly kind: "write-request" | "write"; readonly path: string }[];
   readonly bitmapPath: string;
@@ -503,6 +505,68 @@ async function proveNativeHistoryUi(
   await openNativeQuickOpenFile(page, expect, gamePath);
   editor = await waitForWritableEditorFrame(page, "History editor after restoring the restore", "Game title");
   await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History second");
+  await proveNativeTextHistory(page, expect, tree, readBacking, historyHost);
+}
+
+async function proveNativeTextHistory(
+  page: Page,
+  expect: Expect,
+  tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  host: NewProjectHistoryProofHost,
+): Promise<void> {
+  const projectPath = "__tkr_new_project/Prg/start.prg";
+  const historyPath = "Prg/start.prg";
+  const before = await readBacking(projectPath);
+  await openNativeQuickOpenFile(page, expect, projectPath);
+  const editor = page.locator(".monaco-editor:visible").last();
+  const lines = editor.locator(".view-lines");
+  await expect(lines).toBeVisible();
+  await lines.click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("// Native history pre-save baseline proof");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect.poll(() => readBacking(projectPath), { timeout: 30_000, intervals: [100, 250, 500] }).not.toEqual(before);
+  const saved = await readBacking(projectPath);
+  const entryPrefix = "__tkr_new_project/.tkr-history/entries/";
+  const entries = await Promise.all((await tree()).filter((path) => path.startsWith(entryPrefix) && path.endsWith(".json"))
+    .map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as {
+      readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number;
+    }));
+  const nativeEntries = entries.filter((entry) => entry.path === historyPath);
+  expect(nativeEntries.map((entry) => entry.reason).sort()).toEqual(["checkpoint", "manual"]);
+  expect(nativeEntries.map((entry) => entry.sha256).sort()).toEqual([
+    createHash("sha256").update(before).digest("hex"),
+    createHash("sha256").update(saved).digest("hex"),
+  ].sort());
+
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
+  const picker = page.locator(".quick-input-widget");
+  const checkpoint = picker.getByRole("option").filter({ hasText: "checkpoint" });
+  await expect(checkpoint).toHaveCount(1);
+  const writeEventsStart = host.writeEvents().length;
+  const readEventsStart = host.readEvents().length;
+  const readReached = host.pauseRead(`/${projectPath}`);
+  try {
+    await checkpoint.click();
+    await expect.poll(
+      () => host.readEvents().slice(readEventsStart).some((event) => event.kind === "readFile" && event.path === `/${projectPath}`),
+      { timeout: 30_000, intervals: [100, 250, 500] },
+    ).toBe(true);
+    await readReached;
+    await lines.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("// Concurrent native edit must survive history restore");
+  } finally {
+    host.resumeRead();
+  }
+  await expect.poll(async () => page.locator("body").innerText()).toContain("changed while restore was checking the saved file");
+  expect(await readBacking(projectPath)).toEqual(saved);
+  expect(host.writeEvents().slice(writeEventsStart).filter((event) => event.path === `/${projectPath}`)).toEqual([]);
+  await lines.click();
+  await page.keyboard.press("ControlOrMeta+Z");
 }
 
 async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: string): Promise<void> {
@@ -1194,7 +1258,8 @@ export async function runVscodeWebProof(
   await expect(page.getByText(/Included \(\d+\):/)).toBeVisible();
   await page.keyboard.press("Escape");
 
-  const editor = await waitForEditorFrame(page, "initial Game settings editor");
+  await openGame(page, gamePath, expect);
+  const editor = await waitForWritableEditorFrame(page, "initial Game settings editor", "Game title");
   const titleField = editor.getByLabel("Game title");
   await expectVisibleWithFrameDiagnostics(page, titleField, expect, "initial Game title field");
   assertNoCspConsoleViolations(consoleViolations, "before installing the actual settings-document CSP listener");
@@ -1206,6 +1271,7 @@ export async function runVscodeWebProof(
   const savedTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
   await expect(savedTab).toHaveClass(/dirty/);
   await editor.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => host.readBacking(gamePath), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toEqual(expectedBytes);
   const saved = await readWorkspaceBytes(page, expect);
   expect(saved).not.toEqual(before);
   expect(saved).toEqual(expectedBytes);
@@ -2303,13 +2369,14 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
   };
   await runAnimationAuthoringProof({
     create: async () => {
-      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "Project-relative .anm destination in Misc");
-      const input = page.locator(".quick-input-widget input:visible");
+      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "New animation");
+      const input = page.getByRole("textbox", { name: "New animation" });
       await expect(page.locator(".quick-input-widget")).toContainText("Project-relative .anm destination in Misc");
       await input.fill(ANIMATION_PROOF_PATH);
       await input.press("Escape");
       expect(await read(ANIMATION_PROOF_PATH)).toBeNull();
-      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "Project-relative .anm destination in Misc");
+      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "New animation");
+      await expect(page.locator(".quick-input-widget")).toContainText("Project-relative .anm destination in Misc");
       await expect(input).toBeVisible(); await input.fill(ANIMATION_PROOF_PATH); await input.press("Enter");
       return (await waitForCustomEditorFrame(page, "new animation", ".tkr-animation-editor")).locator(".tkr-animation-editor");
     },

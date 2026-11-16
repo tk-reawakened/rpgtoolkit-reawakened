@@ -48,7 +48,7 @@ export async function runHistoryCommand(workspace: DocumentWorkspace, activePath
     if (chosen.startsWith("group:")) {
       const group = groups.find((candidate) => candidate.id === chosen.slice("group:".length));
       if (group === undefined || !("files" in group)) return;
-      const report = await workspace.restoreHistoryGroup(group.id, activePath === null ? undefined : { only: [activePath] });
+      const report = await workspace.restoreHistoryGroup(group.id);
       const lines = report.files.map((file) => `${file.path === "" ? "Checkpoint" : file.path}: ${file.result}${file.message === undefined ? "" : ` (${file.message})`}`);
       await ui.tell(report.restoreGroupId === null ? `Nothing was restored. ${lines.join("; ")}` : `Recovery group restored. ${lines.join("; ")} Each file is reported separately; the restore is itself in history, so it can be undone.`);
       return;

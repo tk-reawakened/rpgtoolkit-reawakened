@@ -294,6 +294,8 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
         previewTrace: () => historyPreviewTraceDiagnostics.slice(),
         pauseWrite: persistentFs.pauseWrite,
         resumeWrite: persistentFs.resumeWrite,
+        pauseRead: persistentFs.pauseRead,
+        resumeRead: persistentFs.resumeRead,
         writeEvents: persistentFs.writeEvents,
         readEvents: persistentFs.readEvents,
       });

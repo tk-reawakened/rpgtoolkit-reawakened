@@ -12,10 +12,10 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   const workspaceId = randomBytes(16).toString("hex");
   const workbench = new URL(allowedOrigin);
   const events = [];
-  let pausedSave;
   const readEvents = [];
   const writeEvents = [];
   let pausedWrite;
+  let pausedRead;
   const server = createServer(async (request, response) => {
     const origin = request.headers.origin;
     let allowed = origin === allowedOrigin;
@@ -51,13 +51,18 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
         if (input.kind === "save-request" && pausedSave) await pausedSave.promise;
         result = null;
       } else {
+        const readGate = input.op === "readFile" && pausedRead?.path === input.path ? pausedRead : undefined;
+        if (input.op === "readDirectory" || input.op === "readFile") readEvents.push({ kind: input.op, path: input.path });
+        if (readGate !== undefined) {
+          readGate.reach();
+          await readGate.promise;
+        }
         const gate = input.op === "writeFile" && pausedWrite?.path === input.path ? pausedWrite : undefined;
         if (gate !== undefined) {
           writeEvents.push({ kind: "write-request", path: input.path });
           gate.reach();
           await gate.promise;
         }
-        if (input.op === "readDirectory" || input.op === "readFile") readEvents.push({ kind: input.op, path: input.path });
         result = await perform(root, input);
         if (gate !== undefined) writeEvents.push({ kind: "write", path: input.path });
       }
@@ -82,6 +87,16 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       pausedSave = { promise, release };
     },
     resumeSave: () => { pausedSave?.release(); pausedSave = undefined; },
+    pauseRead: (path) => {
+      if (pausedRead) throw new Error("A filesystem read is already paused");
+      let release;
+      let reach;
+      const reached = new Promise((resolveReached) => { reach = resolveReached; });
+      const promise = new Promise((resolveGate) => { release = resolveGate; });
+      pausedRead = { path, promise, release, reach: () => reach() };
+      return reached;
+    },
+    resumeRead: () => { pausedRead?.release(); pausedRead = undefined; },
     pauseWrite: (path) => {
       if (pausedWrite) throw new Error("A backing write is already paused");
       let release;

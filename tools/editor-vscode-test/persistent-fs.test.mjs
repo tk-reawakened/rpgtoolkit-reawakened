@@ -86,6 +86,31 @@ test("the proof filesystem can pause a workspace write before it reaches disk", 
     await rm(root, { recursive: true, force: true });
   }
 });
+test("the proof filesystem can pause a workspace read before it reaches the caller", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-read-gate-test-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    await writeFile(join(root, "game.gam"), "saved");
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const reached = bridge.pauseRead("/game.gam");
+    const pending = fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ op: "readFile", path: "/game.gam" }),
+    });
+    await reached;
+    assert.deepEqual(bridge.readEvents(), [{ kind: "readFile", path: "/game.gam" }]);
+    bridge.resumeRead();
+    const response = await pending;
+    assert.equal(response.status, 200);
+    assert.equal(Buffer.from((await response.json()).result, "base64").toString(), "saved");
+  } finally {
+    if (bridge) { bridge.resumeRead(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 
 test("request decoding handles split UTF-8 and counts bytes", async () => {

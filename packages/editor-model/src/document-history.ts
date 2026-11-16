@@ -452,8 +452,18 @@ export function createMemoryHistoryStorage(): DocumentHistoryOptions["storage"] 
     async list(path) {
       if (!folders.has(path)) return notFound;
       const prefix = `${path}/`;
-      const entries = [...files.keys()].filter((key) => key.startsWith(prefix) && !key.slice(prefix.length).includes("/")).map((key) => ({ name: key.slice(prefix.length), kind: "file" as const }));
-      return { ok: true as const, value: entries };
+      const entries = new Map<string, "file" | "directory">();
+      const add = (childPath: string, kind: "file" | "directory"): void => {
+        if (!childPath.startsWith(prefix)) return;
+        const remainder = childPath.slice(prefix.length);
+        if (remainder.length === 0) return;
+        const separator = remainder.indexOf("/");
+        const name = separator < 0 ? remainder : remainder.slice(0, separator);
+        entries.set(name, separator >= 0 ? "directory" : kind);
+      };
+      for (const file of files.keys()) add(file, "file");
+      for (const folder of folders) add(folder, "directory");
+      return { ok: true as const, value: [...entries].map(([name, kind]) => ({ name, kind })) };
     },
     async delete(path) { files.delete(path); return { ok: true as const, value: undefined }; },
   };
