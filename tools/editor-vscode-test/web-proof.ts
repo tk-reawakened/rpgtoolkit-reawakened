@@ -383,6 +383,14 @@ async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Prom
   await editor.getByRole("button", { name: "Save", exact: true }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
   const secondSaved = await readBacking("__tkr_new_project/Main/Quest.gam");
+  const entryFolder = "__tkr_new_project/.tkr-history/entries/";
+  const entryPaths = (await tree()).filter((path) => path.startsWith(entryFolder) && path.endsWith(".json"));
+  const storedEntries = await Promise.all(entryPaths.map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as {
+    readonly id: string; readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number;
+  }));
+  const gameEntries = storedEntries.filter((entry) => entry.path === "Main/Quest.gam");
+  expect(gameEntries).toHaveLength(2);
+  expect(gameEntries.map((entry) => entry.reason).sort()).toEqual(["manual", "manual"]);
   expect(createHash("sha256").update(firstSaved).digest("hex")).not.toBe(createHash("sha256").update(secondSaved).digest("hex"));
 
   await runCommand(page, expect, "RPG Toolkit: Document history");
@@ -393,7 +401,7 @@ async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Prom
     const persisted = (await tree()).filter((path) => path.startsWith("__tkr_new_project/.tkr-history/"));
     const pickerText = await picker.innerText().catch(() => "");
     const notifications = await page.locator(".notifications-toasts").innerText().catch(() => "");
-    throw new Error(`Expected two saved versions in the real History picker; found ${savedCount}. Picker: ${pickerText}; notifications: ${notifications}; persisted history paths: ${persisted.join(", ")}`);
+    throw new Error(`Expected two saved versions in the real History picker; found ${savedCount}. Picker: ${pickerText}; notifications: ${notifications}; persisted history entries: ${JSON.stringify(gameEntries)}; history paths: ${persisted.join(", ")}`);
   }
   await expect(options).toHaveCount(2);
   await options.first().click();

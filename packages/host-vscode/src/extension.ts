@@ -15,6 +15,12 @@ import { runHistoryCommand } from "./history-command.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap"] as const;
 
+/** A custom editor is active in the workbench without a TextEditor; its tab input still carries the project URI. */
+function activeCustomEditorUri(): vscode.Uri | undefined {
+  const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+  return input instanceof vscode.TabInputCustom ? input.uri : undefined;
+}
+
 function html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
   const bundle = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "webview.js"));
@@ -88,7 +94,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   });
   // The History command (#2833): the shared workspace does the work; VS Code only picks and reports.
   context.subscriptions.push(vscode.commands.registerCommand("tkr.history", async () => {
-    const candidate = vscode.window.activeTextEditor?.document.uri;
+    const candidate = vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri();
     const folder = candidate === undefined ? (vscode.workspace.workspaceFolders ?? [])[0] : vscode.workspace.getWorkspaceFolder(candidate);
     if (folder === undefined) {
       await vscode.window.showErrorMessage("Open a project folder first: history is kept in the project's .tkr-history folder.");
