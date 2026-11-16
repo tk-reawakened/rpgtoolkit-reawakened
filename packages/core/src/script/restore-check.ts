@@ -7,7 +7,7 @@
  * saved, so whether the game still has that definition, and how many names it
  * captures, can be answered only once the host has rebuilt its services. This
  * function answers it: it compiles the program of every frame, object record and
- * owner in `vm.defOwners`, then checks each callable against what it found. An
+ * owner program in `vm.programs`, then checks each callable against what it found. An
  * object record has no instruction position to resume, so a changed file-backed
  * class program is rebuilt from current source with its saved include list. Every
  * failure is a typed `ScriptError` whose message names the place in the save;
@@ -16,7 +16,7 @@
 
 import type { CallableValue } from "../ports/value.ts";
 import type { ProgramCache } from "./cache.ts";
-import { eachRootValue, isCallableRecord, migratePackageInlineLambdaDefs, recordOwner } from "./cells.ts";
+import { eachRootValue, isCallableRecord, ownerProgram, recordOwner } from "./cells.ts";
 import { RESTORE_CALLABLE_CAPTURES, RESTORE_CALLABLE_RECEIVER, RESTORE_CALLABLE_UNKNOWN_DEF, ScriptError } from "./errors.ts";
 import { isLayerDef, type PluginLayers } from "./layers.ts";
 import { parseHostMethodDef } from "./host.ts";
@@ -87,7 +87,7 @@ export function compileRestoredPrograms(
       services.programs.get(restartProgramRef(ref, services.loader, vm.redirects));
     }
   }
-  for (const owner of Object.values(vm.defOwners ?? {})) {
+  for (const owner of Object.values(vm.programs ?? {})) {
     try {
       services.programs.get(owner);
     } catch (error) {
@@ -100,14 +100,13 @@ export function compileRestoredPrograms(
  * Check every callable in `vm` against the programs and commands the host has
  * (entry 18.6). The definition must be defined by a compiled program or be a
  * command, its capture count must equal the handle's (a command captures none),
- * and each `vm.defOwners` entry's program must define the `def` it is recorded
- * for. A program whose source changed since the save is skipped: its thread
+ * and the program each `vm.defOwners` entry names in `vm.programs` must define
+ * the `def` it is recorded for. A program whose source changed since the save is skipped: its thread
  * restarts from source on its next turn, so a definition only that program had is
  * reported unknown, with the program named.
  * The listeners of the `events` section, when given, are callables like any other (EMIT-15).
  */
 export function verifyRestoredHandles(vm: VmState, services: RestoreCheckServices, events?: EventsSection): void {
-  migratePackageInlineLambdaDefs(vm, events);
   const callables: Array<{ readonly path: string; readonly value: CallableValue }> = [];
   const collect = (path: string, value: unknown): void => {
     if (isCallableRecord(value)) callables.push({ path, value });
@@ -203,7 +202,17 @@ export function verifyRestoredHandles(vm: VmState, services: RestoreCheckService
   for (const thread of vm.threads) {
     for (const frame of thread.frames) refs.set(programKey(frame.program), frame.program);
   }
-  for (const def of ownerDefs) refs.set(programKey(owners[def]!), owners[def]!);
+  const ownerRef = (def: string): ProgramRef => {
+    const ref = ownerProgram(vm, def);
+    if (ref === undefined) {
+      throw new ScriptError("restore.shape", `the snapshot's vm.defOwners.${def} must be the key of a vm.programs entry`);
+    }
+    return ref;
+  };
+  for (const def of ownerDefs) {
+    const ref = ownerRef(def);
+    refs.set(programKey(ref), ref);
+  }
   const compiled: Program[] = [];
   const skipped = new Set<string>();
   const changed: string[] = [];
@@ -219,7 +228,7 @@ export function verifyRestoredHandles(vm: VmState, services: RestoreCheckService
   const hint = changed.length === 0 ? "" : ` (changed since the save and not compiled: ${changed.join(", ")})`;
 
   for (const def of ownerDefs) {
-    const ref = owners[def]!;
+    const ref = ownerRef(def);
     if (skipped.has(programKey(ref))) continue;
     if (!Object.hasOwn(services.programs.get(ref).functions, def)) {
       throw new ScriptError(

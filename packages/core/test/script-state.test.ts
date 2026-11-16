@@ -4,6 +4,7 @@ import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { ownerProgram, recordOwner } from "../src/script/cells.ts";
 import { fileURLToPath } from "node:url";
 import {
   canon,
@@ -118,10 +119,10 @@ test("a thread saved by an older instruction version restarts from source, not a
 
 test("a position-free reference from an older instruction version never refuses the save", () => {
   const state = createGameState({ seed: 3 });
-  state.vm.defOwners = { f: { kind: "inline", text: "function f() { return 1 }\n", ir: "0" } };
+  recordOwner(state.vm, "f", { kind: "inline", text: "function f() { return 1 }\n", ir: "0" });
   const restored = restoreGameState(snapshot(state));
   equal(restored.schema.ir, "1");
-  equal(restored.vm.defOwners?.f?.ir, "0");
+  equal(ownerProgram(restored.vm, "f")?.ir, "0");
 });
 
 test("an object program from an older instruction version is recompiled, not refused", () => {
