@@ -21,6 +21,18 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
   const stylesheet = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "tileset-browser.css"));
   return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${stylesheet}"><title>RPG Toolkit editor</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
 }
+function escapeHistoryText(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+
+function historyPreviewHtml(path: string, description: string, bytes: Uint8Array): string {
+  const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const text = escapeHistoryText(new TextDecoder().decode(bytes));
+  return `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>History preview</title><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:1rem}pre{overflow:auto;max-height:75vh}code{font-family:var(--vscode-editor-font-family)}</style></head><body><main><h1>History preview</h1><p><code>${escapeHistoryText(path)}</code> · ${escapeHistoryText(description)}</p><pre role="region" aria-label="Saved file contents" tabindex="0"><code>${text}</code></pre></main></body></html>`;
+}
+
+
 
 /** Registers the editors and the run commands; returns the count of document changes, which the other commands compare across a save. */
 export function registerGameSettings(context: vscode.ExtensionContext): () => number {
@@ -87,6 +99,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     await runHistoryCommand(workspace, active, {
       pick: async (items, placeholder) => (await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, description: item.description, id: item.id })), { placeHolder: placeholder, ignoreFocusOut: true }))?.id,
       tell: async (message) => { await vscode.window.showInformationMessage(message); },
+      showPreview: async (path, bytes, description) => {
+        const panel = vscode.window.createWebviewPanel("tkr.historyPreview", "History preview", vscode.ViewColumn.Beside, { enableScripts: false });
+        panel.webview.html = historyPreviewHtml(path, description, bytes);
+        return true;
+      },
     });
   }));
   const provider: vscode.CustomEditorProvider<GameDocument<vscode.Uri>> = {

@@ -240,7 +240,43 @@ export async function runVscodeGuardProof(
   expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
 }
 
-/** Drive the real workbench wizard and folder picker, then verify independent storage and the automatically opened editor. */
+type WizardGroupRecord = {
+  readonly kind: string;
+  readonly name: string;
+  readonly before: readonly { readonly path: string; readonly sha256: string | null }[];
+  readonly written: readonly { readonly path: string; readonly sha256: string }[];
+};
+
+async function proveWizardGroupFromBacking(
+  projectPath: string,
+  expectedName: string,
+  writtenPaths: readonly string[],
+  tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  expect: Expect,
+): Promise<void> {
+  const folder = `${projectPath}/.tkr-history/groups/`;
+  const records = (await tree()).filter((path) => path.startsWith(folder) && path.endsWith(".json"));
+  const matching: string[] = [];
+  for (const path of records) {
+    const group = JSON.parse(new TextDecoder().decode(await readBacking(path))) as WizardGroupRecord;
+    if (group.name === expectedName) matching.push(path);
+  }
+  expect(matching, `${expectedName} wizard wrote one durable group record`).toHaveLength(1);
+  const group = JSON.parse(new TextDecoder().decode(await readBacking(matching[0]!))) as WizardGroupRecord;
+  expect(group.kind).toBe("group");
+  expect(group.name).toBe(expectedName);
+  expect(group.before.map((item) => item.path).sort()).toEqual([...writtenPaths].sort());
+  expect(group.before.every((item) => item.sha256 === null), "new wizard destinations are recorded absent before writing").toBe(true);
+  expect(group.written.map((item) => item.path).sort()).toEqual([...writtenPaths].sort());
+  for (const path of writtenPaths) {
+    const bytes = await readBacking(`${projectPath}/${path}`);
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    expect(group.written.find((item) => item.path === path)?.sha256, `${path} has its actual written-byte SHA-256`).toBe(hash);
+  }
+}
+
+
 export async function runVscodeNewProjectProof(
   page: Page,
   expect: Expect,
@@ -299,7 +335,8 @@ export async function runVscodeNewProjectProof(
     "__tkr_new_project/Prg/start.prg",
     "__tkr_new_project/Boards/start.brd",
   ];
-  await expect.poll(tree, { timeout: 30_000 }).toEqual([...before, ...additions].sort());
+  await expect.poll(async () => (await tree()).filter((path) => !path.startsWith("__tkr_new_project/.tkr-history/")), { timeout: 30_000 }).toEqual([...before, ...additions].sort());
+  await proveWizardGroupFromBacking("__tkr_new_project", "New project", ["Main/Quest.gam", "Prg/start.prg", "Boards/start.brd"], tree, readBacking, expect);
   expect(new TextDecoder().decode(await readBacking("__tkr_new_project/keep.txt"))).toBe("Keep this file");
   const bytes = await readBacking("__tkr_new_project/Main/Quest.gam");
   const parsed = readMainFile(new BinaryReader(bytes, "Main/Quest.gam"));
@@ -325,6 +362,106 @@ export async function runVscodeNewProjectProof(
     }
     expect(titles).toContain("Native wizard quest");
   }).toPass({ timeout: 60_000, intervals: [100, 250, 500, 1_000] });
+  await proveNativeHistoryUi(page, expect, tree, readBacking);
+  await proveNativeNewBoard(page, expect, tree, readBacking);
+}
+
+async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Promise<readonly string[]>, readBacking: (path: string) => Promise<Uint8Array>): Promise<void> {
+  let editor = await waitForEditorFrame(page, "History proof editor");
+  await editor.getByRole("textbox", { name: "Game title", exact: true }).fill("History first");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
+  await expect.poll(async () => (await readBacking("__tkr_new_project/Main/Quest.gam")).byteLength, { timeout: 30_000 }).toBeGreaterThan(0);
+  const firstSaved = await readBacking("__tkr_new_project/Main/Quest.gam");
+
+  editor = await waitForEditorFrame(page, "History proof editor after first save");
+  await editor.getByRole("textbox", { name: "Game title", exact: true }).fill("History second");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
+  const secondSaved = await readBacking("__tkr_new_project/Main/Quest.gam");
+  expect(createHash("sha256").update(firstSaved).digest("hex")).not.toBe(createHash("sha256").update(secondSaved).digest("hex"));
+
+  await runCommand(page, expect, "RPG Toolkit: Document history");
+  const picker = page.locator(".quick-input-widget");
+  let options = picker.getByRole("option").filter({ hasText: "saved" });
+  const savedCount = await options.count();
+  if (savedCount !== 2) {
+    const persisted = (await tree()).filter((path) => path.startsWith("__tkr_new_project/.tkr-history/"));
+    const pickerText = await picker.innerText().catch(() => "");
+    const notifications = await page.locator(".notifications-toasts").innerText().catch(() => "");
+    throw new Error(`Expected two saved versions in the real History picker; found ${savedCount}. Picker: ${pickerText}; notifications: ${notifications}; persisted history paths: ${persisted.join(", ")}`);
+  }
+  await expect(options).toHaveCount(2);
+  await options.first().click();
+  await verifyHistoryPreview(page, expect, "History first");
+  await expect.poll(() => readBacking("__tkr_new_project/Main/Quest.gam"), { timeout: 30_000 }).toEqual(firstSaved);
+  const report = page.getByText(/Each file is reported separately; the restore is itself in history, so it can be undone\./);
+  await expect(report).toBeVisible({ timeout: 30_000 });
+  editor = await waitForEditorFrame(page, "History editor after restoring the first save");
+  await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History first");
+
+  await runCommand(page, expect, "RPG Toolkit: Document history");
+  options = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "before a restore" });
+  await expect(options).toHaveCount(1);
+  await options.click();
+  await verifyHistoryPreview(page, expect, "History second");
+  await expect.poll(() => readBacking("__tkr_new_project/Main/Quest.gam"), { timeout: 30_000 }).toEqual(secondSaved);
+  await expect(report).toBeVisible({ timeout: 30_000 });
+  editor = await waitForEditorFrame(page, "History editor after restoring the restore");
+  await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History second");
+}
+
+async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: string): Promise<void> {
+  let preview: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      if (await frame.getByRole("heading", { name: "History preview", exact: true }).count() > 0) {
+        preview = frame;
+        return true;
+      }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  if (preview === undefined) throw new Error("The History command did not open its actual read-only preview webview");
+  await expect(preview.getByRole("region", { name: "Saved file contents" })).toContainText(expectedTitle);
+}
+
+async function proveNativeNewBoard(
+  page: Page,
+  expect: Expect,
+  tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
+): Promise<void> {
+  await runCommand(page, expect, "RPG Toolkit: New board");
+  const widget = page.locator(".quick-input-widget");
+  const answer = widget.getByRole("textbox");
+  await expect(widget).toContainText("Name of the new board");
+  await answer.fill("Native history board");
+  await answer.press("Enter");
+
+  const choose = async (label: string): Promise<void> => {
+    const option = widget.getByRole("option", { name: label, exact: true });
+    await expect(option).toBeVisible();
+    await option.click();
+  };
+  await expect(widget).toContainText("New board: start from");
+  await choose("A blank board");
+  await expect(widget).toContainText("New board: layout");
+  await choose("Top-down (2D)");
+  await expect(widget).toContainText("New board: coordinates");
+  await choose("Tile coordinates");
+
+  for (const [prompt, value] of [["Width in tiles", "4"], ["Height in tiles", "3"], ["Number of layers", "1"], ["Background image (leave empty for none)", ""]] as const) {
+    await expect(widget).toContainText(prompt);
+    await answer.fill(value);
+    await answer.press("Enter");
+  }
+  await expect(page.getByRole("tab", { name: /^Native history board\.brd(?:,|$)/, selected: true })).toBeVisible({ timeout: 30_000 });
+  await proveWizardGroupFromBacking("__tkr_new_project", "New board", ["Boards/Native history board.brd"], tree, readBacking, expect);
 }
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
