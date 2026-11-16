@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
 import { CREATOR_TEST_CASE_NAME, CREATOR_TEST_SPEC_PATH, createCreatorTestFiles } from "./creator-tests-fixture.mjs";
+import { rasterize, type AssetKey, type DecodedTexture, type DrawList, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
+import type { CreatorFrameObservation } from "@tk-reawakened/script-spec";
+const HERO_VISIBLE_RGB: Record<string, true> = {
+  "30,196,132": true,
+  "250,196,48": true,
+  "65,43,32": true,
+  "24,30,38": true,
+};
 
 type Expect = typeof playwrightExpect;
 type File = { readonly path: string; readonly bytes: Uint8Array };
@@ -12,7 +20,8 @@ type Case = {
   readonly run?: { readonly snapshot: unknown; readonly actionLog: readonly unknown[]; readonly checkpoints: readonly { readonly tick: number; readonly stateHash: string }[] };
 };
 type Report = { readonly files: readonly { readonly file: string; readonly cases: readonly Case[] }[]; readonly sources: readonly { readonly path: string; readonly revision: string | null }[] };
-type CreatorRunner = (files: readonly File[], options: { readonly seed: number; readonly name: string }) => Report;
+type CreatorRunner = (files: readonly File[], options: { readonly seed: number; readonly name: string; readonly onFrame: (frame: CreatorFrameObservation) => void }) => Report;
+type ReferenceFrame = { readonly tick: number; readonly width: number; readonly height: number; readonly pixelHash: string };
 type CreatorProofHost = {
   readonly readBacking: (path: string) => Promise<Uint8Array>;
   readonly writeBacking: (path: string, bytes: Uint8Array) => Promise<void>;
@@ -30,7 +39,8 @@ export async function runVscodeCreatorTestsProof(
 ): Promise<void> {
   const seed = 17;
   const passFiles = createCreatorTestFiles();
-  const passExpected = caseFrom(runCreatorSpecs(passFiles, { seed, name: CREATOR_TEST_CASE_NAME }), true);
+  const passHeadless = runHeadlessCase(runCreatorSpecs, passFiles, seed, true);
+  const passExpected = passHeadless.result;
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
   await runPaletteCommand(page, expect, "RPG Toolkit: Run saved tests");
@@ -60,16 +70,27 @@ export async function runVscodeCreatorTestsProof(
   }
   const frame = await visibleCanvas(tests);
   if (frame.tick !== passVisible.run!.checkpoints.at(-1)?.tick) throw new Error(`Displayed engine frame tick ${frame.tick} differs from the final real checkpoint.`);
-  if (frame.nonBlackPixels === 0) throw new Error("The real engine frame contains no visible non-black authored pixels.");
+  if (frame.actorPixels === 0 || frame.backgroundPixels === 0) throw new Error(`The actual engine frame omitted the authored actor or blue board background: ${JSON.stringify(frame)}`);
+  if (frame.tick !== passHeadless.frame.tick || frame.width !== passHeadless.frame.width || frame.height !== passHeadless.frame.height
+    || frame.pixelHash !== passHeadless.frame.pixelHash) {
+    throw new Error(`The visible frame differs from Node's real Engine draw-list rasterization: visible=${JSON.stringify(frame)} Node=${JSON.stringify(passHeadless.frame)}`);
+  }
+  console.log(`Real creator-test frame RGBA SHA-256: ${frame.pixelHash}`);
 
   const failFiles = createCreatorTestFiles({ failWall: true });
   await host.writeBacking(CREATOR_TEST_SPEC_PATH, failFiles.find((file) => file.path === CREATOR_TEST_SPEC_PATH)!.bytes);
-  const failExpected = caseFrom(runCreatorSpecs(failFiles, { seed, name: CREATOR_TEST_CASE_NAME }), false);
+  const failHeadless = runHeadlessCase(runCreatorSpecs, failFiles, seed, false);
+  const failExpected = failHeadless.result;
   await tests.getByRole("button", { name: "Run saved tests" }).click();
-  await expect(tests.getByRole("status")).toHaveText(/Failed: 1 passing cases, 1 failing cases/);
+  await expect(tests.getByRole("status")).toHaveText(/Failed: 0 passing cases, 1 failing cases/);
   const failed = await visibleCase(tests, "Fail");
   verifyCanonical(failed, failExpected, "failing");
   verifySnapshotHashes(failed, failFiles);
+  const failedFrame = await visibleCanvas(tests);
+  if (failedFrame.tick !== failHeadless.frame.tick || failedFrame.width !== failHeadless.frame.width || failedFrame.height !== failHeadless.frame.height
+    || failedFrame.pixelHash !== failHeadless.frame.pixelHash || failedFrame.pixelHash !== frame.pixelHash) {
+    throw new Error(`The failing visible frame differs from Node's authored draw-list pixels: visible=${JSON.stringify(failedFrame)} Node=${JSON.stringify(failHeadless.frame)} pass=${JSON.stringify(frame)}`);
+  }
   const failureOutcome = failed.outcomes.find((outcome) => outcome.expected !== outcome.actual);
   if (failureOutcome === undefined || failureOutcome.expected !== "3" || failureOutcome.actual !== "2") {
     throw new Error(`The deliberate wall assertion did not report expected tile 3 against actual tile 2: ${JSON.stringify(failed.outcomes)}`);
@@ -158,6 +179,45 @@ function caseFrom(report: Report, expectedOk: boolean): Case {
   if (found === undefined || found.ok !== expectedOk) throw new Error(`Headless creator proof did not produce the expected ${expectedOk ? "passing" : "failing"} case.`);
   return found;
 }
+function runHeadlessCase(runCreatorSpecs: CreatorRunner, files: readonly File[], seed: number, expectedOk: boolean): { readonly result: Case; readonly frame: ReferenceFrame } {
+  let observation: CreatorFrameObservation | undefined;
+  const report = runCreatorSpecs(files, { seed, name: CREATOR_TEST_CASE_NAME, onFrame: (frame) => { observation = frame; } });
+  if (observation === undefined) throw new Error("The headless creator proof produced no real Engine frame observation.");
+  const rendered = rasterizeObservedFrame(observation);
+  return {
+    result: caseFrom(report, expectedOk),
+    frame: { tick: rendered.tick, width: rendered.width, height: rendered.height, pixelHash: sha256(rendered.rgba) },
+  };
+}
+
+/** Reuse the core rasterizer on the same read-only observation the native controller presents. */
+function rasterizeObservedFrame(frame: CreatorFrameObservation): { readonly tick: number; readonly width: number; readonly height: number; readonly rgba: Uint8Array } {
+  const assets = new Map<AssetKey, RasterAsset>();
+  const cachedAsset = assets.get.bind(assets);
+  assets.get = (key) => {
+    const cached = cachedAsset(key);
+    if (cached !== undefined) return cached;
+    const loaded = frame.picturePixels(key) ?? frame.assetBytes(key);
+    if (loaded !== null) assets.set(key, loaded);
+    return loaded ?? undefined;
+  };
+  const surfaces: RasterSurfaces = new Map();
+  const revisions = new Map<SurfaceId, Map<number, DecodedTexture>>();
+  surfaces.get = (id, revision?: number) => {
+    if (revision === undefined) return undefined;
+    const cached = revisions.get(id)?.get(revision);
+    if (cached !== undefined) return cached;
+    const loaded = frame.surfacePixels(id, revision);
+    if (loaded === null) return undefined;
+    let versions = revisions.get(id);
+    if (versions === undefined) { versions = new Map(); revisions.set(id, versions); }
+    versions.set(revision, loaded);
+    return loaded;
+  };
+  const pixels = rasterize(frame.drawList as DrawList, assets, surfaces);
+  if (pixels.error !== null) throw new Error(`The headless creator reference frame could not be drawn: ${pixels.error}`);
+  return { tick: frame.tick, width: pixels.width, height: pixels.height, rgba: pixels.rgba };
+}
 
 async function visibleCase(tests: Frame, outcome: "Pass" | "Fail"): Promise<Case> {
   const heading = tests.getByRole("heading", { name: `${outcome}: ${CREATOR_TEST_CASE_NAME}` });
@@ -220,21 +280,29 @@ function verifySnapshotHashes(actual: Case, files: readonly File[]): void {
   }
 }
 
-async function visibleCanvas(tests: Frame): Promise<{ readonly tick: number; readonly nonBlackPixels: number }> {
+async function visibleCanvas(tests: Frame): Promise<{ readonly tick: number; readonly width: number; readonly height: number; readonly actorPixels: number; readonly backgroundPixels: number; readonly pixelHash: string }> {
   const canvas = tests.getByLabel("Last real fixture engine frame");
   await canvas.waitFor({ state: "visible" });
   const frameText = await tests.locator("figcaption").textContent();
   const tick = Number(frameText?.match(/tick (\d+)/)?.[1] ?? 0);
-  const nonBlackPixels = await canvas.evaluate((element) => {
+  const frame = await canvas.evaluate(async (element) => {
     const canvasElement = element as HTMLCanvasElement;
+    const width = canvasElement.width;
+    const height = canvasElement.height;
     const context = canvasElement.getContext("2d");
-    if (context === null) return 0;
-    const pixels = context.getImageData(0, 0, canvasElement.width, canvasElement.height).data;
-    let count = 0;
-    for (let index = 0; index < pixels.length; index += 4) if (pixels[index] !== 0 || pixels[index + 1] !== 0 || pixels[index + 2] !== 0) count += 1;
-    return count;
+    if (context === null) return { width, height, actorPixels: 0, backgroundPixels: 0, pixelHash: "" };
+    const pixels = context.getImageData(0, 0, width, height).data;
+    let actorPixels = 0;
+    let backgroundPixels = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (HERO_VISIBLE_RGB[`${pixels[index]},${pixels[index + 1]},${pixels[index + 2]}`] !== undefined) actorPixels += 1;
+      if (pixels[index] === 22 && pixels[index + 1] === 58 && pixels[index + 2] === 84) backgroundPixels += 1;
+    }
+    const digest = await crypto.subtle.digest("SHA-256", pixels);
+    const pixelHash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return { width, height, actorPixels, backgroundPixels, pixelHash };
   });
-  return { tick, nonBlackPixels };
+  return { tick, ...frame };
 }
 
 async function creatorTestsFrame(page: Page, expect: Expect): Promise<Frame> {
