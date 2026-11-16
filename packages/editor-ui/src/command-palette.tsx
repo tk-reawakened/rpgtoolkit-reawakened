@@ -254,11 +254,12 @@ export function WorkbenchCommandBar({
       helpInvokerRef.current = fromPalette ? invokerRef.current : menuButtonRef.current;
     }
     if (fromPalette) closePalette();
-    else setMenuOpen(false);
-    void item.run();
-    if (!fromPalette && item.id !== "help.rpgcodeReference") {
-      queueMicrotask(() => menuButtonRef.current?.focus());
+    else {
+      setMenuOpen(false);
+      // Give host actions their real invoker before they open UI that owns focus and later returns it.
+      menuButtonRef.current?.focus();
     }
+    void item.run();
   };
 
   const categoryItems = registry.byCategory(activeCategory);

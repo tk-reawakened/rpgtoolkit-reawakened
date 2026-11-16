@@ -234,6 +234,17 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await expect(changelogLink).toHaveAttribute("href", "https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md");
   await page.keyboard.press("Escape");
   await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+  // The app-menu action opens the host's real preferences overlay; its close control keeps focus until dismissal.
+  const appMenu = page.getByRole("button", { name: "Application menu" });
+  await appMenu.click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Editor Preferences…", exact: true }).click();
+  const preferences = page.getByRole("dialog", { name: "Editor preferences" });
+  await expect(preferences).toBeVisible();
+  await expect(preferences.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(preferences).toHaveCount(0);
+  await expect(appMenu).toBeFocused();
 
   // F1 exposes the generated reference from the workspace; search, select, and insert using only the keyboard.
   await focusEnd(page);

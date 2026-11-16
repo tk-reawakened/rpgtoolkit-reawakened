@@ -17,14 +17,17 @@ export async function runVscodeContextualHelpProof(page: Page, expect: Expect, w
     await expect(command, `the native palette lists ${title}`).toBeVisible();
     await input.press("Enter");
   };
+  const openProofProjectFile = async (path: string): Promise<void> => {
+    await runPaletteCommand("Test: Open Proof Project File");
+    await expect(page.getByText("Workspace-relative proof file path", { exact: false })).toBeVisible();
+    const pathInput = page.locator(".quick-input-widget input:visible");
+    await expect(pathInput).toBeVisible();
+    await pathInput.fill(path);
+    await expect(pathInput).toHaveValue(path);
+    await pathInput.press("Enter");
+  };
 
-  await runPaletteCommand("Test: Open Proof Project File");
-  await expect(page.getByText("Workspace-relative proof file path", { exact: false })).toBeVisible();
-  const pathInput = page.locator(".quick-input-widget input:visible");
-  await expect(pathInput).toBeVisible();
-  await pathInput.fill("Game/Example/Prg/start.prg");
-  await expect(pathInput).toHaveValue("Game/Example/Prg/start.prg");
-  await pathInput.press("Enter");
+  await openProofProjectFile("Game/Example/Prg/start.prg");
 
   const tab = page.getByRole("tab", { name: /start\.prg/ });
   await expect(tab).toBeVisible();
@@ -61,14 +64,36 @@ export async function runVscodeContextualHelpProof(page: Page, expect: Expect, w
   await page.keyboard.press(process.platform === "darwin" ? "Meta+s" : "Control+s");
   await expect(dirtyTab, "save completes before the existing program-run proof").toHaveCount(0);
 
-  for (const title of ["RPG Toolkit: Open RPGCode authoring guide", "RPG Toolkit: What's New"]) {
-    await page.keyboard.press("F1");
-    const input = page.locator(".quick-input-widget input:visible");
-    await expect(input).toHaveCount(1);
-    await input.fill(`>${title}`);
-    await expect(page.getByRole("option", { name: new RegExp(`^${title.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}(?:,|$)`) }),
-      `the native palette exposes ${title}`).toBeVisible();
-    await input.press("Escape");
+  const openExternalHelp = async (command: string, path: string): Promise<void> => {
+    const openedPage = page.context().waitForEvent("page");
+    await runPaletteCommand(command);
+    const external = await openedPage;
+    await expect.poll(() => external.url()).toContain(path);
+    await expect(external.locator("body")).not.toBeEmpty();
+    await external.close();
     await expect.poll(editorHasFocus).toBe(true);
-  }
+  };
+  await openExternalHelp(
+    "RPG Toolkit: Open RPGCode authoring guide",
+    "/tk-reawakened/rpgtoolkit-reawakened/blob/main/docs/spec/engine/rpgcode-tooling.md#tool-10",
+  );
+  await openExternalHelp(
+    "RPG Toolkit: What's New",
+    "/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md",
+  );
+
+  await openProofProjectFile("Main/example.gam");
+  const titleField = page.getByRole("textbox", { name: "Game title", exact: true });
+  await expect(titleField).toBeVisible();
+  await titleField.focus();
+  await page.keyboard.press("F1");
+  const settingsHelp = page.getByRole("dialog", { name: "Game title help" });
+  await expect(settingsHelp).toBeVisible();
+  await expect(settingsHelp).toContainText("Stored in row 7");
+  await expect(settingsHelp).toContainText("Read game settings documentation");
+  await page.keyboard.press("Escape");
+  await expect(titleField).toBeFocused();
+
+  await openProofProjectFile("Game/Example/Prg/start.prg");
+  await expect(tab).toBeVisible();
 }
