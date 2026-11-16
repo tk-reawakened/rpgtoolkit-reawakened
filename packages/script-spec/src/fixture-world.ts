@@ -67,3 +67,16 @@ export function createFixtureWorld(files: readonly FixtureWorldInputFile[], fixt
   const revisions = ordered.map(({ path, sourcePath, revision }) => [path, sourcePath, revision]);
   return { files: ordered, byKey: new Map(ordered.map((file) => [assetKey(file.path), file])), revisionHash: sha256Hex(JSON.stringify(revisions)) };
 }
+
+/** D8.3's scoped manifest: sorted length-prefixed `(path, SHA-256)` records, hashed with SHA-256. */
+export function fixtureWorldSha256(world: FixtureWorld, excluded: ReadonlySet<string> = new Set()): string {
+  const records = world.files
+    .filter((file) => !excluded.has(assetKey(file.path)))
+    .map((file) => {
+      const hash = sha256Hex(file.bytes);
+      const path = file.path;
+      return `${path.length}:${path}${hash.length}:${hash}`;
+    })
+    .sort(compare);
+  return sha256Hex(new TextEncoder().encode(records.map((record) => `${record.length}:${record}`).join("")));
+}

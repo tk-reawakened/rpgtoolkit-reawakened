@@ -44,11 +44,13 @@ import {
   type ProgramLoader,
   type ScriptServices,
 } from "@tk-reawakened/core";
-import type { FixtureDeclaration, FixtureDefinition } from "./fixture.ts";
-import { createFixtureWorld, type FixtureWorld, type FixtureWorldInputFile } from "./fixture-world.ts";
-import { createCreatorScene, type CreatorScene, type CreatorSceneSnapshot } from "./creator-scene.ts";
-import { addCounts, createCoverageProbe, toCoverage, type LineCounts, type SpecCoverage } from "./coverage.ts";
-import { applyDue, createDoubles, wrapPlugins } from "./doubles.ts";
+import { FixtureError, type FixtureDeclaration, type FixtureDefinition } from "./fixture.ts";
+import { createFixtureWorld, fixtureWorldSha256, type FixtureWorld, type FixtureWorldInputFile } from "./fixture-world.ts";
+import { sha256Hex } from "./sha256.ts";
+import type { CreatorAction } from "./creator-actions.ts";
+import { createCreatorScene, type CreatorFrameObservation, type CreatorScene, type CreatorSceneSnapshot } from "./creator-scene.ts";
+export type { CreatorFrameObservation } from "./creator-scene.ts";
+import { applyDue, createDoubles, wrapPlugins, type SpecDoubles } from "./doubles.ts";
 import { createSpecPlugin } from "./plugin.ts";
 
 /**
@@ -107,6 +109,51 @@ function specLoader(base: ProgramLoader | undefined, source: string, librarySour
 
 export type SpecOutcomeKind = "pass" | "fail" | "skip" | "only";
 
+export type CreatorLastAction = {
+  readonly action: string;
+  readonly ticks: number;
+  readonly startTick: number;
+  readonly completedTick: number;
+};
+
+export type CreatorOutcomeContext = {
+  readonly tick: number;
+  readonly lastAction: CreatorLastAction | null;
+  readonly board: string | null;
+};
+
+export type CreatorFixtureIdentity = {
+  readonly groups: readonly string[];
+  readonly board: string;
+  readonly party: readonly string[];
+  readonly start: FixtureDefinition["start"];
+  readonly seed: number;
+};
+
+export type CreatorRunSnapshot = {
+  readonly launch: "saved-tests";
+  readonly project: string | null;
+  readonly documents: readonly {
+    readonly role: "spec" | "fixture-board";
+    readonly path: string;
+    readonly sha256: string;
+  }[];
+  readonly world: { readonly files: number; readonly sha256: string };
+  readonly seed: number;
+  readonly fixture: CreatorFixtureIdentity;
+  readonly runner: string;
+};
+
+
+export type CreatorFixtureRun = {
+  readonly fixture: CreatorFixtureIdentity;
+  readonly snapshot: CreatorRunSnapshot;
+  readonly loaded: readonly string[];
+  readonly ticks: number;
+  readonly actionLog: readonly InputRecord[];
+  readonly checkpoints: readonly { readonly tick: number; readonly stateHash: string }[];
+};
+
 export type SpecOutcome = {
   readonly kind: SpecOutcomeKind;
   /** `<case>/<matcher>` as the library records it. */
@@ -115,6 +162,7 @@ export type SpecOutcome = {
   readonly actual: string;
   readonly line: number;
   readonly column: number;
+  readonly context?: CreatorOutcomeContext;
 };
 
 export type SpecCaseResult = {
@@ -125,6 +173,7 @@ export type SpecCaseResult = {
   readonly ok: boolean;
   /** `hashGameState` after the case's run. */
   readonly stateHash: string;
+  readonly run?: CreatorFixtureRun;
 };
 
 export type SpecFileReport = {
@@ -149,6 +198,10 @@ export type SpecRunOptions = {
   readonly loader?: SpecProgramLoader;
   /** Count the RPGCode lines the run executes and report them as `coverage` (TOOL-5 "Line coverage"). */
   readonly coverage?: boolean;
+  /** Project identity for the captured run snapshot. */
+  readonly project?: string;
+  /** Observe read-only draws from each actual fixture Engine frame. */
+  readonly onFrame?: (frame: CreatorFrameObservation) => void;
 };
 
 export const ONLY_WARNING = "only() narrowed the run to the marked cases; unmarked cases were not run";
@@ -176,9 +229,60 @@ type CreatorTask = {
   readonly world: FixtureWorld | null;
   readonly from: CreatorSceneSnapshot | null;
   readonly error: TaskError | null;
+  readonly file: string;
+  readonly groups: readonly string[];
+  readonly project: string | null;
+  readonly onFrame: ((frame: CreatorFrameObservation) => void) | null;
 };
 
 type TaskError = { readonly code: string; readonly message: string; readonly line: number };
+
+function creatorRunReport(
+  file: string,
+  source: string,
+  creator: CreatorTask,
+  scene: CreatorScene,
+  seed: number,
+  actions: readonly { readonly action: string; readonly pressAt: number; readonly releaseAt: number; readonly completedAt: number | null }[],
+  actionLog: readonly InputRecord[],
+  checkpoints: readonly { readonly tick: number; readonly stateHash: string }[],
+): CreatorFixtureRun {
+  const board = creator.world!.byKey.get(assetKey(creator.fixture.board))!;
+  const sourceSpec = creator.world!.files.find((entry) => assetKey(entry.sourcePath) === assetKey(file));
+  const encoded = encodeCp1252(source);
+  if (!encoded.ok) throw new Error(`spec source is not Windows-1252: ${encoded.error.message}`);
+  const specDigest = sourceSpec === undefined ? sha256Hex(encoded.value) : sha256Hex(sourceSpec.bytes);
+  const fixture: CreatorFixtureIdentity = {
+    groups: creator.groups,
+    board: creator.fixture.board,
+    party: creator.fixture.party,
+    start: creator.fixture.start,
+    seed,
+  };
+  const excluded = new Set([assetKey(creator.fixture.board), assetKey(file)]);
+  return {
+    fixture,
+    snapshot: {
+      launch: "saved-tests",
+      project: creator.project,
+      documents: [
+        { role: "spec", path: file, sha256: specDigest },
+        { role: "fixture-board", path: board.sourcePath, sha256: sha256Hex(board.bytes) },
+      ],
+      world: {
+        files: creator.world!.files.filter((entry) => !excluded.has(assetKey(entry.path))).length,
+        sha256: fixtureWorldSha256(creator.world!, excluded),
+      },
+      seed,
+      fixture,
+      runner: "script-spec/1.0.0",
+    },
+    loaded: [...scene.loaded],
+    ticks: scene.tick(),
+    actionLog: [...actionLog],
+    checkpoints: [...checkpoints],
+  };
+}
 
 type TaskRun = {
   readonly outcomes: readonly SpecOutcome[];
@@ -194,9 +298,32 @@ type TaskRun = {
   readonly actionLog: readonly InputRecord[];
   /** Fixture-world source paths served to the engine in request order. */
   readonly loaded: readonly string[];
+  readonly creatorRun: CreatorFixtureRun | null;
+  readonly creatorContext: CreatorOutcomeContext | null;
   /** This run's line counts, when coverage was asked for. */
   readonly lines: LineCounts | null;
 };
+
+function creatorContext(scene: CreatorScene, doubles: SpecDoubles): CreatorOutcomeContext {
+  const latest = doubles.creatorActions.actions
+    .filter((item) => item.completedAt !== null)
+    .reduce<CreatorAction | null>(
+      (selected, item) => selected === null || item.completedAt! > selected.completedAt! || (
+        item.completedAt === selected.completedAt && item.ordinal > selected.ordinal
+      ) ? item : selected,
+      null,
+    );
+  return {
+    tick: scene.tick(),
+    lastAction: latest === null ? null : {
+      action: latest.action,
+      ticks: latest.releaseAt - latest.pressAt,
+      startTick: latest.pressAt,
+      completedTick: latest.completedAt!,
+    },
+    board: scene.board(),
+  };
+}
 
 /** Where a counted run's instruction positions are reported: a project path, or `null` for harness lines. */
 type Placement = (file: string, line: number) => string | null;
@@ -279,7 +406,7 @@ function runTask(
   const doubles = createDoubles(() => creatorScene?.engine.registeredActionNames() ?? [], creator !== null, creatorBridge);
   const plugins = wrapPlugins([...DEFAULT_ENGINE_PLUGINS, ...(nativePlugin === undefined ? [] : [{ definition: nativePlugin }]), { definition: createSpecPlugin(doubles) }], doubles);
   if (creator !== null && creator.world !== null) {
-    creatorScene = createCreatorScene(creator.world, creator.fixture, creator.fixture.seed ?? seed, plugins, creator.from ?? undefined);
+    creatorScene = createCreatorScene(creator.world, creator.fixture, creator.fixture.seed ?? seed, plugins, creator.from ?? undefined, creator.onFrame ?? undefined);
     if (task.from === null) state.time.tick = creatorScene.tick();
     if (!creatorScene.ready()) checkpointFailure = "creator fixture setup did not finish";
   }
@@ -332,10 +459,14 @@ function runTask(
       actionLog: [],
       loaded: [],
       lines: probe?.finish() ?? null,
+      creatorRun: null,
+      creatorContext: null,
     };
   }
   const records: EffectRecord[] = [];
   const actionLog: InputRecord[] = [];
+  const checkpoints: { tick: number; stateHash: string }[] = [];
+  if (creatorScene?.ready() === true) checkpoints.push({ tick: creatorScene.tick(), stateHash: creatorScene.stateHash() });
   let finished = false;
   for (let tick = 0; tick < 1000; tick += 1) {
     // Host doubles and semantic creator actions are applied in their scheduled input phase.
@@ -351,6 +482,9 @@ function runTask(
       const consumed = creatorScene.advance([...actionInputs, ...keyInputs]);
       doubles.creatorActions.completeTick(creatorScene.tick());
       actionLog.push(...consumed.filter((record) => record.event.kind === "action" || record.event.kind === "key"));
+      if (doubles.creatorActions.actions.some((item) => item.completedAt === creatorScene.tick())) {
+        checkpoints.push({ tick: creatorScene.tick(), stateHash: creatorScene.stateHash() });
+      }
     }
     if (status === "finished") {
       finished = true;
@@ -371,6 +505,7 @@ function runTask(
     errors.push({ code: "spec.input-pending", message: `a key edge (${item.event.name}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`, line: 0 });
   }
   if (checkpointFailure !== null) errors.push({ code: "spec.snapshot", message: checkpointFailure, line: 0 });
+  const context = creatorScene === null ? null : creatorContext(creatorScene, doubles);
   const outcomes: SpecOutcome[] = [];
   for (const record of records) {
     if (record.name !== "specresult") continue;
@@ -385,17 +520,30 @@ function runTask(
       actual: String(record.args[3] ?? ""),
       line: position?.line ?? 0,
       column: position?.column ?? 0,
+      ...(context === null ? {} : { context }),
     });
   }
   const fixtures = task.mode === COLLECT
     ? [...doubles.fixtures.values()].sort((left, right) => left.group - right.group)
     : [];
+  if (creatorScene !== null && checkpoints.at(-1)?.tick !== creatorScene.tick()) {
+    checkpoints.push({ tick: creatorScene.tick(), stateHash: creatorScene.stateHash() });
+  }
   const finalCreator = creatorScene?.checkpoint() ?? null;
+  const creatorRun = creator !== null && creatorScene !== null && creator.world !== null
+    ? creatorRunReport(creator.file, source, creator, creatorScene, seed, doubles.creatorActions.actions, actionLog, checkpoints)
+    : null;
   return {
-    outcomes, errors, hash: hashGameState(state), checkpoint, fixtures,
+    outcomes,
+    errors,
+    hash: creatorScene?.stateHash() ?? hashGameState(state),
+    checkpoint,
+    fixtures,
     creatorCheckpoint: creatorCheckpoint ?? finalCreator,
     actionLog,
     loaded: creatorScene?.loaded ?? [],
+    creatorRun,
+    creatorContext: context,
     lines: probe?.finish() ?? null,
   };
 }
@@ -518,7 +666,12 @@ export function hasOnlyCasesWithLibrary(source: string, librarySource: string, s
   return collect(source, librarySource, seed, loader).cases.some((item) => item.kind === "only");
 }
 
-function runtimeFailures(label: string, expected: string, errors: readonly TaskError[]): SpecOutcome[] {
+function runtimeFailures(
+  label: string,
+  expected: string,
+  errors: readonly TaskError[],
+  context: CreatorOutcomeContext | null = null,
+): SpecOutcome[] {
   return errors.map((error) => ({
     kind: "fail" as const,
     label,
@@ -526,6 +679,7 @@ function runtimeFailures(label: string, expected: string, errors: readonly TaskE
     actual: `${error.code}: ${error.message}`,
     line: error.line,
     column: 0,
+    ...(context === null ? {} : { context }),
   }));
 }
 
@@ -535,6 +689,7 @@ type Setup = {
   readonly errors: readonly TaskError[];
   readonly snapshot: string | null;
   readonly creatorSnapshot: CreatorSceneSnapshot | null;
+  readonly creatorContext: CreatorOutcomeContext | null;
   readonly hash: string;
 };
 
@@ -576,6 +731,39 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
   };
   const groupsFor = (group: number): string[] =>
     lineage(group).filter((id) => id !== 0).reverse().map((id) => structure.groups.get(id)!.name);
+  const creatorFor = (group: number, from: CreatorSceneSnapshot | null): CreatorTask | null => {
+    const declaration = structure.fixtures.find((fixture) => lineage(group).includes(fixture.group)) ?? null;
+    if (declaration === null) return null;
+    try {
+      const world = createFixtureWorld(loader?.fixtureFiles ?? [], declaration.definition);
+      return {
+        fixture: declaration.definition,
+        world,
+        from,
+        error: null,
+        file,
+        groups: groupsFor(declaration.group),
+        project: options.project ?? null,
+        onFrame: options.onFrame ?? null,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        fixture: declaration.definition,
+        world: null,
+        from: null,
+        error: {
+          code: error instanceof FixtureError ? error.code : "spec.fixture-load",
+          message,
+          line: declaration.line,
+        },
+        file,
+        groups: groupsFor(declaration.group),
+        project: options.project ?? null,
+        onFrame: options.onFrame ?? null,
+      };
+    }
+  };
   const selected = structure.cases.filter((item) =>
     (!onlySeen || item.kind === "only") && [...groupsFor(item.group), item.name].join(" > ").includes(options.name ?? ""));
   const setups = new Map<number, Setup>();
@@ -585,9 +773,26 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
     // A group's setup resumes from the snapshot of its nearest ancestor that has a beforeAll.
     const above = lineage(group).slice(1).find((id) => structure.groups.get(id)!.hasBeforeAll);
     const from = above === undefined ? null : setupOf(above).snapshot;
-    const run = runTwice(`beforeAll of group ${group}`, source, librarySource, seed, loader, { mode: SETUP, target: group, from }, place);
+    const creatorFrom = above === undefined ? null : setupOf(above).creatorSnapshot;
+    const run = runTwice(
+      `beforeAll of group ${group}`,
+      source,
+      librarySource,
+      seed,
+      loader,
+      { mode: SETUP, target: group, from },
+      place,
+      creatorFor(group, creatorFrom),
+    );
     count(run);
-    const setup: Setup = { outcomes: run.outcomes, errors: run.errors, snapshot: run.checkpoint, hash: run.hash };
+    const setup: Setup = {
+      outcomes: run.outcomes,
+      errors: run.errors,
+      snapshot: run.checkpoint,
+      creatorSnapshot: run.creatorCheckpoint,
+      creatorContext: run.creatorContext,
+      hash: run.hash,
+    };
     setups.set(group, setup);
     return setup;
   };
@@ -617,6 +822,8 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
     const suffix: SpecOutcome[] = [];
     let hash = structure.hash;
     let from: string | null = null;
+    let creatorFrom: CreatorSceneSnapshot | null = null;
+    let caseRun: CreatorFixtureRun | null = null;
     let blocked = false;
     if (item.kind !== "skip") {
       // Setups run outermost first, each from the one above; a failed one fails every case of its group.

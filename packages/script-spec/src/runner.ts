@@ -5,7 +5,19 @@ import { discoverCasesWithLibrary, failureMessage, hasOnlyCasesWithLibrary, NO_C
 const PACKAGE_STARTUP = readFileSync(fileURLToPath(new URL("../package/startup.prg", import.meta.url)), "utf8");
 
 export { failureMessage, NO_CASES, ONLY_WARNING };
-export type { SpecCaseResult, SpecFileReport, SpecOutcome, SpecOutcomeKind, SpecRunOptions, SpecProgramLoader } from "./runner-core.ts";
+export type {
+  CreatorFixtureIdentity,
+  CreatorFixtureRun,
+  CreatorLastAction,
+  CreatorOutcomeContext,
+  CreatorRunSnapshot,
+  SpecCaseResult,
+  SpecFileReport,
+  SpecOutcome,
+  SpecOutcomeKind,
+  SpecRunOptions,
+  SpecProgramLoader,
+} from "./runner-core.ts";
 
 export function discoverCases(source: string, seed = 0, loader?: SpecProgramLoader): string[] {
   return discoverCasesWithLibrary(source, PACKAGE_STARTUP, seed, loader);

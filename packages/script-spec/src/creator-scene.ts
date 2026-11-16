@@ -9,6 +9,7 @@ import {
   type GameState,
   type InputRecord,
   type ResolvedPlugin,
+  type DrawList,
   type Value,
 } from "@tk-reawakened/core";
 import type { CreatorStateBridge } from "./doubles.ts";
@@ -46,6 +47,19 @@ export type CreatorSceneSnapshot = {
   readonly effects: readonly (readonly [string, number])[];
 };
 
+type DeepReadonly<T> =
+  T extends readonly (infer Item)[] ? readonly DeepReadonly<Item>[] :
+  T extends object ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> } :
+  T;
+
+/** Synchronous host observation only; it exposes draws and copied pixels, never engine mutation methods. */
+export type CreatorFrameObservation = {
+  readonly tick: number;
+  readonly drawList: DeepReadonly<DrawList>;
+  readonly surfacePixels: Engine["surfacePixels"];
+  readonly picturePixels: Engine["picturePixels"];
+};
+
 export type CreatorScene = {
   readonly engine: Engine;
   readonly bridge: CreatorStateBridge;
@@ -53,6 +67,8 @@ export type CreatorScene = {
   readonly loaded: string[];
   readonly diagnostics: string[];
   readonly tick: () => number;
+  readonly stateHash: () => string;
+  readonly board: () => string | null;
   readonly ready: () => boolean;
   readonly advance: (inputs: readonly InputRecord[]) => readonly InputRecord[];
   readonly checkpoint: () => CreatorSceneSnapshot;
@@ -99,11 +115,13 @@ export function createCreatorScene(
   seed: number,
   plugins: readonly ResolvedPlugin[],
   initial?: CreatorSceneSnapshot,
+  onFrame?: (frame: CreatorFrameObservation) => void,
 ): CreatorScene {
   const effects = new Map(initial?.effects ?? []);
   const loaded: string[] = [];
   const diagnostics: string[] = [];
   let state: GameState | null = null;
+  let stateHash = "";
   let ready = initial !== undefined;
   const initialProgram = initial === undefined ? setupProgram(fixture) : "";
   const waits = new Map<number, number>();
@@ -126,6 +144,10 @@ export function createCreatorScene(
     } },
     ...(initial === undefined ? { program: initialProgram } : { resume: initial.engine }),
   });
+  const frameReaders = onFrame === undefined ? null : {
+    surfacePixels: (id: Parameters<Engine["surfacePixels"]>[0], rev: Parameters<Engine["surfacePixels"]>[1]) => engine.surfacePixels(id, rev),
+    picturePixels: (key: Parameters<Engine["picturePixels"]>[0]) => engine.picturePixels(key),
+  };
   const getState = (): GameState | null => state;
   const tick = (): number => getState()?.time.tick ?? 0;
   const bridge: CreatorStateBridge = {
@@ -179,7 +201,11 @@ export function createCreatorScene(
       consumed.push(...current.consumed);
     }
     if (current.loading) diagnostics.push("spec.fixture-load: fixture engine remained blocked after frozen asset replies");
+    stateHash = current.stateHash;
     diagnostics.push(...current.diagnostics.map((item) => `${item.code}: ${item.message}`));
+    if (!current.loading && onFrame !== undefined && frameReaders !== null) {
+      onFrame({ tick: current.tickAfter, drawList: engine.drawList(0), ...frameReaders });
+    }
     return consumed;
   };
 
@@ -204,7 +230,9 @@ export function createCreatorScene(
   if (initial === undefined && ready) effects.clear();
 
   return {
-    engine, bridge, effects, loaded, diagnostics, tick, ready: () => ready,
+    engine, bridge, effects, loaded, diagnostics, tick, stateHash: () => stateHash,
+    board: () => getState()?.world.board?.key ?? null,
+    ready: () => ready,
     advance(inputs) {
       const consumed = serve(engine.advance(1, inputs));
       captureReady();

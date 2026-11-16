@@ -20,7 +20,7 @@ export type SpecProjectReport = {
   readonly coverage?: SpecCoverage;
 };
 
-export type SpecProjectOptions = Pick<SpecRunOptions, "seed" | "strict" | "name" | "coverage">;
+export type SpecProjectOptions = Pick<SpecRunOptions, "seed" | "strict" | "name" | "coverage" | "project" | "onFrame">;
 
 const compareNames = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 const projectPath = (path: string): string => path.replaceAll("\\", "/").replace(/^\.\//, "");
