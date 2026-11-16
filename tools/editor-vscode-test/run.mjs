@@ -30,6 +30,7 @@ if (`${manifest.publisher}.${manifest.name}` !== "tk-reawakened.editor") throw n
 await access(resolve(extension, manifest.main));
 await access(resolve(extension, manifest.browser));
 await access(resolve(extension, "dist/webview.js"));
+await access(resolve(root, "extensions/rpgcode/dist/extension.browser.js"));
 await access(workspace);
 const gameFiles = await findGameFiles(workspace);
 if (gameFiles.length !== 1 || resolve(workspace, game) !== gameFiles[0]) {

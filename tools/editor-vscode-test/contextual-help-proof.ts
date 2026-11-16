@@ -42,9 +42,11 @@ export async function runVscodeContextualHelpProof(page: Page, expect: Expect, w
 
   await page.keyboard.press(END_OF_TEXT);
   await runPaletteCommand("RPG Toolkit: Search and insert an RPGCode command from the quick reference");
-  const quickPick = page.locator(".quick-input-widget input:visible");
+  await expect(page.getByText("Insert an RPGCode command", { exact: true })).toBeVisible();
+  const quickPick = page.getByRole("textbox", { name: /Type to find a command by name, syntax or description/ });
   await expect(quickPick).toBeVisible();
   await quickPick.fill("castint");
+  await expect(quickPick).toHaveValue("castint");
   const entry = page.getByRole("option", { name: /castint\(val, \[&dest\]\)/ });
   await expect(entry, "the native quick reference offers the documented castint syntax").toBeVisible();
   await quickPick.press("Enter");
@@ -53,6 +55,11 @@ export async function runVscodeContextualHelpProof(page: Page, expect: Expect, w
   await expect.poll(editorHasFocus).toBe(true);
   expect(await openTabs.count(), "insertion edits the existing native program tab").toBe(tabCount);
   await expect(tab).toBeVisible();
+
+  const dirtyTab = page.locator(".monaco-workbench .tabs-container .tab.dirty");
+  await expect(dirtyTab, "the reference insertion dirties the active program document").toHaveCount(1);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+s" : "Control+s");
+  await expect(dirtyTab, "save completes before the existing program-run proof").toHaveCount(0);
 
   for (const title of ["RPG Toolkit: Open RPGCode authoring guide", "RPG Toolkit: What's New"]) {
     await page.keyboard.press("F1");
