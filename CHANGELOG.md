@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- No-skips Git fixtures isolate inherited repository, signing and global configuration, then restore the original environment after each synchronous fixture (#2852).
 - The native web-workbench proof loads the real RPGCode companion extension, builds it in CI, and refuses a missing browser bundle instead of leaving programs in Plain Text (#2844).
 - Story 12.7 adds shared binary `.anm` creation and editing in browser and VS Code: ordered image staging, multi-frame 4×4 tile compositions with template reuse, frame metadata, playback, and normal save/undo. Persistent SHA-256 checkpoint groups retain original and intended files before wizard writes, report partial failures, retry remaining work, and make restores recoverable across reopening. Text minor 0 remains read-only; general history retention and timelines remain under #1828 (#1718, #2805, #2813–#2816).
 - New-project command tests compile their shared extension fixture once while keeping each case's workspace and module state isolated (#2798).
