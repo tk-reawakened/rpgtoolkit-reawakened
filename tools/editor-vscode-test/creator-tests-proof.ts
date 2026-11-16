@@ -68,7 +68,13 @@ export async function runVscodeCreatorTestsProof(
     || failureOutcome.context.lastAction.completedTick < 1 || failureOutcome.context.tick < failureOutcome.context.lastAction.completedTick) {
     throw new Error(`The actual failure omitted its completed right action and fixture tick: ${JSON.stringify(failureOutcome.context)}`);
   }
-  if (failureOutcome.line !== 4 || failureOutcome.column < 1) throw new Error(`The failing assertion has no exact owning source position: ${JSON.stringify(failureOutcome)}`);
+  const failSpec = failFiles.find((file) => file.path === CREATOR_TEST_SPEC_PATH);
+  if (failSpec === undefined) throw new Error("The failing authored fixture omitted its owning spec source.");
+  const wallLines = new TextDecoder().decode(failSpec.bytes).split("\n")
+    .flatMap((line, index) => line.includes('expect(specValue("player.tileX"))') ? [index + 1] : []);
+  if (wallLines.length !== 1 || failureOutcome.line !== wallLines[0] || failureOutcome.column < 1) {
+    throw new Error(`The failure source location did not point to the authored wall assertion at line ${wallLines.join(",")}: ${JSON.stringify(failureOutcome)}`);
+  }
   const sourceLink = tests.getByRole("button", { name: `Line ${failureOutcome.line}, column ${failureOutcome.column}` });
   await sourceLink.click();
   await expect(page.getByRole("tab", { name: /wall\.spec\.prg/ })).toBeVisible();

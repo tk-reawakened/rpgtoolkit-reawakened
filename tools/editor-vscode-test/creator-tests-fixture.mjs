@@ -42,13 +42,18 @@ export function createCreatorTestFiles({ failWall = false } = {}) {
   const expectedTile = failWall ? 3 : 2;
   const spec = [
     'specFixture({ board: "Boards/wall.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: 1, y: 2, facing: "E" })',
+    "globalProof = 0",
+    "beforeAll(() => {",
+    "  globalProof = 7",
+    "})",
+    "beforeEach(() => {",
+    "  GiveGP(3)",
+    "})",
     `it("${CREATOR_TEST_CASE_NAME}", () => {`,
     '  specAction("right", 30)',
     `  expect(specValue("player.tileX")).toBe(${expectedTile})`,
-    "  GiveGP(3)",
     '  expect(specValue("gold")).toBe(3)',
-    '  globalProof = 7',
-    '  expect(globalProof).toBe(7)',
+    '  expect(specValue("variable.globalProof")).toBe(7)',
     "})",
   ].join("\n");
   return [
