@@ -207,8 +207,8 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
   const gamePath = "Main/example.gam";
   const original = await host.readBacking(gamePath);
   await host.writeBacking("CreatorRaceNote.txt", new TextEncoder().encode("race note\n"));
-  await page.keyboard.press("Control+P");
-  const quickOpen = page.locator(".quick-input-widget input");
+  await page.keyboard.press("ControlOrMeta+p");
+  const quickOpen = page.locator(".quick-input-widget input:visible");
   await quickOpen.fill(gamePath);
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab", { name: /example\.gam/ })).toBeVisible();
@@ -230,7 +230,7 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
     await tests.getByRole("button", { name: "Run saved tests" }).click();
     await expect.poll(() => host.readHostEvents().slice(eventStart), { timeout: 30_000 })
       .toContainEqual({ kind: "save-request", value: `/${gamePath}` });
-    await page.keyboard.press("Control+P");
+    await page.keyboard.press("ControlOrMeta+p");
     await quickOpen.fill("CreatorRaceNote.txt");
     await page.keyboard.press("Enter");
     await expect(page.getByRole("tab", { name: /CreatorRaceNote\.txt/ })).toBeVisible();
