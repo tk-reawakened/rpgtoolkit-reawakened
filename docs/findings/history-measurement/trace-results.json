@@ -1,0 +1,305 @@
+{
+  "trace": {
+    "kind": "automated seeded paced script through the real editor document, board writer and a durable file store; not a person",
+    "startedIso": "2026-11-16T05:05:49.489Z",
+    "wallSeconds": 3600.005,
+    "interrupted": false,
+    "host": {
+      "platform": "darwin",
+      "release": "27.2.0",
+      "cpus": 8,
+      "node": "v26.13.0"
+    },
+    "plan": {
+      "workload": "automated-seeded-paced-script",
+      "note": "Gesture timing is this script's assumption, not an observation of a person.",
+      "seed": 1828,
+      "debounceMs": 1000,
+      "burstGestures": "3-24 gestures per burst",
+      "gestureGapSeconds": "lognormal, median 2.0 s, clipped to 0.3-20 s",
+      "pauseSeconds": "70% uniform 8-60 s; 25% uniform 60-180 s; 5% uniform 180-480 s",
+      "gestureMix": "80% brush stroke (1-40 cells), 5% erase stroke, 12% rectangle fill (up to 25 x 20 cells), 3% undo of the last edit",
+      "boardDwellMinutes": "8-20 minutes on one board before moving to the next of the working set",
+      "manualSave": "15% of bursts end with Ctrl+S 0.3-0.9 s after the last gesture",
+      "beforeRun": "about 3 per hour: a run saves every dirty document with reason before-run",
+      "boards": [
+        "Caoquest/Boards/town2.brd",
+        "Caoquest/Boards/town3.brd",
+        "Caoquest/Boards/start.brd"
+      ]
+    },
+    "seeded": [
+      {
+        "path": "Boards/town2.brd",
+        "sourceBytes": 39184,
+        "seedBytes": 2255
+      },
+      {
+        "path": "Boards/town3.brd",
+        "sourceBytes": 75670,
+        "seedBytes": 2070
+      },
+      {
+        "path": "Boards/start.brd",
+        "sourceBytes": 440424,
+        "seedBytes": 8425
+      }
+    ],
+    "maxHeartbeatGapMs": 5,
+    "processCpuSeconds": 4.197124,
+    "loadavg1": {
+      "count": 119,
+      "median": 2.75048828125,
+      "p90": 5.3701171875,
+      "p99": 11,
+      "max": 11.98193359375,
+      "mean": 3.408892463235294
+    },
+    "rssMb": {
+      "count": 119,
+      "median": 57.927472,
+      "p90": 64.632152,
+      "p99": 79.929936,
+      "max": 80.814672,
+      "mean": 57.96308436974791
+    }
+  },
+  "counts": {
+    "acceptedGestures": 462,
+    "gesturesPerHour": 461.9993583342245,
+    "saves": 383,
+    "savesPerHour": 382.99946805629435,
+    "byReason": {
+      "auto": 377,
+      "manual": 4,
+      "before-run": 2
+    },
+    "newBlobs": 382,
+    "repeatedContent": 1,
+    "historyFailures": 0
+  },
+  "gestureGapSeconds": {
+    "count": 461,
+    "median": 2.338,
+    "p90": 8.492,
+    "p99": 114.756,
+    "max": 439.101,
+    "mean": 7.628006507592189,
+    "shareWithin10s": 0.913232104121475,
+    "shareWithin60s": 0.9761388286334056,
+    "shareWithin300s": 0.9978308026030369
+  },
+  "savedBytes": {
+    "count": 383,
+    "median": 5730,
+    "p90": 12223,
+    "p99": 14097,
+    "max": 14273,
+    "mean": 6659.295039164491
+  },
+  "latencyMs": {
+    "save": {
+      "count": 383,
+      "median": 20.4974579999689,
+      "p90": 27.599624999798834,
+      "p99": 51.44816700000956,
+      "max": 85.68858400000317,
+      "mean": 21.792479877286475
+    },
+    "history": {
+      "count": 383,
+      "median": 10.833000000100583,
+      "p90": 14.686834000051022,
+      "p99": 27.428500000038184,
+      "max": 51.62108299974352,
+      "mean": 11.573903605744265
+    },
+    "hash": {
+      "count": 383,
+      "median": 0.08233299996936694,
+      "p90": 0.19004200026392937,
+      "p99": 1.0877089999848977,
+      "max": 2.2552499999292195,
+      "mean": 0.12959953785324063
+    },
+    "blobWrite": {
+      "count": 382,
+      "median": 5.488458000123501,
+      "p90": 7.452999999979511,
+      "p99": 11.60466599999927,
+      "max": 22.613125000032596,
+      "mean": 5.749644183246296
+    },
+    "entryWrite": {
+      "count": 383,
+      "median": 5.130833999952301,
+      "p90": 7.113833999959752,
+      "p99": 12.025625000002037,
+      "max": 45.972415999975055,
+      "mean": 5.708752297655824
+    }
+  },
+  "mergeWindows": [
+    {
+      "windowSeconds": 10,
+      "entriesCreated": 121,
+      "entriesSurviving": 121,
+      "distinctContents": 120,
+      "contentBytes": 820644,
+      "entriesPerHour": 120.99983194467784,
+      "contentBytesPerHour": 820642.8602182496
+    },
+    {
+      "windowSeconds": 60,
+      "entriesCreated": 42,
+      "entriesSurviving": 42,
+      "distinctContents": 42,
+      "contentBytes": 306778,
+      "entriesPerHour": 41.99994166674768,
+      "contentBytesPerHour": 306777.5739200362
+    },
+    {
+      "windowSeconds": 300,
+      "entriesCreated": 20,
+      "entriesSurviving": 20,
+      "distinctContents": 20,
+      "contentBytes": 156976,
+      "entriesPerHour": 19.9999722222608,
+      "contentBytesPerHour": 156975.78197808057
+    }
+  ],
+  "storage": [
+    {
+      "windowSeconds": 10,
+      "sizeAssumption": "measuredEditorWrittenMean",
+      "bytesPerEntry": 6659.295039164491,
+      "mibPerEditingHour": 0.7684455686654379,
+      "editingHoursToOneGiB": 1332.5602251547684
+    },
+    {
+      "windowSeconds": 10,
+      "sizeAssumption": "corpusBoardP90LegacySize",
+      "bytesPerEntry": 149373,
+      "mibPerEditingHour": 17.23681249339329,
+      "editingHoursToOneGiB": 59.40773564674383
+    },
+    {
+      "windowSeconds": 10,
+      "sizeAssumption": "corpusTilesetMaxLegacySize",
+      "bytesPerEntry": 4340742,
+      "mibPerEditingHour": 500.8974576141403,
+      "editingHoursToOneGiB": 2.044330599874645
+    },
+    {
+      "windowSeconds": 60,
+      "sizeAssumption": "measuredEditorWrittenMean",
+      "bytesPerEntry": 6659.295039164491,
+      "mibPerEditingHour": 0.2667331725946148,
+      "editingHoursToOneGiB": 3839.042553422071
+    },
+    {
+      "windowSeconds": 60,
+      "sizeAssumption": "corpusBoardP90LegacySize",
+      "bytesPerEntry": 149373,
+      "mibPerEditingHour": 5.983025824153043,
+      "editingHoursToOneGiB": 171.15085745847628
+    },
+    {
+      "windowSeconds": 60,
+      "sizeAssumption": "corpusTilesetMaxLegacySize",
+      "bytesPerEntry": 4340742,
+      "mibPerEditingHour": 173.86523322143714,
+      "editingHoursToOneGiB": 5.889619109162667
+    },
+    {
+      "windowSeconds": 300,
+      "sizeAssumption": "measuredEditorWrittenMean",
+      "bytesPerEntry": 6659.295039164491,
+      "mibPerEditingHour": 0.1270157964736261,
+      "editingHoursToOneGiB": 8061.989362186349
+    },
+    {
+      "windowSeconds": 300,
+      "sizeAssumption": "corpusBoardP90LegacySize",
+      "bytesPerEntry": 149373,
+      "mibPerEditingHour": 2.849059916263354,
+      "editingHoursToOneGiB": 359.41680066280014
+    },
+    {
+      "windowSeconds": 300,
+      "sizeAssumption": "corpusTilesetMaxLegacySize",
+      "bytesPerEntry": 4340742,
+      "mibPerEditingHour": 82.79296820068436,
+      "editingHoursToOneGiB": 12.3682001292416
+    }
+  ],
+  "corpus": {
+    "coveredTypes": {
+      ".gam": {
+        "count": 130,
+        "median": 2091,
+        "p90": 4006,
+        "p99": 4129,
+        "max": 4789,
+        "mean": 2669.8846153846152,
+        "over8MiB": 0
+      },
+      ".brd": {
+        "count": 1689,
+        "median": 36547,
+        "p90": 149373,
+        "p99": 422622,
+        "max": 482379,
+        "mean": 48246.6631142688,
+        "over8MiB": 0
+      },
+      ".tst": {
+        "count": 771,
+        "median": 82950,
+        "p90": 1016838,
+        "p99": 3154950,
+        "max": 4340742,
+        "mean": 370456.5771725032,
+        "over8MiB": 0
+      },
+      ".tbm": null,
+      ".prg": {
+        "count": 4294,
+        "median": 78,
+        "p90": 1047,
+        "p99": 10094,
+        "max": 62199,
+        "mean": 597.1474149976711,
+        "over8MiB": 0
+      },
+      ".tem": {
+        "count": 182,
+        "median": 4405,
+        "p90": 307103,
+        "p99": 347241,
+        "max": 352598,
+        "mean": 143845.7912087912,
+        "over8MiB": 0
+      },
+      ".itm": {
+        "count": 880,
+        "median": 464,
+        "p90": 121114,
+        "p99": 147590,
+        "max": 183966,
+        "mean": 40291.281818181815,
+        "over8MiB": 0
+      }
+    },
+    "projectsCoveredBytes": {
+      "count": 60,
+      "median": 712692,
+      "p90": 27076514,
+      "p99": 66706809,
+      "max": 66706809,
+      "mean": 7194302.216666667
+    },
+    "projects": 60,
+    "note": "legacy file sizes from the asset inventory; most legacy boards do not round-trip through the vector writer, whose output for the traced boards was far smaller"
+  }
+}

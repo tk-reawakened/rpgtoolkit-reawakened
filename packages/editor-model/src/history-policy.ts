@@ -1,9 +1,9 @@
 import type { HistoryPolicy } from "./document-history.ts";
 
 /**
- * The retention settings of ADR 0022 D12.8 and their defaults. The ids are fixed by D12.8; the default values are recorded
- * in D12.11 with the measurement that chose them. They are user-only editor settings (D6.3): a project-layer value for any
- * of them is ignored.
+ * The retention settings of ADR 0022 D12.8 and their defaults. The ids are fixed by D12.8; the values are those ADR 0022
+ * D12.11 records from the measured 2026-11-16 editing-hour trace (10 s merge, 24 h autosave floor, 1 GiB warning, 8 MiB
+ * covered-file cap). They are user-only editor settings (D6.3): a project-layer value for any of them is ignored.
  */
 export const HISTORY_SETTING_IDS = {
   mergeSeconds: "history.autosaveMergeSeconds",
