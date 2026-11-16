@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
-import { CREATOR_TEST_CASE_NAME, CREATOR_TEST_SPEC_PATH, createCreatorTestFiles } from "./creator-tests-fixture.mjs";
+import { CREATOR_TEST_ACTOR_RGB, CREATOR_TEST_CASE_NAME, CREATOR_TEST_SPEC_PATH, createCreatorTestFiles } from "./creator-tests-fixture.mjs";
 import { rasterize, type AssetKey, type DecodedTexture, type DrawList, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
 import type { CreatorFrameObservation } from "@tk-reawakened/script-spec";
 const HERO_VISIBLE_RGB: Record<string, true> = {
-  "30,196,132": true,
-  "250,196,48": true,
-  "65,43,32": true,
-  "24,30,38": true,
+  [CREATOR_TEST_ACTOR_RGB.tunic]: true,
+  [CREATOR_TEST_ACTOR_RGB.head]: true,
+  [CREATOR_TEST_ACTOR_RGB.legs]: true,
+  [CREATOR_TEST_ACTOR_RGB.eyes]: true,
 };
 
 type Expect = typeof playwrightExpect;

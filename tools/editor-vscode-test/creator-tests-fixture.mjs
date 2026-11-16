@@ -2,6 +2,12 @@ import { ANIMATION_MAGIC, createEmptyBoard, createEmptyCharacter, writeAnimation
 
 export const CREATOR_TEST_SPEC_PATH = ".tkr-tests/Prg/wall.spec.prg";
 export const CREATOR_TEST_CASE_NAME = "wall stops movement";
+export const CREATOR_TEST_ACTOR_RGB = Object.freeze({
+  tunic: "30,196,132",
+  head: "250,196,48",
+  legs: "65,43,32",
+  eyes: "24,30,38",
+});
 const HERO_PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAYUlEQVR42mP4z/D//0BihlEHkKL41xEDovCoA2juAAk5NTDGxR/+DhhNAwPiALkjLSTh4eUAWNASazkpUTHqgFEHDA0HjJYDg8IBIOyorYCCCYmPOmDUAaMOGH4OGJadUwDKwj3WIfzvWAAAAABJRU5ErkJggg==";
 
 /** Authored, ordinary project bytes shared by native and browser TOOL-5 proofs. */
