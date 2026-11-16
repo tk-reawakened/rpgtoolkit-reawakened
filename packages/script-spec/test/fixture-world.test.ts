@@ -1,7 +1,8 @@
 import { deepEqual, equal, throws } from "node:assert/strict";
 import test from "node:test";
-import { FixtureError, type FixtureDefinition } from "../src/fixture.ts";
-import { createFixtureWorld } from "../src/fixture-world.ts";
+import { FixtureError, createFixtureWorld } from "../src/index.ts";
+import { sha256Hex } from "../src/sha256.ts";
+import type { FixtureDefinition } from "../src/fixture.ts";
 
 function fixture(overrides: Partial<FixtureDefinition> = {}): FixtureDefinition {
   return {
@@ -19,7 +20,11 @@ function fixture(overrides: Partial<FixtureDefinition> = {}): FixtureDefinition 
   };
 }
 
-const file = (path: string, text: string, revision = path) => ({ path, bytes: new TextEncoder().encode(text), revision });
+const file = (path: string, text: string, revision?: string) => ({
+  path,
+  bytes: new TextEncoder().encode(text),
+  ...(revision === undefined ? {} : { revision }),
+});
 
 test("fixture world shares overlay precedence across the restricted asset and program inventory", () => {
   const world = createFixtureWorld([
@@ -34,7 +39,7 @@ test("fixture world shares overlay precedence across the restricted asset and pr
 
   const board = world.byKey.get("boards/wall.brd");
   equal(board?.sourcePath, ".TKR-Tests/boards/WALL.brd");
-  equal(board?.path, "boards/WALL.brd");
+  equal(world.byKey.get("prg/helper.prg")?.revision, sha256Hex(new TextEncoder().encode("real helper")));
   equal(board?.revision, "overlay-revision");
   deepEqual(world.files.map((entry) => entry.path), [
     "Chrs/Hero.tem",

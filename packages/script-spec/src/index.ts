@@ -17,3 +17,4 @@ export { FixtureError, fixturePath, listEntries, readFixture } from "./fixture.t
 export type { FixtureDefinition, FixtureStart, Plain } from "./fixture.ts";
 export { createFixtureWorld } from "./fixture-world.ts";
 export type { FixtureWorld, FixtureWorldFile, FixtureWorldInputFile } from "./fixture-world.ts";
+export { sha256Hex } from "./sha256.ts";

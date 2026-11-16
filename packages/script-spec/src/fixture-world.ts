@@ -1,4 +1,5 @@
 import { assetKey } from "@tk-reawakened/core";
+import { sha256Hex } from "./sha256.ts";
 import { FixtureError, type FixtureDefinition } from "./fixture.ts";
 
 export type FixtureWorldInputFile = {
@@ -13,7 +14,8 @@ export type FixtureWorldFile = {
   readonly bytes: Uint8Array;
   /** The host path that supplied these bytes. */
   readonly sourcePath: string;
-  readonly revision: string | null;
+  /** Host-provided revision identity, or the SHA-256 of the exact bytes served. */
+  readonly revision: string;
 };
 
 export type FixtureWorld = {
@@ -46,7 +48,7 @@ export function createFixtureWorld(files: readonly FixtureWorldInputFile[], fixt
     if (path === "") continue;
     const key = assetKey(path);
     const target = overlay ? overlays : project;
-    if (!target.has(key)) target.set(key, { path, bytes: file.bytes, sourcePath, revision: file.revision ?? null });
+    if (!target.has(key)) target.set(key, { path, bytes: file.bytes, sourcePath, revision: file.revision ?? sha256Hex(file.bytes) });
   }
 
   const selected = new Map<string, FixtureWorldFile>(overlays);
