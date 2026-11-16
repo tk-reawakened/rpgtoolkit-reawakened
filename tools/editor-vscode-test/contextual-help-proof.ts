@@ -9,7 +9,7 @@ export async function runVscodeContextualHelpProof(page: Page, expect: Expect, w
   await expect(page.locator(".monaco-workbench")).toBeVisible();
 
   const runPaletteCommand = async (title: string): Promise<void> => {
-    await page.keyboard.press("F1");
+    await page.keyboard.press("ControlOrMeta+Shift+p");
     const input = page.locator(".quick-input-widget input:visible");
     await expect(input).toHaveCount(1);
     await input.fill(`>${title}`);
