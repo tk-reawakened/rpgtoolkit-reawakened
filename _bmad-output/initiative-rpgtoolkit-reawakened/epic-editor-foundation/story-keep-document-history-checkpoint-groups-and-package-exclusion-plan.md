@@ -2,7 +2,7 @@
 type: feature
 title: "Keep document history, checkpoint groups and package exclusion"
 ticket: 14
-status: draft
+status: built
 ---
 
 ## Scope
@@ -26,3 +26,13 @@ ADR 0022 D12 is accepted (owner approval, 2026-11-09): in-project folder confirm
 This story is on epic 11's closing path: it is a prerequisite of the refactor sweep (11.12) and the closing acceptance (11.13), because the foundation cannot claim to close while an accepted host-independent store is unbuilt. Flagged for the owner in the PR that allocated it; the epic envelope's Done-when says nothing about history and was left unchanged.
 
 Prerequisites: 11.1, 11.3, 11.5.
+
+## Implementation receipts
+
+Implementation is built; merge/closure still awaits independent exact-head review and required CI.
+
+- `pnpm run typecheck:tests` from `tools/editor-vscode-test`: passed after the final browser-test edit.
+- `pnpm run browser:build && pnpm exec playwright test tools/browser/tests/editor-history.spec.ts tools/browser/tests/editor-web-host.spec.ts --grep 'history is kept|browser workbench creates a new project' --workers=1`: the History case passed. The New Project assertion was corrected to validate the immutable pending capture manifest and latest append-only progress record separately.
+- `pnpm run browser:build && pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts --grep 'browser workbench creates a new project' --workers=1`: passed, 1 test; validates the created wizard group, all written paths, progress-backed content hashes, actual project bytes, and unchanged bystander bytes.
+- `pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace docs/spec/examples/game --game Main/example.gam` with `TKR_VSCODE_NEW_PROJECT_PROOF=1`: passed; real GAM, Board, and Bitmap History previews, read-only guards, correlated preview RPC, restore/undo/group bytes, visible open-file refusal, close/reopen flow, and actual New Project creation.
+- Earlier full browser evidence artifact #1353 remains the original 123/125 run; it was not rerun. Its two failures have evidence-backed follow-up issues #2859 and #2884.

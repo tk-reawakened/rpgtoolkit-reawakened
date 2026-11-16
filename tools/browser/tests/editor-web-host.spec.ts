@@ -645,16 +645,35 @@ test("browser workbench creates a new project in the chosen folder, copies only 
         readonly files: readonly { readonly path: string; readonly before: string | null; readonly after: string | null; readonly status: string }[];
         readonly uncovered: readonly unknown[];
       };
+      readonly progress: {
+        readonly files: readonly { readonly path: string; readonly before: string | null; readonly after: string | null; readonly status: string }[];
+      };
     }[] = [];
     for await (const [name, handle] of groupsDirectory.entries()) {
       if (handle.kind !== "file") continue;
       const file = await (handle as FileSystemFileHandle).getFile();
-      groups.push({ name, record: JSON.parse(await file.text()) as (typeof groups)[number]["record"] });
+      const record = JSON.parse(await file.text()) as (typeof groups)[number]["record"];
+      const progressDirectory = await historyDirectory.getDirectoryHandle("progress");
+      const groupProgress = await progressDirectory.getDirectoryHandle(record.id);
+      const updates: { readonly number: number; readonly record: (typeof groups)[number]["progress"] }[] = [];
+      for await (const [progressName, progressHandle] of groupProgress.entries()) {
+        const match = /^(\d+)\.json$/.exec(progressName);
+        if (progressHandle.kind !== "file" || match === null) continue;
+        const progressFile = await (progressHandle as FileSystemFileHandle).getFile();
+        updates.push({
+          number: Number(match[1]),
+          record: JSON.parse(await progressFile.text()) as (typeof groups)[number]["progress"],
+        });
+      }
+      updates.sort((left, right) => right.number - left.number);
+      const latest = updates[0];
+      if (latest === undefined) throw new Error(`History group ${record.id} has no durable progress record.`);
+      groups.push({ name, record, progress: latest.record });
     }
     const written: Record<string, number[]> = {};
     const contents: Record<string, number[]> = {};
-    for (const { record } of groups) {
-      for (const item of record.files) {
+    for (const { progress } of groups) {
+      for (const item of progress.files) {
         written[item.path] = await readProjectFile(item.path);
         if (item.after !== null) {
           const file = await (await historyDirectory.getDirectoryHandle("contents")).getFileHandle(item.after);
@@ -684,10 +703,11 @@ test("browser workbench creates a new project in the chosen folder, copies only 
   expect(groupFile.record.uncovered).toEqual([]);
   const plannedWrites = ["Boards/start.brd", "Main/Quest.gam", "Prg/start.prg"];
   expect(groupFile.record.files.map(({ path }) => path).sort()).toEqual(plannedWrites);
-  expect(groupFile.record.files.every((file) => file.before === null)).toBe(true);
-  expect(groupFile.record.files.every((file) => file.status === "written")).toBe(true);
+  expect(groupFile.record.files.every((file) => file.before === null && file.status === "pending")).toBe(true);
+  expect(groupFile.progress.files.map(({ path }) => path).sort()).toEqual(plannedWrites);
+  expect(groupFile.progress.files.every((file) => file.before === null && file.status === "written")).toBe(true);
   expect(Object.keys(disk.written).sort()).toEqual(plannedWrites);
-  for (const item of groupFile.record.files) {
+  for (const item of groupFile.progress.files) {
     const bytes = new Uint8Array(disk.written[item.path] ?? []);
     const contents = new Uint8Array(disk.contents[item.after ?? ""] ?? []);
     const actualHash = createHash("sha256").update(bytes).digest("hex");
