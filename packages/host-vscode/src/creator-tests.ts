@@ -3,13 +3,11 @@ import { createCreatorTestsController, type CreatorTestsController, type Creator
 import { platformError, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { saveBeforeRun, savedRunGuard, type RunGeneration } from "./saved-run.ts";
+import { parseCreatorTestsBridgeRequest, type CreatorTestsBridgeRequest } from "./creator-tests-bridge.ts";
 
 const COMMAND = "tkr.runSavedTests";
 const TITLE = "RPG Toolkit: Run saved tests";
-const MAX_NAME = 256;
-const MAX_SOURCE_PATH = 1024;
 type CreatorController = CreatorTestsController;
-type BridgeRequest = { readonly id: string; readonly method: "run" | "openSource" | "invalid"; readonly args: readonly unknown[] };
 type ProjectSurface = { readonly controller: CreatorController; readonly panel: vscode.WebviewPanel; readonly dispose: vscode.Disposable };
 
 export function registerCreatorTests(context: vscode.ExtensionContext, generation: RunGeneration): void {
@@ -99,7 +97,7 @@ export function registerCreatorTests(context: vscode.ExtensionContext, generatio
     };
     unsubscribe = controller.subscribe(publish);
     message = panel.webview.onDidReceiveMessage((value: unknown) => {
-      const request = parseBridgeRequest(value, nonce);
+      const request = parseCreatorTestsBridgeRequest(value, nonce);
       if (request === undefined) return;
       void dispatchRequest(controller, request).then(
         (result) => post({ type: "creator-tests:response", nonce, id: request.id, result }),
@@ -130,36 +128,8 @@ async function chooseWorkspace(): Promise<vscode.Uri | undefined> {
   return selected?.uri;
 }
 
-function validSourceLocation(path: string, line: number, column: number): boolean {
-  return typeof path === "string" && path.length > 0 && path.length <= MAX_SOURCE_PATH && !path.startsWith("/")
-    && !path.includes("\\") && path.split("/").every((part) => part.length > 0 && part !== "." && part !== "..")
-    && /\.(?:prg|rnc)$/i.test(path) && Number.isSafeInteger(line) && line >= 1 && line <= 1_000_000
-    && Number.isSafeInteger(column) && column >= 1 && column <= 100_000;
-}
 
-function parseBridgeRequest(value: unknown, nonce: string): BridgeRequest | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const item = value as Record<string, unknown>;
-  if (item.type !== "creator-tests:request" || item.nonce !== nonce || typeof item.id !== "string" || !/^[a-f0-9]{24}$/.test(item.id)) return undefined;
-  const invalid = (): BridgeRequest => ({ id: item.id as string, method: "invalid", args: [] });
-  if (!Array.isArray(item.args) || item.args.length > 1) return invalid();
-  if (item.method === "run" && item.args.length === 1) {
-    const args = item.args[0];
-    if (typeof args !== "object" || args === null || Array.isArray(args)) return invalid();
-    const request = args as Record<string, unknown>;
-    if (Object.keys(request).some((key) => key !== "seed" && key !== "name") || !Number.isSafeInteger(request.seed)
-      || (request.seed as number) < 0 || (request.seed as number) > 0xffffffff || typeof request.name !== "string" || request.name.length > MAX_NAME) return invalid();
-    return { id: item.id, method: "run", args: [request] };
-  }
-  if (item.method === "openSource" && item.args.length === 1) {
-    const args = item.args[0];
-    if (!Array.isArray(args) || args.length !== 3 || typeof args[0] !== "string" || !validSourceLocation(args[0], args[1] as number, args[2] as number)) return invalid();
-    return { id: item.id, method: "openSource", args };
-  }
-  return invalid();
-}
-
-async function dispatchRequest(controller: CreatorController, request: BridgeRequest): Promise<PlatformResult<void>> {
+async function dispatchRequest(controller: CreatorController, request: CreatorTestsBridgeRequest): Promise<PlatformResult<void>> {
   if (request.method === "invalid") return platformError("invalid-request", "The saved-tests request was invalid.");
   if (request.method === "run") return await controller.run(request.args[0] as { seed: number; name: string });
   return await controller.openSource(request.args[0] as string, request.args[1] as number, request.args[2] as number);
