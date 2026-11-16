@@ -81,7 +81,13 @@ const savedText = async (page: Page, path: string, accept: (text: string) => boo
         const parts = target.split("/");
         for (const part of parts.slice(0, -1)) handle = await handle.getDirectoryHandle(part);
         const file = await (await handle.getFileHandle(parts.at(-1)!)).getFile();
-        return Array.from(new Uint8Array(await file.arrayBuffer()));
+        try {
+          return Array.from(new Uint8Array(await file.arrayBuffer()));
+        } catch (error) {
+          // Save can replace the file after getFile(): retry with a fresh snapshot, within expect.poll's deadline.
+          if (error instanceof DOMException && error.name === "NotReadableError") return null;
+          throw error;
+        }
       } catch (error) {
         if (error instanceof DOMException && error.name === "NotFoundError") return null;
         throw error;
@@ -112,6 +118,38 @@ const editorText = (page: Page): Promise<string> =>
       .sort((left, right) => parseFloat(left.style.top) - parseFloat(right.style.top))
       .map((line) => line.innerText.replace(/\u00a0/g, " "))
       .join("\n"));
+
+test("saved-file polling reacquires invalidated snapshots and propagates permission errors (#2784)", async ({ page }) => {
+  await page.goto(PAGE);
+  const install = async (failures: string[]): Promise<void> => {
+    await page.evaluate((names) => {
+      let reads = 0;
+      const root = {
+        getFileHandle: async () => ({
+          getFile: async () => {
+            reads += 1;
+            // Each fresh snapshot owns its failure; retrying the same File cannot recover.
+            const failure = names.shift();
+            return {
+              arrayBuffer: async () => {
+                if (failure) throw new DOMException("controlled read failure", failure);
+                return new Uint8Array([111, 107]).buffer;
+              },
+            };
+          },
+        }),
+      };
+      (window as ProofWindow).__tkrTestFolder = root as unknown as FileSystemDirectoryHandle;
+      Object.defineProperty(window, "__snapshotReads", { configurable: true, get: () => reads });
+    }, failures);
+  };
+  await install(["NotFoundError", "NotReadableError"]);
+  expect(await savedText(page, "probe.prg", (text) => text === "ok")).toBe("ok");
+  expect(await page.evaluate(() => Reflect.get(window, "__snapshotReads"))).toBe(3);
+  await install(["NotAllowedError"]);
+  await expect(savedText(page, "probe.prg", () => true)).rejects.toThrow(/NotAllowedError/);
+  expect(await page.evaluate(() => Reflect.get(window, "__snapshotReads"))).toBe(1);
+});
 
 test("a program edits and saves in Monaco with colouring, bookmarks, call tips, command and header insertion and distraction-free mode, under the strict CSP", async ({ page, baseURL }) => {
   const consoleProblems: string[] = [];
