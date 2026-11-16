@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, watch, type FSWatcher } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { assetKey } from "@tk-reawakened/core";
-import { fileURLToPath } from "node:url";
+import { SPEC_LIBRARY_SOURCE } from "./library.generated.ts";
 import { isIgnoredProjectPath, runSpecProjectFiles, type SpecProjectFile, type SpecProjectOptions, type SpecProjectReport } from "./project-core.ts";
 
 const compareNames = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
@@ -41,8 +41,7 @@ export function runSpecProject(projectRoot: string, options: SpecProjectOptions 
       revision: createHash("sha256").update(bytes).digest("hex"),
     };
   });
-  const librarySource = readFileSync(fileURLToPath(new URL("../package/startup.prg", import.meta.url)), "utf8");
-  return runSpecProjectFiles(files, librarySource, options);
+  return runSpecProjectFiles(files, SPEC_LIBRARY_SOURCE, options);
 }
 
 /** Run immediately, then rerun the entire project whenever a project file changes. */

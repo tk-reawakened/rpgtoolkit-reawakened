@@ -137,6 +137,7 @@ The editor's **"Make package"** (T-70) **writes a distribution package** — a `
 * `Saved/` and main files other than the selected `Main/<game>.gam`, as for the PAK input contract above;
 * every file whose extension is `.tkrscn`, `.tkrtile` or `.tkrpack`, compared with the package path's ASCII-folded extension (ADR 0019 decision 6);
 * every `*.spec.prg` creator test, matched case-insensitively (ADR 0022 D9 and TOOL-5);
+* the test runner's helper library at the complete project-relative path `Prg/script-spec/`, matched ASCII-case-insensitively; ordinary game programs and similarly named sibling folders remain package assets;
 * the project-root reserved editor-history directory `.tkr-history/`, including all descendants (ADR 0022 D12.7);
 * the project-root reserved package-output directory `.tkr-exports/`, including all descendants. VS Code writes in-project package/descriptor pairs there; arbitrary `.tpk` and `.tpk.json` assets elsewhere remain ordinary project data.
 * the project-root reserved creator-test directory `.tkr-tests/`, including all descendants: the fixture boards, characters, tilesets and helper programs a creator keeps only for tests (TOOL-5 [test overlay](../engine/rpgcode-tooling.md#tool-5-creator-tests-overlay), entry 11.9). A spec run serves them as an overlay over the project and every other run ignores them.

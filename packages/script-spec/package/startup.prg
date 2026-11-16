@@ -284,6 +284,19 @@ function specRunChildren(group) {
   }
 }
 
+function specWait(path, expected, maxTicks) {
+  local(elapsed)
+  local(result)
+  elapsed = 0
+  while (elapsed <= maxTicks) {
+    result = specWaitCheck(path, expected, maxTicks, elapsed)
+    if (result >= 0) { return result }
+    specTicks(1)
+    elapsed = elapsed + 1
+  }
+  return -1
+}
+
 // Enter a group whose registration is complete. A setup run runs the group's
 // beforeAll hooks and reports the checkpoint; the runner snapshots the simulation
 // right after it, and every later case or teardown run of the group resumes there,

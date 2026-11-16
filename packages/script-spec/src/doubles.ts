@@ -43,7 +43,8 @@ export type Spy = {
 export type CreatorStateBridge = {
   readonly tick?: () => number;
   readonly value: (path: string, view: CommandView) => Value;
-  readonly wait: (path: string, expected: number | string, maxTicks: number, view: CommandView) => CommandResult;
+  readonly wait: (path: string, expected: number | string, maxTicks: number, elapsed: number, view: CommandView) => CommandResult;
+  readonly sourcePosition?: (threadId: number) => CommandView["pos"] | null;
   readonly effect?: (name: string) => void;
 };
 

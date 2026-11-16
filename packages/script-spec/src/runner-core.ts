@@ -38,17 +38,19 @@ import {
   startProgram,
   STEP_BUDGET,
   type EffectRecord,
+  type InputRecord,
   type GameState,
   type PluginDefinition,
   type CommandView,
   type ProgramLoader,
   type ScriptServices,
 } from "@tk-reawakened/core";
+import { addCounts, createCoverageProbe, toCoverage, type LineCounts, type PositionFilter, type SpecCoverage } from "./coverage.ts";
 import { FixtureError, type FixtureDeclaration, type FixtureDefinition } from "./fixture.ts";
 import { createFixtureWorld, fixtureWorldSha256, type FixtureWorld, type FixtureWorldInputFile } from "./fixture-world.ts";
 import { sha256Hex } from "./sha256.ts";
 import type { CreatorAction } from "./creator-actions.ts";
-import { createCreatorScene, type CreatorFrameObservation, type CreatorScene, type CreatorSceneSnapshot } from "./creator-scene.ts";
+import { createCreatorScene, type CreatorFrameObservation, type CreatorScene, type CreatorSceneProgram, type CreatorSceneSnapshot } from "./creator-scene.ts";
 export type { CreatorFrameObservation } from "./creator-scene.ts";
 import { applyDue, createDoubles, wrapPlugins, type SpecDoubles } from "./doubles.ts";
 import { createSpecPlugin } from "./plugin.ts";
@@ -226,12 +228,14 @@ type Task = {
 };
 type CreatorTask = {
   readonly fixture: FixtureDefinition;
+  readonly fixtureDeclarations: readonly FixtureDeclaration[];
   readonly world: FixtureWorld | null;
   readonly from: CreatorSceneSnapshot | null;
   readonly error: TaskError | null;
   readonly file: string;
   readonly groups: readonly string[];
   readonly project: string | null;
+  readonly nativePlugin: PluginDefinition | null;
   readonly onFrame: ((frame: CreatorFrameObservation) => void) | null;
 };
 
@@ -305,21 +309,24 @@ type TaskRun = {
 };
 
 function creatorContext(scene: CreatorScene, doubles: SpecDoubles): CreatorOutcomeContext {
+  const tick = scene.tick();
+  const completedAt = (item: CreatorAction): number | null =>
+    item.completedAt ?? (item.releaseAt <= tick ? item.releaseAt : null);
   const latest = doubles.creatorActions.actions
-    .filter((item) => item.completedAt !== null)
+    .filter((item) => completedAt(item) !== null)
     .reduce<CreatorAction | null>(
-      (selected, item) => selected === null || item.completedAt! > selected.completedAt! || (
-        item.completedAt === selected.completedAt && item.ordinal > selected.ordinal
+      (selected, item) => selected === null || completedAt(item)! > completedAt(selected)! || (
+        completedAt(item) === completedAt(selected) && item.ordinal > selected.ordinal
       ) ? item : selected,
       null,
     );
   return {
-    tick: scene.tick(),
+    tick,
     lastAction: latest === null ? null : {
       action: latest.action,
       ticks: latest.releaseAt - latest.pressAt,
       startTick: latest.pressAt,
-      completedTick: latest.completedAt!,
+      completedTick: completedAt(latest)!,
     },
     board: scene.board(),
   };
@@ -364,6 +371,166 @@ function freshState(seed: number): GameState {
   return state;
 }
 
+function runCreatorTask(
+  source: string,
+  librarySource: string,
+  seed: number,
+  task: Task,
+  creator: CreatorTask,
+  place: Placement | null,
+): TaskRun {
+  const empty = (error: TaskError): TaskRun => ({
+    outcomes: [],
+    errors: [error],
+    hash: "",
+    fixtures: [],
+    checkpoint: null,
+    creatorCheckpoint: null,
+    actionLog: [],
+    loaded: [],
+    creatorRun: null,
+    creatorContext: null,
+    lines: null,
+  });
+  if (creator.error !== null) return empty(creator.error);
+  if (creator.world === null) return empty({ code: "spec.fixture-load", message: "fixture world was not created", line: 0 });
+
+  let scene: CreatorScene | null = null;
+  const resultContexts = new Map<number, CreatorOutcomeContext>();
+  const bridge = {
+    tick: () => scene?.tick() ?? 0,
+    value: (path: string, view: CommandView) => {
+      if (scene === null) throw new ScriptError("spec.fixture-load", "creator fixture engine is not ready");
+      return scene.bridge.value(path, view);
+    },
+    wait: (path: string, expected: number | string, maxTicks: number, elapsed: number, view: CommandView) => {
+      if (scene === null) throw new ScriptError("spec.fixture-load", "specWait: fixture engine is not ready");
+      return scene.bridge.wait(path, expected, maxTicks, elapsed, view);
+    },
+  };
+  const doubles = createDoubles(() => scene?.engine.registeredActionNames() ?? [], true, bridge);
+  for (const fixture of creator.fixtureDeclarations) doubles.fixtures.set(fixture.group, fixture);
+  const plugins = wrapPlugins([
+    ...DEFAULT_ENGINE_PLUGINS,
+    ...(creator.nativePlugin === null ? [] : [{ definition: creator.nativePlugin }]),
+    { definition: createSpecPlugin(doubles) },
+  ], doubles);
+  const runtimeSeed = creator.fixture.seed ?? seed;
+  const program: CreatorSceneProgram = { source, librarySource, mode: task.mode, target: task.target };
+  scene = createCreatorScene(
+    creator.world,
+    creator.fixture,
+    runtimeSeed,
+    plugins,
+    program,
+    creator.from ?? undefined,
+    creator.onFrame ?? undefined,
+    place ?? undefined,
+    (effect, observed) => {
+      const current = scene;
+      const context = current === null
+        ? { tick: observed.tick, lastAction: null, board: observed.board }
+        : creatorContext(current, doubles);
+      resultContexts.set(effect.seq, context);
+    },
+  );
+  let diagnosticsSeen = scene.diagnostics.length;
+  const errors: TaskError[] = scene.diagnostics.map((item) => ({ code: item.code, message: item.message, line: item.line }));
+  const collectDiagnostics = (): void => {
+    errors.push(...scene!.diagnostics.slice(diagnosticsSeen).map((item) => ({ code: item.code, message: item.message, line: item.line })));
+    diagnosticsSeen = scene!.diagnostics.length;
+  };
+  const actionLog: InputRecord[] = [];
+  const checkpoints: { tick: number; stateHash: string }[] = [{ tick: scene.tick(), stateHash: scene.stateHash() }];
+  let checkpoint: CreatorSceneSnapshot | null = null;
+  let finished = false;
+  for (let ticks = 0; ticks < 1000; ticks += 1) {
+    if (task.mode === SETUP && scene.checkpointReached()) {
+      // The creator checkpoint native parks this engine thread, preserving its continuation for case runs.
+      checkpoint = scene.checkpoint();
+      finished = true;
+      break;
+    }
+    if (task.mode !== SETUP && scene.complete()) {
+      finished = true;
+      break;
+    }
+    const currentTick = scene.tick();
+    const dueKeys = doubles.pending.filter((item) => item.tick === currentTick);
+    const keyInputs = dueKeys.map((item): InputRecord => ({ tick: item.tick, event: item.event }));
+    const actionInputs = doubles.creatorActions.takeInputs(currentTick);
+    const consumed = scene.advance([...actionInputs, ...keyInputs]);
+    const acceptedKeys = new Set(consumed.flatMap((record) =>
+      record.event.kind === "key" ? [`${record.tick}\\0${record.event.name}\\0${record.event.down}`] : [],
+    ));
+    for (let index = doubles.pending.length - 1; index >= 0; index -= 1) {
+      const item = doubles.pending[index]!;
+      if (acceptedKeys.has(`${item.tick}\\0${item.event.name}\\0${item.event.down}`)) doubles.pending.splice(index, 1);
+    }
+    doubles.creatorActions.completeTick(scene.tick());
+    actionLog.push(...consumed.filter((record) => record.event.kind === "action" || record.event.kind === "key"));
+    if (doubles.creatorActions.actions.some((item) => item.completedAt === scene.tick())) {
+      checkpoints.push({ tick: scene.tick(), stateHash: scene.stateHash() });
+    }
+    collectDiagnostics();
+  }
+  collectDiagnostics();
+  if (!finished) errors.push({
+    code: "spec.timeout",
+    message: task.mode === SETUP
+      ? "beforeAll did not reach its fixture checkpoint within 1,000 ticks"
+      : "spec did not finish within 1,000 ticks",
+    line: 0,
+  });
+  for (const item of doubles.pending) {
+    errors.push({
+      code: "spec.input-pending",
+      message: `a key edge (${item.event.name}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`,
+      line: 0,
+    });
+  }
+  const context = creatorContext(scene, doubles);
+  const outcomes: SpecOutcome[] = [];
+  for (const record of scene.results) {
+    if (record.name !== "specresult") continue;
+    const kind = String(record.args[0] ?? "");
+    if (!OUTCOME_KINDS.has(kind) || record.args[2] === "checkpoint") continue;
+    outcomes.push({
+      kind: kind as SpecOutcomeKind,
+      label: String(record.args[1] ?? ""),
+      expected: String(record.args[2] ?? ""),
+      actual: String(record.args[3] ?? ""),
+      line: typeof record.args[5] === "number" ? record.args[5] : 0,
+      column: typeof record.args[6] === "number" ? record.args[6] : 0,
+      context: resultContexts.get(record.seq) ?? context,
+    });
+  }
+  if (checkpoints.at(-1)?.tick !== scene.tick()) checkpoints.push({ tick: scene.tick(), stateHash: scene.stateHash() });
+  const run = creatorRunReport(
+    creator.file,
+    source,
+    creator,
+    scene,
+    runtimeSeed,
+    doubles.creatorActions.actions,
+    actionLog,
+    checkpoints,
+  );
+  return {
+    outcomes,
+    errors,
+    hash: scene.stateHash(),
+    fixtures: [],
+    checkpoint: null,
+    creatorCheckpoint: checkpoint ?? scene.checkpoint(),
+    actionLog,
+    loaded: scene.loaded,
+    creatorRun: run,
+    creatorContext: context,
+    lines: place === null ? null : scene.coverage(),
+  };
+}
+
 function runTask(
   source: string,
   librarySource: string,
@@ -373,44 +540,24 @@ function runTask(
   place: Placement | null = null,
   creator: CreatorTask | null = null,
 ): TaskRun {
+  if (creator !== null) return runCreatorTask(source, librarySource, seed, task, creator, place);
   const state = task.from === null ? freshState(seed) : restoreGameState(task.from);
   // The snapshot carries the effect log of the run that took it; this run reports only its own.
   if (task.from !== null) drainEffects(state.vm);
   state.vm.globals.specmode = task.mode;
   state.vm.globals.spectarget = task.target;
+  if (task.mode === COLLECT && task.from === null) state.vm.globals.speccurrent = 0;
   const specProgram = specLoader(loader, source, librarySource);
   const specRef = fileProgramRef(specProgram, SPEC_PROGRAM);
   const positions = new Map<number, { line: number; column: number }>();
   let checkpoint: string | null = null;
-  let creatorCheckpoint: CreatorSceneSnapshot | null = null;
   let lastSeq = state.vm.effectSeq;
   const probe = place === null ? null : createCoverageProbe(() => state.vm, () => services, place);
   let checkpointFailure: string | null = null;
   const nativePlugin = loader?.nativePlugin;
-  let creatorScene: CreatorScene | null = null;
-  const creatorBridge = creator === null ? null : {
-    tick: () => creatorScene?.tick() ?? state.time.tick,
-    value: (path: string, view: CommandView) => {
-      if (creatorScene === null) throw new ScriptError("spec.fixture-load", "creator fixture engine is not ready");
-      return creatorScene.bridge.value(path, view);
-    },
-    wait: (path: string, expected: number | string, maxTicks: number, view: CommandView) => {
-      if (creatorScene === null) throw new ScriptError("spec.fixture-load", "creator fixture engine is not ready");
-      return creatorScene.bridge.wait(path, expected, maxTicks, view);
-    },
-    effect: (name: string) => {
-      if (creatorScene !== null) creatorScene.effects.set(name, (creatorScene.effects.get(name) ?? 0) + 1);
-    },
-  };
-  // Test doubles are host-side, fresh for every counted run, and never part of either simulation snapshot.
-  const doubles = createDoubles(() => creatorScene?.engine.registeredActionNames() ?? [], creator !== null, creatorBridge);
+  const doubles = createDoubles(() => [], false);
   const plugins = wrapPlugins([...DEFAULT_ENGINE_PLUGINS, ...(nativePlugin === undefined ? [] : [{ definition: nativePlugin }]), { definition: createSpecPlugin(doubles) }], doubles);
-  if (creator !== null && creator.world !== null) {
-    creatorScene = createCreatorScene(creator.world, creator.fixture, creator.fixture.seed ?? seed, plugins, creator.from ?? undefined, creator.onFrame ?? undefined);
-    if (task.from === null) state.time.tick = creatorScene.tick();
-    if (!creatorScene.ready()) checkpointFailure = "creator fixture setup did not finish";
-  }
-  if (task.from === null && (creator === null || creator.error === null)) startProgram(state.vm, specRef);
+  if (task.from === null) startProgram(state.vm, specRef);
   const services: ScriptServices = createScriptServices(state, plugins, undefined, undefined, specProgram,
     undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
       postHandler: (handler, threadId) => {
@@ -419,8 +566,6 @@ function runTask(
         const thread = state.vm.threads.find((item) => item.id === threadId);
         for (let index = (thread?.frames.length ?? 0) - 1; index >= 0; index -= 1) {
           const frame = thread!.frames[index]!;
-          // Included code is part of the same compiled program, so the position's
-          // own file is what separates a spec statement from a library statement.
           const op = services.programs.get(frame.program).ops[frame.ip - 1];
           if (op !== undefined && specRef.kind === "file" && op.pos.file === SPEC_FILE_KEY) {
             positions.set(seq, { line: op.pos.line, column: op.pos.col ?? 0 });
@@ -428,9 +573,6 @@ function runTask(
           }
         }
       },
-      // A step is observed before it runs, so the first step after the library's checkpoint
-      // report sees a state whose last call has finished: the snapshot resumes right after it.
-      // Coverage counts the instruction the thread's top frame is about to run.
       ...(task.mode !== SETUP && probe === null ? {} : {
         postStep: (_op: unknown, threadId: number) => {
           probe?.step(threadId);
@@ -441,51 +583,18 @@ function runTask(
           if (checkpoint !== null || last.name !== "specresult" || last.args[2] !== "checkpoint") return;
           try {
             checkpoint = snapshot(state);
-            creatorCheckpoint = creatorScene?.checkpoint() ?? null;
           } catch (error) {
             checkpointFailure = error instanceof Error ? error.message : String(error);
           }
         },
       }),
     });
-  if (creator?.error !== null && creator?.error !== undefined) {
-    return {
-      outcomes: [],
-      errors: [creator.error],
-      hash: hashGameState(state),
-      fixtures: [],
-      checkpoint: null,
-      creatorCheckpoint: null,
-      actionLog: [],
-      loaded: [],
-      lines: probe?.finish() ?? null,
-      creatorRun: null,
-      creatorContext: null,
-    };
-  }
   const records: EffectRecord[] = [];
-  const actionLog: InputRecord[] = [];
-  const checkpoints: { tick: number; stateHash: string }[] = [];
-  if (creatorScene?.ready() === true) checkpoints.push({ tick: creatorScene.tick(), stateHash: creatorScene.stateHash() });
   let finished = false;
   for (let tick = 0; tick < 1000; tick += 1) {
-    // Host doubles and semantic creator actions are applied in their scheduled input phase.
-    const currentTick = state.time.tick;
-    const keyInputs = creatorScene === null ? [] : doubles.pending
-      .filter((item) => item.tick === currentTick)
-      .map((item): InputRecord => ({ tick: item.tick, event: item.event }));
-    const actionInputs = creatorScene === null ? [] : doubles.creatorActions.takeInputs(currentTick);
-    applyDue(doubles, state.input, currentTick);
+    applyDue(doubles, state.input, state.time.tick);
     const status = advanceScriptTick(state, services, STEP_BUDGET);
-    for (const record of drainEffects(state.vm)) records.push(record);
-    if (creatorScene !== null) {
-      const consumed = creatorScene.advance([...actionInputs, ...keyInputs]);
-      doubles.creatorActions.completeTick(creatorScene.tick());
-      actionLog.push(...consumed.filter((record) => record.event.kind === "action" || record.event.kind === "key"));
-      if (doubles.creatorActions.actions.some((item) => item.completedAt === creatorScene.tick())) {
-        checkpoints.push({ tick: creatorScene.tick(), stateHash: creatorScene.stateHash() });
-      }
-    }
+    records.push(...drainEffects(state.vm));
     if (status === "finished") {
       finished = true;
       break;
@@ -496,21 +605,15 @@ function runTask(
     message: error.message,
     line: error.line,
   }));
-  for (const message of creatorScene?.diagnostics ?? []) {
-    const match = /^([a-z0-9.-]+): (.*)$/i.exec(message);
-    errors.push({ code: match?.[1] ?? "spec.fixture-load", message: match?.[2] ?? message, line: 0 });
-  }
   if (!finished) errors.push({ code: "spec.timeout", message: "spec did not finish within 1000 ticks", line: 0 });
   for (const item of doubles.pending) {
     errors.push({ code: "spec.input-pending", message: `a key edge (${item.event.name}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`, line: 0 });
   }
   if (checkpointFailure !== null) errors.push({ code: "spec.snapshot", message: checkpointFailure, line: 0 });
-  const context = creatorScene === null ? null : creatorContext(creatorScene, doubles);
   const outcomes: SpecOutcome[] = [];
   for (const record of records) {
     if (record.name !== "specresult") continue;
     const kind = String(record.args[0] ?? "");
-    // The checkpoint report is the library talking to this runner, not an outcome.
     if (!OUTCOME_KINDS.has(kind) || record.args[2] === "checkpoint") continue;
     const position = positions.get(record.seq);
     outcomes.push({
@@ -520,30 +623,22 @@ function runTask(
       actual: String(record.args[3] ?? ""),
       line: position?.line ?? 0,
       column: position?.column ?? 0,
-      ...(context === null ? {} : { context }),
     });
   }
   const fixtures = task.mode === COLLECT
     ? [...doubles.fixtures.values()].sort((left, right) => left.group - right.group)
     : [];
-  if (creatorScene !== null && checkpoints.at(-1)?.tick !== creatorScene.tick()) {
-    checkpoints.push({ tick: creatorScene.tick(), stateHash: creatorScene.stateHash() });
-  }
-  const finalCreator = creatorScene?.checkpoint() ?? null;
-  const creatorRun = creator !== null && creatorScene !== null && creator.world !== null
-    ? creatorRunReport(creator.file, source, creator, creatorScene, seed, doubles.creatorActions.actions, actionLog, checkpoints)
-    : null;
   return {
     outcomes,
     errors,
-    hash: creatorScene?.stateHash() ?? hashGameState(state),
+    hash: hashGameState(state),
     checkpoint,
     fixtures,
-    creatorCheckpoint: creatorCheckpoint ?? finalCreator,
-    actionLog,
-    loaded: creatorScene?.loaded ?? [],
-    creatorRun,
-    creatorContext: context,
+    creatorCheckpoint: null,
+    actionLog: [],
+    loaded: [],
+    creatorRun: null,
+    creatorContext: null,
     lines: probe?.finish() ?? null,
   };
 }
@@ -570,6 +665,8 @@ function runTwice(
     || JSON.stringify(first.creatorCheckpoint) !== JSON.stringify(second.creatorCheckpoint)
     || JSON.stringify(first.actionLog) !== JSON.stringify(second.actionLog)
     || JSON.stringify(first.loaded) !== JSON.stringify(second.loaded)
+    || JSON.stringify(first.creatorRun) !== JSON.stringify(second.creatorRun)
+    || JSON.stringify(first.creatorContext) !== JSON.stringify(second.creatorContext)
     // The replay is compared, never counted: coverage is one logical run (TOOL-5 coverage rule 4).
     || (first.lines !== null && JSON.stringify(toCoverage(first.lines)) !== JSON.stringify(toCoverage(second.lines!)))) {
     throw new Error(`${what}: two runs gave different outcomes`);
@@ -581,7 +678,13 @@ function runTwice(
 export function failureMessage(outcome: SpecOutcome): string {
   const slash = outcome.label.lastIndexOf("/");
   const matcher = slash < 0 ? outcome.label : outcome.label.slice(slash + 1);
-  return `${matcher}: expected ${outcome.expected}, actual ${outcome.actual}`;
+  const message = `${matcher}: expected ${outcome.expected}, actual ${outcome.actual}`;
+  const context = outcome.context;
+  if (context === undefined) return message;
+  const action = context.lastAction === null
+    ? "none"
+    : `${context.lastAction.action} (${context.lastAction.ticks} ticks, started ${context.lastAction.startTick}, completed ${context.lastAction.completedTick})`;
+  return `${message}; tick ${context.tick}, board ${context.board ?? "none"}, last action ${action}`;
 }
 
 type Group = {
@@ -612,7 +715,7 @@ const CASE_KINDS = ["normal", "skip", "only"] as const;
 /** Whether a fixture's parent chain already owns a hook or fixture world. */
 function fixtureAncestorHasHookOrFixture(group: number, groups: ReadonlyMap<number, Group>, fixtures: readonly FixtureDeclaration[]): boolean {
   let current = groups.get(group)?.parent;
-  while (current !== undefined) {
+  while (current !== undefined && current !== group) {
     const ancestor = groups.get(current);
     if (ancestor === undefined) return false;
     if (ancestor.hasHook || fixtures.some((fixture) => fixture.group === current)) return true;
@@ -690,11 +793,14 @@ type Setup = {
   readonly snapshot: string | null;
   readonly creatorSnapshot: CreatorSceneSnapshot | null;
   readonly creatorContext: CreatorOutcomeContext | null;
+  readonly creator: boolean;
   readonly hash: string;
 };
 
 function setupFailed(setup: Setup): boolean {
-  return setup.snapshot === null || setup.errors.length > 0 || setup.outcomes.some((outcome) => outcome.kind === "fail");
+  return (setup.creator ? setup.creatorSnapshot === null : setup.snapshot === null)
+    || setup.errors.length > 0
+    || setup.outcomes.some((outcome) => outcome.kind === "fail");
 }
 
 /** Run one spec file: every case on a fresh fixture, twice, and compare. */
@@ -737,6 +843,7 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
     try {
       const world = createFixtureWorld(loader?.fixtureFiles ?? [], declaration.definition);
       return {
+        fixtureDeclarations: structure.fixtures,
         fixture: declaration.definition,
         world,
         from,
@@ -744,11 +851,13 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
         file,
         groups: groupsFor(declaration.group),
         project: options.project ?? null,
+        nativePlugin: loader?.nativePlugin ?? null,
         onFrame: options.onFrame ?? null,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
+        fixtureDeclarations: structure.fixtures,
         fixture: declaration.definition,
         world: null,
         from: null,
@@ -760,6 +869,7 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
         file,
         groups: groupsFor(declaration.group),
         project: options.project ?? null,
+        nativePlugin: loader?.nativePlugin ?? null,
         onFrame: options.onFrame ?? null,
       };
     }
@@ -774,6 +884,7 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
     const above = lineage(group).slice(1).find((id) => structure.groups.get(id)!.hasBeforeAll);
     const from = above === undefined ? null : setupOf(above).snapshot;
     const creatorFrom = above === undefined ? null : setupOf(above).creatorSnapshot;
+    const creator = creatorFor(group, creatorFrom);
     const run = runTwice(
       `beforeAll of group ${group}`,
       source,
@@ -782,7 +893,7 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
       loader,
       { mode: SETUP, target: group, from },
       place,
-      creatorFor(group, creatorFrom),
+      creator,
     );
     count(run);
     const setup: Setup = {
@@ -791,6 +902,7 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
       snapshot: run.checkpoint,
       creatorSnapshot: run.creatorCheckpoint,
       creatorContext: run.creatorContext,
+      creator: creator !== null,
       hash: run.hash,
     };
     setups.set(group, setup);
@@ -800,6 +912,10 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
   const snapshotFor = (group: number): string | null => {
     const owner = lineage(group).find((id) => structure.groups.get(id)!.hasBeforeAll);
     return owner === undefined ? null : setupOf(owner).snapshot;
+  };
+  const creatorSnapshotFor = (group: number): CreatorSceneSnapshot | null => {
+    const owner = lineage(group).find((id) => structure.groups.get(id)!.hasBeforeAll);
+    return owner === undefined ? null : setupOf(owner).creatorSnapshot;
   };
   /** Whether the beforeAll of a proper ancestor of `group` failed; outermost first, so no setup resumes from a failed one. */
   const failedAbove = (group: number): boolean =>
@@ -830,7 +946,10 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
       const owners = lineage(item.group).filter((id) => structure.groups.get(id)!.hasBeforeAll).reverse();
       for (const owner of owners) {
         const setup = setupOf(owner);
-        prefix.push(...setup.outcomes, ...runtimeFailures(`${name}/beforeAll`, "beforeAll without a runtime error", setup.errors));
+        prefix.push(
+          ...setup.outcomes,
+          ...runtimeFailures(`${name}/beforeAll`, "beforeAll without a runtime error", setup.errors, setup.creatorContext),
+        );
         hash = setup.hash;
         if (setupFailed(setup)) {
           blocked = true;
@@ -840,12 +959,14 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
           break;
         }
         from = setup.snapshot;
+        creatorFrom = setup.creatorSnapshot;
       }
     }
     if (!blocked) {
-      const run = runTwice(name, source, librarySource, seed, loader, { mode: CASE, target: item.id, from }, place);
+      const run = runTwice(name, source, librarySource, seed, loader, { mode: CASE, target: item.id, from }, place, creatorFor(item.group, creatorFrom));
       count(run);
-      own.push(...run.outcomes, ...runtimeFailures(`${name}/runtime error`, "no runtime error", run.errors));
+      own.push(...run.outcomes, ...runtimeFailures(`${name}/runtime error`, "no runtime error", run.errors, run.creatorContext));
+      caseRun = run.creatorRun;
       hash = run.hash;
     }
     if (item.kind === "skip") skipped.push(name);
@@ -856,10 +977,21 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
         const info = structure.groups.get(group)!;
         if (remaining.get(group) !== 0 || !info.hasAfterAll || failedAbove(group)) continue;
         const from = info.hasBeforeAll ? setupOf(group).snapshot : snapshotFor(group);
-        if (info.hasBeforeAll && from === null) continue;
-        const run = runTwice(`afterAll of group ${group}`, source, librarySource, seed, loader, { mode: TEARDOWN, target: group, from }, place);
+        const creatorFrom = info.hasBeforeAll ? setupOf(group).creatorSnapshot : creatorSnapshotFor(group);
+        const creator = creatorFor(group, creatorFrom);
+        if (info.hasBeforeAll && (creator === null ? from === null : creatorFrom === null)) continue;
+        const run = runTwice(
+          `afterAll of group ${group}`,
+          source,
+          librarySource,
+          seed,
+          loader,
+          { mode: TEARDOWN, target: group, from },
+          place,
+          creator,
+        );
         count(run);
-        suffix.push(...run.outcomes, ...runtimeFailures(`${name}/afterAll`, "afterAll without a runtime error", run.errors));
+        suffix.push(...run.outcomes, ...runtimeFailures(`${name}/afterAll`, "afterAll without a runtime error", run.errors, run.creatorContext));
       }
     }
     const outcomes = [...prefix, ...own, ...suffix];
@@ -869,7 +1001,7 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
     if (!blocked && own.length === 0) failures.push(`${file}: ${name}: recorded no assertion`);
     if (item.kind === "skip" && strict) failures.push(`${file}: ${name}: skipped in strict mode`);
     for (const outcome of outcomes) if (outcome.kind === "fail") failures.push(`${file}: ${name}: ${failureMessage(outcome)} (line ${outcome.line})`);
-    cases.push({ name, groups: groupsFor(item.group), outcomes, ok, stateHash: hash });
+    cases.push({ name, groups: groupsFor(item.group), outcomes, ok, stateHash: hash, ...(caseRun === null ? {} : { run: caseRun }) });
   }
   return {
     file, cases, skipped, warning: onlySeen ? ONLY_WARNING : null, failures,

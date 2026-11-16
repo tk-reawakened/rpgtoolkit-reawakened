@@ -1,14 +1,13 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { SPEC_LIBRARY_SOURCE as PACKAGE_STARTUP } from "./library.generated.ts";
 import { discoverCasesWithLibrary, failureMessage, hasOnlyCasesWithLibrary, NO_CASES, ONLY_WARNING, runSpecFileWithLibrary, type SpecFileReport, type SpecProgramLoader, type SpecRunOptions } from "./runner-core.ts";
 
-const PACKAGE_STARTUP = readFileSync(fileURLToPath(new URL("../package/startup.prg", import.meta.url)), "utf8");
 
 export { failureMessage, NO_CASES, ONLY_WARNING };
 export type {
   CreatorFixtureIdentity,
   CreatorFixtureRun,
   CreatorLastAction,
+  CreatorFrameObservation,
   CreatorOutcomeContext,
   CreatorRunSnapshot,
   SpecCaseResult,

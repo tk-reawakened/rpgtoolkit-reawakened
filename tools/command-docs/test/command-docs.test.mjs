@@ -110,7 +110,7 @@ test("the default gate documents and checks the script-spec package's sixteen co
     result.documentation.filter((entry) => entry.pluginId === "script-spec").map((entry) => entry.name),
     [
       "specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend",
-      "speccalled", "specinput", "specticks", "specaction", "specfixture", "specvalue", "specwait", "specrng", "spyon",
+      "speccalled", "specinput", "specticks", "specaction", "specfixture", "specvalue", "specwaitcheck", "specrng", "spyon",
     ],
   );
 });

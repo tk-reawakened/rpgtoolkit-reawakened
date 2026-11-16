@@ -142,6 +142,6 @@ test("script-spec is absent from the engine's default manifest, and registers it
   equal(ENGINE_DEFAULT_MANIFEST.map((entry) => entry.id).includes("script-spec"), false);
   deepEqual(SPEC_PLUGIN.commands.map((command) => command.name), [
     "specresult", "speccapture", "specequal", "speccontain", "specclose", "specthrowbegin", "specthrowend",
-    "speccalled", "specinput", "specticks", "specaction", "specfixture", "specvalue", "specwait", "specrng", "spyon",
+    "speccalled", "specinput", "specticks", "specaction", "specfixture", "specvalue", "specwaitcheck", "specrng", "spyon",
   ]);
 });

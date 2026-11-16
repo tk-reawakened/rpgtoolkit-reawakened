@@ -7,10 +7,12 @@
  */
 
 export { discoverCases, failureMessage, hasOnlyCases, NO_CASES, ONLY_WARNING, runSpecFile } from "./runner.ts";
+export { runCreatorSpecs } from "./browser.ts";
 export { createSpecPlugin, SPEC_PLUGIN } from "./plugin.ts";
 export type {
   CreatorFixtureIdentity,
   CreatorFixtureRun,
+  CreatorFrameObservation,
   CreatorLastAction,
   CreatorOutcomeContext,
   CreatorRunSnapshot,
@@ -24,6 +26,8 @@ export { discoverProjectSpecs, runSpecProject, watchSpecProject } from "./projec
 export { mergeCoverage, toLcov } from "./coverage.ts";
 export type { SpecCoverage, SpecFileCoverage, SpecLineCoverage } from "./coverage.ts";
 export type { SpecProjectOptions, SpecProjectReport } from "./project.ts";
+export { isIgnoredProjectPath } from "./project-core.ts";
+export type { SpecProjectFile } from "./project-core.ts";
 export { FixtureError, fixturePath, listEntries, readFixture } from "./fixture.ts";
 export type { FixtureDefinition, FixtureStart, Plain } from "./fixture.ts";
 export { createFixtureWorld, fixtureWorldSha256 } from "./fixture-world.ts";

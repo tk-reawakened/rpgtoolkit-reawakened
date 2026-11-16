@@ -25,9 +25,12 @@ export type SpecProjectOptions = Pick<SpecRunOptions, "seed" | "strict" | "name"
 const compareNames = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 const projectPath = (path: string): string => path.replaceAll("\\", "/").replace(/^\.\//, "");
 
-/** Omit dependency trees and repository databases consistently in headless and editor hosts. */
+/** Omit dependencies, repository databases and reserved in-project editor data consistently across hosts. */
 export function isIgnoredProjectPath(path: string): boolean {
-  return projectPath(path).split("/").some((part) => part === "node_modules" || part === ".git");
+  return projectPath(path).split("/").some((part) => {
+    const folded = assetKey(part);
+    return folded === assetKey("node_modules") || folded === assetKey(".git") || folded === assetKey(".tkr-history");
+  });
 }
 
 function loaderFor(files: readonly SpecProjectFile[]): SpecProgramLoader {
