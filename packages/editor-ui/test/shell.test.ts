@@ -514,7 +514,7 @@ test("a hidden bottom panel has its own button in the dock, so a restored layout
   const layout = createLayoutModel([...DEFAULT_WORKBENCH_PANELS, { id: "history", title: "History", side: "bottom", visible: false, size: 320, minSize: 160, maxSize: 640 }]);
   const el = document.createElement("div");
   document.body.append(el);
-  await act(() => { mountShell(el, { layout, tabs, tree, projectLayout: { projectFolder: "" }, fs: host.fs, workspace, historyFiles: host.fs, onOpened: () => {}, onOpenPath: () => {}, onPackage: async () => ({ ok: false, message: "not used" }), onDownload: async () => ({ ok: true }), onEditorElement: () => {} }); });
+  await act(() => { mountShell(el, { layout, tabs, tree, projectLayout: { projectFolder: "" }, fs: host.fs, workspace: Object.assign({}, workspace, { historyPanel: { files: host.fs } }), onOpened: () => {}, onOpenPath: () => {}, onPackage: async () => ({ ok: false, message: "not used" }), onDownload: async () => ({ ok: true }), onEditorElement: () => {} }); });
   await settle();
   const showHistory = el.querySelector<HTMLButtonElement>("button[aria-label='Show History panel']");
   ok(showHistory !== null, "the dock names the hidden History panel");

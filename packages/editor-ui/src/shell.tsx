@@ -12,6 +12,13 @@ import { WorkbenchCommandBar } from "./command-palette.tsx";
 import { DocumentHistoryView } from "./document-history-view.tsx";
 import { Workbench } from "./workbench.tsx";
 
+interface ShellHistoryPanel {
+  readonly files: Pick<FileSystemService, "list" | "read" | "write">;
+  readonly mountPreview?: (element: HTMLElement, document: AnyDocument) => ViewHandle;
+  readonly offer?: { readonly isEnabled: () => Promise<boolean>; readonly onNever: () => void };
+}
+type ShellWorkspace = DocumentWorkspace & { readonly historyPanel?: ShellHistoryPanel };
+
 export interface ShellProps {
   readonly layout: LayoutModel;
   readonly tabs: Tabs;
@@ -45,12 +52,6 @@ export interface ShellProps {
   readonly version?: unknown;
   /** Starts runs through the host's `run` service; with it the shell has a Run panel (T-07, T-41). */
   readonly launcher?: Launcher;
-  /** The project's files for the History panel's ignore offer; with the workspace it gives the shell a History panel (ADR 0022 D12). */
-  readonly historyFiles?: Pick<FileSystemService, "list" | "read" | "write">;
-  /** Mount the editor of a document into an element, so history previews are the same editor read-only. */
-  readonly mountPreview?: (element: HTMLElement, document: AnyDocument) => ViewHandle;
-  /** Whether the ignore offer may be shown (the `history.offerIgnore` setting), and what to do when the user declines it for good. */
-  readonly historyOffer?: { readonly isEnabled: () => Promise<boolean>; readonly onNever: () => void };
 }
 
 /** The editor slot: an element the host mounts the active editor into, and the shell never draws into. */
@@ -64,11 +65,12 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, historyFiles, mountPreview, historyOffer }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
   const activeDocHasEmbeddedBrowser = active !== null && /\.(brd|tbm)$/i.test(active);
+  const historyPanel = (workspace as ShellWorkspace | undefined)?.historyPanel;
   return (
     <Workbench
       layout={layout}
@@ -92,7 +94,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
         ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} /> }),
-        ...(workspace === undefined || historyFiles === undefined ? {} : { history: <DocumentHistoryView workspace={workspace} files={historyFiles} activePath={active} {...(mountPreview === undefined ? {} : { mountPreview })} {...(historyOffer === undefined ? {} : { offerIgnore: historyOffer.isEnabled, onNeverOfferIgnore: historyOffer.onNever })} /> }),
+        ...(workspace === undefined || historyPanel === undefined ? {} : { history: <DocumentHistoryView workspace={workspace} files={historyPanel.files} activePath={active} {...(historyPanel.mountPreview === undefined ? {} : { mountPreview: historyPanel.mountPreview })} {...(historyPanel.offer === undefined ? {} : { offerIgnore: historyPanel.offer.isEnabled, onNeverOfferIgnore: historyPanel.offer.onNever })} /> }),
       }}
     >
       <EditorSlot onElement={onEditorElement} />

@@ -335,17 +335,17 @@ export async function runVscodeNewProjectProof(
   await widget.getByRole("checkbox", { name: "Empty start board", exact: true }).check();
   await widget.getByRole("button", { name: "OK", exact: true }).click();
   await expect(widget).toContainText("New project: choose the destination folder");
-  const firstDestination = widget.getByRole("option").first();
-  await expect(firstDestination, "the real destination picker has finished opening").toBeVisible({ timeout: 30_000 });
-  const createProjectButton = widget.getByRole("button", { name: "Create project here", exact: true });
+  // Remembered-directory initialization can finish after the dialog title appears.
+  await expect(widget.getByRole("option").first()).toBeVisible({ timeout: 30_000 });
+  // Retry only idempotent navigation; the Create action below is dispatched exactly once.
   await expect(async () => {
     await answer.fill("/__tkr_new_project/");
     await expect(answer).toHaveValue("/__tkr_new_project/", { timeout: 1_000 });
-    await expect(createProjectButton).toBeEnabled({ timeout: 1_000 });
+    await expect(widget.getByRole("button", { name: "Create project here", exact: true })).toBeEnabled({ timeout: 1_000 });
   }).toPass({ timeout: 30_000, intervals: [100, 250, 500, 1_000] });
   const previousExtensionHost = page.frames().find((frame) => frame.url().includes("webWorkerExtensionHostIframe.html"));
   if (previousExtensionHost === undefined) throw new Error("The new-project command did not have a running extension host");
-  await createProjectButton.click();
+  await widget.getByRole("button", { name: "Create project here", exact: true }).click();
 
   const folders = ["Bitmap", "Bkrounds", "Boards", "Chrs", "Enemy", "Font", "Item", "Main", "Media", "Misc", "Plugin", "Prg", "SpcMove", "StatusE", "Tiles"];
   const additions = [
@@ -1800,11 +1800,12 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 
 /** Run a command from the palette and wait for its quick-pick row. */
 async function runCommand(page: Page, expect: Expect, title: string, quickInputName?: string): Promise<void> {
-  await runCommandMatching(page, expect, title, title, false, undefined, quickInputName);
+  await runCommandMatching(page, expect, title, title, false, quickInputName);
+  if (quickInputName !== undefined) await expect(page.getByRole("textbox", { name: quickInputName })).toBeVisible();
 }
 
 /** Dispatch one verified palette row atomically; never retry an attempted dispatch (#2720, #2726). */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false, nextPrompt?: string, quickInputName?: string): Promise<void> {
+async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false, nextPrompt?: string): Promise<void> {
   const widget = page.locator(".quick-input-widget");
   let dismissalInjected = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -1861,7 +1862,6 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
     if (dismissed && dispatched) throw new Error(`Dismissed palette row ${label} was dispatched by the negative control`);
     if (dispatched) {
       if (nextPrompt !== undefined) await expect(widget).toContainText(nextPrompt);
-      else if (quickInputName !== undefined) await expect(page.getByRole("textbox", { name: quickInputName })).toBeVisible();
       else await expect(widget).toBeHidden();
       return;
     }
