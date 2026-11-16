@@ -340,8 +340,8 @@ export async function runVscodeNewProjectProof(
   const createProjectButton = widget.getByRole("button", { name: "Create project here", exact: true });
   await expect(async () => {
     await answer.fill("/__tkr_new_project/");
-    await expect(answer).toHaveValue("/__tkr_new_project/");
-    await expect(createProjectButton).toBeEnabled();
+    await expect(answer).toHaveValue("/__tkr_new_project/", { timeout: 1_000 });
+    await expect(createProjectButton).toBeEnabled({ timeout: 1_000 });
   }).toPass({ timeout: 30_000, intervals: [100, 250, 500, 1_000] });
   const previousExtensionHost = page.frames().find((frame) => frame.url().includes("webWorkerExtensionHostIframe.html"));
   if (previousExtensionHost === undefined) throw new Error("The new-project command did not have a running extension host");
@@ -1800,11 +1800,11 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 
 /** Run a command from the palette and wait for its quick-pick row. */
 async function runCommand(page: Page, expect: Expect, title: string, quickInputName?: string): Promise<void> {
-  await runCommandMatching(page, expect, title, title, false, quickInputName);
+  await runCommandMatching(page, expect, title, title, false, undefined, quickInputName);
 }
 
 /** Dispatch one verified palette row atomically; never retry an attempted dispatch (#2720, #2726). */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false, quickInputName?: string): Promise<void> {
+async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false, nextPrompt?: string, quickInputName?: string): Promise<void> {
   const widget = page.locator(".quick-input-widget");
   let dismissalInjected = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -1860,8 +1860,9 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
     }
     if (dismissed && dispatched) throw new Error(`Dismissed palette row ${label} was dispatched by the negative control`);
     if (dispatched) {
-      if (quickInputName === undefined) await expect(widget).toBeHidden();
-      else await expect(page.getByRole("textbox", { name: quickInputName })).toBeVisible();
+      if (nextPrompt !== undefined) await expect(widget).toContainText(nextPrompt);
+      else if (quickInputName !== undefined) await expect(page.getByRole("textbox", { name: quickInputName })).toBeVisible();
+      else await expect(widget).toBeHidden();
       return;
     }
     // Only an explicit false proves no command was dispatched.

@@ -9,7 +9,7 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { DEFAULT_EDITOR_PREFERENCES, createProjectWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES, createProjectWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";

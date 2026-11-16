@@ -34,6 +34,8 @@ export interface ShellProps {
   readonly onEditorElement: (element: HTMLElement | null) => void;
   /** Ask the host for the new-board questions (T-20); no button is shown without it. */
   readonly onNewBoard?: () => void;
+  readonly onNewAnimation?: () => void;
+  readonly onRecovery?: () => void;
   readonly onNewProgram?: () => void;
   /** Open the editor preferences dialog (T-08) when offered by the host. */
   readonly onOpenPreferences?: () => void;
@@ -62,7 +64,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewProgram, onOpenPreferences, browser, version, launcher, historyFiles, mountPreview, historyOffer }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, historyFiles, mountPreview, historyOffer }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -86,7 +88,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
         />
       }
       panels={{
-        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
+        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewAnimation === undefined ? {} : { onNewAnimation })} {...(onRecovery === undefined ? {} : { onRecovery })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
         ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} /> }),

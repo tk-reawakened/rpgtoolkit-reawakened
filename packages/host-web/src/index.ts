@@ -1,7 +1,8 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, historyPolicyFrom, type HistoryPolicy, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PackageExportService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import { webCheckpointEnvironment } from "./checkpoints.ts";
+import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, historyPolicyFrom, type HistoryPolicy, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
