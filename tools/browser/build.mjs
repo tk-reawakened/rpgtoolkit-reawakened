@@ -45,24 +45,46 @@ for (const entry of entries) {
   console.log(`built apps/browser/${entry.out}`);
 }
 const editorWebOut = join(here, "editor-web", "dist", "editor-web.js");
-mkdirSync(dirname(editorWebOut), { recursive: true });
-copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(dirname(editorWebOut), "tileset-browser.css"));
-copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(dirname(editorWebOut), "tileset-art.css"));
-copyFileSync(join(root, "media/icons/favicon.ico"), join(dirname(editorWebOut), "favicon.ico"));
-copyFileSync(join(root, "media/icons/png/tkr-32.png"), join(dirname(editorWebOut), "tkr-32.png"));
-copyFileSync(join(root, "media/icons/png/tkr-128.png"), join(dirname(editorWebOut), "tkr-128.png"));
+const editorWebDist = dirname(editorWebOut);
+mkdirSync(editorWebDist, { recursive: true });
+copyFileSync(join(root, "media/icons/favicon.ico"), join(editorWebDist, "favicon.ico"));
+copyFileSync(join(root, "media/icons/png/tkr-32.png"), join(editorWebDist, "tkr-32.png"));
+copyFileSync(join(root, "media/icons/png/tkr-128.png"), join(editorWebDist, "tkr-128.png"));
+copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(editorWebDist, "tileset-browser.css"));
+copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(editorWebDist, "tileset-art.css"));
+copyFileSync(join(root, "packages/editor-ui/src/program-view.css"), join(editorWebDist, "program-view.css"));
+// The page bundle carries Monaco (story 11.7). Its icon font is the one non-script asset: the file loader emits it next
+// to the bundle under its own name and the bundle's stylesheet points at it, so the page loads it from its own origin
+// (`font-src 'self'`, ADR 0029). `docs/findings/monaco-integration/README.md` records what the bundle holds.
 await build({
-  entryPoints: [join(here, "editor-web", "main.tsx")],
+  entryPoints: [join(here, "editor-web", "page.ts")],
   outfile: editorWebOut,
   ...bundleOptions,
+  loader: { ".ttf": "file" },
+  assetNames: "[name]",
   alias: {
     ...bundleOptions.alias,
     "@tk-reawakened/host-web": join(root, "packages/host-web/src/index.ts"),
     "@tk-reawakened/editor-model": join(root, "packages/editor-model/src/index.ts"),
+    "@tk-reawakened/editor-ui/monaco": join(root, "packages/editor-ui/src/monaco-surface.ts"),
     "@tk-reawakened/editor-ui": join(root, "packages/editor-ui/src/index.ts"),
   },
 });
 console.log("built tools/browser/editor-web/dist/editor-web.js");
+// Monaco's editor worker and the language server's worker are classic same-origin scripts, one IIFE each, so the page needs
+// neither a `blob:` worker nor `unsafe-eval` (ADR 0029).
+await build({
+  entryPoints: [join(root, "packages/editor-ui/node_modules/monaco-editor/esm/vs/editor/editor.worker.js")],
+  outfile: join(editorWebDist, "monaco-editor.worker.js"),
+  ...bundleOptions,
+});
+console.log("built tools/browser/editor-web/dist/monaco-editor.worker.js");
+await build({
+  entryPoints: [join(root, "packages/host-web/src/language-worker.ts")],
+  outfile: join(editorWebDist, "language-worker.js"),
+  ...bundleOptions,
+});
+console.log("built tools/browser/editor-web/dist/language-worker.js");
 
 // No browser artefact may contain a WebAssembly module: the page's strict `script-src 'self'` forbids instantiation, and
 // the only dependency that ships one (the Vorbis decoder) is aliased to a stub (#1325,

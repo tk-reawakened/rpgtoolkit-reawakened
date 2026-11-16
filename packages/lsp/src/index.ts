@@ -28,7 +28,10 @@ import {
   indexLintProject,
   legacyFixes,
   lint,
+  classifyProgram,
+  programBookmarks,
   projectHelp,
+  publicCommandNames,
   tk2ConversionRefusal,
   type Diagnostic as AnalysisDiagnostic,
   type HelpEntry,
@@ -41,6 +44,7 @@ import {
 import { documentationText, signatureHelp } from "./signature-help.ts";
 import { documentContext, NO_PROJECT, projectLoader, projectModel, readSnapshot, type DocumentContext, type ProjectModel } from "./project.ts";
 import { PROJECT_NOTIFICATION } from "./protocol.ts";
+import { encodeSemanticTokens, SEMANTIC_LEGEND } from "./semantic-tokens.ts";
 import { CONFIG_CODE, documentLint, readProjectLintConfig } from "./lint-publish.ts";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import {
@@ -107,6 +111,8 @@ export type ServerConnection = {
   onDocumentFormatting(handler: (params: DocumentFormattingParams) => TextEdit[] | null): Disposable;
   /** `window/showMessage`, which tells the author why a request did nothing. */
   showMessage(params: ShowMessageParams): void;
+  /** A request handler by method name; required because semantic tokens are advertised at initialize. */
+  onRequest(method: string, handler: (params: never) => unknown): Disposable;
   /** Client notifications outside the LSP's own methods; the server listens for `rpgcode/project`. */
   onNotification(method: string, handler: (params: unknown) => void): Disposable;
   sendDiagnostics(params: PublishDiagnosticsParams): void;
@@ -127,6 +133,7 @@ export type LanguageServer = {
 type ProjectLint = { readonly files: ReadonlySet<string>; readonly result: LintResult };
 
 export { PROJECT_NOTIFICATION } from "./protocol.ts";
+export { encodeSemanticTokens, SEMANTIC_LEGEND } from "./semantic-tokens.ts";
 export type { ProjectSnapshot, ProjectSnapshotFile } from "./protocol.ts";
 export type { ProjectModel } from "./project.ts";
 
@@ -166,6 +173,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
   const plugins = options.plugins ?? defaultPlugins();
   const help = projectHelp(plugins);
   const documentation = commandDocumentation(plugins);
+  const commandNames = publicCommandNames(plugins);
   let project: ProjectModel = NO_PROJECT;
   let projectLint: ProjectLint | undefined;
 
@@ -315,6 +323,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
       signatureHelpProvider: { triggerCharacters: ["(", ","] },
       definitionProvider: true,
       documentSymbolProvider: true,
+      semanticTokensProvider: { legend: SEMANTIC_LEGEND, full: true },
       codeActionProvider: true,
       documentFormattingProvider: true,
     },
@@ -512,7 +521,18 @@ export function createServer(connection: ServerConnection, options: ServerOption
     for (const label of program.labels.filter((item) => item.file === program.key)) {
       symbols.push({ name: label.name, kind: SymbolKind.Key, range: lspRange(label.line, label.col, label.endCol), selectionRange: lspRange(label.line, label.col, label.endCol) });
     }
-    return symbols;
+    // The bookmark list of T-40 also names the comments that start a line (TOOL-10).
+    for (const bookmark of programBookmarks(document.getText(), { commandNames })) {
+      const range = { start: { line: bookmark.line, character: bookmark.start }, end: { line: bookmark.line, character: bookmark.start + bookmark.length } };
+      symbols.push({ name: bookmark.name, kind: SymbolKind.String, range, selectionRange: range });
+    }
+    return symbols.sort((left, right) => left.range.start.line - right.range.start.line || left.range.start.character - right.range.start.character);
+  });
+
+  connection.onRequest("textDocument/semanticTokens/full", (params: { readonly textDocument: { readonly uri: string } }) => {
+    const document = documents.get(params.textDocument.uri);
+    if (document === undefined) return { data: [] };
+    return { data: encodeSemanticTokens(classifyProgram(document.getText(), { commandNames })) };
   });
 
   return {

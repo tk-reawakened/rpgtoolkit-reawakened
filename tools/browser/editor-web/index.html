@@ -3,10 +3,13 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self'">
+    <!-- ADR 0029: a standalone page that hosts Monaco allows inline styles and its own font; scripts stay strict, with no eval and no blob: workers (a classic same-origin worker is `worker-src 'self'`). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; worker-src 'self'">
     <link rel="icon" href="./dist/favicon.ico" sizes="16x16 32x32 48x48">
     <link rel="icon" type="image/png" sizes="32x32" href="./dist/tkr-32.png">
     <link rel="stylesheet" href="./dist/tileset-browser.css">
+    <link rel="stylesheet" href="./dist/program-view.css">
+    <link rel="stylesheet" href="./dist/editor-web.css">
     <title>RPG Toolkit editor</title>
   </head>
   <body class="tkr-web-body">

@@ -79,3 +79,20 @@ function deepEqualValue(result: { readonly ok: boolean; readonly value?: unknown
   ok(result.ok);
   equal(result.value, expected);
 }
+
+test("the header template is a text area: Enter is a new line, and the text is stored when the field is left", async () => {
+  const { host, el } = await setup();
+  const area = field(el, "program.headerTemplate").querySelector<HTMLTextAreaElement>("textarea")!;
+  ok(area !== null);
+  equal(field(el, "program.headerTemplate").querySelector("input[type=text]"), null);
+  await act(async () => {
+    area.value = "// {name}\n// by me\n";
+    area.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { area.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); });
+  deepEqualValue(await host.settings.get("user", "program.headerTemplate"), null);
+  await act(async () => { area.dispatchEvent(new Event("blur")); });
+  await settle();
+  deepEqualValue(await host.settings.get("user", "program.headerTemplate"), "// {name}\n// by me\n");
+  match(field(el, "program.headerTemplate").textContent!, /Using your setting/);
+});

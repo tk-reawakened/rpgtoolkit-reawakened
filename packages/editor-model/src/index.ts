@@ -201,7 +201,39 @@ export {
 } from "./tile-bitmap-document.ts";
 export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
-export { asBoardDocument, asMainDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asBoardDocument, asMainDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export {
+  createProgramDocument,
+  openProgramDocument,
+  programCodec,
+  type EditTextCommand,
+  type LineEnding,
+  type ProgramCommand,
+  type ProgramDocument,
+  type ProgramDocumentFields,
+  type ProgramDocumentSnapshot,
+  type ProgramModel,
+  type ProgramOpenResult,
+  type TextEdit,
+} from "./program-document.ts";
+export {
+  commandInsertion,
+  commandReference,
+  createProgramFile,
+  DEFAULT_HEADER_TEMPLATE,
+  expandHeaderTemplate,
+  filterCommandReference,
+  insertCommandEdit,
+  insertHeaderCommand,
+  MAX_HEADER_TEMPLATE_LENGTH,
+  programFileName,
+  programPathIn,
+  suggestProgramPath,
+  type CommandInsertion,
+  type CommandReferenceEntry,
+  type CreateProgramResult,
+  type NewProgramStorage,
+} from "./program-support.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   applyMainSettings,
@@ -344,7 +376,9 @@ export { boardStartUnit, createLauncher, type Launcher, type LauncherOptions, ty
 export {
   createPreferences,
   PREFERENCE_CATALOGUE,
+  DEFAULT_PROGRAM_PREFERENCES,
   preferenceById,
+  programPreferencesFrom,
   validatePreference,
   vscodeContributions,
   type PreferenceEntry,
@@ -357,5 +391,6 @@ export {
   type Preferences,
   type PreferencesOptions,
   type PreferencesSnapshot,
+  type ProgramPreferences,
   type VscodeConfiguration,
 } from "./preferences.ts";

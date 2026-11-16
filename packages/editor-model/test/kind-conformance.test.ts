@@ -71,6 +71,14 @@ const CASES: readonly KindCase[] = [
     rejected: { type: "set-sprite-animation", group: "battle", index: 0, file: "Misc/chest_battle.anm" },
   },
   {
+    kind: "program",
+    path: "Prg/intro.prg",
+    // CRLF, a Windows-1252 byte (0xE9), a lone CR, and no final newline: nothing here may change on a plain save.
+    bytes: new Uint8Array([0x2f, 0x2f, 0x20, 0x63, 0x61, 0x66, 0xe9, 0x0d, 0x0a, 0x78, 0x20, 0x3d, 0x20, 0x31, 0x0d, 0x79]),
+    accepted: { type: "edit-text", edits: [{ from: 0, to: 0, text: "// header\n" }] },
+    rejected: { type: "edit-text", edits: [{ from: 0, to: 0, text: "\u0100" }] },
+  },
+  {
     kind: "tileset",
     path: "Tiles/art.tst",
     bytes: exampleTileset(1),

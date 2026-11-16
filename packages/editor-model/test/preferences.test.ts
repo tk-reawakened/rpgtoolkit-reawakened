@@ -21,6 +21,7 @@ test("each type refuses a value of the wrong kind with a reason, and coerces not
   equal(validatePreference(entry("editor.backgroundImage"), "a\nb").ok, false);
   equal(validatePreference(entry("editor.backgroundImage"), "x".repeat(261)).ok, false);
   deepEqual(validatePreference(entry("syntax.keyword.color"), "#ABCDEF"), { ok: true, value: "#abcdef" });
+  deepEqual(validatePreference(entry("program.headerTemplate"), "// {name}\r\n\r\n"), { ok: true, value: "// {name}\r\n\r\n" });
 });
 
 test("the project value wins over the user value, which wins over the default, and reset restores the next layer down", async () => {
@@ -102,4 +103,14 @@ test("the VS Code block committed in the extension is the one the catalogue gene
   deepEqual(pkg.capabilities.untrustedWorkspaces.restrictedConfigurations, generated.restrictedConfigurations);
   for (const property of Object.values(generated.configuration.properties)) equal(property.scope, "window");
   equal(generated.restrictedConfigurations.includes("rpgToolkit.board.startLocationDisplay"), false);
+});
+
+test("only a multi-line string may hold line breaks, and neither may hold other control characters", () => {
+  const header = preferenceById("program.headerTemplate")!;
+  const board = preferenceById("editor.backgroundImage")!;
+  deepEqual(validatePreference(header, "// {file}\n\n\tnote"), { ok: true, value: "// {file}\n\n\tnote" });
+  equal(validatePreference(header, "a\u0007b").ok, false);
+  equal(validatePreference(board, "a\nb").ok, false);
+  equal(validatePreference(header, "x".repeat(501)).ok, false);
+  equal(vscodeContributions().configuration.properties["rpgToolkit.program.headerTemplate"]!.editPresentation, "multilineText");
 });

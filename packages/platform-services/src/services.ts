@@ -1,4 +1,5 @@
 import type { FileSystemService } from "./fs.ts";
+import type { LanguageService } from "./language.ts";
 import type { PlatformResult } from "./result.ts";
 import type { RunService } from "./run.ts";
 
@@ -35,7 +36,9 @@ export type Capability =
   /** `run.startGame` can start a board test at an explicit board, position and party (D8.1 "board test"). */
   | "runBoard"
   /** `run.startProgram` can run one program under a fixture (T-41, D8.1 "program test"). */
-  | "runProgram";
+  | "runProgram"
+  /** `language.connect` can start a language server for the program editor (TOOL-10). */
+  | "languageServer";
 
 /** The set of capabilities a host declares. */
 export type Capabilities = ReadonlySet<Capability>;
@@ -185,6 +188,8 @@ export interface PlatformServices {
   readonly shell?: ShellService;
   /** Descriptor digest and download operations used by package export. */
   readonly packageExport?: PackageExportService;
+  /** Present when the host declares `languageServer`. */
+  readonly language?: LanguageService;
   /** Present when the host declares at least one of `runGame`, `runBoard` and `runProgram` (ADR 0022 D8). */
   readonly run?: RunService;
 }

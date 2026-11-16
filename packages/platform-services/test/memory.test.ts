@@ -249,6 +249,54 @@ test("shell.openExternal records an existing project file and refuses a missing 
   deepEqual(host.openedExternally, ["Misc/readme.txt"]);
 });
 
+test("language.connect is present only with the capability, records what the client sends and plays the server", async () => {
+  equal(createMemoryPlatformServices({}).language, undefined);
+  const host = createMemoryPlatformServices({
+    capabilities: ["languageServer"],
+    onLanguageMessage: (message, session) => {
+      if (message.method === "ping") session.push({ jsonrpc: "2.0", id: message.id as number, result: "pong" });
+    },
+  });
+  const connected = await host.language!.connect({ project: { main: "Main/game.gam" } });
+  ok(connected.ok);
+  if (!connected.ok) return;
+  const received: unknown[] = [];
+  connected.value.onMessage((message) => received.push(message.result));
+  connected.value.send({ jsonrpc: "2.0", id: 1, method: "ping" });
+  deepEqual(host.languageSessions[0]!.sent, [{ jsonrpc: "2.0", id: 1, method: "ping" }]);
+  deepEqual(host.languageSessions[0]!.options, { project: { main: "Main/game.gam" } });
+  deepEqual(received, ["pong"]);
+  equal(connected.value.uriOf("Prg/a.prg"), "file:///project/Prg/a.prg");
+  const closed: string[] = [];
+  connected.value.onClose((reason) => closed.push(reason.reason));
+  host.languageSessions[0]!.stop("the server stopped");
+  deepEqual(closed, ["server-stopped"]);
+  connected.value.send({ jsonrpc: "2.0", id: 2, method: "ping" });
+  equal(host.languageSessions[0]!.sent.length, 1);
+  const late: string[] = [];
+  connected.value.onClose((reason) => late.push(reason.message));
+  deepEqual(late, ["the server stopped"]);
+});
+
+test("a refused language connection says so, and a disposed one is told it ended", async () => {
+  const host = createMemoryPlatformServices({ capabilities: ["languageServer"] });
+  host.failLanguage("the worker could not start");
+  const refused = await host.language!.connect({ project: null });
+  ok(!refused.ok);
+  if (!refused.ok) equal(refused.error.code, "unavailable");
+  host.failLanguage(null);
+  const connected = await host.language!.connect({ project: null });
+  ok(connected.ok);
+  if (!connected.ok) return;
+  const reasons: string[] = [];
+  connected.value.onClose((closed) => reasons.push(closed.reason));
+  connected.value.dispose();
+  connected.value.dispose();
+  deepEqual(reasons, ["disposed"]);
+  equal(host.languageSessions.length, 1);
+  equal(host.languageSessions[0]!.disposed(), true);
+});
+
 test("createFolder makes empty folders that list, stat, rename and delete like folders with files", async () => {
   const host = createMemoryPlatformServices({ files: { "Main/game.gam": bytes(1) } });
   ok((await host.fs.createFolder("Game/Boards")).ok);

@@ -38,6 +38,12 @@ if (!existsSync(join(fixturePath, "Prg", "probe.prg"))) throw new Error(`${fixtu
 // The scenarios drive the *bundled* extension, so it is built first; its own `node_modules`
 // must already be installed (`npm --prefix extensions/rpgcode install`).
 if (!probe) run(process.execPath, [join(root, "extensions", "rpgcode", "build.mjs")]);
+// The program-editing scenario also drives the editor extension's commands (story 11.7), so it is built and loaded too.
+const editorExtension = join(root, "extensions", "editor");
+if (!probe) {
+  run(process.execPath, [join(root, "packages", "host-vscode", "build.mjs")]);
+  run(process.execPath, [join(editorExtension, "build.mjs")]);
+}
 run(process.execPath, [join(here, "build.mjs")]);
 
 const { runTests } = await import("@vscode/test-web");
@@ -47,6 +53,7 @@ try {
     quality: "stable",
     headless: true,
     extensionDevelopmentPath: extensionPath,
+    ...(probe ? {} : { extensionPaths: [editorExtension] }),
     extensionTestsPath: testsPath,
     folderPath: fixturePath,
     // A lane that runs beside another local server needs its own port.

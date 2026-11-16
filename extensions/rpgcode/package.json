@@ -99,6 +99,18 @@
         "category": "RPGCode"
       }
     ],
+    "configurationDefaults": {
+      "[rpgcode]": {
+        "editor.semanticHighlighting.enabled": true,
+        "files.encoding": "windows1252",
+        "files.autoGuessEncoding": false
+      },
+      "[rpgcode-tk2]": {
+        "editor.semanticHighlighting.enabled": true,
+        "files.encoding": "windows1252",
+        "files.autoGuessEncoding": false
+      }
+    },
     "configuration": {
       "title": "RPGCode",
       "properties": {

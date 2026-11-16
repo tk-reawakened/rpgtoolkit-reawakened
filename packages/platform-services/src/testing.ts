@@ -3,6 +3,7 @@
 // can make writes fail on purpose. It reads no clock and no random source: modification times come from a counter, so a
 // run is the same every time (G3).
 import { bindProjectFileSystem, type DirectoryEntry, type FileChange, type FileKind, type FileStat } from "./fs.ts";
+import type { LanguageClosed, LanguageConnectOptions, LanguageConnection, LanguageMessage } from "./language.ts";
 import { platformError, platformOk, type Disposable, type PlatformError, type PlatformResult } from "./result.ts";
 import { createRunHandle, LAUNCH_CAPABILITY, launchUnavailable, prepareRun, type Launch, type PrepareRunOptions, type RunHandle, type RunSnapshot, type RunStartGuard, type RunStatus } from "./run.ts";
 import type {
@@ -49,6 +50,26 @@ export interface MemoryPlatformServices extends PlatformServices {
   readonly savePathRequests: readonly SavePathRequest[];
   /** Every run the double started, in order, with the frozen files it was given. */
   readonly runs: readonly MemoryRun[];
+  /** Every language session `language.connect` opened, in order (present only with the `languageServer` capability). */
+  readonly languageSessions: readonly MemoryLanguageSession[];
+  /** Make later `language.connect` calls refuse with `reason`; `null` restores them. */
+  failLanguage(reason: string | null): void;
+}
+
+/**
+ * One language session of the double. The double runs no server: a test plays it, reading what the client `sent` and
+ * answering through `push`, the way a host's server would.
+ */
+export interface MemoryLanguageSession {
+  readonly options: LanguageConnectOptions;
+  /** Every message the client sent, in order. */
+  readonly sent: readonly LanguageMessage[];
+  /** Deliver a message from the server to the client. */
+  push(message: LanguageMessage): void;
+  /** End the session as a failing host would (the server died); the client's `onClose` is told. */
+  stop(message: string): void;
+  /** Whether the client ended the session with `dispose()`. */
+  disposed(): boolean;
 }
 
 /**
@@ -85,6 +106,8 @@ export interface MemoryPlatformOptions {
    * board format, so every start board uses one-based tile coordinates unless a test supplies a reader.
    */
   readonly startUnit?: PrepareRunOptions["startUnit"];
+  /** Called for every message a language client sends, so a test can play the server; sessions also record it. */
+  readonly onLanguageMessage?: (message: LanguageMessage, session: MemoryLanguageSession) => void;
 }
 
 const DEFAULT_PROJECT: ProjectHandle = { id: "memory-project", name: "Memory project" };
@@ -336,6 +359,59 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
   };
   const runsAnything = Object.keys(unavailable).length < 3;
 
+  const languageSessions: MemoryLanguageSession[] = [];
+  let languageRefusal: string | null = null;
+  const connectLanguage = (connectOptions: LanguageConnectOptions): Promise<PlatformResult<LanguageConnection>> => {
+    if (languageRefusal !== null) return Promise.resolve(platformError("unavailable", languageRefusal));
+    const listeners = new Set<(message: LanguageMessage) => void>();
+    const closers = new Set<(closed: LanguageClosed) => void>();
+    const sent: LanguageMessage[] = [];
+    let closed: LanguageClosed | null = null;
+    let disposed = false;
+    const end = (reason: LanguageClosed): void => {
+      if (closed !== null) return;
+      closed = reason;
+      listeners.clear();
+      for (const closer of [...closers]) closer(reason);
+      closers.clear();
+    };
+    const session: MemoryLanguageSession = {
+      options: connectOptions,
+      sent,
+      push: (message) => {
+        if (closed !== null) return;
+        for (const listener of [...listeners]) listener(message);
+      },
+      stop: (message) => end({ reason: "server-stopped", message }),
+      disposed: () => disposed,
+    };
+    languageSessions.push(session);
+    return Promise.resolve(platformOk<LanguageConnection>({
+      send: (message) => {
+        if (closed !== null) return;
+        sent.push(message);
+        options.onLanguageMessage?.(message, session);
+      },
+      onMessage: (listener) => {
+        listeners.add(listener);
+        return () => void listeners.delete(listener);
+      },
+      onClose: (listener) => {
+        if (closed !== null) {
+          listener(closed);
+          return () => {};
+        }
+        closers.add(listener);
+        return () => void closers.delete(listener);
+      },
+      uriOf: (path) => `file:///project/${path}`,
+      dispose: () => {
+        disposed = true;
+        end({ reason: "disposed", message: "" });
+      },
+    }));
+  };
+
   return {
     capabilities,
     fs,
@@ -387,6 +463,11 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
       },
     },
     ...(runsAnything ? { run: { unavailable, startGame: start, startProgram: start } } : {}),
+    ...(capabilities.has("languageServer") ? { language: { connect: connectLanguage } } : {}),
+    languageSessions,
+    failLanguage: (reason) => {
+      languageRefusal = reason;
+    },
     seed: (path, bytes) => {
       put(path, bytes);
     },

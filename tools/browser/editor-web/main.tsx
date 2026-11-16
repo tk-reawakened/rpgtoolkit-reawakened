@@ -1,9 +1,19 @@
-import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, newWebProject, openWebProject, reopenWebProject, type DocumentView, type WebProject, type Workbench } from "@tk-reawakened/host-web";
-import { createDocumentIdentity, type AnyDocument, projectLayoutOfMain } from "@tk-reawakened/editor-model";
+import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, newWebProject, openWebProject, reopenWebProject, type DocumentView, type WebProject, type WebProjectOptions, type Workbench } from "@tk-reawakened/host-web";
+import { createDocumentIdentity, type AnyDocument, type ProjectLayout, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 
-/** Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). */
-const playerOptions = { playerUrl: "/packages/runner-web/app/index.html" };
+/**
+ * Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). Programs edit in Monaco with a
+ * same-origin classic worker, and the language server runs in another one (story 11.7, ADR 0029): both are scripts the
+ * build emits next to this page, so nothing is fetched from another origin and no `blob:` worker is needed.
+ */
+/** The code editor the page entry (`page.ts`) chose before this module ran; none leaves programs in a plain text area. */
+const codeEditor = (globalThis as { __tkrCodeEditor?: WebProjectOptions["codeEditor"] }).__tkrCodeEditor;
+const playerOptions = {
+  playerUrl: "/packages/runner-web/app/index.html",
+  languageWorkerUrl: "./dist/language-worker.js",
+  ...(codeEditor === undefined ? {} : { codeEditor }),
+};
 const status = document.querySelector<HTMLElement>("#host-status")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
 const folderButton = document.querySelector<HTMLButtonElement>("#open-project")!;
@@ -24,6 +34,9 @@ interface Shown {
   readonly workbench: Workbench;
   readonly element: HTMLElement;
   readonly unsubscribeTabs: () => void;
+  /** Project context shared with every mounted view, including the second view. */
+  readonly projectLayout: ProjectLayout;
+  readonly main: string;
 }
 let shown: Shown | null = null;
 let mirrorView: DocumentView | null = null;
@@ -263,7 +276,7 @@ fileInput.addEventListener("change", () => {
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (request !== openRequest) return;
     hideProjectChoices();
-    await show(createSessionCopy(file.name, bytes), file.name, request);
+    await show(createSessionCopy(file.name, bytes, playerOptions), file.name, request);
   })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
 });
 
@@ -313,10 +326,11 @@ async function showProject(project: WebProject, path: string, request: number): 
   const element = document.createElement("section");
   element.hidden = true;
   settings.append(element);
-  const workbench = createWorkbench(project, element, { projectLayout: await projectLayoutOfMain(project.services.fs, project.project.id, path) });
+  const projectLayout = await projectLayoutOfMain(project.services.fs, project.project.id, path);
+  const workbench = createWorkbench(project, element, { projectLayout, main: path });
   let candidate!: Shown;
   const unsubscribeTabs = workbench.tabs.subscribe(() => updateActions(candidate));
-  candidate = { project, workbench, element, unsubscribeTabs };
+  candidate = { project, workbench, element, unsubscribeTabs, projectLayout, main: path };
   let openedDocument: AnyDocument | undefined;
   try {
     await beginDocumentOpen(project.workspace, identityKey);
@@ -555,8 +569,8 @@ function syncMirror(): void {
   mirroredDocument = null;
   mirroredProject = null;
   mirrorElement.replaceChildren();
-  if (visible && active !== null && project !== null) {
-    mirrorView = mountDocumentView(project, active, mirrorElement);
+  if (visible && shown !== null && active !== null && project !== null) {
+    mirrorView = mountDocumentView(project, active, mirrorElement, shown.projectLayout, undefined, undefined, shown.main);
     mirroredDocument = active;
     mirroredProject = project;
   }
@@ -584,15 +598,19 @@ function onActive(button: string, action: (current: Shown, document: AnyDocument
   return run;
 }
 
-const undoActive = onActive("#undo", ({ project }, active) => {
-  const undone = project.workspace.undo(active);
+const undoActive = onActive("#undo", async ({ project }, active) => {
+  if (active.kind === "program") await project.workspace.pendingEdits(active).settle();
+  const undone = active.kind === "program" ? active.undo() : project.workspace.undo(active);
   return undone.ok ? null : "Nothing to undo.";
 });
-const redoActive = onActive("#redo", ({ project }, active) => {
-  const redone = project.workspace.redo(active);
+const redoActive = onActive("#redo", async ({ project }, active) => {
+  if (active.kind === "program") await project.workspace.pendingEdits(active).settle();
+  const redone = active.kind === "program" ? active.redo() : project.workspace.redo(active);
   return redone.ok ? null : "Nothing to redo.";
 });
-const saveActive = activeCommand(async (_current, active) => {
+const saveActive = activeCommand(async (current, active) => {
+  // Typing a code editor has buffered is handed to the document first (#2613): a save never leaves out the last words.
+  await current.project.workspace.pendingEdits(active).settle();
   const saved = await active.save();
   return saved.ok ? null : saved.failure.message;
 });
