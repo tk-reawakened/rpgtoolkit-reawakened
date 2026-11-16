@@ -970,8 +970,8 @@ async function verifyBitmapHistoryPreview(
   await expect(preview.getByLabel("Width in tiles")).toHaveAttribute("readonly", "");
   await expect(preview.getByLabel("Height in tiles")).toHaveAttribute("readonly", "");
   const shadingInputs = preview.locator(".tkr-bitmap-shading input");
-  await expect(shadingInputs).toHaveCount(3);
-  for (let index = 0; index < 3; index += 1) await expect(shadingInputs.nth(index)).toBeDisabled();
+  await expect(shadingInputs).toHaveCount(5);
+  for (let index = 0; index < 5; index += 1) await expect(shadingInputs.nth(index)).toBeDisabled();
 
   await beforeRender();
 
