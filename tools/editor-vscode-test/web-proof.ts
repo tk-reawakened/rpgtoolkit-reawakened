@@ -602,7 +602,8 @@ async function confirmRecoveryGroupReport(page: Page, expect: Expect, historyPat
 }
 
 function assertHistoryPreviewSourceIdentity(historyHost: NewProjectHistoryProofHost, sourcePath: string, expect: Expect): void {
-  const identity = historyHost.previewTrace?.().find((entry) => entry.includes("stage=source-identity") && entry.includes(sourcePath));
+  const identity = historyHost.previewTrace?.().find((entry) => entry.includes("stage=source-identity")
+    && entry.includes("__tkr_new_project") && entry.includes(sourcePath));
   expect(identity, `The History preview did not originate from ${sourcePath}.`).toBeDefined();
 }
 
@@ -705,7 +706,7 @@ async function proveNativeNewBoard(
     expect(context).toContain("customEditorUri: tkr-testfs://");
     const customEditorUri = /customEditorUri: (tkr-testfs:\/\/[^,}]+)/.exec(context)?.[1];
     if (customEditorUri === undefined) throw new Error("The active Board history command did not report its custom-editor URI.");
-    expect(decodeURIComponent(customEditorUri)).toContain("__tkr_new_project/Boards/Native history board.brd");
+    expect(decodeURIComponent(customEditorUri)).toMatch(/\/Boards\/Native history board\.brd$/);
   };
   await runCommand(page, expect, "RPG Toolkit: New board", "New board: project");
   const widget = page.locator(".quick-input-widget");
