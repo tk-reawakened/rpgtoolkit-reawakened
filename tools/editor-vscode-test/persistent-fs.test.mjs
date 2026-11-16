@@ -44,7 +44,24 @@ test("the proof filesystem persists bytes and confines authenticated operations"
     assert.equal((await request({ op: "trace", kind: "save", value: "/game.gam" }, "wrong")).status, 403);
     assert.deepEqual(bridge.events(), []);
     assert.equal((await request({ op: "trace", kind: "save", value: "/game.gam" })).status, 200);
+    assert.equal((await request({ op: "trace", kind: "trace-marker", value: "unexpected" })).status, 400);
     assert.deepEqual(bridge.events(), [{ kind: "save", value: "/game.gam" }]);
+    assert.equal((await request({ op: "trace", kind: "save-request", value: "/game.gam" })).status, 200);
+    const saveReached = bridge.pauseSave();
+    let saveResponseReceived = false;
+    const pausedSaveResponse = request({ op: "trace", kind: "save-request", value: "/game.gam" }).then((result) => {
+      saveResponseReceived = true;
+      return result;
+    });
+    await saveReached;
+    assert.equal(saveResponseReceived, false, "the save request must remain pending at the configured boundary");
+    bridge.resumeSave();
+    assert.equal((await pausedSaveResponse).status, 200);
+    assert.deepEqual(bridge.events(), [
+      { kind: "save", value: "/game.gam" },
+      { kind: "save-request", value: "/game.gam" },
+      { kind: "save-request", value: "/game.gam" },
+    ]);
     for (const path of ["/../secret", "/escape/secret", "/bad\\path", "/a//b", "/a/./b"]) {
       assert.equal((await request({ op: "readFile", path })).status, 400, path);
     }

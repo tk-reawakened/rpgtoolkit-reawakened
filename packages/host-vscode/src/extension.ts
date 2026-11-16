@@ -2,7 +2,7 @@ import { registerAnimationCommands } from "./animation-commands.ts";
 import * as vscode from "vscode";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { vscodeCapabilities } from "./capabilities.ts";
-import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
+import { createGameEditorProvider, eventsForDocumentKind, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { createVscodeServices } from "./services.ts";
@@ -18,6 +18,13 @@ import { createProjectWizardHistory, createWizardHistory, historyPolicyFrom, pre
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation"] as const;
+const DOCUMENT_KIND_BY_VIEW_TYPE = {
+  "tkr.gameSettings": "main",
+  "tkr.board": "board",
+  "tkr.tileset": "tileset",
+  "tkr.tileBitmap": "tile-bitmap",
+  "tkr.animation": "animation",
+} as const;
 
 /** A custom editor is active in the workbench without a TextEditor; its tab input still carries the project URI. */
 function activeCustomEditorUri(): vscode.Uri | undefined {
@@ -185,10 +192,9 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       nativeSaveFailures.delete(key);
       nativeSaveReasons.set(key, reason);
     })().catch((error: unknown) => {
-      const message = `${path} was not saved because its previous version could not be kept in recovery history: ${error instanceof Error ? error.message : String(error)}`;
+      const message = `Could not keep the previous version of ${path} in recovery history before saving: ${error instanceof Error ? error.message : String(error)}. VS Code may still save this document.`;
       nativeSaveFailures.set(key, message);
       void vscode.window.showErrorMessage(message);
-      throw error;
     });
     event.waitUntil(prepare);
   }));
@@ -206,8 +212,8 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     const reason = nativeSaveReasons.get(key) ?? "manual";
     nativeSaveReasons.delete(key);
     const groupId = nativeRestoreGroups.get(key) ?? null;
-    if (!prepared && groupId === null) {
-      await vscode.window.showWarningMessage(failedBeforeSave ?? `${path} was saved without pre-save recovery capture; its previous bytes may be unavailable.`);
+    if (!prepared && groupId === null && failedBeforeSave === undefined) {
+      await vscode.window.showWarningMessage(`${path} was saved without a pre-save recovery capture; its previous bytes may be unavailable.`);
     }
     const { fs, workspace } = core.workspaceFor({ uri: folder.uri, key: folder.uri.toString() });
     const saved = await fs.readProject(folder.uri.toString(), path);
@@ -325,7 +331,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   // Keep custom-editor pages alive while their tabs are hidden. Accepted view-side edits can still be queued behind
   // an acknowledgement; the extension host's Save All, backup and revert requests must reach that live queue.
   for (const viewType of VIEW_TYPES) {
-    context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, provider, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true }));
+    const viewTypeProvider = {
+      ...provider,
+      onDidChangeCustomDocument: eventsForDocumentKind(changes.event, DOCUMENT_KIND_BY_VIEW_TYPE[viewType]),
+    };
+    context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, viewTypeProvider, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true }));
   }
   return () => generation;
 }

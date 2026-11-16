@@ -91,6 +91,17 @@ export interface GameEditEvent<Uri extends UriLike> {
   undo(): void;
   redo(): void;
 }
+type DocumentChangeEvent = { readonly document: { readonly model: { readonly kind: string } } };
+
+/** Give one registered custom-editor view type only the edits for its document kind. */
+export function eventsForDocumentKind<Event extends DocumentChangeEvent>(
+  source: (listener: (event: Event) => unknown) => { dispose(): void },
+  kind: string,
+): (listener: (event: Event) => unknown) => { dispose(): void } {
+  return (listener) => source((event) => {
+    if (event.document.model.kind === kind) listener(event);
+  });
+}
 
 /** What a webview panel gives the provider. */
 export interface WebviewPort {

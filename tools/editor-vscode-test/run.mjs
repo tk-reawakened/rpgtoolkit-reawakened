@@ -65,8 +65,9 @@ const newProjectProof = process.env.TKR_VSCODE_NEW_PROJECT_PROOF === "1";
 const autosaveCommandProof = process.env.TKR_VSCODE_AUTOSAVE_COMMAND_PROOF === "1";
 const historyProof = process.env.TKR_VSCODE_HISTORY_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
-if ((animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of animationProof || historyProof || skipSpriteProof || autosaveCommandProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
+if ((animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
@@ -153,6 +154,7 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
         await handler(route);
       } catch (error) {
         routeErrors.push(error);
+        try { await route.continue(); } catch (continuationError) { routeErrors.push(continuationError); }
       }
     };
     const providerRoute = captureRouteErrors(async (route) => {
@@ -167,21 +169,22 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
       const [, bridgePort] = persistentFs.authority.split(".");
       const token = persistentFs.token;
       const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
-      // The bundler numbers the `vscode` namespace by how many modules import it, so the name is read from the build.
-      const namespace = /saveEditor: async \(uri\) => await (vscode\d*)\.workspace\.save\(uri\)/.exec(source)?.[1];
-      if (namespace === undefined) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
       const probes = [
         [
-          `saveEditor: async (uri) => await ${namespace}.workspace.save(uri)`,
-          `saveEditor: async (uri) => { await (${trace})("save-request", uri.path); return await ${namespace}.workspace.save(uri); }`,
+          "if (event.document.model.kind === kind) listener(event);",
+          `if (event.document.model.kind === kind) { void (${trace})("edit", JSON.stringify({ resource: event.document.uri.toString(), modelKind: event.document.model.kind, registeredKind: kind, label: event.label })).catch((error) => console.error("[proof trace]", error)); listener(event); }`,
+        ],
+        [
+          "openCustomDocument: (uri, openContext) => core.openCustomDocument(uri, openContext.backupId)",
+          `openCustomDocument: (uri, openContext) => { void (${trace})("open", uri.path).then(() => (${trace})("open-uri", uri.toString())).catch((error) => console.error("[proof trace]", error)); return core.openCustomDocument(uri, openContext.backupId); }`,
+        ],
+        [
+          "resolveCustomEditor: async (document2, panel) => {",
+          `resolveCustomEditor: async (document2, panel) => { void (${trace})("resolve", JSON.stringify({ resource: document2.uri.toString(), viewType: panel.viewType })).catch((error) => console.error("[proof trace]", error));`,
         ],
         [
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
-          `saveCustomDocument: async (document2) => { await (${trace})("save", document2.uri.path); return core.saveCustomDocument(document2); }`,
-        ],
-        [
-          "revertCustomDocument: (document2) => core.revertCustomDocument(document2)",
-          `revertCustomDocument: async (document2) => { await (${trace})("revert", document2.uri.path); return core.revertCustomDocument(document2); }`,
+          `saveCustomDocument: (document2) => { void (${trace})("save", document2.uri.path).then(() => (${trace})("save-uri", document2.uri.toString())).catch((error) => console.error("[proof trace]", error)); return core.saveCustomDocument(document2); }`,
         ],
       ];
       for (const [before, after] of probes) {
@@ -338,10 +341,11 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
       }
       await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, {
         restart, readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
-        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes,
+        pauseWrite: persistentFs.pauseWrite, resumeWrite: persistentFs.resumeWrite, writeEvents: persistentFs.writeEvents, externalBytes, sentinelTitle, sentinelBytes,
         choice, boardPath, otherBoardPath, artPath, otherArtPath, bitmapPath, otherBitmapPath,
         bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)),
         canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
+        ...(workbenchSaveShortcutProof ? { saveViaWorkbenchShortcut: process.platform === "darwin" ? "Meta+S" : "Control+S" } : {}),
       });
       console.log(`vscode.dev settings, board, art and bitmap proof passed (${choice})`);
       if (choice === "cancel") await proveNewProject();

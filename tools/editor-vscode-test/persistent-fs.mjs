@@ -14,8 +14,9 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   const events = [];
   const readEvents = [];
   const writeEvents = [];
-  let pausedWrite;
   let pausedRead;
+  let pausedWrite;
+  let pausedSave;
   const server = createServer(async (request, response) => {
     const origin = request.headers.origin;
     let allowed = origin === allowedOrigin;
@@ -46,9 +47,13 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       const input = JSON.parse(await readRequestBody(request, maxBodyBytes));
       let result;
       if (input.op === "trace") {
-        if (!["save-request", "save", "revert"].includes(input.kind) || typeof input.value !== "string") throw Object.assign(new Error("Invalid trace event"), { code: "EINVAL" });
+        if (!["open", "open-uri", "resolve", "edit", "active-tab", "save-request", "save", "save-uri", "revert"].includes(input.kind) || typeof input.value !== "string") throw Object.assign(new Error("Invalid trace event"), { code: "EINVAL" });
         events.push({ kind: input.kind, value: input.value });
-        if (input.kind === "save-request" && pausedSave) await pausedSave.promise;
+        if (input.kind === "save-request" && pausedSave) {
+          const gate = pausedSave;
+          gate.reach();
+          await gate.promise;
+        }
         result = null;
       } else {
         const readGate = input.op === "readFile" && pausedRead?.path === input.path ? pausedRead : undefined;
@@ -83,8 +88,11 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
     pauseSave: () => {
       if (pausedSave) throw new Error("A save is already paused");
       let release;
+      let reach;
+      const reached = new Promise((resolveReached) => { reach = resolveReached; });
       const promise = new Promise((resolveGate) => { release = resolveGate; });
-      pausedSave = { promise, release };
+      pausedSave = { promise, release, reach: () => reach() };
+      return reached;
     },
     resumeSave: () => { pausedSave?.release(); pausedSave = undefined; },
     pauseRead: (path) => {

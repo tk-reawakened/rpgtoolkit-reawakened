@@ -448,7 +448,16 @@ export function createMemoryHistoryStorage(): DocumentHistoryOptions["storage"] 
   return {
     async read(path) { const bytes = files.get(path); return bytes === undefined ? notFound : { ok: true as const, value: bytes.slice() }; },
     async write(path, bytes) { files.set(path, bytes.slice()); return { ok: true as const, value: undefined }; },
-    async createFolder(path) { folders.add(path); return { ok: true as const, value: undefined }; },
+    async createFolder(path) {
+      let current = path;
+      while (current.length > 0) {
+        folders.add(current);
+        const separator = current.lastIndexOf("/");
+        if (separator < 0) break;
+        current = current.slice(0, separator);
+      }
+      return { ok: true as const, value: undefined };
+    },
     async list(path) {
       if (!folders.has(path)) return notFound;
       const prefix = `${path}/`;

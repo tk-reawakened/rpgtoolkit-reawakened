@@ -65,9 +65,10 @@ async function verifyHostRunHash(page: Page, frame: Frame, expect: Expect): Prom
 type ProofHost = {
   restart(page: Page, offlineBytes?: Uint8Array): Promise<Page>;
   readBacking(path?: string): Promise<Uint8Array>;
-  readHostEvents(): { kind: "save-request" | "save" | "revert"; value: string }[];
-  pauseSave(): void;
-  resumeSave(): void;
+  readHostEvents(): { kind: "open" | "open-uri" | "resolve" | "edit" | "save" | "save-uri"; value: string }[];
+  pauseWrite(path: string): Promise<void>;
+  resumeWrite(): void;
+  writeEvents(): readonly { readonly kind: "write-request" | "write"; readonly path: string }[];
   externalBytes: Uint8Array;
   sentinelTitle: string;
   sentinelBytes: Uint8Array;
@@ -86,6 +87,7 @@ type ProofHost = {
   bitmapPicture(edited: boolean): { width: number; height: number; data: number[] };
   /** What the file must hold after the proof's two edits and Save, written by hand from the stored layout. */
   bitmapSaved: Uint8Array;
+  saveViaWorkbenchShortcut?: "Meta+S" | "Control+S";
   /** Boards of each coordinate layout (`coordType` 0, 1, 2), each 8 × 8 with two layers, for the canvas scenario. */
   canvasBoards: { path: string; label: string; coordType: number }[];
 };
@@ -462,7 +464,7 @@ async function proveNativeHistoryUi(
   ].sort());
   expect(gameEntries.map((entry) => entry.size).sort((a, b) => a - b)).toEqual([generatedBytes.length, firstSaved.length, secondSaved.length].sort((a, b) => a - b));
 
-  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
   const picker = page.locator(".quick-input-widget");
   let options = picker.getByRole("option").filter({ hasText: "saved" });
   const savedCount = await options.count();
@@ -541,7 +543,7 @@ async function proveNativeTextHistory(
     createHash("sha256").update(saved).digest("hex"),
   ].sort());
 
-  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
   const picker = page.locator(".quick-input-widget");
   const checkpoint = picker.getByRole("option").filter({ hasText: "checkpoint" });
   await expect(checkpoint).toHaveCount(1);
@@ -785,7 +787,7 @@ async function proveNativeNewBoard(
     const boardTabName = /^Native history board\.brd(?:,|$)/;
     await page.getByRole("tab", { name: boardTabName }).click();
     await expect(page.getByRole("tab", { name: boardTabName, selected: true })).toBeVisible();
-    await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
+    await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
     await expect.poll(() => commandContexts.length > commandContextStart, { timeout: 5_000 }).toBe(true);
     const context = commandContexts[commandContextStart];
     if (context === undefined) throw new Error("The Board history command context was not recorded.");
@@ -962,7 +964,7 @@ async function proveNativeBitmapHistory(
   expect(bitmapEntries.map((entry) => entry.size).sort((a, b) => a - b)).toEqual([generatedBytes.length, firstSaved.length, secondSaved.length].sort((a, b) => a - b));
 
   const reportText = /Each file is reported separately; the restore is itself in history, so it can be undone\./;
-  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
   let saved = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "saved" });
   await expect(saved).toHaveCount(2);
   const restoreEventsStart = historyHost.writeEvents().length;
@@ -1238,8 +1240,19 @@ export async function runVscodeWebProof(
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await readCspViolations(page.mainFrame(), "browser workbench");
   await expect(page.locator(".monaco-workbench")).toBeVisible();
-  await enableWorkbenchTraceLogging(page, expect);
+  const lifecycleStart = host.readHostEvents().length;
+  const lifecycleEvents = () => host.readHostEvents().slice(lifecycleStart);
   await openGame(page, gamePath, expect);
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! })).toHaveCount(1);
+  expect(lifecycleEvents(), JSON.stringify(lifecycleEvents())).toContainEqual({ kind: "open", value: `/${gamePath}` });
+  const openUriEvent = () => lifecycleEvents().find((event) => event.kind === "open-uri");
+  await expect.poll(openUriEvent).toBeDefined();
+  const openedUri = openUriEvent()!.value;
+  const resolveEvent = () => lifecycleEvents().find((event) => event.kind === "resolve");
+  await expect.poll(resolveEvent).toBeDefined();
+  const resolved = JSON.parse(resolveEvent()!.value) as { resource: string; viewType: string };
+  expect(resolved.resource).toBe(openedUri);
+  expect(resolved.viewType).toBe("tkr.gameSettings");
 
   // The package command is contributed to both the command palette and .gam Explorer context menu.
   const packageCommand = await commandPalette(page, expect);
@@ -1259,7 +1272,8 @@ export async function runVscodeWebProof(
   await page.keyboard.press("Escape");
 
   await openGame(page, gamePath, expect);
-  const editor = await waitForWritableEditorFrame(page, "initial Game settings editor", "Game title");
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! })).toHaveCount(1);
+  const editor = await waitForWritableEditorFrame(page, "initial Game settings editor", "Game title", gamePath.split("/").at(-1)!);
   const titleField = editor.getByLabel("Game title");
   await expectVisibleWithFrameDiagnostics(page, titleField, expect, "initial Game title field");
   assertNoCspConsoleViolations(consoleViolations, "before installing the actual settings-document CSP listener");
@@ -1270,13 +1284,25 @@ export async function runVscodeWebProof(
   await editor.getByRole("button", { name: "Apply changes" }).click();
   const savedTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
   await expect(savedTab).toHaveClass(/dirty/);
-  await editor.getByRole("button", { name: "Save" }).click();
-  await expect.poll(() => host.readBacking(gamePath), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toEqual(expectedBytes);
+  const editEvent = () => lifecycleEvents().find((event) => event.kind === "edit");
+  await expect.poll(editEvent).toBeDefined();
+  const edit = JSON.parse(editEvent()!.value) as { resource: string; label: string };
+  expect(edit.resource).toBe(openedUri);
+  if (host.saveViaWorkbenchShortcut !== undefined) {
+    await page.keyboard.press(host.saveViaWorkbenchShortcut);
+  } else {
+    await editor.getByRole("button", { name: "Save" }).click();
+  }
+  await expect.poll(lifecycleEvents, { timeout: 5_000, intervals: [50, 100, 250] }).toContainEqual({ kind: "save", value: `/${gamePath}` });
+  const savedUriEvent = () => lifecycleEvents().find((event) => event.kind === "save-uri");
+  await expect.poll(savedUriEvent).toBeDefined();
+  expect(savedUriEvent()!.value).toBe(openedUri);
+  const expectedHash = createHash("sha256").update(expectedBytes).digest("hex");
+  await expect.poll(async () => createHash("sha256").update(await host.readBacking(gamePath)).digest("hex"), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(expectedHash);
   const saved = await readWorkspaceBytes(page, expect);
   expect(saved).not.toEqual(before);
   expect(saved).toEqual(expectedBytes);
   expect(host.readHostEvents()).toContainEqual({ kind: "save", value: `/${gamePath}` });
-  expect(host.readHostEvents()).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
   await expect.poll(() => frameCspViolations(page, editor, consoleViolations)).toEqual([]);
   expect(await host.readBacking()).toEqual(saved);
   await expect(savedTab).not.toHaveClass(/dirty/);
@@ -1418,7 +1444,6 @@ export async function runVscodeWebProof(
     recoveredEditor = await waitForTitledEditor(page, recoveredTitle, expect);
   };
   await verifySentinel();
-  expect(host.readHostEvents()).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
   const choiceTraceStart = backupTrackerLogs.length;
   const hostEventsStart = host.readHostEvents().length;
   if (host.choice === "cancel") {
@@ -1442,17 +1467,16 @@ export async function runVscodeWebProof(
     /CommandService#executeCommand workbench\.action\.files\.(?:save|revert)/i.test(entry));
   expect(forbiddenCommands).toEqual([]);
   expect(host.readHostEvents().slice(hostEventsStart)).toEqual([]);
-  // Hold the real extension at its save API boundary, change focus to another dirty editor,
-  // then let the save proceed. Only the originating document may be written.
-  host.pauseSave();
-  const saveStart = host.readHostEvents().length;
+  // Pause the actual backing write, change focus to another dirty editor, then let the save proceed.
+  const saveStart = host.writeEvents().length;
+  host.pauseWrite(`/${gamePath}`);
   try {
     await recoveredEditor.getByRole("button", { name: "Save" }).click();
-    await expect.poll(() => host.readHostEvents().slice(saveStart)).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
+    await expect.poll(() => host.writeEvents().slice(saveStart)).toContainEqual({ kind: "write-request", path: `/${gamePath}` });
     await sentinelTab.click();
     await expect(sentinelTab).toHaveClass(/dirty/);
   } finally {
-    host.resumeSave();
+    host.resumeWrite();
   }
   // Keep the other editor active until the original document's bytes really reach disk.
   await expect.poll(async () => Array.from(await host.readBacking()), { timeout: 30_000 }).toEqual(Array.from(recoveredBytes));
@@ -2139,19 +2163,26 @@ async function waitForEditorFrame(page: Page, label: string): Promise<Frame> {
   throw new Error(`Timed out waiting for the named pending-frame child of iframe.webview for ${label}`);
 }
 
-async function waitForWritableEditorFrame(page: Page, label: string, fieldName: string): Promise<Frame> {
+async function waitForWritableEditorFrame(page: Page, label: string, fieldName: string, selectedTabLabel?: string): Promise<Frame> {
   const deadline = Date.now() + 30_000;
   let pause = 100;
+  let candidates: Frame[] = [];
   while (Date.now() < deadline) {
+    candidates = [];
     for (const frame of page.frames()) {
       const field = frame.getByRole("textbox", { name: fieldName, exact: true });
-      if (await field.count() > 0 && await field.isVisible().catch(() => false) && await field.isEditable().catch(() => false)) return frame;
+      if (await field.count() > 0 && await field.isVisible().catch(() => false) && await field.isEditable().catch(() => false)) candidates.push(frame);
+    }
+    if (selectedTabLabel === undefined && candidates.length > 0) return candidates[0]!;
+    if (selectedTabLabel !== undefined && candidates.length === 1) {
+      const selectedTab = page.getByRole("tab", { selected: true }).filter({ hasText: selectedTabLabel });
+      if (await selectedTab.count() === 1) return candidates[0]!;
     }
     await page.waitForTimeout(pause);
     pause = Math.min(pause * 2, 1_000);
   }
-  await logFrameDiagnostics(page, `${label} writable editor not found`);
-  throw new Error(`Timed out waiting for the writable originating editor for ${label}`);
+  await logFrameDiagnostics(page, `${label} writable editor not uniquely correlated with the selected tab`);
+  throw new Error(`Timed out waiting for ${label}; selectedTab=${selectedTabLabel ?? "any"}; writableFrames=${JSON.stringify(candidates.map((frame) => frame.url()))}`);
 }
 
 async function readCspViolations(frame: Frame, label: string): Promise<string[]> {

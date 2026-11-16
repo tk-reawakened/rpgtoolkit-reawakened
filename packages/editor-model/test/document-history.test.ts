@@ -461,6 +461,10 @@ test("without folderWrite history lives in memory and says so; the project folde
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
   equal(workspace.history.location.kind, "session-memory");
   ok(/lost when the page closes/.test(workspace.history.location.description));
+  const checkpoint = await workspace.createNamedCheckpoint("Fresh session checkpoint");
+  ok(checkpoint.files.length > 0);
+  const checkpointUsage = await workspace.history.usage();
+  ok(checkpointUsage.bytes > 0, "a fresh named checkpoint's nested group and content files count in session-memory usage");
   const doc = await openDoc(workspace);
   retitle(doc, "x");
   await doc.save("manual");
@@ -747,6 +751,12 @@ test("native text saves and restores use the open editor buffer and reject bytes
   let nativeBytes = new TextEncoder().encode("unsaved native edit");
   let dirty = true;
   let changeDuringConfirmation = true;
+  let externalCurrentCalls = 0;
+  let pauseExternalReadAt: number | null = null;
+  let signalExternalRead!: () => void;
+  let resumeExternalRead!: () => void;
+  const externalReadReached = new Promise<void>((resolve) => { signalExternalRead = resolve; });
+  const externalReadRelease = new Promise<void>((resolve) => { resumeExternalRead = resolve; });
   let dialogCalls = 0;
   let applyCalls = 0;
   let workspace!: DocumentWorkspace;
@@ -764,7 +774,15 @@ test("native text saves and restores use the open editor buffer and reject bytes
       },
     },
     externalHistory: {
-      current: async () => ({ bytes: nativeBytes.slice(), dirty }),
+      current: async () => {
+        externalCurrentCalls += 1;
+        const observed = nativeBytes.slice();
+        if (externalCurrentCalls === pauseExternalReadAt) {
+          signalExternalRead();
+          await externalReadRelease;
+        }
+        return { bytes: observed, dirty };
+      },
       apply: async (_path, bytes, expected, groupId) => {
         applyCalls += 1;
         if (Buffer.compare(Buffer.from(nativeBytes), Buffer.from(expected ?? [])) !== 0) {
@@ -782,13 +800,27 @@ test("native text saves and restores use the open editor buffer and reject bytes
   const savedHash = await sha256Hex(savedBytes);
   const version = (await workspace.history.documentTimeline(path)).find((entry) => entry.sha256 === savedHash);
   ok(version, "native text save was retained");
-  host.answerQuestions("restore", "restore");
+  host.answerQuestions("restore");
   const refused = await workspace.restoreHistoryEntry(version.id);
   deepEqual(refused.files.map((file) => file.result), ["failed"]);
   equal(applyCalls, 0, "the changed native buffer was never replaced");
   deepEqual(nativeBytes, lateBytes);
 
   changeDuringConfirmation = false;
+  nativeBytes = replacementBytes;
+  host.answerQuestions("restore");
+  pauseExternalReadAt = externalCurrentCalls + 2;
+  const racingRestore = workspace.restoreHistoryEntry(version.id);
+  await externalReadReached;
+  nativeBytes = lateBytes;
+  resumeExternalRead();
+  const raced = await racingRestore;
+  pauseExternalReadAt = null;
+  deepEqual(raced.files.map((file) => file.result), ["failed"]);
+  match(raced.files[0]?.message ?? "", /changed after the restore/);
+  equal(applyCalls, 0, "the concurrent edit was refused before the native apply hook");
+  deepEqual(nativeBytes, lateBytes, "a concurrent native-buffer edit survives restore");
+  host.answerQuestions("restore", "restore");
   nativeBytes = replacementBytes;
   const restored = await workspace.restoreHistoryEntry(version.id);
   deepEqual(restored.files.map((file) => file.result), ["restored"]);
