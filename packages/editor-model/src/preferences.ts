@@ -2,6 +2,7 @@
 // the editor and never to a game, a validator for each entry, and a model that works out each setting's effective value
 // from the layers a host stores. DOM-free and framework-free: a view renders the snapshot, a host stores the layers.
 import type { SettingValue, SettingsLayer, SettingsService } from "@tk-reawakened/platform-services";
+import { HISTORY_DEFAULTS, HISTORY_SETTING_IDS } from "./history-policy.ts";
 import { DEFAULT_HEADER_TEMPLATE, MAX_HEADER_TEMPLATE_LENGTH } from "./program-support.ts";
 
 /** The value types a catalogue entry can have (ADR 0022 D6.2). `list` holds strings. */
@@ -35,6 +36,7 @@ const EDITOR = "Editor";
 const SYNTAX = "Syntax colours";
 const PROGRAM = "Program editor";
 const BOARD = "Board editor";
+const HISTORY = "History";
 
 const toggle = (id: string, group: string, label: string, description: string, value: boolean, projectLayer = false): PreferenceEntry =>
   ({ id, group, label, description, type: "boolean", default: value, projectLayer });
@@ -124,6 +126,11 @@ export const PREFERENCE_CATALOGUE: readonly PreferenceEntry[] = [
   colour("board.objectColor.item", BOARD, "Item marker colour", "The colour of item markers on a board.", "#00ffff"),
   colour("board.objectColor.sprite", BOARD, "Character marker colour", "The colour of character markers on a board.", "#ff00ff"),
   colour("board.objectColor.vector", BOARD, "Vector colour", "The colour of vector shapes on a board.", "#ff0000"),
+  { id: HISTORY_SETTING_IDS.mergeSeconds, group: HISTORY, label: "History: merge autosaves within", description: "Autosaves of one document made within this many seconds of the first one share a single history entry, so a burst of editing does not fill the history. Manual saves are never merged.", type: "number", default: HISTORY_DEFAULTS.mergeSeconds, min: 1, max: 3600, integer: true, projectLayer: false },
+  { id: HISTORY_SETTING_IDS.floorHours, group: HISTORY, label: "History: keep autosave entries for at least (hours)", description: "An autosave history entry is offered for thinning only after it is this many hours old. Entries from manual saves, runs, restores, deletes, wizards and checkpoints are kept until you delete them.", type: "number", default: HISTORY_DEFAULTS.floorHours, min: 1, max: 8760, integer: true, projectLayer: false },
+  { id: HISTORY_SETTING_IDS.warnMiB, group: HISTORY, label: "History: warn when a project's history reaches (MiB)", description: "When a project's history is larger than this the history view warns you and offers to thin old autosave entries. Nothing is ever removed without your confirmation.", type: "number", default: HISTORY_DEFAULTS.warnMiB, min: 16, max: 1048576, integer: true, projectLayer: false },
+  { id: HISTORY_SETTING_IDS.maxFileMiB, group: HISTORY, label: "History: largest file history keeps (MiB)", description: "A file larger than this is not kept in history. The history view lists such files so you can see what a restore cannot bring back.", type: "number", default: HISTORY_DEFAULTS.maxFileMiB, min: 1, max: 512, integer: true, projectLayer: false },
+  toggle(HISTORY_SETTING_IDS.offerIgnore, HISTORY, "History: offer to ignore the history folder in Git", "When the project is a Git repository, offer to add the history folder to its .gitignore. Nothing is written unless you accept.", true),
 ];
 
 const BY_ID = new Map(PREFERENCE_CATALOGUE.map((entry) => [entry.id, entry]));

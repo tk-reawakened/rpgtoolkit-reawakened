@@ -1,6 +1,7 @@
-import type { CommandRegistry, DocumentWorkspace, Launcher, LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import type { AnyDocument, CommandRegistry, DocumentWorkspace, Launcher, LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef } from "preact/hooks";
+import type { ViewHandle } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 import { FilesView, type PackageActionOutcome } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
@@ -42,6 +43,12 @@ export interface ShellProps {
   readonly version?: unknown;
   /** Starts runs through the host's `run` service; with it the shell has a Run panel (T-07, T-41). */
   readonly launcher?: Launcher;
+  /** The project's files for the History panel's ignore offer; with the workspace it gives the shell a History panel (ADR 0022 D12). */
+  readonly historyFiles?: Pick<FileSystemService, "list" | "read" | "write">;
+  /** Mount the editor of a document into an element, so history previews are the same editor read-only. */
+  readonly mountPreview?: (element: HTMLElement, document: AnyDocument) => ViewHandle;
+  /** Whether the ignore offer may be shown (the `history.offerIgnore` setting), and what to do when the user declines it for good. */
+  readonly historyOffer?: { readonly isEnabled: () => Promise<boolean>; readonly onNever: () => void };
 }
 
 /** The editor slot: an element the host mounts the active editor into, and the shell never draws into. */
@@ -55,7 +62,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewProgram, onOpenPreferences, browser, version, launcher }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewProgram, onOpenPreferences, browser, version, launcher, historyFiles, mountPreview, historyOffer }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -64,23 +71,26 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
     <Workbench
       layout={layout}
       tabs={<TabStrip tabs={tabs} />}
-      headerBar={<><WorkbenchCommandBar
-        layout={layout}
-        tabs={tabs}
-        {...(workspace === undefined ? {} : { workspace })}
-        {...(commands === undefined ? {} : { commands })}
-        fs={fs}
-        projectLayout={projectLayout}
-        onOpenPath={onOpenPath}
-        {...(onNewBoard === undefined ? {} : { onNewBoard })}
-        {...(onOpenPreferences === undefined ? {} : { onOpenPreferences })}
-        version={[version, tabsSnapshot.tabs.length]}
-      />{workspace !== undefined && <details><summary>History</summary><DocumentHistoryView workspace={workspace} fs={fs} activePath={active} /></details>}</>}
+      headerBar={
+        <WorkbenchCommandBar
+          layout={layout}
+          tabs={tabs}
+          {...(workspace === undefined ? {} : { workspace })}
+          {...(commands === undefined ? {} : { commands })}
+          fs={fs}
+          projectLayout={projectLayout}
+          onOpenPath={onOpenPath}
+          {...(onNewBoard === undefined ? {} : { onNewBoard })}
+          {...(onOpenPreferences === undefined ? {} : { onOpenPreferences })}
+          version={[version, tabsSnapshot.tabs.length]}
+        />
+      }
       panels={{
         files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
         ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} /> }),
+        ...(workspace === undefined || historyFiles === undefined ? {} : { history: <DocumentHistoryView workspace={workspace} files={historyFiles} activePath={active} {...(mountPreview === undefined ? {} : { mountPreview })} {...(historyOffer === undefined ? {} : { offerIgnore: historyOffer.isEnabled, onNeverOfferIgnore: historyOffer.onNever })} /> }),
       }}
     >
       <EditorSlot onElement={onEditorElement} />

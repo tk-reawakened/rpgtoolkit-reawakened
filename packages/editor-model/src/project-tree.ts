@@ -2,6 +2,8 @@ import { foldPath, type AssetKind } from "@tk-reawakened/core";
 import type { Capabilities, DialogService, FileSystemService, PlatformError, ShellService } from "@tk-reawakened/platform-services";
 import { kindForPath, type AnyDocument } from "./kinds.ts";
 import { reservedFolder, unusableName, type ProjectLayout } from "./reserved-folders.ts";
+import { keepBeforeDelete } from "./history-support.ts";
+import { HISTORY_FOLDER } from "./document-history.ts";
 import type { DocumentWorkspace, WorkspaceOpenError } from "./workspace.ts";
 
 /**
@@ -153,7 +155,8 @@ export function createProjectTree(options: ProjectTreeOptions): ProjectTree {
   const read = async (folder: string): Promise<void> => {
     const result = await fs.list(folder);
     if (result.ok) {
-      listed.set(folder, result.value.filter((entry): entry is { readonly name: string; readonly kind: "file" | "directory" } => entry.kind !== "link").map((entry) => ({ name: entry.name, kind: entry.kind })));
+      // The reserved history folder is never shown as project content (ADR 0022 D12.10 item 1).
+      listed.set(folder, result.value.filter((entry): entry is { readonly name: string; readonly kind: "file" | "directory" } => entry.kind !== "link" && !(folder === "" && foldPath(entry.name) === HISTORY_FOLDER)).map((entry) => ({ name: entry.name, kind: entry.kind })));
       failures = failures.filter((failure) => failure.path !== folder);
     } else {
       listed.set(folder, []);
@@ -253,11 +256,13 @@ export function createProjectTree(options: ProjectTreeOptions): ProjectTree {
       const folder = stat.value.kind === "directory";
       const answer = await dialogs.ask({
         message: folder ? `Delete the folder ${path} and everything in it?` : `Delete ${path}?`,
-        detail: "This cannot be undone from the editor. Cancel deletes nothing.",
+        detail: "Documents the editor keeps history for are kept in History first and can be restored from there; other files, such as pictures and sounds, cannot be brought back. Cancel deletes nothing.",
         choices: [{ id: "delete", label: "Delete" }, { id: "cancel", label: "Cancel" }],
         cancel: "cancel",
       });
       if (answer !== "delete") return { ok: false, reason: "cancelled", message: `${path} was not deleted.` };
+      const kept = await keepBeforeDelete(workspace.history, fs, path, folder);
+      if (!kept.ok) return fail("failed", kept.message);
       const removed = await fs.delete(path);
       if (!removed.ok) return fail("failed", `Could not delete ${path}: ${removed.error.message}`);
       for (const known of [...expanded]) if (known === path || known.startsWith(`${path}/`)) expanded.delete(known);

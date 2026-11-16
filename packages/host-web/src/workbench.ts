@@ -6,6 +6,7 @@ import {
   type AssetKind,
   createLayoutModel,
   createPreferences,
+  HISTORY_SETTING_IDS,
   createProgramFile,
   createProjectTree,
   createTabs,
@@ -272,6 +273,15 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     fs: services.fs,
     workspace,
     launcher,
+    historyFiles: services.fs,
+    mountPreview: (previewElement, previewDocument) => mountDocumentView(project, previewDocument, previewElement, projectLayout, openSource, undefined, main),
+    historyOffer: {
+      isEnabled: async () => {
+        const stored = await services.settings.get("user", HISTORY_SETTING_IDS.offerIgnore);
+        return !(stored.ok && stored.value === false);
+      },
+      onNever: () => { void services.settings.set("user", HISTORY_SETTING_IDS.offerIgnore, false); },
+    },
     browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
     version,
     onOpened: (result) => {

@@ -1,4 +1,4 @@
-import { DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type HistoryPolicy, type HistoryReason, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, FileSystemService, PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -64,6 +64,16 @@ export interface GameEditorPort<Uri extends UriLike> {
    * supplies a timer it expires by hand, so no proof depends on elapsed time.
    */
   startSettleTimer?(onExpire: () => void): { cancel(): void };
+  /**
+   * VS Code does not tell a custom editor why it is saving (ADR 0022 D12.10 item 3). When `files.autoSave` is
+   * `afterDelay` for `uri`, this is its delay in milliseconds; otherwise `null`. A save is recorded as `auto` only when
+   * this is not `null` and it arrives within that delay plus one second of the document's last accepted edit.
+   */
+  autoSaveDelayMs?(uri: Uri): number | null;
+  /** The retention settings in force for `folder` (D12.8); the user's values only, never a workspace's (D6.3). */
+  historyPolicy?(folder: WorkspaceFolderLike<Uri>): HistoryPolicy;
+  /** The current time in milliseconds; `Date.now` when the port gives none. A test supplies its own so no proof depends on elapsed time. */
+  now?(): number;
   /** Show a pick list and resolve with the chosen item's id, or `undefined` when the user dismisses it. */
   quickPick(items: readonly { readonly id: string; readonly label: string; readonly description?: string }[], placeholder: string): Promise<string | undefined>;
 }
@@ -100,6 +110,21 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** How many `saveCustomDocument` calls have finished, and the last one's result. */
   #saves = 0;
   #lastSave: SaveResult = { ok: true };
+  /** When the document's latest accepted edit arrived and which edit that was, to tell an autosave from an explicit Save. */
+  #lastEditAt = 0;
+  #lastHead: string | null = null;
+  /** Explicit Save commands from this editor's own Save button that have not finished; their saves are never `auto`. */
+  #explicitSaves = 0;
+
+  #now(): number {
+    return this.#port.now?.() ?? Date.now();
+  }
+
+  #saveReason(): HistoryReason {
+    if (this.#explicitSaves > 0) return "manual";
+    const delay = this.#port.autoSaveDelayMs?.(this.uri) ?? null;
+    return delay !== null && this.#now() - this.#lastEditAt <= delay + 1000 ? "auto" : "manual";
+  }
 
   constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession) {
     this.uri = uri;
@@ -111,6 +136,15 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.#navigation = navigation;
     this.#port = port;
     this.#fire = fire;
+    this.#lastEditAt = this.#now();
+    this.#lastHead = model.getSnapshot().edits.at(-1)?.editId ?? null;
+    model.subscribe(() => {
+      const head = model.getSnapshot().edits.at(-1)?.editId ?? null;
+      if (head !== this.#lastHead) {
+        this.#lastHead = head;
+        this.#lastEditAt = this.#now();
+      }
+    });
   }
 
   /** Hand an accepted edit to VS Code's undo stack; VS Code undoes it by its `editId` (AD-19). */
@@ -232,9 +266,10 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
       this.#lastSave = failed;
       return failed;
     }
-    let result = await this.model.save();
+    const reason = this.#saveReason();
+    let result = await this.model.save(reason);
     for (let round = 1; result.ok && this.model.getSnapshot().dirty && round < SAVE_ROUNDS; round += 1) {
-      result = await this.model.save();
+      result = await this.model.save(reason);
     }
     if (result.ok && this.model.getSnapshot().dirty) {
       const path = this.model.identity.path;
@@ -258,6 +293,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     const before = this.#saves;
     let accepted = false;
     try {
+      this.#explicitSaves += 1;
       accepted = (await this.#port.saveEditor(this.uri)) !== undefined;
     } catch (error) {
       // The provider's own failure when it ran (a refused write, or edits that kept outrunning it); otherwise VS Code's.
@@ -269,6 +305,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         code: null,
         message: `Could not save ${path}: ${error instanceof Error ? error.message : String(error)}`,
       } };
+    } finally {
+      this.#explicitSaves -= 1;
     }
     if (!accepted && this.#saves !== before && !this.#lastSave.ok) return this.#lastSave;
     if (!accepted || this.#saves === before) {
@@ -324,7 +362,8 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     let project = workspaces.get(folder.key);
     if (project === undefined) {
       const fs = port.fileSystem(folder);
-      const workspace = createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) } });
+      const policy = port.historyPolicy;
+      const workspace = createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) }, ...(policy === undefined ? {} : { historyPolicy: () => policy.call(port, folder) }) });
       project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
       workspaces.set(folder.key, project);
     }

@@ -44,7 +44,7 @@ test("a save reads the file first and writes nothing when another program change
   equal(second.failure.kind, "conflict", "a second save still writes nothing");
   deepEqual(host.bytesOf(PATH), withTitle(original, "Theirs"));
 
-  ok(doc.resolveConflict("keep-local").ok);
+  ok((await doc.resolveConflict("keep-local")).ok);
   equal(doc.getSnapshot().conflict, null);
   ok((await doc.save()).ok, "keeping the local version writes it");
   equal(titleOf(host.bytesOf(PATH)!), "Mine");
@@ -58,7 +58,7 @@ test("loading the version on disk replaces the content and starts a new history;
   const firstEdit = doc.getSnapshot().edits[0]!.editId;
   host.seed(PATH, withTitle(original, "Theirs"));
   equal(await doc.checkExternal(), "conflict");
-  ok(doc.resolveConflict("reload").ok);
+  ok((await doc.resolveConflict("reload")).ok);
   equal(doc.getSnapshot().gameTitle, "Theirs");
   equal(doc.getSnapshot().dirty, false);
   equal(doc.getSnapshot().canUndo, false, "a new history over the file on disk");
@@ -73,8 +73,8 @@ test("loading the version on disk replaces the content and starts a new history;
   equal(await doc.checkExternal(), "conflict");
   equal(doc.getSnapshot().conflict?.kind, "deleted");
   equal(doc.getSnapshot().conflict?.externalTitle, null);
-  equal(doc.resolveConflict("reload").ok, false, "there is no version to load");
-  ok(doc.resolveConflict("keep-local").ok, "keeping it means the next save creates the file again");
+  equal((await doc.resolveConflict("reload")).ok, false, "there is no version to load");
+  ok((await doc.resolveConflict("keep-local")).ok, "keeping it means the next save creates the file again");
   ok((await doc.save()).ok);
   equal(titleOf(host.bytesOf(PATH)!), "Back");
 });
@@ -439,7 +439,7 @@ test("a failed save followed by an external edit conflicts on retry without over
   equal(doc.getSnapshot().gameTitle, "Mine");
   equal(doc.getSnapshot().dirty, true);
   deepEqual(host.bytesOf(PATH), external);
-  ok(doc.resolveConflict("keep-local").ok);
+  ok((await doc.resolveConflict("keep-local")).ok);
   ok((await doc.save()).ok);
   equal(titleOf(host.bytesOf(PATH)!), "Mine");
 });
@@ -567,7 +567,7 @@ for (const choice of ["keep-local", "reload", "revert"] as const) {
       if (choice === "revert") {
         ok((await doc.revert()).ok);
       } else {
-        ok(doc.resolveConflict(choice).ok);
+        ok((await doc.resolveConflict(choice)).ok);
       }
       ok(doc.apply({ type: "set-game-title", title: "C" }).ok);
       host.seed(PATH, oldFailedBytes);

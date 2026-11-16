@@ -12,16 +12,25 @@ import type { DocumentIdentity } from "./identity.ts";
  * residue (AD-18), so a writer puts every datum the commands did not touch back byte for byte.
  */
 
+/**
+ * A restore of an earlier saved version (ADR 0022 D12.10 item 9). It is an accepted edit like any other, so undo takes it
+ * back in the session, but no codec command can express "this whole file"; the record carries no payload because the
+ * document keeps the restored model itself.
+ */
+export interface VersionRestoreCommand {
+  readonly type: "restore-version";
+}
+
 /** An accepted command with the id the host undoes it by (AD-19) and the words an undo menu shows. */
 export interface EditRecord<Command = unknown> {
   readonly editId: string;
   readonly label: string;
-  readonly command: Command;
+  readonly command: Command | VersionRestoreCommand;
 }
 
 /** Why a document can be viewed but never edited (ADR 0022 D2.1). */
 export interface ReadOnlyReason {
-  readonly code: "no-same-version-writer";
+  readonly code: "no-same-version-writer" | "history-preview";
   readonly message: string;
 }
 
@@ -145,15 +154,24 @@ export interface EditorDocument<Snapshot extends DocumentSnapshot<Command>, Comm
    * Before writing, the file is read and compared with the bytes the document last read or wrote. If another program
    * changed it, nothing is written: the save fails with `conflict` and the change waits in `conflict` (D3.5, D11.3).
    */
-  save(reason?: HistoryReason): Promise<SaveResult>;
+  save(reason?: HistoryReason, options?: SaveOptions): Promise<SaveResult>;
   /**
    * Read the file and compare it with what the document last read or wrote, after any save in flight. A clean document
    * follows the file (nothing local can be lost); a dirty one keeps its work and the change waits for `resolveConflict`.
    * Hosts that watch files call this on every change they see (D3.5).
    */
   checkExternal(): Promise<ExternalCheck>;
-  /** Settle a waiting external change. `keep-local` makes the next save replace the file; `reload` shows the file's version. */
-  resolveConflict(choice: ConflictChoice): ConflictResult;
+  /**
+   * Settle a waiting external change. `keep-local` makes the next save replace the file (the version on disk is kept in
+   * history first, D12.10 item 5); `reload` shows the file's version, and when the document holds unsaved work and has a
+   * history sink it first keeps that work, so the answer is then a promise that settles after the record exists.
+   */
+  resolveConflict(choice: ConflictChoice): ConflictResult | Promise<ConflictResult>;
+  /**
+   * Apply an earlier saved version as one accepted edit (D12.10 item 9). It is dirty until saved, undoable like any edit,
+   * and refused when the document is read-only or the bytes are not a file this kind reads.
+   */
+  restoreVersion(bytes: Uint8Array, label?: string): ApplyResult;
   /**
    * Go back to the file on disk. If it still holds the last saved revision, the edits after that revision are dropped and
    * the history before it is kept; otherwise the document is reloaded from the file with an empty history. Confirming
@@ -168,10 +186,26 @@ export interface EditorDocument<Snapshot extends DocumentSnapshot<Command>, Comm
   saveAs(storage: DocumentStorage, target: DocumentIdentity): Promise<SaveResult>;
 }
 
-/** Project-identified filesystem operations used by a document (ADR 0022 D1.1). */
+/** What a save may carry besides its reason. */
+export interface SaveOptions {
+  /** The checkpoint group this save belongs to (D12.2). */
+  readonly groupId?: string | null;
+}
+
+/**
+ * Where a document tells history about a save (ADR 0022 D12.10 items 4 and 5). The workspace supplies it over the history
+ * store; a document opened without one keeps no history.
+ */
+export interface DocumentHistorySink {
+  /** Before a file is replaced: keep the bytes about to be replaced unless history holds them. A failure stops the write. */
+  keepBeforeWrite(path: string, previous: Uint8Array | null, reason: HistoryReason): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
+  /** After a durable write: record the new content. A failure is reported by the sink and does not undo the write. */
+  recorded(path: string, bytes: Uint8Array, reason: HistoryReason, groupId: string | null): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
+}
+
+/** Project-identified filesystem operations used by a document (ADR 0022 D1.1), and the history sink when the host keeps history. */
 export type DocumentStorage = Pick<FileSystemService, "readProject" | "writeProject"> & {
-  /** Record a successfully persisted revision and, on first save, its prior bytes as the baseline. */
-  readonly recordSave?: (path: string, bytes: Uint8Array, reason: HistoryReason, previousBytes: Uint8Array | null) => Promise<PlatformResult<void>>;
+  readonly history?: DocumentHistorySink;
 };
 
 export type OpenError =
@@ -246,6 +280,12 @@ export function markRecoveredDocumentDirty(document: EditorDocument<DocumentSnap
   document.markRecoveredDirty();
 }
 
+/** @internal Make a document created over saved history bytes a read-only preview: it never edits and never saves (D12.10 item 13). */
+export function markHistoryPreview(document: EditorDocument<DocumentSnapshot<unknown>, unknown>, message: string): void {
+  if (!(document instanceof BinaryDocument)) throw new Error("A history preview requires a document created by the editor model.");
+  document.markPreview(message);
+}
+
 export function firstDifference(a: Uint8Array, b: Uint8Array): number | null {
   const shared = Math.min(a.length, b.length);
   for (let index = 0; index < shared; index += 1) if (a[index] !== b[index]) return index;
@@ -267,7 +307,7 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
   #readOnly: ReadOnlyReason | null;
   readonly #listeners = new Set<() => void>();
   /** Every command ever accepted and not discarded: `#applied` of them are in force, the rest can be redone. */
-  #stack: EditRecord<Command>[] = [];
+  #stack: StackRecord<Command, Model>[] = [];
   #applied = 0;
   /** How many commands were in force when the file was last written, or `null` when that state can no longer be reached. */
   #savedAt: number | null = 0;
@@ -286,6 +326,8 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
   #failedWriteMatchesBaseline = false;
   /** A change on disk waiting for the user's choice, with the bytes found (`null`: the file is gone). */
   #external: { readonly bytes: Uint8Array | null; readonly change: ExternalChange } | null = null;
+  /** The user chose to keep this document's version over a changed file: the next write keeps the other version first (D12.10 item 5). */
+  #keptLocalOverExternal = false;
   /** Saves asked for and not yet finished. */
   #pending = 0;
   #saveError: SaveFailure | null = null;
@@ -303,6 +345,11 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     this.#disk = bytes;
     this.#readOnly = codec.readOnlyReason(model, bytes);
     this.#snapshot = this.#makeSnapshot();
+  }
+
+  markPreview(message: string): void {
+    this.#readOnly = { code: "history-preview", message };
+    this.#publish();
   }
 
   markRecoveredDirty(): void {
@@ -346,6 +393,21 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     return { ok: true, editId: record.editId };
   }
 
+  restoreVersion(bytes: Uint8Array, label = "Restore a saved version"): ApplyResult {
+    if (this.#readOnly !== null) return { ok: false, rejection: { reason: "read-only", message: this.#readOnly.message } };
+    const read = this.#codec.read(bytes.slice(), this.identity.path);
+    if (!read.ok) return { ok: false, rejection: { reason: "invalid", message: `That version is not a file this editor reads: ${read.error.message}` } };
+    const record: StackRecord<Command, Model> = { editId: `edit-${this.#nextId}`, label, command: { type: "restore-version" }, restored: read.value };
+    this.#nextId += 1;
+    this.#stack = [...this.#stack.slice(0, this.#applied), record];
+    if (this.#savedAt !== null && this.#savedAt > this.#applied) this.#savedAt = null;
+    this.#applied += 1;
+    this.#generation += 1;
+    this.#model = read.value;
+    this.#publish();
+    return { ok: true, editId: record.editId };
+  }
+
   undo(editId?: string): HistoryResult {
     if (this.#readOnly !== null) return { ok: false, reason: "read-only" };
     const latest = this.#stack[this.#applied - 1];
@@ -370,7 +432,7 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     return { ok: true, editId: next.editId };
   }
 
-  save(reason: HistoryReason = "manual"): Promise<SaveResult> {
+  save(reason: HistoryReason = "manual", options: SaveOptions = {}): Promise<SaveResult> {
     const path = this.identity.path;
     if (this.#readOnly !== null) {
       return Promise.resolve(
@@ -393,7 +455,8 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     this.#saveError = null;
     this.#publish();
     // `#write` settles every outcome into a `SaveResult`, so the chain never holds a rejection and the next save runs.
-    const run = this.#queue.then(() => this.#write(path, bytes, revision, head, reason));
+    const groupId = options.groupId ?? null;
+    const run = this.#queue.then(() => this.#write(path, bytes, revision, head, reason, groupId));
     this.#queue = run;
     return run;
   }
@@ -405,20 +468,42 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     return run;
   }
 
-  resolveConflict(choice: ConflictChoice): ConflictResult {
+  resolveConflict(choice: "keep-local"): ConflictResult;
+  resolveConflict(choice: ConflictChoice): ConflictResult | Promise<ConflictResult>;
+  resolveConflict(choice: ConflictChoice): ConflictResult | Promise<ConflictResult> {
     const path = this.identity.path;
     const external = this.#external;
     if (external === null) return { ok: false, reason: "no-conflict", message: `${path} has no change on disk waiting for a choice.` };
     if (choice === "keep-local") {
       // The file now holds the other version: the next save replaces it, by the user's choice. Until then no revision of
-      // this document is on disk, so it is dirty even if undo comes back to what was saved before.
+      // this document is on disk, so it is dirty even if undo comes back to what was saved before. The other version is
+      // kept in history before that write (D12.10 item 5).
       this.#disk = external.bytes;
       this.#failedWriteMatchesBaseline = false;
       this.#external = null;
+      this.#keptLocalOverExternal = true;
       if (this.#readOnly === null) this.#savedAt = null;
       this.#publish();
       return { ok: true };
     }
+    const sink = this.#storage.history;
+    const dirty = this.#savedAt !== this.#applied && this.#readOnly === null;
+    if (sink === undefined || !dirty) return this.#reloadExternal(external);
+    // Unsaved work is about to be replaced by the file's version: keep it first, and stop the choice if that fails.
+    const encoded = this.#codec.write(this.#model);
+    if (!encoded.ok) return { ok: false, reason: "cannot-reload", message: `Your unsaved version of ${path} could not be encoded to keep it, so the file's version was not loaded: ${encoded.error.message}` };
+    const run = this.#queue.then(async (): Promise<ConflictResult> => {
+      if (this.#external !== external) return { ok: false, reason: "no-conflict", message: `${path} has no change on disk waiting for a choice.` };
+      const kept = await sink.keepBeforeWrite(path, encoded.value, "before-conflict-resolution");
+      if (!kept.ok) return { ok: false, reason: "cannot-reload", message: `Your unsaved version of ${path} could not be kept in history, so the file's version was not loaded: ${kept.message}` };
+      return this.#reloadExternal(external);
+    });
+    this.#queue = run;
+    return run;
+  }
+
+  #reloadExternal(external: { readonly bytes: Uint8Array | null }): ConflictResult {
+    const path = this.identity.path;
     if (external.bytes === null || !this.#load(external.bytes)) {
       return {
         ok: false,
@@ -461,6 +546,10 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     } catch (thrown) {
       return { ok: false, failure: { document: destination, kind: "write", code: null, message: `Could not save ${destination}: its existing content could not be checked: ${thrown instanceof Error ? thrown.message : String(thrown)}` } };
     }
+    if (storage.history !== undefined && previousBytes !== null) {
+      const kept = await storage.history.keepBeforeWrite(destination, previousBytes, "checkpoint");
+      if (!kept.ok) return { ok: false, failure: { document: destination, kind: "write", code: null, message: `Could not save ${destination}: history could not keep the version it would replace, so nothing was written: ${kept.message}` } };
+    }
     let written: PlatformResult<void>;
     try {
       written = await storage.writeProject(target.projectId, destination, bytes);
@@ -474,18 +563,11 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
         failure: { document: destination, kind: "write", code: written.error.code, message: `Could not save ${destination}: ${written.error.message}` },
       };
     }
-    if (storage.recordSave !== undefined) {
-      try {
-        const recorded = await storage.recordSave(destination, bytes, "manual", previousBytes);
-        if (!recorded.ok) return { ok: false, failure: { document: destination, kind: "write", code: recorded.error.code, message: `Saved ${destination}, but history could not be recorded: ${recorded.error.message}` } };
-      } catch (thrown) {
-        return { ok: false, failure: { document: destination, kind: "write", code: null, message: `Saved ${destination}, but history could not be recorded: ${thrown instanceof Error ? thrown.message : String(thrown)}` } };
-      }
-    }
+    await storage.history?.recorded(destination, bytes, "manual", null);
     return { ok: true };
   }
 
-  async #write(path: string, bytes: Uint8Array, revision: number, head: string | null, reason: HistoryReason): Promise<SaveResult> {
+  async #write(path: string, bytes: Uint8Array, revision: number, head: string | null, reason: HistoryReason, groupId: string | null): Promise<SaveResult> {
     try {
       this.#saveError = null;
       if (this.#savedAt === revision && this.#isRevision(revision, head)) return { ok: true };
@@ -509,14 +591,7 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
           // An equal external revision is a valid baseline, but recovery still needs its own successful write.
           this.#disk = onDisk.bytes;
           if (!this.#recoveryRequiresWrite) {
-            if (this.#storage.recordSave !== undefined) {
-              try {
-                const recorded = await this.#storage.recordSave(path, bytes, reason, this.#disk);
-                if (!recorded.ok) return this.#failWrite(path, bytes, recorded.error.code, `The current file matched this save, but history could not be recorded: ${recorded.error.message}`);
-              } catch (thrown) {
-                return this.#failWrite(path, bytes, null, `The current file matched this save, but history could not be recorded: ${thrown instanceof Error ? thrown.message : String(thrown)}`);
-              }
-            }
+            await this.#storage.history?.recorded(path, bytes, reason, groupId);
             this.#savedAt = this.#isRevision(revision, head) ? revision : null;
             return { ok: true };
           }
@@ -524,6 +599,11 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
           const change = this.#raise(onDisk.bytes);
           return this.#fail(this.#conflictFailure(change));
         }
+      }
+      const sink = this.#storage.history;
+      if (sink !== undefined && onDisk.bytes !== null) {
+        const kept = await sink.keepBeforeWrite(path, onDisk.bytes, this.#keptLocalOverExternal ? "before-conflict-resolution" : "checkpoint");
+        if (!kept.ok) return this.#fail({ document: path, kind: "write", code: null, message: `Could not save ${path}: history could not keep the version it would replace, so nothing was written: ${kept.message}` });
       }
       let written: PlatformResult<void>;
       try {
@@ -533,14 +613,10 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
         return this.#failWrite(path, bytes, null, thrown instanceof Error ? thrown.message : String(thrown));
       }
       if (!written.ok) return this.#failWrite(path, bytes, written.error.code, written.error.message);
-      if (this.#storage.recordSave !== undefined) {
-        try {
-          const recorded = await this.#storage.recordSave(path, bytes, reason, this.#disk);
-          if (!recorded.ok) return this.#failWrite(path, bytes, recorded.error.code, `The file was written, but history could not be recorded: ${recorded.error.message}`);
-        } catch (thrown) {
-          return this.#failWrite(path, bytes, null, `The file was written, but history could not be recorded: ${thrown instanceof Error ? thrown.message : String(thrown)}`);
-        }
-      }
+      // The version this write replaced is already in history (kept before the write); the new content is recorded now.
+      // A failed record leaves the file durable and the document clean, and is reported by the sink (D12.10 item 4).
+      await this.#storage.history?.recorded(path, bytes, reason, groupId);
+      this.#keptLocalOverExternal = false;
       this.#disk = bytes;
       this.#failedWrite = null;
       this.#failedWriteMatchesBaseline = false;
@@ -717,7 +793,7 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     let model = this.#base;
     for (let index = 0; index < this.#applied; index += 1) {
       const record = this.#stack[index];
-      if (record !== undefined) model = this.#codec.apply(model, record.command);
+      if (record !== undefined) model = record.restored !== undefined ? record.restored : this.#codec.apply(model, record.command as Command);
     }
     return model;
   }
@@ -749,6 +825,9 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     }
   }
 }
+
+/** A stack entry: a command to replay, or (for a restored version) the model it produced, which no command can express. */
+type StackRecord<Command, Model> = EditRecord<Command> & { readonly restored?: Model };
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return firstDifference(a, b) === null;

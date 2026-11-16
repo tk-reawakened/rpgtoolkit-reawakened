@@ -1,10 +1,12 @@
 import { foldPath, toSlashes } from "@tk-reawakened/core";
 import type { Disposable, DocumentService, FileSystemService, PlatformError, PlatformServices } from "@tk-reawakened/platform-services";
 import { createDocumentIdentity } from "./identity.ts";
-import type { DocumentSnapshot, HistoryResult, OpenError, RevertFailure, SaveFailure, SaveResult } from "./binary-document.ts";
+import type { DocumentHistorySink, DocumentSnapshot, DocumentStorage, HistoryResult, OpenError, RevertFailure, SaveFailure, SaveResult } from "./binary-document.ts";
 import { kindById, kindForPath, type AnyDocument } from "./kinds.ts";
 import { createPendingEdits, type PendingEdits } from "./pending-edits.ts";
-import { createDocumentHistoryStore, type DocumentHistoryStore, type HistoryReason } from "./document-history.ts";
+import { createDocumentHistoryStore, createMemoryHistoryStorage, type DocumentHistoryOptions, type DocumentHistoryStore, type GroupRestoreReport, type HistoryPolicy, type HistoryReason, type HistoryRestorer } from "./document-history.ts";
+import { DEFAULT_HISTORY_POLICY } from "./history-policy.ts";
+import { openHistoryPreview, type HistoryPreviewOpen } from "./history-support.ts";
 
 /**
  * The documents a host has open in one project, and the lifecycle around them that ADR 0022 D3 promises in every host:
@@ -130,8 +132,19 @@ export interface DocumentWorkspace {
   undo(document: AnyDocument): HistoryResult;
   /** Redo the latest undone edit, by its `editId`. */
   redo(document: AnyDocument): HistoryResult;
-  /** Read-only project-wide history and named checkpoints for this workspace. */
+  /** Project-wide history, checkpoint groups and named checkpoints for this workspace (ADR 0022 D12). */
   readonly history: DocumentHistoryStore;
+  /** The storage every document of this workspace is opened with; it carries the history sink, so a host that makes a document itself (a recovered backup) must use it. */
+  readonly storage: DocumentStorage;
+  /**
+   * Restore one history entry (D12.5, D12.10 item 9). An open document takes it as one accepted edit and saves it; a
+   * document with unsaved work asks first. Every file is reported separately, and the restore is itself a group.
+   */
+  restoreHistoryEntry(entryId: string): Promise<GroupRestoreReport>;
+  /** Restore a checkpoint group or named checkpoint, or only `options.only` of it (retry); same rules as `restoreHistoryEntry`. */
+  restoreHistoryGroup(groupId: string, options?: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[] }): Promise<GroupRestoreReport>;
+  /** A read-only document over saved bytes, for a view of the same editor to show (D12.10 item 13). It never edits, saves or reads the project. */
+  openHistoryPreview(path: string, bytes: Uint8Array, description: string): HistoryPreviewOpen;
   /** Save every dirty document, one after another, and report each (D4.1: there is no all-or-nothing save). */
   saveAll(reason?: HistoryReason): Promise<readonly SaveAllEntry[]>;
   /** Close a document with no attached views, asking before losing work; attached views close through their leases. */
@@ -152,6 +165,10 @@ export interface WorkspaceOptions {
   /** The project handle every identity in this workspace is bound to (ADR 0022 D1.1). */
   readonly projectId: string;
   readonly services: Pick<PlatformServices, "fs" | "dialogs" | "capabilities">;
+  /** The retention settings in force (D12.8), read at each save and merge. Defaults to the recorded defaults. */
+  readonly historyPolicy?: () => HistoryPolicy;
+  /** A host's own durable storage for history when the project folder cannot hold it (D12.10 item 8). */
+  readonly historyStorage?: { readonly fs: DocumentHistoryOptions["storage"]; readonly description: string };
 }
 
 /** A Save As of a document whose kind is no longer registered cannot be reopened. */
@@ -163,24 +180,40 @@ interface HostHistory {
   readonly redo: string[];
 }
 
+/** Where this workspace keeps history and under which rules (ADR 0022 D12.10 item 8). */
+function historyOptions(options: WorkspaceOptions): DocumentHistoryOptions {
+  const { fs, capabilities } = options.services;
+  const base = { project: fs, policy: options.historyPolicy ?? (() => DEFAULT_HISTORY_POLICY), coveredType: (path: string) => kindForPath(path) !== null };
+  if (options.historyStorage !== undefined) return { ...base, storage: options.historyStorage.fs, location: { kind: "host-storage", description: options.historyStorage.description } };
+  if (capabilities.has("folderWrite")) return { ...base, storage: fs, location: { kind: "project-folder", description: "Kept in the project's .tkr-history folder, so it travels with the project." } };
+  return { ...base, storage: createMemoryHistoryStorage(), location: { kind: "session-memory", description: "History for this session copy is kept only in this page and is lost when the page closes or the browser clears it." } };
+}
+
 /** Make the workspace of one project. */
 export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWorkspace {
   const { projectId, services } = options;
   const { fs, dialogs } = services;
-  const history = createDocumentHistoryStore({ fs });
-  const documentStorage = {
-    readProject: fs.readProject.bind(fs),
-    writeProject: fs.writeProject.bind(fs),
-    recordSave: async (path: string, bytes: Uint8Array, reason: HistoryReason, previousBytes: Uint8Array | null) => {
-      try {
-        if (previousBytes !== null && (await history.documentTimeline(path)).length === 0) await history.recordSave(path, previousBytes, "checkpoint");
-        await history.recordSave(path, bytes, reason);
-        return { ok: true as const, value: undefined };
-      } catch (error) {
-        return { ok: false as const, error: { code: "io-error", message: error instanceof Error ? error.message : String(error) } };
+  const historyStore = createDocumentHistoryStore(historyOptions(options));
+  const sink: DocumentHistorySink = {
+    async keepBeforeWrite(path, previous, reason) {
+      if (previous === null) return { ok: true };
+      try { await historyStore.keep(path, previous, reason); return { ok: true }; }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        historyStore.reportProblem(path, message);
+        return { ok: false, message };
+      }
+    },
+    async recorded(path, bytes, reason, groupId) {
+      try { await historyStore.recordSave(path, bytes, reason, groupId); historyStore.clearProblems(path); return { ok: true }; }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        historyStore.reportProblem(path, `${path} was saved, but its history could not be recorded: ${message}`);
+        return { ok: false, message };
       }
     },
   };
+  const documentStorage: DocumentStorage = { readProject: fs.readProject.bind(fs), writeProject: fs.writeProject.bind(fs), history: sink };
   const documents = new Map<string, AnyDocument>();
   const opening = new Map<string, Promise<WorkspaceOpenResult>>();
   const savingAs = new Map<string, Promise<void>>();
@@ -312,8 +345,70 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     return { closed: true };
   };
 
+  /** The restorer the history store drives: open documents take a restore as an accepted edit, other files are written. */
+  const restorer = (): HistoryRestorer => ({
+    async current(path) {
+      const open = documents.get(createDocumentIdentity(projectId, path).key);
+      if (open !== undefined && open.getSnapshot().readOnly === null) {
+        await pendingEditsOf(open).settle();
+        return { ok: true, bytes: open.serialize(), unsaved: open.getSnapshot().dirty };
+      }
+      const read = await fs.readProject(projectId, path);
+      if (read.ok) return { ok: true, bytes: read.value, unsaved: false };
+      return read.error.code === "not-found" ? { ok: true, bytes: null, unsaved: false } : { ok: false, message: read.error.message };
+    },
+    async apply(path, bytes, context) {
+      const open = documents.get(createDocumentIdentity(projectId, path).key);
+      if (open !== undefined) {
+        if (bytes === null) return { ok: false, message: `${path} is open. Close it, then retry the restore to remove it.` };
+        const applied = open.restoreVersion(bytes);
+        if (!applied.ok) return { ok: false, message: applied.rejection.message };
+        const edits = historyOf(open.identity.key);
+        edits.undo.push(applied.editId);
+        edits.redo.length = 0;
+        const saved = await open.save("manual", { groupId: context.groupId });
+        return saved.ok ? { ok: true } : { ok: false, message: `The restored version of ${path} is applied in the editor but could not be saved: ${saved.failure.message}` };
+      }
+      if (bytes === null) {
+        const removed = await fs.delete(path);
+        return removed.ok ? { ok: true } : { ok: false, message: removed.error.message };
+      }
+      const written = await fs.writeProject(projectId, path, bytes);
+      if (!written.ok) return { ok: false, message: written.error.message };
+      try { await historyStore.recordSave(path, bytes, "manual", context.groupId); }
+      catch (error) { return { ok: false, message: `${path} was restored, but its history could not be recorded: ${error instanceof Error ? error.message : String(error)}` }; }
+      return { ok: true };
+    },
+  });
+  /** Ask once before a restore replaces unsaved work; `false` means the user declined and nothing changes. */
+  const confirmUnsaved = async (paths: readonly string[]): Promise<boolean> => {
+    const dirty = paths.filter((path) => documents.get(createDocumentIdentity(projectId, path).key)?.getSnapshot().dirty === true);
+    if (dirty.length === 0) return true;
+    const answer = await dialogs.ask({
+      message: `${dirty.join(", ")} ${dirty.length === 1 ? "has" : "have"} unsaved changes.`,
+      detail: "Restore keeps your unsaved version in history first, then replaces it with the restored version. Cancel changes nothing.",
+      choices: [{ id: "restore", label: "Restore" }, { id: "cancel", label: "Cancel" }],
+      cancel: "cancel",
+    });
+    return answer === "restore";
+  };
+  const declined = (groupId: string, paths: readonly string[]): GroupRestoreReport => ({ groupId, restoreGroupId: null, files: paths.map((path) => ({ path, result: "failed" as const, message: "Cancelled: nothing was changed." })) });
+
   return {
-    history,
+    history: historyStore,
+    storage: documentStorage,
+    openHistoryPreview: (path, bytes, description) => openHistoryPreview(projectId, path, bytes, description),
+    async restoreHistoryEntry(entryId) {
+      const entry = (await historyStore.projectTimeline()).find((candidate) => candidate.id === entryId);
+      if (entry !== undefined && !(await confirmUnsaved([entry.path]))) return declined(entryId, [entry.path]);
+      return historyStore.restoreEntry(entryId, restorer());
+    },
+    async restoreHistoryGroup(groupId, restoreOptions) {
+      const group = (await historyStore.groupTimeline()).find((candidate) => candidate.id === groupId);
+      const wanted = group === undefined ? [] : group.before.map((item) => item.path).filter((path) => restoreOptions?.only === undefined || restoreOptions.only.includes(path));
+      if (!(await confirmUnsaved(wanted))) return declined(groupId, wanted);
+      return historyStore.restoreGroup(groupId, restorer(), restoreOptions);
+    },
     document: {
       edited(event) {
         const history = historyOf(event.document);

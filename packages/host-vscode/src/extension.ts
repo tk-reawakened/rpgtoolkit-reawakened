@@ -8,7 +8,7 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
+import { DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
@@ -45,6 +45,15 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
     saveEditor: async (uri) => await vscode.workspace.save(uri),
+    autoSaveDelayMs: (uri) => {
+      const files = vscode.workspace.getConfiguration("files", uri);
+      return files.get<string>("autoSave") === "afterDelay" ? files.get<number>("autoSaveDelay", 1000) : null;
+    },
+    // History retention is user-only (ADR 0022 D6.3): the user's value, never a workspace's.
+    historyPolicy: (folder) => historyPolicyFrom((id) => {
+      const inspected = vscode.workspace.getConfiguration("rpgToolkit", folder.uri).inspect<number>(id);
+      return inspected?.globalValue ?? inspected?.defaultValue;
+    }),
     uriFor: (folder, path) => vscode.Uri.joinPath(folder.uri, ...path.split("/")),
     // `vscode.open` opens the file in the editor registered for it (a board opens in the board editor, by default).
     openEditor: async (uri) => { await vscode.commands.executeCommand("vscode.open", uri); },

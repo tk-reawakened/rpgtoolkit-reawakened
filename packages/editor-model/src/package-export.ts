@@ -5,6 +5,7 @@ import {
   foldPath,
   PACKAGE_LIMITS,
   readMainFile,
+  readZip,
   stripTypeFolder,
   utf8Decode,
   utf8Encode,
@@ -17,6 +18,24 @@ import type { DocumentWorkspace } from "./workspace.ts";
 const RESERVED_HISTORY_FOLDER = ".tkr-history";
 const RESERVED_EXPORT_FOLDER = ".tkr-exports";
 const EDITOR_ONLY_EXTENSIONS = new Set([".tkrscn", ".tkrtile", ".tkrpack"]);
+
+/**
+ * Every entry of a produced archive that the packaging rules exclude (`packaging-and-paths.md`): under `Saved/`, the
+ * reserved history or export folders, a `Main/` file other than the selected main file, a creator test, or an
+ * editor-only file. It is written apart from the inventory filter, so it can catch what that filter lets through.
+ */
+export function producedArchiveViolations(paths: readonly string[], selectedMain: string): readonly string[] {
+  const selected = foldPath(selectedMain);
+  return paths.filter((path) => {
+    const folded = foldPath(path.replaceAll(String.fromCharCode(92), "/"));
+    const parts = folded.split("/");
+    const name = parts.at(-1) ?? "";
+    if (["saved", ".tkr-history", ".tkr-exports"].includes(parts[0] ?? "") && parts.length > 1) return true;
+    if (parts[0] === "main" && parts.length > 1 && folded !== selected) return true;
+    if (name.endsWith(".spec.prg")) return true;
+    return [...EDITOR_ONLY_EXTENSIONS].some((extension) => name.endsWith(extension));
+  });
+}
 
 /** The writer still enforces package limits; inventory also stops before it accumulates an oversized project. */
 interface CollectedFiles {
@@ -190,6 +209,11 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   };
   const archive = writeDistributionPackage({ files: collected.files, manifest });
   if (!archive.ok) return failure(`Package preflight failed: ${archive.error.message}`);
+  // The exclusions are verified on the bytes just produced, not assumed from the inventory filter (ADR 0022 D12.10 item 12).
+  const produced = readZip(archive.value, packageName);
+  if (!produced.ok) return failure(`The produced package could not be read back to verify it: ${produced.error.message}`);
+  const violations = producedArchiveViolations(produced.value.map(({ path }) => path), mainFile.path);
+  if (violations.length > 0) return failure(`The package was not offered because the archive it produced holds files that must never be packaged: ${violations.join(", ")}.`);
 
   const digest = await exportService.sha256(archive.value);
   if (!digest.ok) return failure(`Could not calculate the install descriptor's SHA-256: ${digest.error.message}`);

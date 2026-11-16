@@ -236,14 +236,36 @@ export {
 } from "./program-support.ts";
 export {
   createDocumentHistoryStore,
+  createMemoryHistoryStorage,
+  HISTORY_FOLDER,
+  HistoryError,
+  runCheckpointedOperation,
+  sha256Hex,
+  type Coverage,
   type DocumentHistoryEntry,
+  type DocumentHistoryOptions,
   type DocumentHistoryStore,
-  type GroupRestoreResult,
-  type HistoryCheckpointGroup,
-  type HistoryCheckpointPreview,
+  type FileRestoreReport,
+  type FileRestoreResult,
+  type GroupBefore,
+  type GroupRestoreReport,
+  type HistoryGroup,
+  type HistoryGroupPreview,
+  type HistoryLocation,
+  type HistoryPolicy,
   type HistoryPreview,
+  type HistoryProblem,
   type HistoryReason,
+  type HistoryRestorer,
+  type HistoryUsage,
+  type OperationWrite,
+  type RecordOutcome,
+  type ThinningCandidate,
+  type UncoveredFile,
 } from "./document-history.ts";
+export { DEFAULT_HISTORY_POLICY, HISTORY_DEFAULTS, HISTORY_SETTING_IDS, historyPolicyFrom } from "./history-policy.ts";
+export { acceptIgnoreOffer, diffLines, ignoreOffer, keepBeforeDelete, openHistoryPreview, textOf, type HistoryPreviewOpen, type IgnoreOffer, type LineChange } from "./history-support.ts";
+export type { DocumentHistorySink, SaveOptions, VersionRestoreCommand } from "./binary-document.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   applyMainSettings,

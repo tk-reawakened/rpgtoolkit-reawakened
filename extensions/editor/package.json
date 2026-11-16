@@ -352,6 +352,44 @@
           "default": "#ff0000",
           "pattern": "^#[0-9a-fA-F]{6}$",
           "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
+        },
+        "rpgToolkit.history.autosaveMergeSeconds": {
+          "description": "History: merge autosaves within. Autosaves of one document made within this many seconds of the first one share a single history entry, so a burst of editing does not fill the history. Manual saves are never merged.",
+          "scope": "window",
+          "type": "integer",
+          "default": 10,
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "rpgToolkit.history.autosaveFloorHours": {
+          "description": "History: keep autosave entries for at least (hours). An autosave history entry is offered for thinning only after it is this many hours old. Entries from manual saves, runs, restores, deletes, wizards and checkpoints are kept until you delete them.",
+          "scope": "window",
+          "type": "integer",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 8760
+        },
+        "rpgToolkit.history.warnAtMiB": {
+          "description": "History: warn when a project's history reaches (MiB). When a project's history is larger than this the history view warns you and offers to thin old autosave entries. Nothing is ever removed without your confirmation.",
+          "scope": "window",
+          "type": "integer",
+          "default": 1024,
+          "minimum": 16,
+          "maximum": 1048576
+        },
+        "rpgToolkit.history.maxCoveredFileMiB": {
+          "description": "History: largest file history keeps (MiB). A file larger than this is not kept in history. The history view lists such files so you can see what a restore cannot bring back.",
+          "scope": "window",
+          "type": "integer",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 512
+        },
+        "rpgToolkit.history.offerIgnore": {
+          "description": "History: offer to ignore the history folder in Git. When the project is a Git repository, offer to add the history folder to its .gitignore. Nothing is written unless you accept.",
+          "scope": "window",
+          "type": "boolean",
+          "default": true
         }
       }
     }
@@ -385,7 +423,12 @@
         "rpgToolkit.board.objectColor.program",
         "rpgToolkit.board.objectColor.item",
         "rpgToolkit.board.objectColor.sprite",
-        "rpgToolkit.board.objectColor.vector"
+        "rpgToolkit.board.objectColor.vector",
+        "rpgToolkit.history.autosaveMergeSeconds",
+        "rpgToolkit.history.autosaveFloorHours",
+        "rpgToolkit.history.warnAtMiB",
+        "rpgToolkit.history.maxCoveredFileMiB",
+        "rpgToolkit.history.offerIgnore"
       ],
       "description": "Personal editor preferences set by an untrusted project are ignored."
     }
