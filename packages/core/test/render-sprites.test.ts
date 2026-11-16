@@ -508,7 +508,7 @@ test("E-31: with spriteTranslucency the covered part of a sprite is redrawn tran
     board: covered, tick: 0, camera: { x: 0, y: 0 }, viewport: { width: 128, height: 128 }, alpha: 0,
     include: { shading: false, images: false, sprites: true }, sprites: [sprite],
   } as const;
-  const heroBlits = (list: ReturnType<typeof composeBoard>) => list.commands.filter((c) => c.kind === "blit" && c.source.asset === assetKey("tiles/hero.tst"));
+  const heroBlits = (list: ReturnType<typeof composeBoard>) => list.commands.filter((c) => c.kind === "blit" && "asset" in c.source && c.source.asset === assetKey("tiles/hero.tst"));
 
   equal(heroBlits(composeBoard({ ...view, spriteTranslucency: 0 })).length, 1, "at 0 a covered sprite is simply hidden");
   equal(heroBlits(composeBoard(view)).length, 2, "the default is 50, so the ghost redraw is on");
@@ -521,7 +521,7 @@ test("E-31: with spriteTranslucency the covered part of a sprite is redrawn tran
   equal(redraw.blend, "translucent", "a normal blit would replace pixels and ignore alpha");
   deepEqual(redraw.dst, { x: 32, y: 32, w: 24, h: 32 });
   deepEqual(redraw.src, { x: 8, y: 0, w: 24, h: 32 });
-  const lastTile = list.commands.map((c, i) => (c.kind === "blit" && c.source.asset === assetKey("tiles/layer2.tst") ? i : -1)).reduce((a, b) => Math.max(a, b));
+  const lastTile = list.commands.map((c, i) => (c.kind === "blit" && "asset" in c.source && c.source.asset === assetKey("tiles/layer2.tst") ? i : -1)).reduce((a, b) => Math.max(a, b));
   equal(list.commands.indexOf(redraw) > lastTile, true, "the translucent redraw follows the covering tiles");
 });
 
@@ -548,7 +548,7 @@ test("E-31: a sprite hidden by under-vector promotion is shown through the promo
     vectors: [{ points: [{ x: 10, y: 30 }, { x: 60, y: 30 }, { x: 60, y: 40 }, { x: 10, y: 40 }], attributes: 4, closed: 1, layer: 1, type: 2, handle: "under1" }],
   };
   const view = { board, tick: 0, camera: { x: 0, y: 0 }, viewport: { width: 128, height: 128 }, alpha: 0, include: { shading: false, images: false, sprites: true }, sprites: [sprite] } as const;
-  const hero = (list: ReturnType<typeof composeBoard>) => list.commands.filter((c) => c.kind === "blit" && c.source.asset === assetKey("tiles/hero.tst"));
+  const hero = (list: ReturnType<typeof composeBoard>) => list.commands.filter((c) => c.kind === "blit" && "asset" in c.source && c.source.asset === assetKey("tiles/hero.tst"));
   equal(hero(composeBoard({ ...view, spriteTranslucency: 0 })).length, 1);
   const list = composeBoard({ ...view, spriteTranslucency: 25 });
   const through = hero(list).slice(1);
