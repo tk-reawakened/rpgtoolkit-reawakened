@@ -446,20 +446,24 @@ async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: s
 }
 
 async function verifyBoardHistoryPreview(page: Page, expect: Expect): Promise<void> {
-  const boardFrames: Frame[] = [];
-  for (const frame of page.frames()) {
-    if (await frame.getByRole("region", { name: "Board", exact: true }).count() > 0) boardFrames.push(frame);
-  }
-  expect(boardFrames).toHaveLength(2);
-  const readOnlyFrames: Frame[] = [];
-  const writableFrames: Frame[] = [];
-  for (const frame of boardFrames) {
-    if (await frame.getByRole("note").filter({ hasText: "Read only:" }).count() > 0) readOnlyFrames.push(frame);
-    else writableFrames.push(frame);
-  }
-  expect(readOnlyFrames).toHaveLength(1);
-  expect(writableFrames).toHaveLength(1);
-  const preview = readOnlyFrames[0]!;
+  let preview: Frame | undefined;
+  await expect.poll(async () => {
+    const boardFrames: Frame[] = [];
+    for (const frame of page.frames()) {
+      const board = frame.getByRole("region", { name: "Board", exact: true });
+      if (await board.count() > 0 && await board.isVisible().catch(() => false)) boardFrames.push(frame);
+    }
+    const readOnlyFrames: Frame[] = [];
+    const writableFrames: Frame[] = [];
+    for (const frame of boardFrames) {
+      const note = frame.getByRole("note").filter({ hasText: "Read only:" });
+      if (await note.count() > 0 && await note.isVisible().catch(() => false)) readOnlyFrames.push(frame);
+      else writableFrames.push(frame);
+    }
+    preview = readOnlyFrames[0];
+    return boardFrames.length === 2 && readOnlyFrames.length === 1 && writableFrames.length === 1;
+  }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  if (preview === undefined) throw new Error("The native History preview did not mount alongside its writable originating board editor.");
   const previewState = preview.locator(".tkr-board-preview-state");
   await expect.poll(async () => {
     const status = await previewState.textContent().catch(() => null);
