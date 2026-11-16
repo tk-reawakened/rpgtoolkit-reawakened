@@ -202,6 +202,16 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   });
   const control = useRef(initialControl);
   const host = useRef<HTMLDivElement>(null);
+  const referenceSearch = useRef<HTMLInputElement>(null);
+  const referenceToggle = useRef<HTMLButtonElement>(null);
+  const openReference = (): void => {
+    setShowReference(true);
+    queueMicrotask(() => referenceSearch.current?.focus());
+  };
+  const closeReference = (): void => {
+    setShowReference(false);
+    queueMicrotask(() => referenceToggle.current?.focus());
+  };
   const tracker = useMemo(() => createEditTracker(), []);
   const commandQueue = useRef<Promise<void>>(Promise.resolve());
   const queuedCommands = useRef(0);
@@ -793,7 +803,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
             <button type="button" class="tkr-program-save" disabled={readOnly} onClick={() => void save()}>Save</button>
             <button type="button" class="tkr-program-header" disabled={readOnly} onClick={insertHeader}>Insert header</button>
             <button type="button" class="tkr-program-toggle-bookmarks" aria-pressed={showBookmarks} aria-controls={bookmarkId} onClick={() => setShowBookmarks(!showBookmarks)}>Bookmarks</button>
-            <button type="button" class="tkr-program-toggle-reference" aria-pressed={showReference} aria-controls={referenceId} onClick={() => setShowReference(!showReference)}>Command reference</button>
+            <button ref={referenceToggle} type="button" class="tkr-program-toggle-reference" aria-pressed={showReference} aria-controls={referenceId} onClick={showReference ? closeReference : openReference}>Command reference</button>
             <button type="button" class="tkr-program-focus" onClick={() => { setFocusMode(true); control.current.surface?.focus(); }}>Distraction-free</button>
           </div>
           {snapshot.readOnly === null ? null : <p class="tkr-program-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
@@ -841,12 +851,16 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         )}
         <div class="tkr-program-text" ref={host} />
         {focusMode || !showReference ? null : (
-          <aside id={referenceId} class="tkr-program-reference" aria-label="Command reference">
+          <aside id={referenceId} class="tkr-program-reference" aria-label="RPGCode quick reference">
+            <div class="tkr-program-reference-heading">
+              <h3>RPGCode quick reference</h3>
+              <button type="button" onClick={closeReference}>Close reference</button>
+            </div>
             <label>
               Find a command
-              <input type="search" value={query} onInput={(event) => setQuery(event.currentTarget.value)} />
+              <input ref={referenceSearch} type="search" value={query} onInput={(event) => setQuery(event.currentTarget.value)} />
             </label>
-            <p class="tkr-program-reference-hint">Double-click a command to insert it at the cursor.</p>
+            <p class="tkr-program-reference-hint">Search built-in names, syntax, descriptions, or groups. Select a command to read its description, then use Insert to add it at the cursor.</p>
             <ul class="tkr-program-reference-list">
               {visible.map((entry) => (
                 <li key={entry.name}>

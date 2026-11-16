@@ -14,6 +14,8 @@ import {
 } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { AUTHORING_GUIDE_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
+import { focusedFieldHelp, HelpDocument, type HelpInvokerRef } from "./help-document.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
 
 export type { CommandCategory, CommandPaletteFileEntry, CommandRegistry, WorkbenchCommand };
@@ -43,6 +45,17 @@ function triggerHostButton(selector: string): boolean {
   return true;
 }
 
+/** Open the active program's shared reference without closing a panel that is already open. */
+function openProgramReference(program: HTMLElement | null): boolean {
+  if (typeof document === "undefined") return false;
+  const scope: ParentNode = program !== null && program.isConnected ? program : document;
+  const toggle = scope.querySelector<HTMLButtonElement>(".tkr-program-toggle-reference");
+  if (toggle === null) return false;
+  if (toggle.getAttribute("aria-pressed") !== "true") toggle.click();
+  queueMicrotask(() => scope.querySelector<HTMLInputElement>(".tkr-program-reference input[type=search]")?.focus());
+  return true;
+}
+
 /**
  * Shared IDE Application Menu (`☰` File / Edit / Selection / View / Go / Run / Help) and Command Palette
  * (`Ctrl+Shift+P` / `Cmd+Shift+P` / `F1`) backed by `@tk-reawakened/editor-model` `CommandRegistry` (#2703).
@@ -67,9 +80,23 @@ export function WorkbenchCommandBar({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [projectFiles, setProjectFiles] = useState<readonly CommandPaletteFileEntry[]>([]);
+  const [helpDocument, setHelpDocument] = useState<{ readonly title: string; readonly markdown: string } | null>(null);
+  const [helpNotice, setHelpNotice] = useState<string | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
+  const lastProgramViewRef = useRef<HTMLElement | null>(null);
+  const helpInvokerRef = useRef<HTMLElement | null>(null) as HelpInvokerRef;
+  useEffect(() => {
+    const rememberProgramView = (event: FocusEvent): void => {
+      if (!(event.target instanceof Element)) return;
+      const view = event.target.closest<HTMLElement>(".tkr-program");
+      if (view !== null) lastProgramViewRef.current = view;
+    };
+    document.addEventListener("focusin", rememberProgramView);
+    return () => document.removeEventListener("focusin", rememberProgramView);
+  }, []);
 
   useEffect(() => {
     let current = true;
@@ -95,11 +122,11 @@ export function WorkbenchCommandBar({
     setPaletteOpen(true);
   };
 
-  const closePalette = (): void => {
+  const closePalette = (restoreFocus = true): void => {
     setPaletteOpen(false);
     const target = invokerRef.current;
     invokerRef.current = null;
-    if (target !== null && target.isConnected) queueMicrotask(() => target.focus());
+    if (restoreFocus && target !== null && target.isConnected) queueMicrotask(() => target.focus());
   };
 
   useEffect(() => {
@@ -111,10 +138,21 @@ export function WorkbenchCommandBar({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || document.querySelector(".tkr-help-document[open]") !== null) return;
       const cmdOrCtrl = event.ctrlKey || event.metaKey;
-      if (event.key === "F1" || (cmdOrCtrl && event.shiftKey && event.key.toLowerCase() === "p")) {
+      if (event.key === "F1") {
         event.preventDefault();
+        event.stopPropagation();
+        const helpTarget = event.target instanceof Element ? event.target : document.activeElement;
+        const fieldHelp = focusedFieldHelp(helpTarget);
+        if (fieldHelp !== null) {
+          helpInvokerRef.current = helpTarget instanceof HTMLElement ? helpTarget : null;
+          setHelpDocument(fieldHelp);
+        } else if (paletteOpen) closePalette();
+        else openPalette("");
+      } else if (cmdOrCtrl && event.shiftKey && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        event.stopPropagation();
         if (paletteOpen) closePalette();
         else openPalette("");
       } else if (event.key === "Escape" && menuOpen) {
@@ -122,8 +160,8 @@ export function WorkbenchCommandBar({
         setMenuOpen(false);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [paletteOpen, menuOpen]);
 
   useEffect(() => {
@@ -188,7 +226,31 @@ export function WorkbenchCommandBar({
       onToggleSecondView: () => { triggerHostButton("#mirror-view"); },
       onOpenPalette: (prefix) => openPalette(prefix),
     });
-    return createCommandRegistry([...standard, ...extraCommands]);
+    return createCommandRegistry([...standard, ...extraCommands,
+      {
+        id: "help.rpgcodeReference",
+        category: "Help",
+        label: "Open RPGCode Quick Reference",
+        run: () => {
+          if (!openProgramReference(lastProgramViewRef.current)) {
+            setHelpNotice("Open a program to search and insert RPGCode built-ins.");
+            queueMicrotask(() => menuButtonRef.current?.focus());
+          }
+        },
+      },
+      {
+        id: "help.manual",
+        category: "Help",
+        label: "Open RPGCode authoring guide",
+        run: () => setHelpDocument({ title: "RPGCode program authoring", markdown: AUTHORING_GUIDE_MARKDOWN }),
+      },
+      {
+        id: "help.whatsNew",
+        category: "Help",
+        label: "What's New",
+        run: () => setHelpDocument({ title: "What's New", markdown: WHATS_NEW_MARKDOWN }),
+      },
+    ]);
   }, [layout, tabs, workspace, onNewBoard, onOpenPreferences, onOpenProject, extraCommands]);
 
   const registry = externalRegistry ?? defaultRegistry;
@@ -198,8 +260,19 @@ export function WorkbenchCommandBar({
   const clampedIndex = filtered.length === 0 ? 0 : Math.min(selectedIndex, filtered.length - 1);
 
   const runCommand = (item: WorkbenchCommand): void => {
-    setMenuOpen(false);
-    setPaletteOpen(false);
+    const fromPalette = paletteOpen;
+    if (item.id === "help.manual" || item.id === "help.whatsNew") {
+      helpInvokerRef.current = fromPalette ? invokerRef.current : menuButtonRef.current;
+    }
+    if (fromPalette) {
+      const invoker = invokerRef.current;
+      closePalette(false);
+      if (invoker !== null && invoker.isConnected) invoker.focus();
+    } else {
+      setMenuOpen(false);
+      // Give host actions their real invoker before they open UI that owns focus and later returns it.
+      menuButtonRef.current?.focus();
+    }
     void item.run();
   };
 
@@ -209,6 +282,7 @@ export function WorkbenchCommandBar({
     <div class="tkr-command-bar">
       <div ref={menuWrapRef} class="tkr-app-menu-wrap">
         <button
+          ref={menuButtonRef}
           type="button"
           class="tkr-app-menu-button"
           aria-label="Application menu"
@@ -332,6 +406,15 @@ export function WorkbenchCommandBar({
           </div>
         </div>
       ) : null}
+      {helpDocument === null ? null : (
+        <HelpDocument
+          title={helpDocument.title}
+          markdown={helpDocument.markdown}
+          invoker={helpInvokerRef}
+          onClose={() => setHelpDocument(null)}
+        />
+      )}
+      {helpNotice === null ? null : <p class="tkr-help-notice" role="status">{helpNotice}</p>}
     </div>
   );
 }

@@ -27,7 +27,7 @@
 
 **T-08 Preferences.** Editor background image, splash screen and tip-of-the-day toggles, UI language (only English shipped), syntax colours, board-editor colours and behaviour.
 
-**T-09 Onboarding & help.** Tip of the day, a 9-step tutorial, the HTML user manual, an RPGCode quick reference, and a "what's new" page.
+**T-09 Onboarding & help.** Tip of the day, a 9-step tutorial, the HTML user manual, an RPGCode quick reference, and a "what's new" page. Story 11.11 connects the workspace Help menu and command palette to the shared searchable quick reference, a TOOL-10-sourced RPGCode authoring guide, and the current Unreleased changelog. Focused settings expose their existing accessible descriptions with F1; tip-of-the-day and tutorial presentation belong to Epic 14.
 
 ### Reawakened rules for the new-project wizard (story 11.10)
 

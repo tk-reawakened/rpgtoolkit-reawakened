@@ -1,4 +1,6 @@
+import { webCheckpointEnvironment } from "./checkpoints.ts";
 import {
+  createAnimationFile, createCheckpointGroups,
   asksBeforeCreating,
   createAssetPicker,
   createBoardFile,
@@ -34,7 +36,7 @@ import {
   type VisitResult,
   type Visits,
 } from "@tk-reawakened/editor-model";
-import { mountAssetPicker, mountNewBoard, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
@@ -88,6 +90,7 @@ export interface Workbench {
    * Resolves with the new program's path, or `null` when nothing was made (cancelled, refused or failed; a refusal is said in a dialog).
    */
   newProgram(): Promise<string | null>;
+  newAnimation(): Promise<string | null>;
   /** The layout as identifiers and numbers. */
   saveLayout(): SavedLayout;
   dispose(): void;
@@ -265,6 +268,26 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     return result.path;
   };
 
+  const newAnimation = async (): Promise<string | null> => {
+    const path = await services.dialogs.pickSavePath({ document: "the new animation", suggested: "Misc/new-animation.anm" });
+    if (path === null) return null;
+    const result = await createAnimationFile(webCheckpointEnvironment(project), path);
+    if (!result.ok) { await tell(result.error.message); return null; }
+    if (result.value.files.some((file) => file.status !== "written")) { await tell("Animation creation stopped. Open Project recovery to review and retry."); return null; }
+    await tree.refresh(); await openPath(result.value.files[0]!.path);
+    return result.value.files[0]!.path;
+  };
+  const recovery = (): void => {
+    const dialog = document.createElement("dialog");
+    const content = document.createElement("div");
+    const close = document.createElement("button"); close.textContent = "Close recovery";
+    dialog.append(content, close); element.append(dialog);
+    const view = mountCheckpoints(content, createCheckpointGroups(webCheckpointEnvironment(project)));
+    const dispose = (): void => { view.dispose(); dialog.remove(); void tree.refresh(); };
+    close.addEventListener("click", () => dialog.close()); dialog.addEventListener("close", dispose, { once: true });
+    dialog.showModal();
+  };
+
   const launcher = createLauncher({ services, workspace });
   const shellWorkspace = {
     ...workspace,
@@ -304,6 +327,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         : result.ok ? { ok: true } : { ok: false, message: result.error.message };
     },
     onNewBoard: () => { void newBoard(); },
+    onNewAnimation: () => { void newAnimation(); },
+    onRecovery: recovery,
     onNewProgram: () => { void newProgram(); },
     onOpenPreferences: () => { workbench.openPreferences(); },
     onEditorElement: (editorElement) => {
@@ -392,6 +417,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     },
     newBoard,
     newProgram,
+    newAnimation,
     saveLayout,
     dispose() {
       openPrefs?.();

@@ -326,3 +326,18 @@ test("createFolder makes empty folders that list, stat, rename and delete like f
   host.failWrites({ code: "io-error", message: "disk full" });
   equal(await code(host.fs.createFolder("Later")), "io-error", "a refused host refuses folders as it refuses files");
 });
+
+test("project-bound deletion stays on its accepted project and refuses later retired calls", async () => {
+  const original = createMemoryPlatformServices({ files: { "created.tbm": bytes(1), "kept.tbm": bytes(2) } });
+  const other = createMemoryPlatformServices({ files: { "created.tbm": bytes(3) } });
+  let active = true;
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  const fs = bindProjectFileSystem("original", { ...original.fs, delete: async (path) => { await wait; return original.fs.delete(path); } }, () => active);
+  const pending = fs.deleteProject("original", "created.tbm");
+  active = false; release();
+  ok((await pending).ok); equal(original.bytesOf("created.tbm"), undefined); deepEqual(other.bytesOf("created.tbm"), bytes(3));
+  equal((await fs.deleteProject("original", "kept.tbm")).ok, false);
+  equal((await fs.listProject("original", "")).ok, false); equal((await fs.statProject("original", "kept.tbm")).ok, false);
+  deepEqual(original.bytesOf("kept.tbm"), bytes(2));
+});

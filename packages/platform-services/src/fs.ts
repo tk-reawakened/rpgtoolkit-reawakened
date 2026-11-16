@@ -16,6 +16,10 @@ export interface FileSystemService {
   read(path: string): Promise<PlatformResult<Uint8Array>>;
   /** Read only from the identified project. The host binds the operation to that project through completion. */
   readProject(projectId: string, path: string): Promise<PlatformResult<Uint8Array>>;
+  /** Project-bound enumeration, metadata and deletion; accepted operations retain their original project. */
+  listProject(projectId: string, path: string): Promise<PlatformResult<readonly DirectoryEntry[]>>;
+  statProject(projectId: string, path: string): Promise<PlatformResult<FileStat>>;
+  deleteProject(projectId: string, path: string): Promise<PlatformResult<void>>;
   /** Write only to the identified project; a project mismatch fails without changing either project. */
   writeProject(projectId: string, path: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
   /**
@@ -46,7 +50,7 @@ export interface FileSystemService {
 /** Add project-identified operations to a filesystem permanently bound to one project. */
 export function bindProjectFileSystem(
   projectId: string,
-  fs: Omit<FileSystemService, "readProject" | "writeProject">,
+  fs: Omit<FileSystemService, "readProject" | "writeProject" | "listProject" | "statProject" | "deleteProject">,
   isActive: () => boolean = () => true,
 ): FileSystemService {
   return {
@@ -58,6 +62,12 @@ export function bindProjectFileSystem(
     delete: (path) => fs.delete(path),
     rename: (from, to) => fs.rename(from, to),
     watch: (path, onChange) => fs.watch(path, onChange),
+    listProject: (requested, path) => requested === projectId && isActive()
+      ? fs.list(path) : Promise.resolve(platformError("unavailable", "The document's project is unavailable.")),
+    statProject: (requested, path) => requested === projectId && isActive()
+      ? fs.stat(path) : Promise.resolve(platformError("unavailable", "The document's project is unavailable.")),
+    deleteProject: (requested, path) => requested === projectId && isActive()
+      ? fs.delete(path) : Promise.resolve(platformError("unavailable", "The document's project is unavailable.")),
     readProject: (requested, path) => requested === projectId && isActive()
       ? fs.read(path) : Promise.resolve(platformError("unavailable", "The document's project is unavailable.")),
     writeProject: (requested, path, bytes) => requested === projectId && isActive()

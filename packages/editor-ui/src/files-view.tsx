@@ -19,6 +19,8 @@ export interface FilesViewProps {
   /** Ask the host for the new-board questions (T-20); the button is shown only when the host can answer. */
   readonly onNewBoard?: () => void;
   /** Make a new program (T-40); the host asks for its name and opens it. */
+  readonly onNewAnimation?: () => void;
+  readonly onRecovery?: () => void;
   readonly onNewProgram?: () => void;
 }
 
@@ -36,7 +38,7 @@ function routeNote(row: TreeRow): string {
  * so nothing needs a pointer or a context menu. A refusal or a host failure is shown in a live region; nothing is
  * renamed or deleted without the tree's own checks and, for delete, the user's confirmation.
  */
-export function FilesView({ tree, fs, onOpened, onNewBoard, onNewProgram, onPackage, onDownload }: FilesViewProps) {
+export function FilesView({ tree, fs, onOpened, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onPackage, onDownload }: FilesViewProps) {
   const snapshot = useDocumentSnapshot(tree);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -197,6 +199,8 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onNewProgram, onPack
       </h2>
       <div class="tkr-files-toolbar" role="toolbar" aria-label="File actions">
         {onNewBoard === undefined ? null : <button type="button" class="tkr-files-new-board" disabled={busy} onClick={onNewBoard}>New board…</button>}
+        {onNewAnimation === undefined ? null : <button type="button" disabled={busy} onClick={onNewAnimation}>New animation…</button>}
+        {onRecovery === undefined ? null : <button type="button" disabled={busy} onClick={onRecovery}>Project recovery…</button>}
         {onNewProgram === undefined ? null : <button type="button" class="tkr-files-new-program" disabled={busy} onClick={onNewProgram}>New program…</button>}
         <button type="button" class="tkr-files-refresh" disabled={busy} onClick={() => run(() => tree.refresh())}>Refresh</button>
         <button type="button" class="tkr-files-collapse" onClick={() => tree.collapseAll()}>Collapse all</button>

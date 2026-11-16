@@ -1,7 +1,7 @@
 // The shell of story 11.4 over the real workspace, tree, tabs, layout and the in-memory host, under the same DOM shim
 // as the other view tests: the Files and Game panels, the tab strip, the resizable workbench and the asset picker.
 // Assertions are on the DOM and on bytes. Every action is driven from the keyboard as well as by button.
-import { after, before, test } from "node:test";
+import { afterEach, after, before, test } from "node:test";
 import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
@@ -21,6 +21,7 @@ let mountShell: Index["mountShell"];
 let mountAssetPicker: Index["mountAssetPicker"];
 let mountEmptyExplorer: Index["mountEmptyExplorer"];
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
+const shellDisposers: Array<() => void> = [];
 
 before(async () => {
   GlobalRegistrator.register();
@@ -29,6 +30,13 @@ before(async () => {
 });
 
 after(() => GlobalRegistrator.unregister());
+
+afterEach(async () => {
+  const dispose = shellDisposers.splice(0);
+  await act(() => { for (const disposeShell of dispose) disposeShell(); });
+  document.body.replaceChildren();
+});
+
 
 const FILES = {
   "Main/example.gam": exampleMain(9),
@@ -76,8 +84,9 @@ async function setup(
   let slot: HTMLElement | null = null;
   const packageCalls: string[] = [];
   const downloadCalls: string[] = [];
+  let disposeShell = (): void => {};
   await act(() => {
-    mountShell(el, {
+    const shellHandle = mountShell(el, {
       layout,
       tabs,
       tree,
@@ -113,7 +122,9 @@ async function setup(
       },
       onEditorElement: (element) => { slot = element; },
     });
+    disposeShell = () => shellHandle.dispose();
   });
+  shellDisposers.push(disposeShell);
   await settle();
   return { host, el, opened, layout, tabs, tree, workspace, editorSlot: () => slot, openPaths, packageCalls, downloadCalls };
 }
@@ -488,6 +499,58 @@ test("the application menu, command palette, collapsible Game accordion, and Emp
   await key(dialog, "Enter");
   ok(s.openPaths.includes("Boards/village.brd"), "Command palette opens matching project file on Enter");
 
+  // The workspace Help menu exposes repository-owned authoring and release notes as safe, focus-returning documents.
+  await click(appMenuBtn);
+  const helpCat = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("Help"))!;
+  await click(helpCat);
+  ok([...s.el.querySelectorAll(".tkr-app-menu-item")].some((node) => node.textContent?.includes("Open RPGCode Quick Reference")));
+  const manual = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-item")].find((node) => node.textContent?.includes("authoring guide"))!;
+  await click(manual);
+  const helpDialog = s.el.querySelector<HTMLDialogElement>("dialog.tkr-help-document")!;
+  ok(helpDialog.hasAttribute("open"));
+  match(helpDialog.textContent ?? "", /RPGCode program authoring/);
+  match(helpDialog.textContent ?? "", /same catalogue as hover/);
+  await click(button(s.el, "Close help"));
+  await settle();
+  equal(document.activeElement, appMenuBtn, "closing help returns focus to the application menu");
+  await click(appMenuBtn);
+  await click([...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("Help"))!);
+  const whatsNew = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-item")].find((node) => node.textContent?.includes("What's New"))!;
+  await click(whatsNew);
+  const whatsNewDialog = s.el.querySelector<HTMLDialogElement>("dialog.tkr-help-document")!;
+  match(whatsNewDialog.textContent ?? "", /Program editor insertions/);
+  const releaseLink = whatsNewDialog.querySelector<HTMLAnchorElement>('a[href^="https://github.com/tk-reawakened/rpgtoolkit-reawakened/"]');
+  ok(releaseLink !== null);
+  equal(releaseLink?.getAttribute("rel"), "noopener noreferrer");
+  await click(button(s.el, "Close help"));
+  await settle();
+  equal(document.activeElement, appMenuBtn, "closing What's New returns focus to the application menu");
+  const field = document.createElement("input");
+  field.setAttribute("aria-describedby", "contextual-field-help");
+  const fieldRow = document.createElement("div");
+  fieldRow.className = "tkr-pref";
+  fieldRow.innerHTML = '<label class="tkr-pref-label" for="contextual-field">Editor theme</label><p id="contextual-field-help">Choose the editor colour theme. [bad](https://evil.example/)</p>';
+  field.id = "contextual-field";
+  fieldRow.append(field);
+  s.el.append(fieldRow);
+  field.focus();
+  equal(document.activeElement, field, "the settings control receives focus");
+  equal(field.closest(".tkr-pref"), fieldRow, "the input belongs to a preference field");
+  equal(field.labels?.[0]?.textContent?.trim(), "Editor theme", "the preference field has a label");
+  const f1 = new KeyboardEvent("keydown", { key: "F1", bubbles: true, cancelable: true });
+  await act(() => { field.dispatchEvent(f1); });
+  equal(f1.defaultPrevented, true, "F1 is captured before the host handles it");
+  await settle();
+  const fieldDialog = s.el.querySelector<HTMLDialogElement>("dialog.tkr-help-document")!;
+  match(fieldDialog.textContent ?? "", /Editor theme/);
+  match(fieldDialog.textContent ?? "", /Choose the editor colour theme/);
+  const fieldSource = fieldDialog.querySelector<HTMLAnchorElement>('a[href^="https://github.com/tk-reawakened/rpgtoolkit-reawakened/"]');
+  ok(fieldSource !== null);
+  equal(fieldSource?.getAttribute("rel"), "noopener noreferrer");
+  equal(fieldDialog.querySelector('a[href^="https://evil.example/"]'), null, "unapproved external destinations remain inert text");
+  await click(button(s.el, "Close help"));
+  await settle();
+  equal(document.activeElement, field, "field help returns focus to the exact setting control");
   // EmptyExplorerView renders "No Game Opened" state and invokes open/reopen callbacks
   const emptyEl = document.createElement("div");
   document.body.append(emptyEl);

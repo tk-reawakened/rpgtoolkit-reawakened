@@ -20,5 +20,8 @@
     "@vscode/test-web": "0.0.81",
     "preact": "11.2.0",
     "typescript": "5.9.3"
+  },
+  "exports": {
+    "./animation-proof": "./animation-proof.ts"
   }
 }

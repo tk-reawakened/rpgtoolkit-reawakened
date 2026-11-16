@@ -729,6 +729,34 @@ test("the command reference filters, and inserting replaces the selection with n
   equal(area(s.el).selectionStart, "mwin(".length);
   equal(area(s.el).selectionEnd, written.length - 1);
 });
+
+test("quick reference opens on search, closes to its toggle, and insertion returns focus to the program", async () => {
+  const s = await setup({ content: "before\n" });
+  show(s);
+  const toggle = named(s.el, "Command reference");
+  s.el.querySelector<HTMLButtonElement>(".tkr-program-reference button")!.click();
+  await settled();
+  toggle.click();
+  await settled();
+  const search = s.el.querySelector<HTMLInputElement>(".tkr-program-reference input[type=search]")!;
+  equal(document.activeElement, search);
+  await act(() => {
+    search.value = "mwin";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const row = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-program-reference-list button")].find((item) => /^mwin\(/i.test(item.textContent ?? ""))!;
+  row.click();
+  await settled();
+  const insert = named(s.el, "Insert mwin");
+  insert.click();
+  await settled();
+  equal(document.activeElement, area(s.el));
+  match(textOf(s), /mwin\(/);
+  const close = s.el.querySelector<HTMLButtonElement>(".tkr-program-reference button")!;
+  close.click();
+  await settled();
+  equal(document.activeElement, toggle);
+});
 test("command insertion still reaches the document when its tab is disposed before the queued command runs", async () => {
   const s = await setup({ content: "before\n" });
   const gate = deferred<void>();

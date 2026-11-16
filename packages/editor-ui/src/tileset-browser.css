@@ -2582,3 +2582,79 @@
     background-color: Highlight;
   }
 }
+.tkr-help-document {
+  inline-size: min(54rem, 92vw);
+  max-block-size: min(84vh, 48rem);
+  padding: 0;
+  color: var(--tkr-fg-primary);
+  background: var(--tkr-bg-elevated);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-lg);
+  box-shadow: var(--tkr-shadow-modal);
+}
+
+.tkr-help-document::backdrop {
+  background: color-mix(in srgb, #000 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.tkr-help-document-header {
+  position: sticky;
+  inset-block-start: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--tkr-bg-elevated);
+  border-block-end: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-help-document-header h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.tkr-help-document-close {
+  flex: 0 0 auto;
+}
+
+.tkr-help-document-body {
+  padding: 0.5rem 1.25rem 1.5rem;
+  overflow: auto;
+  line-height: 1.55;
+}
+
+.tkr-help-document-body h2,
+.tkr-help-document-body h3 {
+  margin-block: 1.25rem 0.5rem;
+}
+
+.tkr-help-document-body p,
+.tkr-help-document-body ul,
+.tkr-help-document-body ol {
+  max-inline-size: 75ch;
+}
+
+.tkr-help-document-body li + li {
+  margin-block-start: 0.4rem;
+}
+
+.tkr-help-document-body a {
+  color: var(--tkr-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.tkr-help-document-body pre {
+  overflow: auto;
+  padding: 0.75rem;
+  background: var(--tkr-bg-surface);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+}
+
+.tkr-help-document :focus-visible {
+  outline: 2px solid var(--tkr-accent);
+  outline-offset: 2px;
+}

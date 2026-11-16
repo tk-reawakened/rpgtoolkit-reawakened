@@ -1,3 +1,4 @@
+import { registerAnimationCommands } from "./animation-commands.ts";
 import * as vscode from "vscode";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { vscodeCapabilities } from "./capabilities.ts";
@@ -16,7 +17,7 @@ import { runHistoryCommand } from "./history-command.ts";
 import { createProjectWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
-const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap"] as const;
+const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation"] as const;
 
 /** A custom editor is active in the workbench without a TextEditor; its tab input still carries the project URI. */
 function activeCustomEditorUri(): vscode.Uri | undefined {
@@ -56,6 +57,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
   registerPackageGameCommand(context);
+  registerAnimationCommands(context, () => generation);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
   const port: GameEditorPort<vscode.Uri> = {
@@ -72,6 +74,9 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       return destination.toString();
     },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
+    isTextDocumentOpen: (uri) => vscode.workspace.textDocuments.some((document) => !document.isClosed
+      && document.uri.scheme === uri.scheme && document.uri.authority === uri.authority
+      && createDocumentIdentity("", document.uri.path).key === createDocumentIdentity("", uri.path).key),
     saveEditor: async (uri) => await vscode.workspace.save(uri),
     autoSaveDelayMs: (uri) => {
       const files = vscode.workspace.getConfiguration("files", uri);

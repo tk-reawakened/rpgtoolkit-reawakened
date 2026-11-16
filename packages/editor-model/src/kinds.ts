@@ -1,10 +1,11 @@
-import { BinaryReader, foldPath, readCharacter, readItem } from "@tk-reawakened/core";
+import { BinaryReader, foldPath, readAnimation, readCharacter, readItem } from "@tk-reawakened/core";
 import { boardCodec, createBoardDocument, openBoardDocument, type BoardCommand, type BoardDocument } from "./board-document.ts";
 import type { DocumentSnapshot, DocumentStorage, EditorDocument, OpenResult } from "./binary-document.ts";
 import { characterSpriteCodec, createSpriteDocument, openSpriteDocument, type SpriteCommand, type SpriteDocument } from "./sprite-document.ts";
 import type { DocumentIdentity } from "./identity.ts";
 import { createMainDocument, mainCodec, openMainDocument, type MainCommand, type MainDocument } from "./main-document.ts";
 import { createTilesetArtDocument, openTilesetArtDocument, tilesetArtCodec, type TilesetArtCommand } from "./tileset-art-document.ts";
+import { animationCodec, createAnimationDocument, openAnimationDocument, type AnimationCommand, type AnimationDocument } from "./animation-document.ts";
 import { createProgramDocument, openProgramDocument, programCodec, type ProgramCommand, type ProgramDocument } from "./program-document.ts";
 import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type TileBitmapCommand, type TileBitmapDocument } from "./tile-bitmap-document.ts";
 
@@ -17,7 +18,7 @@ import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
@@ -111,6 +112,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     recoveryMarker: () => null,
   },
   {
+    id: "animation",
+    label: "Animation",
+    description: "A frame sequence with image, transparency, sound, size and delay.",
+    extensions: [".anm"],
+    storage: "legacy-binary",
+    open: openAnimationDocument,
+    create: createAnimationDocument,
+    summarise: (bytes, path) => {
+      const read = readAnimation(new BinaryReader(bytes, path));
+      return read.ok ? animationCodec.summary(read.value) : null;
+    },
+    isCommand: animationCodec.isCommand,
+    recoveryMarker: () => null,
+  },
+  {
     id: "program",
     label: "RPGCode program",
     description: "A script: the text of an RPGCode program, edited with colouring, call tips and a command reference.",
@@ -180,6 +196,11 @@ export function asBoardDocument(document: AnyDocument): BoardDocument {
 export function asTileBitmapDocument(document: AnyDocument): TileBitmapDocument {
   if (document.kind !== "tile-bitmap") throw new Error(`${document.identity.path} is a ${document.kind} document, not a tile bitmap.`);
   return document as unknown as TileBitmapDocument;
+}
+/** The document as an animation document (see `asMainDocument`). */
+export function asAnimationDocument(document: AnyDocument): AnimationDocument {
+  if (document.kind !== "animation") throw new Error(`${document.identity.path} is a ${document.kind} document, not an animation.`);
+  return document as unknown as AnimationDocument;
 }
 
 /** The document as a program document (see `asMainDocument`). */

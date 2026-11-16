@@ -70,6 +70,24 @@ async function openProgram(page: Page): Promise<void> {
   await expect(page.getByRole("tab", { name: PROGRAM, exact: true })).toBeVisible();
   await expect(page.locator(".monaco-editor .view-lines")).toBeVisible();
 }
+async function openSecondView(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "View", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Toggle Split Second View", exact: true }).click();
+}
+
+async function formatDocumentFromContextMenu(page: Page, editorInput: Locator): Promise<void> {
+  await editorInput.focus();
+  await expect(editorInput).toBeFocused();
+  await page.keyboard.press("Shift+F10");
+  const item = page.getByRole("menuitem", { name: /^Format Document/ });
+  await expect(item).toBeVisible();
+  await focusMenuItem(page, item);
+  await page.keyboard.press("Enter");
+  const languageNotes = await page.locator(".tkr-program-language-note").allTextContents();
+  expect(languageNotes.join(" ")).not.toContain("RPGCode did not format");
+}
+
 
 /** The file as the host stores it, as Latin-1 text, once it satisfies `accept` (a save is asynchronous). */
 const savedText = async (page: Page, path: string, accept: (text: string) => boolean): Promise<string> => {
@@ -107,7 +125,7 @@ const leaf = (page: Page) => page.locator(".monaco-editor .view-line span:not(:h
 
 /** Click into the text and go to its end: the editor's input element is Monaco's own, so the test reaches it as a person does. */
 async function focusEnd(page: Page): Promise<void> {
-  await page.locator(".monaco-editor .view-lines").click({ position: { x: 4, y: 4 } });
+  await page.locator(".monaco-editor .view-line").first().click();
   await page.keyboard.press(END_OF_TEXT);
 }
 
@@ -209,17 +227,87 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await expect(row).toContainText("castint(val, [&dest])");
   await row.dblclick();
   await expect.poll(() => editorText(page)).toContain("castint(val)");
+
+  // Repository help and release notes are available without leaving the active program; native dialog close returns focus.
+  await page.keyboard.press("F1");
+  await expect(page.getByLabel("Search commands and files")).toBeFocused();
+  await page.keyboard.type("Open RPGCode authoring guide");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode authoring guide");
+  await page.keyboard.press("Enter");
+  const authoringDialog = page.getByRole("dialog", { name: "RPGCode program authoring" });
+  await expect(authoringDialog).toBeVisible();
+  await expect(authoringDialog).toContainText("same catalogue as hover");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+
+  await page.keyboard.press("F1");
+  await expect(page.getByLabel("Search commands and files")).toBeFocused();
+  await page.keyboard.type("What's New");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("What's New");
+  await page.keyboard.press("Enter");
+  const releaseNotes = page.getByRole("dialog", { name: "What's New" });
+  await expect(releaseNotes).toContainText("accessible descriptions for focused settings");
+  const changelogLink = releaseNotes.getByRole("link", { name: "Read the full changelog" });
+  await expect(changelogLink).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(changelogLink).toHaveAttribute("href", "https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+  // The app-menu action opens the host's real preferences overlay; its close control keeps focus until dismissal.
+  const appMenu = page.getByRole("button", { name: "Application menu" });
+  await appMenu.click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Editor Preferences…", exact: true }).click();
+  const preferences = page.getByRole("dialog", { name: "Editor preferences" });
+  await expect(preferences).toBeVisible();
+  await expect(preferences.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(preferences).toHaveCount(0);
+  await expect(appMenu).toBeFocused();
+  // The command-palette route must preserve the host dialog's focus just like the application-menu route.
+  await focusEnd(page);
+  await page.keyboard.press("F1");
+  const paletteSearch = page.getByLabel("Search commands and files");
+  await expect(paletteSearch).toBeFocused();
+  await page.keyboard.type("Editor Preferences");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Editor Preferences…");
+  await page.keyboard.press("Enter");
+  await expect(preferences).toBeVisible();
+  await expect(preferences.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(preferences).toHaveCount(0);
+  await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+
+
+  // F1 exposes the generated reference from the workspace; search, select, and insert using only the keyboard.
+  await focusEnd(page);
+  await page.keyboard.press("F1");
+  await expect(page.getByLabel("Search commands and files")).toBeFocused();
+  await page.keyboard.type("Open RPGCode Quick Reference");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode Quick Reference");
+  await page.keyboard.press("Enter");
+  const referenceSearch = page.getByLabel("Find a command");
+  await expect(referenceSearch).toBeFocused();
+  await referenceSearch.fill("castint");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Insert castint" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await editorText(page)).match(/castint\(val\)/g)?.length ?? 0).toBe(2);
+  await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await editorText(page)).match(/castint\(val\)/g)?.length ?? 0).toBe(1);
   // Header insertion changes the document without a Monaco edit; both context-menu actions must still use document history.
   await page.getByRole("button", { name: "Insert header" }).click();
   await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg\s/);
   await expect.poll(() => editorText(page)).toContain("castint(val)");
-  await page.locator(".monaco-editor .view-lines").click({ position: { x: 4, y: 4 } });
+  await page.locator(".monaco-editor .view-line").filter({ hasText: "// intro.prg" }).first().click();
   await page.keyboard.press("Shift+F10");
   const undo = page.getByRole("menuitem", { name: "Undo", exact: true });
   await focusMenuItem(page, undo);
   await page.keyboard.press("Enter");
   await expect.poll(() => editorText(page)).toMatch(/^\/\/ Intro scene/);
-  await page.locator(".monaco-editor .view-lines").click({ position: { x: 4, y: 4 } });
+  await page.locator(".monaco-editor .view-line").filter({ hasText: "// Intro scene" }).first().click();
   await page.keyboard.press("Shift+F10");
   const redo = page.getByRole("menuitem", { name: "Redo", exact: true });
   await focusMenuItem(page, redo);
@@ -255,12 +343,8 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.keyboard.type("\n   y = 2");
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
-  // Format Document: the server's formatter answers and Monaco computes the minimal edit in its editor worker.
-  // Through the command palette: the key chord differs between platforms, the command does not.
-  await page.keyboard.press("F1");
-  await page.keyboard.type("Format Document");
-  await expect(page.locator(".quick-input-widget .quick-input-list-entry").first()).toContainText("Format Document");
-  await page.keyboard.press("Enter");
+  // Format Document remains available in Monaco's editor context menu while F1 opens the workbench help palette.
+  await formatDocumentFromContextMenu(page, page.getByRole("textbox", { name: /^Program text/ }).first());
   await expect.poll(() => editorText(page)).toContain("\ny = 2");
   await page.keyboard.press("ControlOrMeta+s");
   const saved = await savedText(page, PROGRAM, (text) => text.endsWith("y = 2"));
@@ -272,7 +356,6 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
 
 
   // Reopen: the saved program reads back as the same text.
-  // The page toolbar sits below the fold in the merged layout; the click is what a person would make after scrolling.
   await page.locator("#close").dispatchEvent("click");
   await expect(page.getByRole("tab", { name: PROGRAM, exact: true })).toHaveCount(0);
   await page.getByRole("treeitem", { name: /^intro\.prg, program editor/ }).dblclick();
@@ -294,18 +377,86 @@ test("a second program view uses the running project's language context", async 
     { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
   ]);
   await openProgram(page);
-  await page.locator("#mirror-view").dispatchEvent("click");
+  await openSecondView(page);
   const mirror = page.locator("#mirror");
   await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
   const editorInput = mirror.getByRole("textbox", { name: /^Program text/ });
   await editorInput.focus();
   await expect(editorInput).toBeFocused();
-  await page.keyboard.press("F1");
-  await page.keyboard.type("Format Document");
-  await expect(page.locator(".quick-input-widget .quick-input-list-entry").first()).toContainText("Format Document");
-  await page.keyboard.press("Enter");
+  await formatDocumentFromContextMenu(page, editorInput);
   await expect.poll(() => editorText(page)).toContain("\n    mwin(name)");
   await expect(mirror).not.toContainText(/unassessed|failed/i);
+});
+
+test("F1 quick reference inserts into the invoking mirrored program view", async ({ page }) => {
+  const source = "first\nsecond\n";
+  await installProject(page, [
+    { path: "Main/example.gam", bytes: main },
+    { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
+  ]);
+  await openProgram(page);
+  await openSecondView(page);
+  const mirror = page.locator("#mirror");
+  await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
+  const primaryInput = page.getByRole("textbox", { name: /^Program text/ }).first();
+  const mirrorInput = mirror.getByRole("textbox", { name: /^Program text/ });
+  await primaryInput.focus();
+  await page.keyboard.press("ControlOrMeta+Home");
+  await mirrorInput.focus();
+  await page.keyboard.press(END_OF_TEXT);
+  await page.keyboard.press("F1");
+  await page.keyboard.type("Open RPGCode Quick Reference");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode Quick Reference");
+  await page.keyboard.press("Enter");
+  const referenceSearch = mirror.getByLabel("Find a command");
+  await expect(referenceSearch).toBeFocused();
+  await referenceSearch.fill("castint");
+  const row = mirror.locator(".tkr-program-reference-list button").first();
+  await expect(row).toContainText("castint(val, [&dest])");
+  await row.dblclick();
+  await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
+});
+
+test("Application menu and palette trigger quick reference inserts at the last focused mirrored caret", async ({ page }) => {
+  const source = "first\nsecond\n";
+  await installProject(page, [
+    { path: "Main/example.gam", bytes: main },
+    { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
+  ]);
+  await openProgram(page);
+  await openSecondView(page);
+  const mirror = page.locator("#mirror");
+  await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
+  const primaryInput = page.getByRole("textbox", { name: /^Program text/ }).first();
+  const mirrorInput = mirror.getByRole("textbox", { name: /^Program text/ });
+  await primaryInput.focus();
+  await page.keyboard.press("ControlOrMeta+Home");
+  await mirrorInput.focus();
+  await page.keyboard.press(END_OF_TEXT);
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Help", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Open RPGCode Quick Reference", exact: true }).click();
+  const referenceSearch = mirror.getByLabel("Find a command");
+  await expect(referenceSearch).toBeFocused();
+  await referenceSearch.fill("castint");
+  const row = mirror.locator(".tkr-program-reference-list button").first();
+  await expect(row).toContainText("castint(val, [&dest])");
+  await row.dblclick();
+  await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
+  await mirrorInput.focus();
+  await page.keyboard.press(END_OF_TEXT);
+  await page.getByRole("button", { name: "Command palette" }).click();
+  const paletteSearch = page.getByLabel("Search commands and files");
+  await expect(paletteSearch).toBeFocused();
+  await paletteSearch.fill("Open RPGCode Quick Reference");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode Quick Reference");
+  await page.keyboard.press("Enter");
+  await expect(referenceSearch).toBeFocused();
+  await referenceSearch.fill("castint");
+  await expect(row).toContainText("castint(val, [&dest])");
+  await row.dblclick();
+  await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
+  await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/castint\([^)]*\)[\s\S]*castint\(/);
 });
 
 test("the probe can fail: under the strict policy of the other editor pages Monaco is blocked, and the violations are reported", async ({ page }) => {

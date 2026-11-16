@@ -1,13 +1,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, copyFileSync, chmodSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync, copyFileSync, chmodSync } from "node:fs";
+import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { changedPaths, loadGraph, selectPackages, testFiles, main } from "../affected.mjs";
 
 function fixture(fn) {
   const root = mkdtempSync(join(tmpdir(), "affected-"));
+  // These callbacks are synchronous: isolate every Git subprocess, including the tool's reads.
+  const inheritedGit = Object.entries(process.env).filter(([key]) => key.toUpperCase().startsWith("GIT_"));
+  for (const [key] of inheritedGit) delete process.env[key];
+  process.env.GIT_CONFIG_GLOBAL = devNull;
+  process.env.GIT_CONFIG_NOSYSTEM = "1";
   try {
     mkdirSync(join(root, "packages"), { recursive: true });
     mkdirSync(join(root, "tools/deps"), { recursive: true });
@@ -20,7 +26,11 @@ function fixture(fn) {
     }
     writeFileSync(join(root, "tools/deps/edges.json"), JSON.stringify({ packages: dirs, edges: [["base", "middle"], ["middle", "leaf"]] }));
     fn(root);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    for (const key of Object.keys(process.env)) if (key.toUpperCase().startsWith("GIT_")) delete process.env[key];
+    for (const [key, value] of inheritedGit) process.env[key] = value;
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 function git(root, ...args) {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
@@ -81,6 +91,24 @@ test("empty change and testless package never start the build", () => fixture((r
   writeFileSync(join(root, "packages/empty/change"), "x");
   assert.equal(main(["--base", "HEAD"], root), 0);
 }));
+
+test("Git fixtures ignore inherited repository and signing configuration", () => {
+  const root = mkdtempSync(join(tmpdir(), "affected-git-config-"));
+  try {
+    const config = join(root, "global.gitconfig");
+    const unexpectedGit = join(root, "unexpected.git");
+    writeFileSync(config, "[commit]\n  gpgSign = true\n[gpg]\n  program = tkr-no-skips-signing-must-not-run\n");
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: config, GIT_DIR: unexpectedGit, GIT_WORK_TREE: root };
+    delete env.NODE_TEST_CONTEXT;
+    const result = spawnSync(process.execPath, ["--test", "--test-name-pattern=^Git enumeration ", fileURLToPath(import.meta.url)], {
+      encoding: "utf8", env, timeout: 10_000,
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(existsSync(unexpectedGit), false, "the fixture never initialized the inherited repository");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 for (const fault of ["invalid base", "invalid graph"]) test(`CLI falls back to all tests for ${fault}`, () => fixture((root) => {
   mkdirSync(join(root, "tools/no-skips"), { recursive: true });

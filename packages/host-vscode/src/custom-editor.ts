@@ -45,6 +45,8 @@ export interface GameEditorPort<Uri extends UriLike> {
   readBackup(id: string): Promise<Uint8Array>;
   writeBackup(destination: Uri, bytes: Uint8Array): Promise<string>;
   deleteBackup(destination: Uri): Promise<void>;
+  /** Native text documents live outside the shared model workspace; replacement/removal must refuse while one is open. */
+  isTextDocumentOpen?(uri: Uri): boolean;
   /** Ask VS Code to save the editor for this URI, regardless of which editor has focus. */
   saveEditor(uri: Uri): Promise<Uri | undefined>;
   /** The URI of the project-relative `path` in `folder`. */
@@ -244,6 +246,34 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** Read a project-relative preview asset through this document's project-bound host filesystem. */
   readProject(path: string): Promise<PlatformResult<Uint8Array>> {
     return this.#fs.readProject(this.model.identity.projectId, path);
+  }
+  async animationAction(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<PlatformResult<CheckpointGroup | readonly CheckpointEntry[] | void>> {
+    if (this.model.kind !== "animation") return platformError("invalid-request", "Open an animation to use this wizard.");
+    const folder = this.#port.folderOf(this.uri);
+    if (folder === undefined) return platformError("unavailable", "The animation's project is unavailable.");
+    const env: CheckpointEnvironment = {
+      fs: this.#fs, projectId: this.model.identity.projectId,
+      hash: async (bytes) => [...new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes.slice().buffer))].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+      newId: () => globalThis.crypto.randomUUID(), time: () => new Date().toISOString(),
+      guard: async (path, removing) => {
+        if (this.#port.isTextDocumentOpen?.(this.#port.uriFor(folder, path)) === true) return `Save or resolve your work and close ${path} in its native text editor before replacing or removing it.`;
+        const key = createDocumentIdentity(this.model.identity.projectId, path).key;
+        const open = this.#workspace.documents().find((doc) => doc.identity.key === key);
+        if (open === undefined) return null;
+        const state = open.getSnapshot();
+        return open === this.model && !removing && !state.dirty && !state.saving && state.conflict === null ? null : `Save or resolve your work and close ${path} before replacing or removing it.`;
+      },
+      consent: async (paths) => await this.#port.dialogs(folder).ask({ message: "Replace these files?", detail: `${paths.join(", ")}. Original contents remain in project recovery history.`, choices: [{ id: "replace", label: "Replace" }, { id: "cancel", label: "Cancel" }], cancel: "cancel" }) === "replace",
+    };
+    const authoring = createAnimationAuthoring(env, asAnimationDocument(this.model), async () => {
+      const saved = await this.saveThroughWorkbench();
+      return saved.ok ? platformOk(undefined) : platformError("io-error", saved.failure.message);
+    }, (editId) => this.didEdit(editId));
+    if (action === "list") return authoring.list();
+    if (action === "ignore") return authoring.ignoreHistory();
+    if (action === "commit") return command === undefined ? platformError("invalid-request", "Missing animation edit.") : authoring.commitAnimation(command, bitmaps ?? []);
+    if (id === undefined) return platformError("invalid-request", "Missing recovery group.");
+    return action === "delete" ? authoring.deleteGroup(id) : authoring[action](id);
   }
 
   /**
