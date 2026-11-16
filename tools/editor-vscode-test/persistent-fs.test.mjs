@@ -44,7 +44,24 @@ test("the proof filesystem persists bytes and confines authenticated operations"
     assert.equal((await request({ op: "trace", kind: "save", value: "/game.gam" }, "wrong")).status, 403);
     assert.deepEqual(bridge.events(), []);
     assert.equal((await request({ op: "trace", kind: "save", value: "/game.gam" })).status, 200);
+    assert.equal((await request({ op: "trace", kind: "trace-marker", value: "unexpected" })).status, 400);
     assert.deepEqual(bridge.events(), [{ kind: "save", value: "/game.gam" }]);
+    assert.equal((await request({ op: "trace", kind: "save-request", value: "/game.gam" })).status, 200);
+    const saveReached = bridge.pauseSave();
+    let saveResponseReceived = false;
+    const pausedSaveResponse = request({ op: "trace", kind: "save-request", value: "/game.gam" }).then((result) => {
+      saveResponseReceived = true;
+      return result;
+    });
+    await saveReached;
+    assert.equal(saveResponseReceived, false, "the save request must remain pending at the configured boundary");
+    bridge.resumeSave();
+    assert.equal((await pausedSaveResponse).status, 200);
+    assert.deepEqual(bridge.events(), [
+      { kind: "save", value: "/game.gam" },
+      { kind: "save-request", value: "/game.gam" },
+      { kind: "save-request", value: "/game.gam" },
+    ]);
     for (const path of ["/../secret", "/escape/secret", "/bad\\path", "/a//b", "/a/./b"]) {
       assert.equal((await request({ op: "readFile", path })).status, 400, path);
     }
@@ -57,6 +74,90 @@ test("the proof filesystem persists bytes and confines authenticated operations"
     await rm(outside, { recursive: true, force: true });
   }
 });
+test("the proof filesystem can pause a workspace write before it reaches disk", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-write-gate-test-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    await writeFile(join(root, "game.gam"), "before");
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const reached = bridge.pauseWrite("/game.gam");
+    const pending = fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ op: "writeFile", path: "/game.gam", create: false, overwrite: true, data: Buffer.from("after").toString("base64") }),
+    });
+    await reached;
+    assert.deepEqual(bridge.writeEvents(), [{ kind: "write-request", path: "/game.gam" }]);
+    assert.equal(await readFile(join(root, "game.gam"), "utf8"), "before");
+    bridge.resumeWrite();
+    assert.equal((await pending).status, 200);
+    assert.deepEqual(bridge.writeEvents(), [
+      { kind: "write-request", path: "/game.gam" },
+      { kind: "write", path: "/game.gam" },
+    ]);
+    assert.equal(await readFile(join(root, "game.gam"), "utf8"), "after");
+  } finally {
+    if (bridge) { bridge.resumeWrite(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("the proof filesystem can pause a matching workspace read before it reaches the caller", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-read-gate-test-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    await writeFile(join(root, "game.gam"), "saved");
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const request = () => fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ op: "readFile", path: "/game.gam" }),
+    });
+    const reached = bridge.pauseRead("/game.gam");
+    const pending = request();
+    await reached;
+    assert.deepEqual(bridge.readEvents(), [{ kind: "readFile", path: "/game.gam" }]);
+    bridge.resumeRead();
+    const response = await pending;
+    assert.equal(response.status, 200);
+    assert.equal(Buffer.from((await response.json()).result, "base64").toString(), "saved");
+  } finally {
+    if (bridge) { bridge.resumeRead(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+test("a native restore seam arms the existing filesystem read gate for exactly its matching read", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-native-restore-gate-test-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    await writeFile(join(root, "game.prg"), "saved");
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const request = (body) => fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify(body),
+    });
+    const reached = bridge.pauseNativeRestoreRead("/game.prg");
+    assert.equal((await request({ op: "armNativeRestoreRead", path: "/game.prg" })).status, 200);
+    const pending = request({ op: "readFile", path: "/game.prg" });
+    await reached;
+    assert.deepEqual(bridge.nativeRestoreReadEvents(), [{ kind: "readFile", path: "/game.prg" }]);
+    assert.deepEqual(bridge.readEvents(), [{ kind: "readFile", path: "/game.prg" }]);
+    bridge.resumeRead();
+    const response = await pending;
+    assert.equal(response.status, 200);
+    assert.equal(Buffer.from((await response.json()).result, "base64").toString(), "saved");
+  } finally {
+    if (bridge) { bridge.resumeRead(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("the paused save barrier blocks native save callbacks until explicitly released", async () => {
   const root = await mkdtemp(join(tmpdir(), "tkr-proof-save-barrier-"));
   const origin = "http://localhost:34567";
