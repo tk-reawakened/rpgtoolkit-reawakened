@@ -100,4 +100,6 @@ Help content is an entry point, not a new documentation system: URLs and referen
 - `pnpm browser:test` -- 127 passed, 0 failed (port 4181; real Monaco context-menu formatting and mirrored program reference insertion covered).
 - Native VS Code web-host proof -- 8 harness tests passed; actual companion extension, insertion/save, docs popups, and field help/focus return passed.
 - Perturbation evidence: removing the inserted parameter selection failed the reference test at selectionStart (`0 !== 5`); routing F1 to F12 failed the contextual-help assertion (`F1 is captured before the host handles it`). Both mutations were restored and their focused tests passed.
-- `pnpm editor-ui-toolchain:check` remains the generated-content freshness guard; required GitHub CI for the refreshed artifact and this exact final head remains pending.
+- Exact-head CI for `162314d50e84829b0d3f604d2998e9c58fb32ad8` passed unit, golden, desktop, mobile, language-host and dogfood jobs, but failed the separate NewProject proof at its destination listing (#2858, run `43829786071`). It was not merged or rerun unchanged.
+- The repaired real NewProject proof navigates directly to the existing destination, allows its current-folder annotation, and preserves backing-tree/byte and automatic-open assertions. The focused actual workbench scenario passed in 13.45 seconds; this is not a claim that the full browser job was rerun locally.
+- Generated content freshness is checked after the #2858 changelog update. Required CI on the new exact final head remains the merge gate.

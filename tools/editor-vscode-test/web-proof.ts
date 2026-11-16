@@ -284,13 +284,11 @@ export async function runVscodeNewProjectProof(
   await widget.getByRole("checkbox", { name: "Empty start board", exact: true }).check();
   await widget.getByRole("button", { name: "OK", exact: true }).click();
   await expect(widget).toContainText("New project: choose the destination folder");
-  // Earlier save dialogs can change VS Code's remembered directory; navigate through the real picker.
-  await answer.fill("/");
-  await expect(answer).toHaveValue("/");
-  const destination = widget.getByRole("option", { name: "__tkr_new_project", exact: true });
-  await expect.poll(() => destination.isVisible(), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
-  await destination.click({ timeout: 1_000 });
+  // Navigate directly to the existing destination and allow the picker's current-folder annotation.
+  await answer.fill("/__tkr_new_project/");
   await expect(answer).toHaveValue("/__tkr_new_project/");
+  const destination = widget.getByRole("option", { name: /^__tkr_new_project(?:,|$)/ });
+  await expect.poll(() => destination.isVisible(), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
   const previousExtensionHost = page.frames().find((frame) => frame.url().includes("webWorkerExtensionHostIframe.html"));
   if (previousExtensionHost === undefined) throw new Error("The new-project command did not have a running extension host");
   await widget.getByRole("button", { name: "Create project here", exact: true }).click();
