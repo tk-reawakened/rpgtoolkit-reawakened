@@ -4,9 +4,10 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { BinaryReader, readMainFile } from "@tk-reawakened/core";
-import { kindById, createDocumentWorkspace } from "@tk-reawakened/editor-model";
+import { asMainDocument, createDocumentWorkspace } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { recoverMainDocument, resolveRecoveryConflict } from "@tk-reawakened/host-vscode/testing";
+import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort, type GameEditorProvider, type UriLike } from "../src/custom-editor.ts";
 
 const PATH = "Main/example.gam";
 const DEST = "Main/copy.gam";
@@ -53,5 +54,52 @@ test("Save As over an existing destination keeps that destination's previous byt
   ok(kept.some((bytes) => Buffer.compare(Buffer.from(bytes), Buffer.from(host.bytesOf(DEST)!)) === 0), "and so is the copy that replaced them");
   equal(titleOf(host.bytesOf(DEST)!), "Copy with a new title");
   deepEqual(entries.map((entry) => entry.reason).sort(), ["checkpoint", "manual"].sort());
+  workspace.dispose();
+});
+test("History restores an open custom editor through VS Code's edit and workbench save lifecycle", async () => {
+  type TestUri = UriLike & { toString(): string };
+  const root: TestUri = { path: "/project", toString: () => "memory-project" };
+  const folder = { uri: root, key: "memory-project" };
+  const uri: TestUri = { path: `/project/${PATH}`, toString: () => `memory-project/${PATH}` };
+  const host = createMemoryPlatformServices({ files: { [PATH]: example } });
+  const events: GameEditEvent<TestUri>[] = [];
+  let provider!: GameEditorProvider<TestUri>;
+  let document: GameDocument<TestUri> | undefined;
+  let workbenchSaves = 0;
+  const port: GameEditorPort<TestUri> = {
+    capabilities: host.capabilities,
+    folderOf: () => folder,
+    fileSystem: () => host.fs,
+    dialogs: () => host.dialogs,
+    readBackup: async () => new Uint8Array(),
+    writeBackup: async (_destination, bytes) => String(bytes.byteLength),
+    deleteBackup: async () => undefined,
+    saveEditor: async (target) => {
+      if (document === undefined) return undefined;
+      workbenchSaves += 1;
+      await provider.saveCustomDocument(document);
+      return target;
+    },
+    uriFor: (_folder, path) => ({ path: `/project/${path}`, toString: () => `memory-project/${path}` }),
+    openEditor: async () => undefined,
+    quickPick: async () => undefined,
+  };
+  provider = createGameEditorProvider(port, (event) => { events.push(event); });
+  document = await provider.openCustomDocument(uri, undefined);
+  const workspace = provider.workspaceFor(folder).workspace;
+  const main = asMainDocument(document.model);
+  ok(main.apply({ type: "set-game-title", title: "Later save" }).ok);
+  await provider.saveCustomDocument(document);
+  const savedVersion = (await workspace.history.documentTimeline(PATH)).find((entry) => entry.reason === "checkpoint")!;
+  const report = await workspace.restoreHistoryEntry(savedVersion.id);
+  deepEqual(report.files.map((file) => file.result), ["restored"]);
+  equal(workbenchSaves, 1, "the restore is saved by the workbench, not a model-side bypass");
+  equal(events.length, 1, "the accepted restore is registered as one native undo edit");
+  ok(events[0]!.label.length > 0);
+  const savedRestore = (await workspace.history.documentTimeline(PATH)).find((entry) => entry.groupId === report.restoreGroupId);
+  ok(savedRestore, "the restored save is linked to its before-restore group");
+  events[0]!.undo();
+  equal(titleOf(document.model.serialize()), "Later save", "VS Code's undo callback reverses the restore");
+  document.dispose();
   workspace.dispose();
 });

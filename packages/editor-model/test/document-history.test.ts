@@ -279,6 +279,36 @@ test("restoring into an open document is one accepted edit that undoes, asks bef
   const undone = await workspace.restoreHistoryGroup(done.restoreGroupId!);
   ok(undone.files.every((file) => file.result === "restored" || file.result === "already-as-wanted"));
 });
+test("open-document restores settle host views and use the host undo/save lifecycle", async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) } });
+  const restoreCalls: { readonly editId: string; readonly groupId: string }[] = [];
+  let settled = 0;
+  const workspace = createDocumentWorkspace({
+    projectId: "memory-project",
+    services: host,
+    settleOpenDocument: async () => { settled += 1; return true; },
+    restoreOpenDocument: async (document, editId, groupId) => {
+      restoreCalls.push({ editId, groupId });
+      return await document.save("manual", { groupId });
+    },
+  });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const document = opened.document;
+  ok(document.apply({ type: "set-game-title", title: "Saved edit" }).ok);
+  ok((await document.save("manual")).ok);
+  const previous = (await workspace.history.documentTimeline(PATH)).find((entry) => entry.reason === "checkpoint")!;
+  const report = await workspace.restoreHistoryEntry(previous.id);
+  deepEqual(report.files.map((file) => file.result), ["restored"]);
+  ok(settled > 0);
+  equal(restoreCalls.length, 1);
+  ok(restoreCalls[0]!.editId.length > 0);
+  equal(restoreCalls[0]!.groupId, report.restoreGroupId);
+  equal(document.getSnapshot().dirty, false);
+  ok(workspace.undo(document).ok, "the restored change remains on the editor's native undo path");
+  equal(titleOf(document.serialize()), "Saved edit");
+  workspace.dispose();
+});
 
 test("restoring and undoing a saved version wait for durable bytes and keep the open model identical", async () => {
   const { host, workspace } = setUp();
@@ -687,5 +717,79 @@ test("a document opened while a closed-file restore is checking the file is not 
   match(report.files[0]!.message ?? "", /changed after the restore started/);
   deepEqual(host.bytesOf(PATH), withTitle(exampleMain(9), "Later"), "the on-disk revision was not overwritten");
   equal(gameTitleOf(opened.document), "Typed while checking");
+  workspace.dispose();
+});
+test("native text saves and restores use the open editor buffer and reject bytes changed after confirmation", async () => {
+  const host = createMemoryPlatformServices({ files: { "Scripts/example.prg": new TextEncoder().encode("disk version") } });
+  const path = "Scripts/example.prg";
+  const savedBytes = new TextEncoder().encode("saved version");
+  const lateBytes = new TextEncoder().encode("newer native edit");
+  const replacementBytes = new TextEncoder().encode("latest native edit");
+  let nativeBytes = new TextEncoder().encode("unsaved native edit");
+  let dirty = true;
+  let changeDuringConfirmation = true;
+  let dialogCalls = 0;
+  let applyCalls = 0;
+  let workspace!: DocumentWorkspace;
+  workspace = createDocumentWorkspace({
+    projectId: "memory-project",
+    services: {
+      ...host,
+      dialogs: {
+        ...host.dialogs,
+        ask: async (request) => {
+          dialogCalls += 1;
+          if (changeDuringConfirmation) nativeBytes = lateBytes;
+          return await host.dialogs.ask(request);
+        },
+      },
+    },
+    externalHistory: {
+      current: async () => ({ bytes: nativeBytes.slice(), dirty }),
+      apply: async (_path, bytes, expected, groupId) => {
+        applyCalls += 1;
+        if (Buffer.compare(Buffer.from(nativeBytes), Buffer.from(expected ?? [])) !== 0) {
+          return { ok: false, message: "The native document changed after restore confirmation." };
+        }
+        if (bytes === null) return { ok: false, message: "Cannot remove an open text document." };
+        nativeBytes = bytes.slice();
+        dirty = false;
+        await workspace.history.recordSave(path, nativeBytes, "manual", groupId);
+        return { ok: true };
+      },
+    },
+  });
+  await workspace.history.recordSave(path, savedBytes, "manual");
+  const savedHash = await sha256Hex(savedBytes);
+  const version = (await workspace.history.documentTimeline(path)).find((entry) => entry.sha256 === savedHash);
+  ok(version, "native text save was retained");
+  host.answerQuestions("restore", "restore");
+  const refused = await workspace.restoreHistoryEntry(version.id);
+  deepEqual(refused.files.map((file) => file.result), ["failed"]);
+  equal(applyCalls, 0, "the changed native buffer was never replaced");
+  deepEqual(nativeBytes, lateBytes);
+
+  changeDuringConfirmation = false;
+  nativeBytes = replacementBytes;
+  const restored = await workspace.restoreHistoryEntry(version.id);
+  deepEqual(restored.files.map((file) => file.result), ["restored"]);
+  deepEqual(nativeBytes, savedBytes);
+  equal(dirty, false);
+  ok(dialogCalls >= 2);
+  ok(restored.restoreGroupId !== null);
+  const undo = await workspace.restoreHistoryGroup(restored.restoreGroupId!);
+  deepEqual(undo.files.map((file) => file.result), ["restored"]);
+  deepEqual(nativeBytes, replacementBytes, "the before-restore native buffer is recoverable");
+  workspace.dispose();
+});
+
+test("history usage counts shared checkpoint groups and immutable progress/content files", async () => {
+  const { host, workspace } = setUp();
+  const before = await workspace.history.usage();
+  const group = await workspace.createNamedCheckpoint("Native proof");
+  ok(group.files.length > 0);
+  const after = await workspace.history.usage();
+  ok(after.bytes > before.bytes, "group manifests and content are charged to the shared history budget");
+  ok(after.distinctContents > before.distinctContents, "group content hashes are reported");
   workspace.dispose();
 });

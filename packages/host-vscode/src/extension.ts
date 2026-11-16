@@ -10,7 +10,7 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES, type DocumentWorkspace } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES, kindForPath, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
@@ -60,6 +60,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   registerAnimationCommands(context, () => generation);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
+  const nativeRestoreGroups = new Map<string, string>();
+  const nativeSaveReasons = new Map<string, "auto" | "manual">();
+  const findTextDocument = (uri: vscode.Uri) => vscode.workspace.textDocuments.find((document) => !document.isClosed
+    && document.uri.scheme === uri.scheme && document.uri.authority === uri.authority
+    && createDocumentIdentity("", document.uri.path).key === createDocumentIdentity("", uri.path).key);
   const port: GameEditorPort<vscode.Uri> = {
     capabilities: vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop),
     dialogs: (folder) => createVscodeDialogs(folder.uri),
@@ -74,9 +79,38 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       return destination.toString();
     },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
-    isTextDocumentOpen: (uri) => vscode.workspace.textDocuments.some((document) => !document.isClosed
-      && document.uri.scheme === uri.scheme && document.uri.authority === uri.authority
-      && createDocumentIdentity("", document.uri.path).key === createDocumentIdentity("", uri.path).key),
+    isTextDocumentOpen: (uri) => findTextDocument(uri) !== undefined,
+    nativeTextDocument: async (uri) => {
+      const document = findTextDocument(uri);
+      if (document === undefined) return null;
+      const bytes = document.isDirty ? new TextEncoder().encode(document.getText()) : await vscode.workspace.fs.readFile(uri);
+      return { bytes, dirty: document.isDirty };
+    },
+    restoreNativeTextDocument: async (uri, bytes, expected, groupId) => {
+      const document = findTextDocument(uri);
+      if (document === undefined) return null;
+      if (bytes === null) return { ok: false, message: "Close the native text editor before removing its file." };
+      const current = document.isDirty
+        ? new TextEncoder().encode(document.getText())
+        : await vscode.workspace.fs.readFile(uri);
+      if (current.length !== expected?.length || current.some((byte, index) => byte !== expected[index])) {
+        return { ok: false, message: "The native text editor changed after restore confirmation; nothing was replaced." };
+      }
+      let target: string;
+      try { target = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+      catch { return { ok: false, message: "The saved version is not valid UTF-8 and cannot be restored into a native text editor." }; }
+      const edit = new vscode.WorkspaceEdit();
+      edit.replace(uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), target);
+      if (!await vscode.workspace.applyEdit(edit)) return { ok: false, message: "VS Code refused the native editor restore." };
+      if (document.getText() !== target) return { ok: false, message: "The native editor changed during restore; the restored content remains unsaved." };
+      const key = uri.toString();
+      nativeRestoreGroups.set(key, groupId);
+      try {
+        return await document.save()
+          ? { ok: true }
+          : { ok: false, message: "VS Code did not save the restored native text document." };
+      } finally { nativeRestoreGroups.delete(key); }
+    },
     saveEditor: async (uri) => await vscode.workspace.save(uri),
     autoSaveDelayMs: (uri) => {
       const files = vscode.workspace.getConfiguration("files", uri);
@@ -106,6 +140,37 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     generation += 1;
     changes.fire(event);
   });
+  context.subscriptions.push(vscode.workspace.onWillSaveTextDocument((event) => {
+    const folder = vscode.workspace.getWorkspaceFolder(event.document.uri);
+    if (folder === undefined) return;
+    const root = folder.uri.path.replace(/\/$/, "");
+    if (!event.document.uri.path.startsWith(`${root}/`)) return;
+    const path = event.document.uri.path.slice(root.length + 1);
+    if (kindForPath(path) === null) return;
+    nativeSaveReasons.set(event.document.uri.toString(), event.reason === vscode.TextDocumentSaveReason.Manual ? "manual" : "auto");
+  }));
+  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(async (document) => {
+    const folder = vscode.workspace.getWorkspaceFolder(document.uri);
+    if (folder === undefined) return;
+    const root = folder.uri.path.replace(/\/$/, "");
+    if (!document.uri.path.startsWith(`${root}/`)) return;
+    const path = document.uri.path.slice(root.length + 1);
+    if (kindForPath(path) === null) return;
+    const reason = nativeSaveReasons.get(document.uri.toString()) ?? "manual";
+    nativeSaveReasons.delete(document.uri.toString());
+    const { fs, workspace } = core.workspaceFor({ uri: folder.uri, key: folder.uri.toString() });
+    const saved = await fs.readProject(folder.uri.toString(), path);
+    if (!saved.ok) {
+      await vscode.window.showWarningMessage(`${path} was saved, but its bytes could not be read into recovery history: ${saved.error.message}`);
+      return;
+    }
+    try {
+      const recorded = await workspace.history.recordSave(path, saved.value, reason, nativeRestoreGroups.get(document.uri.toString()) ?? null);
+      if (recorded.outcome === "uncovered") await vscode.window.showWarningMessage(`${path} was saved, but it is not covered by recovery history (${recorded.reason}).`);
+    } catch (error) {
+      await vscode.window.showWarningMessage(`${path} was saved, but its recovery history could not be recorded: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }));
   registerNewBoard(context, () => generation, (uri) => core.workspaceFor({ uri, key: uri.toString() }).workspace);
   // The History command (#2833): the shared workspace does the work; VS Code only picks and reports.
   context.subscriptions.push(vscode.commands.registerCommand("tkr.history", async () => {

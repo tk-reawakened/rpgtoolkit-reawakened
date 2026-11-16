@@ -141,7 +141,7 @@ export interface DocumentWorkspace {
   readonly storage: DocumentStorage;
   /** Restore one saved timeline entry as an accepted edit and a canonical before-restore group. */
   restoreHistoryEntry(entryId: string): Promise<GroupRestoreReport>;
-  /** Restore a checkpoint group or named checkpoint, or only `options.only` of it (retry). */
+  /** Restore one canonical checkpoint group, reporting every member independently. */
   restoreHistoryGroup(groupId: string, options?: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[] }): Promise<GroupRestoreReport>;
   /** Create one named snapshot of covered project files; uncovered files are listed on that same group. */
   createNamedCheckpoint(name: string): Promise<CheckpointGroup>;
@@ -163,6 +163,17 @@ export interface DocumentWorkspace {
   dispose(): void;
 }
 
+export interface ExternalHistoryDocument {
+  readonly bytes: Uint8Array;
+  readonly dirty: boolean;
+}
+
+export interface ExternalHistoryAdapter {
+  current(path: string): Promise<ExternalHistoryDocument | null>;
+  /** Return null when the path has no open host-owned document. */
+  apply(path: string, bytes: Uint8Array | null, expected: Uint8Array | null, groupId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string } | null>;
+}
+
 export interface WorkspaceOptions {
   /** The project handle every identity in this workspace is bound to (ADR 0022 D1.1). */
   readonly projectId: string;
@@ -171,6 +182,12 @@ export interface WorkspaceOptions {
   readonly historyPolicy?: () => HistoryPolicy;
   /** A host's own durable storage for history when the project folder cannot hold it (D12.10 item 8). */
   readonly historyStorage?: { readonly fs: DocumentHistoryOptions["storage"]; readonly description: string };
+  /** Settle host-owned views before a shared History restore reads or changes an open document. */
+  readonly settleOpenDocument?: (document: AnyDocument) => Promise<boolean>;
+  /** Route an accepted History restore through the host's undo and save lifecycle. */
+  readonly restoreOpenDocument?: (document: AnyDocument, editId: string, groupId: string) => Promise<SaveResult>;
+  /** Keep ordinary host-owned text editors authoritative during History and wizard restores. */
+  readonly externalHistory?: ExternalHistoryAdapter;
 }
 
 function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
@@ -360,9 +377,12 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     async current(path) {
       const open = documents.get(createDocumentIdentity(projectId, path).key);
       if (open !== undefined && open.getSnapshot().readOnly === null) {
+        if (options.settleOpenDocument !== undefined && !await options.settleOpenDocument(open)) return { ok: false, message: "The host could not settle the open editor's accepted edits; nothing was restored." };
         await pendingEditsOf(open).settle();
         return { ok: true, bytes: open.serialize(), unsaved: open.getSnapshot().dirty };
       }
+      const external = await options.externalHistory?.current(path);
+      if (external !== null && external !== undefined) return { ok: true, bytes: external.bytes.slice(), unsaved: external.dirty };
       const read = await fs.readProject(projectId, path);
       if (read.ok) return { ok: true, bytes: read.value, unsaved: false };
       return read.error.code === "not-found" ? { ok: true, bytes: null, unsaved: false } : { ok: false, message: read.error.message };
@@ -374,6 +394,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       const changed = (): { readonly ok: false; readonly message: string } => ({ ok: false, message: `${path} changed after the restore started, so it was not restored. Choose the version again.` });
       if (open !== undefined) {
         if (bytes === null) return { ok: false, message: `${path} is open. Close it, then retry the restore to remove it.` };
+        if (options.settleOpenDocument !== undefined && !await options.settleOpenDocument(open)) return { ok: false, message: "The host could not settle the open editor's accepted edits; nothing was restored." };
         await pendingEditsOf(open).settle();
         if (!sameBytes(open.serialize(), context.expected)) return changed();
         const applied = open.restoreVersion(bytes);
@@ -381,15 +402,20 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         const edits = historyOf(open.identity.key);
         edits.undo.push(applied.editId);
         edits.redo.length = 0;
-        const saved = await open.save("manual", { groupId: context.groupId });
+        const saved = options.restoreOpenDocument === undefined
+          ? await open.save("manual", { groupId: context.groupId })
+          : await options.restoreOpenDocument(open, applied.editId, context.groupId);
         return saved.ok ? { ok: true } : { ok: false, message: `The restored version of ${path} is applied in the editor but could not be saved: ${saved.failure.message}` };
       }
+      const external = await options.externalHistory?.apply(path, bytes, context.expected, context.groupId);
+      if (external !== null && external !== undefined) return external;
       const onDisk = await fs.readProject(projectId, path);
       const actual = onDisk.ok ? onDisk.value : onDisk.error.code === "not-found" ? null : undefined;
       if (actual === undefined) return { ok: false, message: `Could not check ${path} before restoring it: ${onDisk.ok ? "" : onDisk.error.message}` };
       // A document opened while this read was in flight is the editor's to change: writing the file now would bypass its
       // dirty state and its own accepted edits, so the restore refuses and asks for it again (D12.10 item 9).
-      if (documents.get(createDocumentIdentity(projectId, path).key) !== undefined) {
+      const externalOpened = await options.externalHistory?.current(path);
+      if (documents.get(createDocumentIdentity(projectId, path).key) !== undefined || externalOpened !== null && externalOpened !== undefined) {
         return { ok: false, message: `${path} was opened while the restore was checking it, so it was not restored. Choose the version again.` };
       }
       if (!sameBytes(actual, context.expected)) return changed();
@@ -407,21 +433,28 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       return { ok: true };
     },
   });
-  /** Ask once before a restore replaces unsaved work; `false` means the user declined and nothing changes. */
-  const confirmUnsaved = async (paths: readonly string[]): Promise<boolean> => {
+  /** Ask once before a restore replaces unsaved work and capture the exact bytes that confirmation covered. */
+  const confirmUnsaved = async (paths: readonly string[]): Promise<ReadonlyMap<string, Uint8Array | null> | null> => {
     for (const path of paths) {
       const open = documents.get(createDocumentIdentity(projectId, path).key);
       if (open !== undefined) await pendingEditsOf(open).settle();
     }
-    const dirty = paths.filter((path) => documents.get(createDocumentIdentity(projectId, path).key)?.getSnapshot().dirty === true);
-    if (dirty.length === 0) return true;
+    const expected = new Map<string, Uint8Array | null>();
+    const dirty: string[] = [];
+    for (const path of paths) {
+      const current = await restorer().current(path);
+      if (!current.ok) throw new Error(current.message);
+      expected.set(path, current.bytes?.slice() ?? null);
+      if (current.unsaved) dirty.push(path);
+    }
+    if (dirty.length === 0) return expected;
     const answer = await dialogs.ask({
       message: `${dirty.join(", ")} ${dirty.length === 1 ? "has" : "have"} unsaved changes.`,
       detail: "Restore keeps your unsaved version in history first, then replaces it with the restored version. Cancel changes nothing.",
       choices: [{ id: "restore", label: "Restore" }, { id: "cancel", label: "Cancel" }],
       cancel: "cancel",
     });
-    return answer === "restore";
+    return answer === "restore" ? expected : null;
   };
   const declined = (groupId: string, paths: readonly string[]): GroupRestoreReport => ({ groupId, restoreGroupId: null, files: paths.map((path) => ({ path, result: "failed" as const, message: "Cancelled: nothing was changed." })) });
   let checkpointSequence = 0;
@@ -434,7 +467,11 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     time: () => new Date().toISOString(),
     async guard(path, removing) {
       const open = documents.get(createDocumentIdentity(projectId, path).key);
-      if (open === undefined) return null;
+      if (open === undefined) {
+        const external = await options.externalHistory?.current(path);
+        if (external !== null && external !== undefined && removing) return `${path} is open. Close it, then retry the restore to remove it.`;
+        return null;
+      }
       await pendingEditsOf(open).settle();
       const snapshot = open.getSnapshot();
       if (snapshot.readOnly !== null) return `${path} is read-only and cannot be restored.`;
@@ -490,10 +527,12 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       const preview = await historyStore.preview(entryId);
       if (preview === null) return { groupId: entryId, restoreGroupId: null, files: [{ path: "", result: "failed", message: `History entry ${entryId} does not exist.` }] };
       const path = preview.entry.path;
-      if (!(await confirmUnsaved([path]))) return declined(entryId, [path]);
+      const expectedBefore = await confirmUnsaved([path]);
+      if (expectedBefore === null) return declined(entryId, [path]);
       const open = documents.get(createDocumentIdentity(projectId, path).key);
       if (open !== undefined && open.getSnapshot().dirty) {
-        const unsaved = open.serialize();
+        const unsaved = expectedBefore.get(path);
+        if (unsaved === undefined || unsaved === null) return { groupId: entryId, restoreGroupId: null, files: [{ path, result: "failed", message: `${path} changed after the restore was requested, so the newer work was not replaced.` }] };
         try {
           const kept = await historyStore.keep(path, unsaved, "before-restore");
           if (kept.outcome === "uncovered") {
@@ -506,7 +545,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
           return { groupId: entryId, restoreGroupId: null, files: [{ path, result: "failed", message: `${path} changed after the restore was requested, so the newer work was not replaced.` }] };
         }
       }
-      const result = await checkpoints.restoreTargets([{ path, bytes: preview.bytes }], entryId);
+      const result = await checkpoints.restoreTargets([{ path, bytes: preview.bytes, expectedBefore: expectedBefore.get(path) ?? null }], entryId);
       return result.ok ? checkpointReport(entryId, result.value) : { groupId: entryId, restoreGroupId: null, files: [{ path, result: "failed", message: result.error.message }] };
     },
     async restoreHistoryGroup(groupId, restoreOptions) {
@@ -515,8 +554,9 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       const source = listed.value.find((entry) => entry.id === groupId);
       if (source === undefined || !("files" in source)) return { groupId, restoreGroupId: null, files: [{ path: "", result: "failed", message: "Checkpoint group does not exist or is unreadable." }] };
       const selected = source.files.map((file) => file.path).filter((path) => restoreOptions?.only === undefined || restoreOptions.only.includes(path));
-      if (!(await confirmUnsaved(selected))) return declined(groupId, selected);
-      const result = await checkpoints.restore(groupId, restoreOptions);
+      const expectedBefore = await confirmUnsaved(selected);
+      if (expectedBefore === null) return declined(groupId, selected);
+      const result = await checkpoints.restore(groupId, { ...restoreOptions, expectedBefore });
       return result.ok ? checkpointReport(groupId, result.value) : { groupId, restoreGroupId: null, files: selected.map((path) => ({ path, result: "failed" as const, message: result.error.message })) };
     },
     async createNamedCheckpoint(name) {

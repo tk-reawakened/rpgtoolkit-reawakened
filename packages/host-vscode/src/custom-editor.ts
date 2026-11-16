@@ -47,6 +47,9 @@ export interface GameEditorPort<Uri extends UriLike> {
   deleteBackup(destination: Uri): Promise<void>;
   /** Native text documents live outside the shared model workspace; replacement/removal must refuse while one is open. */
   isTextDocumentOpen?(uri: Uri): boolean;
+  /** Snapshot and restore a normal VS Code text editor through its native buffer and undo stack. */
+  nativeTextDocument?(uri: Uri): Promise<{ readonly bytes: Uint8Array; readonly dirty: boolean } | null>;
+  restoreNativeTextDocument?(uri: Uri, bytes: Uint8Array | null, expected: Uint8Array | null, groupId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string } | null>;
   /** Ask VS Code to save the editor for this URI, regardless of which editor has focus. */
   saveEditor(uri: Uri): Promise<Uri | undefined>;
   /** The URI of the project-relative `path` in `folder`. */
@@ -117,6 +120,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   #lastEditAt = 0;
   #lastHead: string | null = null;
   /** Explicit Save commands from this editor's own Save button that have not finished; their saves are never `auto`. */
+  #restoreGroupId: string | null = null;
   #explicitSaves = 0;
 
   #now(): number {
@@ -298,9 +302,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
       return failed;
     }
     const reason = this.#saveReason();
-    let result = await this.model.save(reason);
+    let result = await this.model.save(reason, { groupId: this.#restoreGroupId });
     for (let round = 1; result.ok && this.model.getSnapshot().dirty && round < SAVE_ROUNDS; round += 1) {
-      result = await this.model.save(reason);
+      result = await this.model.save(reason, { groupId: this.#restoreGroupId });
     }
     if (result.ok && this.model.getSnapshot().dirty) {
       const path = this.model.identity.path;
@@ -319,11 +323,13 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * `saveCustomDocument` (#2092). The result is that call's, so an edit made during the write is written by the same
    * save (see `save`), and a workbench that never called it is reported as not saving.
    */
-  async saveThroughWorkbench(): Promise<SaveResult> {
+  async saveThroughWorkbench(groupId: string | null = null): Promise<SaveResult> {
     const path = this.model.identity.path;
     const before = this.#saves;
+    const previousRestoreGroupId = this.#restoreGroupId;
     let accepted = false;
     try {
+      this.#restoreGroupId = groupId;
       this.#explicitSaves += 1;
       accepted = (await this.#port.saveEditor(this.uri)) !== undefined;
     } catch (error) {
@@ -338,6 +344,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
       } };
     } finally {
       this.#explicitSaves -= 1;
+      this.#restoreGroupId = previousRestoreGroupId;
     }
     if (!accepted && this.#saves !== before && !this.#lastSave.ok) return this.#lastSave;
     if (!accepted || this.#saves === before) {
@@ -390,13 +397,35 @@ export interface GameEditorProvider<Uri extends UriLike> {
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
   const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession }>();
+  const hostDocuments = new WeakMap<AnyDocument, GameDocument<Uri>>();
+  const createWorkspace = (folder: WorkspaceFolderLike<Uri>, fs: FileSystemService): DocumentWorkspace => {
+    const policy = port.historyPolicy;
+    return createDocumentWorkspace({
+      projectId: folder.key,
+      services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) },
+      ...(policy === undefined ? {} : { historyPolicy: () => policy.call(port, folder) }),
+      externalHistory: {
+        current: async (path) => await port.nativeTextDocument?.(port.uriFor(folder, path)) ?? null,
+        apply: async (path, bytes, expected, groupId) => await port.restoreNativeTextDocument?.(port.uriFor(folder, path), bytes, expected, groupId) ?? null,
+      },
+      settleOpenDocument: async (model) => {
+        const document = hostDocuments.get(model);
+        return document === undefined || await document.settleViews() === null;
+      },
+      restoreOpenDocument: async (model, editId, groupId) => {
+        const document = hostDocuments.get(model);
+        if (document === undefined) return model.save("manual", { groupId });
+        document.didEdit(editId);
+        return document.saveThroughWorkbench(groupId);
+      },
+    });
+  };
   type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession; readonly path: string };
   const projectIn = (folder: WorkspaceFolderLike<Uri>, uri: Uri): Project => {
     let project = workspaces.get(folder.key);
     if (project === undefined) {
       const fs = port.fileSystem(folder);
-      const policy = port.historyPolicy;
-      const workspace = createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) }, ...(policy === undefined ? {} : { historyPolicy: () => policy.call(port, folder) }) });
+      const workspace = createWorkspace(folder, fs);
       project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
       workspaces.set(folder.key, project);
     }
@@ -413,8 +442,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     const existing = workspaces.get(folder.key);
     if (existing !== undefined) return existing;
     const fs = port.fileSystem(folder);
-    const policy = port.historyPolicy;
-    const workspace = createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) }, ...(policy === undefined ? {} : { historyPolicy: () => policy.call(port, folder) }) });
+    const workspace = createWorkspace(folder, fs);
     const project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
     workspaces.set(folder.key, project);
     return project;
@@ -502,7 +530,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const recovered = await recoverDocument(kind, workspace.storage, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
-        return new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession);
+        const document = new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession);
+        hostDocuments.set(document.model, document);
+        return document;
       }
       const known = new Set(workspace.documents());
       const opened = await workspace.open(path);
@@ -514,7 +544,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (known.has(opened.document)) {
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
-      return new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession);
+      const document = new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession);
+      hostDocuments.set(document.model, document);
+      return document;
     },
     async saveCustomDocument(document) {
       const result = await document.save();

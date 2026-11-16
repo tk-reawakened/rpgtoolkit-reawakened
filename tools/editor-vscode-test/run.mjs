@@ -63,13 +63,15 @@ const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
 const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
 const newProjectProof = process.env.TKR_VSCODE_NEW_PROJECT_PROOF === "1";
 const autosaveCommandProof = process.env.TKR_VSCODE_AUTOSAVE_COMMAND_PROOF === "1";
+const historyProof = process.env.TKR_VSCODE_HISTORY_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
-if ((animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of animationProof || skipSpriteProof || autosaveCommandProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+if ((animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of animationProof || historyProof || skipSpriteProof || autosaveCommandProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
   await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
+  if (historyProof) await copyFile(spriteFile, resolve(proofWorkspace, "Chrs/ada.tem"));
   await mkdir(resolve(proofWorkspace, "Misc"), { recursive: true });
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
   const boardPath = "Boards/village.brd";
@@ -110,12 +112,17 @@ for (const choice of animationProof || skipSpriteProof || autosaveCommandProof ?
   const probeDiagnostics = [];
   const historyPreviewTraceDiagnostics = [];
   try {
-    if (launchProof || boardProof || programProof || guardProof) {
+    if (launchProof || boardProof || programProof || guardProof || historyProof) {
       await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
       if (programProof || guardProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
-      await writeFile(resolve(proofWorkspace, "Game/Example/Prg/start.prg"), boardProof || programProof || guardProof
+      const startProgram = boardProof || programProof || guardProof
         ? 'mwin("VS CODE FIXTURE PROOF")\nwait()\n'
-        : 'mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nwait()\n');
+        : 'mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nwait()\n';
+      await writeFile(resolve(proofWorkspace, "Game/Example/Prg/start.prg"), startProgram);
+      if (historyProof) {
+        await mkdir(resolve(proofWorkspace, "Prg"), { recursive: true });
+        await writeFile(resolve(proofWorkspace, "Prg/start.prg"), startProgram);
+      }
     }
     persistentFs = await startPersistentFs(proofWorkspace, `http://localhost:${port}`);
     const workbenchUrl = `http://localhost:${port}/`;

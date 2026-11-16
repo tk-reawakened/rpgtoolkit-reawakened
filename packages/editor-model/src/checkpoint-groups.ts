@@ -28,7 +28,7 @@ export interface CheckpointProblem {
   readonly deletable: boolean;
 }
 export type CheckpointEntry = CheckpointGroup | CheckpointProblem;
-export interface CheckpointTarget { readonly path: string; readonly bytes: Uint8Array | null }
+export interface CheckpointTarget { readonly path: string; readonly bytes: Uint8Array | null; readonly expectedBefore?: Uint8Array | null }
 export interface CheckpointEnvironment {
   readonly fs: FileSystemService;
   /** Optional history location; project paths still use `fs`, only `.tkr-history` is written here. */
@@ -204,6 +204,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       if (seen.has(foldPath(path))) throw new Error(`Duplicate destination: ${path}`);
       seen.add(foldPath(path));
       const before = await current(path);
+      if ("expectedBefore" in target && !sameBytes(before, target.expectedBefore)) throw new Error(`${path} changed after restore confirmation, so it was not restored. Choose the version again.`);
       if (reason !== "named" && !sameBytes(before, target.bytes)) {
         const refused = await env.guard(path, target.bytes === null, target.bytes);
         if (refused !== null) throw new Error(refused);
@@ -323,7 +324,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     async retry(id: string): Promise<PlatformResult<CheckpointGroup>> {
       try { return platformOk(await execute(await load(id))); } catch (error) { return platformError("io-error", message(error)); }
     },
-    async restore(id: string, options: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[] } = {}): Promise<PlatformResult<CheckpointGroup>> {
+    async restore(id: string, options: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[]; readonly expectedBefore?: ReadonlyMap<string, Uint8Array | null> } = {}): Promise<PlatformResult<CheckpointGroup>> {
       try {
         const source = await load(id);
         const only = options.only === undefined ? null : new Set(options.only.map(foldPath));
@@ -335,19 +336,22 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
           const desiredHash = source.reason === "named" ? file.after : file.before;
           const desired = await contents(desiredHash);
           const actual = await current(file.path);
+          if (options.expectedBefore?.has(file.path) && !sameBytes(actual, options.expectedBefore.get(file.path)!)) {
+            throw new Error(`${file.path} changed after restore confirmation, so it was not restored. Choose the version again.`);
+          }
           const actualHash = actual === null ? null : await hash(actual);
+          const expectedBefore = actual;
           if (actualHash === desiredHash) {
-            targets.push({ path: file.path, bytes: actual });
+            targets.push({ path: file.path, bytes: actual, expectedBefore });
             outcomes.set(file.path, { status: "already-as-wanted", message: "Already as wanted" });
           } else if (desiredHash === null && actual !== null && (file.after === null || actualHash !== file.after) && !deleteUncertain.has(foldPath(file.path))) {
-            targets.push({ path: file.path, bytes: actual });
+            targets.push({ path: file.path, bytes: actual, expectedBefore });
             outcomes.set(file.path, { status: "kept-uncertain", message: "The file no longer matches the bytes recorded by this operation, so it was kept." });
           } else {
-            targets.push({ path: file.path, bytes: desired });
+            targets.push({ path: file.path, bytes: desired, expectedBefore });
           }
         }
         if (targets.length === 0) throw new Error("No checkpoint files were selected for restore.");
-        // Capture the pre-restore state in this new, undoable group before changing any target.
         const group = await capture(targets, "before-restore", { restores: id, uncovered: source.uncovered });
         for (const file of group.files) {
           const outcome = outcomes.get(file.path);
@@ -401,7 +405,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     createNamedCheckpoint: (name: string, targets: readonly CheckpointTarget[], uncovered?: readonly CheckpointUncovered[]) => serial(() => api.createNamedCheckpoint(name, targets, uncovered)),
     preview: (id: string, path: string, version?: "before" | "after") => serial(() => api.preview(id, path, version)),
     retry: (id: string) => serial(() => api.retry(id)),
-    restore: (id: string, options?: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[] }) => serial(() => api.restore(id, options)),
+    restore: (id: string, options?: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[]; readonly expectedBefore?: ReadonlyMap<string, Uint8Array | null> }) => serial(() => api.restore(id, options)),
     list: () => serial(() => api.list()),
     deleteGroup: (id: string) => serial(() => api.deleteGroup(id)),
     ignoreHistory: () => serial(() => api.ignoreHistory()),

@@ -269,6 +269,12 @@ export async function handleHistoryPreviewRequest(
     await postMessage({ type: "visit-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
   } else if (request.type === "return-visit") {
     await postMessage({ type: "return-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
+  } else if (request.type === "animation-action") {
+    await postMessage({
+      type: "animation-action-result",
+      requestId: request.requestId,
+      result: platformError("permission-denied", denied),
+    });
   } else if (request.type === "pick-asset") {
     await postMessage({ type: "pick-result", requestId: request.requestId, outcome: { chosen: false } });
   }

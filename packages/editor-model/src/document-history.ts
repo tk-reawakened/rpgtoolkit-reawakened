@@ -354,12 +354,35 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
     },
     usage: async () => {
       const idx = await load();
-      const sizes = new Map<string, number>();
-      for (const entry of idx.entries.values()) sizes.set(entry.sha256, entry.size);
-      const records = [...idx.entries.values()].reduce((total, record) => total + JSON.stringify(record).length, 0);
-      const bytes = [...sizes.values()].reduce((total, size) => total + size, 0) + records;
+      let bytes = 0;
+      const contents = new Set<string>();
+      const countFiles = async (path: string): Promise<void> => {
+        const listed = await storage.list(path);
+        if (!listed.ok) {
+          if (missing(listed.error)) return;
+          throw new HistoryError(`Could not count history storage at ${path}: ${listed.error.message}`);
+        }
+        for (const entry of listed.value) {
+          const child = `${path}/${entry.name}`;
+          if (entry.kind === "directory") {
+            await countFiles(child);
+            continue;
+          }
+          if (entry.kind !== "file") continue;
+          const data = await storage.read(child);
+          if (!data.ok) {
+            if (missing(data.error)) continue;
+            throw new HistoryError(`Could not count history storage at ${child}: ${data.error.message}`);
+          }
+          bytes += data.value.byteLength;
+          if (child.startsWith(`${HISTORY_FOLDER}/blobs/`) || child.startsWith(`${HISTORY_FOLDER}/contents/`)) {
+            contents.add(entry.name);
+          }
+        }
+      };
+      await countFiles(HISTORY_FOLDER);
       const warnBytes = options.policy().warnBytes;
-      return { entries: idx.entries.size, distinctContents: sizes.size, bytes, warnBytes, overWarning: bytes > warnBytes };
+      return { entries: idx.entries.size, distinctContents: contents.size, bytes, warnBytes, overWarning: bytes > warnBytes };
     },
     thinningPlan: async () => {
       const idx = await load();
