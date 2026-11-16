@@ -27,17 +27,20 @@ test("fixture validation normalizes path separators and facing without changing 
   deepEqual(result.files, ["Prg/open.prg"]);
 });
 
-test("fixture lists reject holes, fractional lengths, and path traversal", () => {
+test("fixture lists reject holes, invalid lengths, and path traversal without iterating unbounded lists", () => {
   for (const party of [
     { length: 2, "0": "Chrs/hero.tem" },
     { length: 1.5, "0": "Chrs/hero.tem" },
+    { length: 0 },
+    { length: 1_000_000_000 },
     { length: 1, "0": "../hero.tem" },
   ]) {
     throws(() => readFixture(definition({ party })), (error: unknown) =>
       error instanceof FixtureError && error.code === "spec.bad-fixture");
   }
+  throws(() => readFixture(definition({ files: { length: 1_000_000_000 } })), (error: unknown) =>
+    error instanceof FixtureError && error.code === "spec.bad-fixture");
 });
-
 test("fixture values enforce path, type, and matching RPGCode variable suffix rules", () => {
   for (const overrides of [
     { board: "C:/game/Boards/wall.brd" },

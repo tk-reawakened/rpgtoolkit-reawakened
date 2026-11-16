@@ -67,11 +67,11 @@ function record(value: unknown, what: string): Record<string, Plain> {
   return value as Record<string, Plain>;
 }
 
-/** A list (a dictionary holding `length` and `"0"`…`"<length - 1>"`) as an array, or `null` when it is not one. */
-export function listEntries(value: unknown, what: string): readonly Plain[] {
+/** A bounded list (a dictionary holding `length` and `"0"`…`"<length - 1>"`) as an array. */
+export function listEntries(value: unknown, what: string, maxLength = 256): readonly Plain[] {
   const members = record(value, what);
   const length = members["length"];
-  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) bad(`${what} must be a list`);
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0 || length > maxLength) bad(`${what} must be a list of at most ${maxLength} entries`);
   const entries: Plain[] = [];
   for (let index = 0; index < length; index += 1) {
     const entry = members[String(index)];
@@ -87,10 +87,9 @@ export function readFixture(input: unknown): FixtureDefinition {
   const definition = record(input, "the definition");
   if (typeof input === "object" && input !== null && new TextEncoder().encode(JSON.stringify(input)).byteLength > MAX_JSON) bad(`the definition is over ${MAX_JSON} bytes`);
   const board = fixturePath(definition["board"], "board", ".brd");
-  const party = listEntries(definition["party"], "party").map((member) => fixturePath(member, "a party member", ".tem"));
-  if (party.length < 1 || party.length > 5) bad("party must hold 1 to 5 character files");
+  const party = listEntries(definition["party"], "party", 5).map((member) => fixturePath(member, "a party member", ".tem"));
+  if (party.length === 0) bad("party must hold 1 to 5 character files");
   const folded = new Set(party.map((member) => member.toLowerCase()));
-  if (folded.size !== party.length) bad("party members must be distinct");
   const start: FixtureStart = {
     x: whole(definition["x"], "x", 0, 1_000_000),
     y: whole(definition["y"], "y", 0, 1_000_000),
@@ -142,7 +141,6 @@ export function readFixture(input: unknown): FixtureDefinition {
   }
   const seed = definition["seed"] === undefined ? null : whole(definition["seed"], "seed", 0, 4_294_967_295);
   const files = definition["files"] === undefined ? [] : listEntries(definition["files"], "files").map((file) => fixturePath(file, "a files entry"));
-  if (files.length > 256) bad("files holds at most 256 entries");
   if (new Set(files.map((file) => file.toLowerCase())).size !== files.length) bad("files entries must be distinct");
   return { board, party, start, facing, stats, inventory, gold, variables, seed, files };
 }
