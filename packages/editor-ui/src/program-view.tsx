@@ -1,3 +1,4 @@
+import { trackedText, copyTracked, changePendingText, applyTrackedChanges, mergePendingText, trackedTextChanges, type TrackedText, type PendingText } from "./program-text.ts";
 import {
   commandReference,
   createEditTracker,
@@ -82,354 +83,6 @@ function flatten(symbols: readonly SymbolNode[]): BookmarkRow[] {
   visit(symbols);
   return rows.sort((left, right) => left.line - right.line);
 }
-interface TextRun {
-  readonly chunks: string[];
-  length: number;
-}
-
-const TEXT_RUN_CHUNK = 1024;
-
-interface TextPiece {
-  readonly id: number;
-  readonly source: TextRun;
-  readonly from: number;
-  readonly to: number;
-}
-
-interface TrackedText {
-  readonly text: string;
-  readonly pieces: readonly TextPiece[];
-}
-
-interface PendingText {
-  base: TrackedText;
-  current: TrackedText;
-}
-
-interface PieceRange {
-  readonly from: number;
-  readonly to: number;
-}
-
-interface PiecePosition extends PieceRange {
-  readonly index: number;
-  readonly start: number;
-}
-
-function textRun(text: string): TextRun {
-  const chunks: string[] = [];
-  for (let offset = 0; offset < text.length; offset += TEXT_RUN_CHUNK) {
-    chunks.push(text.slice(offset, offset + TEXT_RUN_CHUNK));
-  }
-  return { chunks, length: text.length };
-}
-
-function appendTextRun(run: TextRun, text: string): void {
-  let offset = 0;
-  while (offset < text.length) {
-    const lastIndex = run.chunks.length - 1;
-    const last = run.chunks[lastIndex];
-    if (last !== undefined && last.length < TEXT_RUN_CHUNK) {
-      const count = Math.min(TEXT_RUN_CHUNK - last.length, text.length - offset);
-      run.chunks[lastIndex] = last + text.slice(offset, offset + count);
-      offset += count;
-    } else {
-      const end = Math.min(offset + TEXT_RUN_CHUNK, text.length);
-      run.chunks.push(text.slice(offset, end));
-      offset = end;
-    }
-  }
-  run.length += text.length;
-}
-
-function sliceTextRun(run: TextRun, from: number, to: number): string {
-  if (from === to) return "";
-  const parts: string[] = [];
-  let offset = 0;
-  for (const chunk of run.chunks) {
-    const end = offset + chunk.length;
-    if (end > from && offset < to) parts.push(chunk.slice(Math.max(from, offset) - offset, Math.min(to, end) - offset));
-    offset = end;
-    if (offset >= to) break;
-  }
-  return parts.join("");
-}
-
-function trackedText(text: string, allocate: () => number): TrackedText {
-  if (text.length === 0) return { text, pieces: [] };
-  return { text, pieces: [{ id: allocate(), source: textRun(text), from: 0, to: text.length }] };
-}
-
-function copyTracked(text: TrackedText): TrackedText {
-  return { text: text.text, pieces: text.pieces.slice() };
-}
-
-function textOfPieces(pieces: readonly TextPiece[]): string {
-  return pieces.map((piece) => sliceTextRun(piece.source, piece.from, piece.to)).join("");
-}
-
-function compactPieces(pieces: TextPiece[]): void {
-  let write = 0;
-  for (const piece of pieces) {
-    const previous = pieces[write - 1];
-    if (previous !== undefined && previous.id === piece.id && previous.source === piece.source && previous.to === piece.from) {
-      pieces[write - 1] = { ...previous, to: piece.to };
-    } else {
-      pieces[write] = piece;
-      write += 1;
-    }
-  }
-  pieces.length = write;
-}
-
-/** Split the piece at a UTF-16 offset and return the index immediately after that offset. */
-function splitPiecesAt(pieces: TextPiece[], offset: number): number {
-  let start = 0;
-  for (let index = 0; index < pieces.length; index += 1) {
-    const piece = pieces[index]!;
-    const end = start + piece.to - piece.from;
-    if (offset === start) return index;
-    if (offset === end) return index + 1;
-    if (offset > start && offset < end) {
-      const split = piece.from + offset - start;
-      pieces.splice(index, 1, { ...piece, to: split }, { ...piece, from: split });
-      return index + 1;
-    }
-    start = end;
-  }
-  return pieces.length;
-}
-
-/** Apply sequential replacements without expanding unchanged text into per-character identities. */
-function applyTrackedChanges(text: TrackedText, changes: readonly TextChange[], allocate: () => number, resultText?: string): TrackedText {
-  const pieces = text.pieces.slice();
-  for (const change of changes) {
-    const from = splitPiecesAt(pieces, change.from);
-    const to = splitPiecesAt(pieces, change.to);
-    if (change.text.length > 0 && change.from === change.to && from > 0) {
-      const previous = pieces[from - 1]!;
-      if (previous.to === previous.source.length) {
-        appendTextRun(previous.source, change.text);
-        pieces[from - 1] = { ...previous, to: previous.source.length };
-      } else {
-        pieces.splice(from, to - from, { id: allocate(), source: textRun(change.text), from: 0, to: change.text.length });
-      }
-    } else if (change.text.length === 0) {
-      pieces.splice(from, to - from);
-    } else {
-      pieces.splice(from, to - from, { id: allocate(), source: textRun(change.text), from: 0, to: change.text.length });
-    }
-    compactPieces(pieces);
-  }
-  let length = 0;
-  for (const piece of pieces) length += piece.to - piece.from;
-  if (resultText === undefined || length !== resultText.length) return trackedText(resultText ?? textOfPieces(pieces), allocate);
-  return { text: resultText, pieces };
-}
-
-function rangesById(pieces: readonly TextPiece[]): Map<number, PieceRange[]> {
-  const ranges = new Map<number, PieceRange[]>();
-  for (const piece of pieces) {
-    const same = ranges.get(piece.id);
-    if (same === undefined) ranges.set(piece.id, [{ from: piece.from, to: piece.to }]);
-    else same.push({ from: piece.from, to: piece.to });
-  }
-  return ranges;
-}
-
-function positionsById(pieces: readonly TextPiece[]): Map<number, PiecePosition[]> {
-  const positions = new Map<number, PiecePosition[]>();
-  let start = 0;
-  for (let index = 0; index < pieces.length; index += 1) {
-    const piece = pieces[index]!;
-    const same = positions.get(piece.id);
-    const position = { from: piece.from, to: piece.to, index, start };
-    if (same === undefined) positions.set(piece.id, [position]);
-    else same.push(position);
-    start += piece.to - piece.from;
-  }
-  return positions;
-}
-
-function firstRangeEndingAfter(ranges: readonly PieceRange[], offset: number): number {
-  let low = 0;
-  let high = ranges.length;
-  while (low < high) {
-    const middle = (low + high) >>> 1;
-    if (ranges[middle]!.to <= offset) low = middle + 1;
-    else high = middle;
-  }
-  return low;
-}
-
-function piecePosition(piece: TextPiece, positions: ReadonlyMap<number, readonly PiecePosition[]>): number | null {
-  const same = positions.get(piece.id);
-  if (same === undefined) return null;
-  for (let index = firstRangeEndingAfter(same, piece.from); index < same.length; index += 1) {
-    const match = same[index]!;
-    if (match.from >= piece.to) break;
-    const from = Math.max(piece.from, match.from);
-    if (from < Math.min(piece.to, match.to)) return match.start + from - match.from;
-  }
-  return null;
-}
-
-function intersectPieces(piece: TextPiece, ranges: readonly PieceRange[], output: TextPiece[]): void {
-  for (let index = firstRangeEndingAfter(ranges, piece.from); index < ranges.length; index += 1) {
-    const range = ranges[index]!;
-    if (range.from >= piece.to) break;
-    const from = Math.max(piece.from, range.from);
-    const to = Math.min(piece.to, range.to);
-    if (from < to) output.push({ ...piece, from, to });
-  }
-}
-
-function missingPieceRanges(piece: TextPiece, present: readonly PieceRange[] | undefined): PieceRange[] {
-  if (present === undefined || present.length === 0) return [{ from: piece.from, to: piece.to }];
-  const missing: PieceRange[] = [];
-  let cursor = piece.from;
-  for (let index = firstRangeEndingAfter(present, piece.from); index < present.length; index += 1) {
-    const range = present[index]!;
-    if (range.from >= piece.to) break;
-    if (range.from > cursor) missing.push({ from: cursor, to: Math.min(range.from, piece.to) });
-    cursor = Math.max(cursor, range.to);
-    if (cursor >= piece.to) break;
-  }
-  if (cursor < piece.to) missing.push({ from: cursor, to: piece.to });
-  return missing;
-}
-
-/**
- * Merge edits made against a stale surface onto the current document. Piece identities distinguish repeated text and
- * preserve unchanged islands; history-inserted pieces survive unless the surface explicitly deleted their identity.
- */
-function mergePendingText(document: TrackedText, pending: PendingText): TrackedText {
-  const baseRanges = rangesById(pending.base.pieces);
-  const currentRanges = rangesById(pending.current.pieces);
-  const pieces: TextPiece[] = [];
-  for (const piece of document.pieces) {
-    const base = baseRanges.get(piece.id);
-    if (base === undefined) pieces.push(piece);
-    else intersectPieces(piece, currentRanges.get(piece.id) ?? [], pieces);
-  }
-  compactPieces(pieces);
-
-  const targetPositions = positionsById(pieces);
-  const targetRanges = rangesById(pieces);
-  const nextAnchor = new Array<number | null>(pending.current.pieces.length);
-  let next: number | null = null;
-  for (let index = pending.current.pieces.length - 1; index >= 0; index -= 1) {
-    nextAnchor[index] = next;
-    const at = piecePosition(pending.current.pieces[index]!, targetPositions);
-    if (at !== null) next = at;
-  }
-
-  let targetLength = 0;
-  for (const piece of pieces) targetLength += piece.to - piece.from;
-  const additions = new Map<number, TextPiece[]>();
-  for (let index = 0; index < pending.current.pieces.length; index += 1) {
-    const piece = pending.current.pieces[index]!;
-    const candidates = missingPieceRanges(piece, baseRanges.get(piece.id));
-    for (const candidate of candidates) {
-      const addition = { ...piece, from: candidate.from, to: candidate.to };
-      const missing = missingPieceRanges(addition, targetRanges.get(piece.id));
-      if (missing.length === 0) continue;
-      const at = nextAnchor[index] ?? targetLength;
-      let atPieces = additions.get(at);
-      if (atPieces === undefined) {
-        atPieces = [];
-        additions.set(at, atPieces);
-      }
-      for (const range of missing) atPieces.push({ ...piece, from: range.from, to: range.to });
-    }
-  }
-
-  const anchors = [...additions.keys()].sort((left, right) => left - right);
-  const merged: TextPiece[] = [];
-  let anchorIndex = 0;
-  let offset = 0;
-  for (const piece of pieces) {
-    const end = offset + piece.to - piece.from;
-    let cursor = offset;
-    while (anchorIndex < anchors.length && anchors[anchorIndex]! <= end) {
-      const anchor = anchors[anchorIndex]!;
-      const at = Math.max(anchor, offset);
-      if (at > cursor) merged.push({ ...piece, from: piece.from + cursor - offset, to: piece.from + at - offset });
-      for (const addition of additions.get(anchor)!) merged.push(addition);
-      cursor = at;
-      anchorIndex += 1;
-    }
-    if (cursor < end) merged.push({ ...piece, from: piece.from + cursor - offset, to: piece.to });
-    offset = end;
-  }
-  while (anchorIndex < anchors.length) {
-    for (const addition of additions.get(anchors[anchorIndex]!)!) merged.push(addition);
-    anchorIndex += 1;
-  }
-  compactPieces(merged);
-  return { text: textOfPieces(merged), pieces: merged };
-}
-
-/** Return compact, right-to-left replacements between two piece-identified revisions. */
-function trackedTextChanges(before: TrackedText, after: TrackedText): TextChange[] {
-  if (before.text === after.text) return [];
-  const targetPositions = new Map<number, Array<PiecePosition & { readonly start: number }>>();
-  let targetOffset = 0;
-  for (let index = 0; index < after.pieces.length; index += 1) {
-    const piece = after.pieces[index]!;
-    const same = targetPositions.get(piece.id);
-    const position = { from: piece.from, to: piece.to, index, start: targetOffset };
-    if (same === undefined) targetPositions.set(piece.id, [position]);
-    else same.push(position);
-    targetOffset += piece.to - piece.from;
-  }
-
-  const matches: Array<{ readonly from: number; readonly to: number; readonly length: number }> = [];
-  let sourceOffset = 0;
-  for (const piece of before.pieces) {
-    const same = targetPositions.get(piece.id);
-    if (same !== undefined) {
-      for (let index = firstRangeEndingAfter(same, piece.from); index < same.length; index += 1) {
-        const position = same[index]!;
-        if (position.from >= piece.to) break;
-        const from = Math.max(piece.from, position.from);
-        const to = Math.min(piece.to, position.to);
-        if (from >= to) continue;
-        const match = {
-          from: sourceOffset + from - piece.from,
-          to: position.start + from - position.from,
-          length: to - from,
-        };
-        const previous = matches.at(-1);
-        if (previous !== undefined && previous.from + previous.length === match.from && previous.to + previous.length === match.to) {
-          matches[matches.length - 1] = { ...previous, length: previous.length + match.length };
-        } else {
-          matches.push(match);
-        }
-      }
-    }
-    sourceOffset += piece.to - piece.from;
-  }
-
-  const gaps: Array<{ readonly from: number; readonly to: number; readonly targetFrom: number; readonly targetTo: number }> = [];
-  let from = 0;
-  let to = 0;
-  for (const match of matches) {
-    if (match.from < from || match.to < to) continue;
-    if (match.from > from || match.to > to) gaps.push({ from, to: match.from, targetFrom: to, targetTo: match.to });
-    from = match.from + match.length;
-    to = match.to + match.length;
-  }
-  if (from < before.text.length || to < after.text.length) {
-    gaps.push({ from, to: before.text.length, targetFrom: to, targetTo: after.text.length });
-  }
-  return gaps.reverse().map((gap) => ({
-    from: gap.from,
-    to: gap.to,
-    text: after.text.slice(gap.targetFrom, gap.targetTo),
-  }));
-}
-
 /** Recover the inverse of a sequential text command while its pre-undo text is available. */
 function inverseTextEdits(base: string, expected: string, command: EditTextCommand): TextChange[] | null {
   let text = base;
@@ -556,12 +209,13 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const queuedHistoryCommands = useRef(0);
   const historyQueued = useRef(false);
   const queuedSaveStages = useRef<QueuedSaveStage[]>([]);
+  const historyRevisions = useRef(new Map<string, { before: TrackedText; after: TrackedText }>());
   const enqueueCommand = <T,>(operation: () => Promise<T>): Promise<T> => {
     queuedCommands.current += 1;
     const result = commandQueue.current.then(operation);
     commandQueue.current = result.then(
-      () => { queuedCommands.current -= 1; },
-      () => { queuedCommands.current -= 1; },
+      () => { queuedCommands.current -= 1; if (queuedCommands.current === 0) historyRevisions.current.clear(); },
+      () => { queuedCommands.current -= 1; if (queuedCommands.current === 0) historyRevisions.current.clear(); },
     );
     return result;
   };
@@ -687,7 +341,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     alignDocumentTrack();
     const merged = mergePendingText(ctl.document, pending);
     const edits = trackedTextChanges(ctl.document, merged);
-    if (edits.length === 0) return true;
+    if (edits.length === 0) { ctl.document = merged; return true; }
 
     const end = tracker.begin();
     try {
@@ -777,6 +431,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         const beforeSnapshot = document.getSnapshot();
         const ctl = control.current;
         if (ctl.document.text !== beforeSnapshot.text) ctl.document = trackedText(beforeSnapshot.text, allocateTextId);
+        const beforeTrack = ctl.document;
         let result: HistoryResult | null = null;
         try {
           result = await step.call(document);
@@ -799,6 +454,14 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
             }
           } else {
             ctl.document = trackedText(afterSnapshot.text, allocateTextId);
+          }
+          if (which === "undo") {
+            historyRevisions.current.set(String(result.editId), { before: beforeTrack, after: ctl.document });
+          } else {
+            const restored = historyRevisions.current.get(String(result.editId));
+            if (restored !== undefined && restored.after.text === beforeSnapshot.text && restored.before.text === afterSnapshot.text) {
+              ctl.document = restored.before;
+            }
           }
           ctl.documentKey = document.identity.key;
         }
@@ -839,6 +502,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         pending: ctl.pending === null
           ? null
           : {
+              deleted: ctl.pending.deleted,
               base: copyTracked(ctl.pending.base),
               current: copyTracked(ctl.pending.current),
             },
@@ -904,10 +568,10 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         if (ctl.pending === null) {
           ctl.burstStart = Date.now();
           const base = copyTracked(ctl.visible);
-          ctl.pending = { base, current: copyTracked(base) };
+          ctl.pending = { base, current: copyTracked(base), deleted: null };
         }
         const actual = ctl.surface?.getText();
-        ctl.pending.current = applyTrackedChanges(ctl.pending.current, changes, () => ctl.nextTextId++, actual);
+        changePendingText(ctl.pending, changes, () => ctl.nextTextId++, actual);
         ctl.visible = ctl.pending.current;
         setTyping(true);
         sendToServer();

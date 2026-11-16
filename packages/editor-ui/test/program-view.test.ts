@@ -1116,3 +1116,36 @@ test("disposing the view hands buffered typing to the document: closing a view n
   await settled();
   equal(textOf(s), "x = 1\ny = 2\nlast\n");
 });
+
+test("#2768 a net-zero burst preserves the identity used by the next replacement", async () => {
+  const s = await setup({ content: "x" });
+  const handle = show(s);
+  await type(s.el, "y");
+  await type(s.el, "x");
+  await act(() => s.pending.settle());
+  await type(s.el, "z");
+  await act(() => s.pending.settle());
+  equal(textOf(s), "z");
+  handle.dispose();
+});
+
+for (const [original, edited, replacement] of [["x", "xa", "xb"], ["x", "ax", "bx"], ["x\r\ny\nz\r", "ax\ny\nz\n", "bx\ny\nz\n"]]) {
+  test(`#2769 queued Undo/Redo preserves replacement ${JSON.stringify(edited)}`, async () => {
+    const s = await setup({ content: original! });
+    const first = saveGate();
+    const handle = show(s, { document: gatedProgramView(s, [first]) });
+    await type(s.el, edited!);
+    await act(() => { named(s.el, "Save").click(); });
+    await first.started.promise;
+    await key(area(s.el), { key: "z", ctrlKey: true });
+    await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
+    await type(s.el, replacement!);
+    first.release.resolve();
+    await act(() => s.pending.settle());
+    equal(textOf(s), replacement);
+    await s.doc.save();
+    const expected = original!.includes("\r") ? "bx\r\ny\nz\r" : replacement!;
+    deepEqual(s.host.bytesOf(PATH), bytes(expected));
+    handle.dispose();
+  });
+}
