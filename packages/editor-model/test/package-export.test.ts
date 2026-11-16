@@ -267,11 +267,11 @@ test("preflight checks listed file sizes before reading and rechecks the bytes r
 });
 
 test("a leaky inventory cannot hand the author an archive holding an excluded file: the produced bytes are checked (#2842)", async () => {
-  const { workspace, services } = packageHost(authoredFiles());
+  const { workspace, services } = packageHost(authoredFiles("start.prg", "start.brd", "Prg/Script-Spec/startup.prg"));
   // Every excluded class is really present in the project and really reaches the inventory, as a broken filter would let it.
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3", inventoryFilter: () => false });
   ok(!outcome.ok, "the export is refused");
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Boards/editor.tkrscn", ".tkr-history/snapshot.bin"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Boards/editor.tkrscn", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
     ok(outcome.message.includes(path), `${path} is named in the refusal: ${outcome.message}`);
   }
   match(outcome.message, /archive it produced holds files that must never be packaged/);

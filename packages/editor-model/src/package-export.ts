@@ -23,8 +23,8 @@ const EDITOR_ONLY_EXTENSIONS = new Set([".tkrscn", ".tkrtile", ".tkrpack"]);
 
 /**
  * Every entry of a produced archive that the packaging rules exclude (`packaging-and-paths.md`): under `Saved/`, the
- * reserved history or export folders, a `Main/` file other than the selected main file, a creator test, or an
- * editor-only file. It is written apart from the inventory filter, so it can catch what that filter lets through.
+ * reserved history, export or creator-test folders, the root-relative script-spec helper library, a `Main/` file other
+ * than the selected main file, a creator test, or an editor-only file. This is separate from the inventory filter.
  */
 export function producedArchiveViolations(paths: readonly string[], selectedMain: string): readonly string[] {
   const selected = foldPath(selectedMain);
@@ -32,7 +32,8 @@ export function producedArchiveViolations(paths: readonly string[], selectedMain
     const folded = foldPath(path.replaceAll(String.fromCharCode(92), "/"));
     const parts = folded.split("/");
     const name = parts.at(-1) ?? "";
-    if (["saved", ".tkr-history", ".tkr-exports"].includes(parts[0] ?? "") && parts.length > 1) return true;
+    if (["saved", ".tkr-history", ".tkr-exports", ".tkr-tests"].includes(parts[0] ?? "") && parts.length > 1) return true;
+    if (parts[0] === "prg" && parts[1] === "script-spec") return true;
     if (parts[0] === "main" && parts.length > 1 && folded !== selected) return true;
     if (name.endsWith(".spec.prg")) return true;
     return [...EDITOR_ONLY_EXTENSIONS].some((extension) => name.endsWith(extension));
