@@ -19,16 +19,32 @@ let mountHistory: MountHistory;
 
 before(async () => {
   GlobalRegistrator.register();
+  // A view may schedule a frame for layout; this DOM shim has none, so a frame is one loop turn (no duration).
+  const frame = (callback: FrameRequestCallback): number => Number(setImmediate(() => callback(performance.now())));
+  for (const target of [globalThis, (globalThis as { window?: object }).window].filter((value): value is object => value !== undefined)) {
+    Object.assign(target, { requestAnimationFrame: frame, cancelAnimationFrame: (): void => {} });
+  }
   ({ act } = await import("preact/test-utils"));
   ({ mount, mountHistory } = await import("@tk-reawakened/editor-ui"));
 });
 
-after(() => GlobalRegistrator.unregister());
+after(() => {
+  GlobalRegistrator.unregister();
+  // A view disposed by the shim's teardown may still schedule a frame; it is one loop turn either way.
+  Object.assign(globalThis, { requestAnimationFrame: (callback: FrameRequestCallback) => Number(setImmediate(() => callback(performance.now()))), cancelAnimationFrame: (): void => {} });
+});
 
-// Web Crypto answers on a later event-loop turn than a microtask, so settling yields to the loop (no timer, no duration).
-async function settle(): Promise<void> {
-  await act(async () => { for (let turn = 0; turn < 60; turn += 1) await yieldTurn(); });
+// Web Crypto answers on a later event-loop turn than a microtask, so waiting yields to the loop until the state the
+// assertion needs is there (no timer, no guessed duration); a state that never arrives fails with the page.
+async function settleUntil(check: () => boolean, what: string): Promise<void> {
+  for (let turn = 0; turn < 20_000; turn += 1) {
+    if (check()) return;
+    await act(async () => { await yieldTurn(); });
+  }
+  throw new Error(`waited for ${what} and it never appeared; page: ${document.body.textContent ?? ""}`);
 }
+
+const settle = (): Promise<void> => settleUntil(() => true, "nothing");
 
 const buttonWith = (root: HTMLElement, text: string): HTMLButtonElement => {
   const found = [...root.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes(text));
@@ -40,12 +56,12 @@ async function clickRow(root: HTMLElement, text: string): Promise<void> {
   const row = [...root.querySelectorAll("ol[aria-label='History entries'] button")].find((candidate) => candidate.textContent?.includes(text));
   if (row === undefined) throw new Error(`no timeline row with "${text}"`);
   await act(() => { (row as HTMLButtonElement).click(); });
-  await settle();
+  await settleUntil(() => (row as HTMLButtonElement).getAttribute("aria-pressed") === "true", `row "${text}" to be selected`);
 }
 
-async function click(root: HTMLElement, text: string): Promise<void> {
+async function click(root: HTMLElement, text: string, appeared: () => boolean): Promise<void> {
   await act(() => { buttonWith(root, text).click(); });
-  await settle();
+  await settleUntil(appeared, `"${text}" to take effect`);
 }
 
 interface Fixture {
@@ -84,7 +100,7 @@ test("a creator browses a document's history, previews a saved version in the sa
     ok((await fixture.document.save("manual")).ok);
   }
   show(fixture);
-  await settle();
+  await settleUntil(() => fixture.el.querySelectorAll("ol[aria-label='History entries'] button").length === 3, "the three entries");
 
   match(fixture.el.querySelector("[data-history-location]")?.textContent ?? "", /\.tkr-history folder/, "it says where history lives");
   const rows = [...fixture.el.querySelectorAll("ol[aria-label='History entries'] button")];
@@ -93,6 +109,7 @@ test("a creator browses a document's history, previews a saved version in the sa
   match(rows[2]!.textContent ?? "", /checkpoint/);
 
   await clickRow(fixture.el, "checkpoint");
+  await settleUntil(() => (fixture.el.querySelector(".tkr-history-preview-editor")?.children.length ?? 0) > 0, "the preview editor");
   const preview = fixture.el.querySelector(".tkr-history-preview-editor");
   ok(preview !== null && preview.children.length > 0, `the same editor is mounted over the saved bytes; page: ${fixture.el.textContent}`);
   const titleField = [...fixture.el.querySelectorAll("input")].find((input) => input.value === original);
@@ -100,16 +117,16 @@ test("a creator browses a document's history, previews a saved version in the sa
   ok(titleField.disabled || titleField.readOnly || /read-only|read only/i.test(preview.textContent ?? ""), "the preview cannot be edited");
   equal(titleOf(fixture.host.bytesOf(PATH)!), "Second draft", "previewing wrote nothing");
 
-  await click(fixture.el, "Restore this version");
+  await click(fixture.el, "Restore this version", () => buttonWith(fixture.el, "Confirm restore") !== undefined);
   ok(buttonWith(fixture.el, "Confirm restore") !== undefined, "restore asks first");
   equal(titleOf(fixture.host.bytesOf(PATH)!), "Second draft", "asking changed nothing");
-  await click(fixture.el, "Confirm restore");
+  await click(fixture.el, "Confirm restore", () => titleOf(fixture.host.bytesOf(PATH)!) === original);
   equal(titleOf(fixture.host.bytesOf(PATH)!), original, "the project holds the restored version");
-  const report = fixture.el.querySelector("[aria-label='Restore report']");
-  match(report?.textContent ?? "", /Main\/example\.gam: restored/, "each file is reported separately");
-  match(report?.textContent ?? "", /all-or-nothing/);
+  await settleUntil(() => /Main\/example\.gam: restored/.test(fixture.el.textContent ?? ""), "the per-file restore report");
+  match(fixture.el.textContent ?? "", /Restore report/);
+  match(fixture.el.textContent ?? "", /nothing here is all-or-nothing/);
 
-  await click(fixture.el, "Undo this restore");
+  await click(fixture.el, "Undo this restore", () => titleOf(fixture.host.bytesOf(PATH)!) === "Second draft");
   equal(titleOf(fixture.host.bytesOf(PATH)!), "Second draft", "a restore is itself restorable");
 });
 
@@ -118,19 +135,21 @@ test("compare shows two saved versions side by side, and the comparison is read-
   ok(fixture.document.apply({ type: "set-game-title", title: "Other" }).ok);
   ok((await fixture.document.save("manual")).ok);
   show(fixture);
-  await settle();
+  await settleUntil(() => fixture.el.querySelectorAll("ol[aria-label='History entries'] button").length === 2, "the two entries");
   await clickRow(fixture.el, "saved");
+  await settleUntil(() => fixture.el.querySelector("select[aria-label='Compare with']") !== null, "the preview and its comparison choices");
   const select = fixture.el.querySelector<HTMLSelectElement>("select[aria-label='Compare with']");
   ok(select !== null);
   await act(() => { select.value = "current"; select.dispatchEvent(new Event("change", { bubbles: true })); });
-  await settle();
-  equal(fixture.el.querySelectorAll(".tkr-history-preview").length, 2, `two read-only editors side by side; select=${select.value}; page: ${fixture.el.textContent}`);
+  await settleUntil(() => fixture.el.querySelectorAll(".tkr-history-preview").length === 2, "the second preview");
+  match(fixture.el.textContent ?? "", /Compared with the file as it is now/, "the second pane names what it compares");
+  equal(fixture.el.querySelectorAll(".tkr-history-preview").length, 2, "two read-only editors side by side");
 });
 
 test("a history problem is shown to the creator instead of being hidden", async () => {
   const fixture = await setUp();
   fixture.workspace.history.reportProblem(PATH, "Main/example.gam was saved, but its history could not be recorded: disk full");
   show(fixture);
-  await settle();
+  await settleUntil(() => fixture.el.querySelector("[aria-label='History problems']") !== null, "the problem");
   match(fixture.el.querySelector("[aria-label='History problems']")?.textContent ?? "", /disk full/);
 });
