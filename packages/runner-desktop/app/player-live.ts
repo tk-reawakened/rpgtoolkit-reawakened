@@ -6,9 +6,10 @@ import { createFallbackTouchControls, isFallbackTouchControlTarget, shouldSuppre
 import { attachPointerInput } from "@tk-reawakened/runner-web/pointer";
 import { soundFontDecoderReady } from "@tk-reawakened/synth";
 import { createLiveSession, type LiveSession } from "@tk-reawakened/runner-web/live-session";
+import { createDiagnosticsMode, exposeDiagnosticsMode, isDiagnosticsToggle, type DiagnosticsHook, type DiagnosticsMode } from "@tk-reawakened/runner-web/diagnostics-mode";
 import { createObservedHostGeometry, observeHostState, reapplyObservedGeometryBeforePointer, reconcileObservedGeometryAfterAdvance, reconcileObservedHostFeaturesAfterAdvance, stampPendingInputs, type HostViewport, type PendingInput } from "@tk-reawakened/runner-web/host-state";
 
-declare global { interface Window { desktop?: DesktopHost; __live?: { tick: number; stateHash: string; drawHash: string; board: string | null; player: { x: number; y: number } | null; error?: string }; __session?: LiveSession } }
+declare global { interface Window { desktop?: DesktopHost; __live?: { tick: number; readonly stateHash: string; drawHash: string; board: string | null; player: { x: number; y: number } | null; error?: string }; __session?: LiveSession; __tkrDiagnostics?: DiagnosticsHook } }
 
 void start().catch((error: unknown) => {
   console.error("player startup failed", error);
@@ -123,12 +124,14 @@ async function play(host: DesktopHost, opened: { readonly name: string; readonly
   if (quitRequested) return;
   status.hidden = true;
   window.__session = session;
-  // The diagnostics strip is a runner feature, not a project setting: it appears only when this run asked for it.
-  const diagnostics = debug?.diagnostics === true ? document.querySelector<HTMLElement>("#diagnostics") : null;
-  stopPlayer = run(session, canvas, status, { canvas, viewport }, viewport, diagnostics, debug?.forceFps === true);
+  // Diagnostics mode is a runner feature, not a project setting: it is off unless this run asked for it with
+  // `--diagnostics`, and F3 toggles it (docs/spec/engine/runners.md#diagnostics-mode).
+  const mode = createDiagnosticsMode(debug?.diagnostics === true);
+  const strip = document.querySelector<HTMLElement>("#diagnostics");
+  stopPlayer = run(session, canvas, status, { canvas, viewport }, viewport, mode, strip, debug?.forceFps === true);
 }
 
-function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElement, hostViewport: HostViewport, stage: HTMLElement, diagnostics: HTMLElement | null, forceFps: boolean): () => void {
+function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElement, hostViewport: HostViewport, stage: HTMLElement, mode: DiagnosticsMode, diagnostics: HTMLElement | null, forceFps: boolean): () => void {
   const stepMs = 1000 / 60;
   let previous = performance.now();
   let accumulator = 0;
@@ -138,10 +141,20 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
   const fallbackControlKeys = new Set<string>();
   let fallbackActionSequence = 0;
   let disposed = false;
+  // Set when the mode turns on, so the next frame fills the overlays at once rather than waiting for the strip's second.
+  let refreshDiagnostics = true;
+  const showDiagnostics = (on: boolean): void => {
+    status.hidden = !on;
+    if (diagnostics !== null) diagnostics.hidden = !on || diagnostics.textContent === "";
+    refreshDiagnostics = on;
+  };
+  showDiagnostics(mode.on());
+  const stopModeListener = mode.onChange(showDiagnostics);
+  const stopModeHook = exposeDiagnosticsMode(mode, window);
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.code === "F3") {
+    if (isDiagnosticsToggle(event)) {
       event.preventDefault();
-      if (!event.repeat) status.hidden = !status.hidden;
+      if (!event.repeat) mode.toggle();
       return;
     }
     if (shouldSuppressGameplayKey(event.code, event.repeat, true, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
@@ -149,7 +162,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: true, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
   };
   const onKeyUp = (event: KeyboardEvent): void => {
-    if (event.code === "F3") { event.preventDefault(); return; }
+    if (isDiagnosticsToggle(event)) { event.preventDefault(); return; }
     if (shouldSuppressGameplayKey(event.code, event.repeat, false, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: false }, pointerGeometry: null });
   };
@@ -223,6 +236,8 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
     document.removeEventListener("visibilitychange", onVisibility);
     stopPointerInput();
     touchControls.close();
+    stopModeListener();
+    stopModeHook();
     session.close();
   };
   window.addEventListener("pagehide", dispose, { once: true });
@@ -254,7 +269,13 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
       }
       const frame = session.draw(accumulator / stepMs);
       const player = session.playerPosition();
-      const result = { tick: session.tick(), stateHash: session.stateHash(), drawHash: frame.drawHash, board: session.boardKey(), player };
+      const diagnosing = mode.on();
+      // With diagnostics off the whole-state hash is computed only if something reads `__live.stateHash`; with them on
+      // it is read on every frame, after the same advance as the tick (docs/spec/engine/runners.md#diagnostics-mode).
+      const readStateHash = session.stateHashReader();
+      const result = diagnosing
+        ? { tick: session.tick(), stateHash: readStateHash(), drawHash: frame.drawHash, board: session.boardKey(), player }
+        : { tick: session.tick(), get stateHash(): string { return readStateHash(); }, drawHash: frame.drawHash, board: session.boardKey(), player };
       window.__live = result;
       const audioError = session.audioError();
       // The project's title (main-file row 56): the game's own title, its board-vector count and the measured frame rate.
@@ -268,7 +289,11 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
         titleWindowStart = nowMs;
         if (bar.showFps || forceFps) document.title = formatTitleBar(bar, fps);
       }
-      if (diagnostics !== null && (updateTitle || diagnostics.textContent === "")) {
+      if (!diagnosing) {
+        requestAnimationFrame(draw);
+        return;
+      }
+      if (diagnostics !== null && (updateTitle || refreshDiagnostics || diagnostics.textContent === "")) {
         const located = session.diagnostics();
         diagnostics.textContent = [
           `tick ${result.tick} state ${result.stateHash} draw ${result.drawHash}`,
@@ -278,6 +303,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
         diagnostics.hidden = false;
       }
       status.textContent = [`tick ${result.tick}`, `state ${result.stateHash}`, `draw ${result.drawHash}`, player === null ? "player position unavailable" : `player ${player.x}, ${player.y}`, ...(audioError === null ? [] : [`audio: ${audioError}`])].join("\n");
+      refreshDiagnostics = false;
       requestAnimationFrame(draw);
     }).catch((error: unknown) => {
       console.error(`player stopped at tick ${session.tick()}`, error);

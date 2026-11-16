@@ -8,6 +8,7 @@ import { createLoadController, type LoadModeRequest, type LoadState } from "../s
 import { createOpfsPackageStore, createOpfsStaging } from "../src/opfs-store.ts";
 import { attachPointerInput } from "../src/pointer.ts";
 import { createLiveSession, formatTitleBar, type LiveSession } from "../src/live-session.ts";
+import { createDiagnosticsMode, diagnosticsRequested, exposeDiagnosticsMode, isDiagnosticsToggle, type DiagnosticsHook } from "../src/diagnostics-mode.ts";
 import { createObservedHostGeometry, observeHostState, reapplyObservedGeometryBeforePointer, reconcileObservedGeometryAfterAdvance, reconcileObservedHostFeaturesAfterAdvance, stampPendingInputs, type HostViewport, type PendingInput } from "../src/host-state.ts";
 import { registerPlayerWorker, type RegistrationResult } from "../src/register-worker.ts";
 import { createStallOverlay, type StallOverlay } from "../src/stall-overlay.ts";
@@ -63,6 +64,8 @@ declare global {
     __session?: LiveSession;
     /** The offline service worker's registration, or why none was registered (`app:` desktop, `capacitor:`, absent). */
     __worker?: Promise<RegistrationResult>;
+    /** Turns diagnostics mode on or off for tooling (docs/spec/engine/runners.md#diagnostics-mode). */
+    __tkrDiagnostics?: DiagnosticsHook;
   }
 }
 
@@ -74,9 +77,27 @@ let editorChannel: MessagePort | null = null;
 const canvas = document.querySelector<HTMLCanvasElement>("#screen");
 const output = document.querySelector<HTMLPreElement>("#report");
 if (canvas === null || output === null) throw new Error("player: the page is missing its canvas or report");
+/**
+ * Diagnostics mode (docs/spec/engine/runners.md#diagnostics-mode): the report under the game is hidden unless the address
+ * carries `?diagnostics`, F3 toggles it, and the `?parity` and `?tracer` measurement pages always show it.
+ */
+const pageParams = new URLSearchParams(location.search);
+const diagnosticsMode = createDiagnosticsMode(diagnosticsRequested(location.search) || pageParams.has("parity") || pageParams.has("tracer"));
+exposeDiagnosticsMode(diagnosticsMode, window);
+const syncReportVisibility = (): void => {
+  if (output.dataset["error"] === undefined) output.hidden = !diagnosticsMode.on();
+};
+diagnosticsMode.onChange(syncReportVisibility);
+syncReportVisibility();
+/** An error that stops the player, or loses its saves, is shown whether or not diagnostics mode is on. */
+function showReportError(report: HTMLPreElement, text: string): void {
+  report.textContent = text;
+  report.dataset["error"] = "";
+  report.hidden = false;
+}
 const gl = canvas.getContext("webgl2", { premultipliedAlpha: false, antialias: false, alpha: false, preserveDrawingBuffer: true });
 if (gl === null) {
-  output.textContent = "player: this browser has no WebGL2 context";
+  showReportError(output, "player: this browser has no WebGL2 context");
   window.__report = { error: "no-webgl2" };
   vscodeApi?.postMessage({ type: "status", status: { state: "failed", tick: 0, board: null, stalledOn: null, diagnostics: [], message: "This browser has no WebGL2 context." } });
   if (new URLSearchParams(location.search).has("editor") && window.parent !== window) {
@@ -143,7 +164,7 @@ async function boot(context: WebGL2RenderingContext, screen: HTMLCanvasElement, 
     await runParity(session, report, game, pack);
   } catch (error) {
     window.__report = { error: String(error) };
-    report.textContent = `player: ${String(error)}`;
+    showReportError(report, `player: ${String(error)}`);
     editorChannel?.postMessage({ state: "failed", tick: 0, board: null, stalledOn: null, diagnostics: [], message: String(error) });
   }
 }
@@ -162,7 +183,7 @@ async function durableBlobs(report: HTMLPreElement): Promise<BlobHost | null> {
   try {
     return createBlobHost({ backend: await createIndexedDbBlobBackend(indexedDB, "tkr-saves"), storage: navigator.storage });
   } catch (error) {
-    report.textContent = `${report.textContent ?? ""}\nsaves unavailable: ${String(error)}`;
+    showReportError(report, `${report.textContent ?? ""}\nsaves unavailable: ${String(error)}`);
     return null;
   }
 }
@@ -187,7 +208,8 @@ async function loadPackage(params: URLSearchParams, report: HTMLPreElement, pack
   });
   controller.subscribe((state) => {
     window.__load = state;
-    report.textContent = describeLoad(packageName, state);
+    if (state.phase === "failed") showReportError(report, describeLoad(packageName, state));
+    else report.textContent = describeLoad(packageName, state);
   });
   const listing = fetch("/apps/browser/bundled.json").then(async (response) => {
     if (!response.ok) throw new Error(`apps/browser/bundled.json answered ${response.status}`);
@@ -326,7 +348,7 @@ async function bootInteractive(
       activeSession = null;
       delete window.__session;
       window.__live = { tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: String(error) };
-      report.textContent = `player: ${String(error)}`;
+      showReportError(report, `player: ${String(error)}`);
     }
   };
 
@@ -622,7 +644,14 @@ function startLiveLoop(
     dispatchFallbackAction,
     () => session.engine.surfaceCacheEpoch(),
   );
+  // Turning diagnostics on fills the report on the next presented frame rather than after the refresh interval.
+  const stopModeListener = diagnosticsMode.onChange(() => { lastReportTextAt = Number.NEGATIVE_INFINITY; });
   const key = (event: KeyboardEvent, down: boolean): void => {
+    if (isDiagnosticsToggle(event)) {
+      event.preventDefault();
+      if (down && !event.repeat) diagnosticsMode.toggle();
+      return;
+    }
     if (shouldSuppressGameplayKey(event.code, event.repeat, down, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
@@ -654,6 +683,7 @@ function startLiveLoop(
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
+    stopModeListener();
     hostObserver.dispose();
     if (frameId !== null) window.cancelAnimationFrame(frameId);
     if (spinnerTimer !== null) window.clearInterval(spinnerTimer);
@@ -723,6 +753,8 @@ function startLiveLoop(
           window.__live = live;
           window.__report = live;
           onLive?.(live);
+          // The report text is diagnostics: with the mode off it is neither written nor hashed for.
+          if (!diagnosticsMode.on()) return;
           const reportNow = performance.now();
           if (reportNow - lastReportTextAt < LIVE_REPORT_INTERVAL_MS) return;
           lastReportTextAt = reportNow;
@@ -739,7 +771,7 @@ function startLiveLoop(
           if (disposed) return;
           window.__live = { tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error), stalls: summary(false) };
           onLive?.(window.__live);
-          report.textContent = `player: ${String(error)}`;
+          showReportError(report, `player: ${String(error)}`);
           dispose();
         });
       }

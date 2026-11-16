@@ -9,6 +9,7 @@ import { formatTitleBar, interactivePackage, type InputRecord } from "@tk-reawak
 import { createFallbackTouchControls, isFallbackTouchControlTarget, shouldSuppressGameplayKey } from "@tk-reawakened/runner-web/touch-controls";
 import { attachPointerInput } from "@tk-reawakened/runner-web/pointer";
 import { createLiveSession, type LiveSession } from "@tk-reawakened/runner-web/live-session";
+import { createDiagnosticsMode, diagnosticsRequested, exposeDiagnosticsMode, isDiagnosticsToggle, type DiagnosticsHook } from "@tk-reawakened/runner-web/diagnostics-mode";
 import { createObservedHostGeometry, observeHostState, reapplyObservedGeometryBeforePointer, reconcileObservedGeometryAfterAdvance, reconcileObservedHostFeaturesAfterAdvance, stampPendingInputs, type HostViewport, type PendingInput } from "@tk-reawakened/runner-web/host-state";
 import { createMobileHost, type MobileFilesystem } from "../src/storage.ts";
 
@@ -33,18 +34,43 @@ declare global {
   interface Window {
     __live?: LiveReport;
     __mobile?: LiveReport;
+    __tkrDiagnostics?: DiagnosticsHook;
     Capacitor?: { Plugins?: { Filesystem?: MobileFilesystem } };
   }
 }
 
+/**
+ * Diagnostics mode (docs/spec/engine/runners.md#diagnostics-mode): off unless the page address carries `?diagnostics`,
+ * F3 toggles it where there is a keyboard, and the device proof, which launches the installed app and cannot pass a flag,
+ * turns it on with `window.__tkrDiagnostics(true)`. It belongs to the page, so it survives a restart after a quit.
+ */
+const diagnosticsMode = createDiagnosticsMode(diagnosticsRequested(location.search));
+exposeDiagnosticsMode(diagnosticsMode, window);
+const syncStatusVisibility = (): void => {
+  const status = document.querySelector<HTMLElement>("#live-status");
+  if (status !== null && status.dataset["error"] === undefined) status.hidden = !diagnosticsMode.on();
+};
+diagnosticsMode.onChange(syncStatusVisibility);
+
+/** The report tooling reads. Only in diagnostics mode does the page title carry the tick and hash. */
 function setReport(report: LiveReport): void {
   window.__live = report;
   window.__mobile = report;
-  document.title = `mobile: ${report.error ?? `${report.board ?? "booting"} ${report.tick} ${report.stateHash}`}`;
+  if (diagnosticsMode.on()) document.title = `mobile: ${report.error ?? `${report.board ?? "booting"} ${report.tick} ${report.stateHash}`}`;
+}
+
+/** An error that stops the player is shown whether or not diagnostics mode is on. */
+function showError(message: string): void {
+  const status = document.querySelector<HTMLElement>("#live-status");
+  if (status === null) return;
+  status.textContent = message;
+  status.dataset["error"] = "";
+  status.hidden = false;
 }
 
 function fail(message: string): void {
   setReport({ tick: 0, stateHash: "", drawHash: "", board: null, player: null, error: message });
+  showError(`player: ${message}`);
 }
 
 const BUNDLED_PACKAGE = "demo.tpk";
@@ -100,6 +126,7 @@ async function start(): Promise<void> {
   const status = document.querySelector<HTMLElement>("#live-status");
   const viewport = document.querySelector<HTMLElement>("#viewport");
   if (canvas === null || status === null || viewport === null) throw new Error("mobile player page is missing its viewport, canvas, or status element");
+  syncStatusVisibility();
   const hostViewport: HostViewport = { canvas, viewport };
   const opened = await host.openPackage();
   if (opened === null) throw new Error("no package was available");
@@ -219,11 +246,17 @@ function run(
   const savePath = "slot-1.json";
   const saveBytes = (): Uint8Array => new TextEncoder().encode(JSON.stringify({ gameId, tick: session.tick() }));
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (isDiagnosticsToggle(event)) {
+      event.preventDefault();
+      if (!event.repeat) diagnosticsMode.toggle();
+      return;
+    }
     if (shouldSuppressGameplayKey(event.code, event.repeat, true, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: true, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
   };
   const onKeyUp = (event: KeyboardEvent): void => {
+    if (isDiagnosticsToggle(event)) { event.preventDefault(); return; }
     if (shouldSuppressGameplayKey(event.code, event.repeat, false, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: false }, pointerGeometry: null });
   };
@@ -344,9 +377,14 @@ function run(
         saveWritten = written;
       }
       const saveLabel = `${saveBlobPresent ? "host blob present; " : ""}${written ? "written" : "write failed"}`;
+      const diagnosing = diagnosticsMode.on();
+      // With diagnostics off the whole-state hash is computed only if something reads the report's `stateHash`; with
+      // them on it is read on every frame, after the same advance as the tick (runners.md#diagnostics-mode).
+      const readStateHash = session.stateHashReader();
       setReport({
         tick: session.tick(),
-        stateHash: session.stateHash(),
+        // A getter, not a spread: spreading would read it. In diagnostics mode `setReport` reads it for the title at once.
+        get stateHash(): string { return readStateHash(); },
         drawHash: frame.drawHash,
         board,
         player,
@@ -370,9 +408,13 @@ function run(
         titleWindowStart = nowMs;
         if (bar.showFps) document.title = formatTitleBar(bar, fps);
       }
+      if (!diagnosing) {
+        if (!disposed && isCurrent()) frameId = window.requestAnimationFrame(draw);
+        return;
+      }
       status.textContent = [
         `tick ${session.tick()}`,
-        `state ${session.stateHash()}`,
+        `state ${readStateHash()}`,
         `draw ${frame.drawHash}`,
         board === null ? "board: booting" : `board: ${board}`,
         player === null ? "player: unavailable" : `player ${player.x}, ${player.y}`,
@@ -384,7 +426,7 @@ function run(
     }).catch((error: unknown) => {
       if (disposed || !isCurrent()) return;
       setReport({ tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error) });
-      status.textContent = `player: ${String(error)}`;
+      showError(`player: ${String(error)}`);
       dispose();
     });
   };
@@ -396,7 +438,7 @@ function run(
   }).catch((error: unknown) => {
     if (disposed || !isCurrent()) return;
     setReport({ tick: session.tick(), stateHash: session.stateHash(), drawHash: "", board: session.boardKey(), player: session.playerPosition(), error: String(error) });
-    status.textContent = `player: ${String(error)}`;
+    showError(`player: ${String(error)}`);
     dispose();
   });
   return dispose;
