@@ -260,8 +260,8 @@ export interface Engine {
    */
   evaluate(expression: string, threadId: number, frameDepth?: number): EvalResult;
   /**
-   * The complete canonical state text of a scene engine (`snapshot`, nothing projected away), for a scene resume
-   * (docs/spec/engine/main-loop-and-startup.md#reawakened-scene-program-loader). Absent on engines that cannot.
+   * The complete canonical scene envelope, including historical presentation state, for scene resume
+   * (docs/spec/engine/main-loop-and-startup.md#reawakened-scene-program-loader). Absent on boot engines.
    */
   checkpoint?(): string;
 }

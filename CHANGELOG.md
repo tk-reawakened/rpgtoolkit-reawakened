@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased
+- Scene-only checkpoints retain full audio and action data, historical baked canvases and held frames while resources rehydrate. Constructor asset requests are delivered once, and resumed ticks and drawing match uninterrupted execution without changing ordinary state hashes or game-save formats (#2831).
+- Effect-observer regressions now cover actual bounded-log eviction and draining with exact production sequences, alongside real native-command observation (#2850).
 - Program editor insertions, undo, redo and save now preserve their order; Monaco's context-menu history uses the shared document. Language-service errors and formatting refusals are shown without blocking editing (#2727–#2729).
 - Program editing preserves pending insertions and typing order across saves and view changes, shares language-document ownership across views, and keeps browser history and project context consistent between views. New programs refuse detected collisions in differently cased folders (#2732–#2738).
 - Pending Undo and Redo preserve subsequent typing, including repeated text and multi-cursor edits, even when the view closes; each Save keeps its requested revision and leaves later typing unsaved, and untouched mixed line endings survive rebasing. Bookmarks refresh across views, and new files use existing folder casing (#2741–#2745, #2747–#2749, #2753, #2754, #2756–#2758, #2760–#2765).
