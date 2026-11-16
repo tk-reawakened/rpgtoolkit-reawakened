@@ -30,6 +30,12 @@ export type FixtureDefinition = {
   readonly seed: number | null;
   readonly files: readonly string[];
 };
+export type FixtureDeclaration = {
+  readonly group: number;
+  readonly definition: FixtureDefinition;
+  readonly line: number;
+  readonly column: number;
+};
 
 const FACINGS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
 const STAT_KEYS = ["hp", "maxhp", "smp", "maxsmp", "fp", "dp"] as const;
@@ -85,6 +91,9 @@ export function listEntries(value: unknown, what: string, maxLength = 256): read
 /** Validate one fixture definition read from the RPGCode dictionary (plain data, no snapshot text). */
 export function readFixture(input: unknown): FixtureDefinition {
   const definition = record(input, "the definition");
+  for (const key of Object.keys(definition)) {
+    if (!KEYS.has(key)) bad(`"${key}" is not a fixture field`);
+  }
   if (typeof input === "object" && input !== null && new TextEncoder().encode(JSON.stringify(input)).byteLength > MAX_JSON) bad(`the definition is over ${MAX_JSON} bytes`);
   const board = fixturePath(definition["board"], "board", ".brd");
   const party = listEntries(definition["party"], "party", 5).map((member) => fixturePath(member, "a party member", ".tem"));

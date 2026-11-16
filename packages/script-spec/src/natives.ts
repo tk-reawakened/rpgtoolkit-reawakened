@@ -18,11 +18,13 @@ import {
   type Arg,
   type BuiltinSpec,
   type CommandResult,
+  type CommandView,
   type ParamSpec,
   type Value,
 } from "@tk-reawakened/core";
 import { installSpy, type SpecDoubles } from "./doubles.ts";
 import type { CreatorAction } from "./creator-actions.ts";
+import { FixtureError, readFixture } from "./fixture.ts";
 import { captureArg, display, finiteNumber, parseSnap, snapContains, snapsEqual, type Snap } from "./snapshot.ts";
 
 const SEE = [
@@ -381,6 +383,85 @@ function specInput(doubles: SpecDoubles | undefined): BuiltinSpec {
   };
 }
 
+type FixtureBudget = { nodes: number; text: number };
+
+function fixturePlain(value: Value, view: CommandView, active: Set<number>, budget: FixtureBudget, depth = 0): unknown {
+  budget.nodes += 1;
+  if (budget.nodes > 4096) throw new FixtureError("spec.bad-fixture", "specFixture: the definition exceeds the 16 KiB limit");
+  if (typeof value === "string") {
+    budget.text += value.length;
+    if (budget.text > 16_384) throw new FixtureError("spec.bad-fixture", "specFixture: the definition exceeds the 16 KiB limit");
+    return value;
+  }
+  if (value === null || typeof value === "number") return value;
+  if (!("kind" in value) || value.kind !== "object" || value.className !== "" || depth > 32) {
+    throw new FixtureError("spec.bad-fixture", "specFixture: nested values must be plain dictionaries and scalar values");
+  }
+  if (active.has(value.handle)) throw new FixtureError("spec.bad-fixture", "specFixture: the definition must not contain cycles");
+  const members = view.objectMembers?.(value.handle);
+  if (members === undefined) throw new FixtureError("spec.bad-fixture", "specFixture: the definition dictionary is unavailable");
+  if (Object.keys(members).length > 512) throw new FixtureError("spec.bad-fixture", "specFixture: a definition dictionary is too large");
+  active.add(value.handle);
+  const plain: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const key of Object.keys(members)) {
+    if (key.length > 255) throw new FixtureError("spec.bad-fixture", "specFixture: a definition key is too large");
+    budget.text += key.length;
+    if (budget.text > 16_384) throw new FixtureError("spec.bad-fixture", "specFixture: the definition exceeds the 16 KiB limit");
+    plain[key] = fixturePlain(members[key]!, view, active, budget, depth + 1);
+  }
+  active.delete(value.handle);
+  return plain;
+}
+
+function specFixture(doubles: SpecDoubles | undefined): BuiltinSpec {
+  return {
+    name: "specfixture",
+    aliases: [],
+    params: [param("definition", "A plain-data creator fixture definition.")],
+    doc: {
+      summary: "Declare the board and starting state for a creator-test group.",
+      behaviour:
+        "Valid only while the test runner registers the file or a describe body. Each group may declare one validated fixture definition; invalid or late declarations are located `spec.bad-fixture` or `spec.fixture-late` errors.",
+      groups: [SPEC_GROUP],
+      access: "public",
+      waits: { kind: "never", summary: "Captures and validates fixture data at once." },
+      see: SEE,
+    },
+    call: (view, args) => {
+      const run = doublesOf(doubles, "specFixture");
+      const state = view.state;
+      if (state === undefined || state.vm.globals.specmode !== 1) {
+        throw new ScriptError("spec.fixture-late", "specFixture: fixtures may only be declared while the runner registers the spec");
+      }
+      const group = wholeNumber(state.vm.globals.speccurrent);
+      if (group === null || group < 0) throw new ScriptError("spec.bad-fixture", "specFixture: the current spec group is invalid");
+      if (run.fixtures.has(group)) throw new ScriptError("spec.fixture-twice", "specFixture: a group may declare only one fixture");
+      let definition;
+      try {
+        definition = readFixture(fixturePlain(args[0]?.value ?? null, view, new Set(), { nodes: 0, text: 0 }));
+      } catch (error) {
+        if (error instanceof FixtureError) throw new ScriptError(error.code, error.message);
+        throw error;
+      }
+      const declaration = { group, definition, line: view.pos?.line ?? 0, column: view.pos?.col ?? 0 };
+      run.fixtures.set(group, declaration);
+      recordEffect(state.vm, {
+        tick: state.time.tick,
+        thread: view.thread ?? 0,
+        name: "specfixture",
+        kind: "pure",
+        args: [JSON.stringify(definition), group],
+        out: {},
+        result: null,
+        patch: null,
+        wait: null,
+        request: null,
+      });
+      return { value: null };
+    },
+  };
+}
+
 function specAction(doubles: SpecDoubles | undefined): BuiltinSpec {
   return {
     name: "specaction",
@@ -517,6 +598,7 @@ export function specCommands(doubles?: SpecDoubles): readonly BuiltinSpec[] {
     specInput(doubles),
     specTicks(doubles),
     specAction(doubles),
+    specFixture(doubles),
     specRng(doubles),
     spyOn(doubles),
   ];

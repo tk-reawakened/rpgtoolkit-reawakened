@@ -23,6 +23,7 @@ import {
 } from "@tk-reawakened/core";
 import { captureArg, type Snap } from "./snapshot.ts";
 import { createCreatorActionScheduler, type CreatorActionScheduler } from "./creator-actions.ts";
+import type { FixtureDeclaration } from "./fixture.ts";
 
 /** The plugin id whose commands no spy may target. */
 const SPEC_PLUGIN_ID = "script-spec";
@@ -41,6 +42,8 @@ export type Spy = {
 export type SpecDoubles = {
   /** Key edges not yet applied, in scheduling order. */
   readonly pending: ScheduledKey[];
+  /** Valid declarations captured during the registration-only pass. */
+  readonly fixtures: Map<number, FixtureDeclaration>;
   /** Creator actions are host-injected semantic edges, never saved or hashed with the game. */
   readonly creatorActions: CreatorActionScheduler;
   /** Resolves after scene startup so `game.*` actions use the runtime registry. */
@@ -64,6 +67,7 @@ export function createDoubles(
   creatorActionsEnabled = false,
 ): SpecDoubles {
   return {
+    fixtures: new Map(),
     pending: [],
     creatorActions: createCreatorActionScheduler(),
     registeredActions,
