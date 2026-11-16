@@ -2,7 +2,7 @@ import type { HistoryPolicy } from "./document-history.ts";
 
 /**
  * The retention settings of ADR 0022 D12.8 and their defaults. The ids are fixed by D12.8; the values are the ones ADR 0022
- * D12.11 recommends from the measured 2026-11-16 editing-hour trace (adoption pending the independent review on PR #2829) (10 s merge, 24 h autosave floor, 1 GiB warning, 8 MiB
+ * D12.11 adopts from the measured 2026-11-16 editing-hour trace (delegated choices approved by the independent docs review of PR #2829 at 1cc57e985) (10 s merge, 24 h autosave floor, 1 GiB warning, 8 MiB
  * covered-file cap). They are user-only editor settings (D6.3): a project-layer value for any of them is ignored.
  */
 export const HISTORY_SETTING_IDS = {
