@@ -78,6 +78,7 @@ test("the VS Code provider reports creation and later changes", async () => {
     const events = [];
     let provider;
     const vscode = {
+      FileSystemError: { Unavailable: (message) => new Error(message) },
       FileChangeType: { Created: 1, Changed: 2, Deleted: 3 },
       StatusBarAlignment: { Left: 1 },
       window: { createStatusBarItem() { return { text: "", show() {}, dispose() {} }; } },
@@ -98,6 +99,12 @@ test("the VS Code provider reports creation and later changes", async () => {
     await provider.writeFile(uri, Buffer.from("second"), { create: true, overwrite: true });
     assert.deepEqual(events.map((event) => event.type), [vscode.FileChangeType.Created, vscode.FileChangeType.Changed]);
     assert.equal(await readFile(join(root, "created.gam"), "utf8"), "second");
+    const folder = { authority: bridge.authority, path: "/picker" };
+    await provider.createDirectory(folder);
+    await provider.writeFile({ ...folder, path: "/picker/board.brd" }, Buffer.from("board"), { create: true, overwrite: true });
+    const directoryUri = { ...folder, path: "/picker/" };
+    assert.equal((await provider.stat(directoryUri)).type, 2, "the workbench picker can stat a directory URI with its trailing separator");
+    assert.deepEqual(await provider.readDirectory(directoryUri), [["board.brd", 1]], "the picker can navigate into the existing directory");
   } finally {
     if (bridge) await bridge.close();
     await rm(root, { recursive: true, force: true });

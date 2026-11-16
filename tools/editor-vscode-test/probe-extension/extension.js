@@ -252,10 +252,12 @@ class PersistentFileSystem {
   async request(uri, op, extra = {}) {
     const match = /^[0-9a-f]{32}\.(\d{1,5})$/.exec(uri.authority);
     if (!match || !/^[0-9a-f]{64}$/.test(proofSecret)) throw vscode.FileSystemError.NoPermissions("Invalid test filesystem credentials");
+    // The workbench folder picker appends one separator; the private bridge accepts only canonical path segments.
+    const path = (op === "stat" || op === "readDirectory") && uri.path !== "/" ? uri.path.replace(/\/$/, "") : uri.path;
     const response = await fetch(`http://127.0.0.1:${match[1]}/${proofSecret}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op, path: uri.path, ...extra }),
+      body: JSON.stringify({ op, path, ...extra }),
     });
     const payload = await response.json();
     if (!response.ok) {

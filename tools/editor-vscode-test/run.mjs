@@ -252,13 +252,18 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
       const combined = combineProofErrors(failure, cleanupErrors);
       if (combined !== undefined) throw combined;
     };
-    if (newProjectProof) {
+    const proveNewProject = async () => {
+      await mkdir(resolve(proofWorkspace, "__tkr_new_project"), { recursive: true });
+      await writeFile(resolve(proofWorkspace, "__tkr_new_project/keep.txt"), "Keep this file");
       const tree = async () => (await readdir(proofWorkspace, { recursive: true, withFileTypes: true }))
-        .filter((entry) => entry.isFile())
-        .map((entry) => relative(proofWorkspace, resolve(entry.parentPath ?? proofWorkspace, entry.name)))
+        .filter((entry) => entry.isFile() || entry.isDirectory())
+        .map((entry) => relative(proofWorkspace, resolve(entry.parentPath ?? proofWorkspace, entry.name)).replaceAll("\\", "/") + (entry.isDirectory() ? "/" : ""))
         .sort();
-      await runVscodeNewProjectProof(page, expect, workbenchUrl, tree);
-      console.log("vscode.dev New project command activation and first-question proof passed");
+      await runVscodeNewProjectProof(page, expect, workbenchUrl, tree, readBacking);
+      console.log("vscode.dev real New project picker, creation and automatic-open proof passed");
+    };
+    if (newProjectProof) {
+      await proveNewProject();
     } else if (guardProof) {
       await runVscodeGuardProof(page, expect, workbenchUrl, game, readBacking,
         new Uint8Array(await readFile(gameFiles[0])), await createWebAdapterBytes(gameFiles[0], game, "Race saved"));
@@ -295,6 +300,7 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
         canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
       });
       console.log(`vscode.dev settings, board, art and bitmap proof passed (${choice})`);
+      if (choice === "cancel") await proveNewProject();
     }
   } catch (error) {
     failure = error;
