@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
 import { CREATOR_TEST_ACTOR_RGB, CREATOR_TEST_BOARD_PATH, CREATOR_TEST_CASE_NAME, CREATOR_TEST_SPEC_PATH, createCreatorTestFiles } from "./creator-tests-fixture.mjs";
 import { BinaryReader, rasterize, readBoard, writeBoard, type AssetKey, type DecodedTexture, type DrawList, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
+import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 import type { CreatorFrameObservation } from "@tk-reawakened/script-spec";
 const HERO_VISIBLE_RGB: Record<string, true> = {
   [CREATOR_TEST_ACTOR_RGB.tunic]: true,
@@ -207,10 +208,7 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
   const gamePath = "Main/example.gam";
   const original = await host.readBacking(gamePath);
   await host.writeBacking("CreatorRaceNote.txt", new TextEncoder().encode("race note\n"));
-  await page.keyboard.press("ControlOrMeta+p");
-  const quickOpen = page.locator(".quick-input-widget input:visible");
-  await quickOpen.fill(gamePath);
-  await page.keyboard.press("Enter");
+  await openNativeQuickOpenFile(page, expect, gamePath);
   await expect(page.getByRole("tab", { name: /example\.gam/ })).toBeVisible();
   const editor = await waitForGameSettingsFrame(page);
   await editor.getByLabel("Game title").fill("Creator test save refusal");
@@ -230,9 +228,7 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
     await tests.getByRole("button", { name: "Run saved tests" }).click();
     await expect.poll(() => host.readHostEvents().slice(eventStart), { timeout: 30_000 })
       .toContainEqual({ kind: "save-request", value: `/${gamePath}` });
-    await page.keyboard.press("ControlOrMeta+p");
-    await quickOpen.fill("CreatorRaceNote.txt");
-    await page.keyboard.press("Enter");
+    await openNativeQuickOpenFile(page, expect, "CreatorRaceNote.txt");
     await expect(page.getByRole("tab", { name: /CreatorRaceNote\.txt/ })).toBeVisible();
     const textEditor = page.locator(".monaco-editor").filter({ has: page.locator(".view-lines") }).last();
     await textEditor.click();
