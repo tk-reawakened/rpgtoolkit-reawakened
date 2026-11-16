@@ -517,6 +517,7 @@ test("E-31: with spriteTranslucency the covered part of a sprite is redrawn tran
   const redraw = blits[1];
   if (redraw?.kind !== "blit") throw new Error("expected a blit");
   equal(redraw.alpha, 64);
+  equal(redraw.blend, "translucent", "a normal blit would replace pixels and ignore alpha");
   deepEqual(redraw.dst, { x: 32, y: 32, w: 24, h: 32 });
   deepEqual(redraw.src, { x: 8, y: 0, w: 24, h: 32 });
   const lastTile = list.commands.map((c, i) => (c.kind === "blit" && c.source.asset === assetKey("tiles/layer2.tst") ? i : -1)).reduce((a, b) => Math.max(a, b));
@@ -535,4 +536,28 @@ test("E-31: spriteTranslucency(percent) is a real command that stores a clamped 
   equal(state.sprites.translucency, 100);
   applySpriteEffect(state, "spritetranslucency", [-5]);
   equal(state.sprites.translucency, 0);
+});
+
+test("E-31: a sprite hidden by under-vector promotion is shown through the promoted rows translucently", () => {
+  const sprite: SpriteDraw = {
+    id: "hero", key: "player", layer: 1, x: 35, y: 60, drawId: 1, width: 32, height: 32,
+    frame: { asset: assetKey("tiles/hero.tst"), tile: 1, transparent: { r: 0, g: 1, b: 2 } },
+  };
+  const board: WorldBoard = {
+    ...baseBoard,
+    layers: [baseBoard.layers[0]!, { tiles: Array.from({ length: 16 }, () => null) }],
+    vectors: [{ points: [{ x: 10, y: 30 }, { x: 60, y: 30 }, { x: 60, y: 40 }, { x: 10, y: 40 }], attributes: 4, closed: 1, layer: 1, type: 2, handle: "under1" }],
+  };
+  const view = { board, tick: 0, camera: { x: 0, y: 0 }, viewport: { width: 128, height: 128 }, alpha: 0, include: { shading: false, images: false, sprites: true }, sprites: [sprite] } as const;
+  const hero = (list: ReturnType<typeof composeBoard>) => list.commands.filter((c) => c.kind === "blit" && c.source.asset === assetKey("tiles/hero.tst"));
+  equal(hero(composeBoard(view)).length, 1);
+  const list = composeBoard({ ...view, spriteTranslucency: 25 });
+  const through = hero(list).slice(1);
+  equal(through.length > 0, true, "translucent redraws follow the promoted rows");
+  for (const blit of through) {
+    if (blit.kind !== "blit") throw new Error("blit");
+    equal(blit.blend, "translucent");
+    equal(blit.alpha, 64);
+    equal(blit.dst.y >= 30 && blit.dst.y < 40, true, "only inside the under vector");
+  }
 });

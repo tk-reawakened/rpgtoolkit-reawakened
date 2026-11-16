@@ -252,6 +252,7 @@ function emitUnderVectorRedraw(
   spriteH: number,
   worldX: number,
   worldY: number,
+  covered?: Rect[],
 ): void {
   const vectors = board.vectors;
   if (vectors === undefined || vectors.length === 0) return;
@@ -310,6 +311,7 @@ function emitUnderVectorRedraw(
           rgb: board.background,
           filled: true,
         });
+        covered?.push({ x: dstX, y: dstY, w: spanW, h: 1 });
       }
     }
 
@@ -357,6 +359,7 @@ function emitUnderVectorRedraw(
           const srcY = y - tileY * TILE_SIZE;
           const dstX = subX1 - view.camera.x;
           if (!visible({ x: dstX, y: dstY, w: subW, h: 1 }, view.viewport)) continue;
+          covered?.push({ x: dstX, y: dstY, w: subW, h: 1 });
           commands.push({
             kind: "blit",
             source: { asset: selected.asset, tile: selected.tile },
@@ -478,7 +481,29 @@ function emitSprite(
     }
   }
 
-  if (redrawUnder) emitUnderVectorRedraw(commands, sprite, board, view, layers, boardLeft, boardTop, spriteW, spriteH, worldX, worldY);
+  if (!redrawUnder) return;
+  const percent = view.spriteTranslucency;
+  const underRows: Rect[] | undefined = percent !== undefined && percent > 0 ? [] : undefined;
+  emitUnderVectorRedraw(commands, sprite, board, view, layers, boardLeft, boardTop, spriteW, spriteH, worldX, worldY, underRows);
+  // E-31: under-vector promotion hides the sprite behind the promoted rows; show it through them translucently.
+  if (underRows !== undefined && underRows.length > 0) {
+    for (const frame of translucentFrames(sprite, board, view, layers)) {
+      for (const row of underRows) {
+        const clipped = clipBlit(frame, row);
+        if (clipped !== null) commands.push(clipped);
+      }
+    }
+  }
+}
+
+type BlitCommand = Extract<DrawCommand, { readonly kind: "blit" }>;
+
+/** The sprite's picture as translucent blits at the `spriteTranslucency` percentage (a `normal` blit would ignore alpha). */
+function translucentFrames(sprite: SpriteDraw, board: WorldBoard, view: BoardView, layers: readonly WorldLayer[]): BlitCommand[] {
+  const percent = view.spriteTranslucency ?? 0;
+  const drawn: DrawCommand[] = [];
+  emitSprite(drawn, { ...sprite, blend: "translucent", translucency: Math.floor(Math.min(100, percent) * 255 / 100 + 0.5) }, board, view, layers, false);
+  return drawn.filter((command): command is BlitCommand => command.kind === "blit");
 }
 
 /** Intersect a blit with a clip rectangle, keeping the source slice aligned with the visible part of the destination. */
@@ -497,7 +522,7 @@ function clipBlit(command: Extract<DrawCommand, { readonly kind: "blit" }>, clip
 }
 
 /**
- * E-31: the parts of a sprite that higher-layer tiles cover are drawn again, translucently, over those tiles so the
+ * E-31 (a `normal` blit replaces pixels and ignores alpha, so the redraw must be `translucent`): the parts of a sprite that higher-layer tiles cover are drawn again, translucently, over those tiles so the
  * sprite stays visible behind trees and roofs. The redraw is clipped to the covering tile cells; a sprite blended
  * with its own opaque pixels is unchanged, so cells that only partly cover the sprite do not alter the rest of it.
  */
@@ -511,9 +536,7 @@ function emitCoveredSprite(
   const percent = view.spriteTranslucency;
   if (percent === undefined || percent <= 0 || sprite.layer >= layers.length) return;
   if (isIsometric(coordLayout(board.coordType))) return;
-  const drawn: DrawCommand[] = [];
-  emitSprite(drawn, { ...sprite, translucency: Math.floor(Math.min(100, percent) * 255 / 100 + 0.5) }, board, view, layers, false);
-  const frames = drawn.filter((command): command is Extract<DrawCommand, { readonly kind: "blit" }> => command.kind === "blit");
+  const frames = translucentFrames(sprite, board, view, layers);
   if (frames.length === 0) return;
   for (const frame of frames) {
     const firstX = Math.floor((frame.dst.x + view.camera.x) / TILE_SIZE);
