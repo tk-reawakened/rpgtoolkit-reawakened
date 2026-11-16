@@ -172,10 +172,6 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
       const restoreGate = `async (uri) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "armNativeRestoreRead", path: uri.path }) }); if (!response.ok) throw new Error("Native restore proof gate failed"); }`;
       const probes = [
         [
-          "if (event.document.model.kind === kind) listener(event);",
-          `if (event.document.model.kind === kind) { void (${trace})("edit", JSON.stringify({ resource: event.document.uri.toString(), modelKind: event.document.model.kind, registeredKind: kind, label: event.label })).catch((error) => console.error("[proof trace]", error)); listener(event); }`,
-        ],
-        [
           "openCustomDocument: (uri, openContext) => core.openCustomDocument(uri, openContext.backupId)",
           `openCustomDocument: (uri, openContext) => { void (${trace})("open", uri.path).then(() => (${trace})("open-uri", uri.toString())).catch((error) => console.error("[proof trace]", error)); return core.openCustomDocument(uri, openContext.backupId); }`,
         ],
@@ -187,15 +183,17 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
           `saveCustomDocument: (document2) => { void (${trace})("save", document2.uri.path).then(() => (${trace})("save-uri", document2.uri.toString())).catch((error) => console.error("[proof trace]", error)); return core.saveCustomDocument(document2); }`,
         ],
-        [
-          "const current = wasDirty ? new TextEncoder().encode(textBeforeRead) : await vscode8.workspace.fs.readFile(uri);",
-          `const current = wasDirty ? new TextEncoder().encode(textBeforeRead) : await (async () => { await (${restoreGate})(uri); return vscode8.workspace.fs.readFile(uri); })();`,
-        ],
       ];
       for (const [before, after] of probes) {
         if (source.split(before).length !== 2) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
         source = source.replace(before, after);
       }
+      const typedEditListener = /if \((\w+)\.document\.model\.kind === kind\) listener\(\1\);/g;
+      if ([...source.matchAll(typedEditListener)].length !== 1) throw new Error("Typed editor event listener no longer matches the proof instrumentation");
+      source = source.replace(typedEditListener, (_match, event) => `if (${event}.document.model.kind === kind) { void (${trace})("edit", JSON.stringify({ resource: ${event}.document.uri.toString(), modelKind: ${event}.document.model.kind, registeredKind: kind, label: ${event}.label })).catch((error) => console.error("[proof trace]", error)); listener(${event}); }`);
+      const nativeRestoreRead = /const current = wasDirty \? new TextEncoder\(\)\.encode\(textBeforeRead\) : await (vscode\d+)\.workspace\.fs\.readFile\(uri\);/g;
+      if ([...source.matchAll(nativeRestoreRead)].length !== 1) throw new Error("Native restore read no longer matches the proof gate");
+      source = source.replace(nativeRestoreRead, (_match, vscodeBinding) => `const current = wasDirty ? new TextEncoder().encode(textBeforeRead) : await (async () => { await (${restoreGate})(uri); return ${vscodeBinding}.workspace.fs.readFile(uri); })();`);
       await route.fulfill({ response, body: source });
     });
     const registerContextRoutes = async () => {
