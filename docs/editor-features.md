@@ -29,6 +29,16 @@
 
 **T-09 Onboarding & help.** Tip of the day, a 9-step tutorial, the HTML user manual, an RPGCode quick reference, and a "what's new" page.
 
+### Reawakened rules for the new-project wizard (story 11.10)
+
+These rules settle what T-04 and T-05 leave open. The layout, stored fields, catalogue and overwrite rules are in [packaging and paths](spec/formats/packaging-and-paths.md#new-project).
+
+* **The questions.** Game name, main file name (suggested from the name), the starter contents to copy (none ticked by default) and the destination folder. The browser host shows them as one form; VS Code asks them one at a time with its own input boxes and pick lists. Both make the same project from the same answers.
+* **Explicit starter contents (T-04).** Each starter item says what it writes, its provenance and licence, and whether it is available. Unavailable items are listed with their reason and cannot be chosen; nothing is substituted. A blank project, with no starter contents, is valid and opens.
+* **Destination and overwrites.** The destination is chosen through the host's folder dialog and becomes the project root. Before writing, the wizard refuses every detected planned file, even if its bytes match; empty files, type mismatches and a reserved `Game/<…>` folder are refused, and nothing is written. Existing non-conflicting folders are reused. The check and write are separate host operations, so an external program can create a file between them and the wizard may replace it; this race is disclosed in the [normative contract](spec/formats/packaging-and-paths.md#the-check-is-not-atomic). Cancelling any question, or dismissing the folder dialog, writes nothing.
+* **Failure.** Folders and starter files are written first and the main file last ([ADR 0022 D4.2](adr/0022-shared-editor-authoring-contracts.md)). A failed creation keeps what it wrote, reports written and pending items, does not delete leftovers whose ownership cannot be proved, and says the author must remove any leftover before retrying. Any files already written by the failed attempt are also refused on retry, even if their bytes match; remove the planned files in the conflict list before trying again.
+* **Opening (T-05).** A created project opens its main file in the editor. Every stored reference resolves through the reserved folders: `start.prg` to `Prg/start.prg`, `start.brd` to `Boards/start.brd`, `start.tem` to `Chrs/start.tem`.
+
 ---
 
 ## 2. Main file (game settings) editor (T-10 … T-14)
