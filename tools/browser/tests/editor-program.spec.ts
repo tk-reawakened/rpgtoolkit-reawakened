@@ -400,7 +400,7 @@ test("F1 quick reference inserts into the invoking mirrored program view", async
   await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
 });
 
-test("Application menu quick reference inserts at the last focused mirrored caret", async ({ page }) => {
+test("Application menu and palette trigger quick reference inserts at the last focused mirrored caret", async ({ page }) => {
   const source = "first\nsecond\n";
   await installProject(page, [
     { path: "Main/example.gam", bytes: main },
@@ -426,6 +426,18 @@ test("Application menu quick reference inserts at the last focused mirrored care
   await expect(row).toContainText("castint(val, [&dest])");
   await row.dblclick();
   await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
+  await page.getByRole("button", { name: "Command palette" }).click();
+  const paletteSearch = page.getByLabel("Search commands and files");
+  await expect(paletteSearch).toBeFocused();
+  await paletteSearch.fill("Open RPGCode Quick Reference");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode Quick Reference");
+  await page.keyboard.press("Enter");
+  await expect(referenceSearch).toBeFocused();
+  await referenceSearch.fill("castint");
+  await expect(row).toContainText("castint(val, [&dest])");
+  await row.dblclick();
+  await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
+  await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/castint\([^)]*\)[\s\S]*castint\(/);
 });
 
 test("the probe can fail: under the strict policy of the other editor pages Monaco is blocked, and the violations are reported", async ({ page }) => {
