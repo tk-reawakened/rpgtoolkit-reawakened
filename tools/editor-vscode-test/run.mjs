@@ -102,7 +102,7 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
   let cleanupErrors = [];
   const routeErrors = [];
   const browserDiagnostics = [];
-  const probeDiagnostics = [];
+  const historyPreviewTraceDiagnostics = [];
   try {
     if (launchProof || boardProof || programProof || guardProof) {
       await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
@@ -182,10 +182,14 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
     };
     await registerContextRoutes();
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
+    const recordHistoryPreviewTrace = (message) => { if (historyPreviewTraceDiagnostics.length < 500) historyPreviewTraceDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
     const newPage = async () => {
       const page = await browser.newPage();
       page.on("console", (message) => {
         const text = message.text();
+        if (text.includes("[history-preview-trace]") || text.includes("[editor-preview-trace]")) {
+          recordHistoryPreviewTrace(`[console] ${text}`);
+        }
         if (text.includes("[vscode-web-proof-probe]") && probeDiagnostics.length < 100) {
           probeDiagnostics.push(`[console] ${text.replaceAll(persistentFs.token, "[redacted]")}`);
         }
@@ -265,7 +269,7 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
         .map((entry) => relative(proofWorkspace, resolve(entry.parentPath ?? proofWorkspace, entry.name)).replaceAll("\\", "/") + (entry.isDirectory() ? "/" : ""))
         .sort();
       await runVscodeNewProjectProof(page, expect, workbenchUrl, tree, readBacking, {
-        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, readHostEvents: persistentFs.events,
+        pauseWrite: persistentFs.pauseWrite, resumeWrite: persistentFs.resumeWrite, writeEvents: persistentFs.writeEvents, readEvents: persistentFs.readEvents,
         bitmapPath, bitmapPictureForBytes: expectedBitmapPicture,
       });
       console.log("vscode.dev real New project picker, creation and automatic-open proof passed");
@@ -326,6 +330,7 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
   const proofFailure = combineProofErrors(failure, cleanupErrors);
   if (proofFailure !== undefined) {
     if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
+    if (historyPreviewTraceDiagnostics.length > 0) console.error(`[vscode-web:history-preview-trace]\n${historyPreviewTraceDiagnostics.join("\n")}`);
     if (probeDiagnostics.length > 0) console.error(`[vscode-web:probe-diagnostics]\n${probeDiagnostics.join("\n")}`);
     throw proofFailure;
   }

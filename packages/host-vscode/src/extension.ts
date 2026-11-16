@@ -102,9 +102,21 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   });
   // The History command (#2833): the shared workspace does the work; VS Code only picks and reports.
   context.subscriptions.push(vscode.commands.registerCommand("tkr.history", async () => {
-    const candidate = vscode.window.activeTextEditor?.document.uri
-      ?? activeCustomEditorUri()
-      ?? (activeHistoryPreviewPanel === undefined ? undefined : historyPreviewOrigins.get(activeHistoryPreviewPanel));
+    const activeTextEditorUri = vscode.window.activeTextEditor?.document.uri;
+    const activeCustomUri = activeCustomEditorUri();
+    const activeHistoryOrigin = activeHistoryPreviewPanel === undefined ? undefined : historyPreviewOrigins.get(activeHistoryPreviewPanel);
+    const activeTab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    const activeTabUri = activeTab?.input instanceof vscode.TabInputCustom ? activeTab.input.uri : undefined;
+    console.error("[history-preview-trace] command-context", {
+      textEditorUri: activeTextEditorUri?.toString() ?? null,
+      customEditorUri: activeCustomUri?.toString() ?? null,
+      activeTabLabel: activeTab?.label ?? null,
+      activeTabUri: activeTabUri?.toString() ?? null,
+      historyOrigin: activeHistoryOrigin?.toString() ?? null,
+    });
+    const candidate = activeTextEditorUri
+      ?? activeCustomUri
+      ?? activeHistoryOrigin;
     const folder = candidate === undefined ? (vscode.workspace.workspaceFolders ?? [])[0] : vscode.workspace.getWorkspaceFolder(candidate);
     if (folder === undefined) {
       await vscode.window.showErrorMessage("Open a project folder first: history is kept in the project's .tkr-history folder.");
@@ -126,6 +138,13 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
           localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
         });
         const origin = candidate ?? vscode.Uri.joinPath(folder.uri, ...path.split("/"));
+        console.error("[history-preview-trace] source-identity", {
+          workspaceRoot: folder.uri.toString(),
+          origin: origin.toString(),
+          path,
+          projectId: preview.document.identity.projectId,
+          documentPath: preview.document.identity.path,
+        });
         trackHistoryPreview(panel, origin);
         const browserSession = createBrowserSession();
         const readOnlyFs = createVscodeFileSystem(folder.uri);
@@ -139,7 +158,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
           readProject: (relativePath: string) => readOnlyFs.readProject(projectId, relativePath),
           preview: async (request?: BoardPreviewRequest) => {
             if (preview.document.kind === "board") {
+              const started = Date.now();
+              console.error("[history-preview-trace] composer-enter", { path, projectId });
               const picture = await previewBoard(readOnlyFs, projectId, preview.document.serialize(), request);
+              console.error("[history-preview-trace] composer-resolved", { path, projectId, ok: picture.ok, elapsedMs: Date.now() - started, ...(picture.ok ? { width: picture.width, height: picture.height } : {}) });
               return picture.ok ? { ok: true as const, width: picture.width, height: picture.height, rgba: picture.rgba, warnings: picture.warnings } : picture;
             }
             if (preview.document.kind === "tile-bitmap") return previewTileBitmap(readOnlyFs, projectId, preview.document.serialize());
@@ -147,6 +169,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
           },
         };
         const listener = panel.webview.onDidReceiveMessage((message: unknown) => {
+          const request = typeof message === "object" && message !== null ? message as { readonly type?: unknown; readonly requestId?: unknown } : {};
+          console.error("[history-preview-trace] host-receive", {
+            type: typeof request.type === "string" ? request.type : "invalid",
+            requestId: typeof request.requestId === "string" ? request.requestId : null,
+          });
           void handleHistoryPreviewRequest(readOnlyPreview, message, (reply) => panel.webview.postMessage(reply));
         });
         panel.onDidDispose(() => listener.dispose());

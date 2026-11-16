@@ -13,6 +13,9 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   const workbench = new URL(allowedOrigin);
   const events = [];
   let pausedSave;
+  const readEvents = [];
+  const writeEvents = [];
+  let pausedWrite;
   const server = createServer(async (request, response) => {
     const origin = request.headers.origin;
     let allowed = origin === allowedOrigin;
@@ -48,7 +51,15 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
         if (input.kind === "save-request" && pausedSave) await pausedSave.promise;
         result = null;
       } else {
+        const gate = input.op === "writeFile" && pausedWrite?.path === input.path ? pausedWrite : undefined;
+        if (gate !== undefined) {
+          writeEvents.push({ kind: "write-request", path: input.path });
+          gate.reach();
+          await gate.promise;
+        }
+        if (input.op === "readDirectory" || input.op === "readFile") readEvents.push({ kind: input.op, path: input.path });
         result = await perform(root, input);
+        if (gate !== undefined) writeEvents.push({ kind: "write", path: input.path });
       }
       response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ result }));
     } catch (error) {
@@ -62,6 +73,8 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
     authority: `${workspaceId}.${address.port}`,
     token,
     events: () => events.slice(),
+    readEvents: () => readEvents.slice(),
+    writeEvents: () => writeEvents.slice(),
     pauseSave: () => {
       if (pausedSave) throw new Error("A save is already paused");
       let release;
@@ -69,6 +82,16 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       pausedSave = { promise, release };
     },
     resumeSave: () => { pausedSave?.release(); pausedSave = undefined; },
+    pauseWrite: (path) => {
+      if (pausedWrite) throw new Error("A backing write is already paused");
+      let release;
+      let reach;
+      const reached = new Promise((resolveReached) => { reach = resolveReached; });
+      const promise = new Promise((resolveGate) => { release = resolveGate; });
+      pausedWrite = { path, promise, release, reach: () => reach() };
+      return reached;
+    },
+    resumeWrite: () => { pausedWrite?.release(); pausedWrite = undefined; },
     close: () => new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose())),
   };
 }

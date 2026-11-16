@@ -222,13 +222,17 @@ export async function handleHistoryPreviewRequest(
   } else if (request.type === "read-project") {
     await postMessage({ type: "read-project-result", requestId: request.requestId, result: await historyPreviewRead(() => document.readProject(request.path)) });
   } else if (request.type === "preview") {
+    const started = Date.now();
+    console.error("[history-preview-trace] handler-enter", { requestId: request.requestId, path: document.path, kind: document.model.kind });
     let picture: BoardPicture;
     try {
       picture = await document.preview(request.request);
     } catch (error) {
       picture = { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
+    console.error("[history-preview-trace] composer-settled", { requestId: request.requestId, ok: picture.ok, elapsedMs: Date.now() - started, ...(picture.ok ? { width: picture.width, height: picture.height } : {}) });
     await postMessage({ type: "preview-result", requestId: request.requestId, picture });
+    console.error("[history-preview-trace] response-posted", { requestId: request.requestId });
   } else if (request.type === "edit") {
     await postMessage({
       type: "edit-result",
@@ -417,6 +421,7 @@ export class RemoteDocument {
   /** The board's picture, composed by the extension host from the project's files (the webview reads no files). */
   preview(request?: BoardPreviewRequest): Promise<BoardPicture> {
     const requestId = `preview-${++this.nextRequest}`;
+    console.error("[editor-preview-trace] request-send", { requestId, path: this.identity.path, projectId: this.identity.projectId });
     return new Promise((resolve) => {
       this.pendingPreviews.set(requestId, resolve);
       this.vscode.postMessage({ type: "preview", requestId, ...(request === undefined ? {} : { request }) });
@@ -506,7 +511,9 @@ export class RemoteDocument {
       return;
     }
     if (message.type === "preview-result") {
+      const pending = this.pendingPreviews.has(message.requestId);
       this.settle(this.pendingPreviews, message.requestId, message.picture);
+      console.error("[editor-preview-trace] response-received", { requestId: message.requestId, pending, settled: pending && !this.pendingPreviews.has(message.requestId) });
       return;
     }
     if (message.type === "visit-result") return void this.settle(this.pendingVisits, message.requestId, message.outcome);

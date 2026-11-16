@@ -57,6 +57,36 @@ test("the proof filesystem persists bytes and confines authenticated operations"
     await rm(outside, { recursive: true, force: true });
   }
 });
+test("the proof filesystem can pause a workspace write before it reaches disk", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-write-gate-test-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    await writeFile(join(root, "game.gam"), "before");
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const reached = bridge.pauseWrite("/game.gam");
+    const pending = fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ op: "writeFile", path: "/game.gam", create: false, overwrite: true, data: Buffer.from("after").toString("base64") }),
+    });
+    await reached;
+    assert.deepEqual(bridge.writeEvents(), [{ kind: "write-request", path: "/game.gam" }]);
+    assert.equal(await readFile(join(root, "game.gam"), "utf8"), "before");
+    bridge.resumeWrite();
+    assert.equal((await pending).status, 200);
+    assert.deepEqual(bridge.writeEvents(), [
+      { kind: "write-request", path: "/game.gam" },
+      { kind: "write", path: "/game.gam" },
+    ]);
+    assert.equal(await readFile(join(root, "game.gam"), "utf8"), "after");
+  } finally {
+    if (bridge) { bridge.resumeWrite(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 
 test("request decoding handles split UTF-8 and counts bytes", async () => {
   const body = Buffer.from(JSON.stringify({ value: "é".repeat(600) }));
