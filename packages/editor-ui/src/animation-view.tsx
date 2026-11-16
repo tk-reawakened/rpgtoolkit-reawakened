@@ -39,6 +39,10 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
   const snapshot = useDocumentSnapshot(doc);
   const submitted = useRef(createEditTracker());
   const queue = useRef(Promise.resolve());
+  // Cancelling or replacing preparation invalidates its outstanding asset reads (#2817).
+  const imagePreparation = useRef(0);
+  const tilePreparation = useRef(0);
+  useEffect(() => () => { imagePreparation.current++; tilePreparation.current++; }, []);
   useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
   const [busy, setBusy] = useState(false);
   const [recoveryVersion, setRecoveryVersion] = useState(0);
@@ -173,12 +177,14 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
   };
   const typeValue = (field: keyof typeof typed): string => typed[field] ?? String(field === "red" ? current.transparent.r : field === "green" ? current.transparent.g : field === "blue" ? current.transparent.b : field === "image" || field === "sound" ? current[field] : snapshot[field]);
   const stageImages = async (): Promise<void> => {
+    const preparation = ++imagePreparation.current;
     const selectedCandidates = imageOrder;
     if (selectedCandidates.length === 0) { setMessage("Select at least one image frame."); return; }
     if (snapshot.frames.length + selectedCandidates.length > ANIMATION_FRAME_LIMIT) { setMessage(`The selected images would exceed the ${ANIMATION_FRAME_LIMIT}-frame animation limit.`); return; }
     const staged: { readonly frame: AnimationFrame; readonly picture: { readonly width: number; readonly height: number } }[] = [];
     for (const candidate of selectedCandidates) {
       const read = await fs.readProject(identity.projectId, candidate.path);
+      if (preparation !== imagePreparation.current) return;
       if (!read.ok) { setMessage(`Could not read ${candidate.path}: ${read.error.message}`); return; }
       const gif = GIF.test(candidate.path) ? spriteGifPreview(read.value, candidate.path) : null;
       const picture = gif?.frames[0] ?? (gif === null ? spritePicturePreview(read.value, candidate.path) : null);
@@ -195,11 +201,12 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
       if (!result.ok) { setMessage(result.error.message); return; }
       setRecoveryVersion((value) => value + 1);
       if (result.value.files.some((file) => file.status !== "written")) { setMessage("Creation stopped. Review project recovery and retry remaining files."); return; }
-      setSelected(currentIndex); setImagesOpen(false); setImageSelection(new Set()); setImageOrder([]); setImageOrder([]);
+      setSelected(currentIndex); setImagesOpen(false); setImageSelection(new Set()); setImageOrder([]);
       setMessage("Animation created and saved.");
     } finally { setBusy(false); }
   };
   const stageTileBitmap = async (): Promise<void> => {
+    const preparation = ++tilePreparation.current;
     if (browser === undefined || authoring === undefined) { setMessage("This host cannot create project tile bitmaps."); return; }
     if (snapshot.frames.length + tileFrames.length >= ANIMATION_FRAME_LIMIT) { setMessage(`The animation already has ${ANIMATION_FRAME_LIMIT} frames.`); return; }
     if (tileCells.some((tile) => tile === "")) { setMessage("Choose a tile for each of the 16 cells."); return; }
@@ -214,13 +221,14 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
       return result.ok ? result.value : null;
     };
     const picture = await spriteTileBitmapPreviewFromAssets(bytes, path, load);
+    if (preparation !== tilePreparation.current) return;
     if (picture === null) { setMessage("Could not resolve all tiles in the staged 4×4 bitmap."); return; }
     setStagedTile({ name, path, bytes, picture });
     setMessage(`Staged ${path} (${picture.width} × ${picture.height} pixels). Confirm to create and insert it.`);
   };
   const confirmTileBitmap = async (): Promise<void> => {
     if (authoring === undefined) return;
-    const staged = tileFrames.length > 0 ? tileFrames : stagedTile === null ? [] : [stagedTile];
+    const staged = [...tileFrames, ...(stagedTile === null ? [] : [stagedTile])];
     if (staged.length === 0) { setMessage("Stage at least one tile composition."); return; }
     const empty = snapshot.frames.length === 0;
     const frames = [...snapshot.frames.slice(0, currentIndex), ...staged.map((tile) => ({ image: tile.name, transparent: topLeftKey(tile.picture), sound: "" })), ...snapshot.frames.slice(currentIndex)];
@@ -284,7 +292,7 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
         </li>)}</ol>
         <p>Destination: {identity.path}</p>
         <button type="button" disabled={disabled || imageCandidates.length === 0} onClick={() => void stageImages()}>Insert selected sorted images</button>
-        <button type="button" onClick={() => { setImagesOpen(false); setImageSelection(new Set()); setImageOrder([]); }}>Cancel image wizard</button>
+        <button type="button" disabled={busy} onClick={() => { imagePreparation.current++; setImagesOpen(false); setImageSelection(new Set()); setImageOrder([]); }}>Cancel image wizard</button>
       </details>
       <details open={tileOpen} onToggle={(event) => setTileOpen(event.currentTarget.open)}>
         <summary>Compose 4×4 tile bitmap frames</summary>
@@ -299,16 +307,16 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
           <p>{stagedTile.path} — {stagedTile.picture.width} × {stagedTile.picture.height} pixels</p>
           <canvas ref={tileCanvas} role="img" aria-label={`Preview of ${stagedTile.path}`} />
           <button type="button" disabled={disabled} onClick={() => { setTileFrames((frames) => [...frames, stagedTile]); setStagedTile(null); setTileName(""); }}>Add composition to sequence and reuse template</button>
-          <button type="button" disabled={disabled} onClick={() => void confirmTileBitmap()}>Create TBM and insert frame</button>
-          <button type="button" onClick={() => { setStagedTile(null); setMessage("Staged tile bitmap discarded; no project files were written."); }}>Cancel staged frame</button>
+          <button type="button" disabled={disabled} onClick={() => void confirmTileBitmap()}>{tileFrames.length === 0 ? "Create TBM and insert frame" : "Create tile sequence including staged frame"}</button>
+          <button type="button" disabled={busy} onClick={() => { tilePreparation.current++; setStagedTile(null); setMessage("Staged tile bitmap discarded; no project files were written."); }}>Cancel staged frame</button>
         </div>}
         <ol aria-label="Staged tile frame order">{tileFrames.map((frame, index) => <li key={index}>{frame.path}
           <button type="button" disabled={disabled || index === 0} onClick={() => setTileFrames((previous) => { const next = [...previous]; [next[index - 1], next[index]] = [next[index]!, next[index - 1]!]; return next; })}>Move tile frame earlier</button>
           <button type="button" disabled={disabled} onClick={() => setTileFrames((previous) => previous.filter((_, at) => at !== index))}>Remove staged frame</button>
         </li>)}</ol>
         <p>Animation written last: {identity.path}</p>
-        {tileFrames.length > 0 && <button type="button" disabled={disabled} onClick={() => void confirmTileBitmap()}>Create tile sequence</button>}
-        <button type="button" onClick={() => { setTileFrames([]); setTileOpen(false); setTileCells(new Array<string>(16).fill("")); setTileName(""); setStagedTile(null); setMessage(null); }}>Cancel tile wizard</button>
+        {tileFrames.length > 0 && stagedTile === null && <button type="button" disabled={disabled} onClick={() => void confirmTileBitmap()}>Create tile sequence</button>}
+        <button type="button" disabled={busy} onClick={() => { tilePreparation.current++; setTileFrames([]); setTileOpen(false); setTileCells(new Array<string>(16).fill("")); setTileName(""); setStagedTile(null); setMessage(null); }}>Cancel tile wizard</button>
         {browser !== undefined && <TilesetBrowser context={browser} />}
       </details>
     </section>}

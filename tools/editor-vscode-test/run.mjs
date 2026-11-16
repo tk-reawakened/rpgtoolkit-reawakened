@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader } from "@tk-reawakened/core";
 import { buildNewBoard } from "@tk-reawakened/editor-model";
-import { requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -54,6 +54,7 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
   createWebAdapterBytes(gameFiles[0], "__tkr_sentinel.gam", sentinelTitle),
 ]);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
+const animationProof = process.env.TKR_VSCODE_ANIMATION_PROOF === "1";
 const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
 const boardProof = process.env.TKR_VSCODE_BOARD_PROOF === "1";
 const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
@@ -61,8 +62,8 @@ const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
 const newProjectProof = process.env.TKR_VSCODE_NEW_PROJECT_PROOF === "1";
 const autosaveCommandProof = process.env.TKR_VSCODE_AUTOSAVE_COMMAND_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
-if ((launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+if ((animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of animationProof || skipSpriteProof || autosaveCommandProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
@@ -79,6 +80,8 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
   const boardBytes = createBoardBytes();
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
   await mkdir(resolve(proofWorkspace, "Bitmap"), { recursive: true });
+  await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Bitmap/a.gif"));
+  await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Bitmap/z.gif"));
   await mkdir(resolve(proofWorkspace, "Tiles"), { recursive: true });
   const canvasBoards = [["2d", "top-down", 0], ["iso-stacked", "iso-stacked", 1], ["iso-rotated", "iso-rotated", 2]].map(([system, label, coordType]) => ({ system, label, coordType, path: `Boards/canvas-${label}.brd` }));
   await Promise.all([
@@ -252,7 +255,10 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
       const combined = combineProofErrors(failure, cleanupErrors);
       if (combined !== undefined) throw combined;
     };
-    if (newProjectProof) {
+    if (animationProof) {
+      await runVscodeAnimationProof(page, expect, workbenchUrl, { readBacking, withBackingWriteRefused });
+      console.log("vscode.dev animation creation, partial-write retry and persistent recovery proof passed");
+    } else if (newProjectProof) {
       const tree = async () => (await readdir(proofWorkspace, { recursive: true, withFileTypes: true }))
         .filter((entry) => entry.isFile())
         .map((entry) => relative(proofWorkspace, resolve(entry.parentPath ?? proofWorkspace, entry.name)))
@@ -284,6 +290,8 @@ for (const choice of skipSpriteProof || autosaveCommandProof ? ["cancel"] : laun
       console.log("vscode.dev autosave command palette proof passed");
     } else {
       if (choice === "cancel" && !skipSpriteProof) {
+        await runVscodeAnimationProof(page, expect, workbenchUrl, { readBacking, withBackingWriteRefused });
+        console.log("vscode.dev animation creation, partial-write retry and persistent recovery proof passed");
         await runVscodeSpriteWebProof(page, expect, workbenchUrl, spritePath, spriteBytes, { readBacking });
         console.log("vscode.dev sprite save/reopen proof passed");
       }

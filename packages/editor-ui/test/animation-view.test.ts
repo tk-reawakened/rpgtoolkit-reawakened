@@ -136,3 +136,78 @@ test("immediate save settles queued frame metadata without blur and retains edit
     deepEqual(reopened.document.getSnapshot().frames[0], { image: "a.gif", sound: "step.wav", transparent: { r: 17, g: 0, b: 23 } });
   } finally { handle?.dispose(); root.remove(); }
 });
+
+
+test("cancel image wizard invalidates a pending asset read before it can write", async () => {
+  const gif = new Uint8Array(readFileSync(new URL("../../core/test/fixtures/authored/gif-anim89a.gif", import.meta.url)));
+  const host = createMemoryPlatformServices({ files: { [PATH]: newAnimationBytes(), "Bitmap/a.gif": gif } });
+  const opened = await openAnimationDocument(host.fs, IDENTITY); ok(opened.ok);
+  const model = opened.document;
+  let release: (() => void) | undefined;
+  let committed = 0;
+  const delayedFs = { ...host.fs, readProject: async (project: string, path: string) => {
+    if (path === "Bitmap/a.gif") await new Promise<void>((resolve) => { release = resolve; });
+    return host.fs.readProject(project, path);
+  } };
+  const authoring = createAnimationAuthoring({ fs: host.fs, projectId: IDENTITY.projectId,
+    hash: async (bytes) => createHash("sha256").update(bytes).digest("hex"), newId: () => "cancel-wizard", time: () => "2026-11-15", guard: async () => null, consent: async () => true,
+  }, model, async () => { const result = await model.save(); return result.ok ? platformOk(undefined) : platformError("io-error", result.failure.message); }, () => undefined);
+  const root = document.createElement("div"); document.body.append(root);
+  let handle: ViewHandle | undefined;
+  await act(() => { handle = mount(root, { document: model, services: { ...host, fs: delayedFs },
+    browser: { session: createBrowserSession(), fs: host.fs, layout: { projectFolder: "" } },
+    animationAuthoring: { ...authoring, commitAnimation: async (...args) => { committed++; return authoring.commitAnimation(...args); } },
+  }); });
+  try {
+    await act(() => root.querySelector("summary")!.click());
+    await settleUntil(() => root.querySelector('input[type="checkbox"]') !== null);
+    await act(() => (root.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    await act(() => button(root, "Insert selected sorted images").click());
+    await settleUntil(() => release !== undefined);
+    await act(() => button(root, "Cancel image wizard").click());
+    await act(() => release!());
+    // Drain the resumed read/decoder/commit chain without a timing-dependent sleep.
+    for (let turn = 0; turn < 20; turn++) await act(async () => { await Promise.resolve(); });
+    equal(committed, 0, "cancelled preparation must never reach the write provider");
+    const bytes = await host.fs.read(PATH); ok(bytes.ok); deepEqual(bytes.value, newAnimationBytes());
+    equal(model.getSnapshot().frames.length, 0);
+  } finally { handle?.dispose(); root.remove(); }
+});
+
+test("cancel tile wizard invalidates a pending composition preview", async () => {
+  const tile = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/tileset/tileset_detail1.tst", import.meta.url)));
+  const host = createMemoryPlatformServices({ files: { [PATH]: newAnimationBytes(), "Tiles/village.tst": tile } });
+  const opened = await openAnimationDocument(host.fs, IDENTITY); ok(opened.ok);
+  const model = opened.document;
+  let release: (() => void) | undefined;
+  let delay = true;
+  const delayedFs = { ...host.fs, readProject: async (project: string, path: string) => {
+    if (path === "Tiles/village.tst" && delay) { delay = false; await new Promise<void>((resolve) => { release = resolve; }); }
+    return host.fs.readProject(project, path);
+  } };
+  const authoring = createAnimationAuthoring({ fs: host.fs, projectId: IDENTITY.projectId,
+    hash: async (bytes) => createHash("sha256").update(bytes).digest("hex"), newId: () => "cancel-tiles", time: () => "2026-11-15", guard: async () => null, consent: async () => true,
+  }, model, async () => platformOk(undefined), () => undefined);
+  const session = createBrowserSession({ path: "Tiles/village.tst", scrollTop: 0, selection: { kind: "tiles", path: "Tiles/village.tst", reference: "village.tst1", label: "Tile 1", boardTile: "village.tst1", stamp: null } });
+  const root = document.createElement("div"); document.body.append(root);
+  let handle: ViewHandle | undefined;
+  await act(() => { handle = mount(root, { document: model, services: { ...host, fs: delayedFs }, animationAuthoring: authoring,
+    browser: { session, fs: host.fs, layout: { projectFolder: "" } },
+  }); });
+  try {
+    await act(() => root.querySelectorAll("summary")[1]!.click());
+    const name = [...root.querySelectorAll("label")].find((entry) => entry.textContent?.trim() === "New tile bitmap name")!.querySelector("input")!;
+    await act(() => { name.value = "cancelled.tbm"; name.dispatchEvent(new Event("input", { bubbles: true })); });
+    for (let cell = 1; cell <= 16; cell++) {
+      await act(() => button(root, `Cell ${cell}: empty`).click());
+      await act(() => button(root, "Put selected tile in cell").click());
+    }
+    await act(() => button(root, "Stage TBM frame").click());
+    await settleUntil(() => release !== undefined);
+    await act(() => button(root, "Cancel tile wizard").click());
+    await act(() => release!());
+    for (let turn = 0; turn < 30; turn++) await act(async () => { await Promise.resolve(); });
+    equal(root.querySelector('[aria-label="Staged tile bitmap frame"]') === null, true, "cancelled preview must not reappear after its read finishes");
+    equal((await host.fs.read("Bitmap/cancelled.tbm")).ok, false);
+  } finally { handle?.dispose(); root.remove(); }
+});
