@@ -230,6 +230,8 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   const location = await source.getAttribute("title");
   const line = failedSource.split("\n").findIndex((text) => text.includes('expect(specValue("player.tileX"))')) + 1;
   expect(location).toMatch(new RegExp(`:${line}:\\d+$`));
+  await page.locator("#settings .monaco-editor .view-line").first().click();
+  await page.keyboard.press("Home");
   await source.click();
   const assertion = page.locator("#settings .monaco-editor .view-line").filter({ hasText: 'expect(specValue("player.tileX"))' });
   await expect(assertion).toBeVisible();
@@ -243,7 +245,7 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   // An included helper owns its assertion location; the source link must open
   // that real file, not the enclosing spec at the helper's line number.
   const helperPath = ".tkr-tests/Prg/Misc/helper.prg";
-  const helperSource = "function includedFailure() { expect(1).toBe(2) }";
+  const helperSource = ["function includedFailure() {", "  local(value)", "  expect(1).toBe(2)", "}"].join("\n");
   const includedSpec = [
     '#include "Misc/helper.prg"',
     'specFixture({ board: "Boards/wall.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: 1, y: 2, facing: "E" })',
@@ -266,9 +268,9 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   await tests.getByRole("button", { name: "Run saved tests", exact: true }).click();
   await expect(tests.getByRole("status")).toHaveText("Failed: 0 passing cases, 1 failing cases, 0 skipped cases.");
   const included = tests.locator('tr[data-outcome="fail"]').getByRole("button");
-  await expect(included).toHaveAttribute("title", new RegExp(`^${helperPath.replaceAll(".", "\\.")}:1:\\d+$`));
+  await expect(included).toHaveAttribute("title", new RegExp(`^${helperPath.replaceAll(".", "\\.")}:3:\\d+$`));
   await included.click();
-  const helperLine = page.locator("#settings .monaco-editor .view-line").filter({ hasText: helperSource });
+  const helperLine = page.locator("#settings .monaco-editor .view-line").filter({ hasText: "expect(1).toBe(2)" });
   await expect(helperLine).toBeVisible();
   await expect.poll(async () => {
     const lineTop = await helperLine.evaluate((element) => element.getBoundingClientRect().top);
