@@ -1,0 +1,13 @@
+{
+  "interrupted": false,
+  "startedAt": 1794805549489,
+  "endedAt": 1794809149494,
+  "wallSeconds": 3600.005,
+  "processCpuSeconds": 4.197124,
+  "saves": 383,
+  "newBlobs": 382,
+  "blobBytes": 2543911,
+  "entryBytes": 72453,
+  "historyFailures": 0,
+  "maxHeartbeatGapMs": 5
+}

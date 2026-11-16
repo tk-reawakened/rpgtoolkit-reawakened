@@ -57,8 +57,10 @@ maximum corpus size (482,379 bytes)** at 60 modeled entries per hour for 24
 hours, with no deduplication. It is not a project upper bound and is not
 evidence for a 1 GB warning threshold. No per-project aggregation was measured.
 
-## Owner decision unresolved
+## Owner decision unresolved (historical — superseded by the timed trace below)
 
+This section records the state **before** the 2026-11-16 timed editing-hour trace; it is kept for the record and its
+"unresolved" status no longer describes the ADR, which now records the trace and the values it supports (D12.11).
 This artifact measures board sizes and runs the scenario model only. It does
 not select retention parameters. A timed editing trace and project-wide
 storage model are still needed before the owner can decide:
@@ -85,7 +87,9 @@ nor rules them out.
 ## Timed editing-hour trace (2026-11-16)
 
 `tools/history-measure/trace.mjs` ran for 3,600.005 s and wrote `events.jsonl`, `start.json` and
-`summary.json`; `tools/history-measure/analyze.mjs` turns those into `trace-results.json`, and
+`summary.json`. Those three receipts are committed unmodified in `trace/` with `SHA256SUMS`, so the aggregate can be
+recomputed without re-running the hour: `node tools/history-measure/analyze.mjs docs/findings/history-measurement/trace`.
+`tools/history-measure/analyze.mjs` turns them into `trace-results.json`, and
 [ADR 0022 D12.11](../../adr/0022-shared-editor-authoring-contracts.md#d12--history-and-checkpoint-groups)
 records the values it supports. Reproduce with `node tools/history-measure/trace.mjs --out <dir> --seconds 3600`
 and `node tools/history-measure/analyze.mjs <dir>`.
@@ -97,7 +101,7 @@ manual-save rate, run saves) is the script's own assumption, stated in `start.js
 What was measured:
 
 - 462 accepted gestures and 383 saves in the hour (377 `auto`, 4 `manual`, 2 `before-run`); 382 distinct
-  contents; 0 history failures; 4.2 s of process CPU; the machine was shared (load 1 min median 2.7, p90 5.6).
+  contents; 0 history failures; 4.2 s of process CPU; the machine was shared (load 1 min median 2.75, p90 5.37).
 - Saved bytes: median 5,730 B, p90 12,223 B, mean 6,659 B.
 - Save latency: median 20.5 ms (p90 27.6, p99 51.4, max 85.7); history work within it: median 10.8 ms.
 - Gesture gaps: median 2.34 s, p90 8.49 s; 91.3% within 10 s, 97.6% within 60 s, 99.8% within 300 s.
