@@ -197,7 +197,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     await preferences.refresh();
     const remembered = newBoardSettingsFrom(preferences.getSnapshot());
     const finish = async (settings: NewBoardSettings): Promise<CreateBoardResult> => {
-      const result = await createBoardFile(services.fs, projectLayout, settings, createWizardHistory(workspace.history));
+      const result = await createBoardFile(services.fs, projectLayout, settings, createWizardHistory(workspace.checkpoints));
       if (!result.ok) return result;
       const problem = await rememberNewBoard(preferences, settings);
       await tree.refresh();

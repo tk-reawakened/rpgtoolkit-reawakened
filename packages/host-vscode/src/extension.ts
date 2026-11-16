@@ -14,7 +14,7 @@ import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES } from "@tk-reawaken
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
-import { createProjectWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
+import { createProjectWizardHistory, createWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation"] as const;
@@ -238,7 +238,7 @@ export function registerNewBoard(context: vscode.ExtensionContext, generation: (
     const folder = folders.length === 1 ? folders[0]! : await pickFolder(folders);
     if (folder === undefined) return;
     const services = createVscodeServices(folder.uri, context, generation);
-    const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui, history: createProjectWizardHistory(services.fs) });
+    const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui, history: createWizardHistory(workspace.checkpoints) });
     if (!outcome.ok) {
       if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);
       return;
@@ -295,7 +295,7 @@ export function registerNewProject(context: vscode.ExtensionContext): void {
         const uri = selected === undefined ? undefined : vscode.Uri.joinPath(selected, ".");
         if (uri === undefined) return undefined;
         const storage = createVscodeFileSystem(uri);
-        return { handle: uri, storage, history: createProjectWizardHistory(storage) };
+        return { handle: uri, storage, history: createProjectWizardHistory(storage, uri.toString()) };
       },
     });
     if (!outcome.ok) {

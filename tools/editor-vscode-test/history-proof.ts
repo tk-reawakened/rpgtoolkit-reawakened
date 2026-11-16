@@ -1,10 +1,9 @@
 // The native/browser proof of story 11.14's history (ADR 0022 D12), as an isolated helper so the host proofs
 // (`run.mjs`, `web-proof.ts`) call it instead of reimplementing the feature. It reads only what the host produced.
-import { sha256Hex, type DocumentWorkspace, type HistoryGroup } from "@tk-reawakened/editor-model";
+import { sha256Hex, type CheckpointGroup, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
 const GROUP_FOLDER = ".tkr-history/groups";
-
 
 /** Read the one group the wizard recorded in the produced project, and check it against the files the wizard wrote. */
 export async function proveWizardGroup(
@@ -19,19 +18,20 @@ export async function proveWizardGroup(
   if (names.length !== 1) problems.push(`expected one group record, found ${names.length}`);
   const read = await fs.read(`${GROUP_FOLDER}/${names[0]?.name ?? ""}`);
   if (!read.ok) return { ok: false, problems: [...problems, `the group record could not be read: ${read.error.message}`] };
-  const group = JSON.parse(new TextDecoder().decode(read.value)) as HistoryGroup;
-  if (group.kind !== "group" || group.name !== expectedName) problems.push(`group is ${group.kind}/${group.name}, expected group/${expectedName}`);
-  const planned = group.before.map((item) => item.path);
+  const group = JSON.parse(new TextDecoder().decode(read.value)) as CheckpointGroup;
+  if (group.reason !== "before-wizard" || group.name !== expectedName) problems.push(`group is ${group.reason}/${group.name}, expected before-wizard/${expectedName}`);
+  const planned = group.files.map((item) => item.path);
   if (planned.join("\n") !== [...written].join("\n")) problems.push(`planned ${planned.join(", ")}, wizard wrote ${written.join(", ")}`);
-  if (group.before.some((item) => item.sha256 !== null)) problems.push("a destination that did not exist was not recorded as absent (sha256 null)");
-  const registered = new Map(group.written.map((item) => [item.path, item.sha256] as const));
+  if (group.files.some((item) => item.before !== null)) problems.push("a destination that did not exist was not recorded as absent (before null)");
+  const registered = new Map(group.files.map((item) => [item.path, item.after] as const));
   for (const path of written) {
     const bytes = await fs.read(path);
     if (!bytes.ok) { problems.push(`${path} was written but cannot be read: ${bytes.error.message}`); continue; }
     const hash = await sha256Hex(bytes.value);
     if (registered.get(path) !== hash) problems.push(`${path} was not registered with the hash of its bytes`);
   }
-  if (group.written.length !== written.length) problems.push(`registered ${group.written.length} writes for ${written.length} files`);
+  if (group.files.length !== written.length) problems.push(`registered ${group.files.length} destinations for ${written.length} files`);
+  if (group.files.some((item) => item.status !== "written")) problems.push("the wizard group contains a destination that did not finish writing");
   return { ok: problems.length === 0, problems };
 }
 

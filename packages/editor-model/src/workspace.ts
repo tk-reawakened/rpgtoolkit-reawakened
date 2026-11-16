@@ -1,10 +1,11 @@
 import { foldPath, toSlashes } from "@tk-reawakened/core";
-import type { Disposable, DocumentService, FileSystemService, PlatformError, PlatformServices } from "@tk-reawakened/platform-services";
+import { platformError, platformOk, type Disposable, type DocumentService, type FileSystemService, type PlatformError, type PlatformServices } from "@tk-reawakened/platform-services";
 import { createDocumentIdentity } from "./identity.ts";
 import type { DocumentHistorySink, DocumentSnapshot, DocumentStorage, HistoryResult, OpenError, RevertFailure, SaveFailure, SaveResult } from "./binary-document.ts";
 import { kindById, kindForPath, type AnyDocument } from "./kinds.ts";
 import { createPendingEdits, type PendingEdits } from "./pending-edits.ts";
-import { createDocumentHistoryStore, createMemoryHistoryStorage, type DocumentHistoryOptions, type DocumentHistoryStore, type GroupRestoreReport, type HistoryPolicy, type HistoryReason, type HistoryRestorer } from "./document-history.ts";
+import { createDocumentHistoryStore, createMemoryHistoryStorage, sha256Hex, type DocumentHistoryOptions, type DocumentHistoryStore, type GroupRestoreReport, type HistoryPolicy, type HistoryReason, type HistoryRestorer } from "./document-history.ts";
+import { createCheckpointGroups, type CheckpointGroup, type CheckpointGroups, type CheckpointTarget, type CheckpointUncovered } from "./checkpoint-groups.ts";
 import { DEFAULT_HISTORY_POLICY } from "./history-policy.ts";
 import { openHistoryPreview, type HistoryPreviewOpen } from "./history-support.ts";
 
@@ -132,17 +133,18 @@ export interface DocumentWorkspace {
   undo(document: AnyDocument): HistoryResult;
   /** Redo the latest undone edit, by its `editId`. */
   redo(document: AnyDocument): HistoryResult;
-  /** Project-wide history, checkpoint groups and named checkpoints for this workspace (ADR 0022 D12). */
+  /** Per-document history entries; checkpoint groups use the shared canonical checkpoint service below. */
   readonly history: DocumentHistoryStore;
+  /** The single canonical per-project group store used by wizards, recovery views, and named checkpoints. */
+  readonly checkpoints: CheckpointGroups;
   /** The storage every document of this workspace is opened with; it carries the history sink, so a host that makes a document itself (a recovered backup) must use it. */
   readonly storage: DocumentStorage;
-  /**
-   * Restore one history entry (D12.5, D12.10 item 9). An open document takes it as one accepted edit and saves it; a
-   * document with unsaved work asks first. Every file is reported separately, and the restore is itself a group.
-   */
+  /** Restore one saved timeline entry as an accepted edit and a canonical before-restore group. */
   restoreHistoryEntry(entryId: string): Promise<GroupRestoreReport>;
-  /** Restore a checkpoint group or named checkpoint, or only `options.only` of it (retry); same rules as `restoreHistoryEntry`. */
+  /** Restore a checkpoint group or named checkpoint, or only `options.only` of it (retry). */
   restoreHistoryGroup(groupId: string, options?: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[] }): Promise<GroupRestoreReport>;
+  /** Create one named snapshot of covered project files; uncovered files are listed on that same group. */
+  createNamedCheckpoint(name: string): Promise<CheckpointGroup>;
   /** A read-only document over saved bytes, for a view of the same editor to show (D12.10 item 13). It never edits, saves or reads the project. */
   openHistoryPreview(path: string, bytes: Uint8Array, description: string): HistoryPreviewOpen;
   /** Save every dirty document, one after another, and report each (D4.1: there is no all-or-nothing save). */
@@ -200,7 +202,8 @@ function historyOptions(options: WorkspaceOptions): DocumentHistoryOptions {
 export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWorkspace {
   const { projectId, services } = options;
   const { fs, dialogs } = services;
-  const historyStore = createDocumentHistoryStore(historyOptions(options));
+  const historyConfiguration = historyOptions(options);
+  const historyStore = createDocumentHistoryStore(historyConfiguration);
   const sink: DocumentHistorySink = {
     async keepBeforeWrite(path, previous, reason) {
       if (previous === null) return { ok: true };
@@ -391,15 +394,14 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       }
       if (!sameBytes(actual, context.expected)) return changed();
       if (bytes === null) {
-        const removed = await fs.delete(path);
+        const removed = await fs.deleteProject(projectId, path);
         return removed.ok ? { ok: true } : { ok: false, message: removed.error.message };
       }
       const written = await fs.writeProject(projectId, path, bytes);
       if (!written.ok) return { ok: false, message: written.error.message };
       try {
         await historyStore.recordSave(path, bytes, "manual", context.groupId);
-        // The restore created this file: register it so undoing the restore may delete it (D12.10 item 6).
-        await historyStore.registerWritten(context.groupId, path, bytes);
+        // The checkpoint manifest already contains the restore's exact after hash and serves as ownership proof.
       }
       catch (error) { return { ok: false, message: `${path} was restored, but its history could not be recorded: ${error instanceof Error ? error.message : String(error)}` }; }
       return { ok: true };
@@ -422,21 +424,114 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     return answer === "restore";
   };
   const declined = (groupId: string, paths: readonly string[]): GroupRestoreReport => ({ groupId, restoreGroupId: null, files: paths.map((path) => ({ path, result: "failed" as const, message: "Cancelled: nothing was changed." })) });
+  let checkpointSequence = 0;
+  const checkpoints = createCheckpointGroups({
+    fs,
+    storage: historyConfiguration.storage,
+    projectId,
+    hash: sha256Hex,
+    newId: () => `history-${Date.now().toString(36)}-${(++checkpointSequence).toString(36)}`,
+    time: () => new Date().toISOString(),
+    async guard(path, removing) {
+      const open = documents.get(createDocumentIdentity(projectId, path).key);
+      if (open === undefined) return null;
+      await pendingEditsOf(open).settle();
+      const snapshot = open.getSnapshot();
+      if (snapshot.readOnly !== null) return `${path} is read-only and cannot be restored.`;
+      if (snapshot.conflict !== null) return `${path} has an external change; resolve it before restoring.`;
+      if (removing) return `${path} is open. Close it, then retry the restore to remove it.`;
+      return null;
+    },
+    async consent(paths) {
+      const answer = await dialogs.ask({
+        message: `${paths.join(", ")} ${paths.length === 1 ? "already exists" : "already exist"}.`,
+        detail: "The checkpoint will record the current files before the wizard writes. Continue?",
+        choices: [{ id: "continue", label: "Continue" }, { id: "cancel", label: "Cancel" }],
+        cancel: "cancel",
+      });
+      return answer === "continue";
+    },
+    async current(path) {
+      const result = await restorer().current(path);
+      if (!result.ok) throw new Error(result.message);
+      return result.bytes;
+    },
+    async write(path, bytes, context) {
+      const result = await restorer().apply(path, bytes, context);
+      return result.ok ? platformOk(undefined) : platformError("io-error", result.message);
+    },
+  });
+  const checkpointReport = (sourceId: string, group: CheckpointGroup): GroupRestoreReport => ({
+    groupId: sourceId,
+    restoreGroupId: group.id,
+    files: [
+      ...group.files.map((file) => ({
+        path: file.path,
+        result: file.status === "written" ? "restored" as const
+          : file.status === "already-as-wanted" ? "already-as-wanted" as const
+            : file.status === "kept-uncertain" ? "kept-uncertain" as const
+              : file.status === "uncovered" ? "uncovered" as const : "failed" as const,
+        ...(file.message === null ? {} : { message: file.message }),
+      })),
+      ...group.uncovered.map((file) => ({
+        path: file.path,
+        result: "uncovered" as const,
+        message: file.reason === "size" ? `${file.path} exceeds the history size limit (${file.size} bytes).` : `${file.path} is not a supported history file type.`,
+      })),
+    ],
+  });
 
   return {
     history: historyStore,
+    checkpoints,
     storage: documentStorage,
     openHistoryPreview: (path, bytes, description) => openHistoryPreview(projectId, path, bytes, description),
     async restoreHistoryEntry(entryId) {
-      const entry = (await historyStore.projectTimeline()).find((candidate) => candidate.id === entryId);
-      if (entry !== undefined && !(await confirmUnsaved([entry.path]))) return declined(entryId, [entry.path]);
-      return historyStore.restoreEntry(entryId, restorer());
+      const preview = await historyStore.preview(entryId);
+      if (preview === null) return { groupId: entryId, restoreGroupId: null, files: [{ path: "", result: "failed", message: `History entry ${entryId} does not exist.` }] };
+      if (!(await confirmUnsaved([preview.entry.path]))) return declined(entryId, [preview.entry.path]);
+      const result = await checkpoints.restoreTargets([{ path: preview.entry.path, bytes: preview.bytes }], entryId);
+      return result.ok ? checkpointReport(entryId, result.value) : { groupId: entryId, restoreGroupId: null, files: [{ path: preview.entry.path, result: "failed", message: result.error.message }] };
     },
     async restoreHistoryGroup(groupId, restoreOptions) {
-      const group = (await historyStore.groupTimeline()).find((candidate) => candidate.id === groupId);
-      const wanted = group === undefined ? [] : group.before.map((item) => item.path).filter((path) => restoreOptions?.only === undefined || restoreOptions.only.includes(path));
-      if (!(await confirmUnsaved(wanted))) return declined(groupId, wanted);
-      return historyStore.restoreGroup(groupId, restorer(), restoreOptions);
+      const listed = await checkpoints.list();
+      if (!listed.ok) return { groupId, restoreGroupId: null, files: [{ path: "", result: "failed", message: listed.error.message }] };
+      const source = listed.value.find((entry) => entry.id === groupId);
+      if (source === undefined || !("files" in source)) return { groupId, restoreGroupId: null, files: [{ path: "", result: "failed", message: "Checkpoint group does not exist or is unreadable." }] };
+      const selected = source.files.map((file) => file.path).filter((path) => restoreOptions?.only === undefined || restoreOptions.only.includes(path));
+      if (!(await confirmUnsaved(selected))) return declined(groupId, selected);
+      const result = await checkpoints.restore(groupId, restoreOptions);
+      return result.ok ? checkpointReport(groupId, result.value) : { groupId, restoreGroupId: null, files: selected.map((path) => ({ path, result: "failed" as const, message: result.error.message })) };
+    },
+    async createNamedCheckpoint(name) {
+      const targets: CheckpointTarget[] = [];
+      const uncovered: CheckpointUncovered[] = [];
+      const pending = [""];
+      while (pending.length > 0) {
+        const folder = pending.pop()!;
+        const listed = await fs.listProject(projectId, folder);
+        if (!listed.ok) throw new Error(`Could not list ${folder === "" ? "the project" : folder}: ${listed.error.message}`);
+        for (const item of listed.value) {
+          const path = folder === "" ? item.name : `${folder}/${item.name}`;
+          const folded = foldPath(path);
+          if (item.kind === "directory") {
+            if ([".tkr-history", ".tkr-exports", "saved", ".git", "node_modules"].includes(folded)) continue;
+            pending.push(path);
+          } else if (item.kind === "file") {
+            const current = await restorer().current(path);
+            if (!current.ok) throw new Error(current.message);
+            if (current.bytes === null) continue;
+            const coverage = historyStore.coverage(path, current.bytes.byteLength);
+            if (coverage.covered) targets.push({ path, bytes: null });
+            else uncovered.push({ path, reason: coverage.reason, size: current.bytes.byteLength });
+          }
+        }
+      }
+      targets.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+      uncovered.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+      const result = await checkpoints.createNamedCheckpoint(name, targets, uncovered);
+      if (!result.ok) throw new Error(result.error.message);
+      return result.value;
     },
     document: {
       edited(event) {

@@ -2,9 +2,9 @@ import { utf8Decode, utf8Encode } from "@tk-reawakened/core";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
 /**
- * Document history (ADR 0022 D12): every successful save of a covered document is kept, deduplicated by SHA-256, in one
- * reserved folder, with checkpoint groups, named checkpoints, timelines and restore. It is shared code over `fs`: a host
- * adds nothing of its own (D12.9). The folder, layout and every rule below are fixed by D12.7, D12.8 and D12.10.
+ * Per-document saved-version timelines (ADR 0022 D12): successful saves of covered documents are kept as SHA-256 content
+ * records with timelines and restore. Project-operation checkpoints and named project checkpoints use the canonical
+ * `CheckpointGroups` service in `checkpoint-groups.ts`; this store does not persist group manifests.
  */
 
 export type HistoryReason =
@@ -21,7 +21,6 @@ export type HistoryReason =
 export const HISTORY_FOLDER = ".tkr-history";
 const BLOBS = `${HISTORY_FOLDER}/blobs`;
 const ENTRIES = `${HISTORY_FOLDER}/entries`;
-const GROUPS = `${HISTORY_FOLDER}/groups`;
 
 /** Folders that history, packages and named checkpoints never treat as project content (D12.10 items 1 and 7). */
 export const RESERVED_NON_CONTENT = [HISTORY_FOLDER, ".tkr-exports", "saved"] as const;
@@ -58,25 +57,6 @@ export interface UncoveredFile {
   readonly size: number;
 }
 
-export interface GroupBefore {
-  readonly path: string;
-  /** `null` when the file did not exist before the operation. */
-  readonly sha256: string | null;
-  readonly size: number;
-}
-
-export interface HistoryGroup {
-  readonly id: string;
-  readonly kind: "group" | "named";
-  readonly name: string | null;
-  readonly createdAt: number;
-  readonly before: readonly GroupBefore[];
-  /** Each path the operation reports having written, with the SHA-256 of the bytes it wrote (ownership proof for deleting a created file). */
-  readonly written: readonly { readonly path: string; readonly sha256: string }[];
-  readonly uncovered: readonly UncoveredFile[];
-  /** The group this one restored, when it is a restore. */
-  readonly restores: string | null;
-}
 
 export type Coverage = { readonly covered: true } | { readonly covered: false; readonly reason: "type" | "size" };
 
@@ -89,12 +69,6 @@ export interface HistoryPreview {
   readonly bytes: Uint8Array;
 }
 
-export interface HistoryGroupPreview {
-  readonly groupId: string;
-  readonly path: string;
-  readonly sha256: string;
-  readonly bytes: Uint8Array;
-}
 
 /** Where history is kept in this host (D12.10 item 8): the view says which one, truthfully. */
 export interface HistoryLocation {
@@ -131,7 +105,6 @@ export interface HistoryRestorer {
 
 export interface HistoryUsage {
   readonly entries: number;
-  readonly groups: number;
   readonly distinctContents: number;
   /** Bytes of content plus records. */
   readonly bytes: number;
@@ -158,31 +131,18 @@ export interface DocumentHistoryStore {
   recordSave(path: string, bytes: Uint8Array, reason: HistoryReason, groupId?: string | null): Promise<RecordOutcome>;
   /** Keep content that is about to be replaced or discarded unless an entry already holds it (D12.10 items 4 and 5). */
   keep(path: string, bytes: Uint8Array, reason: HistoryReason): Promise<RecordOutcome | { readonly outcome: "held" }>;
-  /** Begin a checkpoint group before the first write of a multi-document operation (D12.10 item 6). */
-  beginGroup(input: { readonly name?: string; readonly paths: readonly string[] }): Promise<HistoryGroup>;
-  /** Report a file the operation has just written (D12.10 item 6): its hash is the proof that the file is the operation's own. */
-  registerWritten(groupId: string, path: string, bytes: Uint8Array): Promise<HistoryGroup>;
-  /** Name a project checkpoint: the hash of every covered file, and every uncovered member listed (D12.4, D12.10 item 7). */
-  createNamedCheckpoint(name: string): Promise<HistoryGroup>;
   documentTimeline(path: string): Promise<readonly DocumentHistoryEntry[]>;
   projectTimeline(): Promise<readonly DocumentHistoryEntry[]>;
-  groupTimeline(): Promise<readonly HistoryGroup[]>;
-  /** Files the editor saved or a group touched that history does not cover, for the history view (D12.10 item 7). */
+  /** Files the editor saved that history does not cover, for the history view (D12.10 item 7). */
   uncovered(): Promise<readonly UncoveredFile[]>;
   preview(entryId: string): Promise<HistoryPreview | null>;
-  previewGroup(groupId: string, path: string): Promise<HistoryGroupPreview | null>;
-  /** Restore one entry. It is itself a group, so restoring it back is a group restore (D12.5). */
-  restoreEntry(entryId: string, restorer: HistoryRestorer): Promise<GroupRestoreReport>;
-  /** Restore a group, or with `only` just those paths (the retry of D12.10 item 6). */
-  restoreGroup(groupId: string, restorer: HistoryRestorer, options?: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[] }): Promise<GroupRestoreReport>;
   usage(): Promise<HistoryUsage>;
   /** The `auto` entries older than the floor, oldest first; nothing is deleted by asking. */
   thinningPlan(): Promise<readonly ThinningCandidate[]>;
   /** Delete the listed entries, but only those the plan would offer now (never below the floors). Returns the bytes freed. */
   thin(entryIds: readonly string[]): Promise<number>;
-  /** A user's own deletion of one entry or one group, with no floor (D12.10 item 10). */
+  /** A user's own deletion of one entry, with no floor (D12.10 item 10). */
   deleteEntry(entryId: string): Promise<void>;
-  deleteGroup(groupId: string): Promise<void>;
   /** Failures to record history that the user has not seen resolved (D12.10 item 4). */
   problems(): readonly HistoryProblem[];
   reportProblem(path: string | null, message: string): void;
@@ -228,7 +188,6 @@ export interface DocumentHistoryOptions {
 
 interface Index {
   readonly entries: Map<string, DocumentHistoryEntry>;
-  readonly groups: Map<string, HistoryGroup>;
   /** Records that were present but unreadable, reported once each. */
   readonly unreadable: string[];
 }
@@ -260,7 +219,7 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
   const noteUncovered = (path: string, reason: "type" | "size", size: number): void => { uncoveredSeen.set(path, { path, reason, size }); };
 
   const ensure = async (): Promise<void> => {
-    for (const path of [HISTORY_FOLDER, BLOBS, ENTRIES, GROUPS]) {
+    for (const path of [HISTORY_FOLDER, BLOBS, ENTRIES]) {
       const made = await storage.createFolder(path);
       if (!made.ok) fail(`Could not create the history folder ${path}: ${made.error.message}`);
     }
@@ -284,14 +243,12 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
     if (index !== null && !force) return index;
     const unreadable: string[] = [];
     const entries = new Map((await readRecords<DocumentHistoryEntry>(ENTRIES, unreadable)).map((entry) => [entry.id, entry] as const));
-    const groups = new Map((await readRecords<HistoryGroup>(GROUPS, unreadable)).map((group) => [group.id, group] as const));
-    index = { entries, groups, unreadable };
+    index = { entries, unreadable };
     for (const message of unreadable) if (!issues.some((issue) => issue.message === message)) issues.push({ at: now(), path: null, message });
     return index;
   };
-  const referenced = (idx: Index, sha: string, except?: { readonly entry?: string; readonly group?: string }): boolean => {
+  const referenced = (idx: Index, sha: string, except?: { readonly entry?: string }): boolean => {
     for (const entry of idx.entries.values()) if (entry.sha256 === sha && entry.id !== except?.entry) return true;
-    for (const group of idx.groups.values()) if (group.id !== except?.group && group.before.some((item) => item.sha256 === sha)) return true;
     return false;
   };
 
@@ -359,107 +316,6 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
     return { outcome: "recorded", entry };
   };
 
-  const createGroupRecord = async (idx: Index, group: HistoryGroup): Promise<void> => {
-    await writeRecord(GROUPS, group.id, group, "a checkpoint group");
-    idx.groups.set(group.id, group);
-    notify();
-  };
-
-  /** Capture the content `path` has now, as `before-*` entries tied to `groupId`. */
-  const captureBefore = async (idx: Index, path: string, groupId: string, reason: HistoryReason, read: (path: string) => Promise<{ ok: true; bytes: Uint8Array | null } | { ok: false; message: string }>): Promise<{ before?: GroupBefore; uncovered?: UncoveredFile }> => {
-    const current = await read(path);
-    if (!current.ok) return fail(`Could not capture ${path} before the operation: ${current.message}`);
-    if (current.bytes === null) return { before: { path, sha256: null, size: 0 } };
-    const cover = coverage(path, current.bytes.byteLength);
-    if (!cover.covered) { noteUncovered(path, cover.reason, current.bytes.byteLength); return { uncovered: { path, reason: cover.reason, size: current.bytes.byteLength } }; }
-    const hash = await putBlob(current.bytes);
-    // Content an entry already holds is not entered twice; the group still names it.
-    const entry: DocumentHistoryEntry = { id: newId(), path, savedAt: now(), reason, sha256: hash, size: current.bytes.byteLength, groupId };
-    await writeRecord(ENTRIES, entry.id, entry, `the state of ${path} before the operation`);
-    idx.entries.set(entry.id, entry);
-    return { before: { path, sha256: hash, size: current.bytes.byteLength } };
-  };
-  const projectRead = async (path: string): Promise<{ ok: true; bytes: Uint8Array | null } | { ok: false; message: string }> => {
-    const result = await project.read(path);
-    if (result.ok) return { ok: true, bytes: result.value };
-    return missing(result.error) ? { ok: true, bytes: null } : { ok: false, message: result.error.message };
-  };
-
-  const beginGroupNow = async (input: { readonly name?: string; readonly paths: readonly string[]; readonly kind?: "group" | "named"; readonly restores?: string | null; readonly reason?: (path: string) => HistoryReason; readonly read?: typeof projectRead; readonly id?: string }): Promise<HistoryGroup> => {
-    await ensure();
-    const idx = await load();
-    const paths = [...new Set(input.paths)];
-    if (paths.some((path) => !validPath(path))) fail("Checkpoint paths must be project-relative file paths.");
-    const id = input.id ?? newId();
-    const before: GroupBefore[] = [];
-    const uncovered: UncoveredFile[] = [];
-    for (const path of paths) {
-      const captured = await captureBefore(idx, path, id, input.reason?.(path) ?? "before-wizard", input.read ?? projectRead);
-      if (captured.before !== undefined) before.push(captured.before);
-      if (captured.uncovered !== undefined) uncovered.push(captured.uncovered);
-    }
-    const group: HistoryGroup = { id, kind: input.kind ?? "group", name: input.name?.trim() || null, createdAt: now(), before, written: [], uncovered, restores: input.restores ?? null };
-    await createGroupRecord(idx, group);
-    return group;
-  };
-
-  const restoreWanted = async (group: HistoryGroup, restorer: HistoryRestorer, only: ReadonlySet<string> | null, deleteUncertain: ReadonlySet<string>): Promise<GroupRestoreReport> => {
-    const wantedPaths = group.before.map((item) => item.path).filter((path) => only === null || only.has(path));
-    // What the restore is about to change is itself recorded first, as a group, so restoring it undoes this restore.
-    const currentByPath = new Map<string, Uint8Array | null>();
-    const files: FileRestoreReport[] = [];
-    for (const path of wantedPaths) {
-      const current = await restorer.current(path);
-      if (!current.ok) { files.push({ path, result: "failed", message: current.message }); continue; }
-      currentByPath.set(path, current.bytes);
-    }
-    // A file the operation created is deleted only when its bytes are the ones the operation registered (D12.10 item 6).
-    const ownership = new Map<string, "owned" | "uncertain">();
-    for (const item of group.before) {
-      const current = currentByPath.get(item.path);
-      if (item.sha256 !== null || current === undefined || current === null) continue;
-      const proof = group.written.find((written) => written.path === item.path)?.sha256;
-      ownership.set(item.path, (proof !== undefined && await sha256Hex(current) === proof) || deleteUncertain.has(item.path) ? "owned" : "uncertain");
-    }
-    const restoreInput = [...currentByPath.keys()].filter((path) => ownership.get(path) !== "uncertain");
-    let restoreGroup: HistoryGroup;
-    try {
-      // The restore itself must not hold the queue: applying a file records its save through the same store.
-      restoreGroup = await serial(() => beginGroupNow({
-        name: `Restore ${group.name ?? "checkpoint group"}`,
-        paths: restoreInput,
-        restores: group.id,
-        reason: (path) => (ownership.get(path) === "owned" ? "before-delete" : "before-restore"),
-        read: async (path) => ({ ok: true, bytes: currentByPath.get(path) ?? null }),
-      }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { groupId: group.id, restoreGroupId: null, files: [...files, ...restoreInput.map((path) => ({ path, result: "failed" as const, message: `Nothing was changed: ${message}` }))] };
-    }
-    const applyTo = async (path: string, wanted: Uint8Array | null): Promise<void> => {
-      const result = await restorer.apply(path, wanted, { groupId: restoreGroup.id, expected: currentByPath.get(path) ?? null });
-      files.push(result.ok ? { path, result: "restored" } : { path, result: "failed", message: result.message });
-    };
-    for (const item of group.before) {
-      if (!currentByPath.has(item.path)) continue;
-      const current = currentByPath.get(item.path)!;
-      if (item.sha256 === null) {
-        if (current === null) files.push({ path: item.path, result: "already-as-wanted" });
-        else if (ownership.get(item.path) === "owned") await applyTo(item.path, null);
-        else files.push({ path: item.path, result: "kept-uncertain", message: `${item.path} exists but the operation did not register writing it, so it was not deleted. Delete it yourself if it is not yours.` });
-        continue;
-      }
-      let wanted: Uint8Array;
-      try { wanted = await readBlob(item.sha256, item.path); }
-      catch (error) { files.push({ path: item.path, result: "failed", message: error instanceof Error ? error.message : String(error) }); continue; }
-      if (current !== null && await sha256Hex(current) === item.sha256) { files.push({ path: item.path, result: "already-as-wanted" }); continue; }
-      await applyTo(item.path, wanted);
-    }
-    for (const item of group.uncovered) if (only === null || only.has(item.path)) files.push({ path: item.path, result: "uncovered", message: item.reason === "size" ? `${item.path} is larger than history keeps (${item.size} bytes); it cannot be restored.` : `${item.path} is a type history does not keep; it cannot be restored.` });
-    const order = new Map(wantedPaths.map((path, position) => [path, position] as const));
-    files.sort((a, b) => (order.get(a.path) ?? 1e9) - (order.get(b.path) ?? 1e9));
-    return { groupId: group.id, restoreGroupId: restoreGroup.id, files };
-  };
 
   return {
     location,
@@ -487,66 +343,8 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
       }
       return recordNow(path, bytes, reason, null);
     }),
-    beginGroup: (input) => serial(() => beginGroupNow({ paths: input.paths, ...(input.name === undefined ? {} : { name: input.name }) })),
-    registerWritten: (groupId, path, bytes) => serial(async () => {
-      if (!validId(groupId)) fail("Invalid checkpoint group identity.");
-      if (!validPath(path)) fail(`Invalid project-relative path: ${path}`);
-      const idx = await load();
-      const group = idx.groups.get(groupId);
-      if (group === undefined) return fail(`Checkpoint group ${groupId} does not exist.`);
-      const proof = { path, sha256: await sha256Hex(bytes) };
-      const next: HistoryGroup = { ...group, written: [...group.written.filter((item) => item.path !== path), proof] };
-      await createGroupRecord(idx, next);
-      return next;
-    }),
-    createNamedCheckpoint: (name) => serial(async () => {
-      await ensure();
-      const covered: string[] = [];
-      const uncoveredFiles: UncoveredFile[] = [];
-      const pending = [""];
-      while (pending.length > 0) {
-        const folder = pending.pop()!;
-        const listed = await project.list(folder);
-        if (!listed.ok) { fail(`Could not list ${folder === "" ? "the project" : folder}: ${listed.error.message}`); continue; }
-        for (const item of listed.value) {
-          const path = folder === "" ? item.name : `${folder}/${item.name}`;
-          const folded = path.toLowerCase();
-          if (item.kind === "directory") {
-            if (RESERVED_NON_CONTENT.some((reserved) => folded === reserved) || folded === ".git" || folded === "node_modules") continue;
-            pending.push(path);
-          } else if (item.kind === "file") {
-            const stat = await project.stat(path);
-            const size = stat.ok ? stat.value.size : 0;
-            const cover = coverage(path, size);
-            if (cover.covered) covered.push(path);
-            else { noteUncovered(path, cover.reason, size); uncoveredFiles.push({ path, reason: cover.reason, size }); }
-          }
-        }
-      }
-      covered.sort();
-      uncoveredFiles.sort((a, b) => a.path.localeCompare(b.path));
-      const idx = await load();
-      const id = newId();
-      const before: GroupBefore[] = [];
-      for (const path of covered) {
-        const read = await projectRead(path);
-        if (!read.ok) return fail(`Could not read ${path} for the checkpoint: ${read.message}`);
-        if (read.bytes === null) continue;
-        const hash = await putBlob(read.bytes);
-        before.push({ path, sha256: hash, size: read.bytes.byteLength });
-        if (!holds(idx, path, hash)) {
-          const entry: DocumentHistoryEntry = { id: newId(), path, savedAt: now(), reason: "checkpoint", sha256: hash, size: read.bytes.byteLength, groupId: id };
-          await writeRecord(ENTRIES, entry.id, entry, `the checkpoint entry for ${path}`);
-          idx.entries.set(entry.id, entry);
-        }
-      }
-      const group: HistoryGroup = { id, kind: "named", name: name.trim() || "Checkpoint", createdAt: now(), before, written: [], uncovered: uncoveredFiles, restores: null };
-      await createGroupRecord(idx, group);
-      return group;
-    }),
     documentTimeline: async (path) => [...(await load()).entries.values()].filter((entry) => entry.path === path).sort(byTime((entry) => entry.savedAt)),
     projectTimeline: async () => [...(await load()).entries.values()].sort(byTime((entry) => entry.savedAt)),
-    groupTimeline: async () => [...(await load()).groups.values()].sort(byTime((group) => group.createdAt)),
     uncovered: async () => [...uncoveredSeen.values()].sort((a, b) => a.path.localeCompare(b.path)),
     preview: async (entryId) => {
       if (!validId(entryId)) fail("Invalid history entry identity.");
@@ -554,36 +352,14 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
       if (entry === undefined) return null;
       return { entry, bytes: (await readBlob(entry.sha256, entry.path)).slice() };
     },
-    previewGroup: async (groupId, path) => {
-      if (!validId(groupId)) fail("Invalid checkpoint group identity.");
-      const saved = (await load()).groups.get(groupId)?.before.find((item) => item.path === path);
-      if (saved === undefined || saved.sha256 === null) return null;
-      return { groupId, path, sha256: saved.sha256, bytes: (await readBlob(saved.sha256, path)).slice() };
-    },
-    restoreEntry: async (entryId, restorer) => {
-      if (!validId(entryId)) fail("Invalid history entry identity.");
-      const idx = await load();
-      const entry = idx.entries.get(entryId);
-      if (entry === undefined) return fail(`History entry ${entryId} does not exist.`);
-      // The entry becomes a one-file group so the shared restore loop (reporting, before-restore, restore-of-restore) is the only path.
-      const synthetic: HistoryGroup = { id: entry.id, kind: "group", name: `${entry.path} (${new Date(entry.savedAt).toISOString()})`, createdAt: entry.savedAt, before: [{ path: entry.path, sha256: entry.sha256, size: entry.size }], written: [], uncovered: [], restores: null };
-      return restoreWanted(synthetic, restorer, null, new Set());
-    },
-    restoreGroup: async (groupId, restorer, restoreOptions) => {
-      if (!validId(groupId)) fail("Invalid checkpoint group identity.");
-      const group = (await load()).groups.get(groupId);
-      if (group === undefined) return { groupId, restoreGroupId: null, files: [{ path: "", result: "failed" as const, message: "Checkpoint group does not exist." }] };
-      return restoreWanted(group, restorer, restoreOptions?.only === undefined ? null : new Set(restoreOptions.only), new Set(restoreOptions?.deleteUncertain ?? []));
-    },
     usage: async () => {
       const idx = await load();
       const sizes = new Map<string, number>();
       for (const entry of idx.entries.values()) sizes.set(entry.sha256, entry.size);
-      for (const group of idx.groups.values()) for (const item of group.before) if (item.sha256 !== null) sizes.set(item.sha256, item.size);
-      const records = [...idx.entries.values(), ...idx.groups.values()].reduce((total, record) => total + JSON.stringify(record).length, 0);
+      const records = [...idx.entries.values()].reduce((total, record) => total + JSON.stringify(record).length, 0);
       const bytes = [...sizes.values()].reduce((total, size) => total + size, 0) + records;
       const warnBytes = options.policy().warnBytes;
-      return { entries: idx.entries.size, groups: idx.groups.size, distinctContents: sizes.size, bytes, warnBytes, overWarning: bytes > warnBytes };
+      return { entries: idx.entries.size, distinctContents: sizes.size, bytes, warnBytes, overWarning: bytes > warnBytes };
     },
     thinningPlan: async () => {
       const idx = await load();
@@ -593,8 +369,7 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
       const plan: ThinningCandidate[] = [];
       for (const entry of eligible) {
         gone.add(entry.id);
-        const stillNeeded = [...idx.entries.values()].some((other) => !gone.has(other.id) && other.sha256 === entry.sha256)
-          || [...idx.groups.values()].some((group) => group.before.some((item) => item.sha256 === entry.sha256));
+        const stillNeeded = [...idx.entries.values()].some((other) => !gone.has(other.id) && other.sha256 === entry.sha256);
         const alreadyFreed = plan.some((candidate) => candidate.entry.sha256 === entry.sha256 && candidate.frees > 0);
         plan.push({ entry, frees: stillNeeded || alreadyFreed ? 0 : entry.size });
       }
@@ -628,17 +403,6 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
       if (!removed.ok && !missing(removed.error)) fail(`Could not delete history entry ${entryId}: ${removed.error.message}`);
       idx.entries.delete(entryId);
       if (!referenced(idx, entry.sha256)) await storage.delete(`${BLOBS}/${entry.sha256}`);
-      notify();
-    }),
-    deleteGroup: (groupId) => serial(async () => {
-      if (!validId(groupId)) fail("Invalid checkpoint group identity.");
-      const idx = await load();
-      const group = idx.groups.get(groupId);
-      if (group === undefined) return;
-      const removed = await storage.delete(`${GROUPS}/${groupId}.json`);
-      if (!removed.ok && !missing(removed.error)) fail(`Could not delete checkpoint group ${groupId}: ${removed.error.message}`);
-      idx.groups.delete(groupId);
-      for (const item of group.before) if (item.sha256 !== null && !referenced(idx, item.sha256)) await storage.delete(`${BLOBS}/${item.sha256}`);
       notify();
     }),
     problems: () => [...issues],
@@ -680,32 +444,28 @@ export interface OperationWrite {
 }
 
 /**
- * Run a multi-document operation under a checkpoint group (D12.3, D12.10 item 6): the group naming every planned
- * destination, absent ones included, is durably recorded before `run` can write anything, and each file `run` writes
- * through `write` is registered with the hash of its bytes. If the group cannot be recorded nothing is written. Nothing
- * here is atomic: `write` reports each file separately and `run` decides what a failure means.
+ * Run a multi-document operation through the canonical checkpoint service (D12.3, D12.10 item 6). The group naming
+ * every planned destination is durable before `run` can write; each successful write then registers its actual bytes.
+ * Nothing here is atomic: `write` reports each file separately and `run` decides what a failure means.
  */
 export async function runCheckpointedOperation<T>(
-  store: Pick<DocumentHistoryStore, "beginGroup" | "registerWritten" | "recordSave">,
+  store: {
+    begin(name: string, planned: readonly string[]): Promise<{ readonly ok: true; readonly groupId: string } | { readonly ok: false; readonly message: string }>;
+    written(groupId: string, path: string, bytes: Uint8Array): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
+  },
   fs: Pick<FileSystemService, "write">,
   input: { readonly name: string; readonly planned: readonly string[] },
   run: (write: (path: string, bytes: Uint8Array) => Promise<OperationWrite>) => Promise<T>,
 ): Promise<{ readonly ok: true; readonly groupId: string; readonly value: T } | { readonly ok: false; readonly message: string }> {
-  let group: HistoryGroup;
-  try { group = await store.beginGroup({ name: input.name, paths: input.planned }); }
-  catch (error) { return { ok: false, message: `${input.name} was not started because its history checkpoint could not be recorded: ${error instanceof Error ? error.message : String(error)}` }; }
+  const started = await store.begin(input.name, input.planned);
+  if (!started.ok) return { ok: false, message: `${input.name} was not started because its history checkpoint could not be recorded: ${started.message}` };
   const planned = new Set(input.planned);
   const value = await run(async (path, bytes) => {
     if (!planned.has(path)) return { path, ok: false, message: `${path} was not in the operation's plan, so it was not written.` };
     const written = await fs.write(path, bytes);
     if (!written.ok) return { path, ok: false, message: written.error.message };
-    try {
-      await store.registerWritten(group.id, path, bytes);
-      await store.recordSave(path, bytes, "manual", group.id);
-    } catch (error) {
-      return { path, ok: false, message: `${path} was written, but its history could not be recorded: ${error instanceof Error ? error.message : String(error)}` };
-    }
-    return { path, ok: true };
+    const recorded = await store.written(started.groupId, path, bytes);
+    return recorded.ok ? { path, ok: true } : { path, ok: false, message: `${path} was written, but its history could not be recorded: ${recorded.message}` };
   });
-  return { ok: true, groupId: group.id, value };
+  return { ok: true, groupId: started.groupId, value };
 }

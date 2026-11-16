@@ -115,7 +115,7 @@ export function newWebProject(options: NewWebProjectOptions): Promise<NewWebProj
       const root = destination;
       if (root === null) return { ok: false, message: "Choose the folder to make the project in." };
       const files = createWebFileSystem(root, STAGING_ID);
-      const created = await createNewProject(files, settings, options.starters, createProjectWizardHistory(files));
+      const created = await createNewProject(files, settings, options.starters, createProjectWizardHistory(files, STAGING_ID));
       if (!created.ok) {
         return { ok: false, message: created.message, ...(created.reason === "conflicts" ? { details: created.conflicts.map((conflict) => conflict.path) } : created.reason === "failed" ? { details: created.pending } : {}) };
       }

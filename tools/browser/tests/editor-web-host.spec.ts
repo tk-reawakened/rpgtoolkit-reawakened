@@ -632,16 +632,17 @@ test("browser workbench creates a new project in the chosen folder, copies only 
       return [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
     };
     await walk(root, "");
-    const groupsDirectory = await (await root.getDirectoryHandle(".tkr-history")).getDirectoryHandle("groups");
+    const historyDirectory = await root.getDirectoryHandle(".tkr-history");
+    const groupsDirectory = await historyDirectory.getDirectoryHandle("groups");
     const groups: {
       readonly name: string;
       readonly record: {
         readonly id: string;
-        readonly kind: string;
+        readonly schema: number;
+        readonly reason: string;
         readonly name: string | null;
         readonly restores: string | null;
-        readonly before: readonly { readonly path: string; readonly sha256: string | null; readonly size: number }[];
-        readonly written: readonly { readonly path: string; readonly sha256: string }[];
+        readonly files: readonly { readonly path: string; readonly before: string | null; readonly after: string | null; readonly status: string }[];
         readonly uncovered: readonly unknown[];
       };
     }[] = [];
@@ -651,11 +652,18 @@ test("browser workbench creates a new project in the chosen folder, copies only 
       groups.push({ name, record: JSON.parse(await file.text()) as (typeof groups)[number]["record"] });
     }
     const written: Record<string, number[]> = {};
+    const contents: Record<string, number[]> = {};
     for (const { record } of groups) {
-      for (const item of record.written) written[item.path] = await readProjectFile(item.path);
+      for (const item of record.files) {
+        written[item.path] = await readProjectFile(item.path);
+        if (item.after !== null) {
+          const file = await (await historyDirectory.getDirectoryHandle("contents")).getFileHandle(item.after);
+          contents[item.after] = [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+        }
+      }
     }
     const notes = await (await root.getFileHandle("notes.txt")).getFile();
-    return { found: found.sort(), notes: [...new Uint8Array(await notes.arrayBuffer())], groups, written };
+    return { found: found.sort(), notes: [...new Uint8Array(await notes.arrayBuffer())], groups, written, contents };
   });
   const authoredFiles = [
     "Bitmap/", "Bkrounds/", "Boards/", "Boards/start.brd", "Chrs/", "Enemy/", "Font/", "Item/", "Main/", "Main/Quest.gam", "Media/", "Misc/", "Plugin/",
@@ -664,23 +672,28 @@ test("browser workbench creates a new project in the chosen folder, copies only 
   expect(disk.groups).toHaveLength(1);
   const groupFile = disk.groups[0]!;
   expect(groupFile.name).toBe(`${groupFile.record.id}.json`);
-  expect(disk.found).toEqual([
-    ...authoredFiles,
-    ".tkr-history/", ".tkr-history/blobs/", ".tkr-history/entries/", ".tkr-history/groups/", `.tkr-history/groups/${groupFile.name}`,
-  ].sort());
+  expect(disk.found.filter((path) => !path.startsWith(".tkr-history/"))).toEqual(authoredFiles.sort());
+  expect(disk.found).toContain(".tkr-history/groups/");
+  expect(disk.found).toContain(`.tkr-history/groups/${groupFile.name}`);
+  expect(disk.found).toContain(".tkr-history/contents/");
   expect(disk.notes).toEqual(bystander);
-  expect(groupFile.record.kind).toBe("group");
+  expect(groupFile.record.schema).toBe(1);
+  expect(groupFile.record.reason).toBe("before-wizard");
   expect(groupFile.record.name).toBe("New project");
   expect(groupFile.record.restores).toBeNull();
   expect(groupFile.record.uncovered).toEqual([]);
   const plannedWrites = ["Boards/start.brd", "Main/Quest.gam", "Prg/start.prg"];
-  expect(groupFile.record.before.map(({ path }) => path).sort()).toEqual(plannedWrites);
-  expect(groupFile.record.before.every(({ sha256, size }) => sha256 === null && size === 0)).toBe(true);
-  expect(groupFile.record.written.map(({ path }) => path).sort()).toEqual(plannedWrites);
+  expect(groupFile.record.files.map(({ path }) => path).sort()).toEqual(plannedWrites);
+  expect(groupFile.record.files.every((file) => file.before === null)).toBe(true);
+  expect(groupFile.record.files.every((file) => file.status === "written")).toBe(true);
   expect(Object.keys(disk.written).sort()).toEqual(plannedWrites);
-  for (const item of groupFile.record.written) {
+  for (const item of groupFile.record.files) {
     const bytes = new Uint8Array(disk.written[item.path] ?? []);
-    expect(createHash("sha256").update(bytes).digest("hex")).toBe(item.sha256);
+    const contents = new Uint8Array(disk.contents[item.after ?? ""] ?? []);
+    const actualHash = createHash("sha256").update(bytes).digest("hex");
+    expect(item.after).toBe(actualHash);
+    expect(createHash("sha256").update(contents).digest("hex")).toBe(actualHash);
+    expect([...contents]).toEqual([...bytes]);
   }
   await expect.poll(() => page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
 });

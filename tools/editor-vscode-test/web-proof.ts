@@ -18,6 +18,7 @@ type NewProjectHistoryProofHost = {
   pauseWrite(path: string): Promise<void>;
   resumeWrite(): void;
   readEvents(): { kind: "readDirectory" | "readFile"; path: string }[];
+  writeEvents(): readonly { readonly kind: "write-request" | "write"; readonly path: string }[];
   readonly bitmapPath: string;
   bitmapPictureForBytes(bytes: Uint8Array): { width: number; height: number; data: number[] };
 };
@@ -252,11 +253,11 @@ export async function runVscodeGuardProof(
 
 type WizardGroupRecord = {
   readonly id: string;
-  readonly kind: string;
-  readonly name: string;
+  readonly schema: number;
+  readonly reason: string;
+  readonly name: string | null;
   readonly restores: string | null;
-  readonly before: readonly { readonly path: string; readonly sha256: string | null; readonly size: number }[];
-  readonly written: readonly { readonly path: string; readonly sha256: string }[];
+  readonly files: readonly { readonly path: string; readonly before: string | null; readonly after: string | null; readonly status: string }[];
   readonly uncovered: readonly unknown[];
 };
 
@@ -278,18 +279,20 @@ async function proveWizardGroupFromBacking(
   expect(matching, `${expectedName} wizard wrote one durable group record`).toHaveLength(1);
   const { path: groupPath, record: group } = matching[0]!;
   expect(groupPath).toBe(`${folder}${group.id}.json`);
-  expect(group.kind).toBe("group");
+  expect(group.schema).toBe(1);
+  expect(group.reason).toBe("before-wizard");
   expect(group.name).toBe(expectedName);
   expect(group.restores).toBeNull();
   expect(group.uncovered).toEqual([]);
-  expect(group.before.map((item) => item.path).sort()).toEqual([...writtenPaths].sort());
-  expect(group.before.every(({ sha256, size }) => sha256 === null && size === 0), "new wizard destinations are recorded absent before writing").toBe(true);
-  expect(group.written.map((item) => item.path).sort()).toEqual([...writtenPaths].sort());
+  expect(group.files.map((item) => item.path).sort()).toEqual([...writtenPaths].sort());
+  expect(group.files.every((item) => item.before === null), "new wizard destinations are recorded absent before writing").toBe(true);
+  expect(group.files.every((item) => item.status === "written"), "all planned destinations were registered as written").toBe(true);
   for (const path of writtenPaths) {
     const bytes = await readBacking(`${projectPath}/${path}`);
-    const written = group.written.find((item) => item.path === path);
-    expect(written?.sha256, `${path} has its actual written-byte SHA-256`).toBe(createHash("sha256").update(bytes).digest("hex"));
+    const written = group.files.find((item) => item.path === path);
+    expect(written?.after, `${path} records an actual written-byte SHA-256`).toBe(createHash("sha256").update(bytes).digest("hex"));
   }
+  expect(group.files.length).toBe(writtenPaths.length);
 }
 
 
@@ -725,6 +728,7 @@ async function proveNativeNewBoard(
   try {
     await beforeRestore.click();
     secondPreviewPicture = await verifyBoardHistoryPreview(page, expect, "Boards/Native history board.brd", "village.tst2", historyHost, async () => {
+      await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, boardPath, readBacking, firstSaved, expect);
       historyHost.resumeWrite();
     });
   } finally {

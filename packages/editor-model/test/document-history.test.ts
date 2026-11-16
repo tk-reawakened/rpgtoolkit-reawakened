@@ -12,6 +12,7 @@ import {
   createDocumentWorkspace,
   createNewProject,
   createProjectWizardHistory,
+  createWizardHistory,
   createProjectTree,
   DEFAULT_HISTORY_POLICY,
   diffLines,
@@ -179,10 +180,10 @@ test("a conflict keeps both versions: the external bytes before keeping mine, my
 
 test("a group captures every planned destination first, restores them as one action and reports each file; a restore restores back", async () => {
   const { host, workspace } = setUp({ files: { [OTHER]: withTitle(exampleMain(9), "Other before") } });
-  const store = workspace.history;
+  const wizard = createWizardHistory(workspace.checkpoints);
   const planned = [PATH, OTHER, "Main/created.gam"];
   const before = new Map(planned.map((path) => [path, host.bytesOf(path)] as const));
-  const ran = await runCheckpointedOperation(store, host.fs, { name: "Two-file wizard", planned }, async (write) => {
+  const ran = await runCheckpointedOperation(wizard, host.fs, { name: "Two-file wizard", planned }, async (write) => {
     const a = await write(PATH, withTitle(exampleMain(9), "Wizard A"));
     const b = await write(OTHER, withTitle(exampleMain(9), "Wizard B"));
     const c = await write("Main/created.gam", withTitle(exampleMain(9), "Wizard new"));
@@ -210,13 +211,14 @@ test("a group captures every planned destination first, restores them as one act
 
 test("a destination planned before it exists is recorded first; a file the operation never registered is never deleted", async () => {
   const { host, workspace } = setUp();
-  const store = workspace.history;
-  const group = await store.beginGroup({ name: "Crash between write and registration", paths: ["Main/ghost.gam", "Main/mine.gam"] });
-  deepEqual(group.before.map((item) => [item.path, item.sha256]), [["Main/ghost.gam", null], ["Main/mine.gam", null]]);
+  const begun = await workspace.checkpoints.begin(["Main/ghost.gam", "Main/mine.gam"], "Crash between write and registration");
+  ok(begun.ok);
+  const group = begun.value;
+  deepEqual(group.files.map((file) => [file.path, file.before]), [["Main/ghost.gam", null], ["Main/mine.gam", null]]);
   // Mine is written and registered; ghost is written but the process "dies" before registering it.
   const mineBytes = withTitle(exampleMain(9), "Mine");
   ok((await host.fs.write("Main/mine.gam", mineBytes)).ok);
-  await store.registerWritten(group.id, "Main/mine.gam", mineBytes);
+  ok((await workspace.checkpoints.registerWritten(group.id, "Main/mine.gam", mineBytes)).ok);
   ok((await host.fs.write("Main/ghost.gam", withTitle(exampleMain(9), "Ghost"))).ok);
   const report = await workspace.restoreHistoryGroup(group.id);
   deepEqual(report.files.map((file) => [file.path, file.result]), [["Main/ghost.gam", "kept-uncertain"], ["Main/mine.gam", "restored"]]);
@@ -231,12 +233,12 @@ test("a group that cannot be recorded writes nothing, and a failed file is repor
   const fault: Fault = { mode: "none" };
   const { host, workspace } = setUp({ fault, files: { [OTHER]: withTitle(exampleMain(9), "Other before") } });
   fault.mode = "all";
-  const refused = await runCheckpointedOperation(workspace.history, host.fs, { name: "Wizard", planned: [PATH] }, async (write) => write(PATH, withTitle(exampleMain(9), "x")));
+  const refused = await runCheckpointedOperation(createWizardHistory(workspace.checkpoints), host.fs, { name: "Wizard", planned: [PATH] }, async (write) => write(PATH, withTitle(exampleMain(9), "x")));
   ok(!refused.ok);
   equal(titleOf(host.bytesOf(PATH)!), titleOf(exampleMain(9)), "no write happened");
   fault.mode = "none";
 
-  const ran = await runCheckpointedOperation(workspace.history, host.fs, { name: "Wizard", planned: [PATH, OTHER] }, async (write) => [await write(PATH, withTitle(exampleMain(9), "A")), await write(OTHER, withTitle(exampleMain(9), "B"))]);
+  const ran = await runCheckpointedOperation(createWizardHistory(workspace.checkpoints), host.fs, { name: "Wizard", planned: [PATH, OTHER] }, async (write) => [await write(PATH, withTitle(exampleMain(9), "A")), await write(OTHER, withTitle(exampleMain(9), "B"))]);
   ok(ran.ok);
   // Another program locks one file: its restore fails while the other succeeds.
   const locking: FileSystemService = { ...host.fs, writeProject: async (project, path, bytes) => (path === OTHER ? platformError("permission-denied", "locked") : host.fs.writeProject(project, path, bytes)) };
@@ -276,6 +278,29 @@ test("restoring into an open document is one accepted edit that undoes, asks bef
   ok(undone.files.every((file) => file.result === "restored" || file.result === "already-as-wanted"));
 });
 
+test("restoring and undoing a saved version wait for durable bytes and keep the open model identical", async () => {
+  const { host, workspace } = setUp();
+  const document = await openDoc(workspace);
+  const initial = host.bytesOf(PATH)!.slice();
+  retitle(document, "First saved");
+  ok((await document.save("manual")).ok);
+  retitle(document, "Second saved");
+  ok((await document.save("manual")).ok);
+  const latest = host.bytesOf(PATH)!.slice();
+  const checkpoint = (await workspace.history.documentTimeline(PATH)).find((entry) => entry.reason === "checkpoint")!;
+
+  const restored = await workspace.restoreHistoryEntry(checkpoint.id);
+  ok(restored.restoreGroupId !== null);
+  deepEqual(host.bytesOf(PATH), initial, "the completed restore wrote the selected saved bytes");
+  deepEqual(document.serialize(), host.bytesOf(PATH), "the open model serializes to the actual restored bytes");
+
+  const undone = await workspace.restoreHistoryGroup(restored.restoreGroupId!);
+  ok(undone.files.every((file) => file.result === "restored" || file.result === "already-as-wanted"));
+  deepEqual(host.bytesOf(PATH), latest, "undoing the restore wrote the pre-restore saved bytes");
+  deepEqual(document.serialize(), host.bytesOf(PATH), "the open model serializes to the actual bytes after undo");
+  equal(gameTitleOf(document), "Second saved");
+});
+
 test("a restore of a read-only open document is refused and says so", async () => {
   const { host, workspace } = setUp();
   host.seed("Main/text.gam", new Uint8Array(await readFile(new URL("../../../docs/spec/examples/versions/main/main_tk2_text.gam", import.meta.url))));
@@ -291,9 +316,9 @@ test("a restore of a read-only open document is refused and says so", async () =
 test("a named checkpoint holds every covered file, lists what history cannot keep, and restores as a group", async () => {
   const big = new Uint8Array(8192);
   const { host, workspace } = setUp({ policy: { maxCoveredBytes: 4096 }, files: { [OTHER]: withTitle(exampleMain(9), "Other"), "Pictures/hero.png": new Uint8Array([1, 2, 3]), "Boards/huge.brd": big } });
-  const group = await workspace.history.createNamedCheckpoint("Before the big change");
-  equal(group.kind, "named");
-  deepEqual(group.before.map((item) => item.path), [OTHER, PATH].sort());
+  const group = await workspace.createNamedCheckpoint("Before the big change");
+  equal(group.reason, "named");
+  deepEqual(group.files.map((file) => file.path).sort(), [OTHER, PATH].sort());
   deepEqual(group.uncovered.map((item) => [item.path, item.reason]), [["Boards/huge.brd", "size"], ["Pictures/hero.png", "type"]]);
   ok(host.bytesOf(PATH) !== undefined);
   const doc = await openDoc(workspace);
@@ -340,6 +365,7 @@ test("history keeps only what it covers: other types and over-size files record 
 test("thinning offers only autosave entries past the floor, deletes only after confirmation and never touches saves you made or groups", async () => {
   let clock = 1_000_000;
   const host = createMemoryPlatformServices({});
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
   const store = createDocumentHistoryStore({
     project: host.fs,
     storage: host.fs,
@@ -354,7 +380,7 @@ test("thinning offers only autosave entries past the floor, deletes only after c
   await store.recordSave("a.brd", bytes(2), "manual");
   clock += 10;
   await store.recordSave("a.brd", bytes(3), "auto");
-  await store.createNamedCheckpoint("keep");
+  await workspace.createNamedCheckpoint("keep");
   equal((await store.usage()).overWarning, true);
   deepEqual(await store.thinningPlan(), [], "nothing is old enough");
   clock += 5000;
@@ -369,7 +395,10 @@ test("thinning offers only autosave entries past the floor, deletes only after c
   const freed = await store.thin(plan.map((candidate) => candidate.entry.id));
   equal(freed, 8);
   deepEqual((await store.documentTimeline("a.brd")).map((entry) => entry.reason), ["manual"]);
-  equal((await store.groupTimeline()).length, 1, "the checkpoint stays");
+  const groups = await workspace.checkpoints.list();
+  ok(groups.ok);
+  equal(groups.value.filter((entry) => "files" in entry).length, 1, "the checkpoint stays");
+  workspace.dispose();
 });
 
 test("deleting from the project tree keeps the covered documents in history first and refuses when it cannot", async () => {
@@ -462,19 +491,18 @@ test("the new-project wizard records every planned destination before its first 
   const host = createMemoryPlatformServices();
   const created = await createNewProject(host.fs, { gameName: "Grouped Quest", mainFile: "Grouped.gam", starters: [] }, undefined, createProjectWizardHistory(host.fs));
   ok(created.ok);
-  const groups = await (async () => {
-    const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
-    const list = await workspace.history.groupTimeline();
-    workspace.dispose();
-    return list;
-  })();
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  const result = await workspace.checkpoints.list();
+  ok(result.ok);
+  const groups = result.value.filter((entry) => "files" in entry);
+  workspace.dispose();
   equal(groups.length, 1, "one group for the whole creation");
   const group = groups[0]!;
   equal(group.name, "New project");
-  deepEqual(group.before.map((item) => item.path), created.written, "every planned file is named, absent ones included");
-  ok(group.before.every((item) => item.sha256 === null), "each was absent before the operation");
-  deepEqual(group.written.map((item) => item.path), created.written, "each written file is registered");
-  equal(group.written.find((item) => item.path === created.mainPath)!.sha256, await sha256Hex(host.bytesOf(created.mainPath)!), "the registration proves ownership by hash");
+  deepEqual(group.files.map((file) => file.path), created.written, "every planned file is named, absent ones included");
+  ok(group.files.every((file) => file.before === null), "each was absent before the operation");
+  ok(group.files.every((file) => file.status === "written"), "each written file is registered");
+  equal(group.files.find((file) => file.path === created.mainPath)!.after, await sha256Hex(host.bytesOf(created.mainPath)!), "the registration proves ownership by hash");
   equal(group.uncovered.length, 0);
 });
 
@@ -494,12 +522,16 @@ test("a new board is one group with an ownership record for the created file", a
   const created = await createBoardFile(host.fs, { projectFolder: "" }, { name: "grouped", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 1, backgroundImage: "", template: null }, createProjectWizardHistory(host.fs));
   ok(created.ok);
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
-  const groups = await workspace.history.groupTimeline();
+  const result = await workspace.checkpoints.list();
+  ok(result.ok);
+  const groups = result.value.filter((entry) => "files" in entry);
   workspace.dispose();
   equal(groups.length, 1);
-  equal(groups[0]!.before[0]!.sha256, null);
-  equal(groups[0]!.written[0]!.path, created.path);
-  equal(groups[0]!.written[0]!.sha256, await sha256Hex(host.bytesOf(created.path)!));
+  const group = groups[0]!;
+  equal(group.files[0]!.before, null);
+  equal(group.files[0]!.path, created.path);
+  equal(group.files[0]!.after, await sha256Hex(host.bytesOf(created.path)!));
+  equal(group.files[0]!.status, "written");
 });
 
 test("restoring a deleted file recreates it as the restore's own file, so undoing that restore removes it again (#2834)", async () => {

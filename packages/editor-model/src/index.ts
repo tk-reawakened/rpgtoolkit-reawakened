@@ -260,10 +260,7 @@ export {
   type DocumentHistoryStore,
   type FileRestoreReport,
   type FileRestoreResult,
-  type GroupBefore,
   type GroupRestoreReport,
-  type HistoryGroup,
-  type HistoryGroupPreview,
   type HistoryLocation,
   type HistoryPolicy,
   type HistoryPreview,
@@ -276,6 +273,7 @@ export {
   type ThinningCandidate,
   type UncoveredFile,
 } from "./document-history.ts";
+export { createCheckpointGroups, type CheckpointEntry, type CheckpointEnvironment, type CheckpointFile, type CheckpointGroup, type CheckpointGroups, type CheckpointProblem, type CheckpointTarget, type CheckpointUncovered } from "./checkpoint-groups.ts";
 export { DEFAULT_HISTORY_POLICY, HISTORY_DEFAULTS, HISTORY_SETTING_IDS, historyPolicyFrom } from "./history-policy.ts";
 export { createProjectWizardHistory, createWizardHistory, type WizardHistory } from "./wizard-history.ts";
 export { acceptIgnoreOffer, diffLines, ignoreOffer, keepBeforeDelete, openHistoryPreview, textOf, type HistoryPreviewOpen, type IgnoreOffer, type LineChange } from "./history-support.ts";

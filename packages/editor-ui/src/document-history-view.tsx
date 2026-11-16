@@ -5,10 +5,11 @@ import {
   kindForPath,
   textOf,
   type AnyDocument,
+  type CheckpointEntry,
+  type CheckpointGroup,
   type DocumentHistoryEntry,
   type DocumentWorkspace,
   type GroupRestoreReport,
-  type HistoryGroup,
   type HistoryUsage,
   type IgnoreOffer,
   type ThinningCandidate,
@@ -111,7 +112,7 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
   const [tab, setTab] = useState<Tab>("document");
   const [version, setVersion] = useState(0);
   const [entries, setEntries] = useState<readonly DocumentHistoryEntry[]>([]);
-  const [groups, setGroups] = useState<readonly HistoryGroup[]>([]);
+  const [groups, setGroups] = useState<readonly CheckpointEntry[]>([]);
   const [usage, setUsage] = useState<HistoryUsage | null>(null);
   const [uncovered, setUncovered] = useState<readonly UncoveredFile[]>([]);
   const [plan, setPlan] = useState<readonly ThinningCandidate[] | null>(null);
@@ -135,12 +136,14 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
     void (async () => {
       try {
         await store.reload();
-        const [timeline, groupList, used, notKept] = await Promise.all([
+        const [timeline, groupResult, used, notKept] = await Promise.all([
           tab === "project" ? store.projectTimeline() : activePath === null ? Promise.resolve([]) : store.documentTimeline(activePath),
-          store.groupTimeline(),
+          workspace.checkpoints.list(),
           store.usage(),
           store.uncovered(),
         ]);
+        if (!groupResult.ok) throw new Error(groupResult.error.message);
+        const groupList = groupResult.value;
         if (!live) return;
         setEntries([...timeline].reverse());
         setGroups([...groupList].reverse());
@@ -170,10 +173,12 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
     setShown(null);
     try {
       if (tab === "checkpoints") {
-        const group = groups.find((candidate) => candidate.id === id);
-        const first = group?.before.find((item) => item.sha256 !== null)?.path ?? null;
+        const entry = groups.find((candidate) => candidate.id === id);
+        const group = entry !== undefined && "files" in entry ? entry : undefined;
+        if (group === undefined) { setStatus(entry !== undefined && "error" in entry ? entry.error : "That checkpoint is unavailable."); return; }
+        const first = group.files.find((file) => file.before !== null)?.path ?? null;
         setGroupPath(first);
-        if (group !== undefined && first !== null) await showGroupFile(group, first);
+        if (first !== null) await showGroupFile(group, first);
         return;
       }
       const preview = await store.preview(id);
@@ -182,11 +187,13 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
       setStatus("");
     } catch (error) { say(error); }
   };
-  const showGroupFile = async (group: HistoryGroup, path: string): Promise<void> => {
+  const showGroupFile = async (group: CheckpointGroup, path: string): Promise<void> => {
     setGroupPath(path);
     try {
-      const preview = await store.previewGroup(group.id, path);
-      setShown(preview === null ? null : { path, bytes: preview.bytes, description: `${group.name ?? "checkpoint"}, ${new Date(group.createdAt).toLocaleString()}` });
+      const result = await workspace.checkpoints.preview(group.id, path);
+      if (!result.ok) throw new Error(result.error.message);
+      const preview = result.value;
+      setShown(preview === null ? null : { path, bytes: preview.bytes, description: `${group.name ?? group.reason}, ${new Date(group.time).toLocaleString()}` });
     } catch (error) { say(error); }
   };
   const compare = async (target: string): Promise<void> => {
@@ -225,9 +232,9 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
 
   const createCheckpoint = async (): Promise<void> => {
     try {
-      const group = await store.createNamedCheckpoint(checkpointName);
+      const group = await workspace.createNamedCheckpoint(checkpointName);
       const skipped = group.uncovered.length;
-      setStatus(`Checkpoint “${group.name ?? "Checkpoint"}” saved: ${group.before.length} file${group.before.length === 1 ? "" : "s"} kept${skipped === 0 ? "" : `, ${skipped} not kept by history (listed under the checkpoint)`}.`);
+      setStatus(`Checkpoint “${group.name ?? "Checkpoint"}” saved: ${group.files.length} file${group.files.length === 1 ? "" : "s"} kept${skipped === 0 ? "" : `, ${skipped} not kept by history (listed under the checkpoint)`}.`);
       setCheckpointName("");
       setTab("checkpoints");
       reload();
@@ -237,7 +244,10 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
     if (selected === null) return;
     if (armed !== "delete") { setArmed("delete"); return; }
     try {
-      if (tab === "checkpoints") await store.deleteGroup(selected); else await store.deleteEntry(selected);
+      if (tab === "checkpoints") {
+        const removed = await workspace.checkpoints.deleteGroup(selected);
+        if (!removed.ok) throw new Error(removed.error.message);
+      } else await store.deleteEntry(selected);
       setSelected(null); setShown(null); setArmed(null); setStatus("Deleted from history."); reload();
     } catch (error) { say(error); }
   };
@@ -256,8 +266,10 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
     reload();
   };
 
-  const selectedGroup = tab === "checkpoints" ? groups.find((group) => group.id === selected) : undefined;
+  const selectedEntry = tab === "checkpoints" ? groups.find((group) => group.id === selected) : undefined;
+  const selectedGroup = selectedEntry !== undefined && "files" in selectedEntry ? selectedEntry : undefined;
   const rows = tab === "checkpoints" ? groups : entries;
+  const groupCount = groups.filter((entry) => "files" in entry).length;
   // A line diff is offered only for a registered text kind; a binary board or tileset is compared as pictures (D12.10 item 13).
   const textKinds = shown !== null && other !== null && kindForPath(shown.path)?.storage === "program-text" && kindForPath(other.path)?.storage === "program-text";
   const sameText = textKinds ? [textOf(shown!.bytes), textOf(other!.bytes)] as const : null;
@@ -270,7 +282,7 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
     <h2>Document history</h2>
     <p data-history-location={store.location.kind}>{store.location.description}</p>
     {problems.length > 0 && <ul role="alert" aria-label="History problems">{problems.map((problem, position) => <li key={position}>{problem.message}</li>)}</ul>}
-    {usage !== null && <p data-history-usage>{usage.entries} entries, {usage.groups} groups, {usage.distinctContents} distinct versions, {sizeText(usage.bytes)} used; the warning is at {sizeText(usage.warnBytes)}.</p>}
+    {usage !== null && <p data-history-usage>{usage.entries} entries, {groupCount} groups, {usage.distinctContents} distinct timeline versions, {sizeText(usage.bytes)} used; the warning is at {sizeText(usage.warnBytes)}.</p>}
     {usage?.overWarning === true && <div role="alert" class="tkr-history-warning">
       <p>This project's history is larger than {sizeText(usage.warnBytes)}. Nothing has been removed.</p>
       {plan === null
@@ -299,15 +311,16 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
     {tab === "document" && activePath === null && <p>Open a document to see its history.</p>}
     <ol aria-label="History entries">{rows.map((row) => <li key={row.id}>
       <button type="button" aria-pressed={selected === row.id} onClick={() => void choose(row.id)}>
-        {"before" in row
-          ? `${new Date(row.createdAt).toLocaleString()} · ${row.name ?? "Checkpoint"} · ${row.kind === "named" ? "named checkpoint" : row.restores === null ? "operation group" : "restore"} · ${row.before.length} files${row.uncovered.length === 0 ? "" : ` · ${row.uncovered.length} not kept`}`
-          : entryLabel(row, tab === "project")}
+        {"files" in row
+          ? `${new Date(row.time).toLocaleString()} · ${row.name ?? "Checkpoint"} · ${row.reason === "named" ? "named checkpoint" : row.restores === null ? "operation group" : "restore"} · ${row.files.length} files${row.uncovered.length === 0 ? "" : ` · ${row.uncovered.length} not kept`}`
+          : "error" in row ? `Unavailable checkpoint ${row.id}: ${row.error}` : entryLabel(row, tab === "project")}
       </button>
     </li>)}</ol>
     {selectedGroup !== undefined && <section aria-label="Checkpoint contents">
-      <h3>{selectedGroup.name ?? "Checkpoint"}</h3>
-      <ul>{selectedGroup.before.map((item) => <li key={item.path}>
-        {item.sha256 === null ? `${item.path} (did not exist)` : <button type="button" aria-pressed={groupPath === item.path} onClick={() => void showGroupFile(selectedGroup, item.path)}>{item.path} · {sizeText(item.size)}</button>}
+      <h3>{selectedGroup.name ?? selectedGroup.reason}</h3>
+      <ul>{selectedGroup.files.map((file) => <li key={file.path}>
+        {file.before === null ? `${file.path} (did not exist)` : <button type="button" aria-pressed={groupPath === file.path} onClick={() => void showGroupFile(selectedGroup, file.path)}>{file.path}</button>}
+        {` · ${file.status.replace(/-/g, " ")}`}
       </li>)}</ul>
       {selectedGroup.uncovered.length > 0 && <div><p>History does not keep these files, so they cannot be restored:</p>
         <ul>{selectedGroup.uncovered.map((item) => <li key={item.path}>{item.path} ({item.reason === "size" ? `larger than history keeps, ${sizeText(item.size)}` : "a type history does not keep"})</li>)}</ul></div>}
