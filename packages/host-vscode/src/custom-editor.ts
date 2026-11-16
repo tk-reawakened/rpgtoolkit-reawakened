@@ -93,15 +93,24 @@ export interface GameEditEvent<Uri extends UriLike> {
 }
 type DocumentChangeEvent = { readonly document: { readonly model: { readonly kind: string } } };
 
-/** Give one registered custom-editor view type only the edits for its document kind. */
+/** Give one registered custom-editor view type only the edits for its document kinds. */
 export function eventsForDocumentKind<Event extends DocumentChangeEvent>(
   source: (listener: (event: Event) => unknown) => { dispose(): void },
-  kind: string,
+  kinds: readonly string[],
 ): (listener: (event: Event) => unknown) => { dispose(): void } {
   return (listener) => source((event) => {
-    if (event.document.model.kind === kind) listener(event);
+    if (kinds.includes(event.document.model.kind)) listener(event);
   });
 }
+
+/** The document kinds each custom-editor manifest view type is permitted to dirty. */
+export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
+  "tkr.gameSettings": ["main", "character", "item"],
+  "tkr.board": ["board"],
+  "tkr.tileset": ["tileset"],
+  "tkr.tileBitmap": ["tile-bitmap"],
+  "tkr.animation": ["animation"],
+} as const;
 
 /** What a webview panel gives the provider. */
 export interface WebviewPort {

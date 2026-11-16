@@ -1,28 +1,40 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
-import { eventsForDocumentKind } from "../src/custom-editor.ts";
+import { DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind } from "../src/custom-editor.ts";
 
-test("custom editor change notifications reach only the matching registered document kind", () => {
+test("custom editor change notifications reach each registered view type without cross-provider leaks", () => {
   type Event = { readonly document: { readonly model: { readonly kind: string } }; readonly label: string };
   const sourceListeners: ((event: Event) => unknown)[] = [];
   const source = (listener: (event: Event) => unknown) => {
     sourceListeners.push(listener);
     return { dispose: () => { const index = sourceListeners.indexOf(listener); if (index >= 0) sourceListeners.splice(index, 1); } };
   };
-  const kinds = ["main", "board", "tileset", "tile-bitmap", "animation"] as const;
+  deepEqual(
+    DOCUMENT_KINDS_BY_VIEW_TYPE["tkr.gameSettings"],
+    ["main", "character", "item"],
+    "the game-settings manifest provider owns .gam, .tem, and .itm edits",
+  );
+  const registrations = Object.entries(DOCUMENT_KINDS_BY_VIEW_TYPE);
   const received = new Map<string, Event[]>();
-  const subscriptions = kinds.map((kind) => eventsForDocumentKind(source, kind)((event) => {
-    const events = received.get(kind) ?? [];
+  const subscriptions = registrations.map(([viewType, kinds]) => eventsForDocumentKind(source, kinds)((event) => {
+    const events = received.get(viewType) ?? [];
     events.push(event);
-    received.set(kind, events);
+    received.set(viewType, events);
   }));
-  const edits: Event[] = kinds.map((kind) => ({ document: { model: { kind } }, label: `${kind} edit` }));
+  const edits: Event[] = ["main", "character", "item", "board", "tileset", "tile-bitmap", "animation"]
+    .map((kind) => ({ document: { model: { kind } }, label: `${kind} edit` }));
 
   for (const edit of edits) for (const listener of sourceListeners) listener(edit);
 
-  equal(sourceListeners.length, kinds.length, "each registered view type subscribes to the shared provider event");
-  for (const edit of edits) deepEqual(received.get(edit.document.model.kind), [edit], `${edit.document.model.kind} is delivered once to its matching view type`);
-  equal([...received.values()].reduce((total, events) => total + events.length, 0), kinds.length, "no notification leaks across view types");
+  equal(sourceListeners.length, registrations.length, "each registered view type subscribes to the shared provider event");
+  for (const [viewType, kinds] of registrations) {
+    deepEqual(
+      received.get(viewType)?.map((event) => event.document.model.kind),
+      kinds,
+      `${viewType} receives only its manifest-selected document kinds`,
+    );
+  }
+  equal([...received.values()].reduce((total, events) => total + events.length, 0), edits.length, "every document edit is delivered once");
   for (const subscription of subscriptions) subscription.dispose();
   equal(sourceListeners.length, 0);
 });

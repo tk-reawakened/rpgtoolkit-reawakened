@@ -2,7 +2,7 @@ import { registerAnimationCommands } from "./animation-commands.ts";
 import * as vscode from "vscode";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { vscodeCapabilities } from "./capabilities.ts";
-import { createGameEditorProvider, eventsForDocumentKind, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
+import { createGameEditorProvider, DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { createVscodeServices } from "./services.ts";
@@ -18,13 +18,6 @@ import { createProjectWizardHistory, createWizardHistory, historyPolicyFrom, pre
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation"] as const;
-const DOCUMENT_KIND_BY_VIEW_TYPE = {
-  "tkr.gameSettings": "main",
-  "tkr.board": "board",
-  "tkr.tileset": "tileset",
-  "tkr.tileBitmap": "tile-bitmap",
-  "tkr.animation": "animation",
-} as const;
 
 /** A custom editor is active in the workbench without a TextEditor; its tab input still carries the project URI. */
 function activeCustomEditorUri(): vscode.Uri | undefined {
@@ -333,7 +326,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   for (const viewType of VIEW_TYPES) {
     const viewTypeProvider = {
       ...provider,
-      onDidChangeCustomDocument: eventsForDocumentKind(changes.event, DOCUMENT_KIND_BY_VIEW_TYPE[viewType]),
+      onDidChangeCustomDocument: eventsForDocumentKind(changes.event, DOCUMENT_KINDS_BY_VIEW_TYPE[viewType]),
     };
     context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, viewTypeProvider, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true }));
   }

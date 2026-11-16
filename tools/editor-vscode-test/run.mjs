@@ -196,9 +196,9 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
         if (source.split(before).length !== 2) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
         source = source.replace(before, after);
       }
-      const typedEditListener = /if \((\w+)\.document\.model\.kind === kind\) listener\(\1\);/g;
+      const typedEditListener = /if \((\w+)\.includes\((\w+)\.document\.model\.kind\)\) listener\(\2\);/g;
       if ([...source.matchAll(typedEditListener)].length !== 1) throw new Error("Typed editor event listener no longer matches the proof instrumentation");
-      source = source.replace(typedEditListener, (_match, event) => `if (${event}.document.model.kind === kind) { void (${trace})("edit", JSON.stringify({ resource: ${event}.document.uri.toString(), modelKind: ${event}.document.model.kind, registeredKind: kind, label: ${event}.label })).catch((error) => console.error("[proof trace]", error)); listener(${event}); }`);
+      source = source.replace(typedEditListener, (_match, kinds, event) => `if (${kinds}.includes(${event}.document.model.kind)) { void (${trace})("edit", JSON.stringify({ resource: ${event}.document.uri.toString(), modelKind: ${event}.document.model.kind, registeredKinds: ${kinds}, label: ${event}.label })).catch((error) => console.error("[proof trace]", error)); listener(${event}); }`);
       const nativeRestoreRead = /const current = wasDirty \? new TextEncoder\(\)\.encode\(textBeforeRead\) : await (vscode\d+)\.workspace\.fs\.readFile\(uri\);/g;
       if ([...source.matchAll(nativeRestoreRead)].length !== 1) throw new Error("Native restore read no longer matches the proof gate");
       source = source.replace(nativeRestoreRead, (_match, vscodeBinding) => `const current = wasDirty ? new TextEncoder().encode(textBeforeRead) : await (async () => { await (${restoreGate})(uri); return ${vscodeBinding}.workspace.fs.readFile(uri); })();`);
