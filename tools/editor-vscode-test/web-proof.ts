@@ -611,27 +611,41 @@ function assertBoardPreviewRequestIdentity(historyHost: NewProjectHistoryProofHo
 async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath: string, expectedTile: string, historyHost: NewProjectHistoryProofHost, beforeRender: () => Promise<void>): Promise<string> {
   assertBoardPreviewRequestIdentity(historyHost, sourcePath, expect);
   let preview: Frame | undefined;
-  await expect.poll(async () => {
-    const boardFrames: Frame[] = [];
-    for (const frame of page.frames()) {
-      const board = frame.getByRole("region", { name: "Board", exact: true });
-      if (await board.count() > 0 && await board.isVisible().catch(() => false)) boardFrames.push(frame);
-    }
-    const readOnlyFrames: Frame[] = [];
-    const writableFrames: Frame[] = [];
-    for (const frame of boardFrames) {
-      const note = frame.getByRole("note").filter({ hasText: "Read only:" });
-      if (await note.count() > 0 && await note.isVisible().catch(() => false)) readOnlyFrames.push(frame);
-      else writableFrames.push(frame);
-    }
-    const matchingPreviews: Frame[] = [];
-    for (const frame of readOnlyFrames) {
-      const tile = frame.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
-      if (await tile.count() > 0 && await tile.inputValue().catch(() => "") === expectedTile) matchingPreviews.push(frame);
-    }
-    preview = matchingPreviews[0];
-    return writableFrames.length === 1 && matchingPreviews.length === 1;
-  }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  try {
+    await expect.poll(async () => {
+      const boardFrames: Frame[] = [];
+      for (const frame of page.frames()) {
+        const board = frame.getByRole("region", { name: "Board", exact: true });
+        if (await board.count() > 0 && await board.isVisible().catch(() => false)) boardFrames.push(frame);
+      }
+      const readOnlyFrames: Frame[] = [];
+      const writableFrames: Frame[] = [];
+      for (const frame of boardFrames) {
+        const note = frame.getByRole("note").filter({ hasText: "Read only:" });
+        if (await note.count() > 0 && await note.isVisible().catch(() => false)) readOnlyFrames.push(frame);
+        else writableFrames.push(frame);
+      }
+      const matchingPreviews: Frame[] = [];
+      for (const frame of readOnlyFrames) {
+        const tile = frame.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
+        if (await tile.count() > 0 && await tile.inputValue().catch(() => "") === expectedTile) matchingPreviews.push(frame);
+      }
+      preview = matchingPreviews[0];
+      return writableFrames.length === 1 && matchingPreviews.length === 1;
+    }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  } catch (error) {
+    const frames = await Promise.all(page.frames().map(async (frame) => ({
+      name: frame.name(),
+      url: frame.url(),
+      boards: await frame.locator(".tkr-board").count().catch(() => -1),
+      bitmapCanvases: await frame.locator("canvas.tkr-bitmap-canvas").count().catch(() => -1),
+      readOnlyNotes: await frame.locator(".tkr-board-readonly, .tkr-bitmap-readonly").count().catch(() => -1),
+      body: (await frame.locator("body").textContent({ timeout: 1_000 }).catch(() => "") ?? "").slice(0, 240),
+    })));
+    const tabs = await page.getByRole("tab").allTextContents().catch(() => []);
+    const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
+    throw new Error(`Native read-only History frame did not mount. Tabs: ${JSON.stringify(tabs)}. Frames: ${JSON.stringify(frames)}. Correlated preview stages:\n${trace}\n${String(error)}`);
+  }
   if (preview === undefined) throw new Error(`The native History preview for ${expectedTile} did not mount beside its writable originating board editor.`);
   await expect(preview.locator(".tkr-board-readonly")).toContainText("Saved version");
   const previewTile = preview.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
