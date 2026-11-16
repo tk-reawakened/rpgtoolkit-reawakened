@@ -51,7 +51,7 @@ function userStorage() {
 }
 
 function folder(files: Readonly<Record<string, Uint8Array>> = {}) {
-  const control: WriteControl = { refuse: false, hold: null, tick: 0 };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("games", control);
   for (const [path, bytes] of Object.entries(files)) root.put(path, bytes);
   document.body.replaceChildren();
@@ -173,7 +173,20 @@ test("the browser wizard makes a blank project: the 14 folders, a main file that
   ok(result.ok);
   equal(result.mainPath, "Main/Quest.gam");
   equal(element.querySelector('[role="dialog"]'), null, "the wizard closes");
-  deepEqual(folderNames(root), [...Object.values(ASSET_FOLDERS), "Main"].sort());
+  // The creation is one history group inside the new project, so its reserved folder is there too (ADR 0022 D12.7/D12.10).
+  // The creation is one durably recorded history group inside the new project (ADR 0022 D12.7, D12.10 item 6).
+  deepEqual(folderNames(root), [".tkr-history", ...Object.values(ASSET_FOLDERS), "Main"].sort());
+  const groups = root.children.get(".tkr-history") instanceof MemoryDirectory ? (root.children.get(".tkr-history") as MemoryDirectory).children.get("groups") : undefined;
+  if (!(groups instanceof MemoryDirectory)) throw new Error("the history group was not recorded");
+  const [groupName] = [...groups.children.keys()];
+  const groupBytes = root.read(`.tkr-history/groups/${groupName}`);
+  if (groupBytes === null) throw new Error("the group record is missing");
+  const group = JSON.parse(new TextDecoder().decode(groupBytes));
+  equal(group.name, "New project");
+  deepEqual(group.before.map((item: { path: string; sha256: string | null }) => item.path), [result.mainPath], "every planned file is in the group");
+  ok(group.before.every((item: { sha256: string | null }) => item.sha256 === null), "each was absent before the operation");
+  deepEqual(group.written.map((item: { path: string }) => item.path), [result.mainPath], "each written file carries its own hash");
+  equal(group.written.find((item: { path: string }) => item.path === result.mainPath).sha256.length, 64);
   const main = mainOf(root.read("Main/Quest.gam"));
   equal(main.gameTitle, "Quest");
   deepEqual([main.startupPrg, main.initBoard, main.initChar], ["", "", ""], "nothing was copied that was not asked for");
@@ -283,7 +296,7 @@ test("a refused write leaves the wizard open with what was written and pending, 
   await type(field(element, "Game name"), "Quest");
   await tick(element, "Start-up program");
   await press(element, ".tkr-new-project-choose");
-  control.refuse = true;
+  control.refuseNames = new Set(["start.prg"]);
   await submit(element);
   match(alerts(element), /Could not write Prg\/start\.prg/);
   match(alerts(element), /deletes nothing here, because it cannot prove that file is this write's own/);
@@ -294,7 +307,7 @@ test("a refused write leaves the wizard open with what was written and pending, 
   // The browser created the file before the refused write committed anything: the wizard leaves it alone.
   deepEqual(root.read("Prg/start.prg"), new Uint8Array(0), "the empty file stays; the wizard cannot prove it made it");
 
-  control.refuse = false;
+  control.refuseNames = undefined;
   await submit(element);
   match(alerts(element), /Prg\/start\.prg already exists; the editor refuses existing files/);
   ok(element.querySelector('[role="dialog"]') !== null, "the wizard stays open");

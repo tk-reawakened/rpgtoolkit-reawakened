@@ -13,6 +13,7 @@ import {
   type NewBoardSettings,
   type NewBoardStorage,
   type ProjectLayout,
+  type WizardHistory,
 } from "@tk-reawakened/editor-model";
 import type { SettingsService } from "@tk-reawakened/platform-services";
 
@@ -34,6 +35,8 @@ export interface NewBoardEnvironment {
   readonly layout: ProjectLayout;
   readonly settings: SettingsService;
   readonly ui: NewBoardUi;
+  /** The project's history, so the new board is one restorable group (ADR 0022 D12.10 item 6). */
+  readonly history?: WizardHistory;
 }
 
 export type NewBoardOutcome =
@@ -56,7 +59,7 @@ export async function runNewBoard(env: NewBoardEnvironment): Promise<NewBoardOut
     } else {
       settings = { ...remembered, name: await uniqueBoardName(env.fs, env.layout) };
     }
-    const created = await createBoardFile(env.fs, env.layout, settings);
+    const created = await createBoardFile(env.fs, env.layout, settings, env.history);
     if (!created.ok) return { ok: false, reason: "refused", message: created.message };
     return { ok: true, path: created.path, warning: await rememberNewBoard(preferences, settings) };
   } catch (error) {

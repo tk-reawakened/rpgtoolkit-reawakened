@@ -64,6 +64,10 @@
         "title": "RPG Toolkit: New project"
       },
       {
+        "command": "tkr.history",
+        "title": "RPG Toolkit: Document history"
+      },
+      {
         "command": "tkr.packageGame",
         "title": "RPG Toolkit: Package game"
       },

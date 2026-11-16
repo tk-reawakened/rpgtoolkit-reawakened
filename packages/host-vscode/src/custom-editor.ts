@@ -352,6 +352,8 @@ export interface GameEditorProvider<Uri extends UriLike> {
   backupCustomDocument(document: GameDocument<Uri>, destination: Uri): Promise<{ readonly id: string; delete(): Promise<void> }>;
   /** Connect a webview panel (a new one, or one VS Code re-created after hiding it) to the document's model. */
   resolveCustomEditor(document: GameDocument<Uri>, webview: WebviewPort): void;
+  /** The project workspace and files of a folder, for a host view outside a custom editor (the History command, #2833). */
+  workspaceFor(folder: WorkspaceFolderLike<Uri>): { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace };
 }
 
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
@@ -374,6 +376,17 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     const folder = port.folderOf(document.uri);
     if (folder === undefined) throw new Error(`${document.model.identity.path} is outside the open workspace`);
     return folder;
+  };
+
+  const workspaceFor = (folder: WorkspaceFolderLike<Uri>): { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace } => {
+    const existing = workspaces.get(folder.key);
+    if (existing !== undefined) return existing;
+    const fs = port.fileSystem(folder);
+    const policy = port.historyPolicy;
+    const workspace = createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) }, ...(policy === undefined ? {} : { historyPolicy: () => policy.call(port, folder) }) });
+    const project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
+    workspaces.set(folder.key, project);
+    return project;
   };
 
   const navigation: DocumentNavigation<Uri> = {
@@ -519,6 +532,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const id = await port.writeBackup(destination, document.model.serialize());
       return { id, delete: () => port.deleteBackup(destination) };
     },
+    workspaceFor,
     resolveCustomEditor(document, webview) {
       const publish = () => { void webview.postMessage({ type: "snapshot", snapshot: document.model.getSnapshot() }); };
       const subscription = document.model.subscribe(publish);

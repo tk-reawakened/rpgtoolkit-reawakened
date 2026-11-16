@@ -356,7 +356,8 @@ test("dismissing a question or the folder dialog writes and opens nothing, and a
     fake.state.answers.pick.push([]);
     fake.state.answers.folder.push("/games/quest");
     await run(new Map());
-    match(fake.state.errors[0]!, /Could not write Main\/Quest\.gam: .*Not written: Main\/Quest\.gam\. Nothing that existed before was changed/);
+    // The group is recorded before the first write (D12.10 item 6), so a host that refuses writes at all is refused there and nothing is written.
+    match(fake.state.errors[0]!, /history checkpoint could not be recorded.*Nothing was written/);
     deepEqual(commandCalls(), [], "a failed creation opens nothing");
   } finally {
     await rm(dir, { recursive: true, force: true });

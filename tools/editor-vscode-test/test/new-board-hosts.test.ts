@@ -51,7 +51,7 @@ function userStorage() {
 }
 
 function project() {
-  const control: WriteControl = { refuse: false, hold: null, tick: 0 };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("project", control);
   root.put("Main/example.gam", gam);
   const dialogs = new Dialogs();

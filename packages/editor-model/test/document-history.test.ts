@@ -1,14 +1,17 @@
 // Document history (ADR 0022 D12 and D12.10): what a creator can observe through a workspace, a store and the package
 // exporter. Every test drives the real documents and the real store over the memory host; nothing here fakes a save.
 import { readFile } from "node:fs/promises";
-import { deepEqual, equal, notEqual, ok } from "node:assert/strict";
+import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { platformError, type FileSystemService } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import {
   acceptIgnoreOffer,
+  createBoardFile,
   createDocumentHistoryStore,
   createDocumentWorkspace,
+  createNewProject,
+  createProjectWizardHistory,
   createProjectTree,
   DEFAULT_HISTORY_POLICY,
   diffLines,
@@ -430,4 +433,48 @@ test("the produced-archive check refuses every excluded class the inventory filt
     deepEqual(producedArchiveViolations([...clean, leaked], selected), [leaked], `${leaked} must fail the check`);
   }
   notEqual(producedArchiveViolations(["Boards\\.tkr-history\\a.brd"], selected).length, 1, "a folder with that name below the root is ordinary project data");
+});
+
+test("the new-project wizard records every planned destination before its first write, with each written file's hash (D12.10 item 6, #2832)", async () => {
+  const host = createMemoryPlatformServices();
+  const created = await createNewProject(host.fs, { gameName: "Grouped Quest", mainFile: "Grouped.gam", starters: [] }, undefined, createProjectWizardHistory(host.fs));
+  ok(created.ok);
+  const groups = await (async () => {
+    const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
+    const list = await workspace.history.groupTimeline();
+    workspace.dispose();
+    return list;
+  })();
+  equal(groups.length, 1, "one group for the whole creation");
+  const group = groups[0]!;
+  equal(group.name, "New project");
+  deepEqual(group.before.map((item) => item.path), created.written, "every planned file is named, absent ones included");
+  ok(group.before.every((item) => item.sha256 === null), "each was absent before the operation");
+  deepEqual(group.written.map((item) => item.path), created.written, "each written file is registered");
+  equal(group.written.find((item) => item.path === created.mainPath)!.sha256, await sha256Hex(host.bytesOf(created.mainPath)!), "the registration proves ownership by hash");
+  equal(group.uncovered.length, 0);
+});
+
+test("a wizard whose group cannot be recorded writes nothing at all", async () => {
+  const host = createMemoryPlatformServices();
+  const refusing = { ...host.fs, write: async () => platformError("io-error", "history disk is full") };
+  const created = await createNewProject(refusing, { gameName: "Never", mainFile: "Never.gam", starters: [] }, undefined, createProjectWizardHistory(refusing));
+  ok(!created.ok);
+  match(created.message, /history checkpoint could not be recorded/);
+  deepEqual(created.ok ? [] : created.reason === "failed" ? created.written : [], []);
+  equal(host.bytesOf("Main/Never.gam"), undefined, "no file was written");
+});
+
+test("a new board is one group with an ownership record for the created file", async () => {
+  const host = createMemoryPlatformServices();
+  ok((await host.fs.createFolder("Boards")).ok);
+  const created = await createBoardFile(host.fs, { projectFolder: "" }, { name: "grouped", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 1, backgroundImage: "", template: null }, createProjectWizardHistory(host.fs));
+  ok(created.ok);
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  const groups = await workspace.history.groupTimeline();
+  workspace.dispose();
+  equal(groups.length, 1);
+  equal(groups[0]!.before[0]!.sha256, null);
+  equal(groups[0]!.written[0]!.path, created.path);
+  equal(groups[0]!.written[0]!.sha256, await sha256Hex(host.bytesOf(created.path)!));
 });

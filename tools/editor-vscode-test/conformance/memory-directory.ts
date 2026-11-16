@@ -10,6 +10,8 @@ interface StoredFile {
 
 export interface WriteControl {
   refuse: boolean;
+  /** File names whose write is refused, so a test can fail one file of a multi-file operation after its history is recorded. */
+  refuseNames: Set<string> | undefined;
   /** The next write to hold: it calls `start` when it reaches its close, then waits for `wait`. */
   hold: { readonly wait: Promise<void>; start(): void } | null;
   tick: number;
@@ -55,7 +57,7 @@ export class MemoryDirectory {
       name,
       getFile: async () => ({ size: stored.bytes.length, lastModified: stored.modified, arrayBuffer: async () => stored.bytes.slice().buffer }),
       createWritable: async () => {
-        if (control.refuse) throw new DOMException("The folder refuses writes", "NotAllowedError");
+        if (control.refuse || control.refuseNames?.has(name)) throw new DOMException("The folder refuses writes", "NotAllowedError");
         let pending = stored.bytes.slice();
         return {
           write: async (data: ArrayBuffer) => { pending = new Uint8Array(data.slice(0)); },

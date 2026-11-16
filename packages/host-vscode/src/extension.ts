@@ -8,9 +8,10 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom } from "@tk-reawakened/editor-model";
+import { DEFAULT_EDITOR_PREFERENCES, createProjectWizardHistory, historyPolicyFrom } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
+import { runHistoryCommand } from "./history-command.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap"] as const;
 
@@ -73,6 +74,21 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     generation += 1;
     changes.fire(event);
   });
+  // The History command (#2833): the shared workspace does the work; VS Code only picks and reports.
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.history", async () => {
+    const candidate = vscode.window.activeTextEditor?.document.uri;
+    const folder = candidate === undefined ? (vscode.workspace.workspaceFolders ?? [])[0] : vscode.workspace.getWorkspaceFolder(candidate);
+    if (folder === undefined) {
+      await vscode.window.showErrorMessage("Open a project folder first: history is kept in the project's .tkr-history folder.");
+      return;
+    }
+    const { workspace } = core.workspaceFor({ uri: folder.uri, key: folder.uri.toString() });
+    const active = candidate === undefined ? null : candidate.path.slice(folder.uri.path.replace(/\/$/, "").length + 1);
+    await runHistoryCommand(workspace, active, {
+      pick: async (items, placeholder) => (await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, description: item.description, id: item.id })), { placeHolder: placeholder, ignoreFocusOut: true }))?.id,
+      tell: async (message) => { await vscode.window.showInformationMessage(message); },
+    });
+  }));
   const provider: vscode.CustomEditorProvider<GameDocument<vscode.Uri>> = {
     onDidChangeCustomDocument: changes.event,
     openCustomDocument: (uri, openContext) => core.openCustomDocument(uri, openContext.backupId),
@@ -123,7 +139,7 @@ export function registerNewBoard(context: vscode.ExtensionContext, generation: (
     const folder = folders.length === 1 ? folders[0]! : await pickFolder(folders);
     if (folder === undefined) return;
     const services = createVscodeServices(folder.uri, context, generation);
-    const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui });
+    const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui, history: createProjectWizardHistory(services.fs) });
     if (!outcome.ok) {
       if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);
       return;
@@ -178,7 +194,9 @@ export function registerNewProject(context: vscode.ExtensionContext): void {
         });
         const selected = chosen?.[0];
         const uri = selected === undefined ? undefined : vscode.Uri.joinPath(selected, ".");
-        return uri === undefined ? undefined : { handle: uri, storage: createVscodeFileSystem(uri) };
+        if (uri === undefined) return undefined;
+        const storage = createVscodeFileSystem(uri);
+        return { handle: uri, storage, history: createProjectWizardHistory(storage) };
       },
     });
     if (!outcome.ok) {
