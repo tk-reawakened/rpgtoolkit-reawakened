@@ -38,9 +38,10 @@ export function registerAnimationCommands(context: vscode.ExtensionContext, gene
     const groups = createCheckpointGroups(selected.env);
     const listed = await groups.list();
     if (!listed.ok) { await vscode.window.showErrorMessage(listed.error.message); return; }
-    const choice = await vscode.window.showQuickPick(listed.value.map((group) => ({ label: `${group.reason}: ${group.time}`, description: group.files.map((file) => `${file.path}: ${file.status}`).join(", "), group })), { title: "Project recovery", placeHolder: "Choose a persistent recovery group" });
+    const choice = await vscode.window.showQuickPick(listed.value.map((group) => ("error" in group ? { label: `Unavailable: ${group.id}`, description: `${group.path}: ${group.error}`, group } : { label: `${group.reason}: ${group.time}`, description: group.files.map((file) => `${file.path}: ${file.status}`).join(", "), group })), { title: "Project recovery", placeHolder: "Choose a persistent recovery group" });
     if (choice === undefined) return;
-    const action = await vscode.window.showQuickPick(["Restore group", "Retry remaining", "Leave as is", "Delete recovery group"], { title: "Project recovery", placeHolder: "Restore creates its own recoverable group" });
+    const actions = "error" in choice.group ? [...(choice.group.deletable ? ["Delete recovery group"] : []), "Leave as is"] : ["Restore group", "Retry remaining", "Leave as is", "Delete recovery group"];
+    const action = await vscode.window.showQuickPick(actions, { title: "Project recovery", placeHolder: "Restore creates its own recoverable group" });
     if (action === undefined || action === "Leave as is") return;
     if (action === "Delete recovery group" && await vscode.window.showWarningMessage("Permanently delete this recovery group?", { modal: true }, "Delete") !== "Delete") return;
     const result = action === "Restore group" ? await groups.restore(choice.group.id) : action === "Retry remaining" ? await groups.retry(choice.group.id) : await groups.deleteGroup(choice.group.id);

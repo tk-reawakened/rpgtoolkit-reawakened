@@ -16,6 +16,14 @@ export interface CheckpointGroup {
   time: string;
   files: CheckpointFile[];
 }
+/** A directory entry that cannot supply trustworthy group metadata. Never usable for retry or restore. */
+export interface CheckpointProblem {
+  readonly id: string;
+  readonly path: string;
+  readonly error: string;
+  readonly deletable: boolean;
+}
+export type CheckpointEntry = CheckpointGroup | CheckpointProblem;
 export interface CheckpointTarget { readonly path: string; readonly bytes: Uint8Array | null }
 export interface CheckpointEnvironment {
   readonly fs: FileSystemService;
@@ -220,16 +228,21 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         return platformOk(await execute(await capture(targets, "before-restore")));
       } catch (error) { return platformError("io-error", message(error)); }
     },
-    async list(): Promise<PlatformResult<readonly CheckpointGroup[]>> {
+    async list(): Promise<PlatformResult<readonly CheckpointEntry[]>> {
       try {
         const entries = await fs.listProject(projectId, `${ROOT}/groups`);
         if (!entries.ok && entries.error.code === "not-found") return platformOk([]);
         const groups: CheckpointGroup[] = [];
+        const problems: CheckpointProblem[] = [];
         for (const entry of unwrap(entries)) {
-          if (entry.kind !== "file" || !entry.name.endsWith(".json")) throw new Error("Invalid recovery directory entry.");
-          groups.push(await load(entry.name.slice(0, -5)));
+          const id = entry.name.endsWith(".json") ? entry.name.slice(0, -5) : entry.name;
+          const deletable = entry.kind === "file" && entry.name.endsWith(".json") && idPattern.test(id);
+          try {
+            if (!deletable) throw new Error("Invalid recovery directory entry; inspect this path in the project files.");
+            groups.push(await load(id));
+          } catch (error) { problems.push({ id, path: `${ROOT}/groups/${entry.name}`, error: message(error), deletable }); }
         }
-        return platformOk(groups.sort((a, b) => a.time < b.time ? 1 : a.time > b.time ? -1 : a.id.localeCompare(b.id)));
+        return platformOk([...groups.sort((a, b) => a.time < b.time ? 1 : a.time > b.time ? -1 : a.id.localeCompare(b.id)), ...problems]);
       } catch (error) { return platformError("io-error", message(error)); }
     },
     async ignoreHistory(): Promise<PlatformResult<void>> {
@@ -243,7 +256,13 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       } catch (error) { return platformError("io-error", message(error)); }
     },
     async deleteGroup(id: string): Promise<PlatformResult<void>> {
-      try { await load(id); return await fs.deleteProject(projectId, manifestPath(id)); } catch (error) { return platformError("io-error", message(error)); }
+      try {
+        if (!idPattern.test(id)) return platformError("invalid-path", "Invalid recovery group identity.");
+        const path = manifestPath(id);
+        const stat = unwrap(await fs.statProject(projectId, path));
+        if (stat.kind !== "file") return platformError("invalid-path", "Only a recovery manifest file can be deleted.");
+        return await fs.deleteProject(projectId, path);
+      } catch (error) { return platformError("io-error", message(error)); }
     },
   };
   return {

@@ -68,7 +68,7 @@ test("torn progress after durable target write cannot corrupt capture or prevent
   equal(result.value.files[0]!.status, "failed");
   deepEqual(host.bytesOf("Bitmap/frame.tbm"), bytes("tile"));
   const restarted = createCheckpointGroups(env);
-  const listed = await restarted.list(); ok(listed.ok); equal(listed.value[0]!.files[0]!.status, "writing");
+  const listed = await restarted.list(); ok(listed.ok); ok(!("error" in listed.value[0]!)); equal(listed.value[0]!.files[0]!.status, "writing");
   const restored = await restarted.restore(result.value.id); ok(restored.ok);
   equal(host.bytesOf("Bitmap/frame.tbm"), undefined); deepEqual(host.bytesOf("Misc/a.anm"), bytes("original"));
 });
@@ -122,5 +122,24 @@ test("ignore changes are explicit and recoverable while group deletion only remo
   const restored = await groups.restore(list.value[0]!.id); ok(restored.ok);
   deepEqual(host.bytesOf(".gitignore"), bytes("existing/\n"));
   ok((await groups.deleteGroup(list.value[0]!.id)).ok);
-  const remaining = await groups.list(); ok(remaining.ok); equal(remaining.value.length, 1); equal(remaining.value[0]!.reason, "before-restore");
+  const remaining = await groups.list(); ok(remaining.ok); equal(remaining.value.length, 1); ok(!("error" in remaining.value[0]!)); equal(remaining.value[0]!.reason, "before-restore");
+});
+
+test("torn capture entries remain diagnosable and deletable without hiding valid recovery groups", async () => {
+  const { host, env } = fixture(); const groups = createCheckpointGroups(env);
+  const committed = await groups.commit(targets); ok(committed.ok);
+  host.seed(".tkr-history/groups/torn-2.json", bytes("{torn"));
+  const listed = await groups.list(); ok(listed.ok);
+  equal(listed.value.length, 2);
+  const invalid = listed.value.find((entry) => entry.id === "torn-2"); ok(invalid);
+  ok("error" in invalid); equal(invalid.path, ".tkr-history/groups/torn-2.json");
+  ok(invalid.error.length > 0); equal("files" in invalid, false); equal("time" in invalid, false); equal("reason" in invalid, false);
+  equal((await groups.retry("torn-2")).ok, false); equal((await groups.restore("torn-2")).ok, false);
+  const restored = await groups.restore(committed.value.id); ok(restored.ok);
+  deepEqual(host.bytesOf("Misc/a.anm"), bytes("original")); equal(host.bytesOf("Bitmap/frame.tbm"), undefined);
+  for (const id of ["../escape", "", "torn-2.json", "nested/id", "nested\\id"]) equal((await groups.deleteGroup(id)).ok, false);
+  ok(host.bytesOf(".tkr-history/groups/torn-2.json"));
+  ok((await groups.deleteGroup("torn-2")).ok); equal(host.bytesOf(".tkr-history/groups/torn-2.json"), undefined);
+  const remaining = await groups.list(); ok(remaining.ok); equal(remaining.value.length, 2);
+  ok(remaining.value.every((entry) => !("error" in entry)));
 });

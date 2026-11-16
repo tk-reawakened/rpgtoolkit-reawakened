@@ -1,4 +1,4 @@
-import type { AnimationAuthoring, AnimationCommand, AnimationBitmap, CheckpointGroup } from "@tk-reawakened/editor-model";
+import type { AnimationAuthoring, AnimationCommand, AnimationBitmap, CheckpointEntry, CheckpointGroup } from "@tk-reawakened/editor-model";
 import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { platformError, type Capability, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
@@ -71,7 +71,7 @@ export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snaps
   return "graphicsUnavailable" in snapshot && (snapshot.graphicsUnavailable === null || typeof snapshot.graphicsUnavailable === "string");
 }
 
-export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly CheckpointGroup[] | void>;
+export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly CheckpointEntry[] | void>;
 export type BridgeMessage =
   | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences }
   | { readonly type: "board-preferences"; readonly preferences: EditorPreferences }
@@ -338,7 +338,7 @@ export class RemoteDocument {
   readonly animationAuthoring: AnimationAuthoring = {
     commitAnimation: (command, bitmaps) => this.animationAction("commit", undefined, command, bitmaps) as Promise<PlatformResult<CheckpointGroup>>,
     commit: async () => platformError("invalid-request", "Use the animation wizard to create files."),
-    list: () => this.animationAction("list") as Promise<PlatformResult<readonly CheckpointGroup[]>>,
+    list: () => this.animationAction("list") as Promise<PlatformResult<readonly CheckpointEntry[]>>,
     retry: (id) => this.animationAction("retry", id) as Promise<PlatformResult<CheckpointGroup>>,
     restore: (id) => this.animationAction("restore", id) as Promise<PlatformResult<CheckpointGroup>>,
     ignoreHistory: () => this.animationAction("ignore") as Promise<PlatformResult<void>>,

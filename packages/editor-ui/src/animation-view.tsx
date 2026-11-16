@@ -99,7 +99,7 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
         else if (bytes !== null && GIF.test(reference)) source = spriteGifPreview(bytes, path)?.frames[0] ?? null;
         else if (bytes !== null) source = spritePicturePreview(bytes, path);
       } else source = await spriteTileFrameFromReference(reference, load);
-      if (active) setPreview(source === null ? null : spriteAnimationCanvasPreview(source, snapshot.width, snapshot.height, current.transparent));
+      if (active) setPreview(source === null ? null : spriteAnimationCanvasPreview(source, snapshot.width, snapshot.height, current.transparent, BITMAP.test(reference)));
     })().catch((error: unknown) => { if (active) setMessage(`Frame preview unavailable: ${errorMessage(error)}`); });
     return () => { active = false; };
   }, [current.image, current.transparent, folder, fs, identity.projectId, snapshot.width, snapshot.height]);

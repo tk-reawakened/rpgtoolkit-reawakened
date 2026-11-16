@@ -4,7 +4,7 @@ import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createAnimationAuthoring, createDocumentIdentity, newAnimationBytes, openAnimationDocument, spriteGifPreview } from "@tk-reawakened/editor-model";
+import { createCheckpointGroups, createAnimationAuthoring, createDocumentIdentity, newAnimationBytes, openAnimationDocument, spriteGifPreview } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createBrowserSession } from "../dist/brush.js";
 import type { AnimationViewDocument } from "../src/animation-view.tsx";
@@ -209,5 +209,33 @@ test("cancel tile wizard invalidates a pending composition preview", async () =>
     for (let turn = 0; turn < 30; turn++) await act(async () => { await Promise.resolve(); });
     equal(root.querySelector('[aria-label="Staged tile bitmap frame"]') === null, true, "cancelled preview must not reappear after its read finishes");
     equal((await host.fs.read("Bitmap/cancelled.tbm")).ok, false);
+  } finally { handle?.dispose(); root.remove(); }
+});
+
+
+test("recovery view diagnoses torn captures beside valid groups and permits only explicit deletion", async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: newAnimationBytes() } });
+  const groups = createCheckpointGroups({ fs: host.fs, projectId: IDENTITY.projectId,
+    hash: async (bytes) => createHash("sha256").update(bytes).digest("hex"), newId: () => "valid-group", time: () => "2026-11-15", guard: async () => null, consent: async () => true,
+  });
+  ok((await groups.commit([{ path: PATH, bytes: newAnimationBytes(48) }])).ok);
+  host.seed(".tkr-history/groups/torn-group.json", new TextEncoder().encode("{torn"));
+  const root = document.createElement("div"); document.body.append(root);
+  const { mountCheckpoints } = await import("@tk-reawakened/editor-ui");
+  let handle: ViewHandle | undefined;
+  await act(() => { handle = mountCheckpoints(root, groups); });
+  try {
+    await settleUntil(() => root.querySelectorAll("article").length === 2);
+    const valid = root.querySelector<HTMLElement>('[aria-label="Recovery valid-group"]');
+    const invalid = root.querySelector<HTMLElement>('[aria-label="Recovery torn-group"]'); ok(valid); ok(invalid);
+    equal(button(valid, "Restore group").disabled, false);
+    ok(invalid.querySelector('[role="alert"]')?.textContent?.includes(".tkr-history/groups/torn-group.json"));
+    equal([...invalid.querySelectorAll("button")].some((entry) => entry.textContent === "Restore group" || entry.textContent === "Retry remaining"), false);
+    await act(() => button(invalid, "Delete recovery group…").click());
+    ok(host.bytesOf(".tkr-history/groups/torn-group.json"));
+    await act(() => button(invalid, "Delete permanently").click());
+    await settleUntil(() => root.querySelectorAll("article").length === 1);
+    equal(host.bytesOf(".tkr-history/groups/torn-group.json"), undefined);
+    ok(root.querySelector('[aria-label="Recovery valid-group"]'));
   } finally { handle?.dispose(); root.remove(); }
 });

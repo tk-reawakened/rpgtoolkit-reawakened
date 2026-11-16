@@ -1,4 +1,4 @@
-import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, type AnimationBitmap, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -44,6 +44,8 @@ export interface GameEditorPort<Uri extends UriLike> {
   readBackup(id: string): Promise<Uint8Array>;
   writeBackup(destination: Uri, bytes: Uint8Array): Promise<string>;
   deleteBackup(destination: Uri): Promise<void>;
+  /** Native text documents live outside the shared model workspace; replacement/removal must refuse while one is open. */
+  isTextDocumentOpen?(uri: Uri): boolean;
   /** Ask VS Code to save the editor for this URI, regardless of which editor has focus. */
   saveEditor(uri: Uri): Promise<Uri | undefined>;
   /** The URI of the project-relative `path` in `folder`. */
@@ -210,7 +212,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readProject(path: string): Promise<PlatformResult<Uint8Array>> {
     return this.#fs.readProject(this.model.identity.projectId, path);
   }
-  async animationAction(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<PlatformResult<CheckpointGroup | readonly CheckpointGroup[] | void>> {
+  async animationAction(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<PlatformResult<CheckpointGroup | readonly CheckpointEntry[] | void>> {
     if (this.model.kind !== "animation") return platformError("invalid-request", "Open an animation to use this wizard.");
     const folder = this.#port.folderOf(this.uri);
     if (folder === undefined) return platformError("unavailable", "The animation's project is unavailable.");
@@ -219,6 +221,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
       hash: async (bytes) => [...new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes.slice().buffer))].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
       newId: () => globalThis.crypto.randomUUID(), time: () => new Date().toISOString(),
       guard: async (path, removing) => {
+        if (this.#port.isTextDocumentOpen?.(this.#port.uriFor(folder, path)) === true) return `Save or resolve your work and close ${path} in its native text editor before replacing or removing it.`;
         const key = createDocumentIdentity(this.model.identity.projectId, path).key;
         const open = this.#workspace.documents().find((doc) => doc.identity.key === key);
         if (open === undefined) return null;

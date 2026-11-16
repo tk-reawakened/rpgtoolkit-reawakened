@@ -46,12 +46,16 @@ export async function runAnimationAuthoringProof(host: AnimationProofHost, expec
   await editor.getByLabel("blue", { exact: true }).fill("41");
   await click("Save");
   await expect.poll(async () => (await decode()).frames[0]).toEqual({ image: "z.gif", transparent: { r: 17, g: 29, b: 41 }, sound: "Sounds/first.wav" });
-  // Authored GIF fixture is 4×3; its first opaque palette entry is (10,20,30).
+  await editor.getByLabel("Canvas width", { exact: true }).fill("8");
+  await editor.getByLabel("Canvas height", { exact: true }).fill("6");
+  await click("Save");
+  // Authored GIF source is 4×3; the unequal 8×6 canvas must scale each source pixel twice.
+  // Its first opaque palette entry is (10,20,30).
   // Canvas pixels (including premultiplied transparent RGB) prove a real rendered frame, not merely mounted controls.
   await expect.poll(async () => editor.getByRole("img", { name: "Animation frame 1 preview" }).evaluate((element) => {
     const canvas = element as HTMLCanvasElement;
-    return { width: canvas.width, height: canvas.height, pixels: [...canvas.getContext("2d")!.getImageData(0, 0, 2, 1).data] };
-  })).toEqual({ width: 4, height: 3, pixels: [10, 20, 30, 255, 0, 0, 0, 0] });
+    return { width: canvas.width, height: canvas.height, pixels: [...canvas.getContext("2d")!.getImageData(0, 0, 4, 1).data] };
+  })).toEqual({ width: 8, height: 6, pixels: [10, 20, 30, 255, 10, 20, 30, 255, 0, 0, 0, 0, 0, 0, 0, 0] });
   await editor.getByRole("button", { name: "Move later", exact: true }).focus();
   await editor.getByRole("button", { name: "Move later", exact: true }).press("Enter");
   await host.settle();
@@ -102,6 +106,13 @@ export async function runAnimationAuthoringProof(host: AnimationProofHost, expec
   await group.getByRole("button", { name: "Retry remaining", exact: true }).click();
   await host.consent();
   await expect.poll(async () => (await decode()).frames.map((frame) => frame.image)).toEqual(["proof-first.tbm", "proof-second.tbm", "a.gif", "z.gif"]);
+  await click("Frame 1: proof-first.tbm");
+  // The authored tile has red 0 at x=0 and 127 at x=16. The 128px TBM sampled onto
+  // the 8px canvas alternates those samples; its (0,0,60) key becomes transparent.
+  await expect.poll(async () => editor.getByRole("img", { name: "Animation frame 1 preview" }).evaluate((element) => {
+    const canvas = element as HTMLCanvasElement;
+    return [...canvas.getContext("2d")!.getImageData(0, 0, 4, 1).data];
+  })).toEqual([0, 0, 0, 0, 127, 0, 60, 255, 0, 0, 0, 0, 127, 0, 60, 255]);
   const completed = await host.read(ANIMATION_PROOF_PATH);
   expect((await decode()).frames[3]).toEqual({ image: "z.gif", transparent: { r: 17, g: 29, b: 41 }, sound: "Sounds/first.wav" });
   for (const path of ["Bitmap/proof-first.tbm", "Bitmap/proof-second.tbm"]) {
@@ -125,4 +136,14 @@ export async function runAnimationAuthoringProof(host: AnimationProofHost, expec
   await click("Frame 4: z.gif");
   await expect(editor.getByLabel("Sound reference")).toHaveValue("Sounds/first.wav");
   await expect(editor.getByLabel("blue", { exact: true })).toHaveValue("41");
+  // Direct tile references retain their native 32px size even on a larger canvas.
+  await click("Frame 1: proof-first.tbm");
+  await editor.getByLabel("Image reference", { exact: true }).fill("village.tst1");
+  await editor.getByLabel("Canvas width", { exact: true }).fill("64");
+  await editor.getByLabel("Canvas height", { exact: true }).fill("64");
+  await click("Save");
+  await expect.poll(async () => editor.getByRole("img", { name: "Animation frame 1 preview" }).evaluate((element) => {
+    const canvas = element as HTMLCanvasElement;
+    return { width: canvas.width, height: canvas.height, pixels: [...canvas.getContext("2d")!.getImageData(31, 31, 2, 1).data] };
+  })).toEqual({ width: 64, height: 64, pixels: [247, 247, 60, 255, 0, 0, 0, 0] });
 }
