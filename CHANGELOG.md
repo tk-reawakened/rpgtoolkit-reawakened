@@ -1,8 +1,6 @@
 # Changelog
 
 ## Unreleased
-- Scene-only checkpoints retain full audio and action data, historical baked canvases and held frames while resources rehydrate. Constructor asset requests are delivered once, and resumed ticks and drawing match uninterrupted execution without changing ordinary state hashes or game-save formats (#2831).
-- Effect-observer regressions now cover actual bounded-log eviction and draining with exact production sequences, alongside real native-command observation (#2850).
 - The native NewProject acceptance proof navigates directly to its existing destination in the real folder picker, without depending on a remembered parent listing; it still verifies generated backing files and automatic editor opening (#2858).
 - No-skips Git fixtures isolate inherited repository, signing and global configuration, then restore the original environment after each synchronous fixture (#2852).
 - The native web-workbench proof loads the real RPGCode companion extension, builds it in CI, and refuses a missing browser bundle instead of leaving programs in Plain Text (#2844).
