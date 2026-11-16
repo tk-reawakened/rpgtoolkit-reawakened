@@ -1,3 +1,4 @@
+import { registerAnimationCommands } from "./animation-commands.ts";
 import * as vscode from "vscode";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
@@ -28,6 +29,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
   registerPackageGameCommand(context);
+  registerAnimationCommands(context, () => generation);
   const changes = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<GameDocument<vscode.Uri>>>();
   context.subscriptions.push(changes);
   const port: GameEditorPort<vscode.Uri> = {

@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Story 12.7 adds shared binary `.anm` authoring in the browser and VS Code: frame insert/delete/reorder, paired per-frame image/key/sound fields, canvas/global delay, playback and sorted-image insertion. Its shared-browser 4×4 tile wizard stages a named TBM before confirmation, refuses to overwrite it, and retains generated output plus unsaved animation edits when save fails. Toolkit 2 text animations remain explicitly read-only under ADR 0022 D2 (#1718).
+- Story 12.7 adds shared binary `.anm` creation and editing in browser and VS Code: ordered image staging, multi-frame 4×4 tile compositions with template reuse, frame metadata, playback, and normal save/undo. Persistent SHA-256 checkpoint groups retain original and intended files before wizard writes, report partial failures, retry remaining work, and make restores recoverable across reopening. Text minor 0 remains read-only; general history retention and timelines remain under #1828 (#1718, #2805, #2813–#2816).
 - New-project command tests compile their shared extension fixture once while keeping each case's workspace and module state isolated (#2798).
 - Program editor insertions, undo, redo and save now preserve their order; Monaco's context-menu history uses the shared document. Language-service errors and formatting refusals are shown without blocking editing (#2727–#2729).
 - Program editing preserves pending insertions and typing order across saves and view changes, shares language-document ownership across views, and keeps browser history and project context consistent between views. New programs refuse detected collisions in differently cased folders (#2732–#2738).

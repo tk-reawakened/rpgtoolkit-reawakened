@@ -21,9 +21,9 @@ after(() => GlobalRegistrator.unregister());
 test("VS Code bridge validates animation asset reads and generated bitmap destinations", () => {
   ok(isEditorHostRequest({ type: "read-project", requestId: "read-1", path: "Bitmap/frame.png" }));
   ok(!isEditorHostRequest({ type: "read-project", requestId: "read-2", path: "../outside.png" }));
-  ok(isEditorHostRequest({ type: "create-animation-bitmap", requestId: "write-1", path: "Bitmap/frame.tbm", bytes: new Uint8Array([1, 2, 3]) }));
-  ok(!isEditorHostRequest({ type: "create-animation-bitmap", requestId: "write-2", path: "../frame.tbm", bytes: new Uint8Array([1]) }));
-  ok(!isEditorHostRequest({ type: "create-animation-bitmap", requestId: "write-3", path: "Bitmap/frame.tbm", bytes: [1, 2, 3] }));
+  ok(isEditorHostRequest({ type: "animation-action", requestId: "write-1", action: "commit", bitmaps: [{ path: "Bitmap/frame.tbm", bytes: new Uint8Array([1, 2, 3]) }] }));
+  ok(!isEditorHostRequest({ type: "animation-action", requestId: "write-2", action: "commit", bitmaps: [{ path: "../frame.tbm", bytes: new Uint8Array([1]) }] }));
+  ok(!isEditorHostRequest({ type: "animation-action", requestId: "write-3", action: "commit", bitmaps: [{ path: "Bitmap/frame.tbm", bytes: [1, 2, 3] }] }));
 });
 
 test("real web and VS Code adapters keep mounted title edits dirty and named after write rejection", async () => {

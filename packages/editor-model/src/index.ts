@@ -407,3 +407,7 @@ export {
   type ProgramPreferences,
   type VscodeConfiguration,
 } from "./preferences.ts";
+export * from "./checkpoint-groups.ts";
+export * from "./animation-authoring.ts";
+
+export type { AnimationFrame } from "./animation-document.ts";

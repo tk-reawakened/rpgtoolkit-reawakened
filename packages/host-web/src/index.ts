@@ -1,5 +1,5 @@
-import { BinaryReader, readTileBitmap } from "@tk-reawakened/core";
-import { asAnimationDocument, reservedFolder, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { webCheckpointEnvironment } from "./checkpoints.ts";
+import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -339,24 +339,6 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
   };
   return view;
 }
-async function createBitmapAsset(project: WebProject, layout: ProjectLayout, path: string, bytes: Uint8Array): Promise<PlatformResult<void>> {
-  const folder = reservedFolder(layout, "bitmaps");
-  const prefix = `${folder}/`;
-  const name = path.startsWith(prefix) ? path.slice(prefix.length) : "";
-  if (name === "" || name.includes("/") || name.includes("\\") || name === "." || name === ".." || !/\.tbm$/i.test(name)) {
-    return platformError("invalid-path", "A wizard can create only a named tile bitmap directly inside Bitmap.");
-  }
-  if (bytes.length > 1_000_000) return platformError("invalid-request", "The generated tile bitmap is too large.");
-  const parsed = readTileBitmap(new BinaryReader(bytes, path));
-  if (!parsed.ok || parsed.value.width !== 4 || parsed.value.height !== 4) {
-    return platformError("invalid-request", "The animation wizard accepts only a valid 4×4 tile bitmap.");
-  }
-  const stat = await project.services.fs.stat(path);
-  if (stat.ok) return platformError("already-exists", `${path} already exists; choose another name.`);
-  if (stat.error.code !== "not-found") return stat;
-  return project.services.fs.writeProject(project.project.id, path, bytes);
-}
-
 const boardPreferenceSources = new WeakMap<WebProject, BoardPreferencesSource>();
 
 /** The board-editor preferences of a project, read from its settings (T-33) once and shared by every board view of it. */
@@ -421,7 +403,10 @@ export function mountDocumentView(
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
-      createBitmapAsset: (path, bytes) => createBitmapAsset(project, projectLayout, path, bytes),
+      ...(document.kind !== "animation" ? {} : { animationAuthoring: createAnimationAuthoring(webCheckpointEnvironment(project, document.identity.key), asAnimationDocument(document), async () => {
+        const saved = await document.save();
+        return saved.ok ? platformOk(undefined) : platformError("io-error", saved.failure.message);
+      }, (editId) => project.services.document.edited({ document: document.identity.key, editId, label: "Create animation frames" })) }),
       codeEditor: {
         ...(project.codeEditor === null ? {} : { createSurface: project.codeEditor }),
         project: main === null ? null : { main },

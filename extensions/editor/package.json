@@ -26,7 +26,9 @@
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
     "onCommand:tkr.startBoard",
-    "onCommand:tkr.testProgram"
+    "onCommand:tkr.testProgram",
+    "onCommand:tkr.newAnimation",
+    "onCommand:tkr.animationRecovery"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -83,6 +85,16 @@
       {
         "command": "tkr.distractionFree",
         "title": "RPG Toolkit: Distraction-free mode"
+      },
+      {
+        "command": "tkr.newAnimation",
+        "title": "New animation",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.animationRecovery",
+        "title": "Project recovery",
+        "category": "TK Reawakened"
       }
     ],
     "menus": {

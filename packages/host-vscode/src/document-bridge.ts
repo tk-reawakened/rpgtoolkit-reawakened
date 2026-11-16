@@ -1,3 +1,4 @@
+import type { AnimationAuthoring, AnimationCommand, AnimationBitmap, CheckpointGroup } from "@tk-reawakened/editor-model";
 import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { platformError, type Capability, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
@@ -70,6 +71,7 @@ export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snaps
   return "graphicsUnavailable" in snapshot && (snapshot.graphicsUnavailable === null || typeof snapshot.graphicsUnavailable === "string");
 }
 
+export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly CheckpointGroup[] | void>;
 export type BridgeMessage =
   | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences }
   | { readonly type: "board-preferences"; readonly preferences: EditorPreferences }
@@ -85,7 +87,7 @@ export type BridgeMessage =
   | { readonly type: "pick-result"; readonly requestId: string; readonly outcome: PickOutcome }
   | { readonly type: "browser-list-result"; readonly requestId: string; readonly result: PlatformResult<readonly DirectoryEntry[]> }
   | { readonly type: "browser-read-result"; readonly requestId: string; readonly result: PlatformResult<Uint8Array> }
-  | { readonly type: "create-animation-bitmap-result"; readonly requestId: string; readonly result: PlatformResult<void> }
+  | { readonly type: "animation-action-result"; readonly requestId: string; readonly result: AnimationActionResult }
   /** The extension host is about to save, back up, revert or move the document: the webview answers `settled` once every edit it accepted has reached it (#2613). */
   | { readonly type: "settle"; readonly requestId: string };
 
@@ -102,7 +104,7 @@ export type EditorHostRequest =
   | { readonly type: "browser-context"; readonly changes: BrowserStatePatch }
   | { readonly type: "browser-list"; readonly requestId: string; readonly path: string }
   | { readonly type: "browser-read"; readonly requestId: string; readonly path: string }
-  | { readonly type: "create-animation-bitmap"; readonly requestId: string; readonly path: string; readonly bytes: Uint8Array }
+  | { readonly type: "animation-action"; readonly requestId: string; readonly action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore"; readonly id?: string; readonly command?: AnimationCommand; readonly bitmaps?: readonly AnimationBitmap[] }
   /** The answer to `settle`. It is sent after every edit the webview accepted, so the channel's order puts those edits before it. */
   | { readonly type: "settled"; readonly requestId: string };
 
@@ -125,7 +127,7 @@ export interface BridgedDocument {
   visit(path: string): Promise<VisitOutcome>;
   returnFromVisit(): Promise<ReturnOutcome>;
   pickAsset(request: AssetPickRequest): Promise<PickOutcome>;
-  createAnimationBitmap?(path: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
+  animationAction?(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<AnimationActionResult>;
   readProject(path: string): Promise<PlatformResult<Uint8Array>>;
   /** A webview answered a `settle` request: every edit it had accepted has reached this document (#2613). */
   viewSettled?(requestId: string): void;
@@ -169,11 +171,9 @@ export async function handleEditorHostRequest(
       ? platformError("unavailable", "This host cannot read project assets for the animation editor.")
       : await document.readProject(request.path);
     await postMessage({ type: "read-project-result", requestId: request.requestId, result });
-  } else if (request.type === "create-animation-bitmap") {
-    const result = document.createAnimationBitmap === undefined
-      ? platformError("unavailable", "This host cannot create a tile bitmap from the animation editor.")
-      : await document.createAnimationBitmap(request.path, request.bytes);
-    await postMessage({ type: "create-animation-bitmap-result", requestId: request.requestId, result });
+  } else if (request.type === "animation-action") {
+    const result = document.animationAction === undefined ? platformError("unavailable", "Animation recovery is unavailable.") : await document.animationAction(request.action, request.id, request.command, request.bitmaps);
+    await postMessage({ type: "animation-action-result", requestId: request.requestId, result });
   } else if (request.type === "preview") {
     await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview(request.request) });
   } else if (request.type === "visit") {
@@ -262,7 +262,10 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "visit") return "path" in value && typeof value.path === "string" && value.path !== "";
   if (value.type === "pick-asset") return "request" in value && isAssetPickRequest(value.request);
   if (value.type === "resolve-conflict") return "choice" in value && (value.choice === "keep-local" || value.choice === "reload");
-  if (value.type === "create-animation-bitmap") return "path" in value && isProjectPath(value.path) && "bytes" in value && value.bytes instanceof Uint8Array;
+  if (value.type === "animation-action") return "action" in value && ["commit", "list", "retry", "restore", "delete", "ignore"].includes(String(value.action))
+    && (!("id" in value) || typeof value.id === "string")
+    && (!("command" in value) || kindById("animation")?.isCommand(value.command) === true)
+    && (!("bitmaps" in value) || Array.isArray(value.bitmaps) && value.bitmaps.every((entry: unknown) => typeof entry === "object" && entry !== null && "path" in entry && isProjectPath(entry.path) && "bytes" in entry && entry.bytes instanceof Uint8Array));
   return value.type === "edit" && "command" in value && typeof value.command === "object" && value.command !== null;
 }
 
@@ -283,7 +286,7 @@ export class RemoteDocument {
   private readonly pendingPicks = new Map<string, (outcome: PickOutcome) => void>();
   private readonly pendingBrowserLists = new Map<string, (result: PlatformResult<readonly DirectoryEntry[]>) => void>();
   private readonly pendingBrowserReads = new Map<string, (result: PlatformResult<Uint8Array>) => void>();
-  private readonly pendingBitmapCreates = new Map<string, (result: PlatformResult<void>) => void>();
+  private readonly pendingAnimationActions = new Map<string, (result: AnimationActionResult) => void>();
   private nextRequest = 0;
   private readonly vscode: VscodeApi;
   /**
@@ -332,15 +335,22 @@ export class RemoteDocument {
       this.vscode.postMessage({ type: "read-project", requestId, path });
     });
   }
-  createAnimationBitmap(path: string, bytes: Uint8Array): Promise<PlatformResult<void>> {
-    if (this.kind !== "animation") return Promise.resolve(platformError("invalid-request", "Only the animation editor can create a tile-bitmap source."));
-    const requestId = `create-animation-bitmap-${++this.nextRequest}`;
+  readonly animationAuthoring: AnimationAuthoring = {
+    commitAnimation: (command, bitmaps) => this.animationAction("commit", undefined, command, bitmaps) as Promise<PlatformResult<CheckpointGroup>>,
+    commit: async () => platformError("invalid-request", "Use the animation wizard to create files."),
+    list: () => this.animationAction("list") as Promise<PlatformResult<readonly CheckpointGroup[]>>,
+    retry: (id) => this.animationAction("retry", id) as Promise<PlatformResult<CheckpointGroup>>,
+    restore: (id) => this.animationAction("restore", id) as Promise<PlatformResult<CheckpointGroup>>,
+    ignoreHistory: () => this.animationAction("ignore") as Promise<PlatformResult<void>>,
+    deleteGroup: (id) => this.animationAction("delete", id) as Promise<PlatformResult<void>>,
+  };
+  private animationAction(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<AnimationActionResult> {
+    const requestId = `animation-${++this.nextRequest}`;
     return new Promise((resolve) => {
-      this.pendingBitmapCreates.set(requestId, resolve);
-      this.vscode.postMessage({ type: "create-animation-bitmap", requestId, path, bytes });
+      this.pendingAnimationActions.set(requestId, resolve);
+      this.vscode.postMessage({ type: "animation-action", requestId, action, ...(id === undefined ? {} : { id }), ...(command === undefined ? {} : { command }), ...(bitmaps === undefined ? {} : { bitmaps }) });
     });
   }
-
   save(): Promise<SaveResult> {
     const requestId = `save-${++this.nextRequest}`;
     this.snapshot = { ...this.snapshot, saving: true };
@@ -442,8 +452,8 @@ export class RemoteDocument {
       this.settle(this.pendingProjectReads, message.requestId, message.result);
       return;
     }
-    if (message.type === "create-animation-bitmap-result") {
-      this.settle(this.pendingBitmapCreates, message.requestId, message.result);
+    if (message.type === "animation-action-result") {
+      this.settle(this.pendingAnimationActions, message.requestId, message.result);
       return;
     }
     if (message.type === "preview-result") {

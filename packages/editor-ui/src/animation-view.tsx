@@ -1,6 +1,7 @@
-import { TILE_BITMAP_MAGIC, writeTileBitmap, type AnimationFrame, type TileBitmapCell } from "@tk-reawakened/core";
+import { createEditTracker, animationTileBitmapBytes, type PendingEdits, type AnimationFrame, type AnimationAuthoring } from "@tk-reawakened/editor-model";
+import { CheckpointView } from "./checkpoint-view.tsx";
 import { ANIMATION_FRAME_LIMIT, listCandidates, reservedFolder, spriteAnimationCanvasPreview, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, unusableName, type AnimationCommand, type AnimationDocumentSnapshot, type AssetCandidate } from "@tk-reawakened/editor-model";
-import type { DocumentEdited, FileSystemService, PlatformResult } from "@tk-reawakened/platform-services";
+import type { DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { BrowserSelection } from "./brush.ts";
 import type { ViewDocument } from "./mount.ts";
@@ -11,8 +12,9 @@ export interface AnimationViewDocument extends ViewDocument<AnimationDocumentSna
 
 export interface AnimationViewProps {
   readonly doc: AnimationViewDocument;
+  readonly pendingEdits: PendingEdits;
   readonly fs: Pick<FileSystemService, "readProject">;
-  readonly writeBitmapAsset?: (path: string, bytes: Uint8Array) => Promise<PlatformResult<void>>;
+  readonly authoring?: AnimationAuthoring;
   readonly onEdited: (event: DocumentEdited) => void;
   readonly browser?: TilesetBrowserContext;
 }
@@ -20,7 +22,6 @@ export interface AnimationViewProps {
 const EMPTY_FRAME: AnimationFrame = { image: "", transparent: { r: 255, g: 0, b: 255 }, sound: "" };
 const GIF = /\.gif$/i;
 const BITMAP = /\.(?:bmp|gif|jpe?g|png|tbm)$/i;
-const blankCell: TileBitmapCell = { tile: "", r: 0, g: 0, b: 0 };
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -33,18 +34,15 @@ function topLeftKey(picture: { readonly rgba: Uint8Array }): { readonly r: numbe
   return { r: picture.rgba[0] ?? 0, g: picture.rgba[1] ?? 0, b: picture.rgba[2] ?? 0 };
 }
 
-function tiledBitmapBytes(cells: readonly string[]): Uint8Array | null {
-  const stored: TileBitmapCell[] = [];
-  for (let x = 0; x <= 4; x += 1) {
-    for (let y = 0; y <= 4; y += 1) stored.push(x < 4 && y < 4 ? { tile: cells[x * 4 + y] ?? "", r: 0, g: 0, b: 0 } : blankCell);
-  }
-  const written = writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 4, height: 4, cells: stored, residue: new Uint8Array() });
-  return written.ok ? written.value : null;
-}
-
 /** Story 12.7: author a binary animation in the shared view, with staged image and 4×4 TBM wizards. */
-export function AnimationView({ doc, fs, writeBitmapAsset, onEdited, browser }: AnimationViewProps) {
+export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEdits }: AnimationViewProps) {
   const snapshot = useDocumentSnapshot(doc);
+  const submitted = useRef(createEditTracker());
+  const queue = useRef(Promise.resolve());
+  useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
+  const [busy, setBusy] = useState(false);
+  const [recoveryVersion, setRecoveryVersion] = useState(0);
+  const [imageOrder, setImageOrder] = useState<readonly AssetCandidate[]>([]);
   const [selected, setSelected] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -58,6 +56,7 @@ export function AnimationView({ doc, fs, writeBitmapAsset, onEdited, browser }: 
   const [tileCell, setTileCell] = useState(0);
   const [tileCells, setTileCells] = useState<readonly string[]>(new Array<string>(16).fill(""));
   const [stagedTile, setStagedTile] = useState<{ readonly name: string; readonly path: string; readonly bytes: Uint8Array; readonly picture: { readonly width: number; readonly height: number; readonly rgba: Uint8Array } } | null>(null);
+  const [tileFrames, setTileFrames] = useState<readonly NonNullable<typeof stagedTile>[]>([]);
   const [brush, setBrush] = useState<BrowserSelection | null>(browser?.session.getSnapshot().selection ?? null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const tileCanvas = useRef<HTMLCanvasElement>(null);
@@ -131,18 +130,24 @@ export function AnimationView({ doc, fs, writeBitmapAsset, onEdited, browser }: 
     return () => { active = false; };
   }, [imagesOpen, browser]);
 
-  const run = async (command: AnimationCommand): Promise<boolean> => {
-    try {
-      const result = await doc.apply(command);
-      if (!result.ok) { setMessage(result.rejection.message); return false; }
-      const edit = doc.getSnapshot().edits.find((entry) => entry.editId === result.editId);
-      onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? "Edit the animation" });
-      setMessage(null);
-      return true;
-    } catch (error) { setMessage(errorMessage(error)); return false; }
+  const run = (command: AnimationCommand | (() => AnimationCommand)): Promise<boolean> => {
+    const finish = submitted.current.begin();
+    const operation = queue.current.then(async () => {
+      try {
+        const result = await doc.apply(typeof command === "function" ? command() : command);
+        if (!result.ok) { setMessage(result.rejection.message); return false; }
+        const edit = doc.getSnapshot().edits.find((entry) => entry.editId === result.editId);
+        onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? "Edit the animation" });
+        setMessage(null); return true;
+      } catch (error) { setMessage(errorMessage(error)); return false; }
+      finally { finish(); }
+    });
+    queue.current = operation.then(() => undefined);
+    return operation;
   };
   const save = async (): Promise<boolean> => {
     try {
+      await pendingEdits.settle();
       const result = await doc.save();
       if (!result.ok) { setMessage(result.failure.message); return false; }
       setMessage("Animation saved.");
@@ -154,21 +159,21 @@ export function AnimationView({ doc, fs, writeBitmapAsset, onEdited, browser }: 
       const value = Number(text);
       if (!Number.isInteger(value) || value < 0 || value > 255) { setMessage("Transparency key channels must be whole numbers from 0 to 255."); return; }
       const channel = field === "red" ? "r" : field === "green" ? "g" : "b";
-      await run({ type: "set-animation-frame", index: currentIndex, frame: { ...current, transparent: { ...current.transparent, [channel]: value } } });
-    } else await run({ type: "set-animation-frame", index: currentIndex, frame: { ...current, [field]: text } });
-    setTyped((previous) => { const next = { ...previous }; delete next[field]; return next; });
+      await run(() => { const frame = doc.getSnapshot().frames[currentIndex] ?? EMPTY_FRAME; return { type: "set-animation-frame", index: currentIndex, frame: { ...frame, transparent: { ...frame.transparent, [channel]: value } } }; });
+    } else await run(() => ({ type: "set-animation-frame", index: currentIndex, frame: { ...(doc.getSnapshot().frames[currentIndex] ?? EMPTY_FRAME), [field]: text } }));
+    setTyped((previous) => { const next = { ...previous }; if (next[field] === text) delete next[field]; return next; });
   };
   const scalar = async (field: "width" | "height" | "delay", text: string): Promise<void> => {
     const value = Number(text);
     if (!Number.isFinite(value)) { setMessage(`${field} must be a number.`); return; }
     const success = field === "delay"
       ? await run({ type: "set-animation-delay", delay: value })
-      : await run({ type: "set-animation-canvas", width: field === "width" ? value : snapshot.width, height: field === "height" ? value : snapshot.height });
-    if (success) setTyped((previous) => { const next = { ...previous }; delete next[field]; return next; });
+      : await run(() => ({ type: "set-animation-canvas", width: field === "width" ? value : doc.getSnapshot().width, height: field === "height" ? value : doc.getSnapshot().height }));
+    if (success) setTyped((previous) => { const next = { ...previous }; if (next[field] === text) delete next[field]; return next; });
   };
   const typeValue = (field: keyof typeof typed): string => typed[field] ?? String(field === "red" ? current.transparent.r : field === "green" ? current.transparent.g : field === "blue" ? current.transparent.b : field === "image" || field === "sound" ? current[field] : snapshot[field]);
   const stageImages = async (): Promise<void> => {
-    const selectedCandidates = imageCandidates.filter((candidate) => imageSelection.has(candidate.reference));
+    const selectedCandidates = imageOrder;
     if (selectedCandidates.length === 0) { setMessage("Select at least one image frame."); return; }
     if (snapshot.frames.length + selectedCandidates.length > ANIMATION_FRAME_LIMIT) { setMessage(`The selected images would exceed the ${ANIMATION_FRAME_LIMIT}-frame animation limit.`); return; }
     const staged: { readonly frame: AnimationFrame; readonly picture: { readonly width: number; readonly height: number } }[] = [];
@@ -183,28 +188,26 @@ export function AnimationView({ doc, fs, writeBitmapAsset, onEdited, browser }: 
     const frames = [...snapshot.frames.slice(0, currentIndex), ...staged.map(({ frame }) => frame), ...snapshot.frames.slice(currentIndex)];
     const firstAdded = staged[0]!;
     const empty = snapshot.frames.length === 0;
-    if (await run({
-      type: "replace-animation",
-      frames,
-      width: empty ? firstAdded.picture.width : snapshot.width,
-      height: empty ? firstAdded.picture.height : snapshot.height,
-      delay: snapshot.delay,
-    })) {
-      setSelected(currentIndex);
-      setImagesOpen(false);
-      setImageSelection(new Set());
-      await save();
-    }
+    if (authoring === undefined) { setMessage("This host does not provide persistent animation creation."); return; }
+    setBusy(true);
+    try {
+      const result = await authoring.commitAnimation({ type: "replace-animation", frames, width: empty ? firstAdded.picture.width : snapshot.width, height: empty ? firstAdded.picture.height : snapshot.height, delay: snapshot.delay }, []);
+      if (!result.ok) { setMessage(result.error.message); return; }
+      setRecoveryVersion((value) => value + 1);
+      if (result.value.files.some((file) => file.status !== "written")) { setMessage("Creation stopped. Review project recovery and retry remaining files."); return; }
+      setSelected(currentIndex); setImagesOpen(false); setImageSelection(new Set()); setImageOrder([]); setImageOrder([]);
+      setMessage("Animation created and saved.");
+    } finally { setBusy(false); }
   };
   const stageTileBitmap = async (): Promise<void> => {
-    if (browser === undefined || writeBitmapAsset === undefined) { setMessage("This host cannot create project tile bitmaps."); return; }
-    if (snapshot.frames.length >= ANIMATION_FRAME_LIMIT) { setMessage(`The animation already has ${ANIMATION_FRAME_LIMIT} frames.`); return; }
+    if (browser === undefined || authoring === undefined) { setMessage("This host cannot create project tile bitmaps."); return; }
+    if (snapshot.frames.length + tileFrames.length >= ANIMATION_FRAME_LIMIT) { setMessage(`The animation already has ${ANIMATION_FRAME_LIMIT} frames.`); return; }
     if (tileCells.some((tile) => tile === "")) { setMessage("Choose a tile for each of the 16 cells."); return; }
     const invalidName = unusableName(/\.tbm$/i.test(tileName) ? tileName : `${tileName}.tbm`);
     if (tileName.trim() === "" || invalidName !== null) { setMessage(invalidName ?? "Give the tile bitmap a name."); return; }
     const name = /\.tbm$/i.test(tileName) ? tileName.trim() : `${tileName.trim()}.tbm`;
     const path = `${folder}/${name}`;
-    const bytes = tiledBitmapBytes(tileCells);
+    const bytes = animationTileBitmapBytes(tileCells);
     if (bytes === null) { setMessage("The 4×4 tile bitmap could not be encoded."); return; }
     const load = async (assetPath: string): Promise<Uint8Array | null> => {
       const result = await fs.readProject(identity.projectId, assetPath);
@@ -216,40 +219,30 @@ export function AnimationView({ doc, fs, writeBitmapAsset, onEdited, browser }: 
     setMessage(`Staged ${path} (${picture.width} × ${picture.height} pixels). Confirm to create and insert it.`);
   };
   const confirmTileBitmap = async (): Promise<void> => {
-    if (stagedTile === null || writeBitmapAsset === undefined) return;
-    const existing = await fs.readProject(identity.projectId, stagedTile.path);
-    if (existing.ok) { setMessage(`${stagedTile.path} already exists. Choose another name; the existing file was not changed.`); return; }
-    const created = await writeBitmapAsset(stagedTile.path, stagedTile.bytes);
-    if (!created.ok) { setMessage(created.error?.message ?? `Could not create ${stagedTile.path}; the staged frame is retained for retry.`); return; }
-    const frame: AnimationFrame = { image: stagedTile.name, transparent: topLeftKey(stagedTile.picture), sound: "" };
+    if (authoring === undefined) return;
+    const staged = tileFrames.length > 0 ? tileFrames : stagedTile === null ? [] : [stagedTile];
+    if (staged.length === 0) { setMessage("Stage at least one tile composition."); return; }
     const empty = snapshot.frames.length === 0;
-    const frames = [...snapshot.frames.slice(0, currentIndex), frame, ...snapshot.frames.slice(currentIndex)];
-    const applied = await run({
-      type: "replace-animation",
-      frames,
-      width: empty ? stagedTile.picture.width : snapshot.width,
-      height: empty ? stagedTile.picture.height : snapshot.height,
-      delay: snapshot.delay,
-    });
-    if (!applied) {
-      setMessage(`${stagedTile.path} was created; animation was not changed. The generated file is retained.`);
-      return;
-    }
-    setSelected(currentIndex);
-    setStagedTile(null);
-    setTileOpen(false);
-    const saved = await save();
-    if (!saved) setMessage(`${stagedTile.path} was created and the animation edit is retained as unsaved work. Use Save to retry.`);
+    const frames = [...snapshot.frames.slice(0, currentIndex), ...staged.map((tile) => ({ image: tile.name, transparent: topLeftKey(tile.picture), sound: "" })), ...snapshot.frames.slice(currentIndex)];
+    setBusy(true);
+    try {
+      const result = await authoring.commitAnimation({ type: "replace-animation", frames, width: empty ? staged[0]!.picture.width : snapshot.width, height: empty ? staged[0]!.picture.height : snapshot.height, delay: snapshot.delay }, staged);
+      if (!result.ok) { setMessage(result.error.message); return; }
+      setRecoveryVersion((value) => value + 1);
+      if (result.value.files.some((file) => file.status !== "written")) { setMessage("Creation stopped. Review project recovery and retry remaining files."); return; }
+      setSelected(currentIndex); setStagedTile(null); setTileFrames([]); setTileOpen(false);
+      setMessage("Tile frames and animation saved.");
+    } finally { setBusy(false); }
   };
 
-  const disabled = readOnly || snapshot.conflict !== null || snapshot.saving;
+  const disabled = busy || readOnly || snapshot.conflict !== null || snapshot.saving;
   return <main class="tkr-animation-editor" aria-label="Animation editor">
     <header class="tkr-animation-toolbar">
       <h1>Animation</h1>
       <button type="button" disabled={disabled} onClick={() => void save()}>Save</button>
-      <label>Canvas width <input type="number" min="1" step="1" value={typeValue("width")} disabled={disabled} onInput={(event) => setTyped((state) => ({ ...state, width: event.currentTarget.value }))} onBlur={(event) => void scalar("width", event.currentTarget.value)} /></label>
-      <label>Canvas height <input type="number" min="1" step="1" value={typeValue("height")} disabled={disabled} onInput={(event) => setTyped((state) => ({ ...state, height: event.currentTarget.value }))} onBlur={(event) => void scalar("height", event.currentTarget.value)} /></label>
-      <label>Global delay (seconds) <input type="number" min="0" step="0.001" value={typeValue("delay")} disabled={disabled} onInput={(event) => setTyped((state) => ({ ...state, delay: event.currentTarget.value }))} onBlur={(event) => void scalar("delay", event.currentTarget.value)} /></label>
+      <label>Canvas width <input type="number" min="1" step="1" value={typeValue("width")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, width: value })); void scalar("width", value); }} /></label>
+      <label>Canvas height <input type="number" min="1" step="1" value={typeValue("height")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, height: value })); void scalar("height", value); }} /></label>
+      <label>Global delay (seconds) <input type="number" min="0" step="0.001" value={typeValue("delay")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, delay: value })); void scalar("delay", value); }} /></label>
       <button type="button" disabled={disabled || snapshot.frames.length === 0} onClick={() => setPlaying((value) => !value)}>{playing ? "Stop playback" : "Play"}</button>
     </header>
     {snapshot.readOnly !== null && <p role="status">Read only: {snapshot.readOnly.message}</p>}
@@ -266,10 +259,10 @@ export function AnimationView({ doc, fs, writeBitmapAsset, onEdited, browser }: 
       {snapshot.frames.map((frame, index) => <button type="button" key={index} aria-current={index === currentIndex ? "true" : undefined} onClick={() => setSelected(index)}>Frame {index + 1}: {frame.image || "empty"}</button>)}
     </section>
     <section class="tkr-animation-frame-editor" aria-label={`Frame ${currentIndex + 1} properties`}>
-      <label>Image reference <input value={typeValue("image")} disabled={disabled} onInput={(event) => setTyped((state) => ({ ...state, image: event.currentTarget.value }))} onBlur={(event) => void updateFrame("image", event.currentTarget.value)} /></label>
-      <label>Sound reference <input value={typeValue("sound")} disabled={disabled} onInput={(event) => setTyped((state) => ({ ...state, sound: event.currentTarget.value }))} onBlur={(event) => void updateFrame("sound", event.currentTarget.value)} /></label>
+      <label>Image reference <input value={typeValue("image")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, image: value })); void updateFrame("image", value); }} /></label>
+      <label>Sound reference <input value={typeValue("sound")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, sound: value })); void updateFrame("sound", value); }} /></label>
       <fieldset><legend>Transparency key (RGB)</legend>
-        {(["red", "green", "blue"] as const).map((channel) => <label key={channel}>{channel} <input type="number" min="0" max="255" value={typeValue(channel)} disabled={disabled} onInput={(event) => setTyped((state) => ({ ...state, [channel]: event.currentTarget.value }))} onBlur={(event) => void updateFrame(channel, event.currentTarget.value)} /></label>)}
+        {(["red", "green", "blue"] as const).map((channel) => <label key={channel}>{channel} <input type="number" min="0" max="255" value={typeValue(channel)} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, [channel]: value })); void updateFrame(channel, value); }} /></label>)}
       </fieldset>
       <div class="tkr-animation-preview">{preview === null ? <p role="status">No frame preview is available.</p> : <canvas ref={canvas} role="img" aria-label={`Animation frame ${currentIndex + 1} preview`} />}</div>
     </section>
@@ -281,31 +274,45 @@ export function AnimationView({ doc, fs, writeBitmapAsset, onEdited, browser }: 
           {imageCandidates.map((candidate) => <label key={candidate.reference}><input type="checkbox" checked={imageSelection.has(candidate.reference)} onChange={(event) => setImageSelection((currentSet) => {
             const next = new Set(currentSet);
             if (event.currentTarget.checked) next.add(candidate.reference); else next.delete(candidate.reference);
+            setImageOrder(imageCandidates.filter((entry) => next.has(entry.reference)));
             return next;
           })} />{candidate.reference}</label>)}
         </div>
+        <ol aria-label="Staged image order">{imageOrder.map((candidate, index) => <li key={candidate.path}>{candidate.reference}
+          <button type="button" disabled={disabled || index === 0} onClick={() => setImageOrder((previous) => { const next = [...previous]; [next[index - 1], next[index]] = [next[index]!, next[index - 1]!]; return next; })}>Move image earlier</button>
+          <button type="button" disabled={disabled || index + 1 === imageOrder.length} onClick={() => setImageOrder((previous) => { const next = [...previous]; [next[index], next[index + 1]] = [next[index + 1]!, next[index]!]; return next; })}>Move image later</button>
+        </li>)}</ol>
+        <p>Destination: {identity.path}</p>
         <button type="button" disabled={disabled || imageCandidates.length === 0} onClick={() => void stageImages()}>Insert selected sorted images</button>
-        <button type="button" onClick={() => { setImagesOpen(false); setImageSelection(new Set()); }}>Cancel image wizard</button>
+        <button type="button" onClick={() => { setImagesOpen(false); setImageSelection(new Set()); setImageOrder([]); }}>Cancel image wizard</button>
       </details>
       <details open={tileOpen} onToggle={(event) => setTileOpen(event.currentTarget.open)}>
-        <summary>Compose and insert one 4×4 tile bitmap frame</summary>
+        <summary>Compose 4×4 tile bitmap frames</summary>
         <label>New tile bitmap name <input value={tileName} onInput={(event) => setTileName(event.currentTarget.value)} disabled={disabled} /></label>
         <div role="group" aria-label="4 by 4 tile cells">
           {tileCells.map((tile, index) => <button type="button" key={index} aria-pressed={tileCell === index} onClick={() => setTileCell(index)}>Cell {index + 1}: {tile || "empty"}</button>)}
         </div>
         <p>Selected tile: {brush?.boardTile ?? "Choose a complete tile from the shared browser"}</p>
         <button type="button" disabled={disabled || brush?.boardTile === null || brush === null} onClick={() => setTileCells((cells) => cells.map((tile, index) => index === tileCell ? brush?.boardTile ?? "" : tile))}>Put selected tile in cell</button>
-        <button type="button" disabled={disabled || writeBitmapAsset === undefined} onClick={() => void stageTileBitmap()}>Stage TBM frame</button>
+        <button type="button" disabled={disabled || authoring === undefined} onClick={() => void stageTileBitmap()}>Stage TBM frame</button>
         {stagedTile !== null && <div role="group" aria-label="Staged tile bitmap frame">
           <p>{stagedTile.path} — {stagedTile.picture.width} × {stagedTile.picture.height} pixels</p>
           <canvas ref={tileCanvas} role="img" aria-label={`Preview of ${stagedTile.path}`} />
+          <button type="button" disabled={disabled} onClick={() => { setTileFrames((frames) => [...frames, stagedTile]); setStagedTile(null); setTileName(""); }}>Add composition to sequence and reuse template</button>
           <button type="button" disabled={disabled} onClick={() => void confirmTileBitmap()}>Create TBM and insert frame</button>
           <button type="button" onClick={() => { setStagedTile(null); setMessage("Staged tile bitmap discarded; no project files were written."); }}>Cancel staged frame</button>
         </div>}
-        <button type="button" onClick={() => { setTileOpen(false); setTileCells(new Array<string>(16).fill("")); setTileName(""); setStagedTile(null); setMessage(null); }}>Cancel tile wizard</button>
+        <ol aria-label="Staged tile frame order">{tileFrames.map((frame, index) => <li key={index}>{frame.path}
+          <button type="button" disabled={disabled || index === 0} onClick={() => setTileFrames((previous) => { const next = [...previous]; [next[index - 1], next[index]] = [next[index]!, next[index - 1]!]; return next; })}>Move tile frame earlier</button>
+          <button type="button" disabled={disabled} onClick={() => setTileFrames((previous) => previous.filter((_, at) => at !== index))}>Remove staged frame</button>
+        </li>)}</ol>
+        <p>Animation written last: {identity.path}</p>
+        {tileFrames.length > 0 && <button type="button" disabled={disabled} onClick={() => void confirmTileBitmap()}>Create tile sequence</button>}
+        <button type="button" onClick={() => { setTileFrames([]); setTileOpen(false); setTileCells(new Array<string>(16).fill("")); setTileName(""); setStagedTile(null); setMessage(null); }}>Cancel tile wizard</button>
         {browser !== undefined && <TilesetBrowser context={browser} />}
       </details>
     </section>}
+    {authoring !== undefined && <CheckpointView groups={authoring} version={recoveryVersion} />}
     {message !== null && <p role="status">{message}</p>}
   </main>;
 }

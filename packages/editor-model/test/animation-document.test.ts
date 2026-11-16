@@ -63,3 +63,20 @@ test("Toolkit 2 text animation is explicitly read-only and byte-identical on ope
   ok(stored.ok);
   deepEqual(stored.value, bytes);
 });
+
+test("51-slot boundary, empty frame metadata and opaque residue survive edits and undo", async () => {
+  const frames = Array.from({ length: 51 }, (_, index) => frame(index === 25 ? "" : `frame${index}.png`, `sound${index}.wav`));
+  const base = animationBytes(frames);
+  const original = new Uint8Array([...base, 0xde, 0xad, 0x42]);
+  const host = createMemoryPlatformServices({ files: { [PATH]: original } });
+  const opened = await openAnimationDocument(host.fs, identity); ok(opened.ok);
+  const doc = opened.document; equal(doc.getSnapshot().readOnly, null);
+  equal(doc.apply({ type: "insert-animation-frame", index: 51, frame: frame("overflow.png", "") }).ok, false);
+  deepEqual(doc.serialize(), original);
+  const moved = doc.apply({ type: "move-animation-frame", from: 25, to: 0 }); ok(moved.ok);
+  deepEqual(doc.getSnapshot().frames[0], frames[25]); deepEqual(doc.serialize().slice(-3), new Uint8Array([0xde, 0xad, 0x42]));
+  ok(doc.undo(moved.editId).ok); deepEqual(doc.serialize(), original);
+  equal(doc.apply({ type: "set-animation-frames", frames: [...frames, frame("extra", "")] }).ok, false);
+  equal(doc.apply({ type: "set-animation-delay", delay: -1 }).ok, false);
+  equal(doc.apply({ type: "set-animation-canvas", width: 0, height: 1 }).ok, false);
+});

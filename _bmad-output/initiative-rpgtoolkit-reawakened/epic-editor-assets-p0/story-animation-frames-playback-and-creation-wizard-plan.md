@@ -1,49 +1,111 @@
 ---
+title: Animation frames playback and creation wizard
 type: feature
-title: "Animation frames playback and creation wizard"
 ticket: 7
-status: blocked
+created: 2026-11-15
+status: in-progress
+baseline_revision: 96beab02b5bf791a031ae98f9f0957471021c61d
+route: full
+route_source: auto
+risk: high
+review: thorough
+review_source: auto
+lenses_ran: []
+review_loop_iteration: 0
+context:
+  - '{project-root}/AGENTS.md'
+  - '{project-root}/CONTRIBUTING.md'
+  - '{project-root}/docs/guardrails.md'
+  - '{project-root}/docs/spec/editor-animation-authoring.md'
+  - '{project-root}/docs/spec/formats/animation.md'
+  - '{project-root}/docs/adr/0022-shared-editor-authoring-contracts.md'
 ---
 
-# Animation frames playback and creation wizard
+<frozen-after-approval reason="Owner authorized full completion, best recommendations, push and merge when green on 2026-11-15">
 
-## Goal and boundaries
+## Intent
 
-Implement story 12.7 / #1718 as a shared `.anm` authoring document and editor, in `editor-model` and `editor-ui`, usable in the browser and VS Code hosts. Support ordered frame append/insert/delete/reorder and selection/navigation (respecting the format's 51-slot ceiling); frame image, transparency key and sound; clip-wide delay (`globaldelay`) and canvas width/height; preview playback; sorted-image and 4×4-tile composition wizards. Each composed animation frame becomes a named `.tbm`. The first resulting frame initializes canvas size and key. Frame-associated sound/key must move with its image. Scope is not the proposed `.tkranm` native clip or a second tile browser.
-**Baseline:** `origin/main` at `25c0b2b`; implementation branch `feat/1718-animation-authoring`.
+Complete #1718 and PR #2699: authors create and edit animations in browser and VS Code, build ordered image or multi-frame tile sequences, save/reopen them and recover wizard output after failure or restart. Preserve the partial shared model/view already on the branch. Implement the shared checkpoint subset of #1828 required for this feature; do not claim all of #1828 complete.
 
-## Verified code map
+## Boundaries & Constraints
 
-- Format contract: `docs/spec/formats/animation.md#layout` (image, COLORREF transparency and sound per stored frame; width/height and delay after frame slots; 51 slots in legacy editor, empty slots retained on disk but skipped during playback). `docs/spec/formats/tiles.md#tile-bitmap-tbm` defines 1–40 tile grids and the stored padding row/column.
-- Existing provider: `packages/core/src/formats/animation/{model,reader,writer}.ts` exposes `Animation`/`AnimationFrame`, preserves image spelling and trailing `residue`, and has same-version binary byte round-trip. `readAnimation` also reads Toolkit 2 text minor 0; `writeAnimation` writes binary only. Per ADR 0022 D2, minor 0 is intentionally read-only with the explicit no-same-version-writer reason; do not convert or imply an edit path. New and editable documents use binary minor 3. `.tbm` serialization is in `packages/core/src/formats/tile-bitmap/{model,reader,writer}.ts`.
-- Model precedent: `packages/editor-model/src/{binary-document.ts,tile-bitmap-document.ts,sprite-document.ts,kinds.ts,index.ts}`. Add an animation codec/document with plain serializable commands and snapshot, validating commands and values; reuse `BinaryDocument` history, undo/redo, save/conflict and exact-writeback checks. Keep frame fields in one record through reordering; do not mutate source bytes or write during wizard preview.
-- UI precedent: `packages/editor-ui/src/{mount.ts,tile-bitmap-view.tsx,tileset-browser.tsx,sprite-view.tsx,use-document.ts}`. `TileBitmapView` demonstrates snapshot subscriptions, refusal feedback, keyboard grid and composed preview. `TilesetBrowser` shares retained browser session and selection; browsing only selects, never paints. `SpriteView` already uses project asset reads and animation image/tile/TBM preview helpers in `sprite-document.ts`.
-- Integration map: add `.anm` to `editor-model/src/kinds.ts` and public exports, mount animation view in `editor-ui/src/mount.ts`, and wire browser context through it. Route through `packages/host-web/src/index.ts` and the VS Code custom-document/webview path (`packages/host-vscode/src/{custom-editor.ts,extension.ts,webview.tsx,document-bridge.ts}`; add the view type in `extension.ts`), preserving one model per project URI. Do not fork lifecycle or filesystem behavior by host.
-- Tests to add/update: `packages/editor-model/test/{animation-document.test.ts,kind-conformance.test.ts}`; `packages/editor-ui/test/animation-view.test.ts`; host-web/host-vscode custom-editor open-save-reopen conformance. Reuse authored small fixtures; do not copy legacy source or game assets into fixtures.
+Always use shared editor-model/editor-ui with host I/O via platform-services. Follow the committed animation-authoring specification, same-version binary writer, 51-frame limit, empty slots and opaque residue preservation. Frame image/key/sound remain one record. Text minor 0 stays explicitly read-only. Real host actions must settle edits before save/close; keep current main's lifecycle fixes. No legacy source, dependency-policy weakening, fake recovery, rollback claim or unapproved retention values. Groups persist under the already reserved `.tkr-history/` until explicit deletion; restore is itself recoverable. Browser/editor scheduling need not be deterministic engine scheduling.
 
-## Implementation sequence
+## I/O & Edge-Case Matrix
 
-1. Follow ADR 0022 D2: open binary minor 3 as editable through the same-version writer; open readable text minor 0 read-only with a clear “no same-version writer” reason. Never offer read-write open, convert, or downgrade text. Create new authoring documents in binary minor 3. This is settled policy, not a docs/provider gate.
-2. Add `AnimationDocument` commands for frame list operations, per-frame fields, canvas size and delay. Preserve header/version, every untouched/empty slot, and residue; only trim trailing empty slots when writing if explicitly consistent with the `.anm` editor rule. Refuse invalid/no-op commands without altering the document. Establish first-frame width/height/key only when creating wizard output; later frames retain independently selected keys.
-3. Add a keyboard-operable editor with selected-frame list, add/insert/delete/move controls, previous/next navigation, accessible playback start/stop/step, image/key/sound pickers, delay and dimensions. Preview must use shared image/tile/TBM decoders and canvas/key composition, not a separately invented renderer. Saving remains the shared document lifecycle.
-4. Stage both wizards entirely in memory. Image wizard reads selected project pictures, sorts deterministically by normalized project path (show resulting order and allow reorder), then builds frames. Tile wizard uses the shared browser for tile selection, composes each 4×4 selection into an actual TBM, and assigns proposed names plus the ANM destination. Validate every destination/collision first and request overwrite consent before writes. On confirm, commit generated TBMs in a fixed order and write the ANM last; follow ADR 0022 D4/D12: before any write, cancel/failure leaves sources and destinations untouched; after partial writes, stop and report each written/skipped/pending file with retry-remaining/leave-as-is, never claim atomic rollback. Record the multi-file operation in one checkpoint group and integrate the D12 recovery provider rather than making recovery conditional on host.
-5. Register the shared view/document in both hosts, route save/undo/reopen and wizard confirmation via host services, and keep browser session state project-scoped. Capability absence is explained; no host-specific editor implementation.
+| Scenario | Expected behavior |
+|---|---|
+| New/image/tile wizard cancel or declined collision | No source or destination changes |
+| Successful multi-frame confirmation | Named TBMs in displayed order, ANM last; reopen preserves frame sound/key and dimensions |
+| Invalid names, aliases, read-only format, unavailable project | Explain refusal before target writes |
+| History write fails | No target written |
+| Target write fails after earlier successes | Accurate per-file results, persistent remaining work, retry remaining / leave as is |
+| Restart and restore | Original contents restored, created files removed, failures individually retryable |
+| Restore the restore | Reinstates outputs via separate before-restore group |
+| Dirty/open document or external change | Preserve work; coordinate accepted edits/save or explicitly refuse unsafe replacement/removal |
+| Corrupt/missing recovery bytes | Refuse destructive recovery |
 
-## Acceptance: Given / When / Then
+</frozen-after-approval>
 
-- **Given** a supported binary animation with empty/interior slots, non-default frame keys/sounds, version and trailing residue, **when** frames are inserted, deleted, reordered and edited, **then** each frame's image/key/sound remains paired, untouched fields/residue survive, undo/redo restores the prior sequence, and save→close→reopen matches the authored model and unchanged bytes where applicable.
-- **Given** a multi-image selection and existing animation, **when** the sorted-image wizard previews, reorders, then cancels, **then** neither input nor destination changes. On confirmation, frames follow displayed order and first-frame dimensions/key initialize the canvas.
-- **Given** 4×4 browser selections and occupied proposed filenames, **when** the tile wizard is canceled or overwrite is declined, **then** all sources/destinations remain unchanged. On confirmation, reopened named TBMs compose to the expected 4×4 tile pictures, and the reopened ANM references them in frame order with attached sound/key.
-- **Given** a write failure on either host, **when** a multi-file commit stops, **then** the error identifies completed and pending files, retains source edits and remaining staged work, and offers documented recovery choices; it never reports success or erases written output.
-- **Given** the same fixture in browser and VS Code, **when** each opens, edits, saves, closes and reopens it, **then** both use shared model/view behavior and preserve the same supported-format fields; keyboard-only navigation and playback controls are operable and labeled.
-- **Given** a readable text minor-0 animation without a same-version writer, **when** it is opened, **then** the document is read-only with the D2 reason, no edit/wizard write is offered against it, and its source bytes remain unchanged.
+## Code Map
 
-## Dependencies and decision gate
+- `packages/editor-model/src/animation-document.ts`: partial codec, commands, newAnimationBytes; `binary-document.ts`, `workspace.ts`, `pending-edits.ts`, `identity.ts` and path resolver provide lifecycle seams. `kinds.ts` registers animation; merged recoveryMarker is present.
+- `packages/editor-ui/src/animation-view.tsx`: partial image wizard and single TBM; currently imports core illegally. `mount.ts` wires view and pending-edits integration. Use shared browser/preview helpers already exported from model; move all TBM encode/validate/types behind model API.
+- Add `packages/editor-model/src/checkpoint-groups.ts` and animation wizard orchestration with persistent before/after bytes, validated manifests, case-folded paths and restart-safe recovery. `platform-services/src/fs.ts`, `run.ts` and `services.ts` offer project-bound I/O and Web Crypto/hash precedents. FileSystemService.delete is not project-identified: ensure deletion binds to the initiating project through completion. Extend shared interfaces and every host/test implementation if needed.
+- `host-web/src/index.ts`, `workbench.ts`; `host-vscode/src/custom-editor.ts`, `document-bridge.ts`, `extension.ts`, `webview.tsx`, `new-board.ts`, `new-program.ts`; `extensions/editor/package.json`: new animation command and shared wizard/recovery integration. Do not retain duplicated host encoding/validation. Preserve settle/settled, pending-edits, program and character flows.
+- `editor-model/src/package-export.ts` already excludes history; verify actual new artifacts stay excluded. Offer ignore change explicitly.
+- Browser real proof: add `tools/browser/tests/editor-animation.spec.ts`, follow `editor-tile-bitmap.spec.ts` OPFS fixture/native Files helpers against shipped editor-web page.
+- VS Code real proof: extend `tools/editor-vscode-test/web-proof.ts`, follow sprite proof, native quick-open, readBacking and bounded refusal/restart helpers. Add focused selector in `run.mjs`, and include scenario in regular CI editor proof. `pnpm vscode-web:test` is unrelated debugger proof.
 
-Prerequisites #1713 (12.2 shared browser), #1717 (12.8 tile bitmap document/editor) and #1699 (11.1 wizard recovery) are reported closed; consume their merged contracts, not duplicate providers. Follow `docs/adr/0022-shared-editor-authoring-contracts.md` D2/D4/D12 and `discovery/inception-proposal.md` composition lane. **Owner review of this plan is complete; proceed with binary minor-3 authoring and D2 read-only handling for text minor 0.** Keep multi-file cancellation/failure behavior honest to D4: no cross-document atomicity or rollback claim.
+## Tasks & Acceptance
 
-## Actual provider gate and preserved work
+- [ ] Model, provider, platform and tests: durable group capture before writes; sorted operations; retry/restore and conflict handling; useful persistent recovery UI in both hosts.
+- [ ] Shared view/model: staged sortable image list, multi-frame 4×4 composition with template reuse, proposed destinations and collision confirmation, frame metadata and first-frame initialization. Existing animation edit/playback/navigation/undo/save remains operable.
+- [ ] Both hosts: explicit new ANM entry points; shared recovery service and lifecycle integration; no forbidden imports (#2805).
+- [ ] Tests: all matrix rows executed, model byte preservation and boundaries, keyboard use, both actual host save/close/reopen and recovery. New ordinary tests individually under 1s. Record behavior-breaking perturbation red/restored green for new evidence tests. File every discovered defect, link fixing PR.
+- [ ] Update changelog, final plan evidence and PR checklist; close #1718/#2805 and verified fixed #2695/#2697 from PR. Keep #1828 open for general history/retention/timeline work.
 
-ADR 0022 D4.1 and D12.3 require a real checkpoint group before a wizard writes several documents. The accepted rule exists, but its shared store/restore provider does not: #1828 (11.14) remains open. This is ordinary creator recovery, not a hostile-local-filesystem race, and the owner's trusted-folder ruling does not remove it.
+Acceptance: Given authored image and tile fixtures, when each real host creates, edits, confirms, saves and reopens, then ordered metadata and rendered output match. Given interruption and later reopening, when recovery is selected, then all affected paths report truthful results and recovery itself is reversible. Given text minor 0, no authoring write occurs.
 
-The branch preserves a partial shared binary-animation document/view and both-host registration. It is not ready to merge as this story: checkpoint-group recovery is absent; the tile wizard currently handles one named frame, not the planned staged multi-frame batch with retry-remaining results; and explicit creation of a new `.anm` is absent. The full acceptance above remains unchanged. Resume against the actual 11.14 provider rather than shipping a host-specific recovery substitute or claiming completion.
+## Implementation Notes
+
+- Owner authorized autonomous completion and merge; no further plan approval required. Worktree is `/Users/jensen/.codex/worktrees/1718-animation-completion/rpgtoolkit-reawakened`, branch `feat/1718-animation-authoring`. Main merged and build passed; docs-first recovery contract committed. Do not operate on original checkout or unrelated worktrees. Verify pwd/branch before git commands. No pushes until parent review.
+- Use reasonable implementation choices within docs. If evidence uncovers a genuinely unresolved requirement, report it with concrete alternatives; never silently reduce acceptance.
+
+## Plan Change Log
+
+## Review Triage Log
+
+## Verification
+
+`pnpm build`, focused node tests, `pnpm typecheck`, `pnpm lint`, `pnpm graph`, relevant tool tests; then full required CI. Browser: `pnpm exec playwright test tools/browser/tests/editor-animation.spec.ts --workers=1`. VS Code: build host and extension, then focused selector with `pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace docs/spec/examples/game --game Main/example.gam`. Pace host protocols and run heavy proofs sequentially. Record exact commands/results and limitations. Parent obtains independent review, pushes, monitors CI, merges and archives managed worktree only after destination is verified.
+
+
+### Implementation handoff, 2026-11-15
+
+Shared animation orchestration, model-owned TBM encoding/validation, staged image ordering, multi-frame tile composition/template reuse, new-animation commands, persistent recovery views and project-bound deletion are implemented. Capture manifests are immutable; progress is appended so a partial progress write cannot destroy recovery metadata. Active animation replacement uses accepted commands and the normal host save; exact pending revisions can retry after rejected saves, while unrelated dirty work is refused. Root recovery remains available with affected editors closed. History is retained without a thinning policy; adding the ignore entry is explicit and recoverable. The exporter test creates actual capture/content/progress artifacts and checks their exclusion.
+
+Defects tracked and fixed in this candidate: #2813 (capture corruption), #2814 (pending-revision retry), #2815 (already absent restore), #2816 (in-focus/queued metadata save). Parent review/PR should close these along with the plan's existing fixed defects.
+
+Validated locally: `pnpm build`, `pnpm typecheck`, `pnpm lint`, `pnpm graph`, `pnpm exec tsc -b packages/host-vscode`, `pnpm --dir packages/host-vscode build`; focused model, provider, UI, platform and bridge tests. Individual new cases were under 1 second (slowest observed UI image wizard approximately 49 ms). Real-host browser/VS Code proofs, CI integration, full CI and independent review remain pending at handoff; this is not a feature-complete or merge-ready claim.
+
+### Behavior-breaking negative proofs
+
+Each row ran its targeted `node --test --test-name-pattern=...` command, failed with an assertion when perturbed, restored the source, and passed the same command. UI perturbations rebuilt `pnpm build`; the bridge perturbation rebuilt `pnpm exec tsc -b packages/host-vscode`. No compile failure or stale bundle counted as evidence.
+
+- **restore originals**: `bytes: await contents(file.before) -> bytes: await contents(file.after)`. `node --test --test-name-pattern=durable groups survive restart packages/editor-model/test/checkpoint-groups.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **stop on target failure**: `if (group.reason !== "before-restore") break; -> if (false) break;`. `node --test --test-name-pattern=history failures stop packages/editor-model/test/checkpoint-groups.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **immutable capture**: ``${directory}/${next}.json` -> manifestPath(group.id)`. `node --test --test-name-pattern=torn progress after packages/editor-model/test/checkpoint-groups.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **verify recovery hashes**: `if (await hash(bytes) !== key) -> if (false)`. `node --test --test-name-pattern=corrupt or missing recovery packages/editor-model/test/checkpoint-groups.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **reject aliased duplicate destinations**: `if (seen.has(foldPath(path))) -> if (false)`. `node --test --test-name-pattern=declined collisions packages/editor-model/test/checkpoint-groups.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **fresh conflict consent**: `&& !await env.consent([file.path])) -> && false)`. `node --test --test-name-pattern=external changes during packages/editor-model/test/checkpoint-groups.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **explicit ignore entry**: `}/.tkr-history/\n`) -> }/WRONG/\n`)`. `node --test --test-name-pattern=ignore changes are explicit packages/editor-model/test/checkpoint-groups.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **frame metadata preservation**: `frames: model.frames }; -> frames: model.frames.map((frame) => ({ ...frame, sound: "" })) };`. `node --test --test-name-pattern=multi-frame wizard packages/editor-model/test/animation-authoring.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **retry exact pending revision**: `&& state.dirty && !state.saving -> && false && state.dirty && !state.saving`. `node --test --test-name-pattern=retry saves the exact packages/editor-model/test/animation-authoring.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **text minor zero refusal**: `if (!opened.ok || opened.document.getSnapshot().readOnly !== null) -> if (!opened.ok)`. `node --test --test-name-pattern=new destination and TBM packages/editor-model/test/animation-authoring.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **displayed image order**: `const selectedCandidates = imageOrder; -> const selectedCandidates = [...imageOrder].reverse();`. `node --test --test-name-pattern=the sorted-image wizard packages/editor-ui/test/animation-view.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **pending edit save barrier**: `await pendingEdits.settle(); -> // Perturbation: omit save barrier.`. `node --test --test-name-pattern=immediate save settles packages/editor-ui/test/animation-view.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **export history exclusion**: `segments[0] === RESERVED_HISTORY_FOLDER ||  -> `. `node --test --test-name-pattern=preflight creates a readable packages/editor-model/test/package-export.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **bridge byte validation**: `entry.bytes instanceof Uint8Array -> true`. `node --test --test-name-pattern=VS Code bridge validates animation tools/editor-vscode-test/test/editor-host-adapters.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **51-frame boundary**: `ANIMATION_FRAME_LIMIT = 51 -> ANIMATION_FRAME_LIMIT = 52`. `node --test --test-name-pattern=51-slot boundary packages/editor-model/test/animation-document.test.ts` — assertion red (exit 1), restored green (exit 0).
+- **retired project deletion**: `deleteProject: (requested, path) => requested === projectId && isActive() -> deleteProject: (requested, path) => requested === projectId`. `node --test --test-name-pattern=project-bound deletion stays packages/platform-services/test/memory.test.ts` — assertion red (exit 1), restored green (exit 0).

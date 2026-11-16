@@ -1,3 +1,5 @@
+import { CheckpointView } from "./checkpoint-view.tsx";
+import type { AnimationAuthoring } from "@tk-reawakened/editor-model";
 import {
   createPendingEdits,
   type ApplyResult,
@@ -103,8 +105,8 @@ export interface ViewContext {
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
   readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject">; readonly language?: PlatformServices["language"] };
-  /** A host-authorized, create-only path for the staged 4×4 TBM wizard. */
-  readonly createBitmapAsset?: (path: string, bytes: Uint8Array) => Promise<PlatformResult<void>>;
+  /** Persistent wizard and recovery operations owned by the authoritative document host. */
+  readonly animationAuthoring?: AnimationAuthoring;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
   /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
@@ -196,9 +198,10 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   } else if (isAnimationView(document)) {
     view = createElement(AnimationView, {
       doc: document,
+      pendingEdits,
       fs: fs!,
       onEdited,
-      ...(ctx.createBitmapAsset === undefined ? {} : { writeBitmapAsset: ctx.createBitmapAsset }),
+      ...(ctx.animationAuthoring === undefined ? {} : { authoring: ctx.animationAuthoring }),
       ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
     });
   } else if (document.kind === "main") {
@@ -262,4 +265,10 @@ export function mountNewProject(el: HTMLElement, props: NewProjectViewProps): Vi
 /** Render the IDE "No Game Opened" Explorer panel into `el`. */
 export function mountEmptyExplorer(el: HTMLElement, props: EmptyExplorerViewProps): ViewHandle {
   return mountElement(el, createElement(EmptyExplorerView, props));
+}
+
+/** Shared persistent project recovery, also available with every affected editor closed. */
+export function mountCheckpoints(element: HTMLElement, groups: import("@tk-reawakened/editor-model").CheckpointGroups): ViewHandle {
+  render(createElement(CheckpointView, { groups }), element);
+  return { dispose: () => render(null, element) };
 }
