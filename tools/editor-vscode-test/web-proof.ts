@@ -655,10 +655,7 @@ async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath:
   await beforeRender();
   const previewState = preview.locator(".tkr-board-preview-state");
   try {
-    await expect.poll(async () => {
-      const status = await previewState.textContent().catch(() => null);
-      return status === null || status !== "Drawing the board…";
-    }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+    await expect(previewState).toHaveCount(0, { timeout: 30_000 });
   } catch (error) {
     const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
     const canvas = preview.locator("canvas");
@@ -676,7 +673,6 @@ async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath:
     };
     throw new Error(`Native board History preview remained pending. Render state: ${JSON.stringify(renderState)}. Filesystem reads: ${JSON.stringify(historyHost.readEvents().slice(-30))}. Correlated preview stages (last 128):\n${trace}\n${String(error)}`);
   }
-  await expect(previewState).toHaveCount(0);
   await expect.poll(() => historyHost.readEvents().some((event) =>
     event.kind === "readFile" && event.path.replaceAll("\\", "/").endsWith("/Tiles/village.tst"),
   )).toBe(true);
