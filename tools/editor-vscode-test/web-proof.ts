@@ -426,17 +426,23 @@ async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Prom
 
 async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: string): Promise<void> {
   let preview: Frame | undefined;
+  let previewTitle: Locator | undefined;
   await expect.poll(async () => {
     for (const frame of page.frames()) {
-      if (await frame.getByRole("heading", { name: "History preview", exact: true }).count() > 0) {
+      const title = frame.getByRole("textbox", { name: "Game title", exact: true });
+      if (await frame.getByRole("heading", { name: "Game settings", exact: true }).count() > 0
+        && await title.count() > 0 && await title.isDisabled() && await title.inputValue() === expectedTitle) {
         preview = frame;
+        previewTitle = title;
         return true;
       }
     }
     return false;
   }, { timeout: 30_000 }).toBe(true);
-  if (preview === undefined) throw new Error("The History command did not open its actual read-only preview webview");
-  await expect(preview.getByRole("region", { name: "Saved file contents" })).toContainText(expectedTitle);
+  if (preview === undefined || previewTitle === undefined) throw new Error("The History command did not open the shared editor in read-only mode.");
+  await expect(previewTitle).toHaveValue(expectedTitle);
+  await expect(previewTitle).toBeDisabled();
+  await expect(preview.getByRole("note")).toContainText("Read only");
 }
 
 async function proveNativeNewBoard(
@@ -445,15 +451,18 @@ async function proveNativeNewBoard(
   tree: () => Promise<readonly string[]>,
   readBacking: (path: string) => Promise<Uint8Array>,
 ): Promise<void> {
-  await runCommand(page, expect, "RPG Toolkit: New board");
+  await runCommand(page, expect, "RPG Toolkit: New board", "New board: project");
   const widget = page.locator(".quick-input-widget");
+  await expect(widget).toContainText("New board: project");
+  await widget.getByRole("option", { name: "__tkr_new_project", exact: true }).click();
   const answer = widget.getByRole("textbox");
   await expect(widget).toContainText("Name of the new board");
   await answer.fill("Native history board");
   await answer.press("Enter");
 
   const choose = async (label: string): Promise<void> => {
-    const option = widget.getByRole("option", { name: label, exact: true });
+    const option = widget.getByRole("option", { name: label, exact: true })
+      .or(widget.getByRole("option", { name: `${label}, current`, exact: true }));
     await expect(option).toBeVisible();
     await option.click();
   };

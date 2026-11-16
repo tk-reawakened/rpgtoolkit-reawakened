@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
@@ -21,21 +22,27 @@ function activeCustomEditorUri(): vscode.Uri | undefined {
   return input instanceof vscode.TabInputCustom ? input.uri : undefined;
 }
 
+const historyPreviewOrigins = new Map<vscode.WebviewPanel, vscode.Uri>();
+let activeHistoryPreviewPanel: vscode.WebviewPanel | undefined;
+
+function trackHistoryPreview(panel: vscode.WebviewPanel, origin: vscode.Uri): void {
+  historyPreviewOrigins.set(panel, origin);
+  activeHistoryPreviewPanel = panel;
+  panel.onDidChangeViewState(({ webviewPanel }) => {
+    if (webviewPanel.active) activeHistoryPreviewPanel = webviewPanel;
+    else if (activeHistoryPreviewPanel === webviewPanel) activeHistoryPreviewPanel = undefined;
+  });
+  panel.onDidDispose(() => {
+    historyPreviewOrigins.delete(panel);
+    if (activeHistoryPreviewPanel === panel) activeHistoryPreviewPanel = undefined;
+  });
+}
+
 function html(webview: vscode.Webview, context: vscode.ExtensionContext): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
   const bundle = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "webview.js"));
   const stylesheet = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "tileset-browser.css"));
   return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${stylesheet}"><title>RPG Toolkit editor</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
-}
-function escapeHistoryText(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-}
-
-
-function historyPreviewHtml(path: string, description: string, bytes: Uint8Array): string {
-  const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
-  const text = escapeHistoryText(new TextDecoder().decode(bytes));
-  return `<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>History preview</title><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:1rem}pre{overflow:auto;max-height:75vh}code{font-family:var(--vscode-editor-font-family)}</style></head><body><main><h1>History preview</h1><p><code>${escapeHistoryText(path)}</code> · ${escapeHistoryText(description)}</p><pre role="region" aria-label="Saved file contents" tabindex="0"><code>${text}</code></pre></main></body></html>`;
 }
 
 
@@ -94,7 +101,9 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   });
   // The History command (#2833): the shared workspace does the work; VS Code only picks and reports.
   context.subscriptions.push(vscode.commands.registerCommand("tkr.history", async () => {
-    const candidate = vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri();
+    const candidate = vscode.window.activeTextEditor?.document.uri
+      ?? activeCustomEditorUri()
+      ?? (activeHistoryPreviewPanel === undefined ? undefined : historyPreviewOrigins.get(activeHistoryPreviewPanel));
     const folder = candidate === undefined ? (vscode.workspace.workspaceFolders ?? [])[0] : vscode.workspace.getWorkspaceFolder(candidate);
     if (folder === undefined) {
       await vscode.window.showErrorMessage("Open a project folder first: history is kept in the project's .tkr-history folder.");
@@ -106,8 +115,31 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       pick: async (items, placeholder) => (await vscode.window.showQuickPick(items.map((item) => ({ label: item.label, description: item.description, id: item.id })), { placeHolder: placeholder, ignoreFocusOut: true }))?.id,
       tell: async (message) => { await vscode.window.showInformationMessage(message); },
       showPreview: async (path, bytes, description) => {
-        const panel = vscode.window.createWebviewPanel("tkr.historyPreview", "History preview", vscode.ViewColumn.Beside, { enableScripts: false });
-        panel.webview.html = historyPreviewHtml(path, description, bytes);
+        const preview = workspace.openHistoryPreview(path, bytes, description);
+        if (!preview.ok) {
+          await vscode.window.showWarningMessage(preview.message);
+          return false;
+        }
+        const panel = vscode.window.createWebviewPanel("tkr.historyPreview", `History preview: ${path}`, vscode.ViewColumn.Beside, {
+          enableScripts: true,
+          localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
+        });
+        const origin = candidate ?? vscode.Uri.joinPath(folder.uri, ...path.split("/"));
+        trackHistoryPreview(panel, origin);
+        const browserSession = createBrowserSession();
+        const listener = panel.webview.onDidReceiveMessage((message: unknown) => {
+          if (typeof message !== "object" || message === null || !("type" in message) || message.type !== "ready") return;
+          void panel.webview.postMessage({
+            type: "initialize",
+            kind: preview.document.kind,
+            snapshot: preview.document.getSnapshot(),
+            capabilities: [],
+            browserState: browserSession.getSnapshot(),
+            boardPreferences: DEFAULT_EDITOR_PREFERENCES,
+          });
+        });
+        panel.onDidDispose(() => listener.dispose());
+        panel.webview.html = html(panel.webview, context);
         return true;
       },
     });

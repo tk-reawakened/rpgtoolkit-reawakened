@@ -5,6 +5,8 @@ title: "Document history loses its file context after opening a history preview"
 parent: none
 covers: []
 after: []
+tracker_id: "#2856"
+remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2856"
 assignee: ""
 refined: false
 hitl: false
