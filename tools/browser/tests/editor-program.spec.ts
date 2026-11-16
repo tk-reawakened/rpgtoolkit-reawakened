@@ -209,6 +209,23 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await expect(row).toContainText("castint(val, [&dest])");
   await row.dblclick();
   await expect.poll(() => editorText(page)).toContain("castint(val)");
+  // F1 exposes the generated reference from the workspace; search, select, and insert using only the keyboard.
+  await page.keyboard.press("F1");
+  await page.keyboard.type("Open RPGCode Quick Reference");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode Quick Reference");
+  await page.keyboard.press("Enter");
+  const referenceSearch = page.getByLabel("Find a command");
+  await expect(referenceSearch).toBeFocused();
+  await referenceSearch.fill("castint");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Insert castint" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect.poll(async () => (await editorText(page)).match(/castint\(val\)/g)?.length ?? 0).toBe(2);
+  await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await editorText(page)).match(/castint\(val\)/g)?.length ?? 0).toBe(1);
   // Header insertion changes the document without a Monaco edit; both context-menu actions must still use document history.
   await page.getByRole("button", { name: "Insert header" }).click();
   await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg\s/);

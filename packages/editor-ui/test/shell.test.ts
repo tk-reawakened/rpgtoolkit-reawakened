@@ -487,6 +487,21 @@ test("the application menu, command palette, collapsible Game accordion, and Emp
   await key(dialog, "Enter");
   ok(s.openPaths.includes("Boards/village.brd"), "Command palette opens matching project file on Enter");
 
+  // The workspace Help menu exposes the shared reference and names unavailable documentation instead of linking nowhere.
+  await click(appMenuBtn);
+  const helpCat = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("Help"))!;
+  await click(helpCat);
+  ok([...s.el.querySelectorAll(".tkr-app-menu-item")].some((node) => node.textContent?.includes("Open RPGCode Quick Reference")));
+  const manual = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-item")].find((node) => node.textContent?.includes("User manual"))!;
+  await click(manual);
+  match(s.el.querySelector('[role="status"]')?.textContent ?? "", /manual is not available/);
+  await settle();
+  equal(document.activeElement, appMenuBtn, "unavailable help returns focus to the application menu");
+  await click(appMenuBtn);
+  await click([...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("Help"))!);
+  const whatsNew = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-item")].find((node) => node.textContent?.includes("What's New"))!;
+  await click(whatsNew);
+  match(s.el.querySelector('[role="status"]')?.textContent ?? "", /What's New content is not available/);
   // EmptyExplorerView renders "No Game Opened" state and invokes open/reopen callbacks
   const emptyEl = document.createElement("div");
   document.body.append(emptyEl);

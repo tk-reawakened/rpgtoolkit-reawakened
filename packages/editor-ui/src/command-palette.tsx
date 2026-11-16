@@ -43,6 +43,16 @@ function triggerHostButton(selector: string): boolean {
   return true;
 }
 
+/** Open the active program's shared reference without closing a panel that is already open. */
+function openProgramReference(): boolean {
+  if (typeof document === "undefined") return false;
+  const toggle = document.querySelector<HTMLButtonElement>(".tkr-program-toggle-reference");
+  if (toggle === null) return false;
+  if (toggle.getAttribute("aria-pressed") !== "true") toggle.click();
+  queueMicrotask(() => document.querySelector<HTMLInputElement>(".tkr-program-reference input[type=search]")?.focus());
+  return true;
+}
+
 /**
  * Shared IDE Application Menu (`☰` File / Edit / Selection / View / Go / Run / Help) and Command Palette
  * (`Ctrl+Shift+P` / `Cmd+Shift+P` / `F1`) backed by `@tk-reawakened/editor-model` `CommandRegistry` (#2703).
@@ -67,6 +77,8 @@ export function WorkbenchCommandBar({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [projectFiles, setProjectFiles] = useState<readonly CommandPaletteFileEntry[]>([]);
+  const [helpNotice, setHelpNotice] = useState<string | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuWrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const invokerRef = useRef<HTMLElement | null>(null);
@@ -188,7 +200,31 @@ export function WorkbenchCommandBar({
       onToggleSecondView: () => { triggerHostButton("#mirror-view"); },
       onOpenPalette: (prefix) => openPalette(prefix),
     });
-    return createCommandRegistry([...standard, ...extraCommands]);
+    return createCommandRegistry([...standard, ...extraCommands,
+      {
+        id: "help.rpgcodeReference",
+        category: "Help",
+        label: "Open RPGCode Quick Reference",
+        run: () => {
+          if (!openProgramReference()) {
+            setHelpNotice("Open a program to search and insert RPGCode built-ins.");
+            queueMicrotask(() => menuButtonRef.current?.focus());
+          }
+        },
+      },
+      {
+        id: "help.manual",
+        category: "Help",
+        label: "User manual (not available)",
+        run: () => setHelpNotice("The user manual is not available in this workspace yet; no manual link is configured."),
+      },
+      {
+        id: "help.whatsNew",
+        category: "Help",
+        label: "What's New (not available)",
+        run: () => setHelpNotice("What's New content is not available in this workspace yet."),
+      },
+    ]);
   }, [layout, tabs, workspace, onNewBoard, onOpenPreferences, onOpenProject, extraCommands]);
 
   const registry = externalRegistry ?? defaultRegistry;
@@ -198,9 +234,13 @@ export function WorkbenchCommandBar({
   const clampedIndex = filtered.length === 0 ? 0 : Math.min(selectedIndex, filtered.length - 1);
 
   const runCommand = (item: WorkbenchCommand): void => {
-    setMenuOpen(false);
-    setPaletteOpen(false);
+    const fromPalette = paletteOpen;
+    if (fromPalette) closePalette();
+    else setMenuOpen(false);
     void item.run();
+    if (!fromPalette && item.id !== "help.rpgcodeReference") {
+      queueMicrotask(() => menuButtonRef.current?.focus());
+    }
   };
 
   const categoryItems = registry.byCategory(activeCategory);
@@ -209,6 +249,7 @@ export function WorkbenchCommandBar({
     <div class="tkr-command-bar">
       <div ref={menuWrapRef} class="tkr-app-menu-wrap">
         <button
+          ref={menuButtonRef}
           type="button"
           class="tkr-app-menu-button"
           aria-label="Application menu"
@@ -332,6 +373,7 @@ export function WorkbenchCommandBar({
           </div>
         </div>
       ) : null}
+      {helpNotice === null ? null : <p class="tkr-help-notice" role="status">{helpNotice}</p>}
     </div>
   );
 }
