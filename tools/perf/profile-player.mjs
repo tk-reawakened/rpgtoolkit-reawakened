@@ -52,7 +52,25 @@ try {
   const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
   page.on("pageerror", (error) => console.log("pageerror", error.message));
   await page.goto(`${origin}/packages/runner-web/app/index.html?package=fixtures/packages/${pack}.tpk`);
-  await page.waitForFunction(() => window.__live !== undefined && window.__live.tick > 30, null, { timeout: 120_000 });
+  const bootDeadline = Date.now() + 120_000;
+  while (true) {
+    try {
+      await page.waitForFunction(() => window.__live !== undefined && window.__live.tick > 30, null, { timeout: 5_000 });
+      break;
+    } catch (error) {
+      if (Date.now() >= bootDeadline) throw error;
+      await page.waitForTimeout(250);
+    }
+  }
+  // The demo starts on a title screen. Reach the board before claiming walking-gameplay timings.
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (await page.evaluate(() => window.__live?.board != null && window.__live?.player != null)) break;
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(500);
+  }
+  const board = await page.evaluate(() => window.__live?.board ?? null);
+  if (board === null) throw new Error("the package did not reach a playable board");
+  await page.waitForTimeout(500); // Let board loading and input release settle before sampling.
 
   // Frame intervals and long tasks, measured inside the page.
   await page.evaluate(() => {
@@ -98,6 +116,7 @@ try {
   const percentile = (p) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]?.toFixed(1);
   console.log(JSON.stringify({
     package: pack,
+    board,
     gl: swiftshader ? "swiftshader" : "default",
     wallSeconds: wall,
     ticksPerSecond: Number(((tickAfter - tickBefore) / wall).toFixed(1)),

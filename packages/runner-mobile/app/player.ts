@@ -44,11 +44,13 @@ declare global {
  * F3 toggles it where there is a keyboard, and the device proof, which launches the installed app and cannot pass a flag,
  * turns it on with `window.__tkrDiagnostics(true)`. It belongs to the page, so it survives a restart after a quit.
  */
+let normalTitle = document.title;
 const diagnosticsMode = createDiagnosticsMode(diagnosticsRequested(location.search));
 exposeDiagnosticsMode(diagnosticsMode, window);
 const syncStatusVisibility = (): void => {
   const status = document.querySelector<HTMLElement>("#live-status");
   if (status !== null && status.dataset["error"] === undefined) status.hidden = !diagnosticsMode.on();
+  if (!diagnosticsMode.on()) document.title = normalTitle;
 };
 diagnosticsMode.onChange(syncStatusVisibility);
 
@@ -230,6 +232,8 @@ function run(
   const stepMs = 1000 / 60;
   let previous = performance.now();
   let accumulator = 0;
+  normalTitle = session.titleBar().gameTitle;
+  if (!diagnosticsMode.on()) document.title = normalTitle;
   let titleFrames = 0;
   let titleWindowStart = performance.now();
   let pending: PendingInput[] = [];
@@ -406,7 +410,8 @@ function run(
         const fps = titleFrames * 1_000 / (nowMs - titleWindowStart);
         titleFrames = 0;
         titleWindowStart = nowMs;
-        if (bar.showFps) document.title = formatTitleBar(bar, fps);
+        normalTitle = bar.showFps ? formatTitleBar(bar, fps) : bar.gameTitle;
+        if (!diagnosticsMode.on()) document.title = normalTitle;
       }
       if (!diagnosing) {
         if (!disposed && isCurrent()) frameId = window.requestAnimationFrame(draw);

@@ -341,7 +341,8 @@ const DEFAULT_GAME_AUDIO_SETTINGS = {
   voiceCap: MAX_VOICES,
 };
 export function createEngine(init: EngineInit & { readonly stateHashInReports: "on-request" }): OnRequestEngine;
-export function createEngine(init: EngineInit): Engine;
+export function createEngine(init: EngineInit & { readonly stateHashInReports?: "every-advance" }): Engine;
+export function createEngine(init: EngineInit): Engine | OnRequestEngine;
 export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   const index = init.assetIndex;
   let recoveryCandidateBytes = init.mainFile === undefined || init.recoveryCandidate == null

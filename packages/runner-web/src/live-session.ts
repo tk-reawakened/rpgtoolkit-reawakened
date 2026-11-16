@@ -373,6 +373,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   let currentStateHash: string | null = "";
   // Counts `advance` calls, so a `stateHashReader` can tell that a later advance has started.
   let advanceGeneration = 0;
+  let pendingAdvances = 0;
   const sessionDiagnostics: Diagnostic[] = [];
   const reportDiagnostic = (diagnostic: Diagnostic): void => {
     sessionDiagnostics.push(diagnostic);
@@ -504,6 +505,8 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
         }
       }
       inputs.push(...audioEvents.splice(0));
+      advanceGeneration += 1;
+      currentStateHash = null;
       const report = engine.advance(ticks, inputs);
       ticks = Math.max(0, ticks - report.ticksRun);
       inputs = [];
@@ -559,7 +562,9 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   };
   const queue = (ticks: number, inputs: readonly InputRecord[] = []): Promise<void> => {
     const queuedInputs = [...inputs];
-    processing = processing.then(() => pump(ticks, queuedInputs));
+    advanceGeneration += 1;
+    pendingAdvances += 1;
+    processing = processing.then(() => pump(ticks, queuedInputs)).finally(() => { pendingAdvances -= 1; });
     return processing;
   };
   void queue(0);
@@ -580,7 +585,8 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     tick: () => currentTick,
     stateHash: () => currentStateHash ??= engine.stateHash(),
     stateHashReader() {
-      const generation = advanceGeneration;
+      // No completed-report reader can be created while a queued pump may still change the state.
+      const generation = pendingAdvances === 0 ? advanceGeneration : -1;
       let hash: string | undefined;
       return () => {
         if (hash === undefined && generation === advanceGeneration) hash = currentStateHash ??= engine.stateHash();
@@ -603,7 +609,6 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
       return actor === undefined ? null : { x: actor.x, y: actor.y };
     },
     async advance(ticks, inputs = []) {
-      advanceGeneration += 1;
       await queue(ticks, inputs);
     },
     draw(alpha) {

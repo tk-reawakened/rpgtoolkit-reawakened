@@ -5,6 +5,7 @@
 
 import { equal, ok } from "node:assert/strict";
 import test from "node:test";
+import { fnv1a64ScannedBytes } from "../src/canon/fnv1a.ts";
 import {
   createAssetIndex,
   createEmptyBoard,
@@ -17,7 +18,7 @@ import {
 
 const PROGRAM = ["total = 1", "function grow(n) {", "    return n * 2", "}", "total = grow(total)", "wait(2)", "total = grow(total)"].join("\n");
 
-function init(): EngineInit {
+function init() {
   return {
     seed: 7,
     assetIndex: createAssetIndex(["Boards/test.brd"]),
@@ -27,7 +28,7 @@ function init(): EngineInit {
     height: 32,
     maxTicks: 8,
     program: PROGRAM,
-  };
+  } satisfies EngineInit;
 }
 
 function boardReply(reqId: number): InputRecord {
@@ -41,6 +42,12 @@ test("an on-request engine omits the report hash and stateHash() matches the eve
   const onRequest = createEngine({ ...init(), stateHashInReports: "on-request" });
   const firstEvery = every.advance(0, []);
   const firstOnRequest = onRequest.advance(0, []);
+  // Permit small program/request fingerprints (87 bytes here), but no whole-state report hash.
+  const idle = createEngine({ ...init(), program: "", stateHashInReports: "on-request" });
+  const before = fnv1a64ScannedBytes();
+  idle.advance(0, []);
+  const REPORT_HASH_SCAN_BUDGET = 128;
+  ok(fnv1a64ScannedBytes() - before <= REPORT_HASH_SCAN_BUDGET, "on-request advance must skip the whole-state hash");
   ok(!("stateHash" in firstOnRequest), "the on-request report has no stateHash field");
   equal(onRequest.stateHash(), firstEvery.stateHash);
   const request = firstEvery.requests[0];
@@ -55,3 +62,16 @@ test("an on-request engine omits the report hash and stateHash() matches the eve
     equal(every.stateHash(), report.stateHash);
   }
 });
+
+// Compile-time evidence: a caller must narrow a runtime-selected mode before reading a report hash.
+function checkHashReportTypes(options: EngineInit): void {
+  const dynamic = createEngine(options).advance(0, []);
+  // @ts-expect-error A runtime-selected mode may omit the hash.
+  const unsafe: string = dynamic.stateHash;
+  const explicit = createEngine({ ...options, stateHashInReports: "on-request" }).advance(0, []);
+  // @ts-expect-error An on-request report never carries the hash.
+  const absent: string = explicit.stateHash;
+  const defaulted: string = createEngine({ ...options, stateHashInReports: "every-advance" }).advance(0, []).stateHash;
+  void [unsafe, absent, defaulted];
+}
+void checkHashReportTypes;

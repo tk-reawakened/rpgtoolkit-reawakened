@@ -32,6 +32,7 @@ import {
   writeBoard,
   writeMainFile,
   type AssetKey,
+  type Engine,
   type GameState,
   type InputRecord,
   type MainFile,
@@ -43,7 +44,7 @@ const PATHS = ["main.gam", "boards/start.brd", "prg/start.prg"];
 
 type Game = {
   readonly files: Map<AssetKey, Uint8Array>;
-  readonly engine: ReturnType<typeof createEngine>;
+  readonly engine: Engine;
   state(): GameState | null;
 };
 

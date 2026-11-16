@@ -44,9 +44,13 @@ The profile is written to `.perf/<package>.cpuprofile`; load it in Chrome DevToo
 The cause was the state hash over `vm.defOwners`, which repeats the bundled `stock_battle` (112 KB) and `stock_menu`
 (76 KB) source once per function they define (151 entries, ~14.6 MB). `stock_menu`'s source has a non-ASCII em dash,
 so its copies missed the ASCII transition cache in `packages/core/src/save/hash.ts` and were UTF-8 encoded and hashed
-byte by byte on every frame. The repetition itself is #2767 (needs an owner ruling).
+byte by byte on every frame. The repetition itself was fixed by #2767, which is now on main.
 
-## Before and after (2026-11-15, demo, Apple-silicon Mac, real GPU, 120 Hz display, `--headed`)
+## Historical measurements (2026-11-15, demo, Apple-silicon Mac, real GPU, 120 Hz display, `--headed`)
+
+These earlier runs waited for a tick count but did not verify entry into the board. The demo requires Enter at its
+title screen, so these figures do **not** establish walking-gameplay performance (#2794). The tool now passes the
+title screen and records the active board before sampling.
 
 | Measurement | Before | After #2766 (non-ASCII transition cache) | After #2766 + #1890 (hash on request) |
 |---|---|---|---|
@@ -59,3 +63,25 @@ byte by byte on every frame. The repetition itself is #2767 (needs an owner ruli
 With #1890 the live player creates its engine with `stateHashInReports: "on-request"`, reads the hash only when it
 posts a status to the editor or refreshes its report text (at most every 250 ms, or at once when the status changes),
 and hashes lazily for `window.__live.stateHash`.
+
+## Integration measurement (2026-11-15, actual demo board)
+
+Apple M1 Pro, 16 GiB RAM, Node 24.21.0, headed Playwright Chromium with default GPU, eight-second requested runs.
+Both runs reached `boards/start.brd` before profiling. The baseline is main `3e61f3c2a`, which already includes #2767;
+the candidate integrates #1890/#2766 and the diagnostics fixes. These are single-run advisory observations.
+
+| Measurement | Current main | Integrated branch |
+|---|---:|---:|
+| Frame rate | 25.9 fps | 39.0 fps |
+| Frame p50 / p99 | 41.6 / 73.9 ms | 27.2 / 57.0 ms |
+| Long tasks | 54 (3217 ms total) | 4 (214 ms total) |
+| Ticks per second | 61.8 | 62.7 |
+| Measured duration | 8.805 s | 8.674 s |
+
+Run `node tools/perf/profile-player.mjs --package demo --seconds 8 --headed` after the setup above. The integration
+removes whole-state report hashing from ordinary live advances; an explicit read still hashes the current state,
+and editor status reads remain throttled to 250 ms. FNV transitions retain exact hashes and avoid repeated UTF-8
+scans after a cache lane is learned. The proposed 64 KiB warm re-hash work budget is unchanged.
+
+The game still misses display rate: `encodeSurfaceBytes` accounts for 31.4% of sampled self CPU in the candidate.
+The remaining surface/rendering performance is tracked separately in #2795; this integration does not claim to fix it.

@@ -320,14 +320,15 @@ test("surface canonical cache falls back for extra fields and rejects accessors"
   throws(() => hashGameState(state), /accessor/);
 });
 
-test("repeated non-ASCII program owners hash identically through the cached byte transitions", () => {
+test("non-ASCII owner programs hash identically through the cached byte transitions", () => {
   // stock_menu's source opens with an em dash, so its owner segments are non-ASCII.
   const state = withSurfaceBytes("A".repeat(10000));
   const menu = { kind: "inline" as const, text: "// menu — default\n" + "x".repeat(9000), ir: "1", owner: "pack" };
   const emoji = { kind: "inline" as const, text: "😀 café\n" + "y".repeat(9000), ir: "1" };
-  state.vm.defOwners = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`def${i}`, i % 3 === 0 ? emoji : menu]));
+  state.vm.programs = { menu, emoji };
+  state.vm.defOwners = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`def${i}`, i % 3 === 0 ? "emoji" : "menu"]));
   // The first call learns each segment's lanes by scanning; later calls take the cached transitions.
-  for (let i = 0; i < 6; i += 1) {
+  for (let i = 0; i < 40; i += 1) {
     state.rng.s0 = i;
     state.time.tick = i;
     equal(hashGameState(state), referenceHashProjection(state));

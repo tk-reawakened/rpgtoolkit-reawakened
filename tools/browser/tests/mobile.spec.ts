@@ -119,6 +119,18 @@ test("the mobile live page reaches a board, moves on input, and writes a save", 
     throw new Error(`board entry never happened; report=${JSON.stringify(report)}; log:\n${log.join("\n")}`);
   }
 
+  // Diagnostics are an overlay: hiding them restores the game title and preserves the game viewport.
+  const diagnosticSize = await page.locator("#viewport").boundingBox();
+  await page.keyboard.press("F3");
+  await page.waitForTimeout(150); // Settle host geometry observation before comparing.
+  await expect(page.locator("#live-status")).toBeHidden();
+  await expect(page).not.toHaveTitle(/^mobile:/);
+  expect(await page.locator("#viewport").boundingBox()).toEqual(diagnosticSize);
+  await page.keyboard.press("F3");
+  await page.waitForTimeout(150);
+  await expect(page.locator("#live-status")).toBeVisible();
+  expect(await page.locator("#viewport").boundingBox()).toEqual(diagnosticSize);
+
   const before = (await page.evaluate(() => window.__live)) as {
     tick: number;
     stateHash: string;

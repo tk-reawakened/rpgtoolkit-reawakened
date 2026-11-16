@@ -755,6 +755,8 @@ function startLiveLoop(
           onLive?.(live);
           // The report text is diagnostics: with the mode off it is neither written nor hashed for.
           if (!diagnosticsMode.on()) return;
+          // Capture this frame before throttling text, so retained diagnostic reports stay exact.
+          live.stateHash;
           const reportNow = performance.now();
           if (reportNow - lastReportTextAt < LIVE_REPORT_INTERVAL_MS) return;
           lastReportTextAt = reportNow;

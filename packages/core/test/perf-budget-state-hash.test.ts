@@ -1,9 +1,9 @@
 /**
- * Performance budgets for the state hash (docs/adr/0035-performance-budgets.md). Budgets count work, never time:
+ * Performance budgets for the state hash (docs/adr/0036-performance-budgets.md). Budgets count work, never time:
  * `fnv1a64ScannedBytes()` is the number of bytes the FNV loops scanned, which is the same on every machine.
  *
- * The state is shaped like the demo's: the same large inline program owner repeated once per definition
- * (`vm.defOwners`, #2767), part of it non-ASCII like `stock_menu`'s em dash (#2766), beside a stored canvas.
+ * The state is shaped like the demo's: two large inline programs stored once in `vm.programs`, referenced by
+ * `vm.defOwners` (#2767), part of it non-ASCII like `stock_menu`'s em dash (#2766), beside a stored canvas.
  */
 
 import { equal, ok } from "node:assert/strict";
@@ -28,16 +28,17 @@ function demoShapedState(): GameState {
     slots: {},
     colours: {},
   };
-  const menu = { kind: "inline" as const, text: "// stock_menu — the default player menu\n" + "menu();\n".repeat(5000), ir: "1", owner: "stock_menu" };
+  const menu = { kind: "inline" as const, text: "// stock_menu — the default player menu\n" + "menu();\n".repeat(14000), ir: "1", owner: "stock_menu" };
   const battle = { kind: "inline" as const, text: "// stock_battle\n" + "fight();\n".repeat(5000), ir: "1", owner: "stock_battle" };
+  state.vm.programs = { menu, battle };
   state.vm.defOwners = Object.fromEntries([
-    ...Array.from({ length: 24 }, (_, i) => [`menu${i}`, menu] as const),
-    ...Array.from({ length: 24 }, (_, i) => [`battle${i}`, battle] as const),
+    ...Array.from({ length: 24 }, (_, i) => [`menu${i}`, "menu"] as const),
+    ...Array.from({ length: 24 }, (_, i) => [`battle${i}`, "battle"] as const),
   ]);
   return state;
 }
 
-test("budget: re-hashing seen states scans a bounded number of bytes however many program owners repeat", () => {
+test("budget: re-hashing seen states scans a bounded number of bytes with shared ASCII and non-ASCII owner programs", () => {
   const state = demoShapedState();
   const cold = fnv1a64ScannedBytes();
   // Warm the cache on two ticks, as a live player warms it over its first frames.
@@ -46,7 +47,7 @@ test("budget: re-hashing seen states scans a bounded number of bytes however man
     hashGameState(state);
   }
   const coldBytes = fnv1a64ScannedBytes() - cold;
-  ok(coldBytes > 1_000_000, `the fixture is large enough to matter (${coldBytes} bytes while warming)`);
+  ok(coldBytes > 100_000, `the fixture is large enough to matter (${coldBytes} bytes while warming)`);
   for (const tick of [1, 2, 1]) {
     state.time.tick = tick;
     const before = fnv1a64ScannedBytes();
