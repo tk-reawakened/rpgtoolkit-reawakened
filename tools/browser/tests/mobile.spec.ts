@@ -76,7 +76,8 @@ test("the mobile live page reaches a board, moves on input, and writes a save", 
     if (response.status() >= 400) log.push(`http ${response.status()}: ${response.url()}`);
   });
 
-  await page.goto("/packages/runner-mobile/app/player.html");
+  // Diagnostics mode: this test asserts the live report's state hash (docs/spec/engine/runners.md#diagnostics-mode).
+  await page.goto("/packages/runner-mobile/app/player.html?diagnostics");
   await page.waitForFunction(() => window.__live !== undefined, undefined, { timeout: 90_000 }).catch((error: unknown) => {
     throw new Error(`the page never reported; what it said:\n${log.join("\n")}\n(${String(error)})`);
   });

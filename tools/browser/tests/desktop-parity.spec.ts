@@ -154,11 +154,14 @@ test("a cold start with nothing configured lists the installed games and opens t
     // Opening the picked entry takes the same session path a configured launch does: one engine, ticking under the
     // injected clock. The demo sits on its title screens for the first several hundred ticks, so a board is not the
     // signal here — a running session with a state hash is.
-    await window.waitForFunction(() => {
+    // Outside diagnostics mode `__live.stateHash` is computed when read and reads "" once a later advance has started
+    // (docs/spec/engine/runners.md#diagnostics-mode), so the reading that passed the wait is the one checked.
+    const reading = await window.waitForFunction(() => {
       const live = window.__live;
-      return live !== undefined && live.error === undefined && live.tick > 30 && live.stateHash !== "";
+      const stateHash = live?.stateHash ?? "";
+      return live !== undefined && live.error === undefined && live.tick > 30 && stateHash !== "" ? { ...live, stateHash } : false;
     }, undefined, { timeout: 120_000 });
-    const live = await window.evaluate(() => window.__live);
+    const live = await reading.jsonValue();
     if (live === undefined) throw new Error("the player published no live state");
     expect(live.error ?? null).toBeNull();
     expect(live.stateHash).not.toBe("");
