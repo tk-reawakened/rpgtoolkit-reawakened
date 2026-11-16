@@ -1,5 +1,6 @@
 import type { FormatError, Result } from "@tk-reawakened/core";
 import type { FileSystemService, PlatformError, PlatformResult } from "@tk-reawakened/platform-services";
+import type { HistoryReason } from "./document-history.ts";
 import type { DocumentIdentity } from "./identity.ts";
 
 /**
@@ -144,7 +145,7 @@ export interface EditorDocument<Snapshot extends DocumentSnapshot<Command>, Comm
    * Before writing, the file is read and compared with the bytes the document last read or wrote. If another program
    * changed it, nothing is written: the save fails with `conflict` and the change waits in `conflict` (D3.5, D11.3).
    */
-  save(): Promise<SaveResult>;
+  save(reason?: HistoryReason): Promise<SaveResult>;
   /**
    * Read the file and compare it with what the document last read or wrote, after any save in flight. A clean document
    * follows the file (nothing local can be lost); a dirty one keeps its work and the change waits for `resolveConflict`.
@@ -168,7 +169,10 @@ export interface EditorDocument<Snapshot extends DocumentSnapshot<Command>, Comm
 }
 
 /** Project-identified filesystem operations used by a document (ADR 0022 D1.1). */
-export type DocumentStorage = Pick<FileSystemService, "readProject" | "writeProject">;
+export type DocumentStorage = Pick<FileSystemService, "readProject" | "writeProject"> & {
+  /** Record a successfully persisted revision and, on first save, its prior bytes as the baseline. */
+  readonly recordSave?: (path: string, bytes: Uint8Array, reason: HistoryReason, previousBytes: Uint8Array | null) => Promise<PlatformResult<void>>;
+};
 
 export type OpenError =
   /** The host could not read the file. */
@@ -366,7 +370,7 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     return { ok: true, editId: next.editId };
   }
 
-  save(): Promise<SaveResult> {
+  save(reason: HistoryReason = "manual"): Promise<SaveResult> {
     const path = this.identity.path;
     if (this.#readOnly !== null) {
       return Promise.resolve(
@@ -389,7 +393,7 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     this.#saveError = null;
     this.#publish();
     // `#write` settles every outcome into a `SaveResult`, so the chain never holds a rejection and the next save runs.
-    const run = this.#queue.then(() => this.#write(path, bytes, revision, head));
+    const run = this.#queue.then(() => this.#write(path, bytes, revision, head, reason));
     this.#queue = run;
     return run;
   }
@@ -449,6 +453,14 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
       }
       bytes = encoded.value;
     }
+    let previousBytes: Uint8Array | null = null;
+    try {
+      const previous = await storage.readProject(target.projectId, destination);
+      if (previous.ok) previousBytes = previous.value;
+      else if (previous.error.code !== "not-found") return { ok: false, failure: { document: destination, kind: "write", code: previous.error.code, message: `Could not save ${destination}: its existing content could not be checked: ${previous.error.message}` } };
+    } catch (thrown) {
+      return { ok: false, failure: { document: destination, kind: "write", code: null, message: `Could not save ${destination}: its existing content could not be checked: ${thrown instanceof Error ? thrown.message : String(thrown)}` } };
+    }
     let written: PlatformResult<void>;
     try {
       written = await storage.writeProject(target.projectId, destination, bytes);
@@ -462,10 +474,18 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
         failure: { document: destination, kind: "write", code: written.error.code, message: `Could not save ${destination}: ${written.error.message}` },
       };
     }
+    if (storage.recordSave !== undefined) {
+      try {
+        const recorded = await storage.recordSave(destination, bytes, "manual", previousBytes);
+        if (!recorded.ok) return { ok: false, failure: { document: destination, kind: "write", code: recorded.error.code, message: `Saved ${destination}, but history could not be recorded: ${recorded.error.message}` } };
+      } catch (thrown) {
+        return { ok: false, failure: { document: destination, kind: "write", code: null, message: `Saved ${destination}, but history could not be recorded: ${thrown instanceof Error ? thrown.message : String(thrown)}` } };
+      }
+    }
     return { ok: true };
   }
 
-  async #write(path: string, bytes: Uint8Array, revision: number, head: string | null): Promise<SaveResult> {
+  async #write(path: string, bytes: Uint8Array, revision: number, head: string | null, reason: HistoryReason): Promise<SaveResult> {
     try {
       this.#saveError = null;
       if (this.#savedAt === revision && this.#isRevision(revision, head)) return { ok: true };
@@ -489,6 +509,14 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
           // An equal external revision is a valid baseline, but recovery still needs its own successful write.
           this.#disk = onDisk.bytes;
           if (!this.#recoveryRequiresWrite) {
+            if (this.#storage.recordSave !== undefined) {
+              try {
+                const recorded = await this.#storage.recordSave(path, bytes, reason, this.#disk);
+                if (!recorded.ok) return this.#failWrite(path, bytes, recorded.error.code, `The current file matched this save, but history could not be recorded: ${recorded.error.message}`);
+              } catch (thrown) {
+                return this.#failWrite(path, bytes, null, `The current file matched this save, but history could not be recorded: ${thrown instanceof Error ? thrown.message : String(thrown)}`);
+              }
+            }
             this.#savedAt = this.#isRevision(revision, head) ? revision : null;
             return { ok: true };
           }
@@ -505,6 +533,14 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
         return this.#failWrite(path, bytes, null, thrown instanceof Error ? thrown.message : String(thrown));
       }
       if (!written.ok) return this.#failWrite(path, bytes, written.error.code, written.error.message);
+      if (this.#storage.recordSave !== undefined) {
+        try {
+          const recorded = await this.#storage.recordSave(path, bytes, reason, this.#disk);
+          if (!recorded.ok) return this.#failWrite(path, bytes, recorded.error.code, `The file was written, but history could not be recorded: ${recorded.error.message}`);
+        } catch (thrown) {
+          return this.#failWrite(path, bytes, null, `The file was written, but history could not be recorded: ${thrown instanceof Error ? thrown.message : String(thrown)}`);
+        }
+      }
       this.#disk = bytes;
       this.#failedWrite = null;
       this.#failedWriteMatchesBaseline = false;

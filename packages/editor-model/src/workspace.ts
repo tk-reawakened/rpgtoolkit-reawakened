@@ -4,6 +4,7 @@ import { createDocumentIdentity } from "./identity.ts";
 import type { DocumentSnapshot, HistoryResult, OpenError, RevertFailure, SaveFailure, SaveResult } from "./binary-document.ts";
 import { kindById, kindForPath, type AnyDocument } from "./kinds.ts";
 import { createPendingEdits, type PendingEdits } from "./pending-edits.ts";
+import { createDocumentHistoryStore, type DocumentHistoryStore, type HistoryReason } from "./document-history.ts";
 
 /**
  * The documents a host has open in one project, and the lifecycle around them that ADR 0022 D3 promises in every host:
@@ -129,8 +130,10 @@ export interface DocumentWorkspace {
   undo(document: AnyDocument): HistoryResult;
   /** Redo the latest undone edit, by its `editId`. */
   redo(document: AnyDocument): HistoryResult;
+  /** Read-only project-wide history and named checkpoints for this workspace. */
+  readonly history: DocumentHistoryStore;
   /** Save every dirty document, one after another, and report each (D4.1: there is no all-or-nothing save). */
-  saveAll(): Promise<readonly SaveAllEntry[]>;
+  saveAll(reason?: HistoryReason): Promise<readonly SaveAllEntry[]>;
   /** Close a document with no attached views, asking before losing work; attached views close through their leases. */
   close(document: AnyDocument): Promise<CloseResult>;
   /** Track a mounted view; close its lease to close that view without releasing models used by other views. */
@@ -164,6 +167,20 @@ interface HostHistory {
 export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWorkspace {
   const { projectId, services } = options;
   const { fs, dialogs } = services;
+  const history = createDocumentHistoryStore({ fs });
+  const documentStorage = {
+    readProject: fs.readProject.bind(fs),
+    writeProject: fs.writeProject.bind(fs),
+    recordSave: async (path: string, bytes: Uint8Array, reason: HistoryReason, previousBytes: Uint8Array | null) => {
+      try {
+        if (previousBytes !== null && (await history.documentTimeline(path)).length === 0) await history.recordSave(path, previousBytes, "checkpoint");
+        await history.recordSave(path, bytes, reason);
+        return { ok: true as const, value: undefined };
+      } catch (error) {
+        return { ok: false as const, error: { code: "io-error", message: error instanceof Error ? error.message : String(error) } };
+      }
+    },
+  };
   const documents = new Map<string, AnyDocument>();
   const opening = new Map<string, Promise<WorkspaceOpenResult>>();
   const savingAs = new Map<string, Promise<void>>();
@@ -232,7 +249,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     if (kind === null) {
       return { ok: false, error: { kind: "unsupported", document: identity.path, message: `${identity.path} is not a file type the editor opens.` } };
     }
-    const reading = kind.open(fs, identity).then((opened): WorkspaceOpenResult => {
+    const reading = kind.open(documentStorage, identity).then((opened): WorkspaceOpenResult => {
       opening.delete(identity.key);
       if (!opened.ok || disposed) return opened;
       documents.set(identity.key, opened.document);
@@ -296,6 +313,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   };
 
   return {
+    history,
     document: {
       edited(event) {
         const history = historyOf(event.document);
@@ -338,14 +356,14 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       }
       return { ok: false, reason: "nothing-to-redo" };
     },
-    async saveAll() {
+    async saveAll(reason: HistoryReason = "manual") {
       const results: SaveAllEntry[] = [];
       // Every view's accepted requests must complete before any dirty flag is read.
       await Promise.all([...documents.values()].map((document) => pendingEditsOf(document).settle()));
       for (const document of [...documents.values()]) {
         await pendingEditsOf(document).settle();
         if (!document.getSnapshot().dirty) continue;
-        results.push({ document: document.identity.path, result: await document.save() });
+        results.push({ document: document.identity.path, result: await document.save(reason) });
       }
       return results;
     },
@@ -435,10 +453,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
           if (answer === "cancel") return { ok: false, reason: "cancelled" };
         }
         const copied = document.getSnapshot();
-        const written = await document.saveAs(fs, identity);
+        const written = await document.saveAs(documentStorage, identity);
         if (!written.ok) return failed(resolved.path, written.failure.message);
         // Read the copy without registering it. A failed Save As must not strand an invisible open destination.
-        const reopened = await (kindById(document.kind)?.open(fs, identity) ?? Promise.resolve<ReopenFailure>(UNKNOWN_KIND));
+        const reopened = await (kindById(document.kind)?.open(documentStorage, identity) ?? Promise.resolve<ReopenFailure>(UNKNOWN_KIND));
         if (!reopened.ok) {
           return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reopened.error.document}: ${reopened.error.error.message}`);
         }

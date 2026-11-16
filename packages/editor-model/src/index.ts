@@ -234,6 +234,16 @@ export {
   type CreateProgramResult,
   type NewProgramStorage,
 } from "./program-support.ts";
+export {
+  createDocumentHistoryStore,
+  type DocumentHistoryEntry,
+  type DocumentHistoryStore,
+  type GroupRestoreResult,
+  type HistoryCheckpointGroup,
+  type HistoryCheckpointPreview,
+  type HistoryPreview,
+  type HistoryReason,
+} from "./document-history.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   applyMainSettings,

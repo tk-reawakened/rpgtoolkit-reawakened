@@ -8,6 +8,7 @@ import { TabStrip } from "./tab-strip.tsx";
 import { RunView } from "./run-view.tsx";
 import { TilesetBrowser, type TilesetBrowserContext } from "./tileset-browser.tsx";
 import { WorkbenchCommandBar } from "./command-palette.tsx";
+import { DocumentHistoryView } from "./document-history-view.tsx";
 import { Workbench } from "./workbench.tsx";
 
 export interface ShellProps {
@@ -63,20 +64,18 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
     <Workbench
       layout={layout}
       tabs={<TabStrip tabs={tabs} />}
-      headerBar={
-        <WorkbenchCommandBar
-          layout={layout}
-          tabs={tabs}
-          {...(workspace === undefined ? {} : { workspace })}
-          {...(commands === undefined ? {} : { commands })}
-          fs={fs}
-          projectLayout={projectLayout}
-          onOpenPath={onOpenPath}
-          {...(onNewBoard === undefined ? {} : { onNewBoard })}
-          {...(onOpenPreferences === undefined ? {} : { onOpenPreferences })}
-          version={[version, tabsSnapshot.tabs.length]}
-        />
-      }
+      headerBar={<><WorkbenchCommandBar
+        layout={layout}
+        tabs={tabs}
+        {...(workspace === undefined ? {} : { workspace })}
+        {...(commands === undefined ? {} : { commands })}
+        fs={fs}
+        projectLayout={projectLayout}
+        onOpenPath={onOpenPath}
+        {...(onNewBoard === undefined ? {} : { onNewBoard })}
+        {...(onOpenPreferences === undefined ? {} : { onOpenPreferences })}
+        version={[version, tabsSnapshot.tabs.length]}
+      />{workspace !== undefined && <details><summary>History</summary><DocumentHistoryView workspace={workspace} fs={fs} activePath={active} /></details>}</>}
       panels={{
         files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
