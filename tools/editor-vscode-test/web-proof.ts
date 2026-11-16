@@ -832,7 +832,7 @@ async function proveNativeNewBoard(
   }
   await expectNativeHistoryRestorePersisted(historyHost, undoEventsStart, boardPath, readBacking, secondSaved, expect);
   await confirmRecoveryGroupReport(page, expect, "Boards/Native history board.brd");
-  const restoredBoard = await openProjectFile(page, boardPath, expect, ".tkr-board-editor");
+  const restoredBoard = await openProjectFile(page, boardPath, expect, ".tkr-board");
   await expect(restoredBoard.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true })).toHaveValue("village.tst2");
 }
 
@@ -1761,11 +1761,10 @@ async function waitForCustomEditorFrame(page: Page, label: string, selector: str
   const deadline = Date.now() + 30_000;
   let pause = 100;
   while (Date.now() < deadline) {
-    const outer = await page.locator("iframe.webview:visible").first().elementHandle({ timeout: 250 }).catch(() => null);
-    if (outer) {
-      const outerFrame = await outer.contentFrame().catch(() => null);
-      const content = outerFrame?.childFrames().find((frame) => frame.name() === "pending-frame");
-      if (content && await content.locator(selector).count().catch(() => 0) > 0) return content;
+    for (const content of page.frames()) {
+      if (content.name() !== "pending-frame" || await content.locator(selector).count().catch(() => 0) === 0) continue;
+      const readOnly = await content.locator(".tkr-board-readonly, .tkr-bitmap-readonly").count().catch(() => 0);
+      if (readOnly === 0) return content;
     }
     await page.waitForTimeout(pause);
     pause = Math.min(pause * 2, 1_000);
