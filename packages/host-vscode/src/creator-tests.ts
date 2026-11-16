@@ -86,16 +86,25 @@ export function registerCreatorTests(context: vscode.ExtensionContext, generatio
       projects.delete(key);
       controller.dispose();
     };
+    // A run or open may settle just after project removal closes the panel; deliver only while it lives, and never turn that race into an unhandled rejection.
+    const post = (payload: unknown): void => {
+      if (disposed) return;
+      void Promise.resolve().then(() => panel.webview.postMessage(payload)).catch((error: unknown) => {
+        if (!disposed) throw error;
+      });
+    };
     const publish = (): void => {
       if (disposed) return;
-      void panel.webview.postMessage({ type: "creator-tests:snapshot", nonce, state: serializeState(controller.getSnapshot()) });
+      post({ type: "creator-tests:snapshot", nonce, state: serializeState(controller.getSnapshot()) });
     };
     unsubscribe = controller.subscribe(publish);
     message = panel.webview.onDidReceiveMessage((value: unknown) => {
       const request = parseBridgeRequest(value, nonce);
       if (request === undefined) return;
-      void dispatchRequest(controller, request).then((result) => panel.webview.postMessage({ type: "creator-tests:response", nonce, id: request.id, result }), (error: unknown) =>
-        panel.webview.postMessage({ type: "creator-tests:response", nonce, id: request.id, result: platformError("io-error", String(error)) }));
+      void dispatchRequest(controller, request).then(
+        (result) => post({ type: "creator-tests:response", nonce, id: request.id, result }),
+        (error: unknown) => post({ type: "creator-tests:response", nonce, id: request.id, result: platformError("io-error", String(error)) }),
+      );
     });
     panelDispose = panel.onDidDispose(cleanup);
     // Keep the one project controller alive while the retained panel is hidden; only panel close or project removal ends it.
