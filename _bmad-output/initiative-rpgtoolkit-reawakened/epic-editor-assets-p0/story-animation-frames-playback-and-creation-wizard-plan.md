@@ -3,14 +3,14 @@ title: Animation frames playback and creation wizard
 type: feature
 ticket: 7
 created: 2026-11-15
-status: in-progress
+status: built
 baseline_revision: 96beab02b5bf791a031ae98f9f0957471021c61d
 route: full
 route_source: auto
 risk: high
-review: thorough
-review_source: auto
-lenses_ran: []
+review: quick
+review_source: pinned
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - '{project-root}/AGENTS.md'
@@ -59,11 +59,11 @@ Always use shared editor-model/editor-ui with host I/O via platform-services. Fo
 
 ## Tasks & Acceptance
 
-- [ ] Model, provider, platform and tests: durable group capture before writes; sorted operations; retry/restore and conflict handling; useful persistent recovery UI in both hosts.
-- [ ] Shared view/model: staged sortable image list, multi-frame 4×4 composition with template reuse, proposed destinations and collision confirmation, frame metadata and first-frame initialization. Existing animation edit/playback/navigation/undo/save remains operable.
-- [ ] Both hosts: explicit new ANM entry points; shared recovery service and lifecycle integration; no forbidden imports (#2805).
-- [ ] Tests: all matrix rows executed, model byte preservation and boundaries, keyboard use, both actual host save/close/reopen and recovery. New ordinary tests individually under 1s. Record behavior-breaking perturbation red/restored green for new evidence tests. File every discovered defect, link fixing PR.
-- [ ] Update changelog, final plan evidence and PR checklist; close #1718/#2805 and verified fixed #2695/#2697 from PR. Keep #1828 open for general history/retention/timeline work.
+- [x] Model, provider, platform and tests: durable group capture before writes; sorted operations; retry/restore and conflict handling; useful persistent recovery UI in both hosts.
+- [x] Shared view/model: staged sortable image list, multi-frame 4×4 composition with template reuse, proposed destinations and collision confirmation, frame metadata and first-frame initialization. Existing animation edit/playback/navigation/undo/save remains operable.
+- [x] Both hosts: explicit new ANM entry points; shared recovery service and lifecycle integration; no forbidden imports (#2805).
+- [x] Tests: all matrix rows executed, model byte preservation and boundaries, keyboard use, both actual host save/close/reopen and recovery. New ordinary tests individually under 1s. Record behavior-breaking perturbation red/restored green for new evidence tests. File every discovered defect, link fixing PR.
+- [x] Update changelog, final plan evidence and PR checklist; close #1718/#2805 and verified fixed #2695/#2697 from PR. Keep #1828 open for general history/retention/timeline work.
 
 Acceptance: Given authored image and tile fixtures, when each real host creates, edits, confirms, saves and reopens, then ordered metadata and rendered output match. Given interruption and later reopening, when recovery is selected, then all affected paths report truthful results and recovery itself is reversible. Given text minor 0, no authoring write occurs.
 
@@ -75,6 +75,15 @@ Acceptance: Given authored image and tile fixtures, when each real host creates,
 ## Plan Change Log
 
 ## Review Triage Log
+
+### Independent review, 2026-11-15
+
+- high / patch / #2826: verified list aborts when any capture manifest fails load, and delete also requires parsing. Reviewer reproduced a torn capture beside a valid group. Isolate damaged groups and permit explicit deletion; preserve immutable capture, hash checking and append-only progress.
+- medium / patch / #2827: verified picture/TBM preview omits scaleToCanvas; normative animation layout explicitly fills the canvas for picture sources. Direct tile-reference semantics remain native size.
+- high / patch / #2828: verified custom-editor guard sees binary model workspace only, while native text documents are separately owned by VS Code. Refuse recovery/ignore writes underneath those open documents through host state.
+- false / review artifact: initial two-way review diff included changes from main that advanced during the session. Replaced with the PR merge-base diff; no engine or golden changes belong to this PR, and reviewer dropped that concern.
+
+These are corrections within the accepted recovery/preview contracts, not intent changes. Preserve all passing model/UI/host proofs, cancel invalidation and staged-frame inclusion. No released public API is changed.
 
 ## Verification
 
@@ -135,3 +144,24 @@ Negative evidence:
 Runtime explanation: these are integration proofs, not ordinary unit tests. Native filesystem refusal, real workbench/browser recreation, and paced protocol/UI operations cannot be established by a sub-second model test. The browser scenario has a 120-second bound; VS operations use the existing bounded frame/palette retry helpers and finite locator/assertion timeouts. Heavy host runs were sequential. Local runtime was Node 26.13.0; CI's pinned Node 24.21.0 remains to be verified by the parent run. The standard browser-server build needed an ignored demo package/descriptor, reused from the primary checkout's existing fixture artifacts; no game fixture was committed.
 
 Diagnostic logs for this session: `/tmp/2699-browser-animation.log`, `/tmp/2699-vscode-animation.log`, `/tmp/2699-browser-staged-red.log`, `/tmp/2699-vscode-staged-red.log`, `/tmp/2699-cancel-tile-red.log`, `/tmp/2699-typecheck.log`, `/tmp/2699-lint.log`, `/tmp/2699-graph.log`. The committed proof code and mutation instructions above are the repeatable evidence; these temporary logs are not required by CI. Full normal CI, independent final review, push and merge remain the parent's responsibility.
+
+
+## Final verification and independent review
+
+Independent review of the full merge-base PR diff closed #2826, #2827 and #2828 after commit `f20bed1c`, with no new actionable regressions. The reviewer separately ran the three focused regression tests (13–29 ms each). The original partial PR and all continuation changes were included in review.
+
+- Final `pnpm build`, `pnpm typecheck`, `pnpm lint`, and `pnpm graph` passed (1,044 modules / 4,973 dependencies; no violations).
+- `node --test 'packages/editor-model/test/*.test.ts' 'packages/editor-ui/test/*.test.ts' 'packages/platform-services/test/*.test.ts' 'packages/host-web/test/*.test.ts' 'tools/editor-vscode-test/test/*.test.ts'`: 900 passed, zero failed/skipped/cancelled.
+- Final browser proof after preview correction: `PLAYWRIGHT_PORT=4281 pnpm exec playwright test tools/browser/tests/editor-animation.spec.ts --workers=1` passed (6.2 s).
+- Final VS Code proof: `node packages/host-vscode/build.mjs`, `node extensions/editor/build.mjs`, then `TKR_VSCODE_ANIMATION_PROOF=1 pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace docs/spec/examples/game --game Main/example.gam` passed. Log: `/tmp/tkr2699-final-vscode-proof.log`. Actual-host integration necessarily exceeds one second because it covers native launch, save/reopen, permission refusal, restart and durable recovery; these cannot be proved by a shorter unit case. Operations are paced and bounded.
+- `pnpm licence`: zero violations. `pnpm fixtures:fetch`, `pnpm golden`, `pnpm closing`: passed, all eight closing baselines match. No golden/baseline changes.
+- `node tools/no-skips/run.mjs --verify-shards`: all eight shards / 399 files accepted. Tracker-store validation passed.
+- Local runtime is Node 26.13.0; required remote CI validates pinned Node 24.21.0. Full CI is the final merge gate, not replaced by these local results.
+
+Owner explicitly authorized pushing and merging when green, overriding the workflow's default no-auto-push guideline. General history, retention and timelines remain tracked in #1828; this PR delivers only the prerequisite checkpoint subset and complete #1718 animation authoring.
+
+### Review-fix negative proofs
+
+- #2826: `node --test --test-name-pattern='torn capture entries' packages/editor-model/test/checkpoint-groups.test.ts` failed before the fix at `ok(listed.ok)`; the corrected checkpoint suite passed all eight cases. Temporarily filtering error entries from `items.map` in the recovery view, rebuilding with `pnpm exec tsc -b packages/editor-ui`, and running `node --test --test-name-pattern='recovery view diagnoses torn captures' packages/editor-ui/test/animation-view.test.ts` failed the expected two-entry assertion. Restored/rebuilt code passed the identical test.
+- #2827: `PLAYWRIGHT_PORT=4281 pnpm exec playwright test tools/browser/tests/editor-animation.spec.ts --workers=1` failed before correction: the second pixel on an 8×6 canvas from a 4×3 GIF was transparent rather than repeated opaque (10,20,30,255). Corrected/rebuilt code passed the identical proof, including unequal TBM dimensions and native-size direct tiles. Parent also passed the updated shared proof in actual VS Code.
+- #2828: `node --test tools/editor-vscode-test/test/animation-native-guard.test.ts` failed before the guard (`ignored.ok` true, expected false). After `pnpm exec tsc -b packages/host-vscode`, the identical test passed (~14 ms), covering existing and absent `.gitignore`, restore refusal, preserved buffer/disk, and unaffected ordinary ANM saves.
