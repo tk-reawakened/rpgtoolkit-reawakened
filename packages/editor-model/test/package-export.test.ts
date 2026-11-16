@@ -39,6 +39,8 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd"): Reado
     "Tiles/editor.tkrTile": utf8Encode("editor tiles"),
     "Packs/editor.tkrpack": utf8Encode("editor package"),
     ".tkr-history/snapshot.bin": utf8Encode("history"),
+    ".TKR-Tests/Boards/wall.brd": utf8Encode("fixture board"),
+    ".TKR-Tests/Prg/helper.prg": utf8Encode("fixture helper"),
   };
 }
 
@@ -49,7 +51,7 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   const prepared = outcome.value;
 
   deepEqual([...prepared.includedFiles].sort(), ["Boards/start.brd", "Main/demo.gam", "Prg/start.prg"]);
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Boards/editor.tkrscn", "Tiles/editor.tkrTile", "Packs/editor.tkrpack", ".tkr-history/snapshot.bin"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Boards/editor.tkrscn", "Tiles/editor.tkrTile", "Packs/editor.tkrpack", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
     ok(prepared.excludedFiles.includes(path), `${path} should be reported as excluded`);
   }
 
@@ -59,6 +61,8 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   ok(manifest.ok, manifest.ok ? "" : manifest.error.message);
   equal(manifest.value.main, "Main/demo.gam");
   deepEqual(new Set(manifest.value.index), new Set(prepared.includedFiles));
+  const shipped = loaded.value.files.map((file) => file.path.toLowerCase());
+  deepEqual(shipped.filter((path) => path.includes(".tkr-tests") || path.endsWith(".spec.prg")), [], "the produced package holds no creator-test file");
 
   const descriptor = JSON.parse(utf8Decode(prepared.descriptor.bytes)) as Record<string, unknown>;
   deepEqual(Object.keys(descriptor), ["schema", "file", "sha256", "size", "gameId", "title", "version"]);
