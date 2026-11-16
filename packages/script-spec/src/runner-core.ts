@@ -434,6 +434,7 @@ export function runSpecFileWithLibrary(file: string, source: string, librarySour
   const strict = options.strict ?? true;
   const loader = options.loader;
   const structure = collect(source, librarySource, seed, loader);
+  const place = options.coverage === true ? placement(file, source, loader) : null;
   const counted: LineCounts = new Map();
   const count = (run: TaskRun): void => {
     if (run.lines !== null) addCounts(counted, run.lines);

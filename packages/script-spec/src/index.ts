@@ -10,7 +10,7 @@
  * part of a game's manifest.
  */
 
-
+export { discoverCases, failureMessage, hasOnlyCases, NO_CASES, ONLY_WARNING, runSpecFile } from "./runner.ts";
 export { createSpecPlugin, SPEC_PLUGIN } from "./plugin.ts";
 export type { SpecCaseResult, SpecFileReport, SpecOutcome, SpecOutcomeKind, SpecRunOptions } from "./runner.ts";
 export { discoverProjectSpecs, runSpecProject, watchSpecProject } from "./project.ts";
