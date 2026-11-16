@@ -48,10 +48,13 @@ function triggerHostButton(selector: string): boolean {
 /** Open the active program's shared reference without closing a panel that is already open. */
 function openProgramReference(): boolean {
   if (typeof document === "undefined") return false;
-  const toggle = document.querySelector<HTMLButtonElement>(".tkr-program-toggle-reference");
+  const active = document.activeElement;
+  const program = active instanceof Element ? active.closest<HTMLElement>(".tkr-program") : null;
+  const scope: ParentNode = program ?? document;
+  const toggle = scope.querySelector<HTMLButtonElement>(".tkr-program-toggle-reference");
   if (toggle === null) return false;
   if (toggle.getAttribute("aria-pressed") !== "true") toggle.click();
-  queueMicrotask(() => document.querySelector<HTMLInputElement>(".tkr-program-reference input[type=search]")?.focus());
+  queueMicrotask(() => scope.querySelector<HTMLInputElement>(".tkr-program-reference input[type=search]")?.focus());
   return true;
 }
 
@@ -111,11 +114,11 @@ export function WorkbenchCommandBar({
     setPaletteOpen(true);
   };
 
-  const closePalette = (): void => {
+  const closePalette = (restoreFocus = true): void => {
     setPaletteOpen(false);
     const target = invokerRef.current;
     invokerRef.current = null;
-    if (target !== null && target.isConnected) queueMicrotask(() => target.focus());
+    if (restoreFocus && target !== null && target.isConnected) queueMicrotask(() => target.focus());
   };
 
   useEffect(() => {
@@ -253,8 +256,11 @@ export function WorkbenchCommandBar({
     if (item.id === "help.manual" || item.id === "help.whatsNew") {
       helpInvokerRef.current = fromPalette ? invokerRef.current : menuButtonRef.current;
     }
-    if (fromPalette) closePalette();
-    else {
+    if (fromPalette) {
+      const invoker = invokerRef.current;
+      closePalette(false);
+      if (invoker !== null && invoker.isConnected) invoker.focus();
+    } else {
       setMenuOpen(false);
       // Give host actions their real invoker before they open UI that owns focus and later returns it.
       menuButtonRef.current?.focus();

@@ -1,4 +1,4 @@
-import type { expect as playwrightExpect, Page } from "@playwright/test";
+import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
 
 type Expect = typeof playwrightExpect;
 const END_OF_TEXT = process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End";
@@ -26,6 +26,20 @@ export async function runVscodeContextualHelpProof(page: Page, expect: Expect, w
     await expect(pathInput).toHaveValue(path);
     await pathInput.press("Enter");
   };
+  const waitForSettingsFrame = async (): Promise<Frame> => {
+    const deadline = Date.now() + 30_000;
+    let pause = 100;
+    while (Date.now() < deadline) {
+      const outer = await page.locator("iframe.webview:visible").first().elementHandle({ timeout: 250 }).catch(() => null);
+      const outerFrame = await outer?.contentFrame().catch(() => null);
+      const content = outerFrame?.childFrames().find((frame) => frame.name() === "pending-frame");
+      if (content !== undefined && await content.locator(".tkr-settings").count().catch(() => 0) > 0) return content;
+      await page.waitForTimeout(pause);
+      pause = Math.min(pause * 2, 1_000);
+    }
+    throw new Error("Timed out waiting for the native game settings custom editor");
+  };
+
 
   await openProofProjectFile("Game/Example/Prg/start.prg");
 
@@ -83,11 +97,12 @@ export async function runVscodeContextualHelpProof(page: Page, expect: Expect, w
   );
 
   await openProofProjectFile("Main/example.gam");
-  const titleField = page.getByRole("textbox", { name: "Game title", exact: true });
+  const settingsFrame = await waitForSettingsFrame();
+  const titleField = settingsFrame.getByRole("textbox", { name: "Game title", exact: true });
   await expect(titleField).toBeVisible();
   await titleField.focus();
   await page.keyboard.press("F1");
-  const settingsHelp = page.getByRole("dialog", { name: "Game title help" });
+  const settingsHelp = settingsFrame.getByRole("dialog", { name: "Game title help" });
   await expect(settingsHelp).toBeVisible();
   await expect(settingsHelp).toContainText("Stored in row 7");
   await expect(settingsHelp).toContainText("Read game settings documentation");

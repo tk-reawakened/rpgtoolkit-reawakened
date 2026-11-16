@@ -245,6 +245,20 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.keyboard.press("Escape");
   await expect(preferences).toHaveCount(0);
   await expect(appMenu).toBeFocused();
+  // The command-palette route must preserve the host dialog's focus just like the application-menu route.
+  await focusEnd(page);
+  await page.keyboard.press("F1");
+  const paletteSearch = page.getByLabel("Search commands and files");
+  await expect(paletteSearch).toBeFocused();
+  await page.keyboard.type("Editor Preferences");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Editor Preferences…");
+  await page.keyboard.press("Enter");
+  await expect(preferences).toBeVisible();
+  await expect(preferences.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(preferences).toHaveCount(0);
+  await expect(page.locator(".monaco-editor").evaluate((editor) => editor.contains(document.activeElement))).resolves.toBe(true);
+
 
   // F1 exposes the generated reference from the workspace; search, select, and insert using only the keyboard.
   await focusEnd(page);
@@ -352,12 +366,38 @@ test("a second program view uses the running project's language context", async 
   const editorInput = mirror.getByRole("textbox", { name: /^Program text/ });
   await editorInput.focus();
   await expect(editorInput).toBeFocused();
-  await page.keyboard.press("F1");
-  await page.keyboard.type("Format Document");
-  await expect(page.locator(".quick-input-widget .quick-input-list-entry").first()).toContainText("Format Document");
-  await page.keyboard.press("Enter");
+  await page.keyboard.press("Shift+Alt+f");
   await expect.poll(() => editorText(page)).toContain("\n    mwin(name)");
   await expect(mirror).not.toContainText(/unassessed|failed/i);
+});
+
+test("F1 quick reference inserts into the invoking mirrored program view", async ({ page }) => {
+  const source = "first\nsecond\n";
+  await installProject(page, [
+    { path: "Main/example.gam", bytes: main },
+    { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
+  ]);
+  await openProgram(page);
+  await page.locator("#mirror-view").click();
+  const mirror = page.locator("#mirror");
+  await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
+  const primaryInput = page.getByRole("textbox", { name: /^Program text/ }).first();
+  const mirrorInput = mirror.getByRole("textbox", { name: /^Program text/ });
+  await primaryInput.focus();
+  await page.keyboard.press("ControlOrMeta+Home");
+  await mirrorInput.focus();
+  await page.keyboard.press(END_OF_TEXT);
+  await page.keyboard.press("F1");
+  await page.keyboard.type("Open RPGCode Quick Reference");
+  await expect(page.locator(".tkr-command-palette-option").first()).toContainText("Open RPGCode Quick Reference");
+  await page.keyboard.press("Enter");
+  const referenceSearch = mirror.getByLabel("Find a command");
+  await expect(referenceSearch).toBeFocused();
+  await referenceSearch.fill("castint");
+  const row = mirror.locator(".tkr-program-reference-list button").first();
+  await expect(row).toContainText("castint(val, [&dest])");
+  await row.dblclick();
+  await expect.poll(() => mirror.locator(".monaco-editor .view-lines").innerText()).toMatch(/^first\s+second\s+castint\(/);
 });
 
 test("the probe can fail: under the strict policy of the other editor pages Monaco is blocked, and the violations are reported", async ({ page }) => {
