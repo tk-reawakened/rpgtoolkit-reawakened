@@ -184,6 +184,29 @@ runner chooses how often it reads it. The engine init option `stateHashInReports
 state, pixels, sound or diagnostics. A runner that shows a hash next to a tick MUST read both after the same `advance`.
 The choice of mode and of when to read the hash must not change any state, pixel or sound.
 
+<a id="diagnostics-mode"></a>
+**Diagnostics mode.** *In plain terms:* the numbers a developer uses to check a run (tick, state hash, draw hash,
+draw-command counts, player position, load and save details) are hidden while someone plays, and cost nothing until
+someone asks to see them. *Precisely:* every live player — the web player, the editor's Run panel (which loads the web
+player), the desktop player and the mobile player — starts with diagnostics mode **off**, and:
+
+- With it off, the player shows no diagnostic text, does not put hashes in the window or page title, and computes the
+  state hash only when something reads it ([state-hash cadence](#state-hash-cadence)). A test probe such as
+  `window.__live` may still be published, but its `stateHash` is computed on first read after an `advance` and reads
+  `""` once a later `advance` has started, so a hash is never paired with the wrong tick.
+- It is turned on at launch by a flag: `--diagnostics` for the desktop player, `?diagnostics` in the page address for
+  the web and mobile players. A player with a keyboard toggles it with F3 at any time. Test tooling that cannot pass a
+  flag (an installed mobile app) turns it on or off with `window.__tkrDiagnostics(on)`.
+- With it on, the player shows its status text, the mobile page title is `mobile: <board> <tick> <stateHash>`, and the
+  live report carries the state hash read after the same `advance` as its tick on every presented frame. That costs a
+  whole-state hash per frame, which is the price of looking.
+- An error that stops the player is shown whether or not the mode is on.
+- Measurement pages that exist to report numbers (the web player's `?parity` and `?tracer` pages, the desktop
+  measurement player) always show them; they are diagnostics by purpose.
+
+Switching the mode never changes state, pixels, sound or the game's own diagnostics; it changes only what the host
+shows and when it reads the hash.
+
 <a id="webgl2-agreement"></a>
 ## The WebGL2 agreement bound
 
