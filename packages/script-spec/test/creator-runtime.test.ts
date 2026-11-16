@@ -14,6 +14,7 @@ import {
   readBoard,
   writeBoard,
   writeCharacter,
+  tileToPixel,
   usesPixelCoordinates,
   type AssetKey,
   type DecodedTexture,
@@ -512,4 +513,53 @@ test("fixture string command results cannot inject setup RPGCode", () => {
   equal(report.files[0]?.cases.length, 0);
   ok(report.failures.some((failure) => failure.includes("line 1 (spec.bad-fixture)")));
   ok(!report.failures.some((failure) => failure.includes("GiveGP(999)")), "the rejected value never enters a generated setup program");
+});
+
+function rotatedFixtureFiles(x: number, y: number): File[] {
+  const path = "Prg/rotated.spec.prg";
+  const source = [
+    `specFixture({ board: "Boards/wall.brd", party: { length: 1, "0": "Chrs/Hero.tem" }, x: ${x}, y: ${y} })`,
+    'it("rotated board position is valid", () => { expect(specValue("board")).toBe("boards/wall.brd") })',
+  ].join("\n");
+  const files = classicFiles().filter((file) => file.path !== "Prg/classic.spec.prg");
+  const boardFile = files.find((file) => file.path.endsWith("Boards/wall.brd"));
+  if (boardFile === undefined) throw new Error("the classic fixture has no wall board");
+  const parsed = readBoard(new BinaryReader(boardFile.bytes, boardFile.path));
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  const side = parsed.value.sizeX + parsed.value.sizeY;
+  const tileCount = side * side * parsed.value.sizeL;
+  const written = writeBoard({
+    ...parsed.value,
+    coordType: (parsed.value.coordType & ~4) | 2,
+    tileMatrix: Array(tileCount).fill(0),
+    tileRuns: [{ lutIndex: 0, count: tileCount, marker: true }],
+    vectors: [],
+    programs: [],
+  });
+  if (!written.ok) throw new Error(written.error.message);
+  return replaceFile(files, boardFile.path, written.value).concat({ path, bytes: encode(source) });
+}
+
+test("rotated fixture tiles validate by Core pixel conversion", () => {
+  const dimensions = boardPixelSize("iso-rotated", 10, 8);
+  const inside = tileToPixel("iso-rotated", 10, 11, 6);
+  const outside = tileToPixel("iso-rotated", 10, 1, 1);
+  deepEqual(dimensions, { width: 608, height: 256 });
+  deepEqual(inside, { x: 480, y: 96 });
+  deepEqual(outside, { x: 320, y: -144 });
+
+  const validReport = runCreatorSpecs(rotatedFixtureFiles(11, 6));
+  const valid = validReport.files.flatMap((file) => file.cases)[0];
+  ok(valid !== undefined, JSON.stringify(validReport.failures));
+  equal(valid.ok, true, JSON.stringify(valid.outcomes, null, 2));
+
+  const invalidReport = runCreatorSpecs(rotatedFixtureFiles(1, 1));
+  const invalid = invalidReport.files.flatMap((file) => file.cases)[0];
+  ok(invalid !== undefined, JSON.stringify(invalidReport.failures));
+  equal(invalid.ok, false);
+  const failure = invalid.outcomes.find((outcome) => outcome.actual.startsWith("spec.fixture-load:"));
+  ok(failure !== undefined);
+  equal(failure.sourcePath, "Prg/rotated.spec.prg");
+  equal(failure.line, 1);
+  equal(invalid.run, undefined, "out-of-board rotated placement fails before starting the fixture engine");
 });

@@ -25,6 +25,7 @@ import {
   BinaryReader,
   boardPixelSize,
   coordLayout,
+  tileToPixel,
   createAssetIndex,
   createGameState,
   createScriptServices,
@@ -374,12 +375,16 @@ function validateFixtureStart(world: FixtureWorld, fixture: FixtureDefinition): 
   if (!parsed.ok) throw new FixtureError("spec.fixture-load", `specFixture: board "${fixture.board}" is invalid: ${parsed.error.message}`);
   const board = parsed.value;
   const { x, y, layer } = fixture.start;
-  const inBounds = usesPixelCoordinates(board.coordType)
-    ? (() => {
-      const size = boardPixelSize(coordLayout(board.coordType), board.sizeX, board.sizeY);
-      return x >= 0 && x < size.width && y >= 0 && y < size.height;
-    })()
-    : x >= 1 && x <= board.sizeX && y >= 1 && y <= board.sizeY;
+  const layout = coordLayout(board.coordType);
+  const size = boardPixelSize(layout, board.sizeX, board.sizeY);
+  const position = usesPixelCoordinates(board.coordType)
+    ? { x, y }
+    : layout === "iso-rotated"
+      ? tileToPixel(layout, board.sizeX, x, y)
+      : null;
+  const inBounds = position === null
+    ? x >= 1 && x <= board.sizeX && y >= 1 && y <= board.sizeY
+    : position.x >= 0 && position.x < size.width && position.y >= 0 && position.y < size.height;
   if (!inBounds || layer < 1 || layer > board.sizeL) {
     throw new FixtureError("spec.fixture-load", `specFixture: start (${x}, ${y}, ${layer}) lies outside board "${fixture.board}"`);
   }
