@@ -310,11 +310,19 @@ export async function runVscodeNewProjectProof(
   // Adding the new root converts the single-folder window and restarts its extension host.
   // No follow-up command is allowed to activate the extension or open the file on its behalf.
   await expect.poll(
-    () => page.getByRole("tab", { name: /^Quest\.gam(?:,|$)/ }).isVisible(),
+    () => page.getByRole("tab", { name: /^Quest\.gam(?:,|$)/, selected: true }).isVisible(),
     { timeout: 60_000, intervals: [100, 250, 500, 1_000] },
   ).toBe(true);
-  const editor = await waitForEditorFrame(page, "automatically opened new project");
-  await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("Native wizard quest");
+  // Reacquire visible frames across the workspace conversion, rather than retaining an old editor frame.
+  await expect(async () => {
+    const titles: string[] = [];
+    for (const frame of page.frames()) {
+      if (frame.name() !== "pending-frame") continue;
+      const title = frame.getByRole("textbox", { name: "Game title", exact: true });
+      if (await title.isVisible()) titles.push(await title.inputValue({ timeout: 1_000 }));
+    }
+    expect(titles).toContain("Native wizard quest");
+  }).toPass({ timeout: 60_000, intervals: [100, 250, 500, 1_000] });
 }
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
@@ -1452,7 +1460,8 @@ async function openPersistedBytesPanel(page: Page, expect: Expect): Promise<{ ta
   const existingCount = await panelTabs.count();
   await runCommand(page, expect, copyBytesCommand);
   try {
-    await expect.poll(() => panelTabs.count()).toBeGreaterThan(existingCount);
+    // The command performs host filesystem reads before publishing; wait with bounded, paced observations, never redispatch.
+    await expect.poll(() => panelTabs.count(), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBeGreaterThan(existingCount);
   } catch (cause) {
     const tabs = await page.getByRole("tab").allTextContents();
     throw new Error(`The byte probe did not open a new tab; current tabs: ${JSON.stringify(tabs)}`, { cause });
