@@ -1,4 +1,4 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, historyPolicyFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -155,7 +155,11 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     capabilities.add("runBoard");
     capabilities.add("runProgram");
   }
-  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
+  const settings = createWebSettings(fs, webUserStorage(options), capabilities.has("folderWrite"));
+  // Retention is user-only (ADR 0022 D6.3): the effective values come from the user layer and the catalogue's defaults.
+  const retention = createPreferences({ settings, projectLayer: false });
+  void retention.refresh();
+  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities }, historyPolicy: () => historyPolicyFrom((id) => retention.getSnapshot().rows.find((row) => row.entry.id === id)?.effective) });
   const services: PlatformServices = {
     capabilities,
     fs,
@@ -166,7 +170,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
         return recent ? platformOk(recent) : platformError("unavailable", "Browser project persistence is unavailable.");
       },
     },
-    settings: createWebSettings(fs, webUserStorage(options), capabilities.has("folderWrite")),
+    settings,
     document: workspace.document,
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
