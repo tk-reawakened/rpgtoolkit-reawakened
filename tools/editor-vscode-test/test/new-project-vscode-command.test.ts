@@ -29,10 +29,11 @@ export class Uri {
   get fsPath() { return this.path; }
 }
 const parentOf = (path) => path.slice(0, path.lastIndexOf("/")) || "/";
-const state = { workspaceFolders: undefined, calls: [], errors: [], answers: { input: [], pick: [], folder: [] }, globalState: new Map(), commands: new Map(), updated: [], restartOnUpdate: false, refuseWorkspaceUpdate: false, onWorkspaceUpdate: undefined };
+const state = { workspaceFolders: undefined, workspaceFile: "/test.code-workspace", calls: [], errors: [], answers: { input: [], pick: [], folder: [] }, globalState: new Map(), commands: new Map(), updated: [], restartOnUpdate: false, refuseWorkspaceUpdate: false, onWorkspaceUpdate: undefined };
 const missing = (uri) => new FileSystemError(uri.path + " was not found", "FileNotFound");
 export const workspace = {
   get workspaceFolders() { return state.workspaceFolders; },
+  get workspaceFile() { return state.workspaceFile === undefined ? undefined : Uri.file(state.workspaceFile); },
   getWorkspaceFolder(uri) { return (state.workspaceFolders ?? []).find((folder) => uri.path === folder.uri.path || uri.path.startsWith(folder.uri.path.replace(/\\/$/, "") + "/")); },
   updateWorkspaceFolders(start, remove, ...add) {
     state.updated.push(add.map((item) => item.uri.toString()));
@@ -82,6 +83,7 @@ globalThis.__tkrFakeVscode = { state, files, folders, listeners };
 
 interface FakeState {
   workspaceFolders: { uri: { path: string; toString(): string }; name: string }[] | undefined;
+  workspaceFile: string | undefined;
   calls: unknown[][];
   errors: string[];
   answers: { input: (string | undefined)[]; pick: (string[] | undefined)[]; folder: (string | undefined)[] };
@@ -147,6 +149,7 @@ function context(persisted: Map<string, unknown>): Context {
 function reset(workspace: FakeState["workspaceFolders"]): void {
   const { state } = fake;
   state.workspaceFolders = workspace;
+  state.workspaceFile = "/test.code-workspace";
   state.calls.length = 0;
   state.errors.length = 0;
   state.updated.length = 0;
@@ -228,30 +231,28 @@ test("a project at an exact existing workspace folder opens without adding a dup
   }
 });
 
-test("a new workspace folder survives an extension-host restart and opens the main file on reactivation", async () => {
-  await load();
-  try {
-    reset([folderOf("/work")]);
-    const persisted = new Map<string, unknown>();
-    fake.state.answers.input.push("Quest", "Quest.gam");
-    fake.state.answers.pick.push([]);
-    fake.state.answers.folder.push("/elsewhere/quest");
-    fake.state.restartOnUpdate = true;
-    let signalWorkspaceUpdate!: () => void;
-    const updated = new Promise<void>((resolve) => {
-      signalWorkspaceUpdate = resolve;
-    });
-    fake.state.onWorkspaceUpdate = signalWorkspaceUpdate;
-    void run(persisted);
-    await updated;
+test("single-folder conversion leaves the main file for reactivation, even if a folder event arrives before restart", async () => {
+  for (const deliverFolderEvent of [true, false]) {
+    await load();
+    try {
+      reset([folderOf("/work")]);
+      fake.state.workspaceFile = undefined;
+      const persisted = new Map<string, unknown>();
+      fake.state.answers.input.push("Quest", "Quest.gam");
+      fake.state.answers.pick.push([]);
+      fake.state.answers.folder.push("/elsewhere/quest");
+      fake.state.restartOnUpdate = !deliverFolderEvent;
+      await run(persisted);
+      deepEqual(commandCalls(), [], "the old extension host must not consume the new project's open");
+      deepEqual([...persisted.values()], [{ folder: "file:///elsewhere/quest", main: "file:///elsewhere/quest/Main/Quest.gam" }]);
 
-    deepEqual([...persisted.values()], [{ folder: "file:///elsewhere/quest", main: "file:///elsewhere/quest/Main/Quest.gam" }]);
-    fake.state.calls.length = 0;
-    extension.registerNewProject(context(persisted));
-    deepEqual(commandCalls(), [["command", "vscode.open", "file:///elsewhere/quest/Main/Quest.gam"]]);
-    equal(persisted.size, 0, "the pending open is consumed on the restarted activation");
-  } finally {
-    await rm(dir, { recursive: true, force: true });
+      fake.state.workspaceFile = "/converted.code-workspace";
+      extension.registerNewProject(context(persisted));
+      deepEqual(commandCalls(), [["command", "vscode.open", "file:///elsewhere/quest/Main/Quest.gam"]]);
+      equal(persisted.size, 0, "the restarted activation consumes the pending open");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 });
 

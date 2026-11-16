@@ -139,8 +139,8 @@ interface PendingOpen {
 /**
  * The new-project command (T-04): the questions are VS Code's own input boxes and pick lists, then the folder dialog. The
  * created folder is opened as a workspace folder (the custom editors work on files inside one) and its main file in the
- * editor. Opening a folder into an empty window makes VS Code restart the extension host, so that case leaves the main file
- * to be opened by the next activation.
+ * editor. Opening a folder into an empty window, or converting a single-folder window into a workspace, restarts the
+ * extension host; those cases leave the main file to be opened by the next activation.
  */
 export function registerNewProject(context: vscode.ExtensionContext): void {
   const ui: NewProjectUi = {
@@ -199,22 +199,24 @@ async function openCreatedProject(context: vscode.ExtensionContext, destination:
     }
     return;
   }
-  let resolveAdded!: () => void;
-  const added = new Promise<void>((resolve) => {
-    resolveAdded = resolve;
+  // A folder-window conversion can emit a folder event before it restarts: only the next host may consume the request.
+  const restarting = folders.length === 1 && vscode.workspace.workspaceFile === undefined;
+  let listener: vscode.Disposable | undefined;
+  const added = restarting ? undefined : new Promise<void>((resolve) => {
+    listener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === pending.folder)) return;
+      listener?.dispose();
+      resolve();
+    });
+    context.subscriptions.push(listener);
   });
-  const listener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
-    if (!(vscode.workspace.workspaceFolders ?? []).some((folder) => folder.uri.toString() === destination.toString())) return;
-    listener.dispose();
-    resolveAdded();
-  });
-  context.subscriptions.push(listener);
   if (!vscode.workspace.updateWorkspaceFolders(folders.length, 0, { uri: destination })) {
-    listener.dispose();
+    listener?.dispose();
     await context.globalState.update(PENDING_OPEN, undefined);
     await vscode.window.showErrorMessage(`The project was created in ${destination.fsPath}, but VS Code could not add it to the workspace. Open the folder to edit it.`);
     return;
   }
+  if (added === undefined) return;
   await added;
   await context.globalState.update(PENDING_OPEN, undefined);
   await vscode.commands.executeCommand("vscode.open", main);

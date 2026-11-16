@@ -288,6 +288,8 @@ export async function runVscodeNewProjectProof(
   await expect.poll(() => destination.isVisible(), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
   await destination.click({ timeout: 1_000 });
   await expect(answer).toHaveValue("/__tkr_new_project/");
+  const previousExtensionHost = page.frames().find((frame) => frame.url().includes("webWorkerExtensionHostIframe.html"));
+  if (previousExtensionHost === undefined) throw new Error("The new-project command did not have a running extension host");
   await widget.getByRole("button", { name: "Create project here", exact: true }).click();
 
   const folders = ["Bitmap", "Bkrounds", "Boards", "Chrs", "Enemy", "Font", "Item", "Main", "Media", "Misc", "Plugin", "Prg", "SpcMove", "StatusE", "Tiles"];
@@ -309,6 +311,7 @@ export async function runVscodeNewProjectProof(
 
   // Adding the new root converts the single-folder window and restarts its extension host.
   // No follow-up command is allowed to activate the extension or open the file on its behalf.
+  await expect.poll(() => previousExtensionHost.isDetached(), { timeout: 60_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
   await expect.poll(
     () => page.getByRole("tab", { name: /^Quest\.gam(?:,|$)/, selected: true }).isVisible(),
     { timeout: 60_000, intervals: [100, 250, 500, 1_000] },
@@ -317,7 +320,6 @@ export async function runVscodeNewProjectProof(
   await expect(async () => {
     const titles: string[] = [];
     for (const frame of page.frames()) {
-      if (frame.name() !== "pending-frame") continue;
       const title = frame.getByRole("textbox", { name: "Game title", exact: true });
       if (await title.isVisible()) titles.push(await title.inputValue({ timeout: 1_000 }));
     }
