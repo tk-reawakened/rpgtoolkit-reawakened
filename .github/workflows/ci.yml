@@ -660,6 +660,12 @@ jobs:
             --extension extensions/editor \
             --workspace "$workspace" \
             --game Main/example.gam
+          # Run the creator-specific native host proof separately; it selects a focused scenario
+          # and must not replace the default editor acceptance and permission-refusal proof above.
+          TKR_VSCODE_CREATOR_TESTS_PROOF=1 "$@" xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
+            --extension extensions/editor \
+            --workspace "$workspace" \
+            --game Main/example.gam
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
       - run: pnpm fixtures:fetch

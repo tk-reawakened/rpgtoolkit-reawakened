@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Run saved RPGCode creator tests from the browser workbench's Run panel or VS Code's **RPG Toolkit: Run saved tests** command (#1707; [creator tests](docs/spec/engine/rpgcode-tooling.md#tool-5-creator-api)). The editor saves accepted edits first, runs the same real-engine framework as the command line, and shows saved revisions, fixture frames, assertion results and links to their owning source. Tests can use a seed and case-name filter; edits that race the saved-file read refuse the run rather than silently testing older bytes. Test-only files belong under `.tkr-tests/` and are excluded from game packages.
+- Scene-only checkpoints retain full audio and action data, historical baked canvases and held frames while resources rehydrate. Constructor asset requests are delivered once, and resumed ticks and drawing match uninterrupted execution without changing ordinary state hashes or game-save formats (#2831).
+- Effect-observer regressions now cover actual bounded-log eviction and draining with exact production sequences, alongside real native-command observation (#2850).
 - The native NewProject acceptance proof navigates directly to its existing destination in the real folder picker, without depending on a remembered parent listing; it still verifies generated backing files and automatic editor opening (#2858).
 - No-skips Git fixtures isolate inherited repository, signing and global configuration, then restore the original environment after each synchronous fixture (#2852).
 - The native web-workbench proof loads the real RPGCode companion extension, builds it in CI, and refuses a missing browser bundle instead of leaving programs in Plain Text (#2844).

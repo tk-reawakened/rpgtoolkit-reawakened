@@ -18,10 +18,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "adds/toBe",
-                  "line": 2
+                  "line": 2,
+                  "sourcePath": "math.spec.prg"
                 }
               ],
-              "stateHash": "6d0cf1a03e1fba99"
+              "stateHash": "314d24afa4137985"
             },
             {
               "groups": [
@@ -36,10 +37,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "subtracts/toEqual",
-                  "line": 3
+                  "line": 3,
+                  "sourcePath": "math.spec.prg"
                 }
               ],
-              "stateHash": "626764918d0b455f"
+              "stateHash": "7065f4a6528c3f9b"
             },
             {
               "groups": [],
@@ -52,7 +54,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "the engine built-ins are available to specs/toBe",
-                  "line": 9
+                  "line": 9,
+                  "sourcePath": "math.spec.prg"
                 },
                 {
                   "actual": "",
@@ -60,7 +63,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "the engine built-ins are available to specs/toBe",
-                  "line": 10
+                  "line": 10,
+                  "sourcePath": "math.spec.prg"
                 },
                 {
                   "actual": "",
@@ -68,7 +72,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "the engine built-ins are available to specs/toBe",
-                  "line": 11
+                  "line": 11,
+                  "sourcePath": "math.spec.prg"
                 },
                 {
                   "actual": "",
@@ -76,10 +81,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "the engine built-ins are available to specs/toBe",
-                  "line": 15
+                  "line": 15,
+                  "sourcePath": "math.spec.prg"
                 }
               ],
-              "stateHash": "dc0e15ef453ee363"
+              "stateHash": "68ca0d74d3db9523"
             }
           ],
           "failures": [],

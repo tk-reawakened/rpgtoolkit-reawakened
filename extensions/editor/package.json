@@ -30,6 +30,7 @@
     "onCommand:tkr.startBoard",
     "onCommand:tkr.testProgram",
     "onCommand:tkr.newAnimation",
+    "onCommand:tkr.runSavedTests",
     "onCommand:tkr.animationRecovery"
   ],
   "main": "./dist/extension.js",
@@ -59,6 +60,10 @@
       {
         "command": "tkr.testProgram",
         "title": "RPG Toolkit: Test Program"
+      },
+      {
+        "command": "tkr.runSavedTests",
+        "title": "RPG Toolkit: Run saved tests"
       },
       {
         "command": "tkr.newBoard",

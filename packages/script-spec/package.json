@@ -5,11 +5,15 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
+    "generate:library": "node tools/embed-library.mjs",
+    "check:library": "node tools/embed-library.mjs --check",
     "typecheck:tests": "tsc -p tsconfig.test.json"
   },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "browser": "./dist/browser.js",
+      "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
   },

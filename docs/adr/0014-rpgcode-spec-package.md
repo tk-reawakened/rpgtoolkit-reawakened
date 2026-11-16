@@ -1,6 +1,6 @@
 # ADR 0014 — The RPGCode spec API is a test-only package, not engine built-ins
 
-> **Status:** Accepted (owner, 2026-10-31). **Amended 2026-11-11** (owner, #948, ruling F-A): the one native command becomes a closed, test-only set of seven; see [the amendment](#amendment-2026-11-11--a-closed-test-only-set-of-native-commands). **Amended 2026-11-12** (owner, #2042): the set grows to twelve with the test doubles and spies; see [the second amendment](#amendment-2026-11-12--test-doubles-and-spies). Numbering note: **0013 belongs to the desktop shell ADR**, which epic 9 lands with the same commit series; this ADR deliberately takes 0014 so the two can land independently.
+> **Status:** Accepted (owner, 2026-10-31). **Amended 2026-11-11** (owner, #948, ruling F-A): the one native command becomes a closed, test-only set of seven; see [the amendment](#amendment-2026-11-11--a-closed-test-only-set-of-native-commands). **Amended 2026-11-12** (owner, #2042): the set grows to twelve with the test doubles and spies; see [the second amendment](#amendment-2026-11-12--test-doubles-and-spies). **Amended 2026-11-15** (owner-delegated, entry 11.9, #1707): the set grows to sixteen with the creator-test operations; see [the third amendment](#amendment-2026-11-15--creator-test-operations). Numbering note: **0013 belongs to the desktop shell ADR**, which epic 9 lands with the same commit series; this ADR deliberately takes 0014 so the two can land independently.
 > **Supersedes:** nothing. **Amends:** nothing. Related: [ADR 0004](0004-script-ast-step-ir-and-plugins.md) (the plugin manifest and command registration), [ADR 0007](0007-docs-spec-is-the-normative-specification.md) (docs first).
 
 ## Context
@@ -50,3 +50,13 @@ The package is loadable only by the test runner. It must not appear in the engin
 **Consequences.** Twelve test-only catalogue rows. The runner wraps the handlers of the commands it registers so a spy or scripted draws can take effect; that wrapping is per run and only in the test runner, so a game's commands are unchanged. `specTicks` waits through the existing cooperative sleep, so G1 holds.
 
 **Rejected.** A TypeScript-only spy API (RPGCode authors could not write the tests); forcing `random`'s return value (skips its range rules); replacing commands globally; falling back to the seeded generator once scripted draws run out.
+
+## Amendment (2026-11-15) — creator-test operations
+
+**Context.** The accepted TOOL-5 creator-test rule (ADR 0022 D9) needs a case to choose an authored board and starting state, press player actions for a stated number of ticks, read the engine's state and wait on it with a tick bound. Like the test doubles, each acts on the runner's side of the engine: the engine's board entry, input section and state are not reachable from a program.
+
+**Decision.** `script-spec` adds four natives, specified in [TOOL-5](../spec/engine/rpgcode-tooling.md#tool-5-creator-api): `specFixture`, `specAction`, `specValue` and `specWait`, making the closed set sixteen. The owner delegated epic 11's implementation choices on 2026-11-15; the spellings, limits and numbers are the implementing agent's conservative proposal under that delegation, not an owner utterance, and take effect by merging the docs-only change that adds them. The set stays closed and the package stays out of the default manifest.
+
+**Consequences.** Four more test-only catalogue rows. A case with a fixture runs in the real engine (scene mode); a case without one runs as before. The package grows no dependency on a host: the runner is browser-safe and the Node adapter only reads files. The real engine needs three small, optional, host-side seams, each specified first: a frozen scene program loader and a scene resume ([main-loop-and-startup.md](../spec/engine/main-loop-and-startup.md#reawakened-scene-program-loader)) and an effect observer ([ADR 0010](0010-script-execution-observers.md#amendment-2026-11-15--effect-observer)). None changes an engine that is not given them.
+
+**Rejected.** A fixture built by writing engine state directly (it would reimplement board entry and could pass where the game fails); a TypeScript-only fixture API (RPGCode authors could not write the tests); a library-program loop for `specWait` (its timeout would be located in the library, not at the author's line).

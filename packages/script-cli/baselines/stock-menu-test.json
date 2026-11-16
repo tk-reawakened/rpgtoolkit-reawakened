@@ -18,7 +18,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "normalizes legacy keys/toBe",
-                  "line": 5
+                  "line": 5,
+                  "sourcePath": "menu.spec.prg"
                 },
                 {
                   "actual": "",
@@ -26,7 +27,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "normalizes legacy keys/toBe",
-                  "line": 6
+                  "line": 6,
+                  "sourcePath": "menu.spec.prg"
                 },
                 {
                   "actual": "",
@@ -34,7 +36,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "normalizes legacy keys/toBe",
-                  "line": 7
+                  "line": 7,
+                  "sourcePath": "menu.spec.prg"
                 },
                 {
                   "actual": "",
@@ -42,10 +45,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "normalizes legacy keys/toBe",
-                  "line": 8
+                  "line": 8,
+                  "sourcePath": "menu.spec.prg"
                 }
               ],
-              "stateHash": "00ab900f04dbcbf5"
+              "stateHash": "46c800e7c2dbded7"
             },
             {
               "groups": [
@@ -60,7 +64,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "chooses the first row of the selected page/toBe",
-                  "line": 11
+                  "line": 11,
+                  "sourcePath": "menu.spec.prg"
                 },
                 {
                   "actual": "",
@@ -68,7 +73,8 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "chooses the first row of the selected page/toBe",
-                  "line": 12
+                  "line": 12,
+                  "sourcePath": "menu.spec.prg"
                 },
                 {
                   "actual": "",
@@ -76,10 +82,11 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "chooses the first row of the selected page/toBe",
-                  "line": 13
+                  "line": 13,
+                  "sourcePath": "menu.spec.prg"
                 }
               ],
-              "stateHash": "b1a728163af0c984"
+              "stateHash": "4686c9153632914e"
             }
           ],
           "failures": [],

@@ -217,6 +217,9 @@ importers:
       '@tk-reawakened/runner-web':
         specifier: workspace:*
         version: link:packages/runner-web
+      '@tk-reawakened/script-spec':
+        specifier: workspace:*
+        version: link:packages/script-spec
       '@tk-reawakened/script-tools':
         specifier: workspace:*
         version: link:packages/script-tools
@@ -300,6 +303,9 @@ importers:
       '@tk-reawakened/platform-services':
         specifier: workspace:*
         version: link:../platform-services
+      '@tk-reawakened/script-spec':
+        specifier: workspace:*
+        version: link:../script-spec
       monaco-editor:
         specifier: 0.57.0
         version: 0.57.0
@@ -601,6 +607,9 @@ importers:
       '@tk-reawakened/runner-harness':
         specifier: workspace:*
         version: link:../../packages/runner-harness
+      '@tk-reawakened/script-spec':
+        specifier: workspace:*
+        version: link:../../packages/script-spec
       '@types/node':
         specifier: 24.0.0
         version: 24.0.0

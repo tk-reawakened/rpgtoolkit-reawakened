@@ -2,15 +2,16 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader } from "@tk-reawakened/core";
 import { buildNewBoard } from "@tk-reawakened/editor-model";
-import { runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
+import { createCreatorTestFiles } from "./creator-tests-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
@@ -64,9 +65,16 @@ const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
 const newProjectProof = process.env.TKR_VSCODE_NEW_PROJECT_PROOF === "1";
 const autosaveCommandProof = process.env.TKR_VSCODE_AUTOSAVE_COMMAND_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
-if ((animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of animationProof || skipSpriteProof || autosaveCommandProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
+if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
+if ((animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of animationProof || skipSpriteProof || autosaveCommandProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
+  if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
+    const target = resolve(proofWorkspace, file.path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, file.bytes);
+  }
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
   await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
@@ -268,7 +276,14 @@ for (const choice of animationProof || skipSpriteProof || autosaveCommandProof ?
       await runVscodeNewProjectProof(page, expect, workbenchUrl, tree, readBacking);
       console.log("vscode.dev real New project picker, creation and automatic-open proof passed");
     };
-    if (animationProof) {
+    if (creatorTestsProof) {
+      const { runCreatorSpecs } = await import(pathToFileURL(resolve(root, "packages/script-spec/dist/browser.js")).href);
+      await runVscodeCreatorTestsProof(page, expect, workbenchUrl, runCreatorSpecs, {
+        readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
+        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave,
+      });
+      console.log("VS Code saved creator-test command, actual frame, source link, snapshot hashes and headless parity proof passed");
+    } else if (animationProof) {
       await runVscodeAnimationProof(page, expect, workbenchUrl, { readBacking, withBackingWriteRefused });
       console.log("vscode.dev animation creation, partial-write retry and persistent recovery proof passed");
     } else if (newProjectProof) {

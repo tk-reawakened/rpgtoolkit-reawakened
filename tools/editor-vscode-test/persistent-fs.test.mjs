@@ -57,6 +57,46 @@ test("the proof filesystem persists bytes and confines authenticated operations"
     await rm(outside, { recursive: true, force: true });
   }
 });
+test("the paused save barrier blocks native save callbacks until explicitly released", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-save-barrier-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const request = async (kind) => {
+      const response = await fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+        method: "POST", headers: { origin, "content-type": "application/json" },
+        body: JSON.stringify({ op: "trace", kind, value: "/game.gam" }),
+      });
+      return response.status;
+    };
+    for (const kind of ["save-request", "save"]) {
+      const eventStart = bridge.events().length;
+      bridge.pauseSave();
+      let settled = false;
+      const pending = request(kind).then((status) => { settled = true; return status; });
+      let status;
+      try {
+        const deadline = Date.now() + 1000;
+        while (bridge.events().length === eventStart && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        }
+        assert.deepEqual(bridge.events().slice(eventStart), [{ kind, value: "/game.gam" }]);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        assert.equal(settled, false, `${kind} must stay blocked until the save gate is released`);
+      } finally {
+        bridge.resumeSave();
+        status = await pending;
+      }
+      assert.equal(status, 200);
+    }
+  } finally {
+    if (bridge) await bridge.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 
 test("request decoding handles split UTF-8 and counts bytes", async () => {
   const body = Buffer.from(JSON.stringify({ value: "é".repeat(600) }));

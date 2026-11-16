@@ -8,7 +8,7 @@ const destination = resolve(extensionRoot, "dist");
 const repositoryRoot = resolve(extensionRoot, "../..");
 await mkdir(destination, { recursive: true });
 await mkdir(resolve(destination, "player-assets"), { recursive: true });
-for (const file of ["extension.js", "extension.js.map", "extension.browser.js", "extension.browser.js.map", "webview.js", "webview.js.map", "tileset-browser.css", "tileset-art.css", "player.js", "audio-worklet.js", "decode-worker.js"]) {
+for (const file of ["extension.js", "extension.js.map", "extension.browser.js", "extension.browser.js.map", "webview.js", "webview.js.map", "creator-tests-webview.js", "creator-tests-webview.js.map", "tileset-browser.css", "tileset-art.css", "player.js", "audio-worklet.js", "decode-worker.js"]) {
   await cp(resolve(source, file), resolve(destination, file));
 }
 await cp(resolve(repositoryRoot, "media/icons/png/tkr-128.png"), resolve(destination, "icon.png"));

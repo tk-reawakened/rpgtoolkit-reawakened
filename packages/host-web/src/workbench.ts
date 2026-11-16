@@ -34,8 +34,9 @@ import {
   type VisitResult,
   type Visits,
 } from "@tk-reawakened/editor-model";
-import { mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
+import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
 const LAYOUT_SETTING = "workbench.layout";
@@ -286,6 +287,42 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     dialog.showModal();
   };
 
+  const creatorTests = createCreatorTestsController({
+    fs: services.fs,
+    host: {
+      project: project.project.id,
+      async prepare() {
+        for (const entry of await workspace.saveAll()) {
+          if (!entry.result.ok) return platformError("io-error", `${entry.document} could not be saved (${entry.result.failure.message}), so no saved tests were started.`);
+        }
+        if (disposed) return platformError("unavailable", "The project was closed, so no saved tests were started.");
+        const dirty = workspace.documents().find((document) => document.getSnapshot().dirty || workspace.pendingEdits(document).busy());
+        if (dirty !== undefined) return platformError("unavailable", `${dirty.identity.path} changed while saving; save it and run saved tests again.`);
+        const saved = workspace.documents().map((document) => ({ document, snapshot: document.getSnapshot() }));
+        return platformOk(() => {
+          if (disposed) return platformError("unavailable", "The project was closed, so no saved tests were started.");
+          const current = workspace.documents();
+          const changed = saved.find(({ document, snapshot }) => !current.includes(document) || document.getSnapshot() !== snapshot)?.document
+            ?? current.find((document) => document.getSnapshot().dirty || workspace.pendingEdits(document).busy());
+          return changed === undefined ? platformOk(undefined)
+            : platformError("unavailable", `${changed.identity.path} changed while saved test files were being read; save it and run again.`);
+        });
+      },
+      async openSource(path, line, column) {
+        if (disposed) return platformError("unavailable", "The project was closed; its program cannot be opened here.");
+        const result = await tree.open(path);
+        if (disposed) return platformError("unavailable", "The project was closed; its program cannot be opened here.");
+        if (!result.ok) return platformError("io-error", "message" in result.error ? result.error.message : result.error.error.message);
+        if (result.via !== "document" || result.document.kind !== "program") return platformError("unavailable", `${path} did not open as a program in this workspace.`);
+        show(result.document);
+        const view = views.get(result.document.identity.key)?.view;
+        if (view?.revealSource === undefined) return platformError("unavailable", "The program editor is not available for source navigation.");
+        view.revealSource(line, column);
+        return platformOk(undefined);
+      },
+    },
+  });
+
   const launcher = createLauncher({ services, workspace });
   const shell: ViewHandle = mountShell(element, {
     layout,
@@ -295,6 +332,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     fs: services.fs,
     workspace,
     launcher,
+    creatorTests,
     browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
     version,
     onOpened: (result) => {
@@ -408,6 +446,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       openNewBoard?.();
       disposed = true;
       launcher.dispose();
+      creatorTests.dispose();
       unsubscribeTabs();
       unsubscribeLayout();
       for (const entry of views.values()) entry.view.dispose();

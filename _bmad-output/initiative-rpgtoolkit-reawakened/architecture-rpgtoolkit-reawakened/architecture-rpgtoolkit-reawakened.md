@@ -67,6 +67,7 @@ graph LR
   runnerharness --> runnerdesktop
   runnerharness --> scriptspec
   core --> dap
+  core --> editorui
   runnerharness --> dap
   runnerweb --> runnerdesktop
   runnerweb --> runnermobile[runner-mobile]
@@ -75,6 +76,7 @@ graph LR
   lsp --> hostweb[host-web]
   lsp --> hostdesktop[host-desktop]
   dap --> hostvscode
+  scriptspec --> editorui
   editormodel --> editorui
   editormodel --> hostvscode
   editormodel --> hostweb

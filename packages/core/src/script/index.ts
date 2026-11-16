@@ -162,7 +162,7 @@ export type {
 } from "./command-docs.ts";
 export { CATALOGUE_PLUGIN, CATALOGUE_RESPONDERS_PLUGIN } from "./catalogue-responders.ts";
 export { CATALOGUE_STUBS_PLUGIN } from "./catalogue-stubs.ts";
-export { drainEffects, EFFECT_LOG_CAP, recordDiagnostic, recordEffect } from "./effects.ts";
+export { drainEffects, EFFECT_LOG_CAP, observeEffects, recordDiagnostic, recordEffect } from "./effects.ts";
 export type {
   EffectKind,
   EffectPatch,

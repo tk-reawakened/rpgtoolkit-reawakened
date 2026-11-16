@@ -107,6 +107,7 @@
     "@tk-reawakened/runner-web": "workspace:*",
     "@types/node": "24.0.0",
     "@tk-reawakened/script-tools": "workspace:*",
+    "@tk-reawakened/script-spec": "workspace:*",
     "@typescript/native": "npm:typescript@7.0.2",
     "@vscode/test-web": "0.0.81",
     "dependency-cruiser": "18.5.0",

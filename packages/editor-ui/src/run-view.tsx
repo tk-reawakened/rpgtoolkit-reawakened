@@ -2,6 +2,8 @@ import { listGame, type GameGroup, type Launcher, type ProjectLayout } from "@tk
 import type { BoardStart, FileSystemService, Launch, LaunchKind, RunHandle, RunSnapshot, RunStatus } from "@tk-reawakened/platform-services";
 import { Fragment, type ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
+import type { CreatorTestsController } from "./creator-tests-controller.ts";
+import { CreatorTestsView } from "./creator-tests-view.tsx";
 
 export interface RunViewProps {
   /** Starts runs through the host's `run` service, saving first (ADR 0022 D8.2). */
@@ -12,6 +14,8 @@ export interface RunViewProps {
   readonly active?: string | null;
   /** Changes when the project's files may have, so the lists are read again. */
   readonly version?: unknown;
+  /** Saved TOOL-5 tests are a separate launch, not a game/board/program run alias (ADR 0022 D9). */
+  readonly creatorTests?: CreatorTestsController;
 }
 
 /** What the view lists from the project: the main files, and the files each test can name. */
@@ -32,6 +36,8 @@ const LAUNCH_LABEL: Readonly<Record<LaunchKind, string>> = {
   program: "Test program",
 };
 
+
+const RUN_MODES = ["game", "board", "program", "saved-tests"] as const;
 const STATE_LABEL: Readonly<Record<RunStatus["state"], string>> = {
   starting: "Starting",
   running: "Running",
@@ -189,8 +195,8 @@ function Position({ value, onChange }: { readonly value: Omit<BoardStart, "board
  * disabled with the host's reason. A launch saves first; the run's snapshot and status are shown until the next one, and
  * a later edit never changes a running game: running again is a new snapshot.
  */
-export function RunView({ launcher, fs, layout, active = null, version }: RunViewProps) {
-  const [activeTab, setActiveTab] = useState<LaunchKind>("game");
+export function RunView({ launcher, fs, layout, active = null, version, creatorTests }: RunViewProps) {
+  const [activeTab, setActiveTab] = useState<LaunchKind | "saved-tests">("game");
   const [choices, setChoices] = useState<Choices>(NO_CHOICES);
   const [main, setMain] = useState("");
   const [board, setBoard] = useState("");
@@ -262,7 +268,7 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
     const reason = launcher.unavailable(kind) ?? noMain ?? missing;
     const id = `tkr-run-${kind}-reason`;
     return (
-      <div class="tkr-run-tabpanel" role="tabpanel" hidden={activeTab !== kind}>
+      <div id={`tkr-run-${kind}-panel`} class="tkr-run-tabpanel" role="tabpanel" aria-labelledby={`tkr-run-${kind}-tab`} hidden={activeTab !== kind}>
         <fieldset class="tkr-run-launch">
           <legend>{LAUNCH_LABEL[kind]}</legend>
           <p>{description}</p>
@@ -281,20 +287,35 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
     <section class="tkr-run" aria-label="Run">
       <h2 class="tkr-run-heading">Run</h2>
       <div class="tkr-run-tabs" role="tablist" aria-label="Run modes">
-        {(["game", "board", "program"] as const).map((kind) => (
+        {RUN_MODES.map((kind) => kind === "saved-tests" && creatorTests === undefined ? null : (
           <button
             key={kind}
+            id={`tkr-run-${kind}-tab`}
             type="button"
             role="tab"
             class="tkr-run-tab"
+            aria-controls={`tkr-run-${kind}-panel`}
             aria-selected={activeTab === kind}
+            tabIndex={activeTab === kind ? 0 : -1}
             onClick={() => setActiveTab(kind)}
+            onKeyDown={(event) => {
+              if (event.altKey || event.ctrlKey || event.metaKey) return;
+              const count = creatorTests === undefined ? 3 : 4;
+              const index = RUN_MODES.indexOf(kind);
+              const next = event.key === "ArrowRight" ? (index + 1) % count
+                : event.key === "ArrowLeft" ? (index + count - 1) % count
+                : event.key === "Home" ? 0 : event.key === "End" ? count - 1 : null;
+              if (next === null) return;
+              event.preventDefault();
+              setActiveTab(RUN_MODES[next]!);
+              event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+            }}
           >
-            {LAUNCH_LABEL[kind]}
+            {kind === "saved-tests" ? "Saved tests" : LAUNCH_LABEL[kind]}
           </button>
         ))}
       </div>
-      {choices.mains.length > 1 ? <Select label="Game" value={chosenMain} options={choices.mains} onChange={setMain} /> : null}
+      {activeTab !== "saved-tests" && choices.mains.length > 1 ? <Select label="Game" value={chosenMain} options={choices.mains} onChange={setMain} /> : null}
       {section(
         "game",
         "Plays the game from its start-up, as a player would see it.",
@@ -350,6 +371,12 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
           },
         }),
       )}
+      {creatorTests === undefined ? null : (
+        <div id="tkr-run-saved-tests-panel" class="tkr-run-tabpanel" role="tabpanel" aria-labelledby="tkr-run-saved-tests-tab" hidden={activeTab !== "saved-tests"}>
+          <CreatorTestsView controller={creatorTests} />
+        </div>
+      )}
+      <div hidden={activeTab === "saved-tests"}>
       {busy ? <p role="status">Saving and starting…</p> : null}
       {refusal === null ? null : <p class="tkr-run-refusal" role="alert">{refusal}</p>}
       {run === null || status === null ? null : (
@@ -359,6 +386,7 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
           {finished ? null : <button type="button" onClick={() => run.stop()}>Stop</button>}
         </div>
       )}
+      </div>
     </section>
   );
 }

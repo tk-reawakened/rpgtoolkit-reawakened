@@ -16,12 +16,17 @@
     "@tk-reawakened/host-web": "workspace:*",
     "@tk-reawakened/platform-services": "workspace:*",
     "@tk-reawakened/runner-harness": "workspace:*",
+    "@tk-reawakened/script-spec": "workspace:*",
     "@types/node": "24.0.0",
     "@vscode/test-web": "0.0.81",
     "preact": "11.2.0",
     "typescript": "5.9.3"
   },
   "exports": {
+    ".": {
+      "types": "./creator-tests-fixture.d.mts",
+      "import": "./creator-tests-fixture.mjs"
+    },
     "./animation-proof": "./animation-proof.ts"
   }
 }
