@@ -3,7 +3,7 @@ title: 'Connect contextual help and program quick reference'
 type: 'feature'
 ticket: '11'
 created: '2026-11-15'
-status: 'in-review'
+status: 'done'
 baseline_revision: '3e61f3c2aedd2cd86dc0c29b5ebd750f5708f7bf'
 route: 'full'
 route_source: 'pinned'
@@ -103,3 +103,4 @@ Help content is an entry point, not a new documentation system: URLs and referen
 - Exact-head CI for `162314d50e84829b0d3f604d2998e9c58fb32ad8` passed unit, golden, desktop, mobile, language-host and dogfood jobs, but failed the separate NewProject proof at its destination listing (#2858, run `43829786071`). It was not merged or rerun unchanged.
 - The first destination-listing repair (`daa5531f24306b6e14284f9f0fde4f5ef47fd9bf`) exposed a second initialization race in CI run `43836006175`: the remembered `/Boards/` directory arrived after the proof filled the intended destination. The next change waits for initialized contents, retries only idempotent path navigation with bounded backoff, verifies the destination and enabled Create button, and dispatches creation exactly once. It does not require a destination option after the picker has entered that folder.
 - The actual default existing-project/NewProject-cancel workbench proof passed in 76.42 seconds using the flattened CI game fixture, including 8 harness tests with zero skips and the real picker, generated backing files, cancel-before-create and automatic-open assertions. The separate fresh-wizard scenario previously passed in 13.45 seconds. Neither receipt claims a local rerun of the full browser job; new exact-head CI remains the merge gate.
+- Final PR [#2825](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/2825) merged as `133fc21b6b9529e78ca5db163aaf3b30eeb99810` on 2026-11-16. Required CI [run 43845220643](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/43845220643) passed on reviewed head `81baa0dd544af203b0b3489db794af814ab06faf`; this supersedes the earlier pending-CI note.

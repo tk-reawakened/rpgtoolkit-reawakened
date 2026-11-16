@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateLicense, loadBlueOakList, loadConfig } from "./check.mjs";
+import { embeddedSpdx } from "./embedded-spdx.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const fixtureRoot = join(repoRoot, "tools/licences/fixtures/git-engine");
@@ -63,7 +64,13 @@ for (const [packagePath, locked] of Object.entries(lock.packages ?? {})
   const spdx = typeof metadata.license === "string" ? metadata.license : "";
   if (!spdx || spdx !== locked.license) fail(`${metadata.name}@${metadata.version} SPDX metadata differs from package-lock.json`);
 
-  const gate = evaluateLicense(spdx, policy);
+  const tier = Object.hasOwn(manifest.dependencies, metadata.name) && packagePath === `node_modules/${metadata.name}` ? "direct" : "transitive";
+  const gate = evaluateLicense(spdx, policy, tier);
+  const embedded = embeddedSpdx(installedPath);
+  const embeddedFailures = embedded.flatMap((file) => file.expressions.flatMap((expression) => {
+    const result = evaluateLicense(expression, policy, "transitive");
+    return result.pass ? [] : [`${file.path}: ${expression}: ${result.reason}`];
+  }));
   const ratings = Object.fromEntries(identifiers(spdx).map((id) => [id, policy.blueOakList.licenseMap.get(id) ?? null]));
   const entry = {
     name: metadata.name,
@@ -73,13 +80,15 @@ for (const [packagePath, locked] of Object.entries(lock.packages ?? {})
     integrity: locked.integrity,
     spdx,
     blueOakRatings: ratings,
-    g6: gate.pass ? "pass" : "fail",
-    reason: gate.reason ?? null,
+    g6: gate.pass && embeddedFailures.length === 0 ? "pass" : "fail",
+    reason: [gate.reason, ...embeddedFailures].filter(Boolean).join("; ") || null,
     licenseFiles: licenseFiles(installedPath),
+    ...(embedded.length === 0 ? {} : { embeddedSpdx: embedded }),
   };
   packages.push(entry);
   if (!locked.resolved || !locked.integrity) failures.push(`${metadata.name}@${metadata.version}: missing tarball URL or integrity`);
   if (!gate.pass) failures.push(`${metadata.name}@${metadata.version}: ${gate.reason}`);
+  for (const failure of embeddedFailures) failures.push(`${metadata.name}@${metadata.version}: embedded ${failure}`);
 }
 
 if (packages.length === 0) fail("No locked dependency packages found");
@@ -104,9 +113,9 @@ if (process.argv.includes("--check")) {
   if (!existsSync(outputPath) || readFileSync(outputPath, "utf8") !== output) {
     fail(`Inventory differs from ${relative(repoRoot, outputPath)}; regenerate with --write`);
   }
-  console.log(`G6 inventory verified: ${packages.length} packages, ${failures.length} failures`);
+  console.log(`Inventory verified: ${packages.length} packages, ${failures.length} identified failures; embedded scan covers root index.js/index.cjs only`);
+  if (failures.length > 0) process.exitCode = 1;
 } else {
-  if (failures.length > 0) fail(`G6 inventory has ${failures.length} failures`);
   writeFileSync(outputPath, output);
-  console.log(`Wrote ${relative(repoRoot, outputPath)}: ${packages.length} packages, 0 G6 failures`);
+  console.log(`Wrote ${relative(repoRoot, outputPath)}: ${packages.length} packages, ${failures.length} identified failures; embedded scan is not a complete licence audit`);
 }
