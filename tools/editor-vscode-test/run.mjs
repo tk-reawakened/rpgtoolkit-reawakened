@@ -313,6 +313,11 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
         writeEvents: persistentFs.writeEvents,
         nativeRestoreReadEvents: persistentFs.nativeRestoreReadEvents,
         readEvents: persistentFs.readEvents,
+        writeOperationEvents: persistentFs.writeOperationEvents,
+        failedWriteEvents: persistentFs.failedWriteEvents,
+        failWritesUnder: persistentFs.failWritesUnder,
+        allowWrites: persistentFs.allowWrites,
+        writeBacking,
       });
       console.log("vscode.dev real New project picker, creation and automatic-open proof passed");
     };

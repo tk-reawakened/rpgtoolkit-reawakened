@@ -23,6 +23,11 @@ type NewProjectHistoryProofHost = {
   readEvents(): { kind: "readDirectory" | "readFile"; path: string }[];
   nativeRestoreReadEvents(): readonly { readonly kind: "readFile"; readonly path: string }[];
   writeEvents(): readonly { readonly kind: "write-request" | "write"; readonly path: string }[];
+  writeOperationEvents(): readonly { readonly kind: "write-request" | "write" | "write-failed"; readonly path: string }[];
+  failedWriteEvents(): readonly { readonly kind: "write-failed"; readonly path: string }[];
+  failWritesUnder(pathPrefix: string): void;
+  allowWrites(): void;
+  writeBacking(path: string, bytes: Uint8Array): Promise<void>;
   readonly bitmapPath: string;
   bitmapPictureForBytes(bytes: Uint8Array): { width: number; height: number; data: number[] };
   previewTrace?(): readonly string[];
@@ -417,6 +422,7 @@ export async function runVscodeNewProjectProof(
   await proveNativeHistoryUi(page, expect, tree, readBacking, historyHost);
   await proveNativeNewBoard(page, expect, tree, readBacking, historyHost);
   await proveNativeBitmapHistory(page, expect, tree, readBacking, historyHost);
+  await proveNativeTextSaveFailure(page, expect, readBacking, historyHost);
 }
 
 async function proveNativeHistoryUi(
@@ -577,6 +583,71 @@ async function proveNativeTextHistory(
   expect(host.writeEvents().slice(writeEventsStart).filter((event) => event.path === `/${projectPath}`)).toEqual([]);
   await lines.click();
   await page.keyboard.press("ControlOrMeta+Z");
+}
+
+async function proveNativeTextSaveFailure(
+  page: Page,
+  expect: Expect,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  host: NewProjectHistoryProofHost,
+): Promise<void> {
+  const projectPath = "__tkr_new_project/Prg/start.prg";
+  const historyRoot = "/__tkr_new_project/.tkr-history";
+  const marker = "// Native history failure still allows VS Code to save";
+  await closeRecoverySourceEditor(page, expect, /^start\.prg(?:,|$)/);
+  const externalMarker = "// Unrecorded external native baseline";
+  const priorBytes = await readBacking(projectPath);
+  const externalBaseline = new Uint8Array([...priorBytes, ...new TextEncoder().encode(`\n${externalMarker}\n`)]);
+  await host.writeBacking(projectPath, externalBaseline);
+  await openNativeQuickOpenFile(page, expect, projectPath);
+  const editor = page.locator(".monaco-editor:visible").last();
+  const lines = editor.locator(".view-lines");
+  const nativeTab = page.getByRole("tab", { name: /^start\.prg(?:,|$)/ });
+  await expect(lines).toBeVisible();
+  await expect(lines).toContainText(externalMarker);
+  await expect(nativeTab).toHaveCount(1);
+  await expect(nativeTab).toHaveAttribute("aria-selected", "true");
+  const before = await readBacking(projectPath);
+  expect(before).toEqual(externalBaseline);
+  const operationStart = host.writeOperationEvents().length;
+  const failureStart = host.failedWriteEvents().length;
+  host.failWritesUnder(historyRoot);
+  try {
+    await lines.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type(marker);
+    await expect(lines).toContainText(marker);
+    await page.keyboard.press("ControlOrMeta+S");
+
+    const notifications = page.locator(".notifications-toasts");
+    await expect(notifications).toContainText(
+      /Could not keep the previous version of Prg\/start\.prg in recovery history before saving:.*VS Code may still save this document\./s,
+      { timeout: 30_000 },
+    );
+    await expect.poll(async () => new TextDecoder().decode(await readBacking(projectPath)), {
+      timeout: 30_000, intervals: [100, 250, 500],
+    }).toContain(marker);
+    await expect(nativeTab).not.toHaveClass(/dirty/, { timeout: 30_000 });
+    await expect(notifications).toContainText(
+      /Prg\/start\.prg was saved, but its recovery history could not be recorded:/,
+      { timeout: 30_000 },
+    );
+  } finally {
+    host.allowWrites();
+  }
+
+  const failures = host.failedWriteEvents().slice(failureStart);
+  expect(failures.length).toBeGreaterThan(0);
+  expect(failures.every((event) => event.path.startsWith(`${historyRoot}/`))).toBe(true);
+  const operations = host.writeOperationEvents().slice(operationStart);
+  expect(operations).toContainEqual({ kind: "write", path: `/${projectPath}` });
+  expect(operations.filter((event) => event.path.startsWith(historyRoot)).every((event) => event.kind !== "write")).toBe(true);
+  expect(await readBacking(projectPath)).not.toEqual(before);
+  expect(new TextDecoder().decode(await readBacking(projectPath))).toContain(marker);
+  await expect(nativeTab).toHaveCount(1);
+  await expect(nativeTab).not.toHaveClass(/dirty/);
+  console.log("Native TextDocument Save preserved the actual .prg edit and clean state while visibly reporting failed history capture; only history writes were injected to fail");
 }
 
 async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: string): Promise<void> {

@@ -74,6 +74,45 @@ test("the proof filesystem persists bytes and confines authenticated operations"
     await rm(outside, { recursive: true, force: true });
   }
 });
+test("the proof filesystem can reject history writes while allowing native text writes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-history-write-failure-test-"));
+  const origin = "http://localhost:34567";
+  let bridge;
+  try {
+    bridge = await startPersistentFs(root, origin);
+    const [, port] = bridge.authority.split(".");
+    const request = async (body) => fetch(`http://127.0.0.1:${port}/${bridge.token}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify(body),
+    });
+    bridge.failWritesUnder("/.tkr-history");
+    const historyWrite = await request({
+      op: "writeFile", path: "/.tkr-history/entries/one.json", create: true, overwrite: true,
+      data: Buffer.from("history").toString("base64"),
+    });
+    assert.equal(historyWrite.status, 400);
+    assert.equal((await historyWrite.json()).error, "EACCES");
+    const nativeWrite = await request({
+      op: "writeFile", path: "/start.prg", create: true, overwrite: true,
+      data: Buffer.from("saved native text").toString("base64"),
+    });
+    assert.equal(nativeWrite.status, 200);
+    assert.deepEqual(await nativeWrite.json(), { result: { created: true } });
+    assert.equal(await readFile(join(root, "start.prg"), "utf8"), "saved native text");
+    assert.deepEqual(bridge.failedWriteEvents(), [{ kind: "write-failed", path: "/.tkr-history/entries/one.json" }]);
+    assert.deepEqual(bridge.writeOperationEvents(), [
+      { kind: "write-request", path: "/.tkr-history/entries/one.json" },
+      { kind: "write-failed", path: "/.tkr-history/entries/one.json" },
+      { kind: "write-request", path: "/start.prg" },
+      { kind: "write", path: "/start.prg" },
+    ]);
+    bridge.allowWrites();
+  } finally {
+    if (bridge) { bridge.allowWrites(); await bridge.close(); }
+    await rm(root, { recursive: true, force: true });
+  }
+});
 test("the proof filesystem can pause a workspace write before it reaches disk", async () => {
   const root = await mkdtemp(join(tmpdir(), "tkr-proof-write-gate-test-"));
   const origin = "http://localhost:34567";
@@ -92,7 +131,9 @@ test("the proof filesystem can pause a workspace write before it reaches disk", 
     assert.deepEqual(bridge.writeEvents(), [{ kind: "write-request", path: "/game.gam" }]);
     assert.equal(await readFile(join(root, "game.gam"), "utf8"), "before");
     bridge.resumeWrite();
-    assert.equal((await pending).status, 200);
+    const response = await pending;
+    assert.equal(response.status, 200);
+    await response.json();
     assert.deepEqual(bridge.writeEvents(), [
       { kind: "write-request", path: "/game.gam" },
       { kind: "write", path: "/game.gam" },
@@ -170,6 +211,7 @@ test("the paused save barrier blocks native save callbacks until explicitly rele
         method: "POST", headers: { origin, "content-type": "application/json" },
         body: JSON.stringify({ op: "trace", kind, value: "/game.gam" }),
       });
+      await response.json();
       return response.status;
     };
     for (const kind of ["save-request", "save"]) {

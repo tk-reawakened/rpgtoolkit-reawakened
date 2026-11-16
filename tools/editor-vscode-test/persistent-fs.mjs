@@ -15,6 +15,9 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   const readEvents = [];
   const nativeRestoreReadEvents = [];
   const writeEvents = [];
+  const writeOperationEvents = [];
+  const failedWriteEvents = [];
+  let failedWritePrefix;
   let pausedRead;
   let pausedWrite;
   let pausedSave;
@@ -76,6 +79,16 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
           readGate.reach();
           await readGate.promise;
         }
+        if (input.op === "writeFile") {
+          writeOperationEvents.push({ kind: "write-request", path: input.path });
+          if (typeof input.path === "string" && failedWritePrefix !== undefined
+            && (input.path === failedWritePrefix || input.path.startsWith(`${failedWritePrefix}/`))) {
+            const failure = { kind: "write-failed", path: input.path };
+            failedWriteEvents.push(failure);
+            writeOperationEvents.push(failure);
+            throw Object.assign(new Error("Injected recovery-history write failure"), { code: "EACCES" });
+          }
+        }
         const gate = input.op === "writeFile" && pausedWrite?.path === input.path ? pausedWrite : undefined;
         if (gate !== undefined) {
           writeEvents.push({ kind: "write-request", path: input.path });
@@ -83,6 +96,7 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
           await gate.promise;
         }
         result = await perform(root, input);
+        if (input.op === "writeFile") writeOperationEvents.push({ kind: "write", path: input.path });
         if (gate !== undefined) writeEvents.push({ kind: "write", path: input.path });
       }
       response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ result }));
@@ -100,6 +114,17 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
     readEvents: () => readEvents.slice(),
     nativeRestoreReadEvents: () => nativeRestoreReadEvents.slice(),
     writeEvents: () => writeEvents.slice(),
+    writeOperationEvents: () => writeOperationEvents.slice(),
+    failedWriteEvents: () => failedWriteEvents.slice(),
+    failWritesUnder: (pathPrefix) => {
+      if (failedWritePrefix !== undefined) throw new Error("Recovery-history write failure is already armed");
+      if (typeof pathPrefix !== "string" || !pathPrefix.startsWith("/") || pathPrefix.endsWith("/")
+        || pathPrefix.includes("//") || pathPrefix.split("/").some((segment) => segment === "." || segment === "..")) {
+        throw new Error("Recovery-history write failure requires a canonical absolute directory path");
+      }
+      failedWritePrefix = pathPrefix;
+    },
+    allowWrites: () => { failedWritePrefix = undefined; },
     pauseSave: () => {
       if (pausedSave) throw new Error("A save is already paused");
       let release;
