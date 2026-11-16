@@ -281,7 +281,12 @@ export async function runVscodeNewProjectProof(
   await widget.getByRole("checkbox", { name: "Empty start board", exact: true }).check();
   await widget.getByRole("button", { name: "OK", exact: true }).click();
   await expect(widget).toContainText("New project: choose the destination folder");
-  await widget.getByRole("option", { name: "__tkr_new_project", exact: true }).click();
+  // Earlier save dialogs can change VS Code's remembered directory; navigate through the real picker.
+  await answer.fill("/");
+  await expect(answer).toHaveValue("/");
+  const destination = widget.getByRole("option", { name: "__tkr_new_project", exact: true });
+  await expect.poll(() => destination.isVisible(), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  await destination.click({ timeout: 1_000 });
   await expect(answer).toHaveValue("/__tkr_new_project/");
   await widget.getByRole("button", { name: "Create project here", exact: true }).click();
 
