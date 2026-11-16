@@ -3,7 +3,7 @@ import { createCreatorTestsController, type CreatorTestsController, type Creator
 import { platformError, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { saveBeforeRun, savedRunGuard, type RunGeneration } from "./saved-run.ts";
-import { parseCreatorTestsBridgeRequest, type CreatorTestsBridgeRequest } from "./creator-tests-bridge.ts";
+import { isValidCreatorTestsSourceLocation, parseCreatorTestsBridgeRequest, type CreatorTestsBridgeRequest } from "./creator-tests-bridge.ts";
 
 const COMMAND = "tkr.runSavedTests";
 const TITLE = "RPG Toolkit: Run saved tests";
@@ -46,7 +46,7 @@ export function registerCreatorTests(context: vscode.ExtensionContext, generatio
         return saved.ok ? { ok: true as const, value: savedRunGuard(root, generation, saved.value) } : saved;
       },
       async openSource(path: string, line: number, column: number): Promise<PlatformResult<void>> {
-        if (!validSourceLocation(path, line, column)) return platformError("invalid-request", "The saved-test source location is invalid.");
+        if (!isValidCreatorTestsSourceLocation(path, line, column)) return platformError("invalid-request", "The saved-test source location is invalid.");
         const uri = vscode.Uri.joinPath(root, ...path.split("/"));
         try {
           if (vscode.workspace.getWorkspaceFolder(uri)?.uri.toString() !== key) {

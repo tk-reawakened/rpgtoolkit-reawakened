@@ -24,13 +24,13 @@ export function parseCreatorTestsBridgeRequest(value: unknown, nonce: string): C
   }
   if (item.method === "openSource" && item.args.length === 3) {
     const [path, line, column] = item.args;
-    if (typeof path !== "string" || typeof line !== "number" || typeof column !== "number" || !validSourceLocation(path, line, column)) return invalid();
+    if (typeof path !== "string" || typeof line !== "number" || typeof column !== "number" || !isValidCreatorTestsSourceLocation(path, line, column)) return invalid();
     return { id: item.id, method: "openSource", args: [path, line, column] };
   }
   return invalid();
 }
 
-function validSourceLocation(path: string, line: number, column: number): boolean {
+export function isValidCreatorTestsSourceLocation(path: string, line: number, column: number): boolean {
   return path.length > 0 && path.length <= MAX_SOURCE_PATH && !path.startsWith("/")
     && !path.includes("\\") && path.split("/").every((part) => part.length > 0 && part !== "." && part !== "..")
     && /\.(?:prg|rnc)$/i.test(path) && Number.isSafeInteger(line) && line >= 1 && line <= 1_000_000
