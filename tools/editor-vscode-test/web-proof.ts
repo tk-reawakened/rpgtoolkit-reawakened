@@ -950,11 +950,15 @@ async function verifyBitmapHistoryPreview(
     let writableFrames = 0;
     for (const frame of page.frames()) {
       if (frame.isDetached()) continue;
-      const canvas = frame.locator("canvas.tkr-bitmap-canvas");
-      if (await canvas.count() === 0 || !await canvas.isVisible()) continue;
-      const note = frame.getByRole("note").filter({ hasText: "Read only:" });
-      if (await note.count() > 0 && await note.isVisible()) readOnlyFrames.push(frame);
-      else writableFrames += 1;
+      try {
+        const canvas = frame.locator("canvas.tkr-bitmap-canvas");
+        if (await canvas.count() === 0 || !await canvas.isVisible()) continue;
+        const note = frame.getByRole("note").filter({ hasText: "Read only:" });
+        if (await note.count() > 0 && await note.isVisible()) readOnlyFrames.push(frame);
+        else writableFrames += 1;
+      } catch {
+        // Webview frames can be replaced while VS Code restores the just-opened custom editor.
+      }
     }
     preview = readOnlyFrames.at(-1);
     return writableFrames === 1 && readOnlyFrames.length >= 1;
@@ -975,21 +979,25 @@ async function verifyBitmapHistoryPreview(
       let writableFrames = 0;
       for (const frame of page.frames()) {
         if (frame.isDetached()) continue;
-        const canvas = frame.locator("canvas.tkr-bitmap-canvas");
-        if (await canvas.count() === 0 || !await canvas.isVisible()) continue;
-        const note = frame.getByRole("note").filter({ hasText: "Read only:" });
-        if (await note.count() > 0 && await note.isVisible()) {
-          const matches = await canvas.evaluate((element, want) => {
-            const target = element as HTMLCanvasElement;
-            if (target.width !== want.width || target.height !== want.height) return false;
-            const context = target.getContext("2d");
-            if (context === null) return false;
-            const pixels = context.getImageData(0, 0, target.width, target.height).data;
-            return pixels.length === want.data.length && want.data.every((value, index) => pixels[index] === value);
-          }, expectedPicture);
-          if (matches) matchingPreviews.push(frame);
-        } else {
-          writableFrames += 1;
+        try {
+          const canvas = frame.locator("canvas.tkr-bitmap-canvas");
+          if (await canvas.count() === 0 || !await canvas.isVisible()) continue;
+          const note = frame.getByRole("note").filter({ hasText: "Read only:" });
+          if (await note.count() > 0 && await note.isVisible()) {
+            const matches = await canvas.evaluate((element, want) => {
+              const target = element as HTMLCanvasElement;
+              if (target.width !== want.width || target.height !== want.height) return false;
+              const context = target.getContext("2d");
+              if (context === null) return false;
+              const pixels = context.getImageData(0, 0, target.width, target.height).data;
+              return pixels.length === want.data.length && want.data.every((value, index) => pixels[index] === value);
+            }, expectedPicture);
+            if (matches) matchingPreviews.push(frame);
+          } else {
+            writableFrames += 1;
+          }
+        } catch {
+          // Ignore a webview replaced between enumerating and inspecting its frame.
         }
       }
       preview = matchingPreviews[0];
