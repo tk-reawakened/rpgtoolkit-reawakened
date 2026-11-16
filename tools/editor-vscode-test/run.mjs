@@ -16,6 +16,7 @@ const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
 const args = parseArgs(process.argv[2] === "--" ? process.argv.slice(3) : process.argv.slice(2));
 const extension = resolve(root, args.extension);
+await access(resolve(root, "extensions/rpgcode/dist/extension.browser.js"));
 const workspace = resolve(root, args.workspace);
 const game = args.game.replaceAll("\\", "/");
 const configuredPort = process.env.TKR_VSCODE_TEST_PORT;
@@ -121,6 +122,7 @@ for (const choice of animationProof || skipSpriteProof || autosaveCommandProof ?
       const child = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
         "--host=localhost", "--browser=none",
         `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
+        `--extensionPath=${resolve(root, "extensions/rpgcode")}`,
         `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
         `--testRunnerDataDir=${process.env.TKR_VSCODE_TEST_DATA_DIR ?? resolve(root, ".vscode-test-web")}`,
       ], {
