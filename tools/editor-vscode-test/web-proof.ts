@@ -284,11 +284,14 @@ export async function runVscodeNewProjectProof(
   await widget.getByRole("checkbox", { name: "Empty start board", exact: true }).check();
   await widget.getByRole("button", { name: "OK", exact: true }).click();
   await expect(widget).toContainText("New project: choose the destination folder");
-  // Navigate directly to the existing destination and allow the picker's current-folder annotation.
-  await answer.fill("/__tkr_new_project/");
-  await expect(answer).toHaveValue("/__tkr_new_project/");
-  const destination = widget.getByRole("option", { name: /^__tkr_new_project(?:,|$)/ });
-  await expect.poll(() => destination.isVisible(), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  // Remembered-directory initialization can finish after the dialog title appears.
+  await expect(widget.getByRole("option").first()).toBeVisible({ timeout: 30_000 });
+  // Retry only idempotent navigation; the Create action below is dispatched exactly once.
+  await expect(async () => {
+    await answer.fill("/__tkr_new_project/");
+    await expect(answer).toHaveValue("/__tkr_new_project/", { timeout: 1_000 });
+    await expect(widget.getByRole("button", { name: "Create project here", exact: true })).toBeEnabled({ timeout: 1_000 });
+  }).toPass({ timeout: 30_000, intervals: [100, 250, 500, 1_000] });
   const previousExtensionHost = page.frames().find((frame) => frame.url().includes("webWorkerExtensionHostIframe.html"));
   if (previousExtensionHost === undefined) throw new Error("The new-project command did not have a running extension host");
   await widget.getByRole("button", { name: "Create project here", exact: true }).click();
