@@ -99,8 +99,9 @@ export async function runVscodeCreatorTestsProof(
   if (failSpec === undefined) throw new Error("The failing authored fixture omitted its owning spec source.");
   const wallLines = new TextDecoder().decode(failSpec.bytes).split("\n")
     .flatMap((line, index) => line.includes('expect(specValue("player.tileX"))') ? [index + 1] : []);
-  if (wallLines.length !== 1 || failureOutcome.line !== wallLines[0] || failureOutcome.column < 1) {
-    throw new Error(`The failure source location did not point to the authored wall assertion at line ${wallLines.join(",")}: ${JSON.stringify(failureOutcome)}`);
+  if (wallLines.length !== 1 || failureOutcome.line !== wallLines[0] || failureOutcome.column < 1
+    || failureOutcome.sourcePath !== CREATOR_TEST_SPEC_PATH) {
+    throw new Error(`The failure source location did not point to the authored wall assertion at ${CREATOR_TEST_SPEC_PATH}:${wallLines.join(",")}: ${JSON.stringify(failureOutcome)}`);
   }
   const sourceLink = tests.getByRole("button", { name: `Line ${failureOutcome.line}, column ${failureOutcome.column}` });
   await sourceLink.scrollIntoViewIfNeeded();
