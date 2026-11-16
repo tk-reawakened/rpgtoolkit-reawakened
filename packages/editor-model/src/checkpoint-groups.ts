@@ -53,6 +53,12 @@ function validPath(path: string): boolean {
   return path.length > 0 && !/[\\\u0000-\u001f:]/.test(path) && path.split("/").every((part) => part !== "" && part !== "." && part !== "..") && foldPath(path.split("/")[0]!) !== ROOT;
 }
 function unwrap<T>(result: PlatformResult<T>): T { if (!result.ok) throw new Error(result.error.message); return result.value; }
+function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.byteLength !== b.byteLength) return false;
+  for (let index = 0; index < a.byteLength; index++) if (a[index] !== b[index]) return false;
+  return true;
+}
 
 const projectOperations = new WeakMap<FileSystemService, Map<string, Promise<void>>>();
 
@@ -197,11 +203,11 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       const path = await canonical(target.path);
       if (seen.has(foldPath(path))) throw new Error(`Duplicate destination: ${path}`);
       seen.add(foldPath(path));
-      if (reason !== "named") {
+      const before = await current(path);
+      if (reason !== "named" && !sameBytes(before, target.bytes)) {
         const refused = await env.guard(path, target.bytes === null, target.bytes);
         if (refused !== null) throw new Error(refused);
       }
-      const before = await current(path);
       prepared.push({ path, before, after: reason === "named" ? before?.slice() ?? null : target.bytes?.slice() ?? null });
     }
     const collisions = prepared.filter((file) => file.before !== null).map((file) => file.path);
@@ -233,23 +239,27 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       if (["written", "already-as-wanted", "kept-uncertain", "uncovered"].includes(file.status)) continue;
       try {
         if (await canonical(file.path) !== file.path) throw new Error(`Destination spelling changed: ${file.path}`);
-        const refused = await env.guard(file.path, file.after === null, intended[index]);
-        if (refused !== null) throw new Error(refused);
         const now = await currentHash(file.path);
-        // A failed/unknown write never becomes durable by readback. Fresh permission is needed to retry.
-        if ((now !== file.before || file.status === "writing" || file.status === "failed") && !await env.consent([file.path])) throw new Error(`Replacement declined: ${file.path}`);
-        file.status = "writing";
-        file.message = null;
-        await persist(group);
-        const bytes = intended[index]!;
-        const lateRefusal = await env.guard(file.path, bytes === null, bytes);
-        if (lateRefusal !== null) throw new Error(lateRefusal);
+        const interrupted = file.status === "writing" || file.status === "failed";
         if (group.reason === "before-restore" && now === file.after) {
           file.status = "already-as-wanted";
           file.message = "Already as wanted";
           await persist(group);
           continue;
         }
+        if (group.reason === "before-restore" && now !== file.before && !interrupted) {
+          throw new Error(`${file.path} changed after the restore started, so it was not restored. Choose the version again.`);
+        }
+        const refused = await env.guard(file.path, file.after === null, intended[index]);
+        if (refused !== null) throw new Error(refused);
+        // A failed/unknown write never becomes durable by readback. Fresh permission is needed to retry.
+        if ((now !== file.before || interrupted) && !await env.consent([file.path])) throw new Error(`Replacement declined: ${file.path}`);
+        file.status = "writing";
+        file.message = null;
+        await persist(group);
+        const bytes = intended[index]!;
+        const lateRefusal = await env.guard(file.path, bytes === null, bytes);
+        if (lateRefusal !== null) throw new Error(lateRefusal);
         if (env.write !== undefined) unwrap(await env.write(file.path, bytes, { groupId: group.id, expected: await contents(file.before) }));
         else if (bytes !== null) unwrap(await fs.writeProject(projectId, file.path, bytes));
         else if (now !== null) unwrap(await fs.deleteProject(projectId, file.path));

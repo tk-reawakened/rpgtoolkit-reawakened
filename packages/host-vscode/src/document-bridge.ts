@@ -424,7 +424,6 @@ export class RemoteDocument {
   }
   readonly animationAuthoring: AnimationAuthoring = {
     commitAnimation: (command, bitmaps) => this.animationAction("commit", undefined, command, bitmaps) as Promise<PlatformResult<CheckpointGroup>>,
-    commit: async () => platformError("invalid-request", "Use the animation wizard to create files."),
     list: () => this.animationAction("list") as Promise<PlatformResult<readonly CheckpointEntry[]>>,
     retry: (id) => this.animationAction("retry", id) as Promise<PlatformResult<CheckpointGroup>>,
     restore: (id) => this.animationAction("restore", id) as Promise<PlatformResult<CheckpointGroup>>,

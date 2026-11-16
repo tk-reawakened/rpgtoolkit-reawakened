@@ -10,7 +10,7 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
@@ -106,6 +106,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     generation += 1;
     changes.fire(event);
   });
+  registerNewBoard(context, () => generation, (uri) => core.workspaceFor({ uri, key: uri.toString() }).workspace);
   // The History command (#2833): the shared workspace does the work; VS Code only picks and reports.
   context.subscriptions.push(vscode.commands.registerCommand("tkr.history", async () => {
     const activeTextEditorUri = vscode.window.activeTextEditor?.document.uri;
@@ -214,7 +215,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
 }
 
 /** The new-board command (T-20): the questions are VS Code's own input boxes and pick lists, one after another. */
-export function registerNewBoard(context: vscode.ExtensionContext, generation: () => number): void {
+export function registerNewBoard(context: vscode.ExtensionContext, generation: () => number, workspaceFor: (uri: vscode.Uri) => DocumentWorkspace): void {
   const ui: NewBoardUi = {
     input: (question) => Promise.resolve(vscode.window.showInputBox({
       title: question.title,
@@ -238,6 +239,7 @@ export function registerNewBoard(context: vscode.ExtensionContext, generation: (
     const folder = folders.length === 1 ? folders[0]! : await pickFolder(folders);
     if (folder === undefined) return;
     const services = createVscodeServices(folder.uri, context, generation);
+    const workspace = workspaceFor(folder.uri);
     const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui, history: createWizardHistory(workspace.checkpoints) });
     if (!outcome.ok) {
       if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);

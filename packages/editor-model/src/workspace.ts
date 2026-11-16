@@ -489,9 +489,25 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     async restoreHistoryEntry(entryId) {
       const preview = await historyStore.preview(entryId);
       if (preview === null) return { groupId: entryId, restoreGroupId: null, files: [{ path: "", result: "failed", message: `History entry ${entryId} does not exist.` }] };
-      if (!(await confirmUnsaved([preview.entry.path]))) return declined(entryId, [preview.entry.path]);
-      const result = await checkpoints.restoreTargets([{ path: preview.entry.path, bytes: preview.bytes }], entryId);
-      return result.ok ? checkpointReport(entryId, result.value) : { groupId: entryId, restoreGroupId: null, files: [{ path: preview.entry.path, result: "failed", message: result.error.message }] };
+      const path = preview.entry.path;
+      if (!(await confirmUnsaved([path]))) return declined(entryId, [path]);
+      const open = documents.get(createDocumentIdentity(projectId, path).key);
+      if (open !== undefined && open.getSnapshot().dirty) {
+        const unsaved = open.serialize();
+        try {
+          const kept = await historyStore.keep(path, unsaved, "before-restore");
+          if (kept.outcome === "uncovered") {
+            return { groupId: entryId, restoreGroupId: null, files: [{ path, result: "failed", message: `${path} is not covered by history; the restore was not performed.` }] };
+          }
+        } catch (error) {
+          return { groupId: entryId, restoreGroupId: null, files: [{ path, result: "failed", message: `Could not keep your unsaved version of ${path}; the restore was not performed: ${error instanceof Error ? error.message : String(error)}` }] };
+        }
+        if (documents.get(open.identity.key) !== open || !sameBytes(open.serialize(), unsaved)) {
+          return { groupId: entryId, restoreGroupId: null, files: [{ path, result: "failed", message: `${path} changed after the restore was requested, so the newer work was not replaced.` }] };
+        }
+      }
+      const result = await checkpoints.restoreTargets([{ path, bytes: preview.bytes }], entryId);
+      return result.ok ? checkpointReport(entryId, result.value) : { groupId: entryId, restoreGroupId: null, files: [{ path, result: "failed", message: result.error.message }] };
     },
     async restoreHistoryGroup(groupId, restoreOptions) {
       const listed = await checkpoints.list();

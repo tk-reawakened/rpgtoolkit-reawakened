@@ -27,7 +27,7 @@ export function createWizardHistory(groups: CheckpointGroups): WizardHistory {
 let projectWizardSequence = 0;
 
 /** New-project history is written by the same checkpoint service into the chosen destination's canonical history folder. */
-export function createProjectWizardHistory(fs: FileSystemService, projectId = "new-project"): WizardHistory {
+export function createProjectWizardHistory(fs: FileSystemService, projectId: string): WizardHistory {
   const groups = createCheckpointGroups({
     fs,
     storage: fs,

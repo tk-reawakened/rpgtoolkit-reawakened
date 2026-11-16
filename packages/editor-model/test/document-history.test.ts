@@ -183,6 +183,7 @@ test("a group captures every planned destination first, restores them as one act
   const wizard = createWizardHistory(workspace.checkpoints);
   const planned = [PATH, OTHER, "Main/created.gam"];
   const before = new Map(planned.map((path) => [path, host.bytesOf(path)] as const));
+  host.answerQuestions("continue");
   const ran = await runCheckpointedOperation(wizard, host.fs, { name: "Two-file wizard", planned }, async (write) => {
     const a = await write(PATH, withTitle(exampleMain(9), "Wizard A"));
     const b = await write(OTHER, withTitle(exampleMain(9), "Wizard B"));
@@ -233,6 +234,7 @@ test("a group that cannot be recorded writes nothing, and a failed file is repor
   const fault: Fault = { mode: "none" };
   const { host, workspace } = setUp({ fault, files: { [OTHER]: withTitle(exampleMain(9), "Other before") } });
   fault.mode = "all";
+  host.answerQuestions("continue", "continue");
   const refused = await runCheckpointedOperation(createWizardHistory(workspace.checkpoints), host.fs, { name: "Wizard", planned: [PATH] }, async (write) => write(PATH, withTitle(exampleMain(9), "x")));
   ok(!refused.ok);
   equal(titleOf(host.bytesOf(PATH)!), titleOf(exampleMain(9)), "no write happened");
@@ -489,7 +491,7 @@ test("the produced-archive check refuses every excluded class the inventory filt
 
 test("the new-project wizard records every planned destination before its first write, with each written file's hash (D12.10 item 6, #2832)", async () => {
   const host = createMemoryPlatformServices();
-  const created = await createNewProject(host.fs, { gameName: "Grouped Quest", mainFile: "Grouped.gam", starters: [] }, undefined, createProjectWizardHistory(host.fs));
+  const created = await createNewProject(host.fs, { gameName: "Grouped Quest", mainFile: "Grouped.gam", starters: [] }, undefined, createProjectWizardHistory(host.fs, "memory-project"));
   ok(created.ok);
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
   const result = await workspace.checkpoints.list();
@@ -509,7 +511,7 @@ test("the new-project wizard records every planned destination before its first 
 test("a wizard whose group cannot be recorded writes nothing at all", async () => {
   const host = createMemoryPlatformServices();
   const refusing = { ...host.fs, write: async () => platformError("io-error", "history disk is full") };
-  const created = await createNewProject(refusing, { gameName: "Never", mainFile: "Never.gam", starters: [] }, undefined, createProjectWizardHistory(refusing));
+  const created = await createNewProject(refusing, { gameName: "Never", mainFile: "Never.gam", starters: [] }, undefined, createProjectWizardHistory(refusing, "memory-project"));
   ok(!created.ok);
   match(created.message, /history checkpoint could not be recorded/);
   deepEqual(created.ok ? [] : created.reason === "failed" ? created.written : [], []);
@@ -519,7 +521,7 @@ test("a wizard whose group cannot be recorded writes nothing at all", async () =
 test("a new board is one group with an ownership record for the created file", async () => {
   const host = createMemoryPlatformServices();
   ok((await host.fs.createFolder("Boards")).ok);
-  const created = await createBoardFile(host.fs, { projectFolder: "" }, { name: "grouped", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 1, backgroundImage: "", template: null }, createProjectWizardHistory(host.fs));
+  const created = await createBoardFile(host.fs, { projectFolder: "" }, { name: "grouped", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 1, backgroundImage: "", template: null }, createProjectWizardHistory(host.fs, "memory-project"));
   ok(created.ok);
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
   const result = await workspace.checkpoints.list();
@@ -622,15 +624,23 @@ test("a document opened and edited while a closed-file restore records its histo
   const later = withTitle(exampleMain(9), "Later");
   const host = createMemoryPlatformServices({ files: { [PATH]: first } });
   let release!: () => void;
+  let started!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
+  const captureStarted = new Promise<void>((resolve) => { started = resolve; });
   let holding = true;
-  const gated = { ...host.fs, write: async (path: string, bytes: Uint8Array) => (holding && path.startsWith(".tkr-history/groups/") ? gate.then(() => host.fs.write(path, bytes)) : host.fs.write(path, bytes)) };
+  const gated = { ...host.fs, write: async (path: string, bytes: Uint8Array) => {
+    if (holding && path.startsWith(".tkr-history/groups/")) {
+      started();
+      await gate;
+    }
+    return host.fs.write(path, bytes);
+  } };
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: { ...host, fs: gated } });
   await workspace.history.recordSave(PATH, first, "manual");
   const entry = (await workspace.history.documentTimeline(PATH))[0]!;
   ok((await host.fs.write(PATH, later)).ok, "the file changed since that version");
   const restoring = workspace.restoreHistoryEntry(entry.id);
-  await Promise.resolve();
+  await captureStarted;
   const opened = await workspace.open(PATH);
   ok(opened.ok);
   ok(opened.document.apply({ type: "set-game-title", title: "Typed while restoring" }).ok);
@@ -674,7 +684,8 @@ test("a document opened while a closed-file restore is checking the file is not 
   release();
   const report = await restoring;
   deepEqual(report.files.map((file) => [file.path, file.result]), [[PATH, "failed"]]);
-  match(report.files[0]!.message ?? "", /opened while the restore was checking/);
+  match(report.files[0]!.message ?? "", /changed after the restore started/);
+  deepEqual(host.bytesOf(PATH), withTitle(exampleMain(9), "Later"), "the on-disk revision was not overwritten");
   equal(gameTitleOf(opened.document), "Typed while checking");
   workspace.dispose();
 });

@@ -18,7 +18,28 @@ export async function proveWizardGroup(
   if (names.length !== 1) problems.push(`expected one group record, found ${names.length}`);
   const read = await fs.read(`${GROUP_FOLDER}/${names[0]?.name ?? ""}`);
   if (!read.ok) return { ok: false, problems: [...problems, `the group record could not be read: ${read.error.message}`] };
-  const group = JSON.parse(new TextDecoder().decode(read.value)) as CheckpointGroup;
+  let group = JSON.parse(new TextDecoder().decode(read.value)) as CheckpointGroup;
+  const progressPath = `.tkr-history/progress/${group.id}`;
+  const progress = await fs.list(progressPath);
+  if (progress.ok) {
+    const records = progress.value
+      .filter((entry) => entry.kind === "file" && /^\d+\.json$/.test(entry.name))
+      .sort((a, b) => Number(b.name.slice(0, -5)) - Number(a.name.slice(0, -5)));
+    for (const record of records) {
+      const bytes = await fs.read(`${progressPath}/${record.name}`);
+      if (!bytes.ok) continue;
+      try {
+        const update = JSON.parse(new TextDecoder().decode(bytes.value)) as CheckpointGroup;
+        if (update.schema !== 1 || update.id !== group.id || update.files.length !== group.files.length
+          || !update.files.every((file, index) => file.path === group.files[index]!.path && file.before === group.files[index]!.before
+            && (file.after === null || /^[a-f0-9]{64}$/.test(file.after))
+            && ["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "uncovered"].includes(file.status)
+            && (file.message === null || typeof file.message === "string"))) continue;
+        group = { ...group, files: update.files };
+        break;
+      } catch { /* A torn progress record leaves the preceding durable record authoritative. */ }
+    }
+  }
   if (group.reason !== "before-wizard" || group.name !== expectedName) problems.push(`group is ${group.reason}/${group.name}, expected before-wizard/${expectedName}`);
   const planned = group.files.map((item) => item.path);
   if (planned.join("\n") !== [...written].join("\n")) problems.push(`planned ${planned.join(", ")}, wizard wrote ${written.join(", ")}`);

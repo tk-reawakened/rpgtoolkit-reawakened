@@ -270,14 +270,32 @@ async function proveWizardGroupFromBacking(
   expect: Expect,
 ): Promise<void> {
   const folder = `${projectPath}/.tkr-history/groups/`;
-  const records = (await tree()).filter((path) => path.startsWith(folder) && path.endsWith(".json"));
+  const allPaths = await tree();
+  const records = allPaths.filter((path) => path.startsWith(folder) && path.endsWith(".json"));
   const matching: { readonly path: string; readonly record: WizardGroupRecord }[] = [];
   for (const path of records) {
     const record = JSON.parse(new TextDecoder().decode(await readBacking(path))) as WizardGroupRecord;
     if (record.name === expectedName) matching.push({ path, record });
   }
   expect(matching, `${expectedName} wizard wrote one durable group record`).toHaveLength(1);
-  const { path: groupPath, record: group } = matching[0]!;
+  const { path: groupPath, record: manifest } = matching[0]!;
+  let group = manifest;
+  const progressFolder = `${projectPath}/.tkr-history/progress/${group.id}/`;
+  const progressPaths = allPaths.filter((path) => {
+    if (!path.startsWith(progressFolder)) return false;
+    return /^\d+\.json$/.test(path.slice(progressFolder.length));
+  }).sort((a, b) => Number(b.slice(progressFolder.length, -5)) - Number(a.slice(progressFolder.length, -5)));
+  for (const progressPath of progressPaths) {
+    try {
+      const update = JSON.parse(new TextDecoder().decode(await readBacking(progressPath))) as WizardGroupRecord;
+      if (update.schema !== 1 || update.id !== group.id || !Array.isArray(update.files) || update.files.length !== group.files.length
+        || !update.files.every((file, index) => file.path === group.files[index]!.path && file.before === group.files[index]!.before
+          && (file.after === null || /^[a-f0-9]{64}$/.test(file.after))
+          && ["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "uncovered"].includes(file.status))) continue;
+      group = { ...group, files: update.files };
+      break;
+    } catch { /* A torn progress record leaves the preceding durable record authoritative. */ }
+  }
   expect(groupPath).toBe(`${folder}${group.id}.json`);
   expect(group.schema).toBe(1);
   expect(group.reason).toBe("before-wizard");

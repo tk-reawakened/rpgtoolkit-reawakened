@@ -8,7 +8,7 @@ import { proveRestoreLifecycle, proveWizardGroup } from "../history-proof.ts";
 
 test("the wizard-group proof reads a produced project's group and checks every planned and written path", async () => {
   const host = createMemoryPlatformServices();
-  const created = await createNewProject(host.fs, { gameName: "Proof Quest", mainFile: "Proof.gam", starters: [] }, undefined, createProjectWizardHistory(host.fs));
+  const created = await createNewProject(host.fs, { gameName: "Proof Quest", mainFile: "Proof.gam", starters: [] }, undefined, createProjectWizardHistory(host.fs, "memory-project"));
   ok(created.ok);
   const good = await proveWizardGroup(host.fs, created.written, "New project");
   deepEqual(good, { ok: true, problems: [] });
