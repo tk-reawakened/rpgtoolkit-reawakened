@@ -16,7 +16,7 @@ type Case = {
   readonly name: string;
   readonly ok: boolean;
   readonly stateHash: string;
-  readonly outcomes: readonly { readonly kind: string; readonly expected: string; readonly actual: string; readonly line: number; readonly column: number; readonly context?: { readonly tick: number; readonly lastAction: null | { readonly action: string; readonly ticks: number; readonly completedTick: number }; readonly board: string | null } }[];
+  readonly outcomes: readonly { readonly kind: string; readonly expected: string; readonly actual: string; readonly sourcePath: string; readonly line: number; readonly column: number; readonly context?: { readonly tick: number; readonly lastAction: null | { readonly action: string; readonly ticks: number; readonly completedTick: number }; readonly board: string | null } }[];
   readonly run?: { readonly snapshot: unknown; readonly actionLog: readonly unknown[]; readonly checkpoints: readonly { readonly tick: number; readonly stateHash: string }[] };
 };
 type Report = { readonly files: readonly { readonly file: string; readonly cases: readonly Case[] }[]; readonly sources: readonly { readonly path: string; readonly revision: string | null }[] };
@@ -311,15 +311,16 @@ async function visibleCase(tests: Frame, outcome: "Pass" | "Fail"): Promise<Case
     const expected = await cells.nth(2).innerText();
     const actual = await cells.nth(3).innerText();
     const source = await cells.nth(4).getByRole("button").getAttribute("title");
-    const position = source?.match(/:(\d+):(\d+)$/);
+    const position = source?.match(/^(.*):(\d+):(\d+)$/);
     const contextText = await cells.nth(5).innerText();
     const context = contextText.match(/Tick (\d+); board ([^;]+); after ([a-z.]+) for (\d+) ticks, completed at tick (\d+)/);
     outcomes.push({
       kind,
       expected,
       actual,
-      line: Number(position?.[1] ?? 0),
-      column: Number(position?.[2] ?? 0),
+      sourcePath: position?.[1] ?? "",
+      line: Number(position?.[2] ?? 0),
+      column: Number(position?.[3] ?? 0),
       ...(context === null ? {} : { context: { tick: Number(context[1]), board: context[2] ?? null, lastAction: { action: context[3] ?? "", ticks: Number(context[4]), completedTick: Number(context[5]) } } }),
     });
   }
