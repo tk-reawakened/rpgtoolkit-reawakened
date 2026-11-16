@@ -202,6 +202,9 @@ importers:
       '@tk-reawakened/editor-model':
         specifier: workspace:*
         version: link:packages/editor-model
+      '@tk-reawakened/editor-vscode-test':
+        specifier: workspace:*
+        version: link:tools/editor-vscode-test
       '@tk-reawakened/host-vscode':
         specifier: workspace:*
         version: link:packages/host-vscode

@@ -1,7 +1,8 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PackageExportService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import { webCheckpointEnvironment } from "./checkpoints.ts";
+import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
@@ -273,6 +274,19 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
   if (document.kind === "main") return document as unknown as ViewDocument;
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
+  if (document.kind === "animation") {
+    const animation = asAnimationDocument(document);
+    const view: AnimationViewDocument = {
+      kind: animation.kind,
+      identity: animation.identity,
+      getSnapshot: () => animation.getSnapshot(),
+      subscribe: (listener) => animation.subscribe(listener),
+      apply: (command: AnimationCommand) => animation.apply(command),
+      save: () => animation.save(),
+      resolveConflict: (choice) => animation.resolveConflict(choice),
+    };
+    return view;
+  }
   if (document.kind === "tile-bitmap") {
     const bitmap = document as unknown as Omit<TileBitmapViewDocument, "preview">;
     const view: TileBitmapViewDocument = {
@@ -325,7 +339,6 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
   };
   return view;
 }
-
 const boardPreferenceSources = new WeakMap<WebProject, BoardPreferencesSource>();
 
 /** The board-editor preferences of a project, read from its settings (T-33) once and shared by every board view of it. */
@@ -390,6 +403,10 @@ export function mountDocumentView(
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
+      ...(document.kind !== "animation" ? {} : { animationAuthoring: createAnimationAuthoring(webCheckpointEnvironment(project, document.identity.key), asAnimationDocument(document), async () => {
+        const saved = await document.save();
+        return saved.ok ? platformOk(undefined) : platformError("io-error", saved.failure.message);
+      }, (editId) => project.services.document.edited({ document: document.identity.key, editId, label: "Create animation frames" })) }),
       codeEditor: {
         ...(project.codeEditor === null ? {} : { createSurface: project.codeEditor }),
         project: main === null ? null : { main },

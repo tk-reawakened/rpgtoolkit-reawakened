@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { DEFAULT_EDITOR_PREFERENCES, asMainDocument, createDocumentIdentity, openMainDocument, openSpriteDocument, type MainDocumentSnapshot, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
-import { createVscodeFileSystemWithPort, handleEditorHostRequest, isSpriteSnapshot, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
+import { createVscodeFileSystemWithPort, handleEditorHostRequest, isEditorHostRequest, isSpriteSnapshot, recoverMainDocument, resolveRecoveryConflict, RemoteDocument, vscodeCapabilities, type VscodeApi, type VscodeFileSystemPort } from "@tk-reawakened/host-vscode/testing";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { SpriteViewDocument, ViewDocument } from "@tk-reawakened/editor-ui";
@@ -18,6 +18,13 @@ before(async () => {
   ({ act } = await import("preact/test-utils"));
 });
 after(() => GlobalRegistrator.unregister());
+test("VS Code bridge validates animation asset reads and generated bitmap destinations", () => {
+  ok(isEditorHostRequest({ type: "read-project", requestId: "read-1", path: "Bitmap/frame.png" }));
+  ok(!isEditorHostRequest({ type: "read-project", requestId: "read-2", path: "../outside.png" }));
+  ok(isEditorHostRequest({ type: "animation-action", requestId: "write-1", action: "commit", bitmaps: [{ path: "Bitmap/frame.tbm", bytes: new Uint8Array([1, 2, 3]) }] }));
+  ok(!isEditorHostRequest({ type: "animation-action", requestId: "write-2", action: "commit", bitmaps: [{ path: "../frame.tbm", bytes: new Uint8Array([1]) }] }));
+  ok(!isEditorHostRequest({ type: "animation-action", requestId: "write-3", action: "commit", bitmaps: [{ path: "Bitmap/frame.tbm", bytes: [1, 2, 3] }] }));
+});
 
 test("real web and VS Code adapters keep mounted title edits dirty and named after write rejection", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));

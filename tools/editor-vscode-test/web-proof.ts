@@ -1,3 +1,4 @@
+import { ANIMATION_PROOF_PATH, runAnimationAuthoringProof } from "./animation-proof.ts";
 import { createHash } from "node:crypto";
 import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
@@ -1237,7 +1238,7 @@ async function runCommand(page: Page, expect: Expect, title: string): Promise<vo
 }
 
 /** Dispatch one verified palette row atomically; never retry an attempted dispatch (#2720, #2726). */
-async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false): Promise<void> {
+async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false, nextPrompt?: string): Promise<void> {
   const widget = page.locator(".quick-input-widget");
   let dismissalInjected = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -1293,7 +1294,8 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
     }
     if (dismissed && dispatched) throw new Error(`Dismissed palette row ${label} was dispatched by the negative control`);
     if (dispatched) {
-      await expect(widget).toBeHidden();
+      if (nextPrompt !== undefined) await expect(widget).toContainText(nextPrompt);
+      else await expect(widget).toBeHidden();
       return;
     }
     // Only an explicit false proves no command was dispatched.
@@ -1521,19 +1523,12 @@ async function findBytesPanelFrame(page: Page, selector: string): Promise<Frame 
 
 async function openGame(page: Page, gamePath: string, expect: Expect): Promise<void> {
   await focusWorkbench(page);
-  const segments = gamePath.split("/");
-  for (const folder of segments.slice(0, -1)) {
-    const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
-    await folderItem.click();
-    await expect(folderItem).toBeVisible();
-    await folderItem.press("ArrowRight");
-    await expect(folderItem).toBeVisible();
-    if (await folderItem.getAttribute("aria-expanded") !== "true") await folderItem.click();
-  }
-  const gameFile = page.getByRole("treeitem", { name: segments.at(-1)!, exact: true });
-  await expect(gameFile).toBeVisible();
-  await gameFile.dblclick();
-  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: segments.at(-1)! }).first()).toBeVisible();
+  // Explorer virtualizes off-screen rows. Earlier proofs may expand or scroll it, so
+  // an existing root file need not have a treeitem (#2834). Open its exact URI through
+  // VS Code's native command, retaining the real custom-editor activation assertions.
+  await page.waitForTimeout(100);
+  await openNativeQuickOpenFile(page, expect, gamePath);
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! }).first()).toBeVisible();
   await expect(page.locator("iframe.webview:visible")).toBeVisible({ timeout: 30_000 });
 }
 
@@ -1589,4 +1584,57 @@ async function waitForTitledEditor(page: Page, title: string, expect: Expect): P
   }, { timeout: 30_000 }).toBe(title);
   if (!found) throw new Error("Selected editor did not become available");
   return found;
+}
+
+/** Animation authoring through native commands, the actual webview bridge and disk-backed workspace provider. */
+export async function runVscodeAnimationProof(page: Page, expect: Expect, workbenchUrl: string, host: Pick<ProofHost, "readBacking" | "withBackingWriteRefused">): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
+  const read = async (path: string): Promise<Uint8Array | null> => {
+    try { return await host.readBacking(path); }
+    catch (error) { if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return null; throw error; }
+  };
+  const open = async () => (await openProjectFile(page, ANIMATION_PROOF_PATH, expect, ".tkr-animation-editor")).locator(".tkr-animation-editor");
+  const close = async () => {
+    if (await page.getByRole("tab").filter({ hasText: "host-proof.anm" }).count()) {
+      await runCommand(page, expect, "View: Close Editor");
+      await expect(page.getByRole("tab").filter({ hasText: "host-proof.anm" })).toHaveCount(0);
+      await page.waitForTimeout(150);
+    }
+  };
+  await runAnimationAuthoringProof({
+    create: async () => {
+      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "Project-relative .anm destination in Misc");
+      const input = page.locator(".quick-input-widget input:visible");
+      await expect(page.locator(".quick-input-widget")).toContainText("Project-relative .anm destination in Misc");
+      await input.fill(ANIMATION_PROOF_PATH);
+      await input.press("Escape");
+      expect(await read(ANIMATION_PROOF_PATH)).toBeNull();
+      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "Project-relative .anm destination in Misc");
+      await expect(input).toBeVisible(); await input.fill(ANIMATION_PROOF_PATH); await input.press("Enter");
+      return (await waitForCustomEditorFrame(page, "new animation", ".tkr-animation-editor")).locator(".tkr-animation-editor");
+    },
+    reopen: async () => { await close(); return open(); },
+    restart: async () => {
+      await close(); await requestNativeReload(page, expect);
+      await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
+      await page.waitForTimeout(250);
+    },
+    restore: async (reason) => {
+      await runCommandMatching(page, expect, "TK Reawakened: Project recovery", "TK Reawakened: Project recovery", false, "Project recovery");
+      const widget = page.locator(".quick-input-widget");
+      const row = widget.getByRole("option").filter({ hasText: reason + ":" }).filter({ hasText: "Bitmap/proof-first.tbm" }).last();
+      await expect(row).toBeVisible(); await row.click();
+      await expect(widget.getByRole("option", { name: /^Restore group(?:,|$)/ })).toBeVisible();
+      await widget.getByRole("option", { name: /^Restore group(?:,|$)/ }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toContainText("Bitmap/proof-first.tbm: written", { timeout: 20_000 });
+      await dialog.getByRole("button", { name: "OK", exact: true }).click();
+      await page.waitForTimeout(100);
+    },
+    consent: async () => { await page.getByRole("dialog").getByRole("button", { name: "Replace", exact: true }).click(); },
+    read,
+    refuseAnimationWrite: (check) => host.withBackingWriteRefused(ANIMATION_PROOF_PATH, check),
+    settle: () => page.waitForTimeout(60),
+  }, expect);
 }

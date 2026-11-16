@@ -1,3 +1,5 @@
+import { CheckpointView } from "./checkpoint-view.tsx";
+import type { AnimationAuthoring } from "@tk-reawakened/editor-model";
 import {
   createPendingEdits,
   type ApplyResult,
@@ -22,7 +24,7 @@ import {
   type TilesetArtCommand,
   type TilesetArtSnapshot,
 } from "@tk-reawakened/editor-model";
-import type { PlatformServices } from "@tk-reawakened/platform-services";
+import type { PlatformResult, PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
 import { EmptyExplorerView, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
@@ -38,6 +40,7 @@ import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import { TilesetArtView } from "./tileset-art-view.tsx";
+import { AnimationView, type AnimationViewDocument } from "./animation-view.tsx";
 import { ProgramView, type ProgramPreferencesSource, type ProgramViewDocument } from "./program-view.tsx";
 import type { TextSurfaceFactory } from "./text-surface.ts";
 
@@ -96,12 +99,14 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | ProgramViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
   readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject">; readonly language?: PlatformServices["language"] };
+  /** Persistent wizard and recovery operations owned by the authoritative document host. */
+  readonly animationAuthoring?: AnimationAuthoring;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
   /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
@@ -142,13 +147,17 @@ function isSpriteView(document: ViewContext["document"]): document is SpriteView
   return document.kind === "character" || document.kind === "item";
 }
 
+function isAnimationView(document: ViewContext["document"]): document is AnimationViewDocument {
+  return document.kind === "animation";
+}
+
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
 export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const onEdited = (event: Parameters<PlatformServices["document"]["edited"]>[0]): void => ctx.services.document.edited(event);
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
   const fs = ctx.services.fs;
-  if (isSpriteView(document) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
+  if ((isSpriteView(document) || isAnimationView(document)) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
   const pendingEdits = ctx.pendingEdits ?? createPendingEdits();
   let view: Parameters<typeof render>[0];
   if (isBoardView(document)) {
@@ -185,6 +194,15 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.services.language === undefined ? {} : { language: ctx.services.language }),
       ...(editor?.project === undefined ? {} : { project: editor.project }),
       ...(editor?.preferences === undefined ? {} : { preferences: editor.preferences }),
+    });
+  } else if (isAnimationView(document)) {
+    view = createElement(AnimationView, {
+      doc: document,
+      pendingEdits,
+      fs: fs!,
+      onEdited,
+      ...(ctx.animationAuthoring === undefined ? {} : { authoring: ctx.animationAuthoring }),
+      ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
     });
   } else if (document.kind === "main") {
     view = createElement(SettingsView, { doc: document, capabilities, onEdited });
@@ -247,4 +265,10 @@ export function mountNewProject(el: HTMLElement, props: NewProjectViewProps): Vi
 /** Render the IDE "No Game Opened" Explorer panel into `el`. */
 export function mountEmptyExplorer(el: HTMLElement, props: EmptyExplorerViewProps): ViewHandle {
   return mountElement(el, createElement(EmptyExplorerView, props));
+}
+
+/** Shared persistent project recovery, also available with every affected editor closed. */
+export function mountCheckpoints(element: HTMLElement, groups: import("@tk-reawakened/editor-model").CheckpointGroups): ViewHandle {
+  render(createElement(CheckpointView, { groups }), element);
+  return { dispose: () => render(null, element) };
 }

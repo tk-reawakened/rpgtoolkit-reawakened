@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Story 12.7 adds shared binary `.anm` creation and editing in browser and VS Code: ordered image staging, multi-frame 4×4 tile compositions with template reuse, frame metadata, playback, and normal save/undo. Persistent SHA-256 checkpoint groups retain original and intended files before wizard writes, report partial failures, retry remaining work, and make restores recoverable across reopening. Text minor 0 remains read-only; general history retention and timelines remain under #1828 (#1718, #2805, #2813–#2816).
 - New-project command tests compile their shared extension fixture once while keeping each case's workspace and module state isolated (#2798).
 - VS Code new-project creation normalizes selected folder paths and leaves the pending main-file open for the restarted host when a folder window becomes a workspace, even if an early folder event arrives. It resumes without requiring a file-search provider; the real web-workbench proof drives the destination picker and checks generated files and the opened editor (#2759, #2804, #2806, #2807, #2821).
 - Program editor insertions, undo, redo and save now preserve their order; Monaco's context-menu history uses the shared document. Language-service errors and formatting refusals are shown without blocking editing (#2727–#2729).
