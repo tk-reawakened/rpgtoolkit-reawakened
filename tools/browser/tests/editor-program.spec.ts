@@ -70,6 +70,23 @@ async function openProgram(page: Page): Promise<void> {
   await expect(page.getByRole("tab", { name: PROGRAM, exact: true })).toBeVisible();
   await expect(page.locator(".monaco-editor .view-lines")).toBeVisible();
 }
+async function openSecondView(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "View", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Toggle Split Second View", exact: true }).click();
+}
+
+async function formatDocumentFromContextMenu(page: Page, editorInput: Locator): Promise<void> {
+  await editorInput.focus();
+  await expect(editorInput).toBeFocused();
+  await page.keyboard.press("Shift+F10");
+  const item = page.getByRole("menuitem", { name: /^Format Document/ });
+  await expect(item).toBeVisible();
+  await focusMenuItem(page, item);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".tkr-program-language-note")).not.toContainText("RPGCode did not format");
+}
+
 
 /** The file as the host stores it, as Latin-1 text, once it satisfies `accept` (a save is asynchronous). */
 const savedText = async (page: Page, path: string, accept: (text: string) => boolean): Promise<string> => {
@@ -325,8 +342,8 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.keyboard.type("\n   y = 2");
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
-  // Format Document remains available through Monaco's keyboard shortcut while F1 opens the workbench help palette.
-  await page.keyboard.press("Shift+Alt+f");
+  // Format Document remains available in Monaco's editor context menu while F1 opens the workbench help palette.
+  await formatDocumentFromContextMenu(page, page.getByRole("textbox", { name: /^Program text/ }).first());
   await expect.poll(() => editorText(page)).toContain("\ny = 2");
   await page.keyboard.press("ControlOrMeta+s");
   const saved = await savedText(page, PROGRAM, (text) => text.endsWith("y = 2"));
@@ -338,7 +355,6 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
 
 
   // Reopen: the saved program reads back as the same text.
-  // The page toolbar sits below the fold in the merged layout; the click is what a person would make after scrolling.
   await page.locator("#close").dispatchEvent("click");
   await expect(page.getByRole("tab", { name: PROGRAM, exact: true })).toHaveCount(0);
   await page.getByRole("treeitem", { name: /^intro\.prg, program editor/ }).dblclick();
@@ -360,13 +376,13 @@ test("a second program view uses the running project's language context", async 
     { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
   ]);
   await openProgram(page);
-  await page.locator("#mirror-view").dispatchEvent("click");
+  await openSecondView(page);
   const mirror = page.locator("#mirror");
   await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
   const editorInput = mirror.getByRole("textbox", { name: /^Program text/ });
   await editorInput.focus();
   await expect(editorInput).toBeFocused();
-  await page.keyboard.press("Shift+Alt+f");
+  await formatDocumentFromContextMenu(page, editorInput);
   await expect.poll(() => editorText(page)).toContain("\n    mwin(name)");
   await expect(mirror).not.toContainText(/unassessed|failed/i);
 });
@@ -378,7 +394,7 @@ test("F1 quick reference inserts into the invoking mirrored program view", async
     { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
   ]);
   await openProgram(page);
-  await page.locator("#mirror-view").click();
+  await openSecondView(page);
   const mirror = page.locator("#mirror");
   await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
   const primaryInput = page.getByRole("textbox", { name: /^Program text/ }).first();
@@ -407,7 +423,7 @@ test("Application menu and palette trigger quick reference inserts at the last f
     { path: PROGRAM, bytes: Array.from(Buffer.from(source, "latin1")) },
   ]);
   await openProgram(page);
-  await page.locator("#mirror-view").click();
+  await openSecondView(page);
   const mirror = page.locator("#mirror");
   await expect(mirror.locator(".monaco-editor .view-lines")).toBeVisible();
   const primaryInput = page.getByRole("textbox", { name: /^Program text/ }).first();
