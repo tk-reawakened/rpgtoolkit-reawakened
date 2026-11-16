@@ -9,7 +9,8 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { DEFAULT_EDITOR_PREFERENCES, createProjectWizardHistory, historyPolicyFrom } from "@tk-reawakened/editor-model";
+import { DEFAULT_EDITOR_PREFERENCES, createProjectWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
+import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
@@ -127,16 +128,26 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
         const origin = candidate ?? vscode.Uri.joinPath(folder.uri, ...path.split("/"));
         trackHistoryPreview(panel, origin);
         const browserSession = createBrowserSession();
+        const readOnlyFs = createVscodeFileSystem(folder.uri);
+        const projectId = preview.document.identity.projectId;
+        const readOnlyPreview = {
+          model: preview.document,
+          path,
+          browserSession,
+          browserList: (relativePath: string) => readOnlyFs.list(relativePath),
+          browserRead: (relativePath: string) => readOnlyFs.read(relativePath),
+          readProject: (relativePath: string) => readOnlyFs.readProject(projectId, relativePath),
+          preview: async (request?: BoardPreviewRequest) => {
+            if (preview.document.kind === "board") {
+              const picture = await previewBoard(readOnlyFs, projectId, preview.document.serialize(), request);
+              return picture.ok ? { ok: true as const, width: picture.width, height: picture.height, rgba: picture.rgba, warnings: picture.warnings } : picture;
+            }
+            if (preview.document.kind === "tile-bitmap") return previewTileBitmap(readOnlyFs, projectId, preview.document.serialize());
+            return { ok: false as const, message: `A ${preview.document.kind} history version has no picture.` };
+          },
+        };
         const listener = panel.webview.onDidReceiveMessage((message: unknown) => {
-          if (typeof message !== "object" || message === null || !("type" in message) || message.type !== "ready") return;
-          void panel.webview.postMessage({
-            type: "initialize",
-            kind: preview.document.kind,
-            snapshot: preview.document.getSnapshot(),
-            capabilities: [],
-            browserState: browserSession.getSnapshot(),
-            boardPreferences: DEFAULT_EDITOR_PREFERENCES,
-          });
+          void handleHistoryPreviewRequest(readOnlyPreview, message, (reply) => panel.webview.postMessage(reply));
         });
         panel.onDidDispose(() => listener.dispose());
         panel.webview.html = html(panel.webview, context);

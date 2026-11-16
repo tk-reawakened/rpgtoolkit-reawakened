@@ -176,6 +176,89 @@ export async function handleEditorHostRequest(
     await postMessage({ type: "conflict-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   }
 }
+/** Read-only services bound to one saved history-version document, never to its live editor's write channel. */
+export interface HistoryPreviewDocument {
+  readonly model: AnyDocument;
+  readonly path: string;
+  readonly browserSession: BrowserSession;
+  preview(request?: BoardPreviewRequest): Promise<BoardPicture>;
+  browserList(path: string): Promise<PlatformResult<readonly DirectoryEntry[]>>;
+  browserRead(path: string): Promise<PlatformResult<Uint8Array>>;
+  readProject(path: string): Promise<PlatformResult<Uint8Array>>;
+}
+
+async function historyPreviewRead<T>(operation: () => Promise<PlatformResult<T>>): Promise<PlatformResult<T>> {
+  try {
+    return await operation();
+  } catch (error) {
+    return platformError("unavailable", error instanceof Error ? error.message : String(error));
+  }
+}
+
+/** Answer the shared editor's correlated RPCs without exposing a writable live custom document. */
+export async function handleHistoryPreviewRequest(
+  document: HistoryPreviewDocument,
+  value: unknown,
+  postMessage: (message: BridgeMessage) => unknown,
+): Promise<void> {
+  if (!isEditorHostRequest(value)) return;
+  const request = value;
+  const denied = "History previews are read-only; this operation was not performed.";
+  if (request.type === "ready") {
+    await postMessage({
+      type: "initialize",
+      kind: document.model.kind,
+      snapshot: document.model.getSnapshot(),
+      capabilities: [],
+      browserState: document.browserSession.getSnapshot(),
+      boardPreferences: DEFAULT_EDITOR_PREFERENCES,
+    });
+  } else if (request.type === "browser-context") {
+    applyBrowserStatePatch(document.browserSession, request.changes);
+  } else if (request.type === "browser-list") {
+    await postMessage({ type: "browser-list-result", requestId: request.requestId, result: await historyPreviewRead(() => document.browserList(request.path)) });
+  } else if (request.type === "browser-read") {
+    await postMessage({ type: "browser-read-result", requestId: request.requestId, result: await historyPreviewRead(() => document.browserRead(request.path)) });
+  } else if (request.type === "read-project") {
+    await postMessage({ type: "read-project-result", requestId: request.requestId, result: await historyPreviewRead(() => document.readProject(request.path)) });
+  } else if (request.type === "preview") {
+    let picture: BoardPicture;
+    try {
+      picture = await document.preview(request.request);
+    } catch (error) {
+      picture = { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+    await postMessage({ type: "preview-result", requestId: request.requestId, picture });
+  } else if (request.type === "edit") {
+    await postMessage({
+      type: "edit-result",
+      requestId: request.requestId,
+      result: { ok: false, rejection: { reason: "read-only", message: denied } },
+      snapshot: document.model.getSnapshot(),
+    });
+  } else if (request.type === "save") {
+    await postMessage({
+      type: "save-result",
+      requestId: request.requestId,
+      result: { ok: false, failure: { document: document.path, kind: "read-only", code: null, message: denied } },
+      snapshot: document.model.getSnapshot(),
+    });
+  } else if (request.type === "resolve-conflict") {
+    await postMessage({
+      type: "conflict-result",
+      requestId: request.requestId,
+      result: { ok: false, reason: "cannot-reload", message: denied },
+      snapshot: document.model.getSnapshot(),
+    });
+  } else if (request.type === "visit") {
+    await postMessage({ type: "visit-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
+  } else if (request.type === "return-visit") {
+    await postMessage({ type: "return-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
+  } else if (request.type === "pick-asset") {
+    await postMessage({ type: "pick-result", requestId: request.requestId, outcome: { chosen: false } });
+  }
+}
+
 
 /** Whether a value from a webview is an asset request: a known asset kind, text extensions and a field name. Never trust a webview. */
 function isAssetPickRequest(value: unknown): value is AssetPickRequest {

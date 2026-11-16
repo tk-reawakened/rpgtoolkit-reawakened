@@ -367,7 +367,7 @@ export async function runVscodeNewProjectProof(
 }
 
 async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Promise<readonly string[]>, readBacking: (path: string) => Promise<Uint8Array>): Promise<void> {
-  let editor = await waitForEditorFrame(page, "History proof editor");
+  let editor = await waitForWritableEditorFrame(page, "History proof editor", "Game title");
   await editor.getByRole("textbox", { name: "Game title", exact: true }).fill("History first");
   await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
@@ -376,7 +376,7 @@ async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Prom
   await expect.poll(async () => (await readBacking("__tkr_new_project/Main/Quest.gam")).byteLength, { timeout: 30_000 }).toBeGreaterThan(0);
   const firstSaved = await readBacking("__tkr_new_project/Main/Quest.gam");
 
-  editor = await waitForEditorFrame(page, "History proof editor after first save");
+  editor = await waitForWritableEditorFrame(page, "History proof editor after first save", "Game title");
   await editor.getByRole("textbox", { name: "Game title", exact: true }).fill("History second");
   await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
@@ -410,7 +410,7 @@ async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Prom
   const reportText = /Each file is reported separately; the restore is itself in history, so it can be undone\./;
   const report = page.getByRole("dialog", { name: /Info: Restored/ }).getByText(reportText);
   await expect(report).toBeVisible({ timeout: 30_000 });
-  editor = await waitForEditorFrame(page, "History editor after restoring the first save");
+  editor = await waitForWritableEditorFrame(page, "History editor after restoring the first save", "Game title");
   await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History first");
 
   await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
@@ -420,7 +420,7 @@ async function proveNativeHistoryUi(page: Page, expect: Expect, tree: () => Prom
   await verifyHistoryPreview(page, expect, "History second");
   await expect.poll(() => readBacking("__tkr_new_project/Main/Quest.gam"), { timeout: 30_000 }).toEqual(secondSaved);
   await expect(report).toBeVisible({ timeout: 30_000 });
-  editor = await waitForEditorFrame(page, "History editor after restoring the restore");
+  editor = await waitForWritableEditorFrame(page, "History editor after restoring the restore", "Game title");
   await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History second");
 }
 
@@ -443,6 +443,48 @@ async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: s
   await expect(previewTitle).toHaveValue(expectedTitle);
   await expect(previewTitle).toBeDisabled();
   await expect(preview.getByRole("note")).toContainText("Read only");
+}
+
+async function verifyBoardHistoryPreview(page: Page, expect: Expect): Promise<void> {
+  const boardFrames: Frame[] = [];
+  for (const frame of page.frames()) {
+    if (await frame.getByRole("region", { name: "Board", exact: true }).count() > 0) boardFrames.push(frame);
+  }
+  expect(boardFrames).toHaveLength(2);
+  const readOnlyFrames: Frame[] = [];
+  const writableFrames: Frame[] = [];
+  for (const frame of boardFrames) {
+    if (await frame.getByRole("note").filter({ hasText: "Read only:" }).count() > 0) readOnlyFrames.push(frame);
+    else writableFrames.push(frame);
+  }
+  expect(readOnlyFrames).toHaveLength(1);
+  expect(writableFrames).toHaveLength(1);
+  const preview = readOnlyFrames[0]!;
+  const previewState = preview.locator(".tkr-board-preview-state");
+  await expect.poll(async () => {
+    const status = await previewState.textContent().catch(() => null);
+    return status === null || status !== "Drawing the board…";
+  }, { timeout: 10_000 }).toBe(true);
+  const unavailableAsset = preview.getByRole("status").filter({ hasText: "No picture:" });
+  if (await unavailableAsset.count() > 0) {
+    await expect(unavailableAsset).toContainText("__history-preview-missing.gph");
+    return;
+  }
+  await expect(previewState).toHaveCount(0);
+  const canvas = preview.getByRole("img", { name: "The board as the engine draws it", exact: true });
+  await expect(canvas).toBeVisible();
+  await expect(preview.getByRole("list", { name: "Files the picture could not use" })).toContainText("__history-preview-missing.gph");
+  await expect.poll(() => canvas.evaluate((element) => {
+    const target = element as HTMLCanvasElement;
+    const context = target.getContext("2d");
+    if (context === null || target.width === 0 || target.height === 0) return 0;
+    const pixels = context.getImageData(0, 0, target.width, target.height).data;
+    const colours = new Set<string>();
+    for (let offset = 0; offset < pixels.length && colours.size < 3; offset += 4) {
+      colours.add(`${pixels[offset]},${pixels[offset + 1]},${pixels[offset + 2]},${pixels[offset + 3]}`);
+    }
+    return colours.size;
+  }), { timeout: 10_000 }).toBeGreaterThan(1);
 }
 
 async function proveNativeNewBoard(
@@ -480,6 +522,38 @@ async function proveNativeNewBoard(
   }
   await expect(page.getByRole("tab", { name: /^Native history board\.brd(?:,|$)/, selected: true })).toBeVisible({ timeout: 30_000 });
   await proveWizardGroupFromBacking("__tkr_new_project", "New board", ["Boards/Native history board.brd"], tree, readBacking, expect);
+  const boardPath = "__tkr_new_project/Boards/Native history board.brd";
+  const boardEditor = await waitForWritableEditorFrame(page, "new board before saving history", "Tile for column 1, row 1");
+  const tileField = boardEditor.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
+  await tileField.fill("Tiles/__history-preview-missing.gph");
+  await tileField.press("Enter");
+  await expect(boardEditor.locator(".tkr-board-state")).toHaveText("Unsaved changes");
+  await boardEditor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(boardEditor.locator(".tkr-board-state")).toHaveText("All changes saved");
+  const firstSaved = await readBacking(boardPath);
+  await tileField.fill("Tiles/__history-preview-newer.gph");
+  await tileField.press("Enter");
+  await expect(boardEditor.locator(".tkr-board-state")).toHaveText("Unsaved changes");
+  await boardEditor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(boardEditor.locator(".tkr-board-state")).toHaveText("All changes saved");
+  const secondSaved = await readBacking(boardPath);
+  expect(createHash("sha256").update(firstSaved).digest("hex")).not.toBe(createHash("sha256").update(secondSaved).digest("hex"));
+  const boardEntryPaths = (await tree()).filter((path) => path.startsWith("__tkr_new_project/.tkr-history/entries/") && path.endsWith(".json"));
+  const boardEntries = await Promise.all(boardEntryPaths.map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as { readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number }));
+  const savedBoardEntries = boardEntries.filter((entry) => entry.path === "Boards/Native history board.brd");
+  expect(savedBoardEntries).toHaveLength(2);
+  expect(savedBoardEntries.map((entry) => entry.reason).sort()).toEqual(["manual", "manual"]);
+  expect(savedBoardEntries.map((entry) => entry.sha256).sort()).toEqual([
+    createHash("sha256").update(firstSaved).digest("hex"),
+    createHash("sha256").update(secondSaved).digest("hex"),
+  ].sort());
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
+  const saved = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "saved" });
+  await expect(saved).toHaveCount(2);
+  await saved.last().click();
+  await verifyBoardHistoryPreview(page, expect);
+  await expect.poll(() => readBacking(boardPath), { timeout: 30_000 }).toEqual(firstSaved);
+  await expect(page.getByRole("dialog", { name: /Info: Restored/ }).getByText(/Each file is reported separately/)).toBeVisible({ timeout: 30_000 });
 }
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
@@ -1541,6 +1615,21 @@ async function waitForEditorFrame(page: Page, label: string): Promise<Frame> {
   }
   await logFrameDiagnostics(page, `${label} content frame not found`);
   throw new Error(`Timed out waiting for the named pending-frame child of iframe.webview for ${label}`);
+}
+
+async function waitForWritableEditorFrame(page: Page, label: string, fieldName: string): Promise<Frame> {
+  const deadline = Date.now() + 30_000;
+  let pause = 100;
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      const field = frame.getByRole("textbox", { name: fieldName, exact: true });
+      if (await field.count() > 0 && await field.isVisible().catch(() => false) && await field.isEditable().catch(() => false)) return frame;
+    }
+    await page.waitForTimeout(pause);
+    pause = Math.min(pause * 2, 1_000);
+  }
+  await logFrameDiagnostics(page, `${label} writable editor not found`);
+  throw new Error(`Timed out waiting for the writable originating editor for ${label}`);
 }
 
 async function readCspViolations(frame: Frame, label: string): Promise<string[]> {
