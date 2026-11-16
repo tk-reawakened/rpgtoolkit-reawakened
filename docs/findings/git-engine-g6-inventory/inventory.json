@@ -16,7 +16,10 @@
     "isomorphic-git": "1.44.13"
   },
   "packageCount": 53,
-  "gateFailures": [],
+  "gateFailures": [
+    "isomorphic-git@1.44.13: embedded index.js: LGPL-3.0-or-later: Copyleft licence 'LGPL-3.0-or-later' blocked by G6",
+    "isomorphic-git@1.44.13: embedded index.cjs: LGPL-3.0-or-later: Copyleft licence 'LGPL-3.0-or-later' blocked by G6"
+  ],
   "packages": [
     {
       "name": "@isomorphic-git/idb-keyval",
@@ -626,12 +629,30 @@
       "blueOakRatings": {
         "MIT": "Silver"
       },
-      "g6": "pass",
-      "reason": null,
+      "g6": "fail",
+      "reason": "index.js: LGPL-3.0-or-later: Copyleft licence 'LGPL-3.0-or-later' blocked by G6; index.cjs: LGPL-3.0-or-later: Copyleft licence 'LGPL-3.0-or-later' blocked by G6",
       "licenseFiles": [
         {
           "path": "node_modules/isomorphic-git/LICENSE.md",
           "sha256": "b916888fb16893c3a1df138543f994b96bb6892d74b6777c3a080d9cd2520c48"
+        }
+      ],
+      "embeddedSpdx": [
+        {
+          "path": "index.js",
+          "sha256": "51be3648ccedecd76668a45000e727a509c63e6088806737bd5192a6bde2f206",
+          "expressions": [
+            "LGPL-3.0-or-later",
+            "MIT"
+          ]
+        },
+        {
+          "path": "index.cjs",
+          "sha256": "8a9aa3b787a9f050f2ef364fbb1bcd1116a9a942e26e144c6c2950684b740dd7",
+          "expressions": [
+            "LGPL-3.0-or-later",
+            "MIT"
+          ]
         }
       ]
     },

@@ -45,10 +45,14 @@ node tools/licences/inventory-git-engine.mjs --check
 ```
 
 `--check` compares the generated inventory with the committed result without
-rewriting it. Run `node tools/licences/inventory-git-engine.mjs --write`
-separately only when intentionally regenerating the committed inventory.
+rewriting it and exits nonzero if any identified licence fails. For this pinned
+fixture it is expected to fail: the ESM and CommonJS root bundles both identify
+the LGPL component. The scanner examines explicit SPDX identifiers in root
+`index.js` and `index.cjs` only; a clean result is not a complete licence audit.
+Run `node tools/licences/inventory-git-engine.mjs --write` separately only when
+intentionally regenerating the committed inventory.
 
-The committed [`inventory.json`](../findings/git-engine-g6-inventory/inventory.json) records 53 locked package entries. Its previous zero-failure result described package metadata, not the actual bundled-component licence; finding 3 disproves the candidate-level pass. Three entries have no discovered root licence file (`clean-git-ref@2.0.1`, `diff3@0.0.3`, and `minimisted@2.0.1`); their declared terms and actual embedded notices must be documented accurately.
+The committed [`inventory.json`](../findings/git-engine-g6-inventory/inventory.json) records 53 locked package entries and two identified failures, one for each published isomorphic-git root bundle. Its previous zero-failure result described package metadata, not the actual bundled-component licence; finding 3 disproves the candidate-level pass. Three entries have no discovered root licence file (`clean-git-ref@2.0.1`, `diff3@0.0.3`, and `minimisted@2.0.1`); their declared terms and actual embedded notices must be documented accurately.
 
 Direct-package evidence:
 
