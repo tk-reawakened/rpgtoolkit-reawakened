@@ -35,6 +35,16 @@ export async function runVscodeCreatorTestsProof(
   await expect(page.locator(".monaco-workbench")).toBeVisible();
   await runPaletteCommand(page, expect, "RPG Toolkit: Run saved tests");
   const tests = await creatorTestsFrame(page, expect);
+  const policy = await tests.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
+  const directives = new Map((policy ?? "").split(";").map((directive) => {
+    const [name, ...values] = directive.trim().split(/\s+/);
+    return [name ?? "", values.join(" ")] as const;
+  }));
+  if (directives.get("default-src") !== "'none'"
+    || !/^'nonce-[a-f0-9]{36}'$/.test(directives.get("script-src") ?? "")
+    || /\b(?:unsafe-eval|wasm-unsafe-eval|unsafe-inline)\b/i.test(policy ?? "")) {
+    throw new Error(`The saved-tests webview CSP is missing its nonce-only script policy or allows unsafe execution: ${policy}`);
+  }
   await tests.getByRole("spinbutton", { name: "Seed" }).fill(String(seed));
   await tests.getByRole("textbox", { name: "Case name contains" }).fill(CREATOR_TEST_CASE_NAME);
   await tests.getByRole("button", { name: "Run saved tests" }).click();
