@@ -1,6 +1,7 @@
 import { ANIMATION_MAGIC, createEmptyBoard, createEmptyCharacter, writeAnimation, writeBoard, writeCharacter } from "@tk-reawakened/core";
 
 export const CREATOR_TEST_SPEC_PATH = ".tkr-tests/Prg/wall.spec.prg";
+export const CREATOR_TEST_BOARD_PATH = ".tkr-tests/Boards/wall.brd";
 export const CREATOR_TEST_CASE_NAME = "wall stops movement";
 export const CREATOR_TEST_ACTOR_RGB = Object.freeze({
   tunic: "30,196,132",
@@ -22,7 +23,9 @@ export function createCreatorTestFiles({ failWall = false } = {}) {
     tileRuns: [{ lutIndex: 0, count: 15, marker: true }],
     layerTitles: ["", "Ground"],
     vectors: [{
-      points: [{ x: 96, y: 0 }, { x: 98, y: 0 }, { x: 98, y: 96 }, { x: 96, y: 96 }],
+      // The wall sits on tile 3's left edge here (64 px), so the authored 60-tick right action reaches it and the
+      // selected actor stops on the adjacent tile 2. Removing this vector must let the same action reach tile 4.
+      points: [{ x: 64, y: 0 }, { x: 66, y: 0 }, { x: 66, y: 96 }, { x: 64, y: 96 }],
       attributes: 0,
       closed: 1,
       layer: 1,
@@ -69,7 +72,7 @@ export function createCreatorTestFiles({ failWall = false } = {}) {
     "  GiveGP(3)",
     "})",
     `it("${CREATOR_TEST_CASE_NAME}", () => {`,
-    '  specAction("right", 30)',
+    '  specAction("right", 60)',
     `  expect(specValue("player.tileX")).toBe(${expectedTile})`,
     '  expect(specValue("gold")).toBe(3)',
     '  expect(specValue("variable.globalProof")).toBe(7)',

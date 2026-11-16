@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
-import { CREATOR_TEST_ACTOR_RGB, CREATOR_TEST_CASE_NAME, CREATOR_TEST_SPEC_PATH, createCreatorTestFiles } from "./creator-tests-fixture.mjs";
-import { rasterize, type AssetKey, type DecodedTexture, type DrawList, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
+import { CREATOR_TEST_ACTOR_RGB, CREATOR_TEST_BOARD_PATH, CREATOR_TEST_CASE_NAME, CREATOR_TEST_SPEC_PATH, createCreatorTestFiles } from "./creator-tests-fixture.mjs";
+import { BinaryReader, rasterize, readBoard, writeBoard, type AssetKey, type DecodedTexture, type DrawList, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
 import type { CreatorFrameObservation } from "@tk-reawakened/script-spec";
 const HERO_VISIBLE_RGB: Record<string, true> = {
   [CREATOR_TEST_ACTOR_RGB.tunic]: true,
@@ -91,7 +91,7 @@ export async function runVscodeCreatorTestsProof(
   if (failureOutcome === undefined || failureOutcome.expected !== "3" || failureOutcome.actual !== "2") {
     throw new Error(`The deliberate wall assertion did not report expected tile 3 against actual tile 2: ${JSON.stringify(failed.outcomes)}`);
   }
-  if (failureOutcome.context?.lastAction?.action !== "right" || failureOutcome.context.lastAction.ticks !== 30
+  if (failureOutcome.context?.lastAction?.action !== "right" || failureOutcome.context.lastAction.ticks !== 60
     || failureOutcome.context.lastAction.completedTick < 1 || failureOutcome.context.tick < failureOutcome.context.lastAction.completedTick) {
     throw new Error(`The actual failure omitted its completed right action and fixture tick: ${JSON.stringify(failureOutcome.context)}`);
   }
@@ -109,6 +109,37 @@ export async function runVscodeCreatorTestsProof(
   await expect(sourceEditor).toBeVisible();
   const sourcePosition = page.locator(".statusbar-item").filter({ hasText: new RegExp(`Ln ${failureOutcome.line},\\s*Col ${failureOutcome.column}`) });
   await expect(sourcePosition).toBeVisible();
+
+  // Independent control: with the authored wall vector removed, the same one-based assertion must go red through the real host.
+  const passBoard = passFiles.find((file) => file.path === CREATOR_TEST_BOARD_PATH);
+  if (passBoard === undefined) throw new Error("The authored fixture omitted its wall board.");
+  const parsedBoard = readBoard(new BinaryReader(passBoard.bytes));
+  if (!parsedBoard.ok) throw new Error(`The authored wall board did not read back: ${parsedBoard.error.message}`);
+  const openBoard = writeBoard({ ...parsedBoard.value, vectors: [] });
+  if (!openBoard.ok) throw new Error(`The open-board control did not write: ${openBoard.error.message}`);
+  const openFiles = passFiles.map((file) => file.path === CREATOR_TEST_BOARD_PATH ? { path: file.path, bytes: openBoard.value } : file);
+  const openHeadless = runHeadlessCase(runCreatorSpecs, openFiles, seed, false);
+  const openAuthored = openHeadless.result.outcomes.find((outcome) => outcome.line === failureOutcome.line);
+  if (openAuthored === undefined || openAuthored.expected !== "2" || openAuthored.actual !== "4") {
+    throw new Error(`Removing the authored wall did not move the actor to tile 4 against the tile-2 assertion: ${JSON.stringify(openHeadless.result.outcomes)}`);
+  }
+  await host.writeBacking(CREATOR_TEST_BOARD_PATH, openBoard.value);
+  await host.writeBacking(CREATOR_TEST_SPEC_PATH, passFiles.find((file) => file.path === CREATOR_TEST_SPEC_PATH)!.bytes);
+  await tests.getByRole("button", { name: "Run saved tests" }).click();
+  await expect(tests.getByRole("status")).toHaveText(/Failed: 0 passing cases, 1 failing cases/);
+  const openVisible = await visibleCase(tests, "Fail");
+  verifyCanonical(openVisible, openHeadless.result, "wall-removed");
+  verifySnapshotHashes(openVisible, openFiles);
+  const openOutcome = openVisible.outcomes.find((outcome) => outcome.expected !== outcome.actual);
+  if (openOutcome === undefined || openOutcome.expected !== "2" || openOutcome.actual !== "4" || openOutcome.line !== failureOutcome.line) {
+    throw new Error(`The visible wall-removed run did not report the authored tile assertion as expected tile 2 against actual tile 4: ${JSON.stringify(openVisible.outcomes)}`);
+  }
+  const openFrame = await visibleCanvas(tests);
+  if (openFrame.tick !== openHeadless.frame.tick || openFrame.width !== openHeadless.frame.width || openFrame.height !== openHeadless.frame.height
+    || openFrame.pixelHash !== openHeadless.frame.pixelHash) {
+    throw new Error(`The wall-removed visible frame differs from Node's real draw-list pixels: visible=${JSON.stringify(openFrame)} Node=${JSON.stringify(openHeadless.frame)}`);
+  }
+
   await verifySaveBarriers(page, expect, tests, host);
 }
 
