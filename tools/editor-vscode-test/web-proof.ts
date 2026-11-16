@@ -487,16 +487,7 @@ async function proveNativeHistoryUi(
   editor = await waitForWritableEditorFrame(page, "History editor after restoring the first save", "Game title");
   await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History first");
 
-  await runCommand(page, expect, "TK Reawakened: Project recovery", "Select workspace folder");
-  const roots = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "__tkr_new_project" });
-  await expect(roots).toHaveCount(1);
-  await roots.click();
-  await expect(page.getByRole("textbox", { name: "Choose a persistent recovery group" })).toBeVisible();
-  const restoreGroups = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "before-restore" });
-  await expect(restoreGroups).toHaveCount(1);
-  await restoreGroups.click();
-  const restoreAction = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "Restore group" });
-  await expect(restoreAction).toHaveCount(1);
+  const restoreAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Main/Quest.gam");
   const undoEventsStart = historyHost.writeEvents().length;
   const undoWriteReached = historyHost.pauseWrite(`/${gamePath}`);
   try {
@@ -560,8 +551,30 @@ async function expectNativeHistoryRestorePersisted(
   await expect.poll(() => readBacking(path), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toEqual(expectedAfter);
 }
 
+async function selectRecoveryRestoreAction(page: Page, expect: Expect, projectRoot: string, historyPath: string): Promise<Locator> {
+  await runCommand(page, expect, "TK Reawakened: Project recovery", "Select workspace folder");
+  const roots = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: projectRoot });
+  await expect(roots).toHaveCount(1);
+  await roots.click();
+  await expect(page.getByRole("textbox", { name: "Choose a persistent recovery group" })).toBeVisible();
+  const groups = page.locator(".quick-input-widget").getByRole("option")
+    .filter({ hasText: "before-restore" })
+    .filter({ hasText: historyPath });
+  await expect(groups).toHaveCount(1);
+  await groups.click();
+  const restoreAction = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "Restore group" });
+  await expect(restoreAction).toHaveCount(1);
+  return restoreAction;
+}
+
+function assertHistoryPreviewSourceIdentity(historyHost: NewProjectHistoryProofHost, sourcePath: string, expect: Expect): void {
+  const identity = historyHost.previewTrace?.().find((entry) => entry.includes("stage=source-identity") && entry.includes(sourcePath));
+  expect(identity, `The History preview did not originate from ${sourcePath}.`).toBeDefined();
+}
+
 async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath: string, expectedTile: string, historyHost: NewProjectHistoryProofHost, beforeRender: () => Promise<void>): Promise<string> {
-  await expect(page.getByRole("tab", { name: `History preview: ${sourcePath}`, exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: `History preview: ${sourcePath}`, exact: true, selected: true })).toBeVisible();
+  assertHistoryPreviewSourceIdentity(historyHost, sourcePath, expect);
   let preview: Frame | undefined;
   await expect.poll(async () => {
     const boardFrames: Frame[] = [];
@@ -745,24 +758,17 @@ async function proveNativeNewBoard(
   await expectNativeHistoryRestorePersisted(historyHost, restoreEventsStart, boardPath, readBacking, firstSaved, expect);
   await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
 
-  await openBoardHistoryPicker();
-  const beforeRestore = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "before a restore" });
-  await expect(beforeRestore).toHaveCount(1);
+  const undoAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Boards/Native history board.brd");
   const undoEventsStart = historyHost.writeEvents().length;
   const undoWriteReached = historyHost.pauseWrite(`/${boardPath}`);
-  let secondPreviewPicture: string | undefined;
   try {
-    await beforeRestore.click();
-    secondPreviewPicture = await verifyBoardHistoryPreview(page, expect, "Boards/Native history board.brd", "village.tst2", historyHost, async () => {
-      await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, boardPath, readBacking, firstSaved, expect);
-      historyHost.resumeWrite();
-    });
+    await undoAction.click();
+    await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, boardPath, readBacking, firstSaved, expect);
   } finally {
     historyHost.resumeWrite();
   }
-  if (secondPreviewPicture === undefined) throw new Error("The restore-of-restore board History preview did not produce a picture fingerprint.");
   await expectNativeHistoryRestorePersisted(historyHost, undoEventsStart, boardPath, readBacking, secondSaved, expect);
-  expect(secondPreviewPicture).not.toBe(firstPreviewPicture);
+  await expect(boardEditor.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true })).toHaveValue("village.tst2");
   await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
 }
 
@@ -835,7 +841,7 @@ async function proveNativeBitmapHistory(
   const writeReached = historyHost.pauseWrite(`/${bitmapPath}`);
   try {
     await saved.last().click();
-    await verifyBitmapHistoryPreview(page, expect, historyHost.bitmapPictureForBytes(firstSaved), historyHost, async () => {
+    await verifyBitmapHistoryPreview(page, expect, "Bitmap/history.tbm", historyHost.bitmapPictureForBytes(firstSaved), historyHost, async () => {
       await expectNativeHistoryRestorePaused(historyHost, restoreEventsStart, writeReached, bitmapPath, readBacking, secondSaved, expect);
       historyHost.resumeWrite();
     });
@@ -847,17 +853,12 @@ async function proveNativeBitmapHistory(
   await expect(editor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
   await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
 
-  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
-  const beforeRestore = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "before a restore" });
-  await expect(beforeRestore).toHaveCount(1);
+  const undoAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Bitmap/history.tbm");
   const undoEventsStart = historyHost.writeEvents().length;
   const undoWriteReached = historyHost.pauseWrite(`/${bitmapPath}`);
   try {
-    await beforeRestore.click();
-    await verifyBitmapHistoryPreview(page, expect, historyHost.bitmapPictureForBytes(secondSaved), historyHost, async () => {
-      await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, bitmapPath, readBacking, firstSaved, expect);
-      historyHost.resumeWrite();
-    });
+    await undoAction.click();
+    await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, bitmapPath, readBacking, firstSaved, expect);
   } finally {
     historyHost.resumeWrite();
   }
@@ -870,10 +871,13 @@ async function proveNativeBitmapHistory(
 async function verifyBitmapHistoryPreview(
   page: Page,
   expect: Expect,
+  sourcePath: string,
   expectedPicture: { width: number; height: number; data: number[] },
   historyHost: NewProjectHistoryProofHost,
   beforeRender: () => Promise<void>,
 ): Promise<void> {
+  await expect(page.getByRole("tab", { name: `History preview: ${sourcePath}`, exact: true, selected: true })).toBeVisible();
+  assertHistoryPreviewSourceIdentity(historyHost, sourcePath, expect);
   let preview: Frame | undefined;
   await expect.poll(async () => {
     const readOnlyFrames: Frame[] = [];
