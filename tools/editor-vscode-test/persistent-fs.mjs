@@ -45,7 +45,7 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       if (input.op === "trace") {
         if (!["save-request", "save", "revert"].includes(input.kind) || typeof input.value !== "string") throw Object.assign(new Error("Invalid trace event"), { code: "EINVAL" });
         events.push({ kind: input.kind, value: input.value });
-        if (input.kind === "save-request" && pausedSave) await pausedSave.promise;
+        if ((input.kind === "save-request" || input.kind === "save") && pausedSave) await pausedSave.promise;
         result = null;
       } else {
         result = await perform(root, input);
