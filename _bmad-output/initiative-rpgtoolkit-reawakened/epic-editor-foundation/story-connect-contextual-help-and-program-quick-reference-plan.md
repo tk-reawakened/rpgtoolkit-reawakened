@@ -90,7 +90,7 @@ Help content is an entry point, not a new documentation system: URLs and referen
 - `pnpm browser:test` and `pnpm desktop:input` -- expected: existing browser and desktop input gates pass.
 - Relevant `.github/workflows/ci.yml` checks and actual browser/native VS Code path proofs -- expected: results recorded; unavailable environment not claimed green.
 
-**Observed results (head `b773c0e3e4e92847e129457e8b40232221684abe`; generated help refresh is pending commit):**
+**Observed results (feature-proof source; generated-help-only refresh was checked separately after rebasing):**
 - `pnpm typecheck` -- passed.
 - `pnpm lint` -- passed.
 - `pnpm test` -- 4,966 passed, 0 failed, 0 skipped.
