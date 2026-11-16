@@ -489,3 +489,50 @@ test("sprite frames from tile references and image textures carry key, alpha, bl
     equal(imgBlit.blend, "additive");
   }
 });
+
+test("E-31: with spriteTranslucency the covered part of a sprite is redrawn translucently over the covering tiles only", () => {
+  // A 32x32 sprite on layer 1 standing at (40, 64) covers x 24..56, y 32..64 (anchor bottom-centre).
+  const sprite: SpriteDraw = {
+    id: "hero", key: "player", layer: 1, x: 40, y: 64, drawId: 1, width: 32, height: 32,
+    frame: { asset: assetKey("tiles/hero.tst"), tile: 1, transparent: { r: 0, g: 1, b: 2 } },
+  };
+  // Layer 2 covers only the cell (1,1) (x 32..63, y 32..63); every other layer-2 cell is empty.
+  const covered: WorldBoard = {
+    ...baseBoard,
+    layers: [
+      baseBoard.layers[0]!,
+      { tiles: Array.from({ length: 16 }, (_, i) => (i === 5 ? { asset: assetKey("tiles/layer2.tst"), tile: 1 } : null)) },
+    ],
+  };
+  const view = {
+    board: covered, tick: 0, camera: { x: 0, y: 0 }, viewport: { width: 128, height: 128 }, alpha: 0,
+    include: { shading: false, images: false, sprites: true }, sprites: [sprite],
+  } as const;
+  const heroBlits = (list: ReturnType<typeof composeBoard>) => list.commands.filter((c) => c.kind === "blit" && c.source.asset === assetKey("tiles/hero.tst"));
+
+  equal(heroBlits(composeBoard(view)).length, 1, "without the setting a covered sprite is simply hidden");
+  const list = composeBoard({ ...view, spriteTranslucency: 25 });
+  const blits = heroBlits(list);
+  equal(blits.length, 2);
+  const redraw = blits[1];
+  if (redraw?.kind !== "blit") throw new Error("expected a blit");
+  equal(redraw.alpha, 64);
+  deepEqual(redraw.dst, { x: 32, y: 32, w: 24, h: 32 });
+  deepEqual(redraw.src, { x: 8, y: 0, w: 24, h: 32 });
+  const lastTile = list.commands.map((c, i) => (c.kind === "blit" && c.source.asset === assetKey("tiles/layer2.tst") ? i : -1)).reduce((a, b) => Math.max(a, b));
+  equal(list.commands.indexOf(redraw) > lastTile, true, "the translucent redraw follows the covering tiles");
+});
+
+test("E-31: spriteTranslucency(percent) is a real command that stores a clamped percentage in the sprites section", async () => {
+  const { applySpriteEffect, createGameState, MOVEMENT_COMMANDS, CATALOGUE_PLUGIN } = await import("../src/index.ts");
+  equal(MOVEMENT_COMMANDS.some((command) => command.name === "spritetranslucency"), true, "the movement pack owns the command");
+  equal(CATALOGUE_PLUGIN.commands.some((command) => command.name === "spritetranslucency"), false, "no catalogue stub shadows it");
+  const state = createGameState({ seed: 1 });
+  equal(state.sprites.translucency, undefined);
+  equal(applySpriteEffect(state, "spritetranslucency", [25]), true);
+  equal(state.sprites.translucency, 25);
+  applySpriteEffect(state, "spritetranslucency", [250]);
+  equal(state.sprites.translucency, 100);
+  applySpriteEffect(state, "spritetranslucency", [-5]);
+  equal(state.sprites.translucency, 0);
+});

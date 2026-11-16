@@ -4896,7 +4896,7 @@ export function createEngine(init: EngineInit): Engine {
   }
 
   function currentDrawList(alpha = 0, include = init.include ?? { shading: false, images: false, sprites: false }): DrawList {
-    const spriteInput = [...spriteDraws(state.sprites, spriteFrameFor), ...(presentation.sprites ?? [])];
+    const spriteInput = [...spriteDraws(state.sprites, spriteFrameFor, state.time.tick), ...(presentation.sprites ?? [])];
     const board: WorldBoard | null = state.world.board ?? null;
     const camera = positionAt(state.camera, Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0);
     /** The selected player's remaining route, or `null` when it has nothing queued. */
@@ -4959,6 +4959,7 @@ export function createEngine(init: EngineInit): Engine {
         alpha: Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 0,
         include,
         assets: decodedAssets(),
+        ...(state.sprites.translucency === undefined ? {} : { spriteTranslucency: state.sprites.translucency }),
         ...presentation,
         sprites: spriteInput,
       });
