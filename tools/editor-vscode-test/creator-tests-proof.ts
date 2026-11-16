@@ -16,7 +16,7 @@ type Case = {
   readonly name: string;
   readonly ok: boolean;
   readonly stateHash: string;
-  readonly outcomes: readonly { readonly expected: string; readonly actual: string; readonly line: number; readonly column: number; readonly context?: { readonly tick: number; readonly lastAction: null | { readonly action: string; readonly ticks: number; readonly completedTick: number }; readonly board: string | null } }[];
+  readonly outcomes: readonly { readonly kind: string; readonly expected: string; readonly actual: string; readonly line: number; readonly column: number; readonly context?: { readonly tick: number; readonly lastAction: null | { readonly action: string; readonly ticks: number; readonly completedTick: number }; readonly board: string | null } }[];
   readonly run?: { readonly snapshot: unknown; readonly actionLog: readonly unknown[]; readonly checkpoints: readonly { readonly tick: number; readonly stateHash: string }[] };
 };
 type Report = { readonly files: readonly { readonly file: string; readonly cases: readonly Case[] }[]; readonly sources: readonly { readonly path: string; readonly revision: string | null }[] };
@@ -62,12 +62,7 @@ export async function runVscodeCreatorTestsProof(
   const passVisible = await visibleCase(tests, "Pass");
   verifyCanonical(passVisible, passExpected, "passing");
   verifySnapshotHashes(passVisible, passFiles);
-  const sources = JSON.parse(await tests.locator("details").filter({ hasText: "Saved file revisions supplied to the framework" }).locator("pre").textContent() ?? "null") as { path: string; revision: string | null }[];
-  const expectedHashes = new Map(passFiles.map((file) => [file.path, sha256(file.bytes)]));
-  for (const [path, revision] of expectedHashes) {
-    const match = sources.find((item) => item.path === path);
-    if (match === undefined || match.revision !== revision) throw new Error(`Saved byte revision mismatch for ${path}: ${JSON.stringify(match)}`);
-  }
+  await verifySourceRevisions(tests, passFiles);
   const frame = await visibleCanvas(tests);
   if (frame.tick !== passVisible.run!.checkpoints.at(-1)?.tick) throw new Error(`Displayed engine frame tick ${frame.tick} differs from the final real checkpoint.`);
   if (frame.actorPixels === 0 || frame.backgroundPixels === 0) throw new Error(`The actual engine frame omitted the authored actor or blue board background: ${JSON.stringify(frame)}`);
@@ -86,6 +81,7 @@ export async function runVscodeCreatorTestsProof(
   const failed = await visibleCase(tests, "Fail");
   verifyCanonical(failed, failExpected, "failing");
   verifySnapshotHashes(failed, failFiles);
+  await verifySourceRevisions(tests, failFiles);
   const failedFrame = await visibleCanvas(tests);
   if (failedFrame.tick !== failHeadless.frame.tick || failedFrame.width !== failHeadless.frame.width || failedFrame.height !== failHeadless.frame.height
     || failedFrame.pixelHash !== failHeadless.frame.pixelHash || failedFrame.pixelHash !== frame.pixelHash) {
@@ -177,6 +173,13 @@ async function waitForGameSettingsFrame(page: Page): Promise<Frame> {
 function caseFrom(report: Report, expectedOk: boolean): Case {
   const found = report.files.flatMap((file) => file.cases).find((item) => item.name === CREATOR_TEST_CASE_NAME);
   if (found === undefined || found.ok !== expectedOk) throw new Error(`Headless creator proof did not produce the expected ${expectedOk ? "passing" : "failing"} case.`);
+  const passing = found.outcomes.filter((outcome) => outcome.kind === "pass").length;
+  const failing = found.outcomes.filter((outcome) => outcome.kind === "fail").length;
+  const expectedPassing = expectedOk ? 3 : 2;
+  const expectedFailing = expectedOk ? 0 : 1;
+  if (passing !== expectedPassing || failing !== expectedFailing) {
+    throw new Error(`The authored creator case produced ${passing} passing and ${failing} failing assertions; expected ${expectedPassing} passing and ${expectedFailing} failing.`);
+  }
   return found;
 }
 function runHeadlessCase(runCreatorSpecs: CreatorRunner, files: readonly File[], seed: number, expectedOk: boolean): { readonly result: Case; readonly frame: ReferenceFrame } {
@@ -234,6 +237,7 @@ async function visibleCase(tests: Frame, outcome: "Pass" | "Fail"): Promise<Case
   const outcomes = [];
   for (const row of await rows.all()) {
     const cells = row.locator("td");
+    const kind = await cells.nth(0).innerText();
     const expected = await cells.nth(2).innerText();
     const actual = await cells.nth(3).innerText();
     const source = await cells.nth(4).getByRole("button").getAttribute("title");
@@ -241,6 +245,7 @@ async function visibleCase(tests: Frame, outcome: "Pass" | "Fail"): Promise<Case
     const contextText = await cells.nth(5).innerText();
     const context = contextText.match(/Tick (\d+); board ([^;]+); after ([a-z.]+) for (\d+) ticks, completed at tick (\d+)/);
     outcomes.push({
+      kind,
       expected,
       actual,
       line: Number(position?.[1] ?? 0),
@@ -277,6 +282,13 @@ function verifySnapshotHashes(actual: Case, files: readonly File[]): void {
   }
   if (!snapshot.documents.some((document) => document.role === "spec") || !snapshot.documents.some((document) => document.role === "fixture-board")) {
     throw new Error("Saved snapshot does not identify both the owning spec and its fixture board.");
+  }
+}
+async function verifySourceRevisions(tests: Frame, files: readonly File[]): Promise<void> {
+  const sources = JSON.parse(await tests.locator("details").filter({ hasText: "Saved file revisions supplied to the framework" }).locator("pre").textContent() ?? "null") as { path: string; revision: string | null }[];
+  for (const [path, revision] of new Map(files.map((file) => [file.path, sha256(file.bytes)]))) {
+    const match = sources.find((item) => item.path === path);
+    if (match === undefined || match.revision !== revision) throw new Error(`Saved byte revision mismatch for ${path}: ${JSON.stringify(match)}`);
   }
 }
 
