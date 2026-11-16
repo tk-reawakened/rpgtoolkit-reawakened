@@ -6,7 +6,9 @@ import { createPluginLayers, type PluginLayers } from "../script/layers.ts";
 import { spriteWaitView } from "../script/waits.ts";
 import { MENU_GRAPHIC_EFFECT, MENU_HAND_EFFECT } from "../script/packs/menu.ts";
 import { actorEmitterKey, actorId } from "../actors/model.ts";
-import type { AudioSaveProjection } from "../audio/save.ts";
+import { audioSaveProjection, type AudioSaveProjection } from "../audio/save.ts";
+import { observeEffects } from "../script/effects.ts";
+import { observe } from "../script/observers.ts";
 import { projectGameLedger, type GameLedgerV1, type LedgerProgramRef, type LedgerTile } from "../save/ledger.ts";
 import { applyRecoveryLedger, installRecoveryBoard } from "./recovery.ts";
 import { updateActorStats, type ActorRuleResult, type ActorTransition } from "../actors/rules.ts";
@@ -232,6 +234,10 @@ type EngineCommonInit = {
 export type SceneInit = EngineCommonInit & {
   readonly initialBoard: string;
   readonly program?: string | ProgramRef;
+  /** A frozen host program inventory for the scene (docs/spec/engine/main-loop-and-startup.md#reawakened-scene-program-loader). */
+  readonly programLoader?: ProgramLoader;
+  /** A complete scene checkpoint taken with `Engine.checkpoint()`; resumes it instead of starting `program`. */
+  readonly resume?: string;
   readonly mainFile?: never;
   readonly startup?: never;
   readonly gameIdentity?: never;
@@ -254,6 +260,8 @@ export type BootInit = EngineCommonInit & {
   readonly recoveryCandidate?: Uint8Array | null;
   readonly initialBoard?: never;
   readonly program?: never;
+  readonly programLoader?: never;
+  readonly resume?: never;
   readonly gameIdentity: string;
 };
 
@@ -1436,6 +1444,7 @@ export function createEngine(init: EngineInit): Engine {
 
       rebaseModalTimeline(candidate, modalIdFloor);
       Object.assign(state, candidate);
+      attachEffectObserver();
 
       if (callingThread !== undefined) {
         if (previous.engine.boot !== undefined) {
@@ -1473,14 +1482,16 @@ export function createEngine(init: EngineInit): Engine {
         state.vm.threads = [callingThread, ...restoredThreads];
       }
 
-      const actionRegistry = createInputSection();
-      for (const action of startupActions) registerGameAction(actionRegistry, action);
-      for (const action of externallyRegisteredActions) registerGameAction(actionRegistry, action);
-      state.input.registeredActions = actionRegistry.registeredActions;
-      state.input.actionRegistry = actionRegistry.actionRegistry;
-      state.input.controlActions = actionRegistry.controlActions;
-      state.input.actionOrder = actionRegistry.actionOrder;
-      state.input.actionPadMasks = actionRegistry.actionPadMasks;
+      if (!losslessResume) {
+        const actionRegistry = createInputSection();
+        for (const action of startupActions) registerGameAction(actionRegistry, action);
+        for (const action of externallyRegisteredActions) registerGameAction(actionRegistry, action);
+        state.input.registeredActions = actionRegistry.registeredActions;
+        state.input.actionRegistry = actionRegistry.actionRegistry;
+        state.input.controlActions = actionRegistry.controlActions;
+        state.input.actionOrder = actionRegistry.actionOrder;
+        state.input.actionPadMasks = actionRegistry.actionPadMasks;
+      }
       for (const action of new Set([...Object.keys(state.input.actions), ...Object.keys(state.input.keyboardActions), ...Object.keys(state.input.keyboardActionSources), ...Object.keys(state.input.semanticActionSources)])) {
         if (Object.hasOwn(state.input.actionRegistry, action)) continue;
         delete state.input.actions[action];
@@ -1607,6 +1618,7 @@ export function createEngine(init: EngineInit): Engine {
       if (!restoredHold) boardRedraw();
     } catch (error) {
       Object.assign(state, previous);
+      attachEffectObserver();
       restoreMovementPolicy();
       init.spriteRuntime?.bindState(state.sprites, state.vm, resolveSpriteProgram, state.world.board ?? null);
       init.spriteRuntime?.bindItemThreadCleanup?.((thread) => discardMenuFrames(previousServices, thread));
@@ -1627,10 +1639,37 @@ export function createEngine(init: EngineInit): Engine {
       throw error;
     }
   }
+  /** A scene resume restores the complete canonical state, so the input registry it carries is kept as it is. */
+  let losslessResume = false;
+  /** ADR 0010 effect observer: attach to the current effect log; a restore replaces the log, so it re-attaches. */
+  function attachEffectObserver(): void {
+    const post = init.scriptObservers?.onEffect;
+    if (post === undefined) return;
+    observeEffects(state.vm, (record) => observe(post, record, record.thread));
+  }
+  attachEffectObserver();
+  if (init.mainFile === undefined && init.programLoader !== undefined) loader = init.programLoader;
   services = init.mainFile === undefined
-    ? makeServices(activePlugins, undefined, true)
+    ? makeServices(activePlugins, loader ?? undefined, true)
     : makeServices([], undefined, false);
-  if (init.mainFile === undefined && !failed && init.program !== undefined) {
+  function resumeScene(): void {
+    if (init.mainFile !== undefined || failed || init.resume === undefined) return;
+    try {
+      const candidate = restoreGameState(init.resume);
+      losslessResume = true;
+      applyLoadedGame(candidate, audioSaveProjection(candidate.audio, candidate.time.tick));
+      // A load re-seats playback against the current settings and advances the cue counter; a scene checkpoint is
+      // the exact state, so the counter it captured is restored too.
+      state.audio = { ...state.audio, cueId: candidate.audio.cueId };
+      beginSavedAssetRestore();
+    } catch (error) {
+      diagnostics.push(error instanceof ScriptError ? toDiagnostic(error) : { code: "restore.shape", file: "", line: 0, message: error instanceof Error ? error.message : String(error) });
+      failed = true;
+    } finally {
+      losslessResume = false;
+    }
+  }
+  if (init.mainFile === undefined && init.resume === undefined && !failed && init.program !== undefined) {
     const ref: ProgramRef = typeof init.program === "string"
       ? { kind: "inline", text: init.program, ir: IR_VERSION, dialect: "tk3" }
       : init.program;
@@ -5249,6 +5288,10 @@ export function createEngine(init: EngineInit): Engine {
         stateHash: hashGameState(state),
       };
     },
+    /** The complete canonical state text of a scene (scene checkpoint); see docs main-loop-and-startup.md#reawakened-scene-program-loader. */
+    checkpoint() {
+      return snapshot(state);
+    },
     registeredActionNames() {
       return ["up", "down", "left", "right", "confirm", "cancel", "menu", ...state.input.registeredActions.map((action) => action.name)];
     },
@@ -5355,5 +5398,7 @@ export function createEngine(init: EngineInit): Engine {
       return evaluateExpression(state, services, expression, threadId, frameDepth);
     },
   };
+  // A scene checkpoint needs every internal section, so it is applied once the engine object exists.
+  resumeScene();
   return engine;
 }

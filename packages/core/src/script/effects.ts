@@ -108,9 +108,22 @@ export function recordEffect(vm: EffectState, record: Omit<EffectRecord, "seq">)
   vm.effectSeq += 1;
   const stamped: EffectRecord = { seq: vm.effectSeq, ...record };
   vm.effects.push(stamped);
+  EFFECT_OBSERVERS.get(vm)?.(stamped);
   const excess = vm.effects.length - EFFECT_LOG_CAP;
   if (excess > 0) vm.effects.splice(0, excess);
   return stamped;
+}
+
+const EFFECT_OBSERVERS = new WeakMap<object, (record: EffectRecord) => void>();
+
+/**
+ * Observe every record produced on `vm`'s effect log at the moment it is produced, before any owner can drain it or
+ * the ring can evict it (ADR 0010, effect observer). Observation only. Passing `undefined` detaches. The registry is
+ * keyed by the log object, so a host that replaces its state re-attaches to the new log.
+ */
+export function observeEffects(vm: object, observer: ((record: EffectRecord) => void) | undefined): void {
+  if (observer === undefined) EFFECT_OBSERVERS.delete(vm);
+  else EFFECT_OBSERVERS.set(vm, observer);
 }
 
 /**

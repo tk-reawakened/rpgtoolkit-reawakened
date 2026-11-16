@@ -259,4 +259,9 @@ export interface Engine {
    * `EVALUATE_STEP_BUDGET` instructions and leaves the state hash unchanged.
    */
   evaluate(expression: string, threadId: number, frameDepth?: number): EvalResult;
+  /**
+   * The complete canonical state text of a scene engine (`snapshot`, nothing projected away), for a scene resume
+   * (docs/spec/engine/main-loop-and-startup.md#reawakened-scene-program-loader). Absent on engines that cannot.
+   */
+  checkpoint?(): string;
 }

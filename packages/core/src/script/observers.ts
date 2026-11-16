@@ -1,5 +1,6 @@
 /** Observation-only service data; ADR 0010, never VM state. */
 import type { StepOp, SourcePos } from "./ops.ts";
+import type { EffectRecord } from "./effects.ts";
 import type { CommandHandler, ResolvedPlugin } from "./plugin.ts";
 import { CATALOGUE_STUBS_PLUGIN } from "./catalogue-stubs.ts";
 
@@ -23,6 +24,8 @@ export type ScriptObservers = {
   readonly postCall?: (call: CallObservation, thread: number) => void;
   /** Separate from resolutions: records each native layer actually entered. */
   readonly postHandler?: (handler: HandlerObservation, thread: number) => void;
+  /** Runs once per effect record at the moment it is produced (ADR 0010, effect observer), before drain or eviction. */
+  readonly onEffect?: (effect: EffectRecord, thread: number) => void;
 };
 
 function freezeTree(value: unknown): void {
