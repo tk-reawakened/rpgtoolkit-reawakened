@@ -20,10 +20,13 @@ export class MemoryDirectory {
   readonly name: string;
   readonly children = new Map<string, MemoryDirectory | StoredFile>();
   readonly #control: WriteControl;
+  /** The editor's own history folder: a test that holds "the next write" holds the document's write, never history's (ADR 0022 D12.10). */
+  readonly #inHistory: boolean;
 
-  constructor(name: string, control: WriteControl) {
+  constructor(name: string, control: WriteControl, inHistory = false) {
     this.name = name;
     this.#control = control;
+    this.#inHistory = inHistory || name === ".tkr-history";
   }
 
   async getDirectoryHandle(name: string, options?: { readonly create?: boolean }): Promise<MemoryDirectory> {
@@ -31,7 +34,7 @@ export class MemoryDirectory {
     if (existing instanceof MemoryDirectory) return existing;
     if (existing !== undefined) throw new DOMException(`${name} is not a folder`, "TypeMismatchError");
     if (options?.create !== true) throw new DOMException(`${name} was not found`, "NotFoundError");
-    const child = new MemoryDirectory(name, this.#control);
+    const child = new MemoryDirectory(name, this.#control, this.#inHistory);
     this.children.set(name, child);
     return child;
   }
@@ -46,6 +49,7 @@ export class MemoryDirectory {
     }
     const stored = file;
     const control = this.#control;
+    const inHistory = this.#inHistory;
     return {
       kind: "file",
       name,
@@ -56,7 +60,7 @@ export class MemoryDirectory {
         return {
           write: async (data: ArrayBuffer) => { pending = new Uint8Array(data.slice(0)); },
           close: async () => {
-            const held = control.hold;
+            const held = inHistory ? null : control.hold;
             if (held !== null) {
               control.hold = null;
               held.start();
