@@ -62,7 +62,7 @@ export async function runVscodeCreatorTestsProof(
   const passVisible = await visibleCase(tests, "Pass");
   verifyCanonical(passVisible, passExpected, "passing", passFiles);
   verifySnapshotHashes(passVisible, passFiles);
-  await verifySourceRevisions(tests, passFiles);
+  await verifySourceRevisions(tests, passFiles, expect);
   const frame = await visibleCanvas(tests);
   if (frame.tick !== passVisible.run!.checkpoints.at(-1)?.tick) throw new Error(`Displayed engine frame tick ${frame.tick} differs from the final real checkpoint.`);
   if (frame.actorPixels === 0 || frame.backgroundPixels === 0) throw new Error(`The actual engine frame omitted the authored actor or blue board background: ${JSON.stringify(frame)}`);
@@ -81,7 +81,7 @@ export async function runVscodeCreatorTestsProof(
   const failed = await visibleCase(tests, "Fail");
   verifyCanonical(failed, failExpected, "failing", failFiles);
   verifySnapshotHashes(failed, failFiles);
-  await verifySourceRevisions(tests, failFiles);
+  await verifySourceRevisions(tests, failFiles, expect);
   const failedFrame = await visibleCanvas(tests);
   if (failedFrame.tick !== failHeadless.frame.tick || failedFrame.width !== failHeadless.frame.width || failedFrame.height !== failHeadless.frame.height
     || failedFrame.pixelHash !== failHeadless.frame.pixelHash || failedFrame.pixelHash !== frame.pixelHash) {
@@ -148,6 +148,14 @@ export async function runVscodeCreatorTestsProof(
   await expect(sourceEditor).toBeVisible();
   const sourcePosition = page.locator(".statusbar-item").filter({ hasText: new RegExp(`Ln ${failureOutcome.line},\\s*Col ${failureOutcome.column}`) });
   await expect(sourcePosition).toBeVisible();
+  const failSpecText = new TextDecoder().decode(failSpec.bytes);
+  const visibleSourceLine = await sourceEditor.locator(".view-lines").innerText();
+  if (!visibleSourceLine.includes(failSpecText.split("\n")[failureOutcome.line - 1]!.trim())) {
+    throw new Error(`The native editor did not show the authored failure source line ${failureOutcome.line}.`);
+  }
+  const sourceTab = page.getByRole("tab", { name: /wall\.spec\.prg/ });
+  await sourceTab.getByRole("button", { name: /Close/ }).click();
+  await expect(sourceTab).toHaveCount(0);
   // Opening source changes the active editor group; return to the real saved-tests tab before the next action.
   const creatorTestsTab = page.getByRole("tab", { name: /RPG Toolkit: Run saved tests/ });
   await expect(creatorTestsTab).toBeVisible();
@@ -167,13 +175,20 @@ export async function runVscodeCreatorTestsProof(
   if (openAuthored === undefined || openAuthored.expected !== "2" || openAuthored.actual !== "4") {
     throw new Error(`Removing the authored wall did not move the actor to tile 4 against the tile-2 assertion: ${JSON.stringify(openHeadless.result.outcomes)}`);
   }
+  const passSpec = passFiles.find((file) => file.path === CREATOR_TEST_SPEC_PATH);
+  if (passSpec === undefined) throw new Error("The authored pass fixture omitted its spec source.");
   await host.writeBacking(CREATOR_TEST_BOARD_PATH, openBoard.value);
-  await host.writeBacking(CREATOR_TEST_SPEC_PATH, passFiles.find((file) => file.path === CREATOR_TEST_SPEC_PATH)!.bytes);
+  await host.writeBacking(CREATOR_TEST_SPEC_PATH, passSpec.bytes);
+  const writtenBoard = await host.readBacking(CREATOR_TEST_BOARD_PATH);
+  const writtenSpec = await host.readBacking(CREATOR_TEST_SPEC_PATH);
+  if (sha256(writtenBoard) !== sha256(openBoard.value) || sha256(writtenSpec) !== sha256(passSpec.bytes)) {
+    throw new Error(`The persisted wall-removed fixture bytes differ from the requested inputs: board=${sha256(writtenBoard)} expected=${sha256(openBoard.value)} spec=${sha256(writtenSpec)} expected=${sha256(passSpec.bytes)}`);
+  }
   await tests.getByRole("button", { name: "Run saved tests" }).click();
   await expect(tests.getByRole("status")).toHaveText(/Failed: 0 passing cases, 1 failing cases/);
+  await verifySourceRevisions(tests, openFiles, expect);
   const openVisible = await visibleCase(tests, "Fail");
   verifySnapshotHashes(openVisible, openFiles);
-  await verifySourceRevisions(tests, openFiles);
   verifyCanonical(openVisible, openHeadless.result, "wall-removed", openFiles);
   const openOutcome = openVisible.outcomes.find((outcome) => outcome.expected !== outcome.actual);
   if (openOutcome === undefined || openOutcome.expected !== "2" || openOutcome.actual !== "4" || openOutcome.line !== failureOutcome.line) {
@@ -358,17 +373,24 @@ function verifySnapshotHashes(actual: Case, files: readonly File[]): void {
   const hashes = new Map(files.map((file) => [file.path, sha256(file.bytes)]));
   for (const document of snapshot.documents) {
     const expected = hashes.get(document.path);
-    if (expected === undefined || document.sha256 !== expected) throw new Error(`Saved snapshot hash mismatch for ${document.path}: ${document.sha256}`);
+    if (expected === undefined) throw new Error(`Saved snapshot referenced a file outside the authored fixture inputs: ${document.path}; inputs=${JSON.stringify([...hashes])}`);
+    if (document.sha256 !== expected) {
+      const inputs = files.map((file) => ({ path: file.path, bytes: file.bytes.byteLength, sha256: sha256(file.bytes) }));
+      throw new Error(`Saved snapshot hash mismatch for ${document.path}: expected=${expected} actual=${document.sha256} inputs=${JSON.stringify(inputs)}`);
+    }
   }
   if (!snapshot.documents.some((document) => document.role === "spec") || !snapshot.documents.some((document) => document.role === "fixture-board")) {
     throw new Error("Saved snapshot does not identify both the owning spec and its fixture board.");
   }
 }
-async function verifySourceRevisions(tests: Frame, files: readonly File[]): Promise<void> {
-  const sources = JSON.parse(await tests.locator("details").filter({ hasText: "Saved file revisions supplied to the framework" }).locator("pre").textContent() ?? "null") as { path: string; revision: string | null }[];
-  for (const [path, revision] of new Map(files.map((file) => [file.path, sha256(file.bytes)]))) {
+async function verifySourceRevisions(tests: Frame, files: readonly File[], expect: Expect): Promise<void> {
+  const details = tests.locator("details").filter({ hasText: "Saved file revisions supplied to the framework" }).locator("pre");
+  const expected = new Map(files.map((file) => [file.path, sha256(file.bytes)]));
+  for (const revision of expected.values()) await expect(details).toContainText(revision);
+  const sources = JSON.parse(await details.textContent() ?? "null") as { path: string; revision: string | null }[];
+  for (const [path, revision] of expected) {
     const match = sources.find((item) => item.path === path);
-    if (match === undefined || match.revision !== revision) throw new Error(`Saved byte revision mismatch for ${path}: ${JSON.stringify(match)}`);
+    if (match === undefined || match.revision !== revision) throw new Error(`Saved byte revision mismatch for ${path}: expected=${revision}; actual=${JSON.stringify(match)}`);
   }
 }
 
