@@ -21,6 +21,7 @@ type NewProjectHistoryProofHost = {
   writeEvents(): readonly { readonly kind: "write-request" | "write"; readonly path: string }[];
   readonly bitmapPath: string;
   bitmapPictureForBytes(bytes: Uint8Array): { width: number; height: number; data: number[] };
+  previewTrace?(): readonly string[];
 };
 
 async function verifyHostRunHash(page: Page, frame: Frame, expect: Expect): Promise<void> {
@@ -486,14 +487,20 @@ async function proveNativeHistoryUi(
   editor = await waitForWritableEditorFrame(page, "History editor after restoring the first save", "Game title");
   await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History first");
 
-  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
-  options = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "before a restore" });
-  await expect(options).toHaveCount(1);
+  await runCommand(page, expect, "TK Reawakened: Project recovery", "Select workspace folder");
+  const roots = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "__tkr_new_project" });
+  await expect(roots).toHaveCount(1);
+  await roots.click();
+  await expect(page.getByRole("textbox", { name: "Choose a persistent recovery group" })).toBeVisible();
+  const restoreGroups = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "before-restore" });
+  await expect(restoreGroups).toHaveCount(1);
+  await restoreGroups.click();
+  const restoreAction = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "Restore group" });
+  await expect(restoreAction).toHaveCount(1);
   const undoEventsStart = historyHost.writeEvents().length;
   const undoWriteReached = historyHost.pauseWrite(`/${gamePath}`);
   try {
-    await options.click();
-    await verifyHistoryPreview(page, expect, "History second");
+    await restoreAction.click();
     await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, gamePath, readBacking, firstSaved, expect);
   } finally {
     historyHost.resumeWrite();
@@ -591,7 +598,8 @@ async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath:
       return status === null || status !== "Drawing the board…";
     }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
   } catch (error) {
-    throw new Error(`Native board History preview remained pending. Filesystem reads: ${JSON.stringify(historyHost.readEvents().slice(-30))}. ${String(error)}`);
+    const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
+    throw new Error(`Native board History preview remained pending. Filesystem reads: ${JSON.stringify(historyHost.readEvents().slice(-30))}. Correlated preview stages (last 128):\n${trace}\n${String(error)}`);
   }
   await expect(previewState).toHaveCount(0);
   await expect.poll(() => historyHost.readEvents().some((event) =>
@@ -827,7 +835,7 @@ async function proveNativeBitmapHistory(
   const writeReached = historyHost.pauseWrite(`/${bitmapPath}`);
   try {
     await saved.last().click();
-    await verifyBitmapHistoryPreview(page, expect, historyHost.bitmapPictureForBytes(firstSaved), async () => {
+    await verifyBitmapHistoryPreview(page, expect, historyHost.bitmapPictureForBytes(firstSaved), historyHost, async () => {
       await expectNativeHistoryRestorePaused(historyHost, restoreEventsStart, writeReached, bitmapPath, readBacking, secondSaved, expect);
       historyHost.resumeWrite();
     });
@@ -846,7 +854,7 @@ async function proveNativeBitmapHistory(
   const undoWriteReached = historyHost.pauseWrite(`/${bitmapPath}`);
   try {
     await beforeRestore.click();
-    await verifyBitmapHistoryPreview(page, expect, historyHost.bitmapPictureForBytes(secondSaved), async () => {
+    await verifyBitmapHistoryPreview(page, expect, historyHost.bitmapPictureForBytes(secondSaved), historyHost, async () => {
       await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, bitmapPath, readBacking, firstSaved, expect);
       historyHost.resumeWrite();
     });
@@ -863,6 +871,7 @@ async function verifyBitmapHistoryPreview(
   page: Page,
   expect: Expect,
   expectedPicture: { width: number; height: number; data: number[] },
+  historyHost: NewProjectHistoryProofHost,
   beforeRender: () => Promise<void>,
 ): Promise<void> {
   let preview: Frame | undefined;
@@ -890,31 +899,36 @@ async function verifyBitmapHistoryPreview(
 
   await beforeRender();
 
-  await expect.poll(async () => {
-    const matchingPreviews: Frame[] = [];
-    let writableFrames = 0;
-    for (const frame of page.frames()) {
-      if (frame.isDetached()) continue;
-      const canvas = frame.locator("canvas.tkr-bitmap-canvas");
-      if (await canvas.count() === 0 || !await canvas.isVisible()) continue;
-      const note = frame.getByRole("note").filter({ hasText: "Read only:" });
-      if (await note.count() > 0 && await note.isVisible()) {
-        const matches = await canvas.evaluate((element, want) => {
-          const target = element as HTMLCanvasElement;
-          if (target.width !== want.width || target.height !== want.height) return false;
-          const context = target.getContext("2d");
-          if (context === null) return false;
-          const pixels = context.getImageData(0, 0, target.width, target.height).data;
-          return pixels.length === want.data.length && want.data.every((value, index) => pixels[index] === value);
-        }, expectedPicture);
-        if (matches) matchingPreviews.push(frame);
-      } else {
-        writableFrames += 1;
+  try {
+    await expect.poll(async () => {
+      const matchingPreviews: Frame[] = [];
+      let writableFrames = 0;
+      for (const frame of page.frames()) {
+        if (frame.isDetached()) continue;
+        const canvas = frame.locator("canvas.tkr-bitmap-canvas");
+        if (await canvas.count() === 0 || !await canvas.isVisible()) continue;
+        const note = frame.getByRole("note").filter({ hasText: "Read only:" });
+        if (await note.count() > 0 && await note.isVisible()) {
+          const matches = await canvas.evaluate((element, want) => {
+            const target = element as HTMLCanvasElement;
+            if (target.width !== want.width || target.height !== want.height) return false;
+            const context = target.getContext("2d");
+            if (context === null) return false;
+            const pixels = context.getImageData(0, 0, target.width, target.height).data;
+            return pixels.length === want.data.length && want.data.every((value, index) => pixels[index] === value);
+          }, expectedPicture);
+          if (matches) matchingPreviews.push(frame);
+        } else {
+          writableFrames += 1;
+        }
       }
-    }
-    preview = matchingPreviews[0];
-    return writableFrames === 1 && matchingPreviews.length === 1;
-  }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+      preview = matchingPreviews[0];
+      return writableFrames === 1 && matchingPreviews.length === 1;
+    }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  } catch (error) {
+    const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
+    throw new Error(`The native History bitmap preview did not settle to the expected read-only pixels. Correlated preview stages (last 128):\n${trace}\n${String(error)}`);
+  }
   if (preview === undefined) throw new Error("The native History preview did not show the exact saved tile-bitmap pixels in read-only mode.");
   await expectCanvasPixels(preview, expect, expectedPicture);
 }
@@ -1826,7 +1840,6 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 /** Run a command from the palette and wait for its quick-pick row. */
 async function runCommand(page: Page, expect: Expect, title: string, quickInputName?: string): Promise<void> {
   await runCommandMatching(page, expect, title, title, false, quickInputName);
-  if (quickInputName !== undefined) await expect(page.getByRole("textbox", { name: quickInputName })).toBeVisible();
 }
 
 /** Dispatch one verified palette row atomically; never retry an attempted dispatch (#2720, #2726). */
@@ -1886,7 +1899,7 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
     }
     if (dismissed && dispatched) throw new Error(`Dismissed palette row ${label} was dispatched by the negative control`);
     if (dispatched) {
-      if (nextPrompt !== undefined) await expect(widget).toContainText(nextPrompt);
+      if (nextPrompt !== undefined) await expect(page.getByRole("textbox", { name: nextPrompt })).toBeVisible();
       else await expect(widget).toBeHidden();
       return;
     }
