@@ -214,6 +214,9 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
   await editor.getByLabel("Game title").fill("Creator test save refusal");
   await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
+  const creatorTestsTab = page.getByRole("tab", { name: /RPG Toolkit: Run saved tests/ });
+  await creatorTestsTab.click();
+  await expect(tests.getByRole("button", { name: "Run saved tests" })).toBeVisible();
   await host.withBackingWriteRefused(gamePath, async () => {
     await tests.getByRole("button", { name: "Run saved tests" }).click();
     await expect(tests.getByRole("status")).toHaveText("Saved tests could not complete.");
@@ -235,6 +238,7 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
     await page.keyboard.press("Control+End");
     await page.keyboard.type(" changed during save");
     await expect(textEditor.locator(".view-lines")).toContainText("changed during save");
+    await creatorTestsTab.click();
   } finally {
     host.resumeSave();
   }
