@@ -44,3 +44,7 @@ The owner ruled: “The steps should be stopped if the space in front is now occ
 ## Deferred
 
 No broader pathfinding, sliding, freeze-priority or mobile scheduling redesign is part of this decision.
+
+## Amendment 2026-11-15: walk glide
+
+The immediately-preceding-tick interpolation above still holds for stationary actors. An actor that has just advanced is additionally drawn gliding from its previous advance position over one `ticksPerAdvance` interval so walking looks continuous; see [walk glide](../spec/engine/movement-and-collision.md#reawakened-walk-glide). It stops gliding when the interval ends, so a stationary tick still cannot replay an old displacement.

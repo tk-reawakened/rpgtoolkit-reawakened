@@ -71,7 +71,6 @@
     "catalogue/putitem",
     "catalogue/itemcount",
     "catalogue/onboard",
-    "catalogue/spritetranslucency",
     "catalogue/pathfind",
     "catalogue/gamespeed",
     "catalogue/move",

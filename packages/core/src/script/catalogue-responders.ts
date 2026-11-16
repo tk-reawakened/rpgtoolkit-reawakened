@@ -550,7 +550,7 @@ const MOVEMENT_PACK_NAMES: Record<string, true> = {
   removeplayer: true, destroyplayer: true,
   addplayer: true, restoreplayer: true,
   newplyr: true, newplayer: true,
-  playerdirection: true, itemdirection: true, playerspeed: true, itemspeed: true, playerstance: true,
+  playerdirection: true, itemdirection: true, playerspeed: true, itemspeed: true, spritetranslucency: true, playerstance: true,
   itemstance: true, wander: true, wait: true, get: true, clearbuffer: true, setbutton: true,
   checkbutton: true, clearbuttons: true, mousemove: true, mouseclick: true, pixelmovement: true,
 };

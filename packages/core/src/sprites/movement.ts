@@ -345,7 +345,7 @@ function applyPosition(actor: SpriteActor, x: number, y: number, facing: Facing 
   const under = (board.vectors ?? []).filter((vector) => vector.layer === nextLayer && vector.type === UNDER && shapeHitsVector(shape, vector)).map((vector) => vector.handle);
   for (const id of under) if (!actor.movement.under.includes(id)) event(tick, "under-enter", { actor: actor.id, vector: id }, sink);
   for (const id of actor.movement.under) if (!under.includes(id)) event(tick, "under-leave", { actor: actor.id, vector: id }, sink);
-  return { ...actor, x: nextX, y: nextY, layer: nextLayer, facing: facing ?? actor.facing, prev: { x: actor.x, y: actor.y }, movement: { ...cloneMovement(actor.movement), under } };
+  return { ...actor, x: nextX, y: nextY, layer: nextLayer, facing: facing ?? actor.facing, prev: { x: actor.x, y: actor.y }, advanced: { x: actor.x, y: actor.y, tick }, movement: { ...cloneMovement(actor.movement), under } };
 }
 function waypointMove(actor: SpriteActor): { readonly move: SpriteMove; readonly waypoint: WaypointLink } | null {
   const waypoint = actor.queue.waypoint;

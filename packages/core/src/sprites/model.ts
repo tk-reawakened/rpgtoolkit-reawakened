@@ -125,6 +125,8 @@ export type SpriteActor = {
   readonly queue: SpriteQueue;
   readonly movement: SpriteMovement;
   readonly prev: SpritePoint | null;
+  /** Where the actor stood before its latest advance and the tick that advanced it; drives the walk glide (movement-and-collision.md#reawakened-walk-glide). */
+  readonly advanced?: { readonly x: number; readonly y: number; readonly tick: number };
   readonly frozenUntil: number | null;
   readonly multitaskProgram: string | null;
   /** VM thread id owned by this item, or null when hidden/no program. */
@@ -139,6 +141,8 @@ export type SpritesSection = {
   selectedPlayer: string | null;
   nextItemHandle: number;
   randomEncounter?: RandomEncounterProgress | null;
+  /** `spriteTranslucency(percent)`: how visible a sprite stays where higher board content covers it (E-31). */
+  translucency?: number;
 };
 
 export type SpriteActorSource = {

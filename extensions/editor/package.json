@@ -16,7 +16,7 @@
     "onCustomEditor:tkr.tileBitmap",
     "onCustomEditor:tkr.animation",
     "onView:tkr.game",
-    "workspaceContains:Main/*.gam",
+    "onStartupFinished",
     "onCommand:tkr.newProject",
     "onCommand:tkr.packageGame",
     "onCommand:tkr.newProgram",
