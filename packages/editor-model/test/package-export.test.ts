@@ -53,11 +53,13 @@ test("preflight creates a readable playable TPK and exact sibling install descri
     ok(prepared.excludedFiles.includes(path), `${path} should be reported as excluded`);
   }
 
+  ok(!prepared.includedFiles.some((path) => path.startsWith(".tkr-history")), "history is never an included file");
   const loaded = loadPackage({ kind: "tpk", name: prepared.package.fileName, bytes: prepared.package.bytes });
   ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
   const manifest = readDistributionManifest(loaded.value);
   ok(manifest.ok, manifest.ok ? "" : manifest.error.message);
   equal(manifest.value.main, "Main/demo.gam");
+  ok(!loaded.value.files.some((file) => file.path.startsWith(".tkr-history")), "the produced archive holds no history record");
   deepEqual(new Set(manifest.value.index), new Set(prepared.includedFiles));
 
   const descriptor = JSON.parse(utf8Decode(prepared.descriptor.bytes)) as Record<string, unknown>;

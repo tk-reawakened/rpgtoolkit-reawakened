@@ -384,6 +384,11 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       const onDisk = await fs.readProject(projectId, path);
       const actual = onDisk.ok ? onDisk.value : onDisk.error.code === "not-found" ? null : undefined;
       if (actual === undefined) return { ok: false, message: `Could not check ${path} before restoring it: ${onDisk.ok ? "" : onDisk.error.message}` };
+      // A document opened while this read was in flight is the editor's to change: writing the file now would bypass its
+      // dirty state and its own accepted edits, so the restore refuses and asks for it again (D12.10 item 9).
+      if (documents.get(createDocumentIdentity(projectId, path).key) !== undefined) {
+        return { ok: false, message: `${path} was opened while the restore was checking it, so it was not restored. Choose the version again.` };
+      }
       if (!sameBytes(actual, context.expected)) return changed();
       if (bytes === null) {
         const removed = await fs.delete(path);

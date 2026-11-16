@@ -308,6 +308,25 @@ test("a named checkpoint holds every covered file, lists what history cannot kee
   equal(gameTitleOf(doc), titleOf(exampleMain(9)), "the open document followed the restore");
 });
 
+test("history travels with the project: a second workspace over the same files sees and restores the first one's entries", async () => {
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) } });
+  const first = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  const opened = await first.open(PATH);
+  ok(opened.ok);
+  retitle(opened.document, "Saved by the first host");
+  ok((await opened.document.save("manual")).ok);
+  first.dispose();
+  const second = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  const entries = await second.history.documentTimeline(PATH);
+  deepEqual(entries.map((entry) => entry.reason), ["checkpoint", "manual"], "the new workspace reads the project's history folder");
+  const report = await second.restoreHistoryEntry(entries[0]!.id);
+  deepEqual(report.files.map((file) => file.result), ["restored"]);
+  const reopened = await second.open(PATH);
+  ok(reopened.ok);
+  equal(gameTitleOf(reopened.document), titleOf(exampleMain(9)), "the version saved by the first host was restored by the second");
+  second.dispose();
+});
+
 test("history keeps only what it covers: other types and over-size files record nothing and are listed", async () => {
   const { host, workspace } = setUp({ policy: { maxCoveredBytes: 100 } });
   const store = workspace.history;
@@ -590,4 +609,40 @@ test("a document opened and edited while a closed-file restore records its histo
   match(report.files[0]!.message ?? "", /changed after the restore started/);
   equal(gameTitleOf(opened.document), "Typed while restoring", "the newer edit is kept");
   equal(titleOf(host.bytesOf(PATH)!), "Later", "the disk file was not overwritten");
+});
+
+test("a document opened while a closed-file restore is checking the file is not written behind its back (#2838)", async () => {
+  const first = withTitle(exampleMain(9), "First");
+  const host = createMemoryPlatformServices({ files: { [PATH]: first } });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let reads = 0;
+  let started!: () => void;
+  const startedReading = new Promise<void>((resolve) => { started = resolve; });
+  const gated = {
+    ...host.fs,
+    readProject: async (project: string, path: string) => {
+      // The restore reads the closed file once to capture it; its final check is the second read, and that one is gated.
+      if (path === PATH) {
+        reads += 1;
+        if (reads === 2) { started(); await gate; }
+      }
+      return host.fs.readProject(project, path);
+    },
+  };
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: { ...host, fs: gated } });
+  await workspace.history.recordSave(PATH, first, "manual");
+  const entry = (await workspace.history.documentTimeline(PATH))[0]!;
+  ok((await host.fs.write(PATH, withTitle(exampleMain(9), "Later"))).ok, "the file changed since that version");
+  const restoring = workspace.restoreHistoryEntry(entry.id);
+  await startedReading;
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  ok(opened.document.apply({ type: "set-game-title", title: "Typed while checking" }).ok);
+  release();
+  const report = await restoring;
+  deepEqual(report.files.map((file) => [file.path, file.result]), [[PATH, "failed"]]);
+  match(report.files[0]!.message ?? "", /opened while the restore was checking/);
+  equal(gameTitleOf(opened.document), "Typed while checking");
+  workspace.dispose();
 });
