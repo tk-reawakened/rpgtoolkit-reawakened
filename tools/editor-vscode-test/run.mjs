@@ -64,13 +64,11 @@ const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
 const guardProof = process.env.TKR_VSCODE_GUARD_PROOF === "1";
 const newProjectProof = process.env.TKR_VSCODE_NEW_PROJECT_PROOF === "1";
 const autosaveCommandProof = process.env.TKR_VSCODE_AUTOSAVE_COMMAND_PROOF === "1";
-const historyProof = process.env.TKR_VSCODE_HISTORY_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
-const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
-if ((animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+if ((animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of animationProof || skipSpriteProof || autosaveCommandProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
     const target = resolve(proofWorkspace, file.path);
@@ -80,7 +78,6 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
   const spriteDirectory = resolve(proofWorkspace, "Chrs");
   await mkdir(spriteDirectory, { recursive: true });
   await copyFile(spriteFile, resolve(proofWorkspace, spritePath));
-  if (historyProof) await copyFile(spriteFile, resolve(proofWorkspace, "Chrs/ada.tem"));
   await mkdir(resolve(proofWorkspace, "Misc"), { recursive: true });
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
   const boardPath = "Boards/village.brd";
@@ -119,19 +116,13 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
   const routeErrors = [];
   const browserDiagnostics = [];
   const probeDiagnostics = [];
-  const historyPreviewTraceDiagnostics = [];
   try {
-    if (launchProof || boardProof || programProof || guardProof || historyProof) {
+    if (launchProof || boardProof || programProof || guardProof) {
       await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
       if (programProof || guardProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
-      const startProgram = boardProof || programProof || guardProof
+      await writeFile(resolve(proofWorkspace, "Game/Example/Prg/start.prg"), boardProof || programProof || guardProof
         ? 'mwin("VS CODE FIXTURE PROOF")\nwait()\n'
-        : 'mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nwait()\n';
-      await writeFile(resolve(proofWorkspace, "Game/Example/Prg/start.prg"), startProgram);
-      if (historyProof) {
-        await mkdir(resolve(proofWorkspace, "Prg"), { recursive: true });
-        await writeFile(resolve(proofWorkspace, "Prg/start.prg"), startProgram);
-      }
+        : 'mwin("Ready")\nwait()\nmwincls()\nsend("village.brd",2,2,1)\nwait()\n');
     }
     persistentFs = await startPersistentFs(proofWorkspace, `http://localhost:${port}`);
     const workbenchUrl = `http://localhost:${port}/`;
@@ -162,7 +153,6 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
         await handler(route);
       } catch (error) {
         routeErrors.push(error);
-        try { await route.continue(); } catch (continuationError) { routeErrors.push(continuationError); }
       }
     };
     const providerRoute = captureRouteErrors(async (route) => {
@@ -177,31 +167,27 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
       const [, bridgePort] = persistentFs.authority.split(".");
       const token = persistentFs.token;
       const trace = `async (kind, value) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "trace", kind, value }) }); if (!response.ok) throw new Error("Proof trace failed"); }`;
-      const restoreGate = `async (uri) => { const response = await fetch("http://127.0.0.1:${bridgePort}/${token}", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op: "armNativeRestoreRead", path: uri.path }) }); if (!response.ok) throw new Error("Native restore proof gate failed"); }`;
+      // The bundler numbers the `vscode` namespace by how many modules import it, so the name is read from the build.
+      const namespace = /saveEditor: async \(uri\) => await (vscode\d*)\.workspace\.save\(uri\)/.exec(source)?.[1];
+      if (namespace === undefined) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
       const probes = [
         [
-          "openCustomDocument: (uri, openContext) => core.openCustomDocument(uri, openContext.backupId)",
-          `openCustomDocument: (uri, openContext) => { void (${trace})("open", uri.path).then(() => (${trace})("open-uri", uri.toString())).catch((error) => console.error("[proof trace]", error)); return core.openCustomDocument(uri, openContext.backupId); }`,
-        ],
-        [
-          "resolveCustomEditor: async (document2, panel) => {",
-          `resolveCustomEditor: async (document2, panel) => { void (${trace})("resolve", JSON.stringify({ resource: document2.uri.toString(), viewType: panel.viewType })).catch((error) => console.error("[proof trace]", error));`,
+          `saveEditor: async (uri) => await ${namespace}.workspace.save(uri)`,
+          `saveEditor: async (uri) => { await (${trace})("save-request", uri.path); return await ${namespace}.workspace.save(uri); }`,
         ],
         [
           "saveCustomDocument: (document2) => core.saveCustomDocument(document2)",
-          `saveCustomDocument: (document2) => { void (${trace})("save", document2.uri.path).then(() => (${trace})("save-uri", document2.uri.toString())).catch((error) => console.error("[proof trace]", error)); return core.saveCustomDocument(document2); }`,
+          `saveCustomDocument: async (document2) => { await (${trace})("save", document2.uri.path); return core.saveCustomDocument(document2); }`,
+        ],
+        [
+          "revertCustomDocument: (document2) => core.revertCustomDocument(document2)",
+          `revertCustomDocument: async (document2) => { await (${trace})("revert", document2.uri.path); return core.revertCustomDocument(document2); }`,
         ],
       ];
       for (const [before, after] of probes) {
         if (source.split(before).length !== 2) throw new Error("Built VS Code adapter no longer matches the proof instrumentation");
         source = source.replace(before, after);
       }
-      const typedEditListener = /if \((\w+)\.document\.model\.kind === kind\) listener\(\1\);/g;
-      if ([...source.matchAll(typedEditListener)].length !== 1) throw new Error("Typed editor event listener no longer matches the proof instrumentation");
-      source = source.replace(typedEditListener, (_match, event) => `if (${event}.document.model.kind === kind) { void (${trace})("edit", JSON.stringify({ resource: ${event}.document.uri.toString(), modelKind: ${event}.document.model.kind, registeredKind: kind, label: ${event}.label })).catch((error) => console.error("[proof trace]", error)); listener(${event}); }`);
-      const nativeRestoreRead = /const current = wasDirty \? new TextEncoder\(\)\.encode\(textBeforeRead\) : await (vscode\d+)\.workspace\.fs\.readFile\(uri\);/g;
-      if ([...source.matchAll(nativeRestoreRead)].length !== 1) throw new Error("Native restore read no longer matches the proof gate");
-      source = source.replace(nativeRestoreRead, (_match, vscodeBinding) => `const current = wasDirty ? new TextEncoder().encode(textBeforeRead) : await (async () => { await (${restoreGate})(uri); return ${vscodeBinding}.workspace.fs.readFile(uri); })();`);
       await route.fulfill({ response, body: source });
     });
     const registerContextRoutes = async () => {
@@ -210,21 +196,10 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
     };
     await registerContextRoutes();
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
-    let historyPreviewTraceSequence = 0;
-    const recordHistoryPreviewTrace = (message) => {
-      const clean = message.replaceAll(persistentFs.token, "[redacted]");
-      const stage = /\[(?:history|editor)-preview-trace\]\s+([\w-]+)/.exec(clean)?.[1] ?? "untyped";
-      const requestId = /\brequestId:\s*([^\s,}]+)/.exec(clean)?.[1] ?? "none";
-      historyPreviewTraceDiagnostics.push(`${++historyPreviewTraceSequence} stage=${stage} requestId=${requestId} ${clean}`);
-      if (historyPreviewTraceDiagnostics.length > 128) historyPreviewTraceDiagnostics.shift();
-    };
     const newPage = async () => {
       const page = await browser.newPage();
       page.on("console", (message) => {
         const text = message.text();
-        if (text.includes("[history-preview-trace]") || text.includes("[editor-preview-trace]")) {
-          recordHistoryPreviewTrace(`[console] ${text}`);
-        }
         if (text.includes("[vscode-web-proof-probe]") && probeDiagnostics.length < 100) {
           probeDiagnostics.push(`[console] ${text.replaceAll(persistentFs.token, "[redacted]")}`);
         }
@@ -294,26 +269,11 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
     const proveNewProject = async () => {
       await mkdir(resolve(proofWorkspace, "__tkr_new_project"), { recursive: true });
       await writeFile(resolve(proofWorkspace, "__tkr_new_project/keep.txt"), "Keep this file");
-      const bitmapPath = "__tkr_new_project/Bitmap/history.tbm";
-      await mkdir(resolve(proofWorkspace, "__tkr_new_project/Bitmap"), { recursive: true });
-      await mkdir(resolve(proofWorkspace, "__tkr_new_project/Tiles"), { recursive: true });
-      await writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false));
-      await copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "__tkr_new_project/Tiles/village.tst"));
       const tree = async () => (await readdir(proofWorkspace, { recursive: true, withFileTypes: true }))
         .filter((entry) => entry.isFile() || entry.isDirectory())
         .map((entry) => relative(proofWorkspace, resolve(entry.parentPath ?? proofWorkspace, entry.name)).replaceAll("\\", "/") + (entry.isDirectory() ? "/" : ""))
         .sort();
-      await runVscodeNewProjectProof(page, expect, workbenchUrl, tree, readBacking, {
-        bitmapPath, bitmapPictureForBytes: expectedBitmapPicture,
-        previewTrace: () => historyPreviewTraceDiagnostics.slice(),
-        pauseWrite: persistentFs.pauseWrite,
-        resumeWrite: persistentFs.resumeWrite,
-        pauseNativeRestoreRead: persistentFs.pauseNativeRestoreRead,
-        resumeRead: persistentFs.resumeRead,
-        writeEvents: persistentFs.writeEvents,
-        nativeRestoreReadEvents: persistentFs.nativeRestoreReadEvents,
-        readEvents: persistentFs.readEvents,
-      });
+      await runVscodeNewProjectProof(page, expect, workbenchUrl, tree, readBacking);
       console.log("vscode.dev real New project picker, creation and automatic-open proof passed");
     };
     if (creatorTestsProof) {
@@ -360,11 +320,10 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
       }
       await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, {
         restart, readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
-        pauseWrite: persistentFs.pauseWrite, resumeWrite: persistentFs.resumeWrite, writeEvents: persistentFs.writeEvents, externalBytes, sentinelTitle, sentinelBytes,
+        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes,
         choice, boardPath, otherBoardPath, artPath, otherArtPath, bitmapPath, otherBitmapPath,
         bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)),
         canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
-        ...(workbenchSaveShortcutProof ? { saveViaWorkbenchShortcut: process.platform === "darwin" ? "Meta+S" : "Control+S" } : {}),
       });
       console.log(`vscode.dev settings, board, art and bitmap proof passed (${choice})`);
       if (choice === "cancel") await proveNewProject();
@@ -385,7 +344,6 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
   const proofFailure = combineProofErrors(failure, cleanupErrors);
   if (proofFailure !== undefined) {
     if (browserDiagnostics.length > 0) console.error(`[vscode-web:failure-diagnostics]\n${browserDiagnostics.join("\n")}`);
-    if (historyPreviewTraceDiagnostics.length > 0) console.error(`[vscode-web:history-preview-trace]\n${historyPreviewTraceDiagnostics.join("\n")}`);
     if (probeDiagnostics.length > 0) console.error(`[vscode-web:probe-diagnostics]\n${probeDiagnostics.join("\n")}`);
     throw proofFailure;
   }

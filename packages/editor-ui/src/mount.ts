@@ -30,7 +30,6 @@ import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.
 import { EmptyExplorerView, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
 import { RunView, type RunViewProps } from "./run-view.tsx";
-import { DocumentHistoryView, type DocumentHistoryViewProps } from "./document-history-view.tsx";
 import { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
 import { BoardView } from "./board-view.tsx";
 import { NewBoardView, type NewBoardViewProps } from "./new-board-view.tsx";
@@ -270,11 +269,6 @@ export function mountAssetPicker(el: HTMLElement, props: AssetPickerViewProps): 
 /** Render the Run panel (T-07, T-41) into `el`, for a host page that shows it without the shell. */
 export function mountRun(el: HTMLElement, props: RunViewProps): ViewHandle {
   return mountElement(el, createElement(RunView, props));
-}
-
-/** Render the History panel (ADR 0022 D12) into `el`, for a host page that shows it without the shell. */
-export function mountHistory(el: HTMLElement, props: DocumentHistoryViewProps): ViewHandle {
-  return mountElement(el, createElement(DocumentHistoryView, props));
 }
 
 /** Render the editor preferences into `el`. */

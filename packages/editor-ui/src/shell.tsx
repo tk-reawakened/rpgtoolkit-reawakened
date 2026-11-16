@@ -1,7 +1,6 @@
-import type { AnyDocument, CommandRegistry, DocumentWorkspace, Launcher, LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
+import type { CommandRegistry, DocumentWorkspace, Launcher, LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useRef } from "preact/hooks";
-import type { ViewHandle } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 import { FilesView, type PackageActionOutcome } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
@@ -10,15 +9,7 @@ import { RunView } from "./run-view.tsx";
 import type { CreatorTestsController } from "./creator-tests-controller.ts";
 import { TilesetBrowser, type TilesetBrowserContext } from "./tileset-browser.tsx";
 import { WorkbenchCommandBar } from "./command-palette.tsx";
-import { DocumentHistoryView } from "./document-history-view.tsx";
 import { Workbench } from "./workbench.tsx";
-
-interface ShellHistoryPanel {
-  readonly files: Pick<FileSystemService, "list" | "read" | "write">;
-  readonly mountPreview?: (element: HTMLElement, document: AnyDocument) => ViewHandle;
-  readonly offer?: { readonly isEnabled: () => Promise<boolean>; readonly onNever: () => void };
-}
-type ShellWorkspace = DocumentWorkspace & { readonly historyPanel?: ShellHistoryPanel };
 
 export interface ShellProps {
   readonly layout: LayoutModel;
@@ -72,7 +63,6 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
   const activeDocHasEmbeddedBrowser = active !== null && /\.(brd|tbm)$/i.test(active);
-  const historyPanel = (workspace as ShellWorkspace | undefined)?.historyPanel;
   return (
     <Workbench
       layout={layout}
@@ -96,7 +86,6 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
         ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} {...(creatorTests === undefined ? {} : { creatorTests })} /> }),
-        ...(workspace === undefined || historyPanel === undefined ? {} : { history: <DocumentHistoryView workspace={workspace} files={historyPanel.files} activePath={active} {...(historyPanel.mountPreview === undefined ? {} : { mountPreview: historyPanel.mountPreview })} {...(historyPanel.offer === undefined ? {} : { offerIgnore: historyPanel.offer.isEnabled, onNeverOfferIgnore: historyPanel.offer.onNever })} /> }),
       }}
     >
       <EditorSlot onElement={onEditorElement} />

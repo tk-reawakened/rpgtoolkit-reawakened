@@ -12,11 +12,6 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   const workspaceId = randomBytes(16).toString("hex");
   const workbench = new URL(allowedOrigin);
   const events = [];
-  const readEvents = [];
-  const nativeRestoreReadEvents = [];
-  const writeEvents = [];
-  let pausedRead;
-  let pausedWrite;
   let pausedSave;
   const server = createServer(async (request, response) => {
     const origin = request.headers.origin;
@@ -48,42 +43,12 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
       const input = JSON.parse(await readRequestBody(request, maxBodyBytes));
       let result;
       if (input.op === "trace") {
-        if (!["open", "open-uri", "resolve", "edit", "active-tab", "save-request", "save", "save-uri", "revert"].includes(input.kind) || typeof input.value !== "string") throw Object.assign(new Error("Invalid trace event"), { code: "EINVAL" });
+        if (!["save-request", "save", "revert"].includes(input.kind) || typeof input.value !== "string") throw Object.assign(new Error("Invalid trace event"), { code: "EINVAL" });
         events.push({ kind: input.kind, value: input.value });
-        if ((input.kind === "save-request" || input.kind === "save") && pausedSave) {
-          const gate = pausedSave;
-          gate.reach();
-          await gate.promise;
-        }
-        result = null;
-      } else if (input.op === "armNativeRestoreRead") {
-        if (typeof input.path !== "string" || pausedRead?.armed !== false || pausedRead.path !== input.path) {
-          throw Object.assign(new Error("No matching native restore read gate is waiting"), { code: "EINVAL" });
-        }
-        pausedRead.armed = true;
+        if ((input.kind === "save-request" || input.kind === "save") && pausedSave) await pausedSave.promise;
         result = null;
       } else {
-        let readGate;
-        if (input.op === "readDirectory" || input.op === "readFile") {
-          const event = { kind: input.op, path: input.path };
-          readEvents.push(event);
-          if (input.op === "readFile" && pausedRead?.armed && pausedRead.path === input.path) {
-            readGate = pausedRead;
-            if (readGate.nativeRestore) nativeRestoreReadEvents.push(event);
-          }
-        }
-        if (readGate !== undefined) {
-          readGate.reach();
-          await readGate.promise;
-        }
-        const gate = input.op === "writeFile" && pausedWrite?.path === input.path ? pausedWrite : undefined;
-        if (gate !== undefined) {
-          writeEvents.push({ kind: "write-request", path: input.path });
-          gate.reach();
-          await gate.promise;
-        }
         result = await perform(root, input);
-        if (gate !== undefined) writeEvents.push({ kind: "write", path: input.path });
       }
       response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ result }));
     } catch (error) {
@@ -97,48 +62,13 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
     authority: `${workspaceId}.${address.port}`,
     token,
     events: () => events.slice(),
-    readEvents: () => readEvents.slice(),
-    nativeRestoreReadEvents: () => nativeRestoreReadEvents.slice(),
-    writeEvents: () => writeEvents.slice(),
     pauseSave: () => {
       if (pausedSave) throw new Error("A save is already paused");
       let release;
-      let reach;
-      const reached = new Promise((resolveReached) => { reach = resolveReached; });
       const promise = new Promise((resolveGate) => { release = resolveGate; });
-      pausedSave = { promise, release, reach: () => reach() };
-      return reached;
+      pausedSave = { promise, release };
     },
     resumeSave: () => { pausedSave?.release(); pausedSave = undefined; },
-    pauseRead: (path) => {
-      if (pausedRead) throw new Error("A filesystem read is already paused");
-      let release;
-      let reach;
-      const reached = new Promise((resolveReached) => { reach = resolveReached; });
-      const promise = new Promise((resolveGate) => { release = resolveGate; });
-      pausedRead = { path, armed: true, promise, release, reach: () => reach() };
-      return reached;
-    },
-    pauseNativeRestoreRead: (path) => {
-      if (pausedRead) throw new Error("A filesystem read is already paused");
-      let release;
-      let reach;
-      const reached = new Promise((resolveReached) => { reach = resolveReached; });
-      const promise = new Promise((resolveGate) => { release = resolveGate; });
-      pausedRead = { path, armed: false, nativeRestore: true, promise, release, reach: () => reach() };
-      return reached;
-    },
-    resumeRead: () => { pausedRead?.release(); pausedRead = undefined; },
-    pauseWrite: (path) => {
-      if (pausedWrite) throw new Error("A backing write is already paused");
-      let release;
-      let reach;
-      const reached = new Promise((resolveReached) => { reach = resolveReached; });
-      const promise = new Promise((resolveGate) => { release = resolveGate; });
-      pausedWrite = { path, promise, release, reach: () => reach() };
-      return reached;
-    },
-    resumeWrite: () => { pausedWrite?.release(); pausedWrite = undefined; },
     close: () => new Promise((resolveClose, reject) => server.close((error) => error ? reject(error) : resolveClose())),
   };
 }
