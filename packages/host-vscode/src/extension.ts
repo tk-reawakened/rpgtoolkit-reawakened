@@ -167,7 +167,8 @@ export function registerNewProject(context: vscode.ExtensionContext): void {
           title: "New project: choose the destination folder",
           openLabel: "Create project here",
         });
-        const uri = chosen?.[0];
+        const selected = chosen?.[0];
+        const uri = selected === undefined ? undefined : vscode.Uri.joinPath(selected, ".");
         return uri === undefined ? undefined : { handle: uri, storage: createVscodeFileSystem(uri) };
       },
     });

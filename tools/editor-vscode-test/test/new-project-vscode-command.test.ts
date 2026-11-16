@@ -12,6 +12,7 @@ import { before, test } from "node:test";
 import { build } from "esbuild";
 
 const FAKE_VSCODE = `
+import { posix } from "node:path";
 const files = new Map();
 const folders = new Set(["/"]);
 const listeners = new Set();
@@ -22,7 +23,7 @@ export class Uri {
   constructor(scheme, path) { this.scheme = scheme; this.path = path; }
   static file(path) { return new Uri("file", path); }
   static parse(text) { const match = /^([a-z]+):\\/\\/(.*)$/.exec(text); return new Uri(match[1], match[2]); }
-  static joinPath(base, ...parts) { return new Uri(base.scheme, [base.path.replace(/\\/$/, ""), ...parts].join("/")); }
+  static joinPath(base, ...parts) { return new Uri(base.scheme, posix.join(base.path, ...parts)); }
   with(change) { return new Uri(this.scheme, change.path ?? this.path); }
   toString() { return this.scheme + "://" + this.path; }
   get fsPath() { return this.path; }
@@ -356,6 +357,23 @@ test("dismissing a question or the folder dialog writes and opens nothing, and a
     await run(new Map());
     match(fake.state.errors[0]!, /Could not write Main\/Quest\.gam: .*Not written: Main\/Quest\.gam\. Nothing that existed before was changed/);
     deepEqual(commandCalls(), [], "a failed creation opens nothing");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a selected folder's trailing separator does not change its existing workspace identity", async () => {
+  await load();
+  try {
+    reset([folderOf("/games/quest")]);
+    fake.state.answers.input.push("Quest", "Quest.gam");
+    fake.state.answers.pick.push([]);
+    fake.state.answers.folder.push("/games/quest/");
+    await run(new Map());
+    deepEqual(fake.state.updated, [], "the selected directory is already the workspace folder");
+    deepEqual(commandCalls(), [["command", "vscode.open", "file:///games/quest/Main/Quest.gam"]]);
+    ok(fake.files.has("/games/quest/Main/Quest.gam"));
+    deepEqual(fake.state.errors, []);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

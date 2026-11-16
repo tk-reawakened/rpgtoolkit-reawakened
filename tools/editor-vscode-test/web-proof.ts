@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BinaryReader, readBoard } from "@tk-reawakened/core";
+import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
@@ -240,18 +240,13 @@ export async function runVscodeGuardProof(
   expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
 }
 
-/**
- * Real VS Code for the Web: the "RPG Toolkit: New project" command is contributed, the extension activates, and the command
- * asks its first question (the game name) in VS Code's own input box — and dismissing it writes nothing. The folder dialog
- * cannot be driven from the workbench, so creating a project itself is proved by
- * `new-project-vscode-command.test.ts` (the real `extension.ts` over a fake workspace) and by the browser host's
- * real File System Access proof in `editor-web-host.spec.ts`.
- */
+/** Drive the real workbench wizard and folder picker, then verify independent storage and the automatically opened editor. */
 export async function runVscodeNewProjectProof(
   page: Page,
   expect: Expect,
   workbenchUrl: string,
   tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
 ): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
@@ -270,6 +265,51 @@ export async function runVscodeNewProjectProof(
   await answer.press("Escape");
   await expect(widget).toBeHidden();
   expect(await tree(), "dismissing the wizard wrote nothing").toEqual(before);
+
+  const repeatedCommand = await commandPalette(page, expect);
+  await repeatedCommand.fill(">RPG Toolkit: New project");
+  await expect(row).toHaveCount(1);
+  await row.click();
+  await expect(widget).toContainText("Game name");
+  await answer.fill("Native wizard quest");
+  await answer.press("Enter");
+  await expect(widget).toContainText("Main file name");
+  await answer.fill("Quest.gam");
+  await answer.press("Enter");
+  await expect(widget).toContainText("starter contents");
+  await widget.getByRole("checkbox", { name: "Start-up program", exact: true }).check();
+  await widget.getByRole("checkbox", { name: "Empty start board", exact: true }).check();
+  await widget.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(widget).toContainText("New project: choose the destination folder");
+  await widget.getByRole("option", { name: "__tkr_new_project", exact: true }).click();
+  await expect(answer).toHaveValue("/__tkr_new_project/");
+  await widget.getByRole("button", { name: "Create project here", exact: true }).click();
+
+  const folders = ["Bitmap", "Bkrounds", "Boards", "Chrs", "Enemy", "Font", "Item", "Main", "Media", "Misc", "Plugin", "Prg", "SpcMove", "StatusE", "Tiles"];
+  const additions = [
+    ...folders.map((folder) => `__tkr_new_project/${folder}/`),
+    "__tkr_new_project/Main/Quest.gam",
+    "__tkr_new_project/Prg/start.prg",
+    "__tkr_new_project/Boards/start.brd",
+  ];
+  await expect.poll(tree, { timeout: 30_000 }).toEqual([...before, ...additions].sort());
+  expect(new TextDecoder().decode(await readBacking("__tkr_new_project/keep.txt"))).toBe("Keep this file");
+  const bytes = await readBacking("__tkr_new_project/Main/Quest.gam");
+  const parsed = readMainFile(new BinaryReader(bytes, "Main/Quest.gam"));
+  expect(parsed.ok).toBe(true);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  expect(parsed.value.gameTitle).toBe("Native wizard quest");
+  expect(parsed.value.startupPrg).toBe("start.prg");
+  expect(parsed.value.initBoard).toBe("start.brd");
+
+  // Adding the new root converts the single-folder window and restarts its extension host.
+  // No follow-up command is allowed to activate the extension or open the file on its behalf.
+  await expect.poll(
+    () => page.getByRole("tab", { name: /^Quest\.gam(?:,|$)/ }).isVisible(),
+    { timeout: 60_000, intervals: [100, 250, 500, 1_000] },
+  ).toBe(true);
+  const editor = await waitForEditorFrame(page, "automatically opened new project");
+  await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("Native wizard quest");
 }
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
