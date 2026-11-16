@@ -143,6 +143,7 @@ test("compare shows two saved versions side by side, and the comparison is read-
   await act(() => { select.value = "current"; select.dispatchEvent(new Event("change", { bubbles: true })); });
   await settleUntil(() => fixture.el.querySelectorAll(".tkr-history-preview").length === 2, "the second preview");
   match(fixture.el.textContent ?? "", /Compared with the file as it is now/, "the second pane names what it compares");
+  equal(fixture.el.querySelector("[aria-label='Line comparison']"), null, "a binary game file is never shown as a line diff (D12.10 item 13)");
   equal(fixture.el.querySelectorAll(".tkr-history-preview").length, 2, "two read-only editors side by side");
 });
 

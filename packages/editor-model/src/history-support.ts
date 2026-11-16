@@ -36,12 +36,20 @@ export function textOf(bytes: Uint8Array): string | null {
   try { return utf8Decode(bytes); } catch { return null; }
 }
 
-/** A line comparison of two program texts: the longest common subsequence of lines, so the result reads as a diff. */
-export function diffLines(before: string, after: string): readonly LineChange[] {
+/** The most cells of the line table one comparison may use; beyond it the panel says the files are too large to compare. */
+export const MAX_DIFF_CELLS = 4_000_000;
+
+/**
+ * A line comparison of two program texts: the longest common subsequence of lines, so the result reads as a diff.
+ * `null` when the texts are too large to compare in memory (a row-by-column table of their lines), so a huge pair of
+ * programs can never freeze the history panel or exhaust the host's memory.
+ */
+export function diffLines(before: string, after: string): readonly LineChange[] | null {
   const a = before.split("\n");
   const b = after.split("\n");
   const rows = a.length + 1;
   const cols = b.length + 1;
+  if (rows * cols > MAX_DIFF_CELLS) return null;
   const table = new Uint32Array(rows * cols);
   for (let i = a.length - 1; i >= 0; i -= 1) {
     for (let j = b.length - 1; j >= 0; j -= 1) {

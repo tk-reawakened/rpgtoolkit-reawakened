@@ -346,11 +346,13 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   };
 
   /** The restorer the history store drives: open documents take a restore as an accepted edit, other files are written. */
+  const capturedHeads = new Map<string, string | null>();
   const restorer = (): HistoryRestorer => ({
     async current(path) {
       const open = documents.get(createDocumentIdentity(projectId, path).key);
       if (open !== undefined && open.getSnapshot().readOnly === null) {
         await pendingEditsOf(open).settle();
+        capturedHeads.set(path, open.getSnapshot().edits.at(-1)?.editId ?? null);
         return { ok: true, bytes: open.serialize(), unsaved: open.getSnapshot().dirty };
       }
       const read = await fs.readProject(projectId, path);
@@ -361,6 +363,14 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       const open = documents.get(createDocumentIdentity(projectId, path).key);
       if (open !== undefined) {
         if (bytes === null) return { ok: false, message: `${path} is open. Close it, then retry the restore to remove it.` };
+        // An edit accepted while the restore recorded its history must not be overwritten unconfirmed: compare the revision
+        // this restore captured with the document as it is now, and refuse rather than lose it (D12.10 item 9).
+        await pendingEditsOf(open).settle();
+        const captured = capturedHeads.get(path);
+        const head = open.getSnapshot().edits.at(-1)?.editId ?? null;
+        if (captured !== undefined && captured !== head) {
+          return { ok: false, message: `${path} was edited after the restore started, so it was not restored. Choose the version again.` };
+        }
         const applied = open.restoreVersion(bytes);
         if (!applied.ok) return { ok: false, message: applied.rejection.message };
         const edits = historyOf(open.identity.key);
@@ -375,13 +385,21 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       }
       const written = await fs.writeProject(projectId, path, bytes);
       if (!written.ok) return { ok: false, message: written.error.message };
-      try { await historyStore.recordSave(path, bytes, "manual", context.groupId); }
+      try {
+        await historyStore.recordSave(path, bytes, "manual", context.groupId);
+        // The restore created this file: register it so undoing the restore may delete it (D12.10 item 6).
+        await historyStore.registerWritten(context.groupId, path, bytes);
+      }
       catch (error) { return { ok: false, message: `${path} was restored, but its history could not be recorded: ${error instanceof Error ? error.message : String(error)}` }; }
       return { ok: true };
     },
   });
   /** Ask once before a restore replaces unsaved work; `false` means the user declined and nothing changes. */
   const confirmUnsaved = async (paths: readonly string[]): Promise<boolean> => {
+    for (const path of paths) {
+      const open = documents.get(createDocumentIdentity(projectId, path).key);
+      if (open !== undefined) await pendingEditsOf(open).settle();
+    }
     const dirty = paths.filter((path) => documents.get(createDocumentIdentity(projectId, path).key)?.getSnapshot().dirty === true);
     if (dirty.length === 0) return true;
     const answer = await dialogs.ask({

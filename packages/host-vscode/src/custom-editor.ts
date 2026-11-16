@@ -467,7 +467,8 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const identity = createDocumentIdentity(folder.key, resolved.path);
         const kind = kindForPath(resolved.path);
         if (kind === null) throw new Error(`${nameOf(uri)} is not a file type the editor opens.`);
-        const recovered = await recoverDocument(kind, fs, identity, await port.readBackup(backupId));
+        // The recovered document keeps its history sink, so a recovered save still keeps the version it replaces (D12.10 items 4 and 5).
+        const recovered = await recoverDocument(kind, workspace.storage, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
         return new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession);
@@ -511,7 +512,8 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       // VS Code replaces the source tab with the destination once this resolves, so a source edit made during the write
       // (which the copy does not hold) fails the Save As and keeps the source open with its work (#2201).
       const copied = document.model.getSnapshot();
-      const result = await document.model.saveAs(project.fs, identity);
+      // Save As through the workspace's storage, so an existing destination keeps its prior bytes in history (D12.10 items 4 and 6).
+      const result = await document.model.saveAs(project.workspace.storage, identity);
       if (!result.ok) throw new Error(result.failure.message);
       if (!sameRevision(document.model.getSnapshot(), copied)) {
         throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);

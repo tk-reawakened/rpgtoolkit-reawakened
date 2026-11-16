@@ -68,6 +68,12 @@ export interface PrepareGamePackageOptions {
   readonly mainPath: string;
   /** The release version is author-entered; the legacy `.gam` format has no version field. */
   readonly version: string;
+  /**
+   * The inventory predicate, when a caller must supply its own (a fault-injection test proving the produced-archive check
+   * on its own, or a future host with a stricter rule). The produced-archive check below runs whatever this says, so the
+   * exclusions are still verified on the bytes that would be handed to the author.
+   */
+  readonly inventoryFilter?: (path: string, mainPath: string, kind: "file" | "directory") => boolean;
 }
 
 function failure(message: string): { readonly ok: false; readonly message: string } {
@@ -95,7 +101,7 @@ function safeEntryName(name: string): boolean {
   return name.length > 0 && name !== "." && name !== ".." && !name.includes("/") && !name.includes("\\");
 }
 
-async function collectFiles(fs: FileSystemService, mainPath: string): Promise<FileCollectionOutcome> {
+async function collectFiles(fs: FileSystemService, mainPath: string, exclude: (path: string, mainPath: string, kind: "file" | "directory") => boolean): Promise<FileCollectionOutcome> {
   const pending: { readonly path: string; readonly excluded: boolean }[] = [{ path: "", excluded: false }];
   const files: PackageFile[] = [];
   const excludedFiles: string[] = [];
@@ -120,7 +126,7 @@ async function collectFiles(fs: FileSystemService, mainPath: string): Promise<Fi
       if (!safeEntryName(entry.name)) return failure(`The project contains an unsafe path entry in ${folder.path || "the project root"}.`);
       const path = folder.path === "" ? entry.name : `${folder.path}/${entry.name}`;
       if (entry.kind === "link") return failure(`The project contains a symbolic link at ${path}. This host cannot follow symbolic links safely, so the game was not packaged (L23).`);
-      const excluded = folder.excluded || isExcluded(path, mainPath, entry.kind);
+      const excluded = folder.excluded || exclude(path, mainPath, entry.kind);
       if (entry.kind === "directory") {
         pending.push({ path, excluded });
       } else if (excluded) {
@@ -177,7 +183,7 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
     return failure(`Save open documents before packaging: ${saveFailures.map(({ result }) => result.ok ? "" : result.failure.message).join("; ")}`);
   }
 
-  const collected = await collectFiles(options.services.fs, options.mainPath);
+  const collected = await collectFiles(options.services.fs, options.mainPath, options.inventoryFilter ?? isExcluded);
   if (!collected.ok) return collected;
   const mainFile = collected.files.find(({ path }) => foldPath(path) === foldPath(options.mainPath));
   if (mainFile === undefined) return failure(`The selected main file ${options.mainPath} is missing or excluded.`);

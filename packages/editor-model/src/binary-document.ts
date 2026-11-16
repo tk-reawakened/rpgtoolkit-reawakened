@@ -492,10 +492,16 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     // Unsaved work is about to be replaced by the file's version: keep it first, and stop the choice if that fails.
     const encoded = this.#codec.write(this.#model);
     if (!encoded.ok) return { ok: false, reason: "cannot-reload", message: `Your unsaved version of ${path} could not be encoded to keep it, so the file's version was not loaded: ${encoded.error.message}` };
+    // The choice is bound to the revision it was made on: an edit accepted while its history is being recorded is kept,
+    // and the reload does not erase it (D12.10 item 5, D14.4).
+    const generation = this.#generation;
     const run = this.#queue.then(async (): Promise<ConflictResult> => {
       if (this.#external !== external) return { ok: false, reason: "no-conflict", message: `${path} has no change on disk waiting for a choice.` };
       const kept = await sink.keepBeforeWrite(path, encoded.value, "before-conflict-resolution");
       if (!kept.ok) return { ok: false, reason: "cannot-reload", message: `Your unsaved version of ${path} could not be kept in history, so the file's version was not loaded: ${kept.message}` };
+      if (this.#generation !== generation) {
+        return { ok: false, reason: "cannot-reload", message: `${path} was edited after you chose the version on disk. Your newer edit and your earlier unsaved version are both kept in history; choose again to load the file's version.` };
+      }
       return this.#reloadExternal(external);
     });
     this.#queue = run;

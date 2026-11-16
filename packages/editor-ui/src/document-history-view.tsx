@@ -2,6 +2,7 @@ import {
   acceptIgnoreOffer,
   diffLines,
   ignoreOffer,
+  kindForPath,
   textOf,
   type AnyDocument,
   type DocumentHistoryEntry,
@@ -257,8 +258,12 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
 
   const selectedGroup = tab === "checkpoints" ? groups.find((group) => group.id === selected) : undefined;
   const rows = tab === "checkpoints" ? groups : entries;
-  const sameText = shown !== null && other !== null ? [textOf(shown.bytes), textOf(other.bytes)] as const : null;
-  const lineDiff = sameText !== null && sameText[0] !== null && sameText[1] !== null ? diffLines(sameText[0], sameText[1]) : null;
+  // A line diff is offered only for a registered text kind; a binary board or tileset is compared as pictures (D12.10 item 13).
+  const textKinds = shown !== null && other !== null && kindForPath(shown.path)?.storage === "program-text" && kindForPath(other.path)?.storage === "program-text";
+  const sameText = textKinds ? [textOf(shown!.bytes), textOf(other!.bytes)] as const : null;
+  const diff = sameText !== null && sameText[0] !== null && sameText[1] !== null ? diffLines(sameText[0], sameText[1]) : null;
+  const lineDiff = diff;
+  const tooLarge = sameText !== null && sameText[0] !== null && sameText[1] !== null && diff === null;
   const comparable = tab === "checkpoints" ? [] : entries.filter((entry) => entry.id !== selected && shown !== null && entry.path === shown.path);
 
   return <section class="tkr-history" aria-label="Document history">
@@ -319,6 +324,7 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
         {comparable.map((entry) => <option key={entry.id} value={entry.id}>{entryLabel(entry, false)}</option>)}
       </select>
     </label>}
+    {tooLarge && <p role="status">These two versions are too large to compare line by line. Each is shown in the editor above.</p>}
     {lineDiff !== null && <pre aria-label="Line comparison">{lineDiff.map((line, position) => <div key={position} data-change={line.kind}>{line.kind === "added" ? "+ " : line.kind === "removed" ? "- " : "  "}{line.text}</div>)}</pre>}
     {selected !== null && <div class="tkr-history-actions">
       <button type="button" onClick={restore}>{armed === "restore" ? "Confirm restore" : tab === "checkpoints" ? "Restore this group" : "Restore this version"}</button>

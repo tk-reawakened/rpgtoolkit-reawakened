@@ -225,12 +225,16 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     watch: async (path) => !valid(path, true) ? invalid(path) : unavailable(),
   }, () => active);
   const dialogs = options.dialogs ?? pageDialogs();
-  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities } });
+  const settings = createWebSettings(fs, webUserStorage(options), false);
+  // A session copy keeps history in this page, under the same user-only retention settings (D6.3, D12.10 item 8).
+  const retention = createPreferences({ settings, projectLayer: false });
+  void retention.refresh();
+  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities }, historyPolicy: () => historyPolicyFrom((id) => retention.getSnapshot().rows.find((row) => row.entry.id === id)?.effective) });
   const services: PlatformServices = {
     capabilities,
     fs,
     project: { open: async () => platformOk(project), recent: async () => platformOk([project]) },
-    settings: createWebSettings(fs, webUserStorage(options), false),
+    settings,
     document: workspace.document,
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),

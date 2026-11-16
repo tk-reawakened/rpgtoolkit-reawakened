@@ -421,8 +421,12 @@ test("run saves with the reason before-run", async () => {
   ok((await workspace.history.documentTimeline(PATH)).some((entry) => entry.reason === "before-run"));
 });
 
-test("the line comparison of two programs marks removed and added lines", () => {
-  deepEqual(diffLines("a\nb\nc", "a\nc\nd").map((line) => `${line.kind[0]}${line.text}`), ["sa", "rb", "sc", "ad"]);
+test("the line comparison of two programs marks removed and added lines and refuses an unbounded table (#2843)", () => {
+  deepEqual(diffLines("a\nb\nc", "a\nc\nd")!.map((line) => `${line.kind[0]}${line.text}`), ["sa", "rb", "sc", "ad"]);
+  const large = Array.from({ length: 1500 }, (_, index) => `line ${index}`).join("\n");
+  equal(diffLines(large, large)!.length, 1500, "a large program still compares inside the cell bound");
+  const oversized = Array.from({ length: 3000 }, (_, index) => `line ${index}`).join("\n");
+  equal(diffLines(oversized, `${oversized}\nlast`), null, "too many lines to compare without a table the host cannot hold");
 });
 
 test("the produced-archive check refuses every excluded class the inventory filter should have removed", () => {
@@ -477,4 +481,87 @@ test("a new board is one group with an ownership record for the created file", a
   equal(groups[0]!.before[0]!.sha256, null);
   equal(groups[0]!.written[0]!.path, created.path);
   equal(groups[0]!.written[0]!.sha256, await sha256Hex(host.bytesOf(created.path)!));
+});
+
+test("restoring a deleted file recreates it as the restore's own file, so undoing that restore removes it again (#2834)", async () => {
+  const { host, workspace } = setUp();
+  const store = workspace.history;
+  const bytes = withTitle(exampleMain(9), "Deleted then restored");
+  ok((await host.fs.write("Main/gone.gam", bytes)).ok);
+  await store.recordSave("Main/gone.gam", bytes, "manual");
+  const entry = (await store.documentTimeline("Main/gone.gam"))[0]!;
+  ok((await host.fs.delete("Main/gone.gam")).ok);
+  const restored = await workspace.restoreHistoryEntry(entry.id);
+  deepEqual(restored.files.map((file) => file.result), ["restored"]);
+  ok(host.bytesOf("Main/gone.gam") !== undefined, "the file is back");
+  const undone = await workspace.restoreHistoryGroup(restored.restoreGroupId!);
+  deepEqual(undone.files.map((file) => [file.path, file.result]), [["Main/gone.gam", "restored"]]);
+  equal(host.bytesOf("Main/gone.gam"), undefined, "undoing the restore removes the file it created");
+});
+
+test("a blob that was corrupted after it was recorded is repaired before a later save replaces that version (#2835)", async () => {
+  const { host, workspace } = setUp({ policy: { mergeWindowMs: 0 } });
+  const store = workspace.history;
+  const first = withTitle(exampleMain(9), "First");
+  await store.recordSave(PATH, first, "manual");
+  const entry = (await store.documentTimeline(PATH)).at(-1)!;
+  ok((await host.fs.write(`.tkr-history/blobs/${entry.sha256}`, new Uint8Array([0, 1, 2]))).ok, "the stored blob is damaged");
+  const kept = await store.keep(PATH, first, "checkpoint");
+  equal(kept.outcome, "held");
+  const preview = await store.preview(entry.id);
+  ok(preview !== null);
+  deepEqual(preview.bytes, first, "the version the save was about to replace is readable again");
+});
+
+test("a conflict reload chosen before the history record exists does not erase an edit accepted while it waits (#2840)", async () => {
+  const original = exampleMain(9);
+  const host = createMemoryPlatformServices({ files: { [PATH]: original } });
+  // Hold writes under the history folder's entries until the test releases them, so the choice is provably in flight.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let holding = true;
+  const gated = { ...host.fs, write: async (path: string, bytes: Uint8Array) => (holding && path.startsWith(".tkr-history/entries/") ? gate.then(() => host.fs.write(path, bytes)) : host.fs.write(path, bytes)) };
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: { ...host, fs: gated } });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const doc = opened.document;
+  ok(doc.apply({ type: "set-game-title", title: "Mine" }).ok);
+  host.seed(PATH, withTitle(original, "Theirs"));
+  ok(!(await doc.save("manual")).ok, "the change on disk is a conflict");
+  const choosing = doc.resolveConflict("reload");
+  ok(choosing instanceof Promise);
+  await Promise.resolve();
+  ok(doc.apply({ type: "set-game-title", title: "Newer edit" }).ok);
+  holding = false;
+  release();
+  const result = await choosing;
+  ok(!result.ok, "the reload is refused because the document changed under it");
+  match(result.message ?? "", /edited after you chose/);
+  equal(gameTitleOf(doc), "Newer edit", "the newer edit is still the document");
+});
+
+test("deleting a saved file records a before-delete entry that thinning never removes (#2841)", async () => {
+  let clock = 5_000_000;
+  const host = createMemoryPlatformServices({ files: { [PATH]: withTitle(exampleMain(9), "On disk") } });
+  const store = createDocumentHistoryStore({
+    project: host.fs,
+    storage: host.fs,
+    location: { kind: "project-folder", description: "test" },
+    policy: () => ({ ...DEFAULT_HISTORY_POLICY, mergeWindowMs: 0, autoFloorMs: 1000, warnBytes: 1 }),
+    coveredType: (path) => path.endsWith(".gam"),
+    now: () => clock,
+  });
+  // Only an autosave entry holds the bytes that are on disk when the user deletes the file.
+  const onDisk = host.bytesOf(PATH)!;
+  await store.recordSave(PATH, onDisk, "auto");
+  const kept = await store.keep(PATH, onDisk, "before-delete");
+  equal(kept.outcome, "recorded");
+  const reasons = (await store.documentTimeline(PATH)).map((entry) => entry.reason);
+  deepEqual(reasons, ["auto", "before-delete"]);
+  clock += 100_000;
+  const freed = await store.thin((await store.documentTimeline(PATH)).filter((entry) => entry.reason === "auto").map((entry) => entry.id));
+  equal(freed, 0, "the content is shared with the permanent record, so thinning frees the record only");
+  const survivors = await store.documentTimeline(PATH);
+  deepEqual(survivors.map((entry) => entry.reason), ["before-delete"]);
+  deepEqual((await store.preview(survivors[0]!.id))!.bytes, onDisk, "the version at the user's delete is still readable");
 });

@@ -467,7 +467,20 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
       if (!cover.covered) { noteUncovered(path, cover.reason, bytes.byteLength); return { outcome: "uncovered" as const, reason: cover.reason }; }
       await ensure();
       const idx = await load();
-      if (holds(idx, path, await sha256Hex(bytes))) return { outcome: "held" as const };
+      const hash = await sha256Hex(bytes);
+      // A floor-bearing reason (`before-delete`, `before-restore`, `before-conflict-resolution`) must have its own permanent
+      // record: an eligible autosave entry that happens to hold the bytes may be thinned (D12.8).
+      if (reason !== "auto" && reason !== "checkpoint" && ![...idx.entries.values()].some((entry) => entry.path === path && entry.sha256 === hash && entry.reason !== "auto")) {
+        return recordNow(path, bytes, reason, null);
+      }
+      if (holds(idx, path, hash)) {
+        // The entry's hash is only metadata: read the blob and prove it, repairing it when it is missing or corrupt, so a
+        // later save can never replace content history claims to hold but does not (D12.10 item 4).
+        const blob = await storage.read(`${BLOBS}/${hash}`);
+        if (blob.ok && await sha256Hex(blob.value) === hash) return { outcome: "held" as const };
+        await putBlob(bytes);
+        return { outcome: "held" as const };
+      }
       return recordNow(path, bytes, reason, null);
     }),
     beginGroup: (input) => serial(() => beginGroupNow({ paths: input.paths, ...(input.name === undefined ? {} : { name: input.name }) })),
