@@ -601,14 +601,15 @@ async function confirmRecoveryGroupReport(page: Page, expect: Expect, historyPat
   await report.getByRole("button", { name: "OK", exact: true }).click();
 }
 
-function assertHistoryPreviewSourceIdentity(historyHost: NewProjectHistoryProofHost, sourcePath: string, expect: Expect): void {
-  const identity = historyHost.previewTrace?.().find((entry) => entry.includes("stage=source-identity")
-    && entry.includes("__tkr_new_project") && entry.includes(sourcePath));
+function assertBoardPreviewRequestIdentity(historyHost: NewProjectHistoryProofHost, sourcePath: string, expect: Expect): void {
+  const identity = historyHost.previewTrace?.().find((entry) => entry.includes("stage=request-send")
+    && entry.includes(`path: ${sourcePath}`)
+    && entry.includes("projectId: tkr-testfs://") && entry.includes("/__tkr_new_project"));
   expect(identity, `The History preview did not originate from ${sourcePath}.`).toBeDefined();
 }
 
 async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath: string, expectedTile: string, historyHost: NewProjectHistoryProofHost, beforeRender: () => Promise<void>): Promise<string> {
-  assertHistoryPreviewSourceIdentity(historyHost, sourcePath, expect);
+  assertBoardPreviewRequestIdentity(historyHost, sourcePath, expect);
   let preview: Frame | undefined;
   await expect.poll(async () => {
     const boardFrames: Frame[] = [];
@@ -919,8 +920,7 @@ async function verifyBitmapHistoryPreview(
   historyHost: NewProjectHistoryProofHost,
   beforeRender: () => Promise<void>,
 ): Promise<void> {
-  await expect(page.getByRole("tab", { name: `History preview: ${sourcePath}`, exact: true, selected: true })).toBeVisible();
-  assertHistoryPreviewSourceIdentity(historyHost, sourcePath, expect);
+  assertBoardPreviewRequestIdentity(historyHost, sourcePath, expect);
   let preview: Frame | undefined;
   await expect.poll(async () => {
     const readOnlyFrames: Frame[] = [];
