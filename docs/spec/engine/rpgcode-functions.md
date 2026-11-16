@@ -209,6 +209,32 @@ run("nextChapter.prg")                                         // legacy Toolkit
 
 ## Variables, strings & math (30)
 
+<a id="string-positions"></a>
+**String positions count characters (Reawakened rule; owner ruling, Jensen, 2026-11-15, issue #2773).** *In plain
+terms:* every string command counts whole characters, so an emoji or any other character is always one character and
+is never cut in half. *Precisely:* positions, counts, offsets and lengths that a string command takes or returns are in
+Unicode **code points**, not UTF-16 code units or bytes. This covers `len`/`length`, `left`, `right`, `mid`, `instr`,
+`charAt`, `asc`, `split` with an empty delimiter, and the legacy-plugin `litncpy` and `litncmp`.
+
+- A character outside the Basic Multilingual Plane (most emoji, for example `😀`) counts as 1, so `len("😀")` is 1 and
+  `mid("a😀b", 2, 1)` is `"😀"`. For ASCII and other Basic Multilingual Plane text every result is unchanged.
+- `asc` returns the first character's code point (0 for `""`).
+- `chr(n)` returns the character with code point `n` when `n` is 0 to `0x10FFFF` and not a surrogate (`0xD800` to
+  `0xDFFF`), and U+FFFD (`"�"`) otherwise.
+- `split` with an empty delimiter puts each character into its own element.
+- `regExpReplace` compiles its pattern in Unicode mode, so `.` matches a whole character. If the pattern is valid only
+  in the older non-Unicode syntax, it is compiled that way, and any half character the replacement leaves is replaced
+  with U+FFFD. A pattern invalid in both modes is `builtin.bad-arg` as before.
+- **Invariant:** no string command can store an unpaired surrogate in game state. The canonical form, the state hash
+  and saves reject one (RFC 8785), so before this rule `mid("😀", 1, 1)` made the next `advance` throw.
+
+<!-- OWNER: #2773 — 2026-11-15, Jensen: "1 is the right path forward" (code points). Evidence: `face = "😀"` then
+`half = mid(face, 1, 1)` stored a lone high surrogate, and `advance` threw `canon: unpaired surrogate in a string`.
+Rejected alternatives: keep code units and repair a split pair to U+FFFD, which silently loses text; keep code units and
+let the canonical form accept lone surrogates, which departs from RFC 8785, the base of the state hash and saves.
+Toolkit 3.1 strings were ANSI, one byte per character, so 3.1 text gives the same results under both rules. The
+project is pre-1.0, so the `len` change for characters outside the Basic Multilingual Plane needs no compatibility path. -->
+
 | Command | Signature | Purpose | Notes |
 |---|---|---|---|
 | `empty` | `void empty()` | Clear all globals. |  |
@@ -216,7 +242,7 @@ run("nextChapter.prg")                                         // legacy Toolkit
 | `castnum` | `double castnum(variant x, [double &ret])` | Cast the specified value to a number (double). There is really no need to do this ever. RPGCode by itself will cast values passed to functions to the correct types as... |  |
 | `castlit` | `string castlit(variant x, [string &ret])` | Cast the specified value to a string. There is really no need to do this ever. RPGCode by itself will cast values passed to functions to the correct types as required. |  |
 | `castint` | `int castint(variant x, [int &ret])` | Cast the specified value to an integer (i.e., a number in the sequence ...-2, -1, 0, 1, 2...). This is useful for removing fractional parts of numbers. Note that this... |  |
-| `charat` | `string charat(string str, int pos, [string &ret])` | Get a character from a string. The first character is one. |  |
+| `charat` | `string charat(string str, int pos, [string &ret])` | Get a character from a string. The first character is one. | code points ([string positions](#string-positions)) |
 | `kill` | `void kill(variant &var, ...)` | Delete variables. |  Reawakened rule (entry 19.1, [KILL-1](rpgcode-language.md#kill-1)): in plain terms, it removes a variable or object field you made, and it cannot remove a name the engine controls. Precisely, it deletes only storage the script owns (a global, a local, a captured cell variable, an object field; `kill(obj.field)` removes the key). Engine-controlled names (the `tk*` constants, the engine virtual variables and actor stat aliases such as `HP!`) raise the catchable runtime error `kill.system-owned` and are left untouched. |
 | `sin` | `double sin(double x, [double &ret])` | Calculate sine x. |  |
 | `cos` | `double cos(double x, [double &ret])` | Calculate cosine x. |  |
@@ -224,23 +250,23 @@ run("nextChapter.prg")                                         // legacy Toolkit
 | `sqrt` | `double sqrt(double x, [double &ret])` | Calculate the square root of x. |  |
 | `local` | `variant &local(variant &var, [variant &ret])` | Allocates a variable off the stack and returns a reference to it. |  |
 | `global` | `variant &global(variant &var, [variant &ret])` | Allocates a variable on the heap and returns a reference to it. |  |
-| `length` | `int length(string str[, int &ret])` | Get the length of a string. |  |
-| `len` | `int len(string str[, int &ret])` | Get the length of a string. | alias of `length` |
-| `instr` | `int instr(string haystack, string needle[, int offset])` | Returns the first occurence of needle within haystack, optionally starting from an offset. Both the return value and the offset are one-based. |  |
+| `length` | `int length(string str[, int &ret])` | Get the length of a string. | counts code points ([string positions](#string-positions)) |
+| `len` | `int len(string str[, int &ret])` | Get the length of a string. | alias of `length`; counts code points ([string positions](#string-positions)) |
+| `instr` | `int instr(string haystack, string needle[, int offset])` | Returns the first occurence of needle within haystack, optionally starting from an offset. Both the return value and the offset are one-based. | code points ([string positions](#string-positions)) |
 | `splicevariables` | `string splicevariables(string str)` | Replaces substrings within angle brackets by the value of variables with respective names. |  |
-| `split` | `int split(string str, string delimiter, array arr)` | Splits a string at a delimiter. Returns the number of upper bound of the array (i.e. the index of the last set element). |  |
-| `asc` | `int asc(string chr[, int &ret])` | Get the ASCII value of a character. |  |
-| `chr` | `string chr(int asc, [string &ret])` | Get the character represented by the ASCII code passed in. |  |
+| `split` | `int split(string str, string delimiter, array arr)` | Splits a string at a delimiter. Returns the number of upper bound of the array (i.e. the index of the last set element). | empty delimiter splits into code points ([string positions](#string-positions)) |
+| `asc` | `int asc(string chr[, int &ret])` | Get the ASCII value of a character. | returns a code point ([string positions](#string-positions)) |
+| `chr` | `string chr(int asc, [string &ret])` | Get the character represented by the ASCII code passed in. | takes a code point; U+FFFD for a surrogate or out-of-range value ([string positions](#string-positions)) |
 | `trim` | `string trim(string str, [string &ret])` | Trim whitespace from a string. |  |
-| `right` | `string right(string str, int amount, [string &ret])` | Get characters from the right of a string. |  |
-| `left` | `string left(string str, int amount[, string &ret])` | Get characters from the left of a string. |  |
+| `right` | `string right(string str, int amount, [string &ret])` | Get characters from the right of a string. | code points ([string positions](#string-positions)) |
+| `left` | `string left(string str, int amount[, string &ret])` | Get characters from the left of a string. | code points ([string positions](#string-positions)) |
 | `log` | `double log(double x, [double &ret])` | Returns n such that en = x. |  |
 | `autolocal` | `void autolocal(bool bEnabled)` | Set the default scope for variable resolution. When autolocal() is not enabled, variables are assumed to be global unless a local variable has been defined. When... |  |
 | `lcase` | `string lcase(string str, [string &ret])` | Convert a string to lowercase. |  |
 | `ucase` | `string ucase(string str, [string &ret])` | Convert a string to uppercase. |  |
-| `mid` | `string mid(string str, int start, int length[, string &dest])` | Obtain a substring. The offset is one-based. |  |
+| `mid` | `string mid(string str, int start, int length[, string &dest])` | Obtain a substring. The offset is one-based. | code points ([string positions](#string-positions)) |
 | `replace` | `string replace(string str, string find, string replace[, string &dest])` | Replace within a string. |  |
-| `regexpreplace` | `string regexpreplace(string subject, string pattern, string replace)` | Replace using a regular expression. |  |
+| `regexpreplace` | `string regexpreplace(string subject, string pattern, string replace)` | Replace using a regular expression. | Unicode-mode pattern, with a non-Unicode fallback ([string positions](#string-positions)) |
 
 ## Threads (7)
 
