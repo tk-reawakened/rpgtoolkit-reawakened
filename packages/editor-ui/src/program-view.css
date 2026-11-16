@@ -19,6 +19,8 @@
 .tkr-program-bookmark-kind { color: #555; font-size: 0.75rem; }
 .tkr-program-bookmark-line { color: #777; font-size: 0.75rem; float: right; }
 .tkr-program-reference { flex: 0 0 18rem; overflow: auto; max-height: 36rem; }
+.tkr-program-reference-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.tkr-program-reference-heading h3 { margin: 0; font-size: 1rem; }
 .tkr-program-reference-list { max-height: 20rem; overflow: auto; }
 .tkr-program-reference-hint { margin: 0.25rem 0; font-size: 0.75rem; color: #555; }
 /* Distraction-free mode: only the text, over the whole page, with one way out. */

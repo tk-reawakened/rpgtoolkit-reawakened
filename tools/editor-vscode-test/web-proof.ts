@@ -6,6 +6,7 @@ import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } 
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
+import { runVscodeContextualHelpProof } from "./contextual-help-proof.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -119,6 +120,7 @@ export async function runVscodeLaunchProof(
 export async function runVscodeProgramProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runVscodeContextualHelpProof(page, expect, workbenchUrl);
   await runCommand(page, expect, "Test: Run Example Program");
   let player: Frame | undefined;
   await expect.poll(async () => {
@@ -282,13 +284,14 @@ export async function runVscodeNewProjectProof(
   await widget.getByRole("checkbox", { name: "Empty start board", exact: true }).check();
   await widget.getByRole("button", { name: "OK", exact: true }).click();
   await expect(widget).toContainText("New project: choose the destination folder");
-  // Earlier save dialogs can change VS Code's remembered directory; navigate through the real picker.
-  await answer.fill("/");
-  await expect(answer).toHaveValue("/");
-  const destination = widget.getByRole("option", { name: "__tkr_new_project", exact: true });
-  await expect.poll(() => destination.isVisible(), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
-  await destination.click({ timeout: 1_000 });
-  await expect(answer).toHaveValue("/__tkr_new_project/");
+  // Remembered-directory initialization can finish after the dialog title appears.
+  await expect(widget.getByRole("option").first()).toBeVisible({ timeout: 30_000 });
+  // Retry only idempotent navigation; the Create action below is dispatched exactly once.
+  await expect(async () => {
+    await answer.fill("/__tkr_new_project/");
+    await expect(answer).toHaveValue("/__tkr_new_project/", { timeout: 1_000 });
+    await expect(widget.getByRole("button", { name: "Create project here", exact: true })).toBeEnabled({ timeout: 1_000 });
+  }).toPass({ timeout: 30_000, intervals: [100, 250, 500, 1_000] });
   const previousExtensionHost = page.frames().find((frame) => frame.url().includes("webWorkerExtensionHostIframe.html"));
   if (previousExtensionHost === undefined) throw new Error("The new-project command did not have a running extension host");
   await widget.getByRole("button", { name: "Create project here", exact: true }).click();

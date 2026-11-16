@@ -22,6 +22,8 @@
     "onCommand:tkr.newProgram",
     "onCommand:tkr.insertProgramHeader",
     "onCommand:tkr.insertProgramCommand",
+    "onCommand:tkr.openProgramAuthoringGuide",
+    "onCommand:tkr.openWhatsNew",
     "onCommand:tkr.distractionFree",
     "onCommand:tkr.runGame",
     "onCommand:tkr.startProgram",
@@ -80,7 +82,15 @@
       },
       {
         "command": "tkr.insertProgramCommand",
-        "title": "RPG Toolkit: Insert a command into the program"
+        "title": "RPG Toolkit: Search and insert an RPGCode command from the quick reference"
+      },
+      {
+        "command": "tkr.openProgramAuthoringGuide",
+        "title": "RPG Toolkit: Open RPGCode authoring guide"
+      },
+      {
+        "command": "tkr.openWhatsNew",
+        "title": "RPG Toolkit: What's New"
       },
       {
         "command": "tkr.distractionFree",
