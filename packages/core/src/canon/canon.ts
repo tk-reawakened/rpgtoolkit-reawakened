@@ -122,12 +122,12 @@ function flatObject(value: unknown): CanonReusableSegment | undefined {
   return segment;
 }
 
-/** Split a VM's aliased flat program refs without materialising their repeated canonical text. */
+/** Split a VM's owner program table (`vm.programs`) into reusable per-program segments, so a large inline program's canonical text is serialised once per reference object. */
 function splitVm(value: unknown, ancestors: Set<object>): (string | CanonReusableSegment)[] | undefined {
   if (value === null || typeof value !== "object" || Array.isArray(value) || ancestors.has(value)) return undefined;
   const proto = Object.getPrototypeOf(value);
   if (proto !== null && proto !== Object.prototype) return undefined;
-  const ownersDescriptor = Object.getOwnPropertyDescriptor(value, "defOwners");
+  const ownersDescriptor = Object.getOwnPropertyDescriptor(value, "programs");
   if (ownersDescriptor === undefined || !ownersDescriptor.enumerable || ownersDescriptor.get !== undefined || ownersDescriptor.set !== undefined) return undefined;
   const owners: unknown = ownersDescriptor.value;
   if (owners === null || typeof owners !== "object" || Array.isArray(owners) || owners === value || ancestors.has(owners)) return undefined;
@@ -135,18 +135,13 @@ function splitVm(value: unknown, ancestors: Set<object>): (string | CanonReusabl
   if (ownerProto !== null && ownerProto !== Object.prototype) return undefined;
   const ownerKeys = Object.keys(owners).sort();
   const ownerSegments: CanonReusableSegment[] = [];
-  const local = new Map<object, CanonReusableSegment>();
   for (const key of ownerKeys) {
     const descriptor = Object.getOwnPropertyDescriptor(owners, key);
     if (descriptor === undefined || descriptor.get !== undefined || descriptor.set !== undefined) return undefined;
     const ref: unknown = descriptor.value;
     if (ref === null || typeof ref !== "object" || ref === value || ref === owners || ancestors.has(ref)) return undefined;
-    let segment = local.get(ref);
-    if (segment === undefined) {
-      segment = flatObject(ref);
-      if (segment === undefined) return undefined;
-      local.set(ref, segment);
-    }
+    const segment = flatObject(ref);
+    if (segment === undefined) return undefined;
     ownerSegments.push(segment);
   }
   const keys = Object.keys(value).sort();
@@ -160,7 +155,7 @@ function splitVm(value: unknown, ancestors: Set<object>): (string | CanonReusabl
       return undefined;
     }
     result.push((i === 0 ? "" : ",") + serializeString(key) + ":");
-    if (key === "defOwners") {
+    if (key === "programs") {
       result.push("{");
       for (let j = 0; j < ownerKeys.length; j += 1) {
         result.push((j === 0 ? "" : ",") + serializeString(ownerKeys[j]!) + ":", ownerSegments[j]!);

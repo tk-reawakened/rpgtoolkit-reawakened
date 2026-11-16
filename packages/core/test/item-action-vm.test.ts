@@ -1035,7 +1035,7 @@ test("restore requires the saved native provider identity to resolve before any 
 test("a v6 save migrates to the item-action vm shape unchanged", () => {
   const fresh = createGameState({ seed: 3 });
   const raw = JSON.parse(snapshot(fresh)) as { schema: { vm: number } };
-  equal(raw.schema.vm, 7);
+  equal(raw.schema.vm, 8);
   raw.schema.vm = 6;
   equal(snapshot(restoreGameState(JSON.stringify(raw))), snapshot(fresh));
 });

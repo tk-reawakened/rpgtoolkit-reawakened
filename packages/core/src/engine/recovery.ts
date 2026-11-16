@@ -14,6 +14,7 @@ import { actorFromSource, createSpritesSection, type SpriteActor, type SpriteAct
 import { hydrateSprites } from "../sprites/runtime.ts";
 import type { ObjectRecord } from "../script/state.ts";
 import type { ProgramRef } from "../script/program.ts";
+import { pruneOwnerPrograms, recordOwner } from "../script/cells.ts";
 import type { WorldBoard, WorldItem, WorldTile } from "../world/model.ts";
 
 function copyRecord<T>(source: Readonly<Record<string, T>>): Record<string, T> {
@@ -152,16 +153,17 @@ function restorePersistentGraph(state: GameState, ledger: GameLedgerV1, listener
 
   const savedDefOwners = graph.defOwners.state === "present" ? graph.defOwners.value : null;
   if (savedDefOwners !== null) {
-    const defOwners = copyRecord(vm.defOwners ?? {});
+    vm.defOwners = copyRecord(vm.defOwners ?? {});
+    vm.programs = copyRecord(vm.programs ?? {});
     for (const [definition, ref] of Object.entries(savedDefOwners)) {
       const restoredRef = restoreProgramRef(ref);
       const nextDef =
         restoredRef.kind === "inline" && restoredRef.owner !== undefined && definition.startsWith("<inline>#")
           ? `<package:${restoredRef.owner}>#${definition.slice("<inline>#".length)}`
           : definition;
-      setRecord(defOwners, nextDef, restoredRef);
+      recordOwner(vm, nextDef, restoredRef, true);
     }
-    vm.defOwners = defOwners;
+    pruneOwnerPrograms(vm);
   }
 
   const emitters = copyRecord(state.events.emitters ?? {});

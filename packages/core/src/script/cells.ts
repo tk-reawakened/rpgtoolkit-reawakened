@@ -13,18 +13,12 @@
  */
 
 import type { CallableValue, Value } from "../ports/value.ts";
-import type { ProgramRef } from "./program.ts";
+import { fnv1a64 } from "../canon/fnv1a.ts";
+import { programKey, type ProgramRef } from "./program.ts";
 import type { VmState } from "./state.ts";
 
 /** The text of a cell reference's scope, `cell:<id>` (see `cellRef`). */
 const CELL_REF_PREFIX = "cell:";
-
-/** Legacy prefix for lambdas lowered before inline package startups were owner-qualified (#1673, #1676). */
-const INLINE_LAMBDA_PREFIX = "<inline>#";
-
-function setOwnProperty(target: Record<string, unknown>, key: string, value: unknown): void {
-  Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
-}
 
 /** The id a cell number is written as: `cell` and a positive whole number with no leading zero. */
 const CELL_ID = /^cell[1-9][0-9]*$/;
@@ -155,100 +149,89 @@ function walkRoots(
 }
 
 /**
+ * Each reference's cache identity (`programKey`) and `vm.programs` key, computed once per reference
+ * object: a program reference is immutable once made, and its identity can be hundreds of kilobytes.
+ */
+const identities = new WeakMap<object, string>();
+const tableKeys = new WeakMap<object, string>();
+
+function identityOf(ref: ProgramRef): string {
+  let identity = identities.get(ref);
+  if (identity === undefined) {
+    identity = programKey(ref);
+    identities.set(ref, identity);
+  }
+  return identity;
+}
+
+/**
+ * The `vm.programs` key of `ref` (FUN-8; entry 18.6, #2767): the 16-digit FNV-1a 64-bit hash of the
+ * program's cache identity, prefixed `<owner>:` when the reference names an owning package. Two
+ * references with the same cache identity share a key; a key already taken by another program is
+ * resolved by `internProgram`.
+ */
+export function programTableKey(ref: ProgramRef): string {
+  let key = tableKeys.get(ref);
+  if (key === undefined) {
+    const hash = fnv1a64(identityOf(ref));
+    key = ref.owner === undefined ? hash : `${ref.owner}:${hash}`;
+    tableKeys.set(ref, key);
+  }
+  return key;
+}
+
+/**
+ * Store `ref` once in `programs` and return its key: the key of an entry with the same cache identity
+ * when there is one, else the first free key of `programTableKey(ref)`, `~2`, `~3`, … The first
+ * reference stored for a program stays.
+ */
+function internProgram(programs: { [key: string]: ProgramRef }, ref: ProgramRef): string {
+  const base = programTableKey(ref);
+  for (let n = 1; ; n += 1) {
+    const key = n === 1 ? base : `${base}~${n}`;
+    if (!Object.hasOwn(programs, key)) {
+      Object.defineProperty(programs, key, { value: ref, writable: true, enumerable: true, configurable: true });
+      return key;
+    }
+    const existing = programs[key]!;
+    if (existing === ref || identityOf(existing) === identityOf(ref)) return key;
+  }
+}
+
+/**
  * Record `ref` as the program that owns the definition `def` (FUN-8; entry
  * 18.6), unless one is already recorded: the first owner stays. A callable
  * names its definition only by `def`, and a restore rebuilds only the programs
  * its frames name, so this is what lets it find the program of a callable whose
- * creating program has ended.
+ * creating program has ended. The reference is stored once in `vm.programs`
+ * however many definitions it owns, and `vm.defOwners` maps `def` to its key
+ * (#2767). With `replace`, an owner already recorded for `def` is replaced; the
+ * entry it named is dropped by the next `collectCells` pass if nothing else names it.
  */
-export function recordOwner(vm: VmState, def: string, ref: ProgramRef): void {
+export function recordOwner(vm: VmState, def: string, ref: ProgramRef, replace = false): void {
   const owners = (vm.defOwners ??= {});
-  if (Object.hasOwn(owners, def)) return;
-  Object.defineProperty(owners, def, { value: ref, writable: true, enumerable: true, configurable: true });
+  const programs = (vm.programs ??= {});
+  if (!replace && Object.hasOwn(owners, def)) return;
+  const key = internProgram(programs, ref);
+  Object.defineProperty(owners, def, { value: key, writable: true, enumerable: true, configurable: true });
 }
 
-/**
- * Rewrite pre-#1673 inline package startup lambda definitions (`<inline>#lambda_n`)
- * to their owner-qualified form (`<package:owner>#lambda_n`) across `vm` and `events` (#1676).
- */
-export function migratePackageInlineLambdaDefs(vm: unknown, events?: unknown): void {
-  if (!isRecord(vm)) return;
-  const knownInlineRefs = new Map<string, Record<string, unknown>>();
-  let hasUnownedInlineProgram = false;
-  const inspectProgramRef = (ref: unknown): void => {
-    if (!isRecord(ref) || ref.kind !== "inline" || typeof ref.text !== "string" || typeof ref.ir !== "string") return;
-    if (typeof ref.owner === "string" && ref.owner !== "") {
-      if (!knownInlineRefs.has(ref.owner)) knownInlineRefs.set(ref.owner, ref);
-    } else if (ref.owner === undefined) {
-      hasUnownedInlineProgram = true;
-    }
-  };
-  if (Array.isArray(vm.threads)) {
-    for (const thread of vm.threads) {
-      if (!isRecord(thread) || !Array.isArray(thread.frames)) continue;
-      for (const frame of thread.frames) {
-        if (isRecord(frame)) inspectProgramRef(frame.program);
-      }
-    }
-  }
-  if (Array.isArray(vm.objects)) {
-    for (const object of vm.objects) {
-      if (isRecord(object)) inspectProgramRef(object.program);
-    }
-  }
-  const migratedByDef = new Map<string, { readonly nextDef: string; readonly owner: string; readonly ref: Record<string, unknown> }>();
-  if (isRecord(vm.defOwners)) {
-    const currentOwners = vm.defOwners;
-    for (const ref of Object.values(currentOwners)) inspectProgramRef(ref);
-    const nextOwners: Record<string, unknown> = {};
-    let changed = false;
-    for (const [def, ref] of Object.entries(currentOwners)) {
-      if (
-        def.startsWith(INLINE_LAMBDA_PREFIX) &&
-        isRecord(ref) &&
-        ref.kind === "inline" &&
-        typeof ref.text === "string" &&
-        typeof ref.ir === "string" &&
-        typeof ref.owner === "string" &&
-        ref.owner !== ""
-      ) {
-        const nextDef = `<package:${ref.owner}>#${def.slice(INLINE_LAMBDA_PREFIX.length)}`;
-        migratedByDef.set(def, { nextDef, owner: ref.owner, ref });
-        if (!Object.hasOwn(nextOwners, nextDef)) setOwnProperty(nextOwners, nextDef, ref);
-        changed = true;
-      } else if (!Object.hasOwn(nextOwners, def)) {
-        setOwnProperty(nextOwners, def, ref);
-      }
-    }
-    if (changed) vm.defOwners = nextOwners;
-  }
+/** The recorded owner program of `def` (FUN-8; entry 18.6), or `undefined` when none is recorded. */
+export function ownerProgram(vm: VmState, def: string): ProgramRef | undefined {
+  const owners = vm.defOwners;
+  if (owners === undefined || !Object.hasOwn(owners, def)) return undefined;
+  const programs = vm.programs;
+  const key = owners[def]!;
+  return programs !== undefined && Object.hasOwn(programs, key) ? programs[key] : undefined;
+}
 
-  const migrateCallable = (value: unknown): void => {
-    if (!isCallableRecord(value) || !value.def.startsWith(INLINE_LAMBDA_PREFIX)) return;
-    const raw = value as unknown as Record<string, unknown>;
-    const explicitOwner = typeof raw.owner === "string" && raw.owner !== "" ? raw.owner : undefined;
-    const fallback = explicitOwner === undefined && !hasUnownedInlineProgram ? migratedByDef.get(value.def) : undefined;
-    const owner = explicitOwner ?? fallback?.owner;
-    if (owner === undefined) return;
-    const nextDef = `<package:${owner}>#${value.def.slice(INLINE_LAMBDA_PREFIX.length)}`;
-    raw.def = nextDef;
-    if (explicitOwner === undefined && Object.keys(raw).sort().join(",") === "captures,def,receiver,type") {
-      raw.owner = owner;
-    }
-    if (isRecord(vm.defOwners) && !Object.hasOwn(vm.defOwners, nextDef)) {
-      const ref = knownInlineRefs.get(owner) ?? fallback?.ref;
-      if (ref !== undefined) setOwnProperty(vm.defOwners, nextDef, ref);
-    }
-  };
-
-  eachRootValue(vm, (_path, value) => migrateCallable(value), () => undefined);
-  if (isRecord(vm.cells)) {
-    for (const id of Object.keys(vm.cells)) migrateCallable(vm.cells[id]);
-  }
-  if (isRecord(events) && Array.isArray(events.listeners)) {
-    for (const listener of events.listeners) {
-      if (isRecord(listener)) migrateCallable(listener.callable);
-    }
+/** Drop every `vm.programs` entry that no `vm.defOwners` entry names (#2767). */
+export function pruneOwnerPrograms(vm: VmState): void {
+  const programs = vm.programs;
+  if (programs === undefined) return;
+  const named = new Set(Object.values(vm.defOwners ?? {}));
+  for (const key of Object.keys(programs)) {
+    if (!named.has(key)) delete programs[key];
   }
 }
 
@@ -301,5 +284,6 @@ export function collectCells(vm: VmState, roots: readonly unknown[] = []): void 
     for (const def of Object.keys(owners)) {
       if (!liveDefs.has(def)) delete owners[def];
     }
+    pruneOwnerPrograms(vm);
   }
 }
