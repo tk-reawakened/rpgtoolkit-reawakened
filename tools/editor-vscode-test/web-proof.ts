@@ -700,9 +700,12 @@ async function proveNativeNewBoard(
     await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version from history");
     await expect.poll(() => commandContexts.length > commandContextStart, { timeout: 5_000 }).toBe(true);
     const context = commandContexts[commandContextStart];
+    if (context === undefined) throw new Error("The Board history command context was not recorded.");
     expect(context).toContain("activeTabLabel: Native history board.brd");
     expect(context).toContain("customEditorUri: tkr-testfs://");
-    expect(context).toContain("__tkr_new_project/Boards/Native history board.brd");
+    const customEditorUri = /customEditorUri: (tkr-testfs:\/\/[^,}]+)/.exec(context)?.[1];
+    if (customEditorUri === undefined) throw new Error("The active Board history command did not report its custom-editor URI.");
+    expect(decodeURIComponent(customEditorUri)).toContain("__tkr_new_project/Boards/Native history board.brd");
   };
   await runCommand(page, expect, "RPG Toolkit: New board", "New board: project");
   const widget = page.locator(".quick-input-widget");
