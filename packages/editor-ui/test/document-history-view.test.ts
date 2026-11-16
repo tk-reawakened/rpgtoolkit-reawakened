@@ -84,12 +84,12 @@ async function setUp(policy: Partial<{ mergeWindowMs: number; autoFloorMs: numbe
   return { host, workspace, document: opened.document, el };
 }
 
-function show(fixture: Fixture): void {
+function show(fixture: Fixture & { readonly activePath?: string }): void {
   void act(() => {
     mountHistory(fixture.el, {
       workspace: fixture.workspace,
       files: fixture.host.fs,
-      activePath: PATH,
+      activePath: fixture.activePath ?? PATH,
       mountPreview: (element, preview: AnyDocument) => mount(element, { document: preview as unknown as ViewDocument, services: fixture.host }),
     });
   });
@@ -166,6 +166,22 @@ test("crossing the warning offers thinning, and nothing is removed unless the cr
     await click(fixture.el, "Keep everything", () => buttonWithOrNull(fixture.el, "Keep everything") === null);
     equal((await fixture.workspace.history.documentTimeline(PATH)).length, before, "declining the offer removed nothing");
   }
+});
+
+test("a binary kind whose bytes happen to be valid UTF-8 still gets no line comparison (#2843)", async () => {
+  const fixture = await setUp();
+  // A tileset is a binary kind; these bytes decode as UTF-8 (ASCII), so only the registry gate can suppress a line diff.
+  const bytes = new TextEncoder().encode("AAAA\nBBBB");
+  ok((await fixture.host.fs.write("Tiles/ascii.tst", bytes)).ok);
+  await fixture.workspace.history.recordSave("Tiles/ascii.tst", bytes, "manual");
+  show({ ...fixture, activePath: "Tiles/ascii.tst" });
+  await settleUntil(() => fixture.el.querySelectorAll("ol[aria-label='History entries'] button").length === 1, "the tileset's entry");
+  await clickRow(fixture.el, "saved");
+  await settleUntil(() => fixture.el.querySelector("select[aria-label='Compare with']") !== null, "the comparison choices");
+  const select = fixture.el.querySelector<HTMLSelectElement>("select[aria-label='Compare with']")!;
+  await act(() => { select.value = "current"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await settleUntil(() => fixture.el.querySelectorAll(".tkr-history-preview").length === 2, "the second pane");
+  equal(fixture.el.querySelector("[aria-label='Line comparison']"), null, "a binary kind is never compared line by line, even when its bytes are text-like");
 });
 
 test("the ignore offer asks before writing .gitignore and records nothing when declined", async () => {

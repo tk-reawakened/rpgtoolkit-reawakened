@@ -565,3 +565,29 @@ test("deleting a saved file records a before-delete entry that thinning never re
   deepEqual(survivors.map((entry) => entry.reason), ["before-delete"]);
   deepEqual((await store.preview(survivors[0]!.id))!.bytes, onDisk, "the version at the user's delete is still readable");
 });
+
+test("a document opened and edited while a closed-file restore records its history is not overwritten (#2838)", async () => {
+  const first = withTitle(exampleMain(9), "First");
+  const later = withTitle(exampleMain(9), "Later");
+  const host = createMemoryPlatformServices({ files: { [PATH]: first } });
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let holding = true;
+  const gated = { ...host.fs, write: async (path: string, bytes: Uint8Array) => (holding && path.startsWith(".tkr-history/groups/") ? gate.then(() => host.fs.write(path, bytes)) : host.fs.write(path, bytes)) };
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: { ...host, fs: gated } });
+  await workspace.history.recordSave(PATH, first, "manual");
+  const entry = (await workspace.history.documentTimeline(PATH))[0]!;
+  ok((await host.fs.write(PATH, later)).ok, "the file changed since that version");
+  const restoring = workspace.restoreHistoryEntry(entry.id);
+  await Promise.resolve();
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  ok(opened.document.apply({ type: "set-game-title", title: "Typed while restoring" }).ok);
+  holding = false;
+  release();
+  const report = await restoring;
+  deepEqual(report.files.map((file) => [file.path, file.result]), [[PATH, "failed"]]);
+  match(report.files[0]!.message ?? "", /changed after the restore started/);
+  equal(gameTitleOf(opened.document), "Typed while restoring", "the newer edit is kept");
+  equal(titleOf(host.bytesOf(PATH)!), "Later", "the disk file was not overwritten");
+});

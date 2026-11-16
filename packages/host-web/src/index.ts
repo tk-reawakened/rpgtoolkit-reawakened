@@ -1,4 +1,4 @@
-import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, historyPolicyFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
+import { createDocumentWorkspace, createPreferences, editorPreferencesFrom, historyPolicyFrom, type HistoryPolicy, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -156,10 +156,13 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     capabilities.add("runProgram");
   }
   const settings = createWebSettings(fs, webUserStorage(options), capabilities.has("folderWrite"));
-  // Retention is user-only (ADR 0022 D6.3): the effective values come from the user layer and the catalogue's defaults.
-  const retention = createPreferences({ settings, projectLayer: false });
-  void retention.refresh();
-  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities }, historyPolicy: () => historyPolicyFrom((id) => retention.getSnapshot().rows.find((row) => row.entry.id === id)?.effective) });
+  // One preferences model per project (shared with the Preferences panel), and the history policy follows its effective
+  // values live, so a retention change made in the panel takes effect without reopening the project (D6.3, D12.8).
+  const preferences = createPreferences({ settings, projectLayer: capabilities.has("folderWrite") });
+  let policy = historyPolicyOf(preferences);
+  preferences.subscribe(() => { policy = historyPolicyOf(preferences); });
+  void preferences.refresh().then(() => { policy = historyPolicyOf(preferences); });
+  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities }, historyPolicy: () => policy });
   const services: PlatformServices = {
     capabilities,
     fs,
@@ -177,7 +180,9 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl) }),
     ...(language === undefined ? {} : { language }),
   };
-  return { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, deactivate: () => { active = false; workspace.dispose(); } };
+  const made = { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, deactivate: () => { active = false; workspace.dispose(); } };
+  projectPreferenceModels.set(made, preferences);
+  return made;
 }
 
 
@@ -226,10 +231,12 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
   }, () => active);
   const dialogs = options.dialogs ?? pageDialogs();
   const settings = createWebSettings(fs, webUserStorage(options), false);
-  // A session copy keeps history in this page, under the same user-only retention settings (D6.3, D12.10 item 8).
-  const retention = createPreferences({ settings, projectLayer: false });
-  void retention.refresh();
-  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities }, historyPolicy: () => historyPolicyFrom((id) => retention.getSnapshot().rows.find((row) => row.entry.id === id)?.effective) });
+  // A session copy keeps history in this page, under the same user-only retention settings, live from one shared model.
+  const preferences = createPreferences({ settings, projectLayer: false });
+  let policy = historyPolicyOf(preferences);
+  preferences.subscribe(() => { policy = historyPolicyOf(preferences); });
+  void preferences.refresh().then(() => { policy = historyPolicyOf(preferences); });
+  const workspace = createDocumentWorkspace({ projectId: project.id, services: { fs, dialogs, capabilities }, historyPolicy: () => policy });
   const services: PlatformServices = {
     capabilities,
     fs,
@@ -239,7 +246,9 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
   };
-  return { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, deactivate: () => { active = false; workspace.dispose(); } };
+  const made = { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, deactivate: () => { active = false; workspace.dispose(); } };
+  projectPreferenceModels.set(made, preferences);
+  return made;
 }
 
 /** One editor tab owns a lease even while its mounted view is hidden. */
@@ -347,16 +356,21 @@ function boardPreferencesFor(project: WebProject): BoardPreferencesSource {
   return source;
 }
 
-const programPreferenceModels = new WeakMap<WebProject, Preferences>();
+const projectPreferenceModels = new WeakMap<WebProject, Preferences>();
 
-/** One preferences model is shared by the browser views and preferences panel for this project. */
+/** One preferences model is shared by the browser views, the Preferences panel and the history policy of this project. */
 export function programPreferencesModelFor(project: WebProject): Preferences {
-  const known = programPreferenceModels.get(project);
+  const known = projectPreferenceModels.get(project);
   if (known !== undefined) return known;
   const preferences = createPreferences({ settings: project.services.settings, projectLayer: project.services.capabilities.has("folderWrite") });
   void preferences.refresh();
-  programPreferenceModels.set(project, preferences);
+  projectPreferenceModels.set(project, preferences);
   return preferences;
+}
+
+/** The history policy a project's shared preferences model describes right now. */
+function historyPolicyOf(preferences: Preferences): HistoryPolicy {
+  return historyPolicyFrom((id) => preferences.getSnapshot().rows.find((row) => row.entry.id === id)?.effective);
 }
 
 function programPreferencesFor(project: WebProject): ProgramPreferencesSource {

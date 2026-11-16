@@ -171,6 +171,13 @@ export interface WorkspaceOptions {
   readonly historyStorage?: { readonly fs: DocumentHistoryOptions["storage"]; readonly description: string };
 }
 
+function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.byteLength !== b.byteLength) return false;
+  for (let index = 0; index < a.byteLength; index += 1) if (a[index] !== b[index]) return false;
+  return true;
+}
+
 /** A Save As of a document whose kind is no longer registered cannot be reopened. */
 type ReopenFailure = { readonly ok: false; readonly error: { readonly document: string; readonly error: { readonly message: string } } };
 const UNKNOWN_KIND: ReopenFailure = { ok: false, error: { document: "", error: { message: "its kind is not registered" } } };
@@ -346,13 +353,11 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   };
 
   /** The restorer the history store drives: open documents take a restore as an accepted edit, other files are written. */
-  const capturedHeads = new Map<string, string | null>();
   const restorer = (): HistoryRestorer => ({
     async current(path) {
       const open = documents.get(createDocumentIdentity(projectId, path).key);
       if (open !== undefined && open.getSnapshot().readOnly === null) {
         await pendingEditsOf(open).settle();
-        capturedHeads.set(path, open.getSnapshot().edits.at(-1)?.editId ?? null);
         return { ok: true, bytes: open.serialize(), unsaved: open.getSnapshot().dirty };
       }
       const read = await fs.readProject(projectId, path);
@@ -361,16 +366,13 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     async apply(path, bytes, context) {
       const open = documents.get(createDocumentIdentity(projectId, path).key);
+      // Whatever the restore captured must still be the current content: a document opened or edited while the restore
+      // recorded its history is never overwritten (D12.10 item 9).
+      const changed = (): { readonly ok: false; readonly message: string } => ({ ok: false, message: `${path} changed after the restore started, so it was not restored. Choose the version again.` });
       if (open !== undefined) {
         if (bytes === null) return { ok: false, message: `${path} is open. Close it, then retry the restore to remove it.` };
-        // An edit accepted while the restore recorded its history must not be overwritten unconfirmed: compare the revision
-        // this restore captured with the document as it is now, and refuse rather than lose it (D12.10 item 9).
         await pendingEditsOf(open).settle();
-        const captured = capturedHeads.get(path);
-        const head = open.getSnapshot().edits.at(-1)?.editId ?? null;
-        if (captured !== undefined && captured !== head) {
-          return { ok: false, message: `${path} was edited after the restore started, so it was not restored. Choose the version again.` };
-        }
+        if (!sameBytes(open.serialize(), context.expected)) return changed();
         const applied = open.restoreVersion(bytes);
         if (!applied.ok) return { ok: false, message: applied.rejection.message };
         const edits = historyOf(open.identity.key);
@@ -379,6 +381,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         const saved = await open.save("manual", { groupId: context.groupId });
         return saved.ok ? { ok: true } : { ok: false, message: `The restored version of ${path} is applied in the editor but could not be saved: ${saved.failure.message}` };
       }
+      const onDisk = await fs.readProject(projectId, path);
+      const actual = onDisk.ok ? onDisk.value : onDisk.error.code === "not-found" ? null : undefined;
+      if (actual === undefined) return { ok: false, message: `Could not check ${path} before restoring it: ${onDisk.ok ? "" : onDisk.error.message}` };
+      if (!sameBytes(actual, context.expected)) return changed();
       if (bytes === null) {
         const removed = await fs.delete(path);
         return removed.ok ? { ok: true } : { ok: false, message: removed.error.message };

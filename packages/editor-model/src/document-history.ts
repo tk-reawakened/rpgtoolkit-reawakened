@@ -121,8 +121,12 @@ export interface GroupRestoreReport {
 export interface HistoryRestorer {
   /** The content `path` has now as the editor sees it (an open document's content even when unsaved); `bytes: null` when absent. */
   current(path: string): Promise<{ readonly ok: true; readonly bytes: Uint8Array | null; readonly unsaved: boolean } | { readonly ok: false; readonly message: string }>;
-  /** Make `path` hold `bytes` (`null` deletes it) as an accepted change. It must record its own save when it writes. */
-  apply(path: string, bytes: Uint8Array | null, context: { readonly groupId: string }): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
+  /**
+   * Make `path` hold `bytes` (`null` deletes it) as an accepted change. It must record its own save when it writes.
+   * `expected` is exactly what `current(path)` returned for this restore: applying must refuse (`ok: false`) when the path
+   * no longer holds it, because an edit accepted while the restore recorded its history would otherwise be overwritten.
+   */
+  apply(path: string, bytes: Uint8Array | null, context: { readonly groupId: string; readonly expected: Uint8Array | null }): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
 }
 
 export interface HistoryUsage {
@@ -433,7 +437,7 @@ export function createDocumentHistoryStore(options: DocumentHistoryOptions): Doc
       return { groupId: group.id, restoreGroupId: null, files: [...files, ...restoreInput.map((path) => ({ path, result: "failed" as const, message: `Nothing was changed: ${message}` }))] };
     }
     const applyTo = async (path: string, wanted: Uint8Array | null): Promise<void> => {
-      const result = await restorer.apply(path, wanted, { groupId: restoreGroup.id });
+      const result = await restorer.apply(path, wanted, { groupId: restoreGroup.id, expected: currentByPath.get(path) ?? null });
       files.push(result.ok ? { path, result: "restored" } : { path, result: "failed", message: result.message });
     };
     for (const item of group.before) {
