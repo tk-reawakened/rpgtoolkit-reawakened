@@ -1,37 +1,46 @@
-import type {
-  ApplyResult,
-  BoardCommand,
-  BoardDocumentSnapshot,
-  BoardPicture,
-  BoardPreviewRequest,
-  ConflictChoice,
-  ConflictResult,
-  EditorPreferences,
-  HistoryResult,
-  MainCommand,
-  MainDocument,
-  MainDocumentSnapshot,
-  SaveResult,
-  TileBitmapCommand,
-  TileBitmapDocumentSnapshot,
-  TileBitmapPicture,
-  TilesetArtCommand,
-  TilesetArtSnapshot,
+import {
+  createPendingEdits,
+  type ApplyResult,
+  type BoardCommand,
+  type BoardDocumentSnapshot,
+  type BoardPicture,
+  type BoardPreviewRequest,
+  type ConflictChoice,
+  type ConflictResult,
+  type EditorPreferences,
+  type HistoryResult,
+  type MainCommand,
+  type MainDocument,
+  type MainDocumentSnapshot,
+  type ProgramCommand,
+  type ProgramDocumentSnapshot,
+  type SaveResult,
+  type TileBitmapCommand,
+  type TileBitmapDocumentSnapshot,
+  type TileBitmapPicture,
+  type PendingEdits,
+  type TilesetArtCommand,
+  type TilesetArtSnapshot,
 } from "@tk-reawakened/editor-model";
 import type { PlatformResult, PlatformServices } from "@tk-reawakened/platform-services";
-import { createElement, render } from "preact";
+import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
+import { EmptyExplorerView, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
 import { RunView, type RunViewProps } from "./run-view.tsx";
 import { BoardView } from "./board-view.tsx";
 import { NewBoardView, type NewBoardViewProps } from "./new-board-view.tsx";
+import { NewProjectView, type NewProjectViewProps } from "./new-project-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
+import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import { TilesetArtView } from "./tileset-art-view.tsx";
 import { AnimationView, type AnimationViewDocument } from "./animation-view.tsx";
+import { ProgramView, type ProgramPreferencesSource, type ProgramViewDocument } from "./program-view.tsx";
+import type { TextSurfaceFactory } from "./text-surface.ts";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -67,6 +76,15 @@ export interface BoardPreferencesSource {
   subscribe(listener: () => void): () => void;
 }
 
+/** What the program editor needs from its host beyond the shared surface (story 11.7). */
+export interface CodeEditorContext {
+  /** The code editor (Monaco in the browser host). A plain text area when absent. */
+  readonly createSurface?: TextSurfaceFactory;
+  /** The running project's main file for the language server; `null` leaves documents unassessed. */
+  readonly project?: { readonly main: string } | null;
+  readonly preferences?: ProgramPreferencesSource;
+}
+
 /** The legacy tileset's pixel-editing surface, with history owned by its document. */
 export type TilesetArtViewDocument = ViewDocument<TilesetArtSnapshot, TilesetArtCommand>;
 
@@ -79,18 +97,27 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
-  readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject"> };
+  readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject">; readonly language?: PlatformServices["language"] };
   /** A host-authorized, create-only path for the staged 4×4 TBM wizard. */
   readonly createBitmapAsset?: (path: string, bytes: Uint8Array) => Promise<PlatformResult<void>>;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
+  /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
+  readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset">;
+  /**
+   * Where views report edits they have accepted but not yet handed to the document, so the host's save, close and revert
+   * wait for them (#2613). A mount with no host makes its own, which only the views sharing it wait for.
+   */
+  readonly pendingEdits?: PendingEdits;
   /** The board-editor preferences (flood behaviour); the defaults of the catalogue when the host gives none. */
   readonly boardPreferences?: BoardPreferencesSource;
+  /** The program editor's code editor, running project and preferences. */
+  readonly codeEditor?: CodeEditorContext;
 }
 /** The handle a host keeps to a mounted view. */
 export interface ViewHandle {
@@ -110,6 +137,10 @@ function isTileBitmapView(document: ViewContext["document"]): document is TileBi
   return document.kind === "tile-bitmap";
 }
 
+function isProgramView(document: ViewContext["document"]): document is ProgramViewDocument {
+  return document.kind === "program";
+}
+
 function isSpriteView(document: ViewContext["document"]): document is SpriteViewDocument {
   return document.kind === "character" || document.kind === "item";
 }
@@ -123,6 +154,9 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   const onEdited = (event: Parameters<PlatformServices["document"]["edited"]>[0]): void => ctx.services.document.edited(event);
   const capabilities = ctx.services.capabilities;
   const document = ctx.document;
+  const fs = ctx.services.fs;
+  if ((isSpriteView(document) || isAnimationView(document)) && fs === undefined) throw new Error("A sprite view requires project-file read access.");
+  const pendingEdits = ctx.pendingEdits ?? createPendingEdits();
   let view: Parameters<typeof render>[0];
   if (isBoardView(document)) {
     view = createElement(BoardView, {
@@ -142,15 +176,27 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
     });
   } else if (isSpriteView(document)) {
-    const fs = ctx.services.fs;
-    if (fs === undefined) throw new Error("A sprite view requires project-file read access.");
-    view = createElement(SpriteView, { doc: document, fs, capabilities, onEdited });
+    view = createElement(Fragment, null,
+      createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits }),
+      document.kind === "character"
+        ? createElement(CharacterAuthoringView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation })
+        : null);
+  } else if (isProgramView(document)) {
+    const editor = ctx.codeEditor;
+    view = createElement(ProgramView, {
+      doc: document,
+      capabilities,
+      onEdited,
+      pendingEdits,
+      ...(editor?.createSurface === undefined ? {} : { createSurface: editor.createSurface }),
+      ...(ctx.services.language === undefined ? {} : { language: ctx.services.language }),
+      ...(editor?.project === undefined ? {} : { project: editor.project }),
+      ...(editor?.preferences === undefined ? {} : { preferences: editor.preferences }),
+    });
   } else if (isAnimationView(document)) {
-    const fs = ctx.services.fs;
-    if (fs === undefined) throw new Error("An animation view requires project-file read access.");
     view = createElement(AnimationView, {
       doc: document,
-      fs,
+      fs: fs!,
       onEdited,
       ...(ctx.createBitmapAsset === undefined ? {} : { writeBitmapAsset: ctx.createBitmapAsset }),
       ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
@@ -206,4 +252,14 @@ export function mountPreferences(el: HTMLElement, props: PreferencesViewProps): 
 /** Render the new-board questions into `el`. */
 export function mountNewBoard(el: HTMLElement, props: NewBoardViewProps): ViewHandle {
   return mountElement(el, createElement(NewBoardView, props));
+}
+
+/** Render the new-project wizard into `el` (T-04). */
+export function mountNewProject(el: HTMLElement, props: NewProjectViewProps): ViewHandle {
+  return mountElement(el, createElement(NewProjectView, props));
+}
+
+/** Render the IDE "No Game Opened" Explorer panel into `el`. */
+export function mountEmptyExplorer(el: HTMLElement, props: EmptyExplorerViewProps): ViewHandle {
+  return mountElement(el, createElement(EmptyExplorerView, props));
 }

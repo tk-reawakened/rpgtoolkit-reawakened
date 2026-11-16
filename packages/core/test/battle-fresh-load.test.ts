@@ -27,6 +27,8 @@ import {
   PACKAGE_ROOT,
   startThread,
   type Engine,
+  type OnRequestEngine,
+  type OnRequestTickReport,
   type GameState,
   type InputRecord,
   type PackageCatalogueEntry,
@@ -84,7 +86,7 @@ type SavedRun = { readonly rig: UiRig; readonly saved: Saved };
 function saveMidBattle(): SavedRun {
   const rig = bootUiRig(RIG);
   rig.files.set(assetKey("prg/fight.prg"), encoder.encode(FIGHT));
-  const engine = rig.engine as { advance: Engine["advance"] };
+  const engine = rig.engine as { advance: OnRequestEngine["advance"] };
   const advance = engine.advance.bind(engine);
   let answers: InputRecord[] = [];
   let saved: Saved | null = null;
@@ -319,9 +321,9 @@ test("two brand-new engines loading the same mid-battle save run the same state 
 
 test("the battle rig counts simulated ticks, not asset-loading advances", () => {
   const rig = bootUiRig(RIG);
-  const engine = rig.engine as { advance: Engine["advance"] };
+  const engine = rig.engine as { advance: OnRequestEngine["advance"] };
   const advance = engine.advance.bind(engine);
-  const reports: TickReport[] = [];
+  const reports: OnRequestTickReport[] = [];
   engine.advance = (ticks, inputs, ...rest) => {
     const report = advance(ticks, inputs, ...rest);
     reports.push(report);
@@ -334,7 +336,7 @@ test("the battle rig counts simulated ticks, not asset-loading advances", () => 
 
 test("the battle rig completes a partially run engine batch", () => {
   const rig = bootUiRig(RIG);
-  const engine = rig.engine as { advance: Engine["advance"] };
+  const engine = rig.engine as { advance: OnRequestEngine["advance"] };
   const advance = engine.advance.bind(engine);
   const reports: { requested: number; ran: number }[] = [];
   engine.advance = (ticks, inputs, ...rest) => {
@@ -355,7 +357,7 @@ test("the battle rig completes a partially run engine batch", () => {
 
 test("the battle rig fails on an endless asset request cycle", () => {
   const rig = bootUiRig(RIG);
-  const engine = rig.engine as { advance: Engine["advance"] };
+  const engine = rig.engine as { advance: OnRequestEngine["advance"] };
   const stalled = engine.advance(1, []);
   equal(stalled.ticksRun, 0);
   ok(stalled.requests.some((request) => request.kind === "asset"));

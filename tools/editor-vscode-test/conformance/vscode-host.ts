@@ -9,19 +9,20 @@
 //   tab only if it is still dirty; Save As calls `saveCustomDocumentAs`, then moves the source's save point to the latest
 //   edit and replaces the source tab with the destination. This is `MainThreadCustomEditorModel.saveCustomEditor`,
 //   `saveCustomEditorAs` and `EditorGroupView`'s close confirmation in VS Code's source;
-// * a webview is a separate page that talks to the extension host only through asynchronous, structured-cloned
-//   messages, and with `retainContextWhenHidden: false` a hidden tab's page is destroyed and loaded again when shown;
+// * a webview is a separate page that talks to the extension host only through asynchronous, structured-cloned messages;
+//   this adapter models the page-recreation path, while the real-workbench proof checks the provider's retained hidden page;
 // * the desktop watcher reports every change below the folder, including the extension's own writes.
 //
 // The real-workbench proof (`web-proof.ts`, run in CI against `@vscode/test-web`) checks the same behaviours in VS Code
 // itself; this driver lets every conformance case run in under a second.
 import { posix } from "node:path";
 import { asMainDocument, type BoardPicture, type MainDocument } from "@tk-reawakened/editor-model";
-import { mount, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { mount, type SpriteViewDocument, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { Capability, DialogQuestion, DialogService, FileChange, OutsideFile } from "@tk-reawakened/platform-services";
 import {
   createGameEditorProvider,
   createVscodeFileSystemWithPort,
+  isSpriteSnapshot,
   RemoteDocument,
   vscodeCapabilities,
   type BridgeMessage,
@@ -31,7 +32,7 @@ import {
   type GameEditorProvider,
   type VscodeFileSystemPort,
 } from "@tk-reawakened/host-vscode/testing";
-import { GAME, SECOND, retitled, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type DeferredRead, type HeldWrite } from "./suite.ts";
+import { GAME, SECOND, retitled, type CharacterProofHost, type CharacterProofTab, type CloseAnswer, type ConformanceEditor, type ConformanceHost, type DeferredRead, type HeldWrite } from "./suite.ts";
 import { MountedView, settle, type Act } from "./view.ts";
 
 interface Uri { readonly path: string }
@@ -90,6 +91,7 @@ class Disk {
 function fileSystemPort(disk: Disk): VscodeFileSystemPort<Uri> {
   const missing = (uri: Uri) => Object.assign(new Error(`${uri.path} was not found`), { code: "FileNotFound" });
   return {
+    isSymbolicLink: (type) => (type & 64) !== 0,
     isDirectory: (type) => (type & 2) !== 0,
     joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
     parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),
@@ -233,7 +235,7 @@ interface Page {
   handle: ViewHandle | null;
 }
 
-/** One webview page. A hidden page is destroyed; showing it loads the page again, which asks the extension for the document. */
+/** The simulated webview page; this adapter exercises the page-recreation path. */
 class Webview {
   readonly #act: Act;
   readonly #listeners = new Set<(message: unknown) => unknown>();
@@ -241,6 +243,8 @@ class Webview {
   #page: Page | null = null;
   /** Messages the page has sent that the provider has not yet received, in sending order. */
   readonly #undelivered: EditorHostRequest[] = [];
+  /** While set, the provider's acknowledgements of the page's edits wait here instead of reaching the page (a slow extension host). */
+  #heldEditResults: BridgeMessage[] | null = null;
 
   constructor(act: Act) {
     this.#act = act;
@@ -251,6 +255,10 @@ class Webview {
       const page = this.#page;
       if (page === null) return Promise.resolve(false);
       const copy = structuredClone(message);
+      if (this.#heldEditResults !== null && copy.type === "edit-result") {
+        this.#heldEditResults.push(copy);
+        return Promise.resolve(true);
+      }
       setTimeout(() => void this.#act(() => this.#receive(page, copy)), 0);
       return Promise.resolve(true);
     },
@@ -267,6 +275,26 @@ class Webview {
   get view(): MountedView {
     if (this.#page === null) throw new Error("the webview is hidden");
     return new MountedView(this.#page.element, this.#act);
+  }
+
+  /**
+   * Hold every acknowledgement of an edit the page sends from now on, in the order the provider answered. `release`
+   * delivers them in that order and stops holding. The edits themselves still reach the extension host at once, as
+   * they do when its reply is merely slow.
+   */
+  holdEditResults(): { release(): void } {
+    if (this.#heldEditResults !== null) throw new Error("edit acknowledgements are already held");
+    const held: BridgeMessage[] = [];
+    this.#heldEditResults = held;
+    return {
+      release: () => {
+        if (this.#heldEditResults !== held) return;
+        this.#heldEditResults = null;
+        const page = this.#page;
+        if (page === null) return;
+        for (const message of held) setTimeout(() => void this.#act(() => this.#receive(page, message)), 0);
+      },
+    };
   }
 
   /** The webview's document proxy, for a proof that drives what a view would call. */
@@ -347,6 +375,23 @@ class Webview {
         setState: () => undefined,
       }, message.boardPreferences);
       page.remote = remote;
+      if (message.kind === "character" || message.kind === "item") {
+        // As `webview.tsx` mounts a sprite document: its own view document, the host's asset picker and no linked visit,
+        // and the edits the views accepted but have not yet sent (#2613, #2609).
+        const view = spriteViewDocument(remote);
+        if (view === null) throw new Error(`the ${message.kind} editor received an invalid sprite snapshot`);
+        page.handle = mount(page.element, {
+          document: view,
+          services: {
+            document: { edited: () => undefined },
+            capabilities: new Set(message.capabilities),
+            fs: { readProject: (projectId, path) => remote.readProject(projectId, path) },
+          },
+          pendingEdits: remote.pendingEdits,
+          navigation: { pickAsset: (request) => remote.pickAsset(request) },
+        });
+        return;
+      }
       page.handle = mount(page.element, {
         document: remote as unknown as ViewContext["document"],
         services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities) },
@@ -361,11 +406,32 @@ class Webview {
           },
         },
         boardPreferences: remote.boardPreferences,
+        pendingEdits: remote.pendingEdits,
       });
       return;
     }
     page.remote?.receive(message);
   }
+}
+
+/** The sprite view document `webview.tsx` builds over a remote character or item. */
+function spriteViewDocument(remote: RemoteDocument): SpriteViewDocument | null {
+  if (remote.kind !== "character" && remote.kind !== "item") return null;
+  const kind = remote.kind;
+  if (!isSpriteSnapshot(remote.getSnapshot(), kind)) return null;
+  return {
+    kind,
+    identity: remote.identity,
+    getSnapshot: () => {
+      const snapshot = remote.getSnapshot();
+      if (!isSpriteSnapshot(snapshot, kind)) throw new Error(`The ${kind} editor received an invalid sprite snapshot.`);
+      return snapshot;
+    },
+    subscribe: (listener) => remote.subscribe(listener),
+    apply: (command) => remote.apply(command),
+    save: () => remote.save(),
+    resolveConflict: (choice) => remote.resolveConflict(choice),
+  };
 }
 
 async function untilSaved(view: MountedView, model: MainDocument, act: Act): Promise<void> {
@@ -418,6 +484,14 @@ class Workbench {
         script.opened.push(path);
         await this.focusOrOpen(path);
       },
+      ...(host.settleTimers === undefined ? {} : {
+        startSettleTimer: (onExpire: () => void) => {
+          const timers = host.settleTimers!;
+          const expire = (): void => onExpire();
+          timers.push(expire);
+          return { cancel: () => { const at = timers.indexOf(expire); if (at >= 0) timers.splice(at, 1); } };
+        },
+      }),
       quickPick: async (items, placeholder) => {
         script.pickLists.push({ placeholder, labels: items.map((item) => item.label) });
         return script.picks.shift();
@@ -628,14 +702,17 @@ class VscodeHost implements ConformanceHost {
   /** The provider's bound, as ADR 0022 D14.6 states it (written here, not imported, so the test checks the provider). */
   readonly saveWrites = 3;
   readonly drive = new Disk();
+  /** Timers the provider started for a save's wait on a webview, when a proof controls them: expired by hand, never by elapsed time. */
+  readonly settleTimers: Array<() => void> | undefined;
   readonly backups = new Map<string, Uint8Array>();
   readonly #backupIdsByDocument = new Map<string, string>();
   revertCommands = 0;
   readonly act: Act;
   #workbench: Workbench;
 
-  constructor(desktop: boolean, fixture: Uint8Array, act: Act, files: Readonly<Record<string, Uint8Array>> = {}) {
+  constructor(desktop: boolean, fixture: Uint8Array, act: Act, files: Readonly<Record<string, Uint8Array>> = {}, settleTimers?: Array<() => void>) {
     this.name = desktop ? "VS Code desktop" : "VS Code for the Web";
+    this.settleTimers = settleTimers;
     const capabilities = vscodeCapabilities(desktop);
     this.capabilities = new Set(capabilities);
     this.act = act;
@@ -755,6 +832,14 @@ class VscodeHost implements ConformanceHost {
     return this.#workbench.copies.size;
   }
 
+  /** The bytes of the provider's hot-exit backup of `copy`, as VS Code asks for them when it backs the document up. */
+  async backupOf(copy: WorkingCopy): Promise<Uint8Array> {
+    const backup = await this.#workbench.provider.backupCustomDocument(copy.custom, { path: `/backups/${copy.uri.path}` });
+    const bytes = this.backups.get(backup.id);
+    if (bytes === undefined) throw new Error("the provider backed nothing up");
+    return bytes.slice();
+  }
+
   /** The project-relative paths of the documents open now, in the order they were opened. */
   openPaths(): readonly string[] {
     return [...this.#workbench.copies.values()].map((copy) => copy.custom.model.identity.path);
@@ -853,6 +938,35 @@ export function createVscodeNavigationHost(desktop: boolean, gam: Uint8Array, fi
     disk: (path) => host.disk(path),
     modelsOpen: () => host.modelsOpen(),
     openPaths: () => host.openPaths(),
+    settle: () => host.settle(),
+  };
+}
+
+/** The VS Code host holding `files` (project-relative paths) besides a `.gam`, for the character proof of #1716. */
+export function createVscodeCharacterProofHost(
+  desktop: boolean,
+  gam: Uint8Array,
+  files: Readonly<Record<string, Uint8Array>>,
+  act: Act,
+  options: { readonly controlSettleTimers?: boolean } = {},
+): CharacterProofHost {
+  const timers: Array<() => void> = [];
+  const host = new VscodeHost(desktop, gam, act, files, options.controlSettleTimers === true ? timers : undefined);
+  return {
+    name: host.name,
+    async open(path): Promise<CharacterProofTab> {
+      const editor = (await host.open(path)) as VscodeEditor;
+      return {
+        get element() { return editor.webview.view.element; },
+        workbenchDirty: () => editor.copy.dirty,
+        holdEditAcknowledgements: () => editor.webview.holdEditResults(),
+        saveFromWorkbench: () => editor.copy.save().then(() => true, () => false),
+        backupBytes: () => host.backupOf(editor.copy),
+        close: (answer) => editor.close(answer),
+      };
+    },
+    disk: (path) => host.disk(path),
+    expireSettleTimers: () => { for (const expire of timers.splice(0)) expire(); },
     settle: () => host.settle(),
   };
 }

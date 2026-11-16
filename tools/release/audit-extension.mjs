@@ -11,6 +11,12 @@ const policy = { ...loadConfig(join(policyRoot, 'config.json')), blueOakList: lo
 const notices = readFileSync(join(root, 'THIRD_PARTY_NOTICES'), 'utf8');
 const metafiles = JSON.parse(readFileSync(join(root, 'extensions/rpgcode/dist/bundle-metafiles.json'), 'utf8'));
 if (!Array.isArray(metafiles) || metafiles.length !== 4) throw new Error('expected four extension bundle metafiles');
+const extensionManifest = JSON.parse(readFileSync(join(root, 'extensions/rpgcode/package.json'), 'utf8'));
+const directDependencies = new Set([
+  ...Object.keys(extensionManifest.dependencies ?? {}),
+  ...Object.keys(extensionManifest.optionalDependencies ?? {}),
+  ...Object.keys(extensionManifest.peerDependencies ?? {}),
+]);
 const packages = new Map();
 const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
 
@@ -40,10 +46,11 @@ for (const metafile of metafiles) {
 }
 if (packages.size === 0) throw new Error('extension bundle has no audited inputs');
 for (const manifest of packages.values()) {
-  const result = evaluateLicense(manifest.license, policy);
+  const tier = directDependencies.has(manifest.name) ? 'direct' : 'transitive';
+  const result = evaluateLicense(manifest.license, policy, tier);
   if (!result.pass) throw new Error(`${manifest.name}: ${result.reason}`);
   const firstParty = manifest.name === 'rpgtoolkit-reawakened' || manifest.name === 'rpgcode-language' || manifest.name.startsWith('@tk-reawakened/');
   if (!firstParty && !notices.includes(manifest.name)) throw new Error(`missing extension notice for ${manifest.name}@${manifest.version}`);
-  console.log(`${manifest.name}@${manifest.version}: ${manifest.license} OK`);
+  console.log(`${manifest.name}@${manifest.version} [${tier}]: ${manifest.license} OK`);
 }
 console.log(`extension bundle licence audit passed: ${packages.size} packages`);

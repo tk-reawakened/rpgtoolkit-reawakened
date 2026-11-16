@@ -59,7 +59,7 @@ The editor's "Test game" runs `engine <file.gam>` without saving open editors fi
 4. Create the window and graphics device: resolution from the main file (640×480, 800×600, 1024×768 or custom), full screen or windowed, colour depth 16/24/32 bits. If the requested mode fails, lower depths are tried and full screen falls back to windowed.
 5. Set tile or pixel movement and the game speed from the main file. Seed the frame-rate estimate (see Timing).
 6. Create the first player from `initChar` and make the player variables available to scripts.
-7. Run the start-up program **to completion** (it may show messages, ask questions, change variables, add players or even load a board).
+7. If `startupPrg` is non-empty, run that start-up program **to completion** (it may show messages, ask questions, change variables, add players or even load a board); if it is empty, skip this step.
 8. If no player exists at this point the game stops with "an initial character must be defined".
 9. Load `initBoard` (skipped if the start-up program loaded a saved game with `Load()`, which is how title screens offer "continue"), place the player at the board's start position, start the board's background music and run the board's `enterPrg`.
 10. Enter the main loop.

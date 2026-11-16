@@ -1,3 +1,4 @@
+import { createVscodePlayerHtml } from "./player-html.ts";
 import * as vscode from "vscode";
 import { createRunHandle, prepareBoardLaunch, prepareRun, prepareSceneLaunch, platformError, platformOk, type BoardLaunch, type Launch, type ProgramLaunch, type PreparedRun, type PlatformResult, type RunHandle, type RunService, type RunStartGuard, type RunStatus } from "@tk-reawakened/platform-services";
 import { boardStartUnit } from "@tk-reawakened/editor-model";
@@ -72,7 +73,7 @@ async function saveBeforeRun(generation: RunGeneration): Promise<PlatformResult<
 
 function playerHtml(webview: vscode.Webview, playerUri: vscode.Uri): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; img-src ${webview.cspSource} data: blob:; media-src ${webview.cspSource} blob:; worker-src blob: ${webview.cspSource}; connect-src ${webview.cspSource}; font-src ${webview.cspSource} data:;"><title>Running game</title><style>:root{color-scheme:dark}body{box-sizing:border-box;margin:0;height:100dvh;overflow:hidden;background:#111;color:#ddd;font:13px/1.4 ui-monospace,monospace;display:grid;grid-template-rows:minmax(0,1fr) auto}#stage{position:relative;display:grid;place-items:center;min-height:0;overflow:hidden}canvas{image-rendering:pixelated;display:block;width:100%;height:100%;background:#000;touch-action:none}#spinner[hidden]{display:none}#spinner{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}#spinner:before{content:"";width:36px;height:36px;border:4px solid #ffffff40;border-top-color:white;border-radius:50%;animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}pre{margin:8px 12px 12px;white-space:pre-wrap;overflow-wrap:anywhere}</style></head><body data-tkr-host="vscode"><div id="stage"><canvas id="screen" width="640" height="480" tabindex="0" aria-label="Game screen"></canvas><div id="spinner" role="status" aria-label="Loading" hidden></div></div><pre id="report">Starting game…</pre><script nonce="${nonce}" src="${webview.asWebviewUri(playerUri)}"></script></body></html>`;
+  return createVscodePlayerHtml(webview.cspSource, webview.asWebviewUri(playerUri).toString(), nonce);
 }
 
 /** Make the project-bound VS Code run surface. All launches use saved project bytes; no player reads the workspace again. */

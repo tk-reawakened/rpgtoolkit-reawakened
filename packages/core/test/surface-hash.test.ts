@@ -257,10 +257,10 @@ test("surface hashes preserve renderNowOn presence, values and direct mutations"
   equal(hashGameState(state), absentHash);
 });
 
-test("aliased program owners preserve canonical hashes through direct edits and evolving prefixes", () => {
+test("aliased owner-program table entries preserve canonical hashes through direct edits and evolving prefixes", () => {
   const state = withSurfaceBytes("A".repeat(10000));
   const ref = { kind: "inline" as const, text: "x".repeat(9000), ir: "1", owner: "pack" };
-  state.vm.defOwners = Object.fromEntries(Array.from({ length: 18 }, (_, i) => [`def${i}`, ref]));
+  state.vm.programs = Object.fromEntries(Array.from({ length: 18 }, (_, i) => [`def${i}`, ref]));
   for (let i = 0; i < 30; i += 1) {
     state.rng.s0 = i;
     state.time.tick = i;
@@ -270,39 +270,39 @@ test("aliased program owners preserve canonical hashes through direct edits and 
   equal(hashGameState(state), referenceHashProjection(state));
   ref.owner = "changed";
   equal(hashGameState(state), referenceHashProjection(state));
-  delete state.vm.defOwners.def3;
-  state.vm.defOwners.def4 = { ...ref };
+  delete state.vm.programs.def3;
+  state.vm.programs.def4 = { ...ref };
   equal(hashGameState(state), referenceHashProjection(state));
   const cloned = JSON.parse(JSON.stringify(state)) as GameState;
   equal(hashGameState(cloned), referenceHashProjection(cloned));
   ref.text = "café 😀\n" + ref.text;
   equal(hashGameState(state), referenceHashProjection(state));
-  state.vm.defOwners.def4 = { ...ref, includes: ["one.prg"], redirects: [["old", "new"]] };
+  state.vm.programs.def4 = { ...ref, includes: ["one.prg"], redirects: [["old", "new"]] };
   equal(hashGameState(state), referenceHashProjection(state));
-  state.vm.defOwners.def4.includes!.push("two.prg");
-  state.vm.defOwners.def4.redirects![0]![1] = "newer";
+  state.vm.programs.def4.includes!.push("two.prg");
+  state.vm.programs.def4.redirects![0]![1] = "newer";
   equal(hashGameState(state), referenceHashProjection(state));
 });
 
-test("many independent program owners retain parity as they are replaced", () => {
+test("many independent owner programs retain parity as they are replaced", () => {
   const state = withSurfaceBytes("A".repeat(10000));
-  state.vm.defOwners = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [
+  state.vm.programs = Object.fromEntries(Array.from({ length: 35 }, (_, i) => [
     `def${i}`,
     { kind: "inline" as const, text: `${i}:` + "x".repeat(8200), ir: "1" },
   ]));
   equal(hashGameState(state), referenceHashProjection(state));
   for (let i = 0; i < 8; i += 1) {
-    delete state.vm.defOwners[`def${i}`];
-    state.vm.defOwners[`replacement${i}`] = { kind: "inline", text: `${i}:` + "y".repeat(8200), ir: "1" };
+    delete state.vm.programs[`def${i}`];
+    state.vm.programs[`replacement${i}`] = { kind: "inline", text: `${i}:` + "y".repeat(8200), ir: "1" };
     state.rng.s0 = i;
     equal(hashGameState(state), referenceHashProjection(state));
   }
 });
 
-test("a large definition table hashes without exceeding call argument limits", () => {
+test("a large owner-program table hashes without exceeding call argument limits", () => {
   const state = withSurfaceBytes("");
   const ref = { kind: "inline" as const, text: "x", ir: "1" };
-  state.vm.defOwners = Object.fromEntries(Array.from({ length: 65000 }, (_, i) => [`d${i}`, ref]));
+  state.vm.programs = Object.fromEntries(Array.from({ length: 65000 }, (_, i) => [`d${i}`, ref]));
   equal(hashGameState(state), referenceHashProjection(state));
 });
 
@@ -318,4 +318,21 @@ test("surface canonical cache falls back for extra fields and rejects accessors"
   delete (state.surfaces.entries["1"]! as { extra?: string }).extra;
   Object.defineProperty(state.surfaces.entries["1"]!.bitmap, "w", { enumerable: true, get: () => 1 });
   throws(() => hashGameState(state), /accessor/);
+});
+
+test("non-ASCII owner programs hash identically through the cached byte transitions", () => {
+  // stock_menu's source opens with an em dash, so its owner segments are non-ASCII.
+  const state = withSurfaceBytes("A".repeat(10000));
+  const menu = { kind: "inline" as const, text: "// menu — default\n" + "x".repeat(9000), ir: "1", owner: "pack" };
+  const emoji = { kind: "inline" as const, text: "😀 café\n" + "y".repeat(9000), ir: "1" };
+  state.vm.programs = { menu, emoji };
+  state.vm.defOwners = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`def${i}`, i % 3 === 0 ? "emoji" : "menu"]));
+  // The first call learns each segment's lanes by scanning; later calls take the cached transitions.
+  for (let i = 0; i < 40; i += 1) {
+    state.rng.s0 = i;
+    state.time.tick = i;
+    equal(hashGameState(state), referenceHashProjection(state));
+  }
+  menu.text = "// menu — edited\n" + menu.text;
+  equal(hashGameState(state), referenceHashProjection(state));
 });

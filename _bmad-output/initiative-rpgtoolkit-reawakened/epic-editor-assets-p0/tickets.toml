@@ -31,7 +31,7 @@ title = "Board properties links and player start"
 description = "Edit board properties, directional links, threads, battle settings and player start with explicit linked-file navigation and main-file ownership."
 verify = "A board properties edit and startup-marker change save and reopen with unrelated properties intact and linked board or program visits return to their origin."
 covers = ["CAP-15"]
-after = [1, "11.4", "11.6"]
+after = [1, "11.4", "11.6", "11.7"]
 hitl = false
 risk = "medium"
 

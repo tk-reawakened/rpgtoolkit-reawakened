@@ -35,7 +35,7 @@ That is all the owner said. The measurements and the costs below are the spike's
 **Rules that bound the choice.**
 
 * G2: `editor-ui` reaches the host only through platform-services and imports no `host-*` package. The lint and dependency-graph checks must therefore be able to read the framework's source files.
-* G6: only Bronze-or-better licences in shipped trees, and every production package named in `THIRD_PARTY_NOTICES` (the checker, `tools/licences/check.mjs`, fails on one that is not).
+* G6: direct production dependencies meet the Blue Oak Bronze-or-better threshold; the complete shipped dependency closure is checked for copyleft, restricted, unknown or unlicensed terms, and all production packages and bundled files are named in `THIRD_PARTY_NOTICES` (ADR 0034).
 * G7: the provenance scan reads source files by extension; `tools/provenance/markers.json` lists `.ts` and `.tsx` and does not list `.vue` or `.svelte`.
 * ADR 0015: esbuild bundles every browser artefact; Vite is not installed.
 

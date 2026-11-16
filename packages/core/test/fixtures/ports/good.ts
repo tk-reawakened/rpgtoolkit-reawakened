@@ -615,6 +615,9 @@ export const conformingEngine: Engine = {
   advance(_ticks: number, _inputs: readonly InputRecord[], _maxTicks?: number): TickReport {
     return pinTickReport;
   },
+  stateHash(): string {
+    return pinTickReport.stateHash;
+  },
   drawList(_alpha?: number): DrawList {
     return pinDrawList;
   },

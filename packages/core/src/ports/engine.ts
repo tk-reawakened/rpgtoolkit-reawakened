@@ -156,7 +156,10 @@ export type TickObservation = {
  * batch, in emission order, so the concatenation over batches does not depend
  * on how ticks were batched; `loading` is set while a blocking request
  * freezes time; `paused` is set when a breakpoint hit mid-tick; `stateHash` is
- * the state hash without the script volume settings (`hashGameState`).
+ * the state hash without the script volume settings (`hashGameState`). An
+ * engine created with `stateHashInReports: "on-request"` returns
+ * `OnRequestTickReport`, which has no `stateHash`
+ * (docs/spec/engine/runners.md#state-hash-cadence).
  */
 export type TickReport = {
   readonly ticksRun: number;
@@ -169,6 +172,12 @@ export type TickReport = {
   readonly paused: PausedState | null;
   readonly stateHash: string;
 };
+
+/** When `advance` computes the state hash (docs/spec/engine/runners.md#state-hash-cadence). */
+export type StateHashInReports = "every-advance" | "on-request";
+
+/** A tick report from an `"on-request"` engine: the caller reads `engine.stateHash()` when it needs the hash. */
+export type OnRequestTickReport = Omit<TickReport, "stateHash">;
 
 /**
  * The engine a runner drives (AD-1). Every argument and result is
@@ -187,6 +196,13 @@ export interface Engine {
    * `resume` may request exactly one VM instruction and another pause.
    */
   advance(ticks: number, inputs: readonly InputRecord[], maxTicks?: number, resume?: ResumeMode): TickReport;
+
+  /**
+   * The state hash now. Between two `advance` calls it equals the `stateHash` the last `advance` reported (or would
+   * have reported, for an `"on-request"` engine), and reading it changes nothing
+   * (docs/spec/engine/runners.md#state-hash-cadence).
+   */
+  stateHash(): string;
 
   /** A pure function of current state; `alpha` is 0 in tests (AD-1). */
   drawList(alpha?: number, include?: DrawListInclude): DrawList;
@@ -260,3 +276,11 @@ export interface Engine {
    */
   evaluate(expression: string, threadId: number, frameDepth?: number): EvalResult;
 }
+
+/**
+ * An engine created with `stateHashInReports: "on-request"`. Its `advance` does not hash the state, so its report has
+ * no `stateHash`; the runner calls `stateHash()` when it needs one (docs/spec/engine/runners.md#state-hash-cadence).
+ */
+export type OnRequestEngine = Omit<Engine, "advance"> & {
+  advance(ticks: number, inputs: readonly InputRecord[], maxTicks?: number, resume?: ResumeMode): OnRequestTickReport;
+};

@@ -22,8 +22,12 @@ export interface RestoredWebProject {
 }
 
 let recentRecords: readonly StoredProject[] | null = null;
+let projectsDatabase: IDBDatabase | null = null;
+let projectsDatabaseOpening: Promise<IDBDatabase | null> | null = null;
 function openDatabase(): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
+  if (projectsDatabase !== null) return Promise.resolve(projectsDatabase);
+  if (projectsDatabaseOpening !== null) return projectsDatabaseOpening;
+  const opening = new Promise<IDBDatabase | null>((resolve) => {
     try {
       if (typeof indexedDB === "undefined") {
         resolve(null);
@@ -33,13 +37,23 @@ function openDatabase(): Promise<IDBDatabase | null> {
       request.onupgradeneeded = () => {
         if (!request.result.objectStoreNames.contains(STORE)) request.result.createObjectStore(STORE, { keyPath: "id" });
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        projectsDatabase = request.result;
+        request.result.onversionchange = () => {
+          request.result.close();
+          if (projectsDatabase === request.result) projectsDatabase = null;
+        };
+        resolve(request.result);
+      };
       request.onerror = () => resolve(null);
       request.onblocked = () => resolve(null);
     } catch {
       resolve(null);
     }
   });
+  projectsDatabaseOpening = opening;
+  void opening.then(() => { if (projectsDatabaseOpening === opening) projectsDatabaseOpening = null; });
+  return opening;
 }
 
 async function readProjects(): Promise<readonly StoredProject[] | null> {
@@ -49,10 +63,9 @@ async function readProjects(): Promise<readonly StoredProject[] | null> {
     let request: IDBRequest<StoredProject[]>;
     try {
       request = database.transaction(STORE, "readonly").objectStore(STORE).getAll();
-      request.onsuccess = () => { database.close(); resolve(request.result); };
-      request.onerror = () => { database.close(); resolve(null); };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
     } catch {
-      database.close();
       resolve(null);
     }
   });
@@ -66,10 +79,9 @@ async function writeProject(project: StoredProject): Promise<boolean> {
     try {
       transaction = database.transaction(STORE, "readwrite");
       transaction.objectStore(STORE).put(project);
-      transaction.oncomplete = () => { database.close(); resolve(true); };
-      transaction.onabort = transaction.onerror = () => { database.close(); resolve(false); };
+      transaction.oncomplete = () => resolve(true);
+      transaction.onabort = transaction.onerror = () => resolve(false);
     } catch {
-      database.close();
       resolve(false);
     }
   });

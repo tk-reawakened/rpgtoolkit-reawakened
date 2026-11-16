@@ -3,7 +3,7 @@ title: 'Carry the settings tracer through the web and VS Code adapters'
 type: 'feature'
 ticket: 18
 created: '2026-11-11'
-status: 'built'
+status: 'done'
 baseline_revision: '9239bcc1ff32dacf315fd95b7d30f5b8691b9d22'
 route: 'full'
 route_source: 'auto'
@@ -92,3 +92,7 @@ context: ['docs/guardrails.md', 'docs/adr/0022-shared-editor-authoring-contracts
 - Build both hosts; run the proof with `pnpm --dir tools/editor-vscode-test proof -- --extension <built-extension-dir> --workspace <fixture-workspace-dir> --game <relative.gam>` and run the browser and webview CSP probes through the required Playwright lane.
 - `pnpm typecheck`, `pnpm lint`, `pnpm graph`, `pnpm licence` and relevant gate tests — success, with proof dependencies actually included in licence coverage.
 - Check acceptance tests by perturbing the guarded behavior so each fails; restore the implementation afterward. Report any acceptance or verification that cannot be exercised.
+
+## Merged-state reconciliation, 2026-11-15
+
+PR #2095 merged as `d789f2af36ed04db994435a8420c54c413fd90e9`; #1833 is closed. At `3e61f3c2aedd2cd86dc0c29b5ebd750f5708f7bf`, `editor-host-adapters.test.ts` passed in the 37-test adapter/launch run with zero skips. The historical real-workbench and corpus proof above remains the evidence for those clauses; this fresh adapter run does not replace it.

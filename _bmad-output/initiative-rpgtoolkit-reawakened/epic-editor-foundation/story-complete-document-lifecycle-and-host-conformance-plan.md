@@ -2,7 +2,7 @@
 type: feature
 title: "Complete document lifecycle and host conformance"
 ticket: 3
-status: built
+status: done
 ---
 
 ## Scope
@@ -60,3 +60,7 @@ Prerequisites: 11.2.
   `pnpm provenance`, `pnpm editor-ui-toolchain:check`, `pnpm browser:test`, and the vscode.dev proof in the browser lane.
 - Every new evidence test was perturbed: the guarded behaviour was broken, the test observed to fail for the claimed
   reason, and the behaviour restored. The perturbations and both outcomes are recorded in the pull request.
+
+## Merged-state reconciliation, 2026-11-15
+
+Issue #1701 is closed after the lifecycle and conflict-recovery PRs merged. At `3e61f3c2aedd2cd86dc0c29b5ebd750f5708f7bf`, the shared `host-conformance.test.ts` suite passed for browser, VS Code desktop and VS Code web, including edit identity, save races, backup recovery and external changes (part of a 162-test focused run, zero skips). This records merged work, not a new native-workbench proof; the existing workbench lane remains required.

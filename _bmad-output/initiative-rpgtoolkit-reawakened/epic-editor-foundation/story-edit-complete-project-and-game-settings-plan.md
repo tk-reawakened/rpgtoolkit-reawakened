@@ -2,7 +2,7 @@
 type: feature
 title: "Edit complete project and game settings"
 ticket: 6
-status: draft
+status: done
 ---
 
 ## Scope
@@ -22,3 +22,7 @@ Both hosts edit and reopen representative fields in every T-10 through T-14 cate
 The project SoundFont uses `audioSettings.defaultSoundFont` in `docs/spec/formats/main-file.md#tkr-audio-settings-extension`; the existing reader/writer already owns its nullable and residue-preserving encoding. 11.1 may settle UI scope and ownership, not choose a competing persistence home.
 
 Prerequisites: 11.3, 11.4 and 21.2 (the existing game-file audio-settings reader/writer and boot contract).
+
+## Merged-state reconciliation, 2026-11-15
+
+PR #2291 merged as `25c0b2b2bf54d228e7697847e02d53d110ebe66e` with a successful required `gate`; issue #1704 is closed. At `3e61f3c2aedd2cd86dc0c29b5ebd750f5708f7bf`, `game-settings-hosts.test.ts` passed through all three host adapters: staged representative fields in every T-10–T-14 category, save/reopen, opaque bytes and real-engine boot. The accepted representative-field proof does not claim that native action-binding editing exists; that separate control surface remains #1103.

@@ -2,8 +2,8 @@
 
 * **Status:** Proposed (2026-11-12). Not approved by the owner. No code follows from it until it is accepted (issue #1829).
 * **Date:** 2026-11-12
-* **Context documents:** [0022](0022-shared-editor-authoring-contracts.md) D13 (Git is a capability), [0003](0003-permissive-licences-acceptable.md) (permissive licences), [guardrails](../guardrails.md) G6 (licence gate) and G7 (clean-room provenance), [0026](0026-editors-are-registered-by-document-kind.md).
-* **Does not reopen:** ADR 0022 D13.1, D13.2, D13.4 and D13.5; the exclusion of push, pull, remotes and credentials; ADR 0003; the text of G6 and G7.
+* **Context documents:** [0022](0022-shared-editor-authoring-contracts.md) D13 (Git is a capability), [0003](0003-permissive-licences-acceptable.md) as amended by [0034](0034-tiered-dependency-licence-policy.md), [guardrails](../guardrails.md) G6 (licence gate) and G7 (clean-room provenance), [0026](0026-editors-are-registered-by-document-kind.md).
+* **Does not reopen:** ADR 0022 D13.1, D13.2, D13.4 and D13.5; the exclusion of push, pull, remotes and credentials; ADR 0003's direct-dependency threshold; or G7. Current G6 tiering is defined by ADR 0034.
 * **Amends if accepted:** the wording of ADR 0022 D13.3, "the user's installed `git` in desktop". See Decision 3.
 
 ## In plain terms
@@ -13,8 +13,8 @@ ADR 0022 says the editor must show which game files changed, preview the change,
 ## Context
 
 - ADR 0022 D13.3 defines the standalone surface: status of changed documents, diff preview, stage and commit, and a read-only log, behind a platform-services `scm` interface. It leaves the engine open and says the choice is gated by G6.
-- G6 rule 1 requires every shipped dependency to be rated Bronze or better on the Blue Oak list. Rule 2 blocks copyleft of any strength, including GPL, and any licence that is unknown or unlisted. A blocked licence needs an ADR exception.
-- The repository gate is `tools/licences/check.mjs`, run as `pnpm run licence`. Its policy in `tools/licences/config.json` sets `minimumRating` to Bronze and blocks MS-PL. It evaluates AND, OR and parentheses. It does not evaluate SPDX `WITH` exceptions: `GPL-2.0-only WITH GCC-exception-2.0` is rejected as a malformed expression.
+- G6 requires direct production dependencies to be rated Bronze or better on the Blue Oak list; known transitive dependencies may use licences outside that list if they permit our actual use and redistribution and are not copyleft or restricted. Copyleft, restricted, unknown, missing or unclassifiable licences are blocked at either tier.
+- At the time of this inventory, the repository gate was `tools/licences/check.mjs`, run as `pnpm run licence`, with `minimumRating` set to Bronze and MS-PL blocked. That pre-amendment gate applied the rating to the whole tree. ADR 0034 requires the checker to distinguish direct from transitive dependencies. The evaluator handles AND, OR and parentheses but not SPDX `WITH` exceptions: `GPL-2.0-only WITH GCC-exception-2.0` is rejected as a malformed expression.
 
 ## Candidates
 

@@ -99,7 +99,7 @@ function bootAndRun(observe: boolean): Run {
   ]);
   const files = new Map<string, Uint8Array>();
   for (const [path, bytes] of paths) files.set(assetKey(path), bytes);
-  const init: EngineInit = {
+  const init: EngineInit & { readonly stateHashInReports?: "every-advance" } = {
     seed: 5,
     assetIndex: createAssetIndex([...paths.keys()]),
     assetRoot: PACKAGE_ROOT,

@@ -206,5 +206,5 @@ No new package and no new edge in the dependency list (AD-22) is proposed.
 | G2 | Kept. The table above adds no edge. A view written against a contract imports no host and no file format. |
 | G4 | Kept, and relied on: every preview replays an engine draw list. |
 | G5 | Goldens are untouched. The runner's inputs do not change. |
-| G6 | Each importer for an outside format needs a library or our own reader, and each library passes the licence gate before the story starts. |
+| G6 | Each directly selected importer library must meet the direct-dependency threshold; its production closure must pass G6's transitive non-copyleft, restriction and notice checks before the story starts. |
 | G7 | New kinds are our own designs, written in `docs/spec/` first. Legacy kinds are implemented from `docs/spec/` as now. |

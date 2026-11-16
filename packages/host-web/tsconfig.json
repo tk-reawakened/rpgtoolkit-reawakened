@@ -5,6 +5,7 @@
   "references": [
     { "path": "../editor-model" },
     { "path": "../editor-ui" },
+    { "path": "../lsp" },
     { "path": "../platform-services" }
   ]
 }

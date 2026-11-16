@@ -24,6 +24,12 @@ export interface FileSystemService {
    * previous content in place or reports it did not.
    */
   write(path: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
+  /**
+   * Make the folder `path`, and any missing folder above it, so an empty folder can exist (a new project's reserved
+   * folders, story 11.10). It is `ok` when the folder already exists; a file at `path` or at one of its ancestors is
+   * `not-a-directory` and nothing is changed. `""` (the root) is not a valid argument.
+   */
+  createFolder(path: string): Promise<PlatformResult<void>>;
   /** The kind, size and modification time of a file or folder. */
   stat(path: string): Promise<PlatformResult<FileStat>>;
   /** Remove a file, or a folder and everything in it. */
@@ -47,6 +53,7 @@ export function bindProjectFileSystem(
     list: (path) => fs.list(path),
     read: (path) => fs.read(path),
     write: (path, bytes) => fs.write(path, bytes),
+    createFolder: (path) => fs.createFolder(path),
     stat: (path) => fs.stat(path),
     delete: (path) => fs.delete(path),
     rename: (from, to) => fs.rename(from, to),
@@ -59,7 +66,7 @@ export function bindProjectFileSystem(
 }
 
 /** What a path names. */
-export type FileKind = "file" | "directory";
+export type FileKind = "file" | "directory" | "link";
 
 /** One child of a folder. */
 export interface DirectoryEntry {
@@ -67,6 +74,7 @@ export interface DirectoryEntry {
   readonly name: string;
   readonly kind: FileKind;
 }
+
 
 /** What `stat` reports. */
 export interface FileStat {

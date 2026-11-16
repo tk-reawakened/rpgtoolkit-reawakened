@@ -2,7 +2,7 @@
 type: feature
 title: "Character stats moves equipment and progression"
 ticket: 5
-status: draft
+status: done
 ---
 
 # Character stats moves equipment and progression
@@ -21,4 +21,13 @@ Use the shared document lifecycle and preserve same-version unknown data; exerci
 
 ## Dependencies and decision gate
 
-Prerequisites: 4. None newly identified; check the linked proposal and actual providers before implementation.
+Prerequisite 4 (shared sprite graphics) is delivered. Character reference paths are editable and persist; linked `.prg`/`.spc` authoring is not available from an unimplemented provider. The UI says so rather than pretending to open one; #2609 tracks that provider integration for the connected-editing work.
+
+## Implementation and verification
+
+- Shared model/bridge/view covers explicit stat bindings, identity, profile, move unlocks, equipment and level growth, retaining same-version residue. Renaming never regenerates variable bindings.
+- Accepted edits are submitted immediately. Move edits carry individual fields so two views cannot replace a sibling field with stale data. Conflict reload updates the observed snapshot and invalidates stale drafts.
+- VS Code retains hidden custom-editor contexts so native Save All and backup include accepted hidden edits. Closing a nonfinal split view does not drop its submitted edit.
+- Focused model, character-view and host lifecycle checks passed (49/49; each under one second), as did full typecheck, lint and graph checks. Final reviewed head `8cfd6315cb3c404f1b0aa66f492c1b65bf4fac0f` passed every CI job and the required gate in [run 43622456750](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/43622456750), including all eight unit shards, both golden lanes and the native browser proof.
+- Actual packaged VS Code web proof passed both Cancel and Keep flows, including character native Save All/reopen and art/bitmap stored-byte and pixel checks. The separate actual refused-save/concurrent-launch-edit guard proof also passed. Retained hidden frames are excluded from visual proof selection, not disabled in production.
+- Independently reviewed PR #2608 merged as `a76d4648e12c5293a3c7533b7c51258ea1ac0e4d`. #2609 remains open for missing linked providers; #2652 retains the explicit limitation for a host message not yet delivered before page destruction. Neither is claimed solved by trusting a local folder.

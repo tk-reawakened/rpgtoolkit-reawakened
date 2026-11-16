@@ -6,13 +6,18 @@ import {
   type AssetKind,
   createLayoutModel,
   createPreferences,
+  createProgramFile,
   createProjectTree,
   createTabs,
   createVisits,
+  DEFAULT_WORKBENCH_PANELS,
   listCandidates,
   newBoardSettingsFrom,
+  prepareGamePackage,
+  programPreferencesFrom,
   readBoardTemplate,
   rememberNewBoard,
+  suggestProgramPath,
   uniqueBoardName,
   type AnyDocument,
   type CreateBoardResult,
@@ -28,7 +33,7 @@ import {
   type Visits,
 } from "@tk-reawakened/editor-model";
 import { mountAssetPicker, mountNewBoard, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
-import { mountDocumentView, type DocumentView, type WebProject } from "./index.ts";
+import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
 const LAYOUT_SETTING = "workbench.layout";
@@ -36,6 +41,8 @@ const LAYOUT_SETTING = "workbench.layout";
 export interface WorkbenchOptions {
   /** Where the project's type folders are; the project root by default. */
   readonly projectLayout?: ProjectLayout;
+  /** The running project's main file (`.gam`), so program editors give the language server the project; none by default. */
+  readonly main?: string;
 }
 
 /** What an asset picker is asked for: a folder (by asset kind), the extensions the field takes, and what the field is called. */
@@ -73,6 +80,12 @@ export interface Workbench {
    * (cancelled, refused or failed; a refusal is said in a dialog).
    */
   newBoard(): Promise<string | null>;
+  /**
+   * Make a new program (T-40) and open it in a tab. The author names it in the Save dialog, which starts from the first free
+   * name in the programs folder; the file starts with the header template of the preferences and is never made over a file.
+   * Resolves with the new program's path, or `null` when nothing was made (cancelled, refused or failed; a refusal is said in a dialog).
+   */
+  newProgram(): Promise<string | null>;
   /** The layout as identifiers and numbers. */
   saveLayout(): SavedLayout;
   dispose(): void;
@@ -85,15 +98,12 @@ export interface Workbench {
  */
 export function createWorkbench(project: WebProject, element: HTMLElement, options: WorkbenchOptions = {}): Workbench {
   const projectLayout = options.projectLayout ?? { projectFolder: "" };
+  const main = options.main ?? null;
   const { workspace, services } = project;
   const tree = createProjectTree({ services, workspace });
   const tabs = createTabs(workspace);
   const visits = createVisits(workspace);
-  const layout = createLayoutModel([
-    { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
-    { id: "game", title: "Game", side: "left", visible: false, size: 240, minSize: 128, maxSize: 480 },
-    { id: "run", title: "Run", side: "bottom", visible: false, size: 240, minSize: 128, maxSize: 480 },
-  ]);
+  const layout = createLayoutModel(DEFAULT_WORKBENCH_PANELS);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
   let version = 0;
@@ -136,7 +146,9 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource), shownIn: container };
+          entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource, {
+            pickAsset: (request) => workbench.pickAsset(request),
+          }, main), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -233,6 +245,24 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     });
   };
 
+  const newProgram = async (): Promise<string | null> => {
+    await tell("New program checks for an existing path before writing. If another application creates the same path after that check, the write may replace that file.");
+    const chosen = await services.dialogs.pickSavePath({ document: "the new program", suggested: await suggestProgramPath(services.fs, projectLayout) });
+    if (chosen === null) return null;
+    const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
+    await preferences.refresh();
+    const { headerTemplate } = programPreferencesFrom(preferences.getSnapshot());
+    preferences.dispose();
+    const result = await createProgramFile(services.fs, chosen, headerTemplate);
+    if (!result.ok) {
+      await tell(result.message);
+      return null;
+    }
+    await tree.refresh();
+    await openPath(result.path);
+    return result.path;
+  };
+
   const launcher = createLauncher({ services, workspace });
   const shell: ViewHandle = mountShell(element, {
     layout,
@@ -240,20 +270,33 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tree,
     projectLayout,
     fs: services.fs,
+    workspace,
     launcher,
+    browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
     version,
     onOpened: (result) => {
       if (result.via === "document") show(result.document);
     },
     onOpenPath: (path) => { void openPath(path); },
+    onPackage: async (mainPath, releaseVersion) => {
+      const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
+      return prepared.ok ? { ok: true, prepared: prepared.value } : prepared;
+    },
+    onDownload: async (artifact) => {
+      const result = await services.packageExport?.downloadFile(artifact.fileName, artifact.bytes);
+      return result === undefined ? { ok: false, message: "This host provides no way to save package files, so the package cannot be exported from here." }
+        : result.ok ? { ok: true } : { ok: false, message: result.error.message };
+    },
     onNewBoard: () => { void newBoard(); },
+    onNewProgram: () => { void newProgram(); },
+    onOpenPreferences: () => { workbench.openPreferences(); },
     onEditorElement: (editorElement) => {
       slot = editorElement;
       sync();
     },
   });
 
-  return {
+  const workbench: Workbench = {
     tree,
     tabs,
     layout,
@@ -315,13 +358,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       close.textContent = "Close";
       overlay.append(close, body);
       element.append(overlay);
-      const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
+      const preferences = programPreferencesModelFor(project);
       const handle = mountPreferences(body, { preferences });
       const closePreferences = (): void => {
         if (openPrefs === null) return;
         openPrefs = null;
         handle.dispose();
-        preferences.dispose();
         overlay.remove();
         if (before instanceof HTMLElement) before.focus();
       };
@@ -333,6 +375,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       close.focus();
     },
     newBoard,
+    newProgram,
     saveLayout,
     dispose() {
       openPrefs?.();
@@ -348,4 +391,5 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       tree.dispose();
     },
   };
+  return workbench;
 }

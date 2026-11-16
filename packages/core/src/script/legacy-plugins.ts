@@ -9,6 +9,7 @@
  */
 
 import { encodeCp1252 } from "../formats/binary/cp1252.ts";
+import { codePoints } from "./text.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import type { Value } from "../ports/value.ts";
 import type { Arg, BuiltinDoc } from "./builtins.ts";
@@ -1059,9 +1060,9 @@ export const PROPLUG_PLUGIN: PluginDefinition = {
         { name: "n", optional: false, byRef: false, variadic: false },
       ],
       call: (_view, args) => {
-        const src = toStringValue(args[1]?.value as never);
+        const src = codePoints(toStringValue(args[1]?.value as never));
         const n = Math.max(0, Math.trunc(Number(args[2]?.value) || 0));
-        return { value: src.slice(0, n) };
+        return { value: src.slice(0, n).join("") };
       },
     },
     {
@@ -1089,8 +1090,8 @@ export const PROPLUG_PLUGIN: PluginDefinition = {
       ],
       call: (_view, args) => {
         const n = Math.max(0, Math.trunc(Number(args[2]?.value) || 0));
-        const s1 = toStringValue(args[0]?.value as never).slice(0, n);
-        const s2 = toStringValue(args[1]?.value as never).slice(0, n);
+        const s1 = codePoints(toStringValue(args[0]?.value as never)).slice(0, n).join("");
+        const s2 = codePoints(toStringValue(args[1]?.value as never)).slice(0, n).join("");
         if (s1 < s2) return { value: -1 };
         if (s1 > s2) return { value: 1 };
         return { value: 0 };

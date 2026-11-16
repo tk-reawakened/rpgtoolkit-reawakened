@@ -688,3 +688,85 @@ test("pure built-ins execution preserves snapshot and state hash", () => {
   equal(restoredHash, initialHash);
   deepEqual(restored.vm.globals, state.vm.globals);
 });
+
+// ---------------------------------------------------------------------------
+// String positions count code points (docs/spec/engine/rpgcode-functions.md#string-positions, #2773)
+// ---------------------------------------------------------------------------
+
+/** True when `value` has no unpaired surrogate, so it can enter the canonical form and the state hash. */
+function wellFormed(value: unknown): boolean {
+  return typeof value !== "string" || !/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(value);
+}
+
+test("splitting an emoji with mid no longer stores half a character, so the state still hashes and saves (#2773)", () => {
+  const state = run('face = "😀"\nhalf = mid(face, 1, 1)\n');
+  equal(state.vm.globals.half, "😀");
+  const hash = hashState(state);
+  equal(hashState(restoreGameState(snapshot(state))), hash);
+});
+
+test("string commands count an emoji as one character and never return half of one", () => {
+  const state = run(`
+    s = "a😀b"
+    n = len(s)
+    n2 = length(s)
+    l = left(s, 2)
+    r = right(s, 2)
+    m = mid(s, 2, 1)
+    c = charAt(s, 2)
+    i = inStr(s, "b")
+    i2 = inStr(s, "😀", 2)
+    a = asc("😀x")
+    ch = chr(128512)
+    bad = chr(55357)
+    neg = chr(-1)
+    big = chr(1114112)
+    rx = regExpReplace("😀😀", ".", "x")
+    rx2 = regExpReplace("😀", "\\-|^.", "y")
+    parts = split("😀b", "", arr)
+    first = arr[0]
+  `);
+  const g = state.vm.globals;
+  equal(g.n, 3);
+  equal(g.n2, 3);
+  equal(g.l, "a😀");
+  equal(g.r, "😀b");
+  equal(g.m, "😀");
+  equal(g.c, "😀");
+  equal(g.i, 3);
+  equal(g.i2, 2);
+  equal(g.a, 0x1f600);
+  equal(g.ch, "😀");
+  equal(g.bad, "�");
+  equal(g.neg, "�");
+  equal(g.big, "�");
+  equal(g.rx, "xx");
+  // `\-` is valid only in the older syntax, so this takes the fallback; its `.` matches half the emoji, repaired to U+FFFD.
+  equal(g.rx2, "y\ufffd");
+  equal(g.first, "😀");
+  for (const [name, value] of Object.entries(g)) equal(wellFormed(value), true, `${name} is well formed`);
+});
+
+test("ASCII string results are unchanged by the code-point rule", () => {
+  const g = run(`
+    n = len("hello")
+    l = left("hello", 2)
+    r = right("hello", 10)
+    m = mid("hello", 0, 2)
+    i = inStr("hello", "l", 4)
+    e = inStr("hello", "", 6)
+    a = asc("A")
+    ch = chr(65)
+    parts = split("ab", "", arr)
+    second = arr[1]
+  `).vm.globals;
+  equal(g.n, 5);
+  equal(g.l, "he");
+  equal(g.r, "hello");
+  equal(g.m, "he");
+  equal(g.i, 4);
+  equal(g.e, 6);
+  equal(g.a, 65);
+  equal(g.ch, "A");
+  equal(g.second, "b");
+});

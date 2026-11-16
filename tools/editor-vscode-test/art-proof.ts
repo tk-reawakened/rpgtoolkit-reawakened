@@ -2,6 +2,7 @@
 // File oracle: docs/spec/formats/tiles.md#tile-data. Lifecycle: ADR0022 D1–D3 and ADR0026.
 import { expandTileToRgba, readTileset, writeTileset } from "@tk-reawakened/core";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
+import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 
 type Expect = typeof playwrightExpect;
 type Rgba = readonly [number, number, number, number];
@@ -255,12 +256,16 @@ async function artFrames(page: Page, expect: Expect, count: number): Promise<Fra
   let found: Frame[] = [];
   await expect.poll(async () => {
     found = [];
-    for (const frame of page.frames()) {
-      if (frame.isDetached()) continue;
-      try {
-        if (await frame.locator(".tkr-tileset-art").count() === 1) found.push(frame);
-      } catch (error) {
-        if (!frame.isDetached()) throw error;
+    for (const outer of await page.locator("iframe.webview:visible").elementHandles()) {
+      const outerFrame = await outer.contentFrame();
+      if (outerFrame === null) continue;
+      for (const frame of outerFrame.childFrames()) {
+        if (frame.isDetached()) continue;
+        try {
+          if (await frame.locator(".tkr-tileset-art").count() === 1) found.push(frame);
+        } catch (error) {
+          if (!frame.isDetached()) throw error;
+        }
       }
     }
     return found.length;
@@ -278,12 +283,7 @@ async function artFrames(page: Page, expect: Expect, count: number): Promise<Fra
 
 async function openArt(page: Page, expect: Expect, path: string, actions: NativeArtActions): Promise<Frame> {
   await actions.focusWorkbench();
-  const folder = page.getByRole("treeitem", { name: "Tiles", exact: true });
-  await expect(folder).toBeVisible();
-  if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
-  const item = page.getByRole("treeitem", { name: path.split("/").at(-1)!, exact: true });
-  await expect(item).toBeVisible();
-  await item.dblclick();
+  await openNativeQuickOpenFile(page, expect, path);
   const frame = (await artFrames(page, expect, 1))[0]!;
   await actions.instrument(frame);
   return frame;

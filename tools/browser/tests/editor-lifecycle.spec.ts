@@ -17,6 +17,13 @@ async function commitTitle(page: Page, title: ReturnType<Page["getByLabel"]>, te
   await page.getByRole("button", { name: "Apply changes" }).click();
 }
 
+/** Invoke a command from the workbench Application menu (☰). */
+async function runMenuCommand(page: Page, name: RegExp, category: "File" | "Edit"): Promise<void> {
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: category, exact: true }).click();
+  await page.getByRole("menuitem", { name }).click();
+}
+
 test("the browser host undoes by editId, saves all, cancels a close, reverts, and never saves over a change on disk", async ({ page }) => {
   const folder = `TkrLifecycle-${randomUUID()}`;
   await page.addInitScript(async ({ bytes, folderName }: { readonly bytes: readonly number[]; readonly folderName: string }) => {
@@ -43,28 +50,28 @@ test("the browser host undoes by editId, saves all, cancels a close, reverts, an
   const opened = await title.inputValue();
 
   // Apply commits the staged title as one command.
-  // Undo and redo by editId through the host's toolbar.
+  // Undo and redo by editId through the host's application menu.
   await commitTitle(page, title, "First");
   await commitTitle(page, title, "Second");
   await expect(page.getByRole("status").filter({ hasText: "Unsaved changes" })).toBeVisible();
-  await page.getByRole("button", { name: "Undo" }).click();
+  await runMenuCommand(page, /^Undo\b/, "Edit");
   await expect(title).toHaveValue("First");
-  await page.getByRole("button", { name: "Undo" }).click();
+  await runMenuCommand(page, /^Undo\b/, "Edit");
   await expect(title).toHaveValue(opened);
-  await page.getByRole("button", { name: "Redo" }).click();
+  await runMenuCommand(page, /^Redo\b/, "Edit");
   await expect(title).toHaveValue("First");
 
   // Save all writes what is dirty, and each document reports on its own.
-  await page.getByRole("button", { name: "Save all" }).click();
+  await runMenuCommand(page, /Save All Open Documents/i, "File");
   await expect(page.locator("#host-status")).toContainText("Saved Main/one.gam.");
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
 
   // Revert returns to the file on disk; backing out of it first keeps the work.
   await commitTitle(page, title, "Not yet");
-  await page.getByRole("button", { name: "Revert" }).click();
+  await runMenuCommand(page, /Revert Active Document/i, "File");
   await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
   await expect(title).toHaveValue("Not yet");
-  await page.getByRole("button", { name: "Revert" }).click();
+  await runMenuCommand(page, /Revert Active Document/i, "File");
   await page.getByRole("dialog").getByRole("button", { name: "Revert", exact: true }).click();
   await expect(title).toHaveValue("First");
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
@@ -72,15 +79,15 @@ test("the browser host undoes by editId, saves all, cancels a close, reverts, an
 
   // A cancelled close keeps the view and its work; Don't save closes it.
   await commitTitle(page, title, "Close me");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await runMenuCommand(page, /Close Active Tab/i, "File");
   await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
   await expect(title).toHaveValue("Close me");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await runMenuCommand(page, /Close Active Tab/i, "File");
   await page.getByRole("dialog").getByRole("button", { name: "Don't save" }).click();
-  await expect(page.getByRole("toolbar", { name: "Document" })).toBeHidden();
+  await expect(title).toHaveCount(0);
 
   // Another program changes the file; the editor finds it when saving and never writes over it.
-  await page.getByRole("button", { name: "Open project folder" }).click();
+  await runMenuCommand(page, /Open Project Folder/i, "File");
   await page.getByLabel("Game in project").selectOption("Main/two.gam");
   await page.getByRole("button", { name: "Open selected game" }).click();
   await expect(page.locator("#host-status")).toContainText("Main/two.gam");

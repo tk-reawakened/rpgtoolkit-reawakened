@@ -14,7 +14,7 @@ Run the checks locally first; the commands are in the [Commands section of CONTR
 - [ ] **G3** No `Math.random`/`Date`/`performance.now`/`Intl` in `core`; only allowlisted `Math` members and no `**` (other maths via `core/fmath`); replay-hash test passes.
 - [ ] **G4** Renderers only replay draw lists; no game state or loop in renderer code.
 - [ ] **G5** Headless golden suite passes; any golden change is explained below.
-- [ ] **G6** Every new dependency's licence is rated Bronze or better on the Blue Oak Council list and not on the exception list (see G6 and ADR 0003); notices updated for bundled assets.
+- [ ] **G6** Direct production dependencies meet Blue Oak Bronze-or-better (or an explicit ADR exception); transitive dependencies and bundled files have known, redistributable, non-copyleft, non-restricted terms; required notices and attribution are complete (see ADR 0034).
 - [ ] **G7** Implemented from `docs/` only; no legacy source consulted or copied; doc fixes landed first if needed.
 - [ ] I cited the `docs/` sections this change implements (`docs/spec/<path>#<anchor>`, or T-xx IDs), or this change implements no behaviour.
 - [ ] No guard-rail exception, **or** exception marked inline with its ADR (`guardrail-exception: Gx ADR-NNNN`).

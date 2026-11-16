@@ -309,11 +309,15 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
 
   return (
     <section class="tkr-board" aria-label="Board" onKeyDown={onShortcut}>
-      <h2 class="tkr-board-heading">Board</h2>
-      <p class="tkr-board-summary">
-        {size.width} × {size.height} cells, {layers} {layers === 1 ? "layer" : "layers"}
-        {snapshot.coordType & 2 ? ", isometric (rotated)" : snapshot.coordType & 1 ? ", isometric (stacked)" : ""}
-      </p>
+      <div class="tkr-board-workspace">
+      <div class="tkr-board-main">
+      <div class="tkr-board-header-bar">
+        <h2 class="tkr-board-heading">Board</h2>
+        <p class="tkr-board-summary">
+          {size.width} × {size.height} cells, {layers} {layers === 1 ? "layer" : "layers"}
+          {snapshot.coordType & 2 ? ", isometric (rotated)" : snapshot.coordType & 1 ? ", isometric (stacked)" : ""}
+        </p>
+      </div>
       {snapshot.readOnly === null ? null : <p class="tkr-board-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
       {capabilities.has("fileWatch") ? null : (
         <p class="tkr-board-host-note">
@@ -342,7 +346,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           {resolveError === null ? null : <p class="tkr-board-error">{resolveError}</p>}
         </div>
       )}
-      <div class="tkr-board-toolbar" role="toolbar" aria-label="Board tools">
+      <div class="tkr-board-toolbar tkr-board-toolbar-tools" role="toolbar" aria-label="Board tools">
         {BOARD_TOOLS.map((tool) => (
           <button
             key={tool}
@@ -357,7 +361,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           </button>
         ))}
       </div>
-      <div class="tkr-board-toolbar" role="toolbar" aria-label="Board view">
+      <div class="tkr-board-toolbar tkr-board-toolbar-view" role="toolbar" aria-label="Board view">
         {canHistory ? (
           <>
             <button type="button" class="tkr-board-undo" disabled={!snapshot.canUndo || readOnly} aria-keyshortcuts="Control+Z" onClick={() => history("undo")}>Undo</button>
@@ -373,7 +377,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
       </div>
       {historyNote === null ? null : <p class="tkr-board-note" role="status">{historyNote}</p>}
       {layers > 1 ? (
-        <div class="tkr-board-row">
+        <div class="tkr-board-row tkr-board-layer-row">
           <label for={`${ids}-layer`}>Layer</label>
           <select id={`${ids}-layer`} value={String(currentLayer)} onChange={(event) => editor.setLayer(Number(event.currentTarget.value))}>
             {Array.from({ length: layers }, (_, index) => (
@@ -518,7 +522,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           ))}
         </div>
       )}
-      <div class="tkr-board-row">
+      <div class="tkr-board-row tkr-board-cell-row">
         <label for={`${ids}-tile`}>
           Tile for column {x + 1}, row {y + 1}
         </label>
@@ -568,7 +572,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
       {failure === null || (failure.kind === "conflict" && conflict !== null) ? null : (
         <p class="tkr-board-error" role="alert">{failure.message}</p>
       )}
-      {browser === undefined ? null : <div ref={browserRoot}><TilesetBrowser context={browser} /></div>}
+      </div>
+      {browser === undefined ? null : <div ref={browserRoot} class="tkr-board-browser"><TilesetBrowser context={browser} /></div>}
+      </div>
     </section>
   );
 }

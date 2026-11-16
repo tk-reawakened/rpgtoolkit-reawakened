@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -26,6 +26,29 @@ test("profile setup failure preserves its error and removes the workspace", asyn
     const failure = new Error("profile setup failed");
     await assert.rejects(createProofDirectories(game, "example.gam", root, async () => { throw failure; }), (error) => error === failure);
     assert.deepEqual(await readdir(root), ["source.gam"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the package proof copies project assets but keeps only its selected main file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "tkr-proof-setup-test-"));
+  try {
+    const source = join(root, "source");
+    const main = join(source, "Main", "example.gam");
+    await mkdir(join(source, "Main"), { recursive: true });
+    await mkdir(join(source, "Prg"), { recursive: true });
+    await writeFile(main, "main file");
+    await writeFile(join(source, "Main", "other.gam"), "other main");
+    await writeFile(join(source, "Prg", "start.prg"), "startup program");
+    const { workspace, profile } = await createProofDirectories(main, "Main/example.gam", root, undefined, source);
+    try {
+      assert.equal(await readFile(join(workspace, "Prg", "start.prg"), "utf8"), "startup program");
+      assert.deepEqual(await readdir(join(workspace, "Main")), ["example.gam"]);
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(profile, { recursive: true, force: true });
+    }
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -6,6 +6,7 @@ import type { DocumentIdentity } from "./identity.ts";
 import { createMainDocument, mainCodec, openMainDocument, type MainCommand, type MainDocument } from "./main-document.ts";
 import { createTilesetArtDocument, openTilesetArtDocument, tilesetArtCodec, type TilesetArtCommand } from "./tileset-art-document.ts";
 import { animationCodec, createAnimationDocument, openAnimationDocument, type AnimationCommand, type AnimationDocument } from "./animation-document.ts";
+import { createProgramDocument, openProgramDocument, programCodec, type ProgramCommand, type ProgramDocument } from "./program-document.ts";
 import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type TileBitmapCommand, type TileBitmapDocument } from "./tile-bitmap-document.ts";
 
 /**
@@ -17,12 +18,12 @@ import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
 /** What Toolkit 3 file the kind stands for, and which row of ADR 0022 D2 it follows. */
-export type StorageClass = "legacy-binary";
+export type StorageClass = "legacy-binary" | "program-text";
 
 export interface DocumentKind {
   /** The kind identifier, also `EditorDocument.kind`. */
@@ -125,6 +126,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     isCommand: animationCodec.isCommand,
     recoveryMarker: () => null,
   },
+  {
+    id: "program",
+    label: "RPGCode program",
+    description: "A script: the text of an RPGCode program, edited with colouring, call tips and a command reference.",
+    extensions: [".prg"],
+    storage: "program-text",
+    open: openProgramDocument,
+    create: createProgramDocument,
+    summarise: (bytes, path) => {
+      const read = programCodec.read(bytes, path);
+      return read.ok ? programCodec.summary(read.value) : null;
+    },
+    isCommand: programCodec.isCommand,
+    recoveryMarker: () => null,
+  },
   ...(["character", "item"] as const).map((id) => ({
     id,
     label: id === "character" ? "Character" : "Item",
@@ -185,4 +201,10 @@ export function asTileBitmapDocument(document: AnyDocument): TileBitmapDocument 
 export function asAnimationDocument(document: AnyDocument): AnimationDocument {
   if (document.kind !== "animation") throw new Error(`${document.identity.path} is a ${document.kind} document, not an animation.`);
   return document as unknown as AnimationDocument;
+}
+
+/** The document as a program document (see `asMainDocument`). */
+export function asProgramDocument(document: AnyDocument): ProgramDocument {
+  if (document.kind !== "program") throw new Error(`${document.identity.path} is a ${document.kind} document, not a program.`);
+  return document as unknown as ProgramDocument;
 }

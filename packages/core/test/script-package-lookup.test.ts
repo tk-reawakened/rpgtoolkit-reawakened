@@ -522,7 +522,7 @@ test("a built-in shadowed while a package also supplies the name still names the
   deepEqual(warnings[0]!.winner, 'built-in "core"');
 });
 
-test("pre-#1673 saves with <inline>#lambda_N package startup closures and collided defOwners migrate and run (#1676)", () => {
+test("pre-#1673 saves with <inline>#lambda_N package startup closures are refused, not migrated (#1676, #2767)", () => {
   const spec: RigSpec = {
     packages: [
       { name: "alpha", source: "alphaObj = { fn: (n) => n + 10 }\n" },
@@ -534,16 +534,22 @@ test("pre-#1673 saves with <inline>#lambda_N package startup closures and collid
   drainDiagnostics(initial.services);
 
   // Rewrite the snapshot to the pre-#1673 layout where both inline package startups emitted
-  // `<inline>#lambda_1` and `vm.defOwners` kept only the first package's ProgramRef.
+  // `<inline>#lambda_1` and `vm.defOwners` kept only the first package's ProgramRef. Such a save
+  // predates vm schema 8, which stores owners in `vm.programs`, so it is refused whole (owner
+  // ruling 2026-11-15: docs/spec/formats/save-game.md#save-compatibility-and-instruction-versions-owner-ruling).
   const pre1673 = JSON.parse(snapshot(initial.state)) as {
+    schema: { vm: number };
     vm: {
       defOwners: Record<string, unknown>;
+      programs?: Record<string, unknown>;
       objects: Array<{ members: Record<string, { type?: string; def?: string; owner?: string }> }>;
     };
   };
-  const alphaRef = pre1673.vm.defOwners["<package:alpha>#lambda_1"];
+  const alphaRef = pre1673.vm.programs?.[pre1673.vm.defOwners["<package:alpha>#lambda_1"] as string];
   ok(alphaRef !== undefined);
+  pre1673.schema.vm = 7;
   pre1673.vm.defOwners = { "<inline>#lambda_1": alphaRef };
+  delete pre1673.vm.programs;
   for (const object of pre1673.vm.objects) {
     for (const member of Object.values(object.members)) {
       if (member?.type === "callable" && typeof member.def === "string") {
@@ -552,12 +558,13 @@ test("pre-#1673 saves with <inline>#lambda_N package startup closures and collid
     }
   }
 
-  const restored = restore(initial, JSON.stringify(pre1673));
-  deepEqual(Object.keys(restored.state.vm.defOwners ?? {}).sort(), [
-    "<package:alpha>#lambda_1",
-    "<package:beta>#lambda_1",
-  ]);
-  deepEqual(run(restored), []);
-  equal(restored.state.vm.globals.a, 15);
-  equal(restored.state.vm.globals.b, 25);
+  let refused: unknown;
+  try {
+    restore(initial, JSON.stringify(pre1673));
+  } catch (error) {
+    refused = error;
+  }
+  ok(refused instanceof ScriptError, String(refused));
+  equal(refused.code, "restore.shape");
+  ok(refused.message.includes("vm.defOwners"), refused.message);
 });

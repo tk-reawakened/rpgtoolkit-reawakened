@@ -17,7 +17,7 @@
 import { FIRST_PARTY_PLUGINS, commandDocumentation, tokenizeObjects, type Token } from "@tk-reawakened/core";
 
 /** Keywords and reserved literals the 3.1 reader spells in lower case. */
-const KEYWORDS: readonly string[] = [
+export const KEYWORDS: readonly string[] = [
   "function", "method", "inline", "if", "elseif", "else", "while", "until", "for", "switch", "case", "default",
   "return", "local", "global", "class", "struct", "var", "public", "private", "this", "new", "and", "or",
   "true", "false", "null", "on", "error", "resume", "next", "goto", "include", "redirect", "killredirect",

@@ -1,9 +1,12 @@
 /**
- * Exact ASCII-segment FNV-1a transitions. For h = 256q + r, XOR changes only
- * r, so each segment is affine in q for a fixed incoming low byte r. A lane is
- * learned only when it occurs: an unseen r still requires one segment scan.
+ * Exact FNV-1a segment transitions. For h = 256q + r, XOR with a byte changes
+ * only r, so each segment is affine in q for a fixed incoming low byte r. A
+ * lane is learned only when it occurs: an unseen r still requires one segment
+ * scan. The argument holds for any byte sequence, so a non-ASCII segment uses
+ * the same transition over its UTF-8 bytes (`createFnvAsciiTransition` takes
+ * the byte length, which equals the string length only for ASCII).
  */
-import { fnv1a64UpdateAscii, type Fnv1a64State } from "./fnv1a.ts";
+import { fnv1a64Update, fnv1a64UpdateAscii, type Fnv1a64State } from "./fnv1a.ts";
 
 const PRIME = 0x100000001b3n;
 const MASK = 0xffffffffffffffffn;
@@ -26,12 +29,25 @@ export function createFnvAsciiTransition(length: number): FnvAsciiTransition {
   return { high: new Uint32Array(256), low: new Uint32Array(256), seen: new Uint8Array(256), multiplier };
 }
 
-/** Hash a segment exactly, learning its incoming low-byte lane on a miss. */
+/** Hash an ASCII segment exactly, learning its incoming low-byte lane on a miss. */
 export function applyFnvAsciiTransition(transition: FnvAsciiTransition, input: string, state: Fnv1a64State): void {
+  applyTransition(transition, input, state);
+}
+
+/**
+ * Hash a segment's UTF-8 bytes exactly, learning its incoming low-byte lane on a miss. The transition must have
+ * been created with `bytes.length`.
+ */
+export function applyFnvByteTransition(transition: FnvAsciiTransition, bytes: Uint8Array, state: Fnv1a64State): void {
+  applyTransition(transition, bytes, state);
+}
+
+function applyTransition(transition: FnvAsciiTransition, input: string | Uint8Array, state: Fnv1a64State): void {
   const r = state.low & 255;
   const upper = (BigInt(state.high) << 32n) | BigInt((state.low & 0xffffff00) >>> 0);
   if (transition.seen[r] === 0) {
-    fnv1a64UpdateAscii(input, state);
+    if (typeof input === "string") fnv1a64UpdateAscii(input, state);
+    else fnv1a64Update(input, state);
     const output = (BigInt(state.high) << 32n) | BigInt(state.low);
     const correction = (output - upper * transition.multiplier) & MASK;
     transition.high[r] = Number(correction >> 32n);

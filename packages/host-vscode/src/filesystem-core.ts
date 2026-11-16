@@ -5,6 +5,7 @@ export interface VscodeUriLike { readonly path: string }
 
 export interface VscodeFileSystemPort<Uri extends VscodeUriLike> {
   isDirectory(type: number): boolean;
+  isSymbolicLink(type: number): boolean;
   joinPath(root: Uri, ...segments: string[]): Uri;
   parent(uri: Uri): Uri;
   readDirectory(uri: Uri): Promise<readonly (readonly [string, number])[]>;
@@ -38,7 +39,10 @@ export function createVscodeFileSystemWithPort<Uri extends VscodeUriLike>(root: 
       const uri = value === "" ? root : path(value);
       if (!uri) return invalid(value);
       try {
-        const entries: DirectoryEntry[] = (await port.readDirectory(uri)).map(([name, type]) => ({ name, kind: port.isDirectory(type) ? "directory" : "file" }));
+        const entries: DirectoryEntry[] = (await port.readDirectory(uri)).map(([name, type]) => ({
+          name,
+          kind: port.isSymbolicLink(type) ? "link" : port.isDirectory(type) ? "directory" : "file",
+        }));
         return platformOk(entries);
       } catch (error) { return failure(error, value || "."); }
     },
@@ -54,11 +58,23 @@ export function createVscodeFileSystemWithPort<Uri extends VscodeUriLike>(root: 
       try { await port.createDirectory(port.parent(uri)); await port.writeFile(uri, bytes); return platformOk(undefined); }
       catch (error) { return failure(error, value); }
     },
+    async createFolder(value) {
+      const uri = path(value);
+      if (!uri) return invalid(value);
+      try { await port.createDirectory(uri); return platformOk(undefined); }
+      catch (error) {
+        // A file where the folder belongs is not an error of the host's own: it is the contract's `not-a-directory`.
+        return port.errorCode(error) === "FileExists" ? platformError("not-a-directory", `${value} is a file`) : failure(error, value);
+      }
+    },
     async stat(value) {
       const uri = value === "" ? root : path(value);
       if (!uri) return invalid(value);
-      try { const info = await port.stat(uri); return platformOk({ kind: port.isDirectory(info.type) ? "directory" : "file", size: info.size, modifiedMs: info.mtime }); }
-      catch (error) { return failure(error, value || "."); }
+      try {
+        const info = await port.stat(uri);
+        const kind = port.isSymbolicLink(info.type) ? "link" : port.isDirectory(info.type) ? "directory" : "file";
+        return platformOk({ kind, size: info.size, modifiedMs: info.mtime });
+      } catch (error) { return failure(error, value || "."); }
     },
     async delete(value) {
       const uri = path(value);

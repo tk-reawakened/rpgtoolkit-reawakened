@@ -1,42 +1,133 @@
+/* ==========================================================================
+   TK Reawakened — Shared IDE Design Tokens & Tileset Artwork Editor (#2703)
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* Surface hierarchy: bridges VS Code theme variables with light-dark() browser defaults */
+  --tkr-bg-app: var(--vscode-sideBar-background, light-dark(#f1f5f9, #18181b));
+  --tkr-bg-panel: var(--vscode-editorWidget-background, light-dark(#f8fafc, #1f1f24));
+  --tkr-bg-surface: var(--vscode-editor-background, light-dark(#ffffff, #141417));
+  --tkr-bg-elevated: var(--vscode-QuickInput-background, light-dark(#ffffff, #27272d));
+  --tkr-bg-stage: var(--vscode-editor-background, light-dark(#cbd5e1, #0d0d10));
+  --tkr-bg-control: var(--vscode-input-background, light-dark(#ffffff, #26262c));
+  --tkr-bg-control-hover: var(--vscode-list-hoverBackground, light-dark(#e2e8f0, #32323a));
+
+  /* Typography & ink */
+  --tkr-fg-primary: var(--vscode-foreground, light-dark(#0f172a, #e4e4e7));
+  --tkr-fg-muted: var(--vscode-descriptionForeground, light-dark(#475569, #a1a1aa));
+  --tkr-fg-disabled: var(--vscode-disabledForeground, light-dark(#94a3b8, #63636e));
+
+  /* Borders & dividers */
+  --tkr-border-subtle: var(--vscode-panel-border, light-dark(#cbd5e1, #2e2e36));
+  --tkr-border-strong: var(--vscode-input-border, light-dark(#94a3b8, #43434f));
+
+  /* Semantic accents & states */
+  --tkr-accent: var(--vscode-focusBorder, light-dark(#2563eb, #3b82f6));
+  --tkr-accent-fg: var(--vscode-button-foreground, #ffffff);
+  --tkr-accent-subtle: var(--vscode-list-activeSelectionBackground, light-dark(rgba(37, 99, 235, 0.14), rgba(59, 130, 246, 0.22)));
+  --tkr-focus-ring: var(--vscode-focusBorder, light-dark(#2563eb, #60a5fa));
+
+  --tkr-dirty: var(--vscode-gitDecoration-modifiedResourceForeground, light-dark(#d97706, #f59e0b));
+  --tkr-dirty-subtle: light-dark(rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.18));
+
+  --tkr-danger: var(--vscode-errorForeground, light-dark(#dc2626, #f87171));
+  --tkr-danger-subtle: light-dark(rgba(220, 38, 38, 0.1), rgba(248, 113, 113, 0.16));
+
+  --tkr-success: light-dark(#15803d, #4ade80);
+
+  /* Typography scale */
+  --tkr-font-sans: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif);
+  --tkr-font-mono: var(--vscode-editor-font-family, ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, monospace);
+
+  --tkr-text-xs: 0.75rem;
+  --tkr-text-sm: 0.8125rem;
+  --tkr-text-md: 0.875rem;
+  --tkr-text-lg: 0.9375rem;
+
+  /* Geometry & elevation */
+  --tkr-radius-sm: 4px;
+  --tkr-radius-md: 6px;
+  --tkr-shadow-stage: 0 2px 10px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--tkr-border-strong);
+  --tkr-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--tkr-border-strong);
+}
+
+/* Tileset Artwork Editor (.tkr-tileset-art) */
 .tkr-tileset-art {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.625rem;
   align-content: start;
-  color: var(--vscode-foreground, inherit);
+  padding: 0.75rem 1rem;
+  color: var(--tkr-fg-primary);
+  font-family: var(--tkr-font-sans);
+  font-size: var(--tkr-text-md);
 }
 
 .tkr-tileset-art-heading {
   margin: 0;
+  font-size: var(--tkr-text-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.tkr-tileset-art-summary {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  font-family: var(--tkr-font-mono);
+  color: var(--tkr-fg-muted);
 }
 
 .tkr-tileset-art-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem 0.5rem;
+  padding: 0.375rem 0.625rem;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-tileset-art-controls label {
+  font-size: var(--tkr-text-xs);
+  font-weight: 500;
+  color: var(--tkr-fg-muted);
 }
 
 .tkr-tileset-art-controls select {
-  min-width: 5rem;
+  min-inline-size: 5.5rem;
 }
 
 .tkr-tileset-art-controls input[type="color"] {
-  width: 3rem;
-  min-height: 2rem;
+  inline-size: 2.25rem;
+  block-size: 1.75rem;
   padding: 0.125rem;
+  border-radius: var(--tkr-radius-sm);
+  cursor: pointer;
+}
+
+.tkr-tileset-art-swatch {
+  font-family: var(--tkr-font-mono);
+  font-size: var(--tkr-text-xs);
 }
 
 .tkr-tileset-art-canvas-wrap {
   display: grid;
-  justify-items: start;
+  justify-items: center;
+  align-items: center;
   gap: 0.5rem;
-  min-width: 0;
+  min-inline-size: 0;
+  padding: 1rem;
+  background: var(--tkr-bg-stage);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
 }
 
 .tkr-tileset-art-canvas {
   display: block;
-  width: min(100%, 512px);
-  height: auto;
+  inline-size: min(100%, 420px);
+  block-size: auto;
   aspect-ratio: 1;
   image-rendering: pixelated;
   touch-action: none;
@@ -48,24 +139,39 @@
     linear-gradient(45deg, color-mix(in srgb, CanvasText 12%, transparent) 25%, transparent 25%, transparent 75%, color-mix(in srgb, CanvasText 12%, transparent) 75%);
   background-position: 0 0, 8px 8px;
   background-size: 16px 16px;
-  box-shadow: 0 0 0 1px currentColor;
+  box-shadow: var(--tkr-shadow-stage);
 }
 
 .tkr-tileset-art-canvas:focus-visible {
-  outline: 2px solid var(--vscode-focusBorder, Highlight);
+  outline: 2px solid var(--tkr-focus-ring);
   outline-offset: 2px;
 }
 
 .tkr-tileset-art-instructions,
 .tkr-tileset-art-note,
 .tkr-tileset-art-state,
-.tkr-tileset-art-empty {
+.tkr-tileset-art-empty,
+.tkr-tileset-art-readonly,
+.tkr-tileset-art-host-note {
   margin: 0;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-tileset-art-state {
+  font-weight: 600;
+  color: var(--tkr-fg-primary);
 }
 
 .tkr-tileset-art-error,
 .tkr-tileset-art-conflict [role="alert"] {
-  color: var(--vscode-errorForeground, #b00020);
+  margin: 0;
+  padding: 0.375rem 0.625rem;
+  color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-sm);
 }
 
 .tkr-tileset-art-conflict {
@@ -73,8 +179,10 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.75rem;
-  border: 1px solid currentColor;
+  padding: 0.625rem 0.75rem;
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-md);
 }
 
 .tkr-tileset-art-conflict p {

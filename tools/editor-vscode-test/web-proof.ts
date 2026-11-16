@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { BinaryReader, readBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
-import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
+import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
+import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
@@ -217,7 +219,7 @@ export async function runVscodeGuardProof(
   const title = editor.getByLabel("Game title");
   await title.fill("Save must fail");
   await editor.getByRole("button", { name: "Apply changes" }).click();
-  await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
   await runCommand(page, expect, "Test: Fail Saves");
   await runCommand(page, expect, "Test: Run Example Program");
   await expect(page.getByText(/Program launch refused:.*save/i)).toBeVisible({ timeout: 30_000 });
@@ -225,7 +227,7 @@ export async function runVscodeGuardProof(
   expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
   await runCommand(page, expect, "Test: Allow Saves");
   await editor.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(editor.getByRole("status")).toHaveText("All changes saved");
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
   await runCommand(page, expect, "Test: Pause Program Read");
   await runCommand(page, expect, "Test: Run Example Program");
   await expect(page.getByText("Fixture read paused")).toBeVisible({ timeout: 30_000 });
@@ -236,6 +238,38 @@ export async function runVscodeGuardProof(
   await runCommand(page, expect, "Test: Resume Program Read");
   await expect(page.getByText(/Program launch refused:.*changed/i)).toBeVisible({ timeout: 30_000 });
   expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+}
+
+/**
+ * Real VS Code for the Web: the "RPG Toolkit: New project" command is contributed, the extension activates, and the command
+ * asks its first question (the game name) in VS Code's own input box — and dismissing it writes nothing. The folder dialog
+ * cannot be driven from the workbench, so creating a project itself is proved by
+ * `new-project-vscode-command.test.ts` (the real `extension.ts` over a fake workspace) and by the browser host's
+ * real File System Access proof in `editor-web-host.spec.ts`.
+ */
+export async function runVscodeNewProjectProof(
+  page: Page,
+  expect: Expect,
+  workbenchUrl: string,
+  tree: () => Promise<readonly string[]>,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  const before = await tree();
+  const widget = page.locator(".quick-input-widget");
+  const commandInput = await commandPalette(page, expect);
+  await commandInput.fill(">RPG Toolkit: New project");
+  const row = page.getByRole("option", { name: /^RPG Toolkit: New project(?:,|$)/ });
+  await expect(row, "the New project command is contributed exactly once").toHaveCount(1);
+  await row.click();
+  // The command's first question is an input box; Escape dismisses it and the command reports a cancel.
+  await expect(widget, "the first question is shown").toBeVisible();
+  const answer = widget.getByRole("textbox");
+  await expect(answer).toBeVisible();
+  await expect(widget).toContainText("Game name");
+  await answer.press("Escape");
+  await expect(widget).toBeHidden();
+  expect(await tree(), "dismissing the wizard wrote nothing").toEqual(before);
 }
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
@@ -264,6 +298,29 @@ export async function runVscodeSpriteWebProof(
   const north = view.getByRole("group", { name: "Directional walk animations" }).getByLabel("North animation file");
   await north.fill("Misc/vscode-web-proof.gif");
   await north.press("Tab");
+  // #2609: the character editor cannot open linked files; keep the disclosure and omit Open actions.
+  const authoring = editor.getByRole("region", { name: "Character authoring" });
+  await expect(authoring.getByLabel("Linked authoring availability")).toContainText("cannot open linked");
+  await expect(authoring.getByRole("button", { name: /^Open (level-up program|special-move file)$/ })).toHaveCount(0);
+  // #2613: the last edit is submitted by leaving its field; the view's Save, like VS Code's, includes it.
+  await authoring.getByLabel("Character name", { exact: true }).fill("Vscode proof");
+  await authoring.getByLabel("Health (HP)", { exact: true }).fill("77");
+  await authoring.getByLabel("Health (HP)", { exact: true }).press("Tab");
+  // Switch away before the webview-side character queue has any reason to be drained, then save all while it is hidden.
+  await editor.evaluate(() => { (window as ProofWindow & { __tkrCharacterAlive?: string }).__tkrCharacterAlive = "before-hiding"; });
+  await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
+  await runCommand(page, expect, "Test: Save All Workbench Editors");
+  await expect.poll(() => host.readBacking(spritePath), { timeout: 30_000 }).not.toEqual(originalBytes);
+  await closeActiveEditor(page, expect);
+  editor = await waitForEditorFrame(page, "character editor shown again after Save All");
+  const characterViewAlive = await editor.evaluate(() => (window as ProofWindow & { __tkrCharacterAlive?: string }).__tkrCharacterAlive);
+  if (characterViewAlive !== "before-hiding") throw new Error("VS Code destroyed the retained character-editor page while its tab was hidden");
+  const restoredAuthoring = editor.getByRole("region", { name: "Character authoring" });
+  await expect(restoredAuthoring.getByLabel("Character name", { exact: true })).toHaveValue("Vscode proof");
+  await expect(restoredAuthoring.getByLabel("Health (HP)", { exact: true })).toHaveValue("77");
+  const savedBytes = await host.readBacking(spritePath);
+  expect(savedBytes).not.toEqual(originalBytes);
   const previewStylesheet = editor.locator('link[rel="stylesheet"][href$="tileset-browser.css"]');
   await expect(previewStylesheet).toHaveCount(1);
   expect(await previewStylesheet.evaluate((link) => (link as HTMLLinkElement).sheet !== null)).toBe(true);
@@ -305,10 +362,6 @@ export async function runVscodeSpriteWebProof(
   });
   expect(previewLayout.overlayWidth).toBe(previewLayout.stageWidth);
   expect(previewLayout.overlayHeight).toBe(previewLayout.stageHeight);
-  await view.getByRole("button", { name: "Save sprite" }).click();
-  await expect(view.getByText("Sprite saved.", { exact: true })).toBeVisible();
-  const savedBytes = await host.readBacking(spritePath);
-  expect(savedBytes).not.toEqual(originalBytes);
   await closeActiveEditor(page, expect);
   await openGame(page, spritePath, expect);
   editor = await waitForEditorFrame(page, "reopened sprite graphics editor");
@@ -316,8 +369,23 @@ export async function runVscodeSpriteWebProof(
   const reopenedWalk = reopened.getByRole("group", { name: "Directional walk animations" });
   await expect(reopenedWalk.getByLabel("South animation file")).toHaveValue("Misc/vscode-web-proof.anm");
   await expect(reopenedWalk.getByLabel("North animation file")).toHaveValue("Misc/vscode-web-proof.gif");
+  const reopenedAuthoring = editor.getByRole("region", { name: "Character authoring" });
+  await expect(reopenedAuthoring.getByLabel("Character name", { exact: true })).toHaveValue("Vscode proof");
+  await expect(reopenedAuthoring.getByLabel("Health (HP)", { exact: true })).toHaveValue("77");
   await expect(reopened.getByText("All sprite changes saved.", { exact: true })).toBeVisible();
   expect(await host.readBacking(spritePath)).toEqual(savedBytes);
+}
+
+/** Focus the VS Code command-palette autosave proof on a fresh real custom editor. */
+export async function runVscodeAutosaveCommandProof(
+  page: Page, expect: Expect, workbenchUrl: string, gamePath: string, autosaveTitle: string,
+  autosaveBytes: Uint8Array, host: ProofHost,
+): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await openGame(page, gamePath, expect);
+  await waitForEditorFrame(page, "focused autosave command proof settings editor");
+  await runAutosaveCommandScenario(page, expect, autosaveTitle, autosaveBytes, host);
 }
 
 /** Run against vscode-test-web's actual browser workbench, not an extension-host mock. */
@@ -368,6 +436,23 @@ export async function runVscodeWebProof(
   await enableWorkbenchTraceLogging(page, expect);
   await openGame(page, gamePath, expect);
 
+  // The package command is contributed to both the command palette and .gam Explorer context menu.
+  const packageCommand = await commandPalette(page, expect);
+  await packageCommand.fill(">RPG Toolkit: Package game");
+  const packageEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "RPG Toolkit: Package game" }).first();
+  await expect(packageEntry).toBeVisible();
+  await packageCommand.press("Escape");
+  await expect(page.locator(".quick-input-widget")).toBeHidden();
+
+  const packageCommandInput = await commandPalette(page, expect);
+  await packageCommandInput.fill(">Test: Execute Package Game");
+  const packageCommandEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  await expect(packageCommandEntry).toBeVisible();
+  await packageCommandEntry.click();
+  await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(/Included \(\d+\):/)).toBeVisible();
+  await page.keyboard.press("Escape");
+
   const editor = await waitForEditorFrame(page, "initial Game settings editor");
   const titleField = editor.getByLabel("Game title");
   await expectVisibleWithFrameDiagnostics(page, titleField, expect, "initial Game title field");
@@ -392,6 +477,40 @@ export async function runVscodeWebProof(
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   expect(await host.readBacking()).toEqual(saved);
 
+
+  // Save through the registered package command's Save As dialog in the real VS Code web workbench, then inspect its
+  // persisted package and descriptor independently of the UI.
+  const publishCommand = await commandPalette(page, expect);
+  await publishCommand.fill(">Test: Execute Package Game");
+  const publishEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  await expect(publishEntry).toBeVisible();
+  await publishEntry.click();
+  await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
+  const inventoryDialog = page.getByRole("dialog");
+  await expect(inventoryDialog.getByText(/Included \(\d+\):/)).toBeVisible();
+  await inventoryDialog.getByRole("button", { name: "Choose where to save…", exact: true }).click();
+  const packageBase = title.trim().replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "game";
+  const packageName = `${packageBase}.tpk`;
+  const savePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(savePath).toHaveValue(`/.tkr-exports/${packageName}`);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "The folder .tkr-exports does not exist. Would you like to create it?" })).toBeVisible();
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByText(/Package saved to .* and install descriptor saved to/).first()).toBeVisible({ timeout: 15_000 });
+  const packageBytes = await host.readBacking(`.tkr-exports/${packageName}`);
+  const descriptorBytes = await host.readBacking(`.tkr-exports/${packageName}.json`);
+  const descriptor = JSON.parse(new TextDecoder().decode(descriptorBytes)) as {
+    file: string;
+    sha256: string;
+    size: number;
+    title: string;
+    version: string;
+  };
+  expect(descriptor.file).toBe(packageName);
+  expect(descriptor.sha256).toBe(createHash("sha256").update(packageBytes).digest("hex"));
+  expect(descriptor.size).toBe(packageBytes.byteLength);
+  expect(descriptor.title).toBe(title);
+  expect(descriptor.version).toBe("1.0.0");
   await openGame(page, gamePath, expect);
   let reopenedEditor = await waitForEditorFrame(page, "reopened Game settings editor");
   assertNoCspConsoleViolations(consoleViolations, "before installing the reopened settings-document CSP listener");
@@ -545,7 +664,7 @@ export async function runVscodeWebProof(
   expect(await readWorkspaceBytes(page, expect)).toEqual(recovered);
   await expect.poll(() => frameCspViolations(page, finalEditor, consoleViolations)).toEqual([]);
 
-  await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host);
+  await runLifecycleScenarios(page, expect, autosaveTitle, autosaveBytes, host, gamePath);
   // The packaged custom editor runs in the actual VS Code webview and persists boards through its working-copy provider.
   await runBoardBrowserScenario(page, expect, host);
   const artFrame = await runVscodeArtProof(page, expect, host, {
@@ -762,6 +881,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   const first = await openProjectBoard(page, firstPath, expect);
   await expect(first.getByRole("grid")).toBeVisible();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst1" })).toBeVisible();
+  await first.locator(".tkr-tileset-browser select").selectOption({ value: "Tiles/village.tst" });
   await first.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
   const tile = first.locator('[data-browser-reference="village.tst2"]');
   await expect(tile).toBeVisible();
@@ -781,7 +901,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   await paintFirst.click();
   await expect(first.getByRole("button", { name: "Column 1, row 1: village.tst2" })).toBeVisible();
   await first.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(first.getByRole("status")).toHaveText("All changes saved");
+  await expect(first.locator(".tkr-board-state")).toHaveText("All changes saved");
   const firstSaved = await host.readBacking(firstPath);
   expect(firstSaved).not.toEqual(firstBefore);
   await closeActiveEditor(page, expect);
@@ -796,7 +916,7 @@ async function runBoardBrowserScenario(page: Page, expect: Expect, host: ProofHo
   await paintSecond.click();
   await expect(second.getByRole("button", { name: "Column 1, row 1: village.tst2" })).toBeVisible();
   await second.getByRole("button", { name: "Save", exact: true }).click();
-  await expect(second.getByRole("status")).toHaveText("All changes saved");
+  await expect(second.locator(".tkr-board-state")).toHaveText("All changes saved");
   const secondSaved = await host.readBacking(secondPath);
   expect(secondSaved).not.toEqual(secondBefore);
   expect(await host.readBacking(firstPath)).toEqual(firstSaved);
@@ -898,15 +1018,10 @@ async function openProjectBoard(page: Page, path: string, expect: Expect): Promi
   return openProjectFile(page, path, expect, ".tkr-board");
 }
 
-/** Open the project file at `path` from the Explorer and return the custom editor frame whose content contains `selector`. */
+/** Open the exact workspace-relative file through VS Code's native Quick Open. */
 async function openProjectFile(page: Page, path: string, expect: Expect, selector: string): Promise<Frame> {
   await focusWorkbench(page);
-  const folder = page.getByRole("treeitem", { name: path.split("/")[0]!, exact: true });
-  await expect(folder).toBeVisible();
-  if (await folder.getAttribute("aria-expanded") !== "true") await folder.click();
-  const item = page.getByRole("treeitem", { name: path.split("/").at(-1)!, exact: true });
-  await expect(item).toBeVisible();
-  await item.dblclick();
+  await openNativeQuickOpenFile(page, expect, path);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
   return await waitForCustomEditorFrame(page, path, selector);
 }
@@ -931,41 +1046,52 @@ async function waitForCustomEditorFrame(page: Page, label: string, selector: str
 /**
  * The lifecycle cases that only the real workbench can prove (story 11.3; ADR 0022 D3.7, D3.6, D11.6):
  *
- * * a hidden webview loses nothing — VS Code destroys it (`retainContextWhenHidden: false`), the model stays in the
- *   extension host, and the page loaded again shows the unsaved title, the dirty state and the same document;
+ * * a hidden webview keeps its page and accepted view state alive, and Save All can settle that hidden editor;
  * * a cancelled close keeps the editor and its work — the workbench asks, and Cancel is an answer;
  * * `files.autoSave: afterDelay` drives `saveCustomDocument`: the file reaches the edited bytes with no Save pressed,
  *   which is the proof the ADR left unverified. Whatever the outcome, autosave is turned off again.
  */
-async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array, host: ProofHost): Promise<void> {
+async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array, host: ProofHost, gamePath: string): Promise<void> {
   const hiddenTitle = "Still here after hiding";
   let editor = await waitForEditorFrame(page, "lifecycle settings editor");
   const field = editor.getByLabel("Game title");
+  const beforeHiddenSave = await host.readBacking(gamePath);
   await field.fill(hiddenTitle);
   await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
-  // An untitled editor takes the tab's place, which hides the custom editor (retainContextWhenHidden: false).
+  // A retained custom-editor page keeps its accepted view state while another editor has focus.
   await editor.evaluate(() => { (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker = "before-hiding"; });
-  // Exercise recovery from a real palette dismissal before dispatch.
   await runCommandMatching(page, expect, "New Untitled", "a new untitled editor", true);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: /Untitled/ })).toBeVisible();
+  await runCommand(page, expect, "Test: Save All Workbench Editors");
+  await expect.poll(() => host.readBacking(gamePath), { timeout: 30_000 }).not.toEqual(beforeHiddenSave);
   await closeActiveEditor(page, expect);
   editor = await waitForEditorFrame(page, "settings editor shown again");
   const alive = await editor.evaluate(() => (window as ProofWindow & { __tkrAliveMarker?: string }).__tkrAliveMarker);
-  if (alive !== undefined) throw new Error("VS Code kept the hidden webview's page alive, so this proof cannot show a re-created view");
+  if (alive !== "before-hiding") throw new Error("VS Code destroyed the retained custom-editor page when its tab was hidden");
   await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
+  const cancelTitle = "Still here after cancelling close";
+  await editor.getByLabel("Game title").fill(cancelTitle);
+  await editor.getByRole("button", { name: "Apply changes" }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
-
   await runCommand(page, expect, "View: Close Editor");
   const dialog = page.locator(".monaco-dialog-box");
   await expect(dialog).toBeVisible({ timeout: 20_000 });
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toBeHidden();
   editor = await waitForEditorFrame(page, "settings editor after a cancelled close");
-  await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), hiddenTitle, expect);
+  await expectValueWithFrameDiagnostics(page, editor.getByLabel("Game title"), cancelTitle, expect);
   await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
 
+
+  await runAutosaveCommandScenario(page, expect, autosaveTitle, autosaveBytes, host);
+}
+async function runAutosaveCommandScenario(
+  page: Page, expect: Expect, autosaveTitle: string, autosaveBytes: Uint8Array, host: ProofHost,
+): Promise<void> {
+  const editor = await waitForEditorFrame(page, "autosave proof settings editor");
   const autosaveField = editor.getByLabel("Game title");
   await autosaveField.fill(autosaveTitle);
   await editor.getByRole("button", { name: "Apply changes" }).click();
@@ -987,9 +1113,8 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
       }
       return marker;
     }, { message: `VS Code completed the autosave ${value} command`, timeout: 30_000 }).toBe(value);
-    await expect.poll(async () => {
-      return autosaveSetting(await host.readBacking(".vscode/settings.json"));
-    }, { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
+    await expect.poll(async () => autosaveSetting(await host.readBacking(".vscode/settings.json")),
+      { message: `VS Code persists files.autoSave=${value}` }).toBe(value);
   };
   let failure: unknown;
   const cleanupErrors: unknown[] = [];
@@ -1008,7 +1133,7 @@ async function runLifecycleScenarios(page: Page, expect: Expect, autosaveTitle: 
     let acknowledgementError: unknown;
     let acknowledgementFailed = false;
     try {
-      await runCommand(page, expect, "Test: Pause Autosave Off");
+      await runCommandMatching(page, expect, "Test: Pause Autosave Off", "Test: Pause Autosave Off", true);
       await expect.poll(() => readMarker("armed"), {
         message: "VS Code armed the autosave-off completion barrier before Off is dispatched",
       }).toBe("off");
@@ -1056,42 +1181,74 @@ async function runCommand(page: Page, expect: Expect, title: string): Promise<vo
   await runCommandMatching(page, expect, title, title);
 }
 
-/** Accept the focused command with Enter, without waiting for a moving quick-pick row to become mouse-stable. */
+/** Dispatch one verified palette row atomically; never retry an attempted dispatch (#2720, #2726). */
 async function runCommandMatching(page: Page, expect: Expect, search: string, label: string, dismissFirstAttempt = false): Promise<void> {
   const widget = page.locator(".quick-input-widget");
-  let commandInput: Locator | undefined;
+  let dismissalInjected = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    let dismissed = false;
+    let row: ElementHandle<HTMLElement | SVGElement> | null = null;
     try {
-      commandInput = await commandPalette(page, expect);
+      const commandInput = await commandPalette(page, expect);
       await commandInput.fill(`>${search}`);
-      if (dismissFirstAttempt && attempt === 0) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const command = search === label
+        ? page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) })
+        : page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
+      if (search === label) await expect(command, `VS Code offers exactly one ${label}`).toHaveCount(1, { timeout: 1_000 });
+      await expect(command, `VS Code selects ${label}`).toBeVisible({ timeout: 1_000 });
+      row = await command.elementHandle({ timeout: 1_000 });
+      if (row === null) throw new Error(`VS Code removed ${label} before selection`);
+      if (dismissFirstAttempt && !dismissalInjected) {
+        // Deliberately lose the palette after locating its row, exercising pre-dispatch recovery.
         await commandInput.press("Escape");
         await expect(widget).toBeHidden();
+        dismissalInjected = true;
+        dismissed = true;
       }
-      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const exact = page.getByRole("option", { name: new RegExp(`^${escaped}(?:,|$)`) });
-      if (search === label) {
-        await expect(exact, `VS Code offers exactly one ${label}`).toHaveCount(1);
-        const choices = await page.getByRole("option").count();
-        for (let index = 0; index < choices; index += 1) {
-          if (await exact.evaluate((element) => element.classList.contains("focused"))) break;
-          await commandInput.press("ArrowDown");
-        }
-        await expect(exact).toHaveClass(/(?:^|\s)focused(?:\s|$)/);
-      } else {
-        const command = page.locator(".quick-input-list .monaco-list-row.focused").filter({ hasText: search }).first();
-        await expect(command, `VS Code selects ${label}`).toBeVisible();
-      }
-      break;
     } catch (error) {
-      if (attempt === 2 || await widget.isVisible()) throw error;
-      commandInput = undefined;
+      // No command event was attempted during preparation, so retrying is unambiguous.
+      await row?.dispose();
+      if (attempt === 2) throw error;
+      if (await widget.isVisible()) {
+        await page.keyboard.press("Escape");
+        await expect(widget).toBeHidden({ timeout: 1_000 });
+      }
+      await page.waitForTimeout(100 * (attempt + 1));
+      continue;
     }
+    let dispatched: boolean;
+    try {
+      // Verification and the normal list click handler run in one browser task. This avoids
+      // both a pointer stability wait during relayout and Enter choosing a different focused row.
+      // An evaluation error/timeout has an unknown outcome: it must propagate, never retry.
+      dispatched = await row.evaluate((element, target) => {
+        const palette = element.closest<HTMLElement>(".quick-input-widget");
+        const bounds = element.getBoundingClientRect();
+        const name = element.getAttribute("aria-label") ?? "";
+        const matches = target.exact ? name === target.search || name.startsWith(`${target.search},`) : (element.textContent ?? "").includes(target.search);
+        if (!element.isConnected || palette === null || !matches || bounds.width <= 0 || bounds.height <= 0
+          || palette.getBoundingClientRect().height <= 0 || getComputedStyle(element).visibility === "hidden") return false;
+        element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window, button: 0,
+          detail: 1, clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2 }));
+        return true;
+      }, { search, exact: search === label });
+    } finally {
+      await row.dispose();
+    }
+    if (dismissed && dispatched) throw new Error(`Dismissed palette row ${label} was dispatched by the negative control`);
+    if (dispatched) {
+      await expect(widget).toBeHidden();
+      return;
+    }
+    // Only an explicit false proves no command was dispatched.
+    if (await widget.isVisible()) {
+      await page.keyboard.press("Escape");
+      await expect(widget).toBeHidden({ timeout: 1_000 });
+    }
+    await page.waitForTimeout(100 * (attempt + 1));
   }
-  if (commandInput === undefined) throw new Error(`VS Code did not select ${label}`);
-  // Retry only before dispatch; once Enter is pressed, never execute the command again.
-  await commandInput.press("Enter");
-  await expect(widget).toBeHidden();
+  throw new Error(`VS Code did not keep ${label} available for dispatch`);
 }
 async function enableWorkbenchTraceLogging(page: Page, expect: Expect): Promise<void> {
   // Use VS Code's built-in logger controls so working-copy and backup-tracker trace events are captured.
@@ -1311,6 +1468,9 @@ async function openGame(page: Page, gamePath: string, expect: Expect): Promise<v
   const segments = gamePath.split("/");
   for (const folder of segments.slice(0, -1)) {
     const folderItem = page.getByRole("treeitem", { name: folder, exact: true });
+    await folderItem.click();
+    await expect(folderItem).toBeVisible();
+    await folderItem.press("ArrowRight");
     await expect(folderItem).toBeVisible();
     if (await folderItem.getAttribute("aria-expanded") !== "true") await folderItem.click();
   }
@@ -1318,7 +1478,7 @@ async function openGame(page: Page, gamePath: string, expect: Expect): Promise<v
   await expect(gameFile).toBeVisible();
   await gameFile.dblclick();
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: segments.at(-1)! }).first()).toBeVisible();
-  await expect(page.locator("iframe.webview")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator("iframe.webview:visible")).toBeVisible({ timeout: 30_000 });
 }
 
 async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
@@ -1327,6 +1487,8 @@ async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
 
 async function commandPalette(page: Page, expect: Expect): Promise<Locator> {
   await focusWorkbench(page);
+  // Let the previous editor/webview focus transition settle before opening another host UI.
+  await page.waitForTimeout(100);
   await page.keyboard.press("ControlOrMeta+Shift+P");
   const input = page.locator(".quick-input-widget input:visible");
   await expect(input).toHaveCount(1);

@@ -132,6 +132,44 @@ test("evaluator: complex nested expression ((MIT OR GPL-3.0) AND Apache-2.0)", (
   assert.equal(res.pass, true);
 });
 
+test("evaluator: non-Blue-Oak non-copyleft license is only allowed transitively", () => {
+  assert.equal(evaluateLicense("CC-BY-4.0", defaultPolicy).pass, false);
+  assert.equal(evaluateLicense("CC-BY-4.0", defaultPolicy, "transitive").pass, true);
+  assert.equal(evaluateLicense("CC-BY-NC-4.0", defaultPolicy, "transitive").pass, false);
+  assert.equal(evaluateLicense("GPL-3.0", defaultPolicy, "transitive").pass, false);
+});
+
+test("production dependency tier applies the strict floor only to direct dependencies", () => {
+  withTempWorkspace((dir) => {
+    writeFileSync(join(dir, "THIRD_PARTY_NOTICES"), "codicons\n");
+    const packageRecord = { name: "codicons", versions: ["1.0.0"], license: "CC-BY-4.0" };
+    const licenses = { "CC-BY-4.0": [packageRecord] };
+    const transitive = checkLicences(dir, {
+      prodLicensesJson: licenses,
+      allLicensesJson: licenses,
+      directDependencies: [],
+    });
+    assert.deepEqual(transitive.productionDependencies, [
+      { package: "codicons", version: "1.0.0", tier: "transitive" },
+    ]);
+
+    const direct = checkLicences(dir, {
+      prodLicensesJson: licenses,
+      allLicensesJson: licenses,
+      directDependencies: ["codicons"],
+    });
+    assert.equal(direct.pass, false);
+    assert.deepEqual(direct.productionDependencies, [
+      { package: "codicons", version: "1.0.0", tier: "direct" },
+    ]);
+    assert.ok(direct.violations.some((violation) =>
+      violation.type === "unapproved-prod-license" &&
+      violation.package === "codicons" &&
+      violation.tier === "direct" &&
+      /Production direct dependency/.test(violation.message)));
+  });
+});
+
 // -------------------------------------------------------------
 // Workspace & Matrix Scenario tests
 // -------------------------------------------------------------
@@ -689,4 +727,30 @@ test("bundled SoundFont: an on-disk bank missing from config fails", () => {
     assert.ok(result.violations.some((violation) =>
       violation.type === "unlisted-bundled-soundfont" && violation.path === soundfontRel));
   });
+});
+
+test("dependency-shipped assets: a changed hash, a missing notice and an unrecorded font each fail the audit", async () => {
+  const { auditDependencyAssets } = await import("../check.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "dep-asset-"));
+  try {
+    mkdirSync(join(dir, "pkg", "fonts"), { recursive: true });
+    writeFileSync(join(dir, "pkg", "fonts", "icons.ttf"), "font-bytes");
+    writeFileSync(join(dir, "pkg", "fonts", "other.woff2"), "more");
+    const sha256 = createHash("sha256").update("font-bytes").digest("hex");
+    const record = { package: "pkg", from: "pkg", path: "fonts/icons.ttf", license: "CC-BY-4.0", sha256 };
+    const config = { ...defaultPolicy, bundledAssets: { dependencyAssets: [record] } };
+    const notices = `icons.ttf ${sha256} CC-BY-4.0`;
+    const types = (result) => result.violations.map((violation) => violation.type).sort();
+    assert.deepEqual(types(auditDependencyAssets(dir, config, notices, true)), ["unlisted-dependency-asset"]);
+    writeFileSync(join(dir, "pkg", "fonts", "other.woff2"), "x");
+    rmSync(join(dir, "pkg", "fonts", "other.woff2"));
+    assert.deepEqual(types(auditDependencyAssets(dir, config, notices, true)), []);
+    assert.deepEqual(types(auditDependencyAssets(dir, config, "nothing", true)), ["missing-dependency-asset-notice"]);
+    writeFileSync(join(dir, "pkg", "fonts", "icons.ttf"), "changed");
+    assert.deepEqual(types(auditDependencyAssets(dir, config, notices, true)), ["dependency-asset-hash-mismatch"]);
+    const copyleft = { ...config, bundledAssets: { dependencyAssets: [{ ...record, license: "GPL-3.0-only" }] } };
+    assert.ok(types(auditDependencyAssets(dir, copyleft, notices, true)).includes("unapproved-dependency-asset-license"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

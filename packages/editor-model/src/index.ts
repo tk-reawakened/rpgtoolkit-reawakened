@@ -36,6 +36,30 @@ export {
   type TilesetPixelChange,
 } from "./tileset-art-document.ts";
 export {
+  DEFAULT_NEW_PROJECT,
+  MAIN_FOLDER,
+  NEW_PROJECT_MAX_NAME,
+  STARTER_DEFINITIONS,
+  STARTER_ITEMS,
+  createNewProject,
+  folderSafeName,
+  mainFileName,
+  planNewProject,
+  suggestedMainFile,
+  validateNewProject,
+  type CreateProjectResult,
+  type NewProjectPlan,
+  type NewProjectProblem,
+  type NewProjectSettings,
+  type NewProjectStorage,
+  type PlanResult,
+  type PlannedFile,
+  type ProjectConflict,
+  type StarterContribution,
+  type StarterDefinition,
+  type StarterItem,
+} from "./new-project.ts";
+export {
   BOARD_COORD_SYSTEMS,
   DEFAULT_NEW_BOARD,
   NEW_BOARD_MAX_LAYERS,
@@ -150,6 +174,7 @@ export {
   type SpriteGroup,
   type SpritePreviewFrame,
   type SpriteOpenResult,
+  type CharacterAuthoringFields,
 } from "./sprite-document.ts";
 export {
   ANIMATION_FRAME_LIMIT,
@@ -189,7 +214,39 @@ export {
 } from "./tile-bitmap-document.ts";
 export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
-export { asAnimationDocument, asBoardDocument, asMainDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asAnimationDocument, asBoardDocument, asMainDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export {
+  createProgramDocument,
+  openProgramDocument,
+  programCodec,
+  type EditTextCommand,
+  type LineEnding,
+  type ProgramCommand,
+  type ProgramDocument,
+  type ProgramDocumentFields,
+  type ProgramDocumentSnapshot,
+  type ProgramModel,
+  type ProgramOpenResult,
+  type TextEdit,
+} from "./program-document.ts";
+export {
+  commandInsertion,
+  commandReference,
+  createProgramFile,
+  DEFAULT_HEADER_TEMPLATE,
+  expandHeaderTemplate,
+  filterCommandReference,
+  insertCommandEdit,
+  insertHeaderCommand,
+  MAX_HEADER_TEMPLATE_LENGTH,
+  programFileName,
+  programPathIn,
+  suggestProgramPath,
+  type CommandInsertion,
+  type CommandReferenceEntry,
+  type CreateProgramResult,
+  type NewProgramStorage,
+} from "./program-support.ts";
 export { createDocumentIdentity, type DocumentIdentity } from "./identity.ts";
 export {
   applyMainSettings,
@@ -248,6 +305,7 @@ export {
   type SaveResult,
   type SetGameTitleCommand,
 } from "./main-document.ts";
+export { createEditTracker, createPendingEdits, type EditTracker, type PendingEditWork, type PendingEdits } from "./pending-edits.ts";
 export {
   createDocumentWorkspace,
   resolveDocumentPath,
@@ -299,6 +357,7 @@ export {
 export { createVisits, type ReturnResult, type VisitEntry, type VisitResult, type VisitSnapshot, type Visits } from "./visits.ts";
 export {
   createLayoutModel,
+  DEFAULT_WORKBENCH_PANELS,
   PANEL_SIZE_STEP,
   type DockSide,
   type LayoutModel,
@@ -306,13 +365,33 @@ export {
   type PanelState,
   type SavedLayout,
 } from "./layout.ts";
+export {
+  COMMAND_CATEGORIES,
+  createCommandRegistry,
+  createWorkbenchCommands,
+  type CommandCategory,
+  type CommandPaletteFileEntry,
+  type CommandRegistry,
+  type WorkbenchCommand,
+  type WorkbenchCommandSourceOptions,
+} from "./commands.ts";
 export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
+export {
+  prepareGamePackage,
+  type PackageArtifact,
+  type PackageExportOutcome,
+  type PrepareGamePackageOptions,
+  type PreparedGamePackage,
+} from "./package-export.ts";
+export { packageDescriptorFor, type PackageDescriptorOutcome } from "./package-export-write.ts";
 export { ASSET_FOLDERS, type AssetKind } from "@tk-reawakened/core";
 export { boardStartUnit, createLauncher, type Launcher, type LauncherOptions, type LaunchOutcome, type LaunchRefusal } from "./launcher.ts";
 export {
   createPreferences,
   PREFERENCE_CATALOGUE,
+  DEFAULT_PROGRAM_PREFERENCES,
   preferenceById,
+  programPreferencesFrom,
   validatePreference,
   vscodeContributions,
   type PreferenceEntry,
@@ -325,5 +404,6 @@ export {
   type Preferences,
   type PreferencesOptions,
   type PreferencesSnapshot,
+  type ProgramPreferences,
   type VscodeConfiguration,
 } from "./preferences.ts";

@@ -1,4 +1,5 @@
 import type { FileSystemService } from "./fs.ts";
+import type { LanguageService } from "./language.ts";
 import type { PlatformResult } from "./result.ts";
 import type { RunService } from "./run.ts";
 
@@ -35,7 +36,9 @@ export type Capability =
   /** `run.startGame` can start a board test at an explicit board, position and party (D8.1 "board test"). */
   | "runBoard"
   /** `run.startProgram` can run one program under a fixture (T-41, D8.1 "program test"). */
-  | "runProgram";
+  | "runProgram"
+  /** `language.connect` can start a language server for the program editor (TOOL-10). */
+  | "languageServer";
 
 /** The set of capabilities a host declares. */
 export type Capabilities = ReadonlySet<Capability>;
@@ -149,6 +152,24 @@ export interface ShellService {
 }
 
 /**
+ * Package export host operations (AD-20 `export`, shaped by story 12.9). `sha256` supplies the descriptor's archive
+ * digest. `downloadFile` hands the author an ordinary download of one file; it is invoked by a direct user action and
+ * never writes into the project. A host that cannot offer downloads does not provide this service, and package export
+ * is unavailable there (VS Code: its extension cannot save a package without a no-replace, link-safe write).
+ */
+export interface PackageExportService {
+  sha256(bytes: Uint8Array): Promise<PlatformResult<string>>;
+  downloadFile(fileName: string, bytes: Uint8Array): Promise<PlatformResult<void>>;
+}
+
+/**
+ * The part of AD-20 that stories 11.17, 11.3 and 12.9 need: `capabilities`, `fs`, `project`, `settings`, `document`,
+ * `dialogs` and the package-export operations.
+ *
+ * AD-20 also lists `run`, `clipboard` and `language.connect()` (`shell.openExternal` is declared, for 11.4). They are not
+ * declared yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.9 run, the
+ * program editor's language client) fix those shapes against a real caller. A host that implements this interface is
+ * not asked for them until then.
  * The part of AD-20 that stories 11.17, 11.3, 11.4 and 11.8 need: `capabilities`, `fs`, `project`, `settings`,
  * `document`, `dialogs`, `shell` and `run`.
  *
@@ -165,6 +186,10 @@ export interface PlatformServices {
   readonly dialogs: DialogService;
   /** Present when the host declares `openExternal`. */
   readonly shell?: ShellService;
+  /** Descriptor digest and download operations used by package export. */
+  readonly packageExport?: PackageExportService;
+  /** Present when the host declares `languageServer`. */
+  readonly language?: LanguageService;
   /** Present when the host declares at least one of `runGame`, `runBoard` and `runProgram` (ADR 0022 D8). */
   readonly run?: RunService;
 }

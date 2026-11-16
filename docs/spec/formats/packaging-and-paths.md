@@ -32,6 +32,43 @@ How a game is laid out on disk, how names inside files are turned into paths, an
 
 The editor creates all 14 folders for a new project. The project folder name is the game title with `\`, `/`, `:`, space and `.` removed. A new project made from the template gets `startupPrg = start.prg`, `initBoard = start.brd`, `initChar = start.tem`, `menuPlugin = tk3menu.dll`, `fightPlugin = tk3fight.dll` and `menuKey = 13`.
 
+<a id="new-project"></a>
+## New project from the editor — Reawakened rule (T-04, story 11.10)
+
+The editor's **New project** wizard writes a project in the **loose-folder form** ([below](#loose-folder)): the folder the author chooses is the project root, the main file sits at `Main/<name>.gam` and the 14 type folders above sit directly in the root. It does not nest them under `Game/<Title>/`. *Reason:* the editor hosts read the type folders directly under the folder they opened ([ADR 0022](../../adr/0022-shared-editor-authoring-contracts.md) D1.1 and "Provider gaps"), the package exporter keeps the main file at `Main/<game>.gam` with the project folder at the archive root, and the stored `projectPath` is ignored in that form.
+
+| Part | Rule |
+|---|---|
+| Game name | the `.gam` `gameTitle`: one to 100 characters, no control characters. Its **folder-safe form** is the title with `\`, `/`, `:`, space and `.` removed, and it must not be empty. |
+| Main file | a file name inside `Main/` (the author may type it with or without `.gam`; the default is the folder-safe form). It has no folder separator, no NUL or other control character, none of the characters `<`, `>`, `:`, `"`, `\|`, `?` and `*`, and does not end in a space or `.`. Names are compared with the [ASCII fold](README.md#paths-inside-files). |
+| `projectPath` | `Game\<folder-safe title>\`, the form the 3.1 template stores. Because the editor reads the type folders from the project root unless that `Game/<…>` folder exists, **the wizard refuses a destination that already holds a `Game/<folder-safe title>` folder**. |
+| Folders | all 14 type folders are created, empty when no starter content goes in them. |
+| Header and settings | minor 9. A new project stores `startupPrg`, `initBoard` and `initChar` **only for starter content the author chose** (below); with none chosen they are empty (an empty `startupPrg` is valid, [package export](#distribution-package-this-projects-own)). Always stored: registered flag 1, `NOCODE`, screen type 1, windowed 640×480, language file `0english.lng`, menu key 13, activation key 32 (as the Example game), mouse cursor `TK DEFAULT` with transparent red, path-finding mode 2, path colour white, movement controls 1 + 4 with the arrow-key scan codes, tile movement, random battles 1 in 20 with an empty enemy list. No input-settings or audio block is written, so the action defaults of [ACT-5](../engine/display-input-audio.md#act-5) apply. |
+| Overwrites | **never.** Before anything is written the wizard lists every planned path and compares it, [ASCII-folded](README.md#paths-inside-files), with the destination. **Any existing planned file is refused, even when its bytes exactly match the planned output; an empty file is existing data too.** Folder/file mismatches and the reserved `Game/<…>` folder are also reported by path, and nothing is written. Existing non-conflicting folders are reused. The author removes anything they want gone; the wizard never deletes a file. The check is not atomic — see [below](#the-check-is-not-atomic). |
+| Order and failure | per [ADR 0022 D4.2](../../adr/0022-shared-editor-authoring-contracts.md): every destination is checked first, folders are created, starter files are written, and the **main file is written last**; a failure stops, keeps what was written, deletes nothing, names any file the failed write left, and reports written and pending items. No rollback is promised. Since retry also refuses files written by the failed attempt, the author must remove every existing planned file listed as a conflict before trying again. Cancelling at any step writes nothing. |
+
+<a id="the-check-is-not-atomic"></a>
+**Accepted host limitation — owner clarification (2026-11-15; #2713).** The wizard refuses every detected existing planned file, even if its bytes already match; empty files are refused too. Folder/file mismatches and the reserved `Game/<…>` folder are also refused before any write. The wizard never deletes files. This is the no-overwrite guarantee.
+
+The check and write are separate host operations, so another program can create a file after the check and before the wizard writes that path; that external concurrent-creation race can result in replacement. The current browser File System Access API has no create-only-if-absent option ([`getFileHandle`](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemDirectoryHandle/getFileHandle), [`createWritable`](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemFileHandle/createWritable)); VS Code's extension API likewise exposes no exclusive create for `workspace.fs.writeFile` ([VS Code API](https://code.visualstudio.com/api/references/vscode-api#FileSystem)). The workflow discloses this limitation and does not claim atomic protection. If a future host API supports true atomic create, the host may use it; a pre-check followed by a write is not equivalent. Issue #2713 records this limitation, not an unmet acceptance blocker.
+
+After a failed write, a file found at that path **cannot be shown to be the wizard's own**, so no cleanup deletes it ([#2712](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2712)). A browser creates a file before committing content, so a failed write can leave an empty file, and a host can leave a partly written one; both are kept, named in the failure, and left for the author to remove. The wizard will also refuse any other files already written by that failed attempt, even when their bytes match; remove all planned conflicts before retrying.
+
+
+**Starter contents are explicit.** Nothing is copied unless the author ticks it. Each item names what it writes, who made it and under which licence, and whether it is available; an item whose material is not rights-cleared in this repository is **listed as unavailable with the reason and is never replaced by a placeholder**. A host refuses a request for an unavailable item instead of dropping it. The catalogue (the code is `packages/editor-model/src/new-project.ts`):
+
+| Item | Writes | Stored reference | Provenance | Available |
+|---|---|---|---|---|
+| Start-up program | `Prg/start.prg`, a four-line `mwin`/`wait`/`mwincls` welcome | `startupPrg = start.prg` | written for this project, MIT | yes |
+| Empty start board | `Boards/start.brd`, 20×15 tiles, 2 layers, no tiles or background | `initBoard = start.brd` | generated by the editor's board writer, no artwork | yes |
+| Empty first character | `Chrs/start.tem`, the character writer's default character with no graphics | `initChar = start.tem` | generated by the editor's character writer, no artwork | yes |
+| Built-in menu and battle | nothing is copied | `menuPlugin = tk3menu.dll`, `fightPlugin = tk3fight.dll` (the engine maps them to its built-in `stock_menu` and `stock_battle` packages, [package loader](../engine/rpgcode-package-loader.md)) | this repository's `stock/` packages, MIT | yes |
+| Default tiles | — | — | no rights-cleared tile art is shipped | no |
+| System programs | — | — | no rights-cleared system programs are shipped beyond the built-in packages | no |
+| Music pack | — | — | no rights-cleared music is shipped; `media/soundfonts` are instruments, not songs | no |
+
+No legacy asset bundle is assumed redistributable: starter material joins this table only with provider evidence.
+
 ## Resolving names
 
 | Name stored in | Resolved as |
@@ -95,7 +132,30 @@ At start-up the engine reads the last 12 bytes of its own file. If they begin wi
 
 The editor's **"Make package"** (T-70) **writes a distribution package** — a `.tpk`-compatible ZIP, the project folder at the archive root exactly as for a `.tpk`, that differs from a legacy pak in two ways: the main file is kept at its [README.md](README.md#paths-inside-files) path `Main/<game>.gam` rather than the legacy root `main.gam`, and the archive also holds a **`manifest.json`** at the root, next to the game files. <!-- OWNER: chose to keep our main file at its §1.5 path `Main/<game>.gam` (and name it in the manifest) rather than the legacy pak's root `main.gam`, because a legacy pak's embedded main is found by the engine and our package names it in `manifest.json`; a reader that accepts both forms ignores the difference. -->
 
-**History-store exclusion (future Reawakened output only).** When history storage is implemented, the Reawakened distribution-package writer must omit its reserved folder and the exporter inventory check must assert that exclusion (ADR 0022 D12.7). The folder's path/name is not set here. This does not change the legacy `.tpk` PAK input contract above.
+**Exporter exclusions (12.9, future Reawakened output only).** The distribution-package inventory omits:
+
+* `Saved/` and main files other than the selected `Main/<game>.gam`, as for the PAK input contract above;
+* every file whose extension is `.tkrscn`, `.tkrtile` or `.tkrpack`, compared with the package path's ASCII-folded extension (ADR 0019 decision 6);
+* every `*.spec.prg` creator test, matched case-insensitively (ADR 0022 D9 and TOOL-5);
+* the project-root reserved editor-history directory `.tkr-history/`, including all descendants (ADR 0022 D12.7);
+* the project-root reserved package-output directory `.tkr-exports/`, including all descendants. VS Code writes in-project package/descriptor pairs there; arbitrary `.tpk` and `.tpk.json` assets elsewhere remain ordinary project data.
+
+The editor reserves `.tkr-history/` for project-local history and `.tkr-exports/` for packages produced by the editor; neither is a game asset or a second history system. The exporter inventory check verifies each exclusion against the files it actually collected, rather than assuming a name filter worked. These rules apply to the distribution package this project writes and do not change the legacy `.tpk` PAK input contract. The reserved paths are Reawakened editor conventions and do not alter what legacy packages may contain.
+
+The export workflow first saves open documents, inventories through the host's project filesystem, and refuses unreadable paths, folded duplicates, a missing main file, a missing startup file when `startupPrg` is non-empty, or any input the distribution writer rejects under L1–L19. An empty `startupPrg` is valid and means there is no startup program to include. It presents the inventory and exclusions before output, and writes nothing until the author confirms.
+
+**Detected project links (owner direction).** Tell the author which symbolic link was found. Ask whether to include it only when the host can safely follow it while enforcing containment; otherwise explicitly refuse export. An inventory-review checkbox is not proof of containment. Browser local-directory APIs do not expose links, so browser link detection is not claimed.
+
+**Where the outputs go (owner ruling on #1719).** Packaging in a local editor is a single-user workflow over user-controlled project files, not a security boundary against malicious local processes. The host MUST ask before ordinary overwrites and MUST warn about detected symbolic links, asking consent only where safe following is supported and otherwise refusing. VS Code MUST refuse if either the chosen package destination or sibling descriptor destination is a symbolic link, before writing either output. In-project VS Code outputs MUST be saved directly under the project-root `.tkr-exports/` directory; Save As defaults there. Destinations outside the project folder remain allowed, while other destinations inside the project are refused with instructions to use `.tkr-exports/` or save outside. The exporter creates `.tkr-exports/` only after overwrite confirmation and immediately before the first write. The package and sibling descriptor MUST be emitted as a consistent pair, with the descriptor's `file` naming the package.
+
+* a browser offers ordinary downloads of the `.tpk` and descriptor after inventory review. Browser folder APIs do not expose whether an entry is a link, so browser symlink detection is not claimed; this limitation remains disclosed. The two independent downloads may be renamed on collision, which breaks the pair; tell the author to preserve matching names;
+* VS Code offers Save As for the package and writes the sibling descriptor alongside it. By default it chooses `.tkr-exports/` in the project; a different in-project destination is refused, while saving outside the project is allowed. Use the host's ordinary confirmation when replacing existing files. Refuse detected symlinks rather than following them. VS Code workspace filesystem APIs cannot prove immunity to a malicious local process racing a preflight check and write;
+* any future hosted/server upload is a separate trust boundary: the server MUST isolate and validate uploaded content itself. This is not a claim that a server exists or a reason to treat browser local-directory opening as an upload;
+* other hosts without an output capability report packaging unavailable.
+
+A known limit in the browser: its folder handles are walked one directory at a time, but the browser does not tell the exporter whether an entry is a link to somewhere else on the computer, so the exporter cannot refuse such a link (L23). The inventory lists every file that will be packaged and the author must tick that they reviewed it before either download is enabled; the page warns that a listed file that does not belong to the game means the package must not be used. This is a review control, not host enforcement (tracked in #2498).
+
+**The descriptor version** is entered by the author during export. The current `.gam` format has no game-version field, so the exporter does not invent one or edit the game file to store it.
 
 The manifest is UTF-8 JSON with **exactly three fields**:
 
@@ -125,7 +185,7 @@ The descriptor is **UTF-8 JSON with exactly seven fields**:
 | `size` | the package's byte length, a non-negative integer |
 | `gameId` | the identity a library row and that game's settings are keyed by (the `GameId` AD-17 derives in core) |
 | `title` | the game's display name, a non-empty string |
-| `version` | the game's own version string, as the author wrote it |
+| `version` | the non-empty release-version string entered by the author during export; the `.gam` file has no version field |
 
 A host that registers a package validates the descriptor against the file it names — the SHA-256 and the size must
 match, or the install is refused with the reason — and stores the six fields in its library registry. **Installing is

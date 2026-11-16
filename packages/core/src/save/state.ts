@@ -69,7 +69,7 @@ export const SCHEMA_VERSIONS = {
   party: PARTY_SCHEMA_VERSION,
   inventory: INVENTORY_SCHEMA_VERSION,
   triggers: 2,
-  vm: 7,
+  vm: 8,
   battle: BATTLE_SCHEMA_VERSION,
   menu: MENU_SCHEMA_VERSION,
   input: INPUT_SCHEMA_VERSION,

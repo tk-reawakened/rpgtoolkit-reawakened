@@ -13,6 +13,7 @@ const files = new Map([["/project/Main.gam", original.slice()]]);
 const permission = Object.assign(new Error("read-only project"), { code: "NoPermissions" });
 const notFound = Object.assign(new Error("missing"), { code: "FileNotFound" });
 const port: VscodeFileSystemPort<Uri> = {
+  isSymbolicLink: (type) => (type & 64) !== 0,
   isDirectory: (type) => (type & 2) !== 0,
   joinPath: (base, ...parts) => ({ path: `${base.path}/${parts.join("/")}` }),
   parent: (uri) => ({ path: uri.path.slice(0, uri.path.lastIndexOf("/")) }),
@@ -32,9 +33,9 @@ test("VS Code workspace filesystem rejects traversal and preserves old bytes on 
   const fs = createVscodeFileSystemWithPort(root, port, "file:///project");
   const listed = await fs.list("");
   ok(listed.ok);
-  if (listed.ok) deepEqual(listed.value, [{ name: "Main.gam", kind: "file" }, { name: "linked", kind: "directory" }]);
+  if (listed.ok) deepEqual(listed.value, [{ name: "Main.gam", kind: "file" }, { name: "linked", kind: "link" }]);
   const linkedStat = await fs.stat("linked");
-  ok(linkedStat.ok && linkedStat.value.kind === "directory");
+  ok(linkedStat.ok && linkedStat.value.kind === "link");
   const invalid = await fs.read("../outside.gam");
   equal(invalid.ok, false);
   if (!invalid.ok) equal(invalid.error.code, "invalid-path");
@@ -45,4 +46,29 @@ test("VS Code workspace filesystem rejects traversal and preserves old bytes on 
   const missing = await fs.read("missing.gam");
   equal(missing.ok, false);
   if (!missing.ok) equal(missing.error.code, "not-found");
+});
+
+test("VS Code createFolder asks the workspace for the folder itself and maps a file in the way to not-a-directory", async () => {
+  const made: string[] = [];
+  const exists = Object.assign(new Error("a file exists"), { code: "FileExists" });
+  const folderPort: VscodeFileSystemPort<Uri> = {
+    ...port,
+    async createDirectory(uri) {
+      if (uri.path === "/project/Main.gam") throw exists;
+      if (uri.path === "/project/locked") throw permission;
+      made.push(uri.path);
+    },
+  };
+  const fs = createVscodeFileSystemWithPort(root, folderPort, "file:///project");
+  ok((await fs.createFolder("Boards")).ok);
+  ok((await fs.createFolder("Game/Boards")).ok);
+  deepEqual(made, ["/project/Boards", "/project/Game/Boards"], "the folder itself, not its parent");
+  const onFile = await fs.createFolder("Main.gam");
+  ok(!onFile.ok && onFile.error.code === "not-a-directory");
+  const denied = await fs.createFolder("locked");
+  ok(!denied.ok && denied.error.code === "permission-denied");
+  for (const path of ["", "../x", "a//b"]) {
+    const invalid = await fs.createFolder(path);
+    ok(!invalid.ok && invalid.error.code === "invalid-path", `"${path}"`);
+  }
 });

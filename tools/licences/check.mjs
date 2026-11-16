@@ -44,7 +44,7 @@ export function loadConfig(configPath) {
  * - For A OR B: passes if at least one alternative passes.
  * - For A AND B: passes if all components pass.
  */
-export function evaluateLicense(expr, policy) {
+export function evaluateLicense(expr, policy, tier = "direct") {
   if (!expr || typeof expr !== "string" || expr.trim() === "") {
     return {
       pass: false,
@@ -144,7 +144,7 @@ export function evaluateLicense(expr, policy) {
         };
       }
 
-      // Check specifically for copyleft licences per G6
+      // Copyleft is blocked at every dependency tier.
       if (/^(GPL|AGPL|LGPL|MPL|EUPL|SSPL)(-[0-9.]+.*)?$/i.test(id)) {
         return {
           pass: false,
@@ -154,6 +154,28 @@ export function evaluateLicense(expr, policy) {
       }
 
       const rating = policy.blueOakList?.licenseMap.get(id);
+      if (tier === "transitive") {
+        if (rating) {
+          return {
+            pass: true,
+            rating,
+            license: id,
+          };
+        }
+        if (policy.transitiveNonCopyleft?.includes(id)) {
+          return {
+            pass: true,
+            license: id,
+            classification: "known non-copyleft",
+          };
+        }
+        return {
+          pass: false,
+          reason: `License '${id}' is not classified as a known non-copyleft transitive license`,
+          license: id,
+        };
+      }
+
       if (!rating) {
         return {
           pass: false,
@@ -257,6 +279,45 @@ export function queryPnpmLicenses(root, prodOnly = false) {
   }
   return JSON.parse(stdout);
 }
+
+function queryPnpmDirectDependencies(root) {
+  if (!existsSync(join(root, "pnpm-workspace.yaml"))) {
+    const manifestPath = join(root, "package.json");
+    if (!existsSync(manifestPath)) return new Set();
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    return new Set([
+      ...Object.keys(manifest.dependencies || {}),
+      ...Object.keys(manifest.optionalDependencies || {}),
+      ...Object.keys(manifest.peerDependencies || {}),
+    ]);
+  }
+
+  const args = ["-r", "list", "--prod", "--depth", "0", "--json"];
+  const result = spawnSync("pnpm", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: process.env,
+  });
+  if (result.error) {
+    throw new Error(`Failed to execute 'pnpm ${args.join(" ")}': ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`pnpm list exited with status ${result.status}: ${result.stderr || result.stdout}`);
+  }
+
+  const projects = JSON.parse(result.stdout || "[]");
+  if (!Array.isArray(projects)) {
+    throw new Error("pnpm list did not return a workspace project array");
+  }
+  const direct = new Set();
+  for (const project of projects) {
+    for (const section of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+      for (const name of Object.keys(project[section] || {})) direct.add(name);
+    }
+  }
+  return direct;
+}
+
 
 /**
  * Extracts a map of package name -> Array<{ version, license }> from pnpm licenses output.
@@ -374,6 +435,85 @@ export function auditBundledFonts(root, config, noticesContent, noticesFilePrese
 
   return { violations, warnings, count: fontRecords.length };
 }
+/** Font files a dependency may ship; every one inside an audited package must be recorded. */
+const DEPENDENCY_FONT_EXTENSIONS = new Set([".ttf", ".otf", ".woff", ".woff2", ".eot"]);
+
+/** Every file below `directory` with a font extension, as paths relative to it with `/` separators. */
+function fontFilesUnder(directory) {
+  const found = [];
+  const visit = (current, prefix) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) visit(join(current, entry.name), relative);
+      else if (DEPENDENCY_FONT_EXTENSIONS.has(entry.name.slice(entry.name.lastIndexOf(".")).toLowerCase())) found.push(relative);
+    }
+  };
+  visit(directory, "");
+  return found;
+}
+
+/**
+ * Audits files a direct dependency ships inside its own package (ADR 0034 decision 2, 4 and 5): each recorded file must
+ * exist in the installed package with the recorded SHA-256, carry a known licence the transitive tier accepts, and be
+ * named with its hash and licence in THIRD_PARTY_NOTICES. A font file the package ships that is not recorded fails, so a
+ * version bump cannot add an asset nobody read the licence of.
+ */
+export function auditDependencyAssets(root, config, noticesContent, noticesFilePresent) {
+  const violations = [];
+  const records = config.bundledAssets?.dependencyAssets || [];
+  const recorded = new Set(records.map((record) => `${record.from}/${record.path}`));
+  const audited = new Set(records.map((record) => record.from));
+
+  for (const record of records) {
+    const label = `${record.package}:${record.path}`;
+    const fullPath = join(root, record.from, record.path);
+    if (!existsSync(fullPath)) {
+      violations.push({ type: "missing-dependency-asset", path: label, message: `Dependency asset ${label} is not in the installed package at ${record.from}` });
+      continue;
+    }
+    const actualHash = createHash("sha256").update(readFileSync(fullPath)).digest("hex");
+    if (actualHash !== record.sha256) {
+      violations.push({
+        type: "dependency-asset-hash-mismatch",
+        path: label,
+        expectedHash: record.sha256,
+        actualHash,
+        message: `Dependency asset ${label} SHA-256 mismatch (expected ${record.sha256}, got ${actualHash}); read what changed and update its record and notice`,
+      });
+    }
+    const evaluated = evaluateLicense(record.license, config, "transitive");
+    if (!evaluated.pass) {
+      violations.push({ type: "unapproved-dependency-asset-license", path: label, license: record.license, message: `Dependency asset ${label} with license '${record.license}' rejected: ${evaluated.reason}` });
+    }
+    if (noticesFilePresent) {
+      const fileName = record.path.slice(record.path.lastIndexOf("/") + 1);
+      const complete = noticesContent.includes(fileName) && noticesContent.includes(record.sha256) && noticesContent.includes(record.license);
+      if (!complete) {
+        violations.push({
+          type: "missing-dependency-asset-notice",
+          path: label,
+          message: `Dependency asset ${label} needs a THIRD_PARTY_NOTICES entry containing its file name, SHA-256 and licence`,
+        });
+      }
+    }
+  }
+
+  for (const from of audited) {
+    const directory = join(root, from);
+    if (!existsSync(directory)) continue;
+    for (const file of fontFilesUnder(directory)) {
+      if (!recorded.has(`${from}/${file}`)) {
+        violations.push({
+          type: "unlisted-dependency-asset",
+          path: `${from}/${file}`,
+          message: `Font file ${from}/${file} ships in an audited dependency but is not recorded in bundledAssets.dependencyAssets`,
+        });
+      }
+    }
+  }
+  return { violations, count: records.length };
+}
+
 /**
  * Audits bundled SoundFont assets against config records, on-disk files, and notices.
  *
@@ -575,19 +715,28 @@ export function checkLicences(root = repoRoot, options = {}) {
   // 3. Query all dependencies (prod + dev)
   const allRaw = options.allLicensesJson ?? queryPnpmLicenses(root, false);
   const allPackages = normalizePackages(allRaw);
+  const directDependencies = options.directDependencies !== undefined
+    ? new Set(options.directDependencies)
+    : options.prodLicensesJson !== undefined
+      ? new Set(prodPackages.keys())
+      : queryPnpmDirectDependencies(root);
 
+  const productionDependencies = [];
+  
   // 4. Audit production dependencies
   for (const [pkgName, occurrences] of prodPackages) {
+    const tier = directDependencies.has(pkgName) ? "direct" : "transitive";
     for (const occ of occurrences) {
-      // Evaluate licence
-      const result = evaluateLicense(occ.license, policy);
+      productionDependencies.push({ package: pkgName, version: occ.version, tier });
+      const result = evaluateLicense(occ.license, policy, tier);
       if (!result.pass) {
         violations.push({
           type: "unapproved-prod-license",
           package: pkgName,
           version: occ.version,
+          tier,
           license: occ.license,
-          message: `Production dependency '${pkgName}@${occ.version}' with license '${occ.license}' rejected: ${result.reason}`,
+          message: `Production ${tier} dependency '${pkgName}@${occ.version}' with license '${occ.license}' rejected: ${result.reason}`,
         });
       }
 
@@ -672,6 +821,14 @@ export function checkLicences(root = repoRoot, options = {}) {
     fontCount = fontAudit.count;
   }
 
+  // 6b. Audit files direct dependencies ship inside their own packages
+  let dependencyAssetCount = 0;
+  if (config.bundledAssets?.dependencyAssets) {
+    const dependencyAudit = auditDependencyAssets(root, config, noticesContent, noticesFilePresent);
+    violations.push(...dependencyAudit.violations);
+    dependencyAssetCount = dependencyAudit.count;
+  }
+
   // 7. Audit bundled SoundFont assets
   let soundfontCount = 0;
   if (config.bundledAssets?.soundfonts || existsSync(join(root, "media", "soundfonts"))) {
@@ -684,8 +841,10 @@ export function checkLicences(root = repoRoot, options = {}) {
   return {
     pass: violations.length === 0,
     prodCount: prodPackages.size,
+    productionDependencies,
     allCount: allPackages.size,
     fontCount,
+    dependencyAssetCount,
     soundfontCount,
     violations,
     warnings,
@@ -738,6 +897,10 @@ if (isMain) {
   console.log(`Checking licences for workspace at: ${targetRoot}`);
   try {
     const result = checkLicences(targetRoot);
+    console.log(`  Production dependency tiers:`);
+    for (const dependency of result.productionDependencies) {
+      console.log(`    ${dependency.tier}: ${dependency.package}@${dependency.version}`);
+    }
     if (!result.pass) {
       console.error(`\nLicence check FAILED with ${result.violations.length} violation(s):\n`);
       for (const v of result.violations) {
@@ -750,6 +913,9 @@ if (isMain) {
       console.log(`  Total (prod + dev) packages checked: ${result.allCount}`);
       if (result.fontCount !== undefined) {
         console.log(`  Bundled fonts checked: ${result.fontCount}`);
+      }
+      if (result.dependencyAssetCount !== undefined) {
+        console.log(`  Dependency-shipped assets checked: ${result.dependencyAssetCount}`);
       }
       if (result.soundfontCount !== undefined) {
         console.log(`  Bundled SoundFonts checked: ${result.soundfontCount}`);

@@ -190,6 +190,7 @@ function Position({ value, onChange }: { readonly value: Omit<BoardStart, "board
  * a later edit never changes a running game: running again is a new snapshot.
  */
 export function RunView({ launcher, fs, layout, active = null, version }: RunViewProps) {
+  const [activeTab, setActiveTab] = useState<LaunchKind>("game");
   const [choices, setChoices] = useState<Choices>(NO_CHOICES);
   const [main, setMain] = useState("");
   const [board, setBoard] = useState("");
@@ -261,15 +262,17 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
     const reason = launcher.unavailable(kind) ?? noMain ?? missing;
     const id = `tkr-run-${kind}-reason`;
     return (
-      <fieldset class="tkr-run-launch">
-        <legend>{LAUNCH_LABEL[kind]}</legend>
-        <p>{description}</p>
-        {body}
-        <button type="button" disabled={busy || reason !== null} aria-describedby={reason === null ? undefined : id} onClick={() => launch(request())}>
-          {LAUNCH_LABEL[kind]}
-        </button>
-        {reason === null ? null : <p id={id} class="tkr-run-unavailable">{reason}</p>}
-      </fieldset>
+      <div class="tkr-run-tabpanel" role="tabpanel" hidden={activeTab !== kind}>
+        <fieldset class="tkr-run-launch">
+          <legend>{LAUNCH_LABEL[kind]}</legend>
+          <p>{description}</p>
+          {body}
+          <button type="button" disabled={busy || reason !== null} aria-describedby={reason === null ? undefined : id} onClick={() => launch(request())}>
+            {LAUNCH_LABEL[kind]}
+          </button>
+          {reason === null ? null : <p id={id} class="tkr-run-unavailable">{reason}</p>}
+        </fieldset>
+      </div>
     );
   };
 
@@ -277,6 +280,20 @@ export function RunView({ launcher, fs, layout, active = null, version }: RunVie
   return (
     <section class="tkr-run" aria-label="Run">
       <h2 class="tkr-run-heading">Run</h2>
+      <div class="tkr-run-tabs" role="tablist" aria-label="Run modes">
+        {(["game", "board", "program"] as const).map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            role="tab"
+            class="tkr-run-tab"
+            aria-selected={activeTab === kind}
+            onClick={() => setActiveTab(kind)}
+          >
+            {LAUNCH_LABEL[kind]}
+          </button>
+        ))}
+      </div>
       {choices.mains.length > 1 ? <Select label="Game" value={chosenMain} options={choices.mains} onChange={setMain} /> : null}
       {section(
         "game",

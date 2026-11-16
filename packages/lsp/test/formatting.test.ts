@@ -47,6 +47,7 @@ function client(): Client {
       return absent;
     },
     showMessage: (params) => messages.push(params),
+    onRequest: () => absent,
     onCodeAction: () => absent,
     onNotification: (method, handler) => {
       notifications.set(method, handler);

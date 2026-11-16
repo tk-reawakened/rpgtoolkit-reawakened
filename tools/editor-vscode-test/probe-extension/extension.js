@@ -33,6 +33,17 @@ function activate(context) {
     lastStopHash = lastRunHandle?.snapshot.stateHash ?? null;
     lastRunHandle?.stop();
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.openProjectFile", async () => {
+    const path = await vscode.window.showInputBox({ prompt: "Workspace-relative proof file path" });
+    if (path === undefined) return;
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(workspace.uri, ...path.split("/")), { preview: false });
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.saveAll", async () => {
+    console.info("[vscode-web-proof-probe] invoking VS Code's native Save All command");
+    await vscode.commands.executeCommand("workbench.action.files.saveAll");
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failSaves", () => { filesystem.failSaves = true; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowSaves", () => { filesystem.failSaves = false; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseProgramRead", () => {
@@ -119,6 +130,13 @@ function activate(context) {
     context.subscriptions.push(panel, reloadRegistration);
     panel.webview.html = `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';"></head><body><pre id="tkr-proof-persisted-bytes-${id}">${encoded}</pre><a href="command:${reloadCommand}">Reload workbench</a></body></html>`;
     console.info(`[vscode-web-proof-probe] persisted bytes published in read-only webview #${id}`);
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.invokePackageCommand", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    const gameFiles = await findGameFiles(workspace.uri);
+    if (gameFiles.length !== 1) throw new Error(`Expected one .gam file in the proof workspace; found ${gameFiles.length}`);
+    await vscode.commands.executeCommand("tkr.packageGame", gameFiles[0], "1.0.0");
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.writeGameBytes", async (encoded) => {
     const workspace = vscode.workspace.workspaceFolders?.[0];

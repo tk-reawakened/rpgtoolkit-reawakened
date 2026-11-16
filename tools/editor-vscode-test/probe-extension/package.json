@@ -18,10 +18,13 @@
     "onCommand:tkr.editorWebProof.copyMainFileBytes",
     "onCommand:tkr.editorWebProof.writeGameBytes",
     "onCommand:tkr.editorWebProof.enableAutosave",
-    "onCommand:tkr.editorWebProof.disableAutosave"
+    "onCommand:tkr.editorWebProof.disableAutosave",
+    "onCommand:tkr.editorWebProof.invokePackageCommand",
+    "onCommand:tkr.editorWebProof.saveAll"
   ],
   "contributes": {
     "commands": [
+      { "command": "tkr.editorWebProof.openProjectFile", "title": "Test: Open Proof Project File" },
       {
         "command": "tkr.editorWebProof.runExampleGame",
         "title": "Test: Run Example Game"
@@ -65,6 +68,14 @@
       {
         "command": "tkr.editorWebProof.releaseAutosaveOff",
         "title": "Test: Release Autosave Off"
+      },
+      {
+        "command": "tkr.editorWebProof.invokePackageCommand",
+        "title": "Test: Execute Package Game"
+      },
+      {
+        "command": "tkr.editorWebProof.saveAll",
+        "title": "Test: Save All Workbench Editors"
       }
     ]
   }

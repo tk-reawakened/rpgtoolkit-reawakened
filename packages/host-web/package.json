@@ -12,7 +12,9 @@
   "dependencies": {
     "@tk-reawakened/editor-model": "workspace:*",
     "@tk-reawakened/editor-ui": "workspace:*",
-    "@tk-reawakened/platform-services": "workspace:*"
+    "@tk-reawakened/lsp": "workspace:*",
+    "@tk-reawakened/platform-services": "workspace:*",
+    "vscode-languageserver": "9.0.1"
   },
   "devDependencies": { "@types/node": "24.0.0" }
 }

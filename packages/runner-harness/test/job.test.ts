@@ -159,6 +159,7 @@ test("goldenJob detects batching disagreement without throwing", () => {
   const createBatchDependentEngine = (): Engine => {
     let currentTick = 0;
     return {
+      stateHash: () => "0000000000000000",
       advance(ticks: number, inputs: readonly InputRecord[], maxTicks?: number): TickReport {
         currentTick += ticks;
         const stateHash = maxTicks === 3 ? "3333333333333333" : "1111111111111111";
