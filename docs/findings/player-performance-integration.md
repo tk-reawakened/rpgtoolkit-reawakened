@@ -68,3 +68,15 @@ The mobile browser proof uses the existing filesystem host stub and does not cla
 See `tools/perf/README.md` for the machine, exact active board and before/after measurements. Corrected actual-board
 profiles measured 25.9 fps on main and 39.0 fps after integration, with long tasks reduced from 54 to 4. These are
 advisory single runs. Remaining rendering/surface-encoding work is tracked in #2795; it is not fixed here.
+
+## CI follow-up: desktop audio failures (#2797)
+
+The first PR CI run (`43798902008`) passed the unit, checks, golden, Bun and browser lanes. All three desktop input
+lanes failed the existing worklet-rejection assertion: diagnostics-off mode left the audio failure invisible.
+`docs/spec/engine/runners.md#diagnostics-mode` was clarified in its own commit, preserving the owner's automatic-error
+visibility rule. The desktop now displays an audio-only error with diagnostics off, including after toggling F3.
+The real Electron probe also counts state-hash reads while rejecting its worklet decoder and requires zero reads.
+
+A separate local `closing:suite` run passed Node and Chromium but timed out in desktop measurement after 120 seconds,
+with only a native window-move warning. This local timeout is tracked separately in #2799 and is not claimed fixed
+here. CI's desktop measurement steps passed before reaching the separate audio visibility regression.

@@ -144,7 +144,12 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
   // Set when the mode turns on, so the next frame fills the overlays at once rather than waiting for the strip's second.
   let refreshDiagnostics = true;
   const showDiagnostics = (on: boolean): void => {
-    status.hidden = !on;
+    const audioError = session.audioError();
+    status.hidden = !on && audioError === null;
+    if (!on) {
+      const text = audioError === null ? "" : `audio: ${audioError}`;
+      if (status.textContent !== text) status.textContent = text;
+    }
     if (diagnostics !== null) diagnostics.hidden = !on || diagnostics.textContent === "";
     refreshDiagnostics = on;
   };
@@ -290,6 +295,7 @@ function run(session: LiveSession, canvas: HTMLCanvasElement, status: HTMLElemen
         if (bar.showFps || forceFps) document.title = formatTitleBar(bar, fps);
       }
       if (!diagnosing) {
+        showDiagnostics(false);
         requestAnimationFrame(draw);
         return;
       }
