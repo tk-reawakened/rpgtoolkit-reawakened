@@ -661,7 +661,20 @@ async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath:
     }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
   } catch (error) {
     const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
-    throw new Error(`Native board History preview remained pending. Filesystem reads: ${JSON.stringify(historyHost.readEvents().slice(-30))}. Correlated preview stages (last 128):\n${trace}\n${String(error)}`);
+    const canvas = preview.locator("canvas");
+    const canvasCount = await canvas.count();
+    const canvasSize = canvasCount === 0 ? null : await canvas.first().evaluate((element) => {
+      const target = element as HTMLCanvasElement;
+      return { width: target.width, height: target.height, clientWidth: target.clientWidth, clientHeight: target.clientHeight };
+    }).catch(() => null);
+    const renderState = {
+      status: await previewState.textContent().catch(() => null),
+      pictureText: await preview.locator(".tkr-board-picture").textContent().catch(() => null),
+      canvasCount,
+      canvasSize,
+      readOnlyText: await preview.locator(".tkr-board-readonly").textContent().catch(() => null),
+    };
+    throw new Error(`Native board History preview remained pending. Render state: ${JSON.stringify(renderState)}. Filesystem reads: ${JSON.stringify(historyHost.readEvents().slice(-30))}. Correlated preview stages (last 128):\n${trace}\n${String(error)}`);
   }
   await expect(previewState).toHaveCount(0);
   await expect.poll(() => historyHost.readEvents().some((event) =>
