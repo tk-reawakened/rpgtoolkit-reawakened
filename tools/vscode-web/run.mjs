@@ -13,7 +13,8 @@
 // when an assertion fails. The VS Code build is downloaded once into `.vscode-test-web/`.
 
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,7 +48,11 @@ if (!probe) {
 run(process.execPath, [join(here, "build.mjs")]);
 
 const { runTests } = await import("@vscode/test-web");
+// Scenarios write files and settings; keep their workspace separate from committed fixtures.
+const fixtureRoot = mkdtempSync(join(tmpdir(), "tkr-vscode-web-"));
+const fixtureCopy = join(fixtureRoot, "probe");
 try {
+  cpSync(fixturePath, fixtureCopy, { recursive: true });
   await runTests({
     browserType: "chromium",
     quality: "stable",
@@ -55,7 +60,7 @@ try {
     extensionDevelopmentPath: extensionPath,
     ...(probe ? {} : { extensionPaths: [editorExtension] }),
     extensionTestsPath: testsPath,
-    folderPath: fixturePath,
+    folderPath: fixtureCopy,
     // A lane that runs beside another local server needs its own port.
     port: Number(process.env.VSCODE_WEB_PORT ?? "3111"),
     // The download is kept between runs (CI caches this folder).
@@ -69,4 +74,7 @@ try {
   const log = join(root, ".vscode-test-web", "log.txt");
   if (existsSync(log)) console.error(readFileSync(log, "utf8"));
   process.exitCode = 1;
+} finally {
+  try { rmSync(fixtureRoot, { recursive: true, force: true }); }
+  catch (error) { console.error("vscode-web: temporary fixture cleanup failed", error); process.exitCode = 1; }
 }
