@@ -29,7 +29,9 @@ import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
 import { EmptyExplorerView, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
-import { RunView, type RunViewProps } from "./run-view.tsx";
+import { RunStatusView, RunView, type RunViewProps } from "./run-view.tsx";
+import { RunControl, type RunControlProps } from "./run-control.tsx";
+import type { RunHandle } from "@tk-reawakened/platform-services";
 import { DocumentHistoryView, type DocumentHistoryViewProps } from "./document-history-view.tsx";
 import { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
 import { BoardView } from "./board-view.tsx";
@@ -268,7 +270,7 @@ export function mountAssetPicker(el: HTMLElement, props: AssetPickerViewProps): 
   return mountElement(el, createElement(AssetPickerView, props));
 }
 
-/** Render the Run panel (T-07, T-41) into `el`, for a host page that shows it without the shell. */
+/** Render the run setup form (T-07, T-41; ADR 0022 D8.7) into `el`, for a host page that shows it without the shell. */
 export function mountRun(el: HTMLElement, props: RunViewProps): ViewHandle {
   return mountElement(el, createElement(RunView, props));
 }
@@ -276,6 +278,16 @@ export function mountRun(el: HTMLElement, props: RunViewProps): ViewHandle {
 /** Render the History panel (ADR 0022 D12) into `el`, for a host page that shows it without the shell. */
 export function mountHistory(el: HTMLElement, props: DocumentHistoryViewProps): ViewHandle {
   return mountElement(el, createElement(DocumentHistoryView, props));
+}
+
+/** Render the header Run control (ADR 0022 D8.7) into `el`, for a host page that shows it without the shell. */
+export function mountRunControl(el: HTMLElement, props: RunControlProps): ViewHandle {
+  return mountElement(el, createElement(RunControl, props));
+}
+
+/** Render a run's status, problems, snapshot and Stop into `el`, for the host's Running game tab. */
+export function mountRunStatus(el: HTMLElement, run: RunHandle): ViewHandle {
+  return mountElement(el, createElement(RunStatusView, { run }));
 }
 
 /** Render the editor preferences into `el`. */

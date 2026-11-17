@@ -229,6 +229,55 @@ export async function runVscodeBoardProof(page: Page, expect: Expect, workbenchU
   await verifyHostRunHash(page, frame, expect);
 }
 
+/** The player frames on the page, by their `#screen` canvas. */
+async function playerFrames(page: Page): Promise<Frame[]> {
+  const found: Frame[] = [];
+  for (const frame of page.frames()) {
+    if (await frame.locator("#screen").count().catch(() => 0) > 0) found.push(frame);
+  }
+  return found;
+}
+
+/**
+ * Run and Debug (ADR 0037): a `tkr` board configuration started like F5 opens the Running Game tab from a snapshot and
+ * reports it to the Debug Console; Restart makes a new snapshot; Stop and closing the tab each end the debug session.
+ */
+export async function runVscodeRunAndDebugProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  const debug = (started: number, ended: number, restarts: number, snapshots: number) =>
+    page.getByText(`tkr debug: started ${started}, ended ${ended}, restarts ${restarts}, snapshots ${snapshots}`);
+  const onVillage = async (): Promise<void> => {
+    await expect.poll(async () => {
+      const frames = await playerFrames(page);
+      if (frames.length !== 1) return `${frames.length} player frames`;
+      return await frames[0]!.evaluate(() => (Reflect.get(window, "__live") as { board?: string | null } | undefined)?.board ?? "no board");
+    }, { timeout: 30_000 }).toContain("village.brd");
+  };
+  await runCommand(page, expect, "Test: Debug Example Board");
+  await expect(page.getByText("Debug launch accepted")).toBeVisible({ timeout: 30_000 });
+  await onVillage();
+  await expect(debug(1, 0, 0, 1)).toBeVisible({ timeout: 30_000 });
+  const first = (await playerFrames(page))[0]!;
+  const snapshot = JSON.parse(await first.locator("#run-snapshot pre").textContent() ?? "null") as { kind: string; seed: number; party: string[]; start: unknown };
+  expect(snapshot).toMatchObject({ kind: "board", seed: 23, party: ["Game/Example/Chrs/ada.tem"], start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 } });
+
+  await runCommand(page, expect, "Test: Restart Debug Session");
+  await expect(debug(1, 0, 1, 2)).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => first.isDetached(), { timeout: 30_000 }).toBe(true);
+  await onVillage();
+
+  await runCommand(page, expect, "Test: Stop Debug Session");
+  await expect(debug(1, 1, 1, 2)).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => (await playerFrames(page)).length, { timeout: 30_000 }).toBe(0);
+
+  await runCommand(page, expect, "Test: Debug Example Board");
+  await onVillage();
+  await expect(debug(2, 1, 1, 3)).toBeVisible({ timeout: 30_000 });
+  await runCommand(page, expect, "Test: Close Running Game Tab");
+  await expect(debug(2, 2, 1, 3)).toBeVisible({ timeout: 30_000 });
+}
+
 /** Refused saves and edits during snapshot preparation must prevent launching a player. */
 export async function runVscodeGuardProof(
   page: Page, expect: Expect, workbenchUrl: string, gamePath: string,
@@ -543,11 +592,16 @@ async function proveNativeTextHistory(
   await expect.poll(() => readBacking(projectPath), { timeout: 30_000, intervals: [100, 250, 500] }).not.toEqual(before);
   const saved = await readBacking(projectPath);
   const entryPrefix = "__tkr_new_project/.tkr-history/entries/";
-  const entries = await Promise.all((await tree()).filter((path) => path.startsWith(entryPrefix) && path.endsWith(".json"))
+  const readNativeEntries = async () => (await Promise.all((await tree()).filter((path) => path.startsWith(entryPrefix) && path.endsWith(".json"))
     .map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as {
       readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number;
-    }));
-  const nativeEntries = entries.filter((entry) => entry.path === historyPath);
+    }))).filter((entry) => entry.path === historyPath);
+  // ADR 0022 D12.10 item 4: a native text save is recorded after VS Code has written the file
+  // (onDidSaveTextDocument), so the `manual` entry can land after the file change seen above.
+  await expect.poll(async () => (await readNativeEntries()).map((entry) => entry.reason).sort(), {
+    timeout: 30_000, intervals: [100, 250, 500, 1_000],
+  }).toEqual(["checkpoint", "manual"]);
+  const nativeEntries = await readNativeEntries();
   expect(nativeEntries.map((entry) => entry.reason).sort()).toEqual(["checkpoint", "manual"]);
   expect(nativeEntries.map((entry) => entry.sha256).sort()).toEqual([
     createHash("sha256").update(before).digest("hex"),
