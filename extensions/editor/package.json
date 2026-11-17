@@ -402,10 +402,11 @@
         "label": "TK Reawakened game",
         "configurationAttributes": {
           "launch": {
-            "required": [
-              "kind"
-            ],
             "properties": {
+              "configuration": {
+                "type": "string",
+                "description": "The name of a saved launch setup in the project's .tkr/launch.json, shared with the browser editor. Its fields are used; any launch field given here as well replaces the setup's. Without it, \"kind\" says which launch, and missing values are asked for."
+              },
               "kind": {
                 "type": "string",
                 "enum": [
@@ -418,7 +419,7 @@
                   "Test a board: start fresh on an explicit board and position with an explicit party.",
                   "Test a program: run one program under test settings (the fixture)."
                 ],
-                "description": "Which launch to start (the platform-services Launch kind). Asked for when left out."
+                "description": "Which launch to start (the platform-services Launch kind), when no saved setup is named. Asked for when left out."
               },
               "main": {
                 "type": "string",
@@ -540,6 +541,16 @@
           }
         ],
         "configurationSnippets": [
+          {
+            "label": "TK Reawakened: Saved setup",
+            "description": "Run a launch setup saved in the project's .tkr/launch.json.",
+            "body": {
+              "type": "tkr",
+              "request": "launch",
+              "name": "${1:Setup name}",
+              "configuration": "${1:Setup name}"
+            }
+          },
           {
             "label": "TK Reawakened: Run game",
             "description": "Run the game from its configured start-up in the Running Game tab.",

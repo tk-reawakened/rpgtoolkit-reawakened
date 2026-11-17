@@ -22,6 +22,7 @@
     "onCommand:tkr.editorWebProof.invokePackageCommand",
     "onCommand:tkr.editorWebProof.saveAll",
     "onCommand:tkr.editorWebProof.debugExampleBoard",
+    "onCommand:tkr.editorWebProof.debugSavedSetup",
     "onCommand:tkr.editorWebProof.restartDebug",
     "onCommand:tkr.editorWebProof.stopDebug",
     "onCommand:tkr.editorWebProof.closeRunningGameTab"
@@ -30,6 +31,7 @@
     "commands": [
       { "command": "tkr.editorWebProof.openProjectFile", "title": "Test: Open Proof Project File" },
       { "command": "tkr.editorWebProof.debugExampleBoard", "title": "Test: Debug Example Board" },
+      { "command": "tkr.editorWebProof.debugSavedSetup", "title": "Test: Debug Saved Setup" },
       { "command": "tkr.editorWebProof.restartDebug", "title": "Test: Restart Debug Session" },
       { "command": "tkr.editorWebProof.stopDebug", "title": "Test: Stop Debug Session" },
       { "command": "tkr.editorWebProof.closeRunningGameTab", "title": "Test: Close Running Game Tab" },

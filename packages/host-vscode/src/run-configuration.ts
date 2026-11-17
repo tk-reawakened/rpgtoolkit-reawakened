@@ -1,4 +1,5 @@
 import type { BoardStart, Launch, LaunchKind, ProgramFixture } from "@tk-reawakened/platform-services";
+import { LAUNCH_SETUPS_PATH, type LaunchSetupsRead } from "@tk-reawakened/editor-model";
 
 /**
  * A `tkr` launch configuration (ADR 0037): the Run and Debug spelling of a platform-services `Launch`. This module is pure;
@@ -209,4 +210,33 @@ export function mergeAnswers(previous: Readonly<Record<string, unknown>>, config
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The fields a VS Code configuration carries for VS Code itself, not for the launch. */
+const VSCODE_FIELDS = new Set(["type", "request", "name", "configuration", "presentation", "preLaunchTask", "postDebugTask", "internalConsoleOptions", "debugServer", "noDebug"]);
+
+/**
+ * A configuration that names a saved setup (`"configuration": "<name>"`, ADR 0022 D8.7) as launch fields: the setup's,
+ * with a missing `fixture.id` set to its name, under any launch field the configuration also gives. The setup file is the
+ * one list every host reads; a missing `main` or `projectFolder` stays missing, so VS Code (which has no open game) asks.
+ */
+export function configurationOfSetup(
+  configuration: Readonly<Record<string, unknown>>, setups: LaunchSetupsRead,
+): { readonly ok: true; readonly configuration: Record<string, unknown> } | { readonly ok: false; readonly message: string } {
+  const name = configuration.configuration;
+  if (typeof name !== "string" || name === "") return { ok: false, message: `"configuration" must name a saved setup in ${LAUNCH_SETUPS_PATH}.` };
+  if (!setups.ok) return { ok: false, message: setups.problem };
+  const entry = setups.entries.find((candidate) => candidate.name === name);
+  if (entry === undefined) return { ok: false, message: `There is no saved setup named "${name}" in ${LAUNCH_SETUPS_PATH}.` };
+  if (entry.setup === null) return { ok: false, message: `The saved setup "${name}" cannot be used: ${entry.problem}` };
+  const { name: setupName, ...fields } = JSON.parse(JSON.stringify(entry.setup)) as Record<string, unknown> & { name: string };
+  if (fields.kind === "program" && isObject(fields.fixture) && fields.fixture.id === undefined) fields.fixture = { ...fields.fixture, id: setupName };
+  const given = Object.fromEntries(Object.entries(configuration).filter(([key, value]) => !VSCODE_FIELDS.has(key) && !key.startsWith("__") && value !== undefined));
+  return { ok: true, configuration: { ...fields, ...given } };
+}
+
+/** The Run and Debug entry for each usable saved setup, in file order. */
+export function setupConfigurations(setups: LaunchSetupsRead, type: string): Array<{ type: string; request: "launch"; name: string; configuration: string }> {
+  if (!setups.ok) return [];
+  return setups.entries.filter((entry) => entry.setup !== null).map((entry) => ({ type, request: "launch", name: entry.name, configuration: entry.name }));
 }

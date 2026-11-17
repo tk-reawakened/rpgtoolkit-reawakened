@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import { platformError, type PlatformResult, type RunHandle, type RunService } from "@tk-reawakened/platform-services";
 import { createLaunchPrompts, pickWorkspace, workspaceRoots } from "./launch-prompts.ts";
-import { launchConfiguration, mergeAnswers, resolveLaunch, TKR_DEBUG_TYPE, type LaunchPrompts } from "./run-configuration.ts";
+import { configurationOfSetup, launchConfiguration, mergeAnswers, resolveLaunch, setupConfigurations, TKR_DEBUG_TYPE, type LaunchPrompts } from "./run-configuration.ts";
+import { readLaunchSetups } from "@tk-reawakened/editor-model";
+import { createVscodeFileSystem } from "./filesystem.ts";
 import { RunDebugSession, type DapRequest } from "./run-debug-adapter.ts";
 
 /**
@@ -53,7 +55,11 @@ export function registerRunDebugger(context: vscode.ExtensionContext, runForProj
   context.subscriptions.push(vscode.debug.onDidTerminateDebugSession((session) => { live.delete(session); }));
 
   const provider: vscode.DebugConfigurationProvider = {
-    provideDebugConfigurations: () => INITIAL_CONFIGURATIONS,
+    // A new launch.json starts with the project's saved setups (ADR 0022 D8.7), or with the three launches when it has none.
+    provideDebugConfigurations: async (folder) => {
+      const saved = folder === undefined ? [] : await savedSetups(folder);
+      return saved.length > 0 ? saved : INITIAL_CONFIGURATIONS;
+    },
     resolveDebugConfiguration: (_folder, configuration) => {
       // F5 with no launch.json gives an empty configuration: make it a launch and ask which one when it is resolved.
       if (configuration.type === undefined && configuration.request === undefined && configuration.name === undefined) {
@@ -70,7 +76,17 @@ export function registerRunDebugger(context: vscode.ExtensionContext, runForProj
       if (workspace === undefined) return undefined;
       const previous = [...live].find((session) => session.name === configuration.name
         && session.configuration[WORKSPACE_KEY] === workspace.uri.toString());
-      const merged = mergeAnswers(previous?.configuration ?? {}, withoutUndefined(configuration));
+      let given = withoutUndefined(configuration);
+      if (configuration.configuration !== undefined) {
+        // A named setup is read again on every start and restart, so a changed setup affects the next run (D8.7).
+        const fromSetup = configurationOfSetup(given, await readLaunchSetups(createVscodeFileSystem(workspace.uri)));
+        if (!fromSetup.ok) {
+          void vscode.window.showErrorMessage(`${configuration.name}: ${fromSetup.message}`);
+          return undefined;
+        }
+        given = { ...fromSetup.configuration, name: configuration.name };
+      }
+      const merged = mergeAnswers(previous?.configuration ?? {}, given);
       const resolved = await resolveLaunch(merged, workspaceRoots(workspace.uri), createLaunchPrompts(workspace.uri));
       if (!resolved.ok) {
         if (!resolved.cancelled) void vscode.window.showErrorMessage(`${configuration.name}: ${resolved.message}`);
@@ -84,9 +100,14 @@ export function registerRunDebugger(context: vscode.ExtensionContext, runForProj
     },
   };
   context.subscriptions.push(vscode.debug.registerDebugConfigurationProvider(TKR_DEBUG_TYPE, provider));
+  // Run and Debug's list offers every saved setup of each workspace folder, then the three launches.
   context.subscriptions.push(vscode.debug.registerDebugConfigurationProvider(TKR_DEBUG_TYPE, {
-    provideDebugConfigurations: () => INITIAL_CONFIGURATIONS,
+    provideDebugConfigurations: async (folder) => [...(folder === undefined ? [] : await savedSetups(folder)), ...INITIAL_CONFIGURATIONS],
   }, vscode.DebugConfigurationProviderTriggerKind.Dynamic));
+
+  async function savedSetups(folder: vscode.WorkspaceFolder): Promise<vscode.DebugConfiguration[]> {
+    return setupConfigurations(await readLaunchSetups(createVscodeFileSystem(folder.uri)), TKR_DEBUG_TYPE);
+  }
 
   context.subscriptions.push(vscode.debug.registerDebugAdapterDescriptorFactory(TKR_DEBUG_TYPE, {
     createDebugAdapterDescriptor: () => new vscode.DebugAdapterInlineImplementation(new InlineRunAdapter(start)),

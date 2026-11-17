@@ -118,6 +118,18 @@ function activate(context) {
     });
     report(started ? "Debug launch accepted" : "Debug launch refused");
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.debugSavedSetup", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    // A saved setup in the shared project file (ADR 0022 D8.7), named from a VS Code configuration.
+    const setups = { version: 1, configurations: [{
+      name: "Proof saved setup", kind: "board", main: "Main/example.gam", projectFolder: "Game/Example", seed: 23,
+      start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 }, party: ["Game/Example/Chrs/ada.tem"],
+    }] };
+    await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(workspace.uri, ".tkr", "launch.json"), new TextEncoder().encode(`${JSON.stringify(setups, null, 2)}\n`));
+    const started = await vscode.debug.startDebugging(workspace, { type: "tkr", request: "launch", name: "Proof saved setup", configuration: "Proof saved setup" });
+    report(started ? "Saved setup launch accepted" : "Saved setup launch refused");
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.restartDebug", async () => {
     await vscode.commands.executeCommand("workbench.action.debug.restart");
   }));

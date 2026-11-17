@@ -221,7 +221,8 @@ async function playerFrames(page: Page): Promise<Frame[]> {
 
 /**
  * Run and Debug (ADR 0037): a `tkr` board configuration started like F5 opens the Running Game tab from a snapshot and
- * reports it to the Debug Console; Restart makes a new snapshot; Stop and closing the tab each end the debug session.
+ * reports it to the Debug Console; Restart makes a new snapshot; Stop and closing the tab each end the debug session; and a
+ * configuration naming a saved setup in `.tkr/launch.json` runs it.
  */
 export async function runVscodeRunAndDebugProof(page: Page, expect: Expect, workbenchUrl: string): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
@@ -257,6 +258,16 @@ export async function runVscodeRunAndDebugProof(page: Page, expect: Expect, work
   await expect(debug(2, 1, 1, 3)).toBeVisible({ timeout: 30_000 });
   await runCommand(page, expect, "Test: Close Running Game Tab");
   await expect(debug(2, 2, 1, 3)).toBeVisible({ timeout: 30_000 });
+
+  // A configuration that names a saved setup in .tkr/launch.json (ADR 0022 D8.7) runs that setup.
+  await runCommand(page, expect, "Test: Debug Saved Setup");
+  await expect(page.getByText("Saved setup launch accepted")).toBeVisible({ timeout: 30_000 });
+  await onVillage();
+  await expect(debug(3, 2, 1, 4)).toBeVisible({ timeout: 30_000 });
+  const saved = JSON.parse(await (await playerFrames(page))[0]!.locator("#run-snapshot pre").textContent() ?? "null") as { kind: string; seed: number };
+  expect(saved).toMatchObject({ kind: "board", seed: 23 });
+  await runCommand(page, expect, "Test: Stop Debug Session");
+  await expect(debug(3, 3, 1, 4)).toBeVisible({ timeout: 30_000 });
 }
 
 /** Refused saves and edits during snapshot preparation must prevent launching a player. */

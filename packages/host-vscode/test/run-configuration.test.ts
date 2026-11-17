@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { launchConfiguration, mergeAnswers, resolveLaunch, toWorkspacePath, type LaunchPrompts } from "../src/run-configuration.ts";
+import { configurationOfSetup, launchConfiguration, mergeAnswers, resolveLaunch, setupConfigurations, toWorkspacePath, type LaunchPrompts } from "../src/run-configuration.ts";
 
 const ROOTS = ["file:///work/quest", "/work/quest"];
 
@@ -117,4 +117,36 @@ test("configured paths are made workspace-relative on desktop and web", () => {
   assert.equal(toWorkspacePath("tkr-testfs://proof/Main/quest.gam", ["tkr-testfs://proof/", "/"]), "Main/quest.gam");
   assert.equal(toWorkspacePath("/work/questline/Main/quest.gam", ROOTS), undefined);
   assert.equal(toWorkspacePath("Main/../quest.gam", ROOTS), undefined);
+});
+
+test("a configuration that names a saved setup uses the setup's fields, with D8.7's fixture id, under any field it gives", async () => {
+  const setups = {
+    ok: true as const,
+    entries: [
+      { name: "Smoke", setup: { name: "Smoke", kind: "program" as const, program: "Prg/start.prg", fixture: { party: [], start: { board: "Boards/a.brd", x: 1, y: 1, layer: 1 } } }, problem: null },
+      { name: "Broken", setup: null, problem: "\"start\" is missing." },
+    ],
+  };
+  const picked = configurationOfSetup({ type: "tkr", request: "launch", name: "Smoke", configuration: "Smoke", seed: 4, __tkrWorkspace: "x" }, setups);
+  assert.deepEqual(picked, { ok: true, configuration: {
+    kind: "program", program: "Prg/start.prg", fixture: { id: "Smoke", party: [], start: { board: "Boards/a.brd", x: 1, y: 1, layer: 1 } }, seed: 4,
+  } });
+  // No open game in VS Code: the setup leaves main and projectFolder out, so they are asked for.
+  assert.ok(picked.ok);
+  const { prompts, asked } = scripted({ main: ["Main/quest.gam"], projectFolder: [""] });
+  const resolved = await resolveLaunch(picked.configuration, ROOTS, prompts);
+  assert.ok(resolved.ok && resolved.launch.kind === "program" && resolved.launch.fixture.id === "Smoke");
+  assert.deepEqual(asked, ["main", "projectFolder"]);
+  assert.deepEqual(configurationOfSetup({ configuration: "Broken" }, setups), { ok: false, message: "The saved setup \"Broken\" cannot be used: \"start\" is missing." });
+  assert.deepEqual(configurationOfSetup({ configuration: "Gone" }, setups), { ok: false, message: "There is no saved setup named \"Gone\" in .tkr/launch.json." });
+  assert.deepEqual(configurationOfSetup({ configuration: "Smoke" }, { ok: false, problem: ".tkr/launch.json is not valid JSON." }),
+    { ok: false, message: ".tkr/launch.json is not valid JSON." });
+});
+
+test("Run and Debug lists each usable saved setup by name, in file order", () => {
+  assert.deepEqual(setupConfigurations({ ok: true, entries: [
+    { name: "Village", setup: { name: "Village", kind: "game" }, problem: null },
+    { name: "Broken", setup: null, problem: "bad" },
+  ] }, "tkr"), [{ type: "tkr", request: "launch", name: "Village", configuration: "Village" }]);
+  assert.deepEqual(setupConfigurations({ ok: false, problem: "bad" }, "tkr"), []);
 });
