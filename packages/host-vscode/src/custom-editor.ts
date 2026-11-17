@@ -1,4 +1,4 @@
-import { createAnimationAuthoring, asAnimationDocument, asMainDocument, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { boardPreviewRootForPath, createAnimationAuthoring, asAnimationDocument, asMainDocument, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -127,6 +127,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly browserSession: BrowserSession;
   readonly #workspace: DocumentWorkspace;
   readonly #fs: FileSystemService;
+  readonly #previewRoot: ReturnType<typeof boardPreviewRootForPath>;
   readonly #navigation: DocumentNavigation<Uri>;
   readonly #port: GameEditorPort<Uri>;
   readonly #fire: (event: GameEditEvent<Uri>) => void;
@@ -160,6 +161,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.browserSession = browserSession;
     this.#workspace = workspace;
     this.#fs = fs;
+    this.#previewRoot = boardPreviewRootForPath(model.identity.path);
     this.#navigation = navigation;
     this.#port = port;
     this.#fire = fire;
@@ -277,8 +279,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   async preview(request?: BoardPreviewRequest): Promise<BoardPicture> {
     if (this.model.kind === "tile-bitmap") return previewTileBitmap(this.#fs, this.model.identity.projectId, this.model.serialize());
     if (this.model.kind !== "board") return { ok: false, message: `A ${this.model.kind} document has no picture.` };
-    const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize(), request);
-    return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
+    const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize(), { ...request, root: this.#previewRoot });
+    return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings, objectBounds: preview.objectBounds } : preview;
   }
   /** Read a project-relative preview asset through this document's project-bound host filesystem. */
   readProject(path: string): Promise<PlatformResult<Uint8Array>> {
@@ -492,10 +494,10 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (kind === null) return { ok: false, message: `${path} has no registered editor, so there is nothing to visit.` };
       let target = path;
       if (reference) {
-        if (kind.id !== "board" && kind.id !== "program") {
-          return { ok: false, message: "This value is inline code or is not a board or program file. Its text has not been changed." };
+        if (kind.id !== "board" && kind.id !== "program" && kind.id !== "item" && kind.id !== "character" && kind.id !== "tile-bitmap") {
+          return { ok: false, message: "This value is inline code or has no linked asset editor. Its text has not been changed." };
         }
-        const assetKind = kind.id === "board" ? "boards" : "programs";
+        const assetKind = kind.id === "board" ? "boards" : kind.id === "program" ? "programs" : kind.id === "item" ? "items" : kind.id === "character" ? "characters" : "bitmaps";
         const openMain = project.workspace.documents().filter((document) => document.kind === "main");
         const mainPaths = openMain.map((document) => document.identity.path);
         if (mainPaths.length === 0) {

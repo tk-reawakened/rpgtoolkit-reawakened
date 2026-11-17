@@ -1,12 +1,13 @@
 import type { ApplyResult } from "./binary-document.ts";
 import type { PreferencesSnapshot } from "./preferences.ts";
-import type { BoardCommand, TileGesture } from "./board-document.ts";
+import type { BoardCommand, BoardDocumentFields, SetBoardFieldsCommand, TileGesture } from "./board-document.ts";
 import { boardTileAt } from "./board-document.ts";
 import {
   DEFAULT_ZOOM_INDEX,
   ZOOM_STEPS,
   cellInGrid,
   cellOnBoard,
+  cellOutline,
   clampViewport,
   pixelToCell,
   revealCell,
@@ -33,6 +34,19 @@ import {
   type ToolBoard,
   type ToolOutcome,
 } from "./board-tools.ts";
+import type { BoardObjectKind, BoardObjectSelection } from "./board-objects.ts";
+import {
+  defaultBoardObject,
+  nearestObjectPoint,
+  nearestObjectSegment,
+  objectHitDistance,
+  objectPoints,
+  rectangleObjectPoints,
+  snapObjectPoint,
+  tileBasePoint,
+  translatedObject,
+  type BoardObject,
+} from "./board-object-tools.ts";
 
 /**
  * The state of the board canvas and the gestures that edit through it (`docs/editor-features.md`, "Reawakened rules for
@@ -81,7 +95,7 @@ export function editorPreferencesFrom(snapshot: PreferencesSnapshot): EditorPref
 
 export interface BoardEditorOptions {
   /** The board as it is now. */
-  board(): ToolBoard;
+  board(): ToolBoard & Pick<BoardDocumentFields, BoardObjectKind>;
   /** Apply one command to the document. A host may answer later. */
   apply(command: BoardCommand): ApplyResult | Promise<ApplyResult>;
   /** The retained brush, or `null` when none is chosen. */
@@ -92,6 +106,8 @@ export interface BoardEditorOptions {
   preferences(): EditorPreferences;
   /** The size of the canvas in screen pixels. */
   readonly viewSize?: { readonly width: number; readonly height: number };
+  /** Actual graphic bounds when the preview has them; otherwise the documented 32×32 placeholder is selectable. */
+  objectBounds?(kind: BoardObjectKind, index: number): { readonly left: number; readonly top: number; readonly width: number; readonly height: number } | null;
 }
 
 /** A gesture that has begun and has not been committed. Nothing here has touched the document. */
@@ -107,7 +123,19 @@ export type PendingGesture =
   /** Select: the selected tiles are being dragged by `current − anchor` cells. */
   | { readonly kind: "move"; readonly anchor: Cell; readonly current: Cell; readonly copy: boolean }
   /** Scroll: the last screen position of the drag. */
-  | { readonly kind: "pan"; readonly from: Pixel };
+  | { readonly kind: "pan"; readonly from: Pixel }
+  | ObjectGesture;
+
+type ObjectGesture =
+  | { readonly kind: "object-path"; readonly points: readonly Pixel[]; readonly current: Pixel; readonly resume: number | null }
+  | { readonly kind: "object-rectangle"; readonly anchor: Pixel; readonly current: Pixel; readonly keyboard: boolean }
+  | { readonly kind: "object-box"; readonly anchor: Pixel; readonly current: Pixel }
+  | { readonly kind: "object-move"; readonly anchor: Pixel; readonly delta: Pixel };
+
+function isObjectGesture(pending: PendingGesture | null): pending is ObjectGesture {
+  return pending !== null && (pending.kind === "object-path" || pending.kind === "object-rectangle"
+    || pending.kind === "object-box" || pending.kind === "object-move");
+}
 
 export interface BoardSelection {
   readonly layer: number;
@@ -121,6 +149,10 @@ export interface EditorMessage {
 
 export interface BoardEditorState {
   readonly tool: BoardTool;
+  readonly mode: "tiles" | BoardObjectKind;
+  readonly objectSelection: BoardObjectSelection | null;
+  readonly pointSelection: readonly number[];
+  readonly hiddenObjectTypes: readonly (number | "program")[];
   /** The current layer, counted from 0. It is always visible. */
   readonly layer: number;
   /** The layers that are hidden, counted from 0. */
@@ -146,6 +178,7 @@ export interface BoardEditorState {
 export interface PictureRequest {
   readonly visibleLayers: readonly number[];
   readonly showBackground: boolean;
+  readonly showSprites: boolean;
 }
 
 export interface BoardEditor {
@@ -154,6 +187,18 @@ export interface BoardEditor {
   /** Bring the state in line with the board after it changed under the editor (an undo, a reload). */
   sync(): void;
   setTool(tool: BoardTool): void;
+  setMode(mode: "tiles" | BoardObjectKind): void;
+  selectObject(index: number | null): void;
+  selectPoints(indices: readonly number[]): void;
+  setObjectTypeVisible(type: number | "program", visible: boolean): void;
+  createObject(): Promise<boolean>;
+  /** Caller has obtained the explicit remove-and-renumber confirmation. */
+  removeObject(): Promise<boolean>;
+  reorderObject(index: number): Promise<boolean>;
+  finishObjectPath(open: boolean): Promise<boolean>;
+  resumeObjectPath(): void;
+  subdivideObject(): Promise<boolean>;
+  deletePoints(): Promise<boolean>;
   setLayer(layer: number): void;
   /** Show or hide a layer. The current layer cannot be hidden: answers `false`, and says so. */
   setLayerVisible(layer: number, visible: boolean): boolean;
@@ -205,6 +250,10 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   let strokeKeys = new Set<string>();
   let state: BoardEditorState = {
     tool: "draw",
+    mode: "tiles",
+    objectSelection: null,
+    pointSelection: [],
+    hiddenObjectTypes: [],
     layer: 0,
     hidden: [],
     showBackground: true,
@@ -323,6 +372,178 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     }
   };
 
+  const selectedObject = (): BoardObject | null => {
+    const selected = state.objectSelection;
+    return selected === null ? null : options.board()[selected.kind][selected.index] ?? null;
+  };
+  const objectFields = (kind: BoardObjectKind, records: readonly BoardObject[]): SetBoardFieldsCommand["fields"] =>
+    ({ [kind]: records }) as SetBoardFieldsCommand["fields"];
+  const commitObjects = async (fields: SetBoardFieldsCommand["fields"], selection = state.objectSelection): Promise<boolean> => {
+    if (state.busy) return false;
+    publish({ busy: true, message: null });
+    try {
+      const result = await options.apply({ type: "set-board-fields", fields });
+      if (!result.ok) {
+        error(`Nothing was changed: ${result.rejection.message}`);
+        return false;
+      }
+      publish({ pending: null, objectSelection: selection, message: null });
+      return true;
+    } catch (thrown) {
+      error(thrown instanceof Error ? thrown.message : String(thrown));
+      return false;
+    } finally {
+      publish({ busy: false });
+    }
+  };
+  const replaceObject = (object: BoardObject): Promise<boolean> => {
+    const selected = state.objectSelection;
+    if (selected === null) return Promise.resolve(false);
+    return commitObjects(objectFields(selected.kind, options.board()[selected.kind].map((record, index) => index === selected.index ? object : record)));
+  };
+  const appendObject = (kind: BoardObjectKind, at: Pixel, points: readonly Pixel[], closed = -1): Promise<boolean> => {
+    const records = options.board()[kind];
+    const object = defaultBoardObject(kind, state.layer + 1, at, points, closed);
+    return commitObjects(objectFields(kind, [...records, object]), { kind, index: records.length });
+  };
+  const polygonMode = (): boolean => state.mode === "vectors" || state.mode === "programs";
+  const hitObject = (pixel: Pixel): number | null => {
+    if (state.mode === "tiles") return null;
+    let best = 16 / zoomOf(state.viewport);
+    let found: number | null = null;
+    options.board()[state.mode].forEach((object, index) => {
+      if (object.layer !== state.layer + 1 || state.hidden.includes(object.layer - 1)
+        || (state.mode === "vectors" && "type" in object && state.hiddenObjectTypes.includes(object.type))
+        || (state.mode === "programs" && state.hiddenObjectTypes.includes("program"))) return;
+      const distance = objectHitDistance(object, pixel, options.objectBounds?.(state.mode as BoardObjectKind, index) ?? undefined);
+      if (distance <= best) { best = distance; found = index; }
+    });
+    return found;
+  };
+  const snappedPlacement = (pixel: Pixel, modifiers: Modifiers): Pixel => {
+    const board = options.board();
+    if (state.mode === "sprites" && ((board.coordType & 4) === 0) !== (modifiers.ctrl === true)) {
+      const cell = pixelToCell(board, pixel.x, pixel.y);
+      if (cell !== null) return tileBasePoint(board, cell);
+    }
+    return snapObjectPoint(board, pixel, modifiers.ctrl === true);
+  };
+  const moveDelta = (pixel: Pixel, modifiers: Modifiers, anchor: Pixel): Pixel => {
+    const object = selectedObject();
+    if (object === null) return { x: 0, y: 0 };
+    const points = objectPoints(object);
+    const base = points[state.pointSelection[0] ?? 0] ?? { x: 0, y: 0 };
+    const to = snappedPlacement({ x: base.x + pixel.x - anchor.x, y: base.y + pixel.y - anchor.y }, modifiers);
+    return { x: to.x - base.x, y: to.y - base.y };
+  };
+  const moveObjectGesture = (pixel: Pixel, modifiers: Modifiers): void => {
+    const pending = state.pending;
+    if (!isObjectGesture(pending) || state.busy) return;
+    if (pending.kind === "object-path") {
+      publish({ pending: { ...pending, current: snapObjectPoint(options.board(), pixel, modifiers.ctrl === true, pending.points.at(-1), modifiers.shift === true) } });
+    } else if (pending.kind === "object-move") {
+      publish({ pending: { ...pending, delta: moveDelta(pixel, modifiers, pending.anchor) } });
+    } else {
+      publish({ pending: { ...pending, current: pending.kind === "object-box" ? pixel : snapObjectPoint(options.board(), pixel, modifiers.ctrl === true) } });
+    }
+  };
+  const finishObjectGesture = async (pixel: Pixel, modifiers: Modifiers): Promise<void> => {
+    const pending = state.pending;
+    if (!isObjectGesture(pending) || state.busy || pending.kind === "object-path") return;
+    if (pending.kind === "object-box") {
+      const object = selectedObject();
+      const left = Math.min(pending.anchor.x, pixel.x), right = Math.max(pending.anchor.x, pixel.x);
+      const top = Math.min(pending.anchor.y, pixel.y), bottom = Math.max(pending.anchor.y, pixel.y);
+      publish({ pending: null, pointSelection: object === null || !("points" in object) ? [] : object.points.flatMap((point, index) =>
+        point.x >= left && point.x <= right && point.y >= top && point.y <= bottom ? [index] : []) });
+    } else if (pending.kind === "object-move") {
+      const object = selectedObject();
+      const delta = moveDelta(pixel, modifiers, pending.anchor);
+      if (object === null || (delta.x === 0 && delta.y === 0)) return publish({ pending: null });
+      await replaceObject(translatedObject(object, delta, state.pointSelection));
+    } else if (polygonMode()) {
+      const to = snapObjectPoint(options.board(), pixel, modifiers.ctrl === true);
+      const points = rectangleObjectPoints(options.board(), pending.anchor, to);
+      if (points.every((point) => point.x === points[0]?.x && point.y === points[0]?.y)) return publish({ pending: null });
+      await appendObject(state.mode as "vectors" | "programs", pending.anchor, points);
+    }
+  };
+  const splitEdge = async (object: BoardObject, pixel: Pixel): Promise<void> => {
+    if (!("points" in object)) return;
+    const edge = nearestObjectSegment(object.points, object.closed !== 0, pixel);
+    if (edge === null) return;
+    const point = snapObjectPoint(options.board(), edge.point, true === ((options.board().coordType & 4) === 0));
+    const points = [...object.points.slice(0, edge.index + 1), point, ...object.points.slice(edge.index + 1)];
+    if (await replaceObject({ ...object, points })) publish({ pointSelection: [edge.index + 1] });
+  };
+  const objectPointerDown = (pixel: Pixel, modifiers: Modifiers, button: number, keyboard = false): void => {
+    if (state.mode === "tiles") return;
+    lastPixel = pixel;
+    const cell = pixelToCell(options.board(), pixel.x, pixel.y);
+    if (cell !== null) publish({ cursor: cell, hover: cell });
+    if (button === 2) {
+      if (polygonMode()) void editor.finishObjectPath(modifiers.ctrl === true);
+      return;
+    }
+    if (button !== 0) return;
+    const pending = state.pending;
+    if (state.tool === "rectangle" && polygonMode()) {
+      const at = snapObjectPoint(options.board(), pixel, modifiers.ctrl === true);
+      publish({ pending: { kind: "object-rectangle", anchor: at, current: at, keyboard }, message: null });
+      return;
+    }
+    if (state.tool === "draw" && polygonMode()) {
+      if (pending?.kind === "object-path") {
+        if (modifiers.alt === true) {
+          const index = nearestObjectPoint(pending.points, pixel, 16 / zoomOf(state.viewport));
+          if (index !== null) publish({ pending: { ...pending, points: pending.points.filter((_, at) => at !== index) } });
+          return;
+        }
+        const at = snapObjectPoint(options.board(), pixel, modifiers.ctrl === true, pending.points.at(-1), modifiers.shift === true);
+        const previous = pending.points.at(-1);
+        if (previous?.x !== at.x || previous.y !== at.y) publish({ pending: { ...pending, points: [...pending.points, at], current: at } });
+        return;
+      }
+      const object = selectedObject();
+      if (object !== null && "points" in object) {
+        const index = nearestObjectPoint(object.points, pixel, 16 / zoomOf(state.viewport));
+        if (index !== null) {
+          publish({ pointSelection: [index], pending: modifiers.alt === true ? null : { kind: "object-move", anchor: pixel, delta: { x: 0, y: 0 } } });
+          if (modifiers.alt === true) void editor.deletePoints();
+          return;
+        }
+        const edge = nearestObjectSegment(object.points, object.closed !== 0, pixel);
+        if (edge !== null && edge.distance <= 16 / zoomOf(state.viewport)) { void splitEdge(object, pixel); return; }
+      }
+      const at = snapObjectPoint(options.board(), pixel, modifiers.ctrl === true);
+      publish({ pending: { kind: "object-path", points: [at], current: at, resume: null }, objectSelection: null, pointSelection: [], message: null });
+      return;
+    }
+    if (state.tool === "draw") {
+      void appendObject(state.mode, snappedPlacement(pixel, modifiers), []);
+      return;
+    }
+    const index = hitObject(pixel);
+    const object = index === null ? selectedObject() : options.board()[state.mode][index]!;
+    if (index === null) {
+      if (object !== null && "points" in object) publish({ pending: { kind: "object-box", anchor: pixel, current: pixel } });
+      else publish({ objectSelection: null, pointSelection: [], pending: null });
+      return;
+    }
+    const same = state.objectSelection?.kind === state.mode && state.objectSelection.index === index;
+    const vertex = object !== null && "points" in object ? nearestObjectPoint(object.points, pixel, 16 / zoomOf(state.viewport)) : null;
+    let indices: readonly number[] = [];
+    if (vertex !== null) {
+      indices = same && state.pointSelection.includes(vertex) ? state.pointSelection : [vertex];
+      if (modifiers.shift === true) {
+        const previous = same ? state.pointSelection : [];
+        indices = previous.includes(vertex) ? previous.filter((at) => at !== vertex) : [...previous, vertex];
+      }
+    }
+    publish({ objectSelection: { kind: state.mode, index }, pointSelection: indices,
+      pending: modifiers.shift === true ? null : { kind: "object-move", anchor: pixel, delta: { x: 0, y: 0 } }, message: null });
+  };
+
   const editor: BoardEditor = {
     getState: () => state,
     subscribe(listener) {
@@ -338,15 +559,114 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         && cellInGrid(board, state.selection.rect.x0, state.selection.rect.y0) && cellInGrid(board, state.selection.rect.x1, state.selection.rect.y1)
         ? state.selection
         : null;
+      const objectSelection = state.objectSelection !== null && board[state.objectSelection.kind][state.objectSelection.index] !== undefined ? state.objectSelection : null;
+      const object = objectSelection === null ? null : board[objectSelection.kind][objectSelection.index]!;
+      const count = object !== null && "points" in object ? object.points.length : 0;
+      const pointSelection = state.pointSelection.every((index) => index < count)
+        ? state.pointSelection : state.pointSelection.filter((index) => index < count);
       const viewport = clampViewport(board, state.viewport);
       const same = layer === state.layer && hidden.length === state.hidden.length && cursor === state.cursor && selection === state.selection
+        && objectSelection === state.objectSelection && pointSelection === state.pointSelection
         && viewport.x === state.viewport.x && viewport.y === state.viewport.y;
-      if (!same) publish({ layer, hidden, cursor, selection, viewport });
+      if (!same) publish({ layer, hidden, cursor, selection, objectSelection, pointSelection, viewport });
     },
     setTool(tool) {
       if (tool === state.tool && state.pending === null) return;
+      if (state.mode !== "tiles" && (tool === "flood" || tool === "erase" || tool === "dropper")) {
+        return info("Flood fill, Erase and Dropper are tile tools. Use point actions or the object inspector in this mode.");
+      }
       lastPixel = null;
       publish({ tool, pending: null, message: null });
+    },
+    setMode(mode) {
+      if (state.busy || mode === state.mode) return;
+      const tool = state.tool === "scroll" || state.tool === "zoom" || state.tool === "select" ? state.tool : "draw";
+      publish({ mode, tool, pending: null, selection: null, objectSelection: null, pointSelection: [], message: null });
+    },
+    selectObject(index) {
+      if (state.mode === "tiles" || state.busy) return;
+      if (index !== null && (!Number.isInteger(index) || options.board()[state.mode][index] === undefined)) return;
+      publish({ objectSelection: index === null ? null : { kind: state.mode, index }, pointSelection: [], pending: null, message: null });
+    },
+    selectPoints(indices) {
+      const object = selectedObject();
+      if (object === null || !("points" in object)) return;
+      publish({ pointSelection: [...new Set(indices.filter((index) => Number.isInteger(index) && index >= 0 && index < object.points.length))], pending: null });
+    },
+    setObjectTypeVisible(type, visible) {
+      publish({ hiddenObjectTypes: visible ? state.hiddenObjectTypes.filter((entry) => entry !== type)
+        : state.hiddenObjectTypes.includes(type) ? state.hiddenObjectTypes : [...state.hiddenObjectTypes, type] });
+    },
+    async createObject() {
+      if (state.mode === "tiles" || state.busy) return false;
+      const board = options.board();
+      const points = cellOutline(board, state.cursor.x, state.cursor.y);
+      const at = state.mode === "sprites" ? tileBasePoint(board, state.cursor) : points[0]!;
+      return appendObject(state.mode, at, polygonMode() ? points : []);
+    },
+    async removeObject() {
+      const selected = state.objectSelection;
+      if (selected === null) return false;
+      const changed = await commitObjects(objectFields(selected.kind, options.board()[selected.kind].filter((_, index) => index !== selected.index)), null);
+      if (changed) publish({ pointSelection: [] });
+      return changed;
+    },
+    async reorderObject(index) {
+      const selected = state.objectSelection;
+      if (selected === null || !Number.isInteger(index)) return false;
+      const records = [...options.board()[selected.kind]];
+      if (index < 0 || index >= records.length || index === selected.index) return false;
+      const [object] = records.splice(selected.index, 1);
+      records.splice(index, 0, object!);
+      return commitObjects(objectFields(selected.kind, records), { ...selected, index });
+    },
+    async finishObjectPath(open) {
+      const pending = state.pending;
+      if (pending?.kind !== "object-path" || !polygonMode()) return false;
+      if (pending.points.length < 2) { error("A region needs at least two points. Add another point or press Escape."); return false; }
+      const kind = state.mode as "vectors" | "programs";
+      if (pending.resume === null) return appendObject(kind, pending.points[0]!, pending.points, open ? 0 : -1);
+      const object = options.board()[kind][pending.resume];
+      if (object === undefined) return false;
+      return replaceObject({ ...object, points: pending.points, closed: open ? 0 : object.closed === 0 ? -1 : object.closed });
+    },
+    resumeObjectPath() {
+      const object = selectedObject(), selected = state.objectSelection;
+      if (object === null || selected === null || !("points" in object) || !polygonMode() || state.busy) return;
+      const at = object.points.at(-1) ?? tileBasePoint(options.board(), state.cursor);
+      publish({ tool: "draw", pending: { kind: "object-path", points: object.points, current: at, resume: selected.index }, message: null });
+    },
+    async subdivideObject() {
+      const object = selectedObject();
+      if (object === null || !("points" in object)) return false;
+      const selected = state.pointSelection.length === 0 ? null : new Set(state.pointSelection);
+      const points: Pixel[] = [];
+      for (let index = 0; index < object.points.length; index += 1) {
+        const point = object.points[index]!;
+        points.push(point);
+        const nextIndex = (index + 1) % object.points.length;
+        if (nextIndex === 0 && object.closed === 0) continue;
+        if (selected !== null && (!selected.has(index) || !selected.has(nextIndex))) continue;
+        const next = object.points[nextIndex]!;
+        points.push({ x: Math.round((point.x + next.x) / 2), y: Math.round((point.y + next.y) / 2) });
+      }
+      if (points.length === object.points.length) { info("Select both ends of a segment to subdivide it."); return false; }
+      const changed = await replaceObject({ ...object, points });
+      if (changed) publish({ pointSelection: [] });
+      return changed;
+    },
+    async deletePoints() {
+      const object = selectedObject();
+      if (object === null || !("points" in object) || state.pointSelection.length === 0) {
+        info("Select region points to delete, or use Remove slot and renumber in the inspector.");
+        return false;
+      }
+      const selected = new Set(state.pointSelection);
+      const points = object.points.filter((_, index) => !selected.has(index));
+      if (points.length < 2) { error("Keep at least two region points. Use Remove slot and renumber to remove the object."); return false; }
+      const changed = await replaceObject({ ...object, points });
+      if (changed) publish({ pointSelection: [] });
+      return changed;
     },
     setLayer(layer) {
       const board = options.board();
@@ -410,6 +730,10 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     pointerDown(screen, modifiers, button = 0) {
       if (state.busy) return;
       if (button === 1) return editor.toggleScrollAxis();
+      if (state.mode !== "tiles" && state.tool !== "scroll" && state.tool !== "zoom") {
+        objectPointerDown(screenToBoard(state.viewport, screen.x, screen.y), modifiers, button);
+        return;
+      }
       if (button !== 0) return;
       const pixel = screenToBoard(state.viewport, screen.x, screen.y);
       const cell = pixelToCell(options.board(), pixel.x, pixel.y);
@@ -444,6 +768,11 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       const hover = state.hover;
       const hoverChanged = (cell === null) !== (hover === null) || (cell !== null && hover !== null && key(cell) !== key(hover));
       const pending = state.pending;
+      if (isObjectGesture(pending)) {
+        moveObjectGesture(pixel, modifiers);
+        if (hoverChanged) publish({ hover: cell });
+        return;
+      }
       if (pending === null) {
         if (hoverChanged) publish({ hover: cell });
         return;
@@ -467,6 +796,10 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       }
     },
     async pointerUp(screen, modifiers) {
+      if (isObjectGesture(state.pending)) {
+        await finishObjectGesture(screenToBoard(state.viewport, screen.x, screen.y), modifiers);
+        return;
+      }
       const pending = state.pending;
       if (pending === null || pending.kind === "pan") {
         if (pending !== null) publish({ pending: null });
@@ -509,6 +842,12 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       while ((dx !== 0 || dy !== 0) && cellInGrid(board, to.x, to.y) && !cellOnBoard(board, to.x, to.y)) to = { x: to.x + dx, y: to.y + dy };
       if (!cellOnBoard(board, to.x, to.y)) return;
       const pending = state.pending;
+      if (isObjectGesture(pending)) {
+        const point = tileBasePoint(board, to);
+        if (pending.kind === "object-path" || (pending.kind === "object-rectangle" && pending.keyboard)) {
+          publish({ pending: { ...pending, current: snapObjectPoint(board, point) } });
+        }
+      }
       publish({
         cursor: to,
         viewport: revealCell(board, state.viewport, to.x, to.y),
@@ -521,6 +860,16 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     },
     async activate(modifiers) {
       if (state.busy) return;
+      if (state.mode !== "tiles" && state.tool !== "scroll" && state.tool !== "zoom") {
+        const point = tileBasePoint(options.board(), state.cursor);
+        if (state.pending?.kind === "object-rectangle" && state.pending.keyboard) {
+          await finishObjectGesture(point, modifiers);
+        } else {
+          objectPointerDown(point, modifiers, 0, true);
+          if (state.pending?.kind === "object-move" || state.pending?.kind === "object-box") await finishObjectGesture(point, modifiers);
+        }
+        return;
+      }
       const cursor = state.cursor;
       const pending = state.pending;
       const tool = state.tool;
@@ -537,13 +886,23 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       lastPixel = null;
       if (state.pending !== null) publish({ pending: null, message: null });
       else if (state.selection !== null) publish({ selection: null, message: null });
+      else if (state.objectSelection !== null) publish({ objectSelection: null, pointSelection: [], message: null });
     },
     selectAll() {
       const board = options.board();
+      if (state.mode !== "tiles") {
+        const object = selectedObject();
+        if (object !== null && "points" in object) publish({ pointSelection: object.points.map((_, index) => index), pending: null });
+        return;
+      }
       if (board.grid.width === 0 || board.grid.height === 0) return;
       publish({ selection: { layer: state.layer, rect: { x0: 0, y0: 0, x1: board.grid.width - 1, y1: board.grid.height - 1 } }, pending: null, message: null });
     },
     async eraseSelection() {
+      if (state.mode !== "tiles") {
+        await editor.deletePoints();
+        return;
+      }
       const selection = state.selection;
       if (selection === null) return error("Select some cells first.");
       const board = options.board();
@@ -558,6 +917,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       return {
         visibleLayers: Array.from({ length: board.layers }, (_, index) => index).filter((index) => !hidden.has(index)),
         showBackground: state.showBackground,
+        showSprites: true,
       };
     },
   };
@@ -571,7 +931,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
  */
 export function pendingCells(board: ToolBoard, state: BoardEditorState, stamp: Stamp | null): Cell[] {
   const pending = state.pending;
-  if (pending === null) return [];
+  if (pending === null || isObjectGesture(pending)) return [];
   const onBoard = (cells: readonly Cell[]): Cell[] => cells.filter((cell) => cellOnBoard(board, cell.x, cell.y));
   switch (pending.kind) {
     case "stroke":

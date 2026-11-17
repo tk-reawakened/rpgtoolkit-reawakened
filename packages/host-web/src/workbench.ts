@@ -171,8 +171,9 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
             pickAsset: (request) => workbench.pickAsset(request),
             open: async (path) => {
               const kind = kindForPath(path)?.id;
-              if (kind !== "board" && kind !== "program") return "This value is inline code or is not a board or program file. Its text has not been changed.";
-              const target = referencePath(projectLayout, kind === "board" ? "boards" : "programs", path);
+              if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : "bitmaps";
+              const target = referencePath(projectLayout, folder, path);
               const visited = await visits.visit(document, target);
               if (!visited.ok) return "message" in visited.error ? visited.error.message : visited.error.error.message;
               show(visited.document);

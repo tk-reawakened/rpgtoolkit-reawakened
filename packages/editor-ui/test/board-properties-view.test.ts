@@ -53,7 +53,7 @@ async function setup(): Promise<Setup> {
     resolveConflict: (choice) => doc.resolveConflict(choice),
     preview: async (request) => {
       const picture = await previewBoard(host.fs, "memory-project", doc.serialize(), request);
-      return picture.ok ? { ok: true, width: picture.width, height: picture.height, rgba: picture.rgba, warnings: picture.warnings } : picture;
+      return picture.ok ? { ok: true, width: picture.width, height: picture.height, rgba: picture.rgba, warnings: picture.warnings, objectBounds: picture.objectBounds } : picture;
     },
     undo: () => doc.undo(),
     redo: () => doc.redo(),

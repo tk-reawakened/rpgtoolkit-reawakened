@@ -14,8 +14,11 @@ import {
   BinaryReader,
   readBoard,
   type WorldBoard,
+  resolveAsset,
+  foldPath,
 } from "@tk-reawakened/core";
 import { boardExtent } from "./board-geometry.ts";
+import { previewBoardSprites } from "./board-sprite-preview.ts";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
 /**
@@ -36,6 +39,19 @@ export interface BoardPreviewRequest {
   readonly visibleLayers?: readonly number[];
   /** Whether the board's background image is drawn; it is when absent. */
   readonly showBackground?: boolean;
+  /** Whether placed item sprites are drawn. The default preserves the engine's `viewbrd` picture. */
+  readonly showSprites?: boolean;
+}
+
+/** The truthful visual extent for one stored board object. `index` is its raw board slot, including empty slots. */
+export interface BoardObjectBounds {
+  readonly kind: "sprites" | "images";
+  readonly index: number;
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+  readonly placeholder: boolean;
 }
 
 export interface BoardPreviewOptions extends BoardPreviewRequest {
@@ -55,6 +71,7 @@ export type BoardPicture =
       readonly rgba: Uint8Array;
       /** Files the board names that the project does not hold or the decoders refuse; their cells are drawn empty. */
       readonly warnings: readonly string[];
+      readonly objectBounds: readonly BoardObjectBounds[];
     }
   | { readonly ok: false; readonly message: string };
 
@@ -69,6 +86,14 @@ export type BoardPreview =
 const MAX_PREVIEW_PIXELS = 4_000_000;
 /** The most files a project listing walk reads, so a preview over a huge project stays bounded. */
 const MAX_FILES = 20000;
+
+/** The asset root beside a canonical Game/<project>/Boards file, or the package root for loose boards (AD-5). */
+export function boardPreviewRootForPath(path: string): AssetRoot {
+  const canonical = foldPath(path);
+  if (!canonical.startsWith("game/")) return PACKAGE_ROOT;
+  const boards = canonical.indexOf("/boards/", 6);
+  return boards < 0 ? PACKAGE_ROOT : { kind: "game", projectPath: canonical.slice(5, boards) };
+}
 
 /** The hydrated board with the layers and background the request hides taken out of the picture only. */
 function visibleBoard(board: WorldBoard, request: BoardPreviewRequest): WorldBoard {
@@ -121,29 +146,62 @@ export async function previewBoard(
   }
   const paths = await projectPaths(storage);
   if (typeof paths === "string") return { ok: false, message: paths };
-  const index = createAssetIndex(paths);
+  let index = createAssetIndex(paths);
   const root = options.root ?? PACKAGE_ROOT;
   const pathOf = new Map<AssetKey, string>();
   paths.forEach((path, at) => pathOf.set(index.keys[at]!, path));
   const key = assetKey("preview.brd");
   const bytes = new Map<AssetKey, Uint8Array>();
   const warnings: string[] = [];
+  const unavailable = new Set<AssetKey>();
+  const imageAssets = new Set<AssetKey>();
+  for (const image of board.images) {
+    if (image.file === "") continue;
+    const resolved = resolveAsset(index, root, "bitmaps", image.file);
+    if (resolved.ok) imageAssets.add(resolved.value);
+    else warnings.push(`${image.file}: the image is missing from this project.`);
+  }
+  const load = async (asset: AssetKey): Promise<Uint8Array | null> => {
+    const cached = bytes.get(asset);
+    if (cached !== undefined) return cached;
+    if (unavailable.has(asset)) return null;
+    const path = pathOf.get(asset);
+    const result = path === undefined ? null : await storage.readProject(projectId, path);
+    if (result === null || !result.ok) { unavailable.add(asset); return null; }
+    bytes.set(asset, result.value);
+    return result.value;
+  };
+  const omitImage = (asset: AssetKey, reason: string): void => {
+    unavailable.add(asset);
+    warnings.push(`${asset}: ${reason}`);
+    index = createAssetIndex(paths.filter((path) => !unavailable.has(assetKey(path))));
+  };
   // Reads are repeated until the board hydrates: each round names one file the hydrator needs and does not yet hold.
   for (;;) {
     const hydrated = hydrateBoard(key, boardBytes, index, root, bytes, options.tick ?? 0);
-    if (hydrated.error !== null) return { ok: false, message: `${hydrated.error.path}: ${hydrated.error.message}` };
+    if (hydrated.error !== null) {
+      const asset = assetKey(hydrated.error.path);
+      if (imageAssets.has(asset) && !unavailable.has(asset)) {
+        omitImage(asset, hydrated.error.message);
+        continue;
+      }
+      return { ok: false, message: `${hydrated.error.path}: ${hydrated.error.message}` };
+    }
     if (hydrated.missing !== null) {
-      const path = pathOf.get(hydrated.missing);
-      const read = path === undefined ? null : await storage.readProject(projectId, path);
-      if (read === null || !read.ok) return { ok: false, message: `${hydrated.missing} could not be read for the preview.` };
-      bytes.set(hydrated.missing, read.value);
+      if (await load(hydrated.missing) === null) {
+        if (imageAssets.has(hydrated.missing)) { omitImage(hydrated.missing, "the image could not be read"); continue; }
+        return { ok: false, message: `${hydrated.missing} could not be read for the preview.` };
+      }
       continue;
     }
     if (hydrated.value === null) return { ok: false, message: "The board could not be prepared for the preview." };
     const textures = new Map<AssetKey, DecodedTexture>();
+    let retryImages = false;
     for (const dependency of hydrated.value.dependencies) {
       const source = bytes.get(dependency);
       if (source === undefined) continue;
+      // A tile bitmap is already hydrated into cells, not decoded as an ordinary picture texture.
+      if (imageAssets.has(dependency) && dependency.toLowerCase().endsWith(".tbm")) continue;
       const tile = decodeTileTexture(dependency, source);
       if (tile.ok) {
         textures.set(dependency, tile.texture);
@@ -155,22 +213,49 @@ export async function previewBoard(
       }
       const picture = decodeTexture(source, dependency);
       if (picture.ok) textures.set(dependency, picture.value);
+      else if (imageAssets.has(dependency)) { omitImage(dependency, picture.error.message); retryImages = true; }
       else warnings.push(`${dependency}: ${picture.error.message}`);
     }
+    if (retryImages) continue;
     const width = Math.max(1, extent.width);
     const height = Math.max(1, extent.height);
-    // The flags of the engine's `viewbrd` preview: shading and pictures on, sprites off.
+    const spritePreview = options.showSprites === true
+      ? await previewBoardSprites(board, index, root, load)
+      : { draws: [], textures: new Map<AssetKey, DecodedTexture>(), bounds: [], warnings: [] };
+    for (const [asset, texture] of spritePreview.textures) textures.set(asset, texture);
+    warnings.push(...spritePreview.warnings);
+    const visibleSprites = options.showSprites === true
+      ? spritePreview.draws.filter((sprite) => options.visibleLayers === undefined || options.visibleLayers.includes(sprite.layer - 1))
+      : [];
+    const objectBounds: BoardObjectBounds[] = [
+      ...(options.showSprites === true ? spritePreview.bounds
+        .filter((bound) => {
+          const sprite = board.sprites[bound.index];
+          return sprite !== undefined && (options.visibleLayers === undefined || options.visibleLayers.includes(sprite.layer - 1));
+        }).map((bound) => ({ kind: "sprites" as const, ...bound })) : []),
+      ...board.images.flatMap((image, index) => {
+        if (options.visibleLayers !== undefined && !options.visibleLayers.includes(image.layer - 1)) return [];
+        const resolved = hydrated.value!.board.images?.[index];
+        const texture = resolved?.asset === undefined ? undefined : textures.get(resolved.asset);
+        const graphic = texture !== undefined || resolved?.cells !== undefined;
+        const stretch = graphic && image.drawType === 2 && resolved?.cells === undefined;
+        return [{ kind: "images" as const, index, left: stretch ? 0 : image.left, top: stretch ? 0 : image.top,
+          width: stretch ? extent.width : resolved?.width ?? texture?.w ?? 32,
+          height: stretch ? extent.height : resolved?.height ?? texture?.h ?? 32, placeholder: !graphic }];
+      }),
+    ];
     const drawList = composeBoard({
       board: visibleBoard(hydrated.value.board, options),
       tick: options.tick ?? 0,
       camera: { x: 0, y: 0 },
       viewport: { width, height },
       alpha: 0,
-      include: { shading: true, images: true, sprites: false },
+      include: { shading: true, images: true, sprites: options.showSprites === true },
+      sprites: visibleSprites,
       assets: textures,
     });
     const rendered = rasterize(drawList, textures);
     if (rendered.error !== null) return { ok: false, message: rendered.error };
-    return { ok: true, drawList, width: rendered.width, height: rendered.height, rgba: rendered.rgba, warnings };
+    return { ok: true, drawList, width: rendered.width, height: rendered.height, rgba: rendered.rgba, warnings, objectBounds };
   }
 }

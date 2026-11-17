@@ -82,7 +82,7 @@ export {
   type NewBoardSettings,
   type NewBoardStorage,
 } from "./board-creation.ts";
-export { previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type BoardPreviewRequest, type PreviewStorage } from "./board-preview.ts";
+export { boardPreviewRootForPath, previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type BoardPreviewRequest, type PreviewStorage } from "./board-preview.ts";
 export {
   ZOOM_STEPS,
   DEFAULT_ZOOM_INDEX,
@@ -127,6 +127,9 @@ export {
   type ToolBoard,
   type ToolOutcome,
 } from "./board-tools.ts";
+export type { BoardObjectKind, BoardObjectSelection } from "./board-objects.ts";
+export { objectPoints, rectangleObjectPoints, tileBasePoint, translatedObject } from "./board-object-tools.ts";
+export type { BoardObjectBounds } from "./board-preview.ts";
 export {
   DEFAULT_EDITOR_PREFERENCES,
   createBoardEditor,

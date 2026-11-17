@@ -300,13 +300,14 @@ function isAssetPickRequest(value: unknown): value is AssetPickRequest {
     && "field" in value && typeof value.field === "string" && value.field !== "";
 }
 
-/** Whether a value from a webview asks for a picture the way `BoardPreviewRequest` says: layer numbers and a background flag, nothing else. */
+/** Validate the board preview's layer list and optional display flags at the webview boundary. */
 function isPreviewRequest(value: unknown): value is BoardPreviewRequest {
   if (typeof value !== "object" || value === null) return false;
   const layers = "visibleLayers" in value ? value.visibleLayers : undefined;
   const background = "showBackground" in value ? value.showBackground : undefined;
+  const sprites = "showSprites" in value ? value.showSprites : undefined;
   const layersOk = layers === undefined || (Array.isArray(layers) && layers.length <= 1024 && layers.every((layer) => Number.isInteger(layer) && layer >= 0));
-  return layersOk && (background === undefined || typeof background === "boolean");
+  return layersOk && (background === undefined || typeof background === "boolean") && (sprites === undefined || typeof sprites === "boolean");
 }
 
 function isProjectPath(value: unknown): value is string {

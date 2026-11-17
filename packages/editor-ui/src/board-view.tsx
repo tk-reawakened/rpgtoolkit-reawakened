@@ -1,38 +1,41 @@
+import type { Colorref } from "@tk-reawakened/core";
 import {
-  BOARD_TOOLS,
-  DEFAULT_EDITOR_PREFERENCES,
-  ZOOM_STEPS,
-  cellCentre,
-  createDocumentIdentity,
-  createEditTracker,
-  createBoardEditor,
-  cellOnBoard,
-  referencePath,
-  stampFromBitmap,
-  tileSourceOf,
-  zoomOf,
-  type ApplyResult,
-  type BoardEditor,
-  type BoardEditorState,
-  type BoardPicture,
-  type BoardTool,
-  type Brush,
-  type ConflictChoice,
-  type SaveFailure,
-  type PendingEdits,
-  type Stamp,
-  boardTileAt,
+    BOARD_TOOLS,
+    DEFAULT_EDITOR_PREFERENCES,
+    ZOOM_STEPS,
+    boardTileAt,
+    cellOnBoard,
+    createBoardEditor,
+    createDocumentIdentity,
+    createEditTracker,
+    referencePath,
+    stampFromBitmap,
+    tileBasePoint,
+    tileSourceOf,
+    zoomOf,
+    type ApplyResult,
+    type BoardEditor,
+    type BoardEditorState,
+    type BoardPicture,
+    type BoardTool,
+    type Brush,
+    type ConflictChoice,
+    type PendingEdits,
+    type SaveFailure,
+    type Stamp
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { TilesetBrowserContext } from "./tileset-browser.tsx";
-import type { BoardPreferencesSource, BoardViewDocument } from "./mount.ts";
-import { useDocumentSnapshot } from "./use-document.ts";
-import { BoardPropertiesView, type BoardPropertiesNavigation } from "./board-properties-view.tsx";
 import { BoardCanvas } from "./board-canvas.tsx";
-import { TilesetBrowser } from "./tileset-browser.tsx";
+import { BoardObjectsView, type BoardObjectsNavigation } from "./board-objects-view.tsx";
+import { BoardPropertiesView, type BoardPropertiesNavigation } from "./board-properties-view.tsx";
 import type { BrowserSelection } from "./brush.ts";
+import type { CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 import { IconAction } from "./icon-action.tsx";
+import type { BoardPreferencesSource, BoardViewDocument } from "./mount.ts";
+import type { TilesetBrowserContext } from "./tileset-browser.tsx";
+import { TilesetBrowser } from "./tileset-browser.tsx";
+import { useDocumentSnapshot } from "./use-document.ts";
 
 /** How many views have been given ids (ids must be unique in the page; see `SettingsView`). */
 let viewsMade = 0;
@@ -46,7 +49,7 @@ export interface BoardViewProps {
   readonly onEdited: (event: DocumentEdited) => void;
   readonly browser?: TilesetBrowserContext;
   readonly preferences?: BoardPreferencesSource;
-  readonly navigation?: BoardPropertiesNavigation;
+  readonly navigation?: BoardPropertiesNavigation & Pick<CharacterAuthoringViewProps, "pickAsset">;
   readonly pendingEdits: PendingEdits;
 }
 
@@ -109,6 +112,11 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const [moveBy, setMoveBy] = useState({ columns: "1", rows: "0" });
   const [pickingStart, setPickingStart] = useState(false);
   const [startMessage, setStartMessage] = useState<string | null>(null);
+  const [colourPicker, setColourPicker] = useState<((colour: Colorref) => void) | null>(null);
+  const pictureRef = useRef(picture);
+  pictureRef.current = picture;
+  const [canvasEdits] = useState(() => createEditTracker());
+  useEffect(() => pendingEdits.register(canvasEdits), [pendingEdits]);
   const tileField = useRef<HTMLInputElement>(null);
   const [startEdit] = useState(() => createEditTracker());
   useEffect(() => pendingEdits.register(startEdit), [pendingEdits]);
@@ -126,7 +134,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   /** Apply a command and tell the host about the edit, once, as the one place that does. A host that answers at once is answered at once. */
   const applyAndReport = (command: Parameters<BoardViewDocument["apply"]>[0]): ApplyResult | Promise<ApplyResult> => {
     const { doc: document, onEdited: report } = latest.current;
+    const finish = canvasEdits.begin();
     const settle = (result: ApplyResult): ApplyResult => {
+      finish();
       if (result.ok) {
         const edit = document.getSnapshot().edits.find((entry) => entry.editId === result.editId);
         report({ document: document.identity.key, editId: result.editId, label: edit?.label ?? "Edit the board" });
@@ -135,8 +145,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     };
     try {
       const result = document.apply(command);
-      return result instanceof Promise ? result.then(settle) : settle(result);
+      return result instanceof Promise ? result.then(settle, (error: unknown) => { finish(); throw error; }) : settle(result);
     } catch (error) {
+      finish();
       return { ok: false, rejection: { reason: "invalid", message: error instanceof Error ? error.message : String(error) } };
     }
   };
@@ -153,13 +164,12 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     }
     const end = startEdit.begin();
     try {
-      const point = cellCentre(current, column - 1, row - 1);
+      const point = tileBasePoint(current, { x: column - 1, y: row - 1 });
       let result: ApplyResult;
       try {
         result = await Promise.resolve(applyAndReport({
           type: "set-board-fields",
-          // board.md#coordinates stores a 2D tile's bottom-centre (+16,+31), not its visual centre (+16,+16).
-          fields: { properties: { ...current.properties, start: { x: point.x, y: point.y + ((current.coordType & 3) === 0 ? 15 : 0), layer } } },
+          fields: { properties: { ...current.properties, start: { x: point.x, y: point.y, layer } } },
         }));
       } catch (error) {
         setStartMessage(error instanceof Error ? error.message : String(error));
@@ -184,6 +194,10 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       brush: () => latest.current.brush,
       // Read from the source when the gesture happens, so a preference changed since the last render is the one used.
       preferences: () => latest.current.preferences?.get() ?? DEFAULT_EDITOR_PREFERENCES,
+      objectBounds: (kind, index) => {
+        const current = pictureRef.current;
+        return current?.ok ? current.objectBounds.find((bounds) => bounds.kind === kind && bounds.index === index) ?? null : null;
+      },
       pickTile: (tile) => {
         const source = tileSourceOf(tile);
         const context = latest.current.browser;
@@ -204,9 +218,12 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   );
   const [editorSource] = useState(() => ({ getSnapshot: () => editor.getState(), subscribe: (listener: () => void) => editor.subscribe(listener) }));
   const state: BoardEditorState = useDocumentSnapshot(editorSource);
+  const objectMode = useRef<Exclude<BoardEditorState["mode"], "tiles">>("vectors");
+  if (state.mode !== "tiles") objectMode.current = state.mode;
 
   useEffect(() => browser?.session.subscribe(() => setBrushSelection(browser.session.getSnapshot().selection)) ?? undefined, [browser]);
   useEffect(() => editor.sync(), [editor, snapshot]);
+  useEffect(() => { setColourPicker(null); setPickingStart(false); }, [state.mode, state.objectSelection?.index]);
 
   // A tile bitmap chosen in the browser is read once, and becomes the stamp whole-grid Draw places.
   useEffect(() => {
@@ -252,8 +269,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       (error: unknown) => { if (current) setPicture({ ok: false, message: error instanceof Error ? error.message : String(error) }); },
     );
     return () => { current = false; };
-  // Tile data, shading, and the board's visual properties affect composition; unrelated property edits need no redraw.
-  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey]);
+  // Object art and visual board data affect composition; region-only edits need no asset work.
+  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey]);
 
   useEffect(() => {
     if (!focusCell.current) return;
@@ -305,7 +322,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   };
 
   const onShortcut = (event: KeyboardEvent): void => {
-    if (typing(event.target) || event.defaultPrevented) return;
+    if (typing(event.target) || event.defaultPrevented
+      || (event.target instanceof Element && event.target.closest("dialog[open]") !== null)) return;
     const command = event.ctrlKey || event.metaKey;
     if (command && !event.altKey) {
       const key = event.key.toLowerCase();
@@ -322,6 +340,27 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       return;
     }
     if (event.altKey) return;
+    const modeIndex = ["1", "2", "3", "4", "5"].indexOf(event.key);
+    if (modeIndex >= 0) {
+      event.preventDefault();
+      editor.setMode((["tiles", "vectors", "programs", "sprites", "images"] as const)[modeIndex]!);
+      return;
+    }
+    if ((state.mode === "vectors" || state.mode === "programs") && event.key.toLowerCase() === "z" && !event.shiftKey) {
+      event.preventDefault();
+      void editor.subdivideObject();
+      return;
+    }
+    if ((state.mode === "vectors" || state.mode === "programs") && event.key.toLowerCase() === "x") {
+      event.preventDefault();
+      editor.resumeObjectPath();
+      return;
+    }
+    if (state.pending?.kind === "object-path" && event.key === "Enter") {
+      event.preventDefault();
+      void editor.finishObjectPath(event.ctrlKey);
+      return;
+    }
     const tool = KEY_TOOLS.get(event.key.toLowerCase());
     if (tool !== undefined && !event.shiftKey) {
       event.preventDefault();
@@ -336,11 +375,12 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       event.preventDefault();
       editor.toggleGrid();
     } else if (event.key === "Escape") {
-      if (pickingStart) {
+      if (colourPicker !== null) setColourPicker(null);
+      else if (pickingStart) {
         setPickingStart(false);
         setStartMessage(null);
       } else editor.cancel();
-    } else if ((event.key === "Delete" || event.key === "Backspace") && state.selection !== null) {
+    } else if ((event.key === "Delete" || event.key === "Backspace") && (state.selection !== null || state.objectSelection !== null)) {
       event.preventDefault();
       void editor.eraseSelection();
     }
@@ -360,6 +400,19 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     : brush.kind === "tile" ? `Brush: ${brush.label}` : `Stamp: ${brush.stamp.name}, ${brush.stamp.width} × ${brush.stamp.height} cells`;
   const startLocationDisplay = preferences?.get().startLocationDisplay ?? DEFAULT_EDITOR_PREFERENCES.startLocationDisplay;
   const startMarker = startLocationDisplay === "every" || (navigation?.initialBoardPath !== undefined && createDocumentIdentity(doc.identity.projectId, navigation.initialBoardPath).key === doc.identity.key) ? snapshot.properties.start : null;
+  const pick = navigation?.pickAsset;
+  const open = navigation?.open;
+  const objectNavigation: BoardObjectsNavigation | undefined = pick === undefined || open === undefined ? undefined : {
+    open,
+    pickAsset: async (kind) => {
+      const request = kind === "program" ? { kind: "programs" as const, extensions: [".prg"], field: "program source" }
+        : kind === "sprite" ? { kind: "items" as const, extensions: [".itm", ".tem"], field: "item sprite definition" }
+          : { kind: "bitmaps" as const, extensions: [".png", ".bmp", ".jpg", ".jpeg", ".gif", ".tbm"], field: "board image" };
+      const outcome = await pick(request);
+      return outcome.chosen ? outcome.reference : null;
+    },
+  };
+  const polygonMode = state.mode === "vectors" || state.mode === "programs";
 
   return (
     <section class="tkr-board" aria-label="Board" onKeyDown={onShortcut}>
@@ -394,14 +447,23 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         onEdited={onEdited}
         {...(navigation === undefined ? {} : { navigation })}
         pendingEdits={pendingEdits}
-        onChooseStart={() => { if (!readOnly) { setPickingStart(true); setStartMessage("Click a board cell to set the player start."); } }}
+        onChooseStart={() => { if (!readOnly) { editor.pointerCancel(); setColourPicker(null); setPickingStart(true); setStartMessage("Click a board cell to set the player start."); } }}
         onSetStart={setPlayerStart}
       />
       {pickingStart ? <p class="tkr-board-note" role="status">Choose a board cell for the player start, or press Escape to cancel.</p> : null}
       {startMessage === null ? null : <p class="tkr-board-note" role="status">{startMessage}</p>}
+      {colourPicker === null ? null : <p class="tkr-board-note" role="status">Click a rendered colour to use it as this image's transparent colour, or press Escape to cancel. Apply in the inspector to keep it.</p>}
+      <div class="tkr-board-toolbar" role="toolbar" aria-label="Board modes">
+        {(["tiles", "vectors", "programs", "sprites", "images"] as const).map((mode, index) => (
+          <button type="button" key={mode} aria-pressed={state.mode === mode} aria-keyshortcuts={String(index + 1)}
+            disabled={state.busy} data-board-mode={mode} onClick={() => editor.setMode(mode)}>
+            {mode[0]!.toUpperCase() + mode.slice(1)} ({index + 1})
+          </button>
+        ))}
+      </div>
       <div class="tkr-board-controls">
       <div class="tkr-board-toolbar tkr-board-toolbar-tools" role="toolbar" aria-label="Board tools">
-        {BOARD_TOOLS.map((tool) => (
+        {BOARD_TOOLS.filter((tool) => state.mode === "tiles" || tool === "draw" || tool === "select" || tool === "scroll" || tool === "zoom" || (polygonMode && tool === "rectangle")).map((tool) => (
           <IconAction
             icon={tool}
             label={TOOL_LABELS[tool].label}
@@ -443,6 +505,21 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         </div>
       ) : null}
       </div>
+      {polygonMode ? <fieldset class="tkr-board-visibility"><legend>Visible regions</legend>
+        {([[0, "Passable"], [1, "Solid"], [2, "Under"], [4, "Legacy type 4"], [8, "Stairs"], [16, "Waypoint"], ["program", "Programs"]] as const).map(([type, label]) => (
+          <label key={type}><input type="checkbox" checked={!state.hiddenObjectTypes.includes(type)}
+            onChange={(event) => editor.setObjectTypeVisible(type, event.currentTarget.checked)} />{label}</label>
+        ))}
+      </fieldset> : null}
+      {polygonMode ? <div class="tkr-board-toolbar" role="toolbar" aria-label="Region actions">
+        <button type="button" disabled={readOnly || state.busy || state.objectSelection === null} onClick={() => { void editor.subdivideObject(); }}>Subdivide segments (Z)</button>
+        <button type="button" disabled={readOnly || state.busy || state.objectSelection === null} onClick={() => editor.resumeObjectPath()}>Resume drawing (X)</button>
+        <button type="button" disabled={readOnly || state.busy || state.pointSelection.length === 0} onClick={() => { void editor.deletePoints(); }}>Delete selected points</button>
+        {state.pending?.kind === "object-path" ? <>
+          <button type="button" disabled={state.busy} onClick={() => { void editor.finishObjectPath(false); }}>Finish closed</button>
+          <button type="button" disabled={state.busy} onClick={() => { void editor.finishObjectPath(true); }}>Finish open</button>
+        </> : null}
+      </div> : null}
       {historyNote === null ? null : <p class="tkr-board-note" role="status">{historyNote}</p>}
       <div class="tkr-board-info-row">
       <div class="tkr-board-header-bar">
@@ -490,7 +567,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       )}
       </div>
       <div class="tkr-board-picture">
-        <BoardCanvas editor={editor} state={state} board={snapshot} picture={picture} stamp={brush?.kind === "stamp" ? brush.stamp : null} startPicking={pickingStart} startMarker={startMarker} onStartCell={(cell) => setPlayerStart(cell.x + 1, cell.y + 1, state.layer + 1)} />
+        <BoardCanvas editor={editor} state={state} board={snapshot} picture={picture} stamp={brush?.kind === "stamp" ? brush.stamp : null}
+          startPicking={pickingStart} startMarker={startMarker} onStartCell={(cell) => setPlayerStart(cell.x + 1, cell.y + 1, state.layer + 1)}
+          colourPicking={colourPicker !== null} onColourPixel={(colour) => { colourPicker?.(colour); setColourPicker(null); }} />
         {picture === null ? (
           <p class="tkr-board-preview-state" role="status">Drawing the board…</p>
         ) : picture.ok ? (
@@ -503,7 +582,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
           <p class="tkr-board-preview-state" role="status">No picture: {picture.message}</p>
         )}
       </div>
-      <p class="tkr-board-brush-state">{brushText}</p>
+      {state.mode === "tiles" ? <p class="tkr-board-brush-state">{brushText}</p> : <p class="tkr-board-note">
+        {polygonMode ? "Click points, then right-click to close (Ctrl+right-click leaves open). Shift constrains; Ctrl reverses grid snapping; Alt removes a nearby point. Select to move points or drag a point-selection box." : "Draw places a default object. Select and drag to move it; use the inspector to choose its source and edit exact coordinates."}
+      </p>}
       {pending !== null && pending.kind === "corner" && pending.keyboard ? (
         <p class="tkr-board-note" role="status">
           First corner at column {pending.anchor.x + 1}, row {pending.anchor.y + 1}. Move to the other corner and press Space, or Escape to cancel.
@@ -512,7 +593,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       {state.message === null ? null : (
         <p class="tkr-board-message" role={state.message.kind === "error" ? "alert" : "status"}>{state.message.text}</p>
       )}
-      <details class="tkr-board-selection-disclosure" open={state.tool === "select" || selection !== null}>
+      <details class="tkr-board-selection-disclosure" hidden={state.mode !== "tiles"} open={state.tool === "select" || selection !== null}>
         <summary>Selection actions</summary>
         <fieldset class="tkr-board-selection">
           <legend>Selection</legend>
@@ -590,7 +671,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
           ))}
         </div>
       )}
-      <div class="tkr-board-row tkr-board-cell-row">
+      <div class="tkr-board-row tkr-board-cell-row" hidden={state.mode !== "tiles"}>
         <label for={`${ids}-tile`}>
           Tile for column {x + 1}, row {y + 1}
         </label>
@@ -629,10 +710,10 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       <button
         type="button"
         data-editor-save="true" class="tkr-board-save"
-        disabled={readOnly || savePending || snapshot.saving || conflict !== null || !snapshot.dirty}
+        disabled={readOnly || savePending || snapshot.saving || conflict !== null || (!snapshot.dirty && !pendingEdits.busy())}
         onClick={() => {
           setSavePending(true);
-          void doc.save().catch(() => undefined).finally(() => setSavePending(false));
+          void pendingEdits.settle().then(() => doc.save()).catch(() => undefined).finally(() => setSavePending(false));
         }}
       >
         Save
@@ -641,7 +722,17 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         <p class="tkr-board-error" role="alert">{failure.message}</p>
       )}
       </div>
-      {browser === undefined ? null : <div ref={browserRoot} class="tkr-board-browser"><TilesetBrowser context={browser} /></div>}
+      {state.mode === "tiles" && browser !== undefined
+        ? <div ref={browserRoot} class="tkr-board-browser"><TilesetBrowser context={browser} /></div> : null}
+      <div class="tkr-board-browser" hidden={state.mode === "tiles"}>
+          <BoardObjectsView doc={doc} snapshot={snapshot} mode={objectMode.current}
+            selection={state.objectSelection} pointSelection={state.pointSelection} disabled={readOnly || state.busy || state.mode === "tiles"}
+            pendingEdits={pendingEdits} onEdited={onEdited} onSelect={(index) => editor.selectObject(index)}
+            onReturnToDraft={(selection) => { editor.setMode(selection.kind); editor.selectObject(selection.index); }}
+            onSelectPoints={(indices) => editor.selectPoints(indices)} onCreate={() => editor.createObject()}
+            onDelete={() => editor.removeObject()} onReorder={(index) => editor.reorderObject(index)}
+            onPickTransparent={(accept) => { editor.pointerCancel(); setPickingStart(false); setColourPicker(() => accept); }}
+            {...(objectNavigation === undefined ? {} : { navigation: objectNavigation })} /></div>
       </div>
     </section>
   );

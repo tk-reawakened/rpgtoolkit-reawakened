@@ -43,5 +43,5 @@ export async function previewTileBitmap(storage: PreviewStorage, projectId: stri
     ...listed.failures.map(({ path, error }) => `${path}: ${error.message}`),
     ...rendered.value.missing.map((tile) => `${tile}: the project holds no such tile, so its cells are drawn empty.`),
   ];
-  return { ok: true, width, height, rgba: pixels, warnings };
+  return { ok: true, width, height, rgba: pixels, warnings, objectBounds: [] };
 }
