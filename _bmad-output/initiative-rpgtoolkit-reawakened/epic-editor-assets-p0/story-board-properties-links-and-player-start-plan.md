@@ -2,7 +2,7 @@
 type: feature
 title: "Board properties links and player start"
 ticket: 3
-status: built
+status: done
 created: 2026-11-16
 baseline_revision: 684f4e01b5e9aa13cbba61a969820d717c2377f1
 route: full
@@ -78,7 +78,7 @@ The implementation worker owns this story's code/tests/plan/changelog, not unrel
 
 - 2026-11-16: resumed blocked plan after #1705 closed and program provider was verified in current main. Owner authorizes recommended decisions and continuing automatically. Risk raised to high for cross-host/main-document coordination.
 - 2026-11-16 implementation: added undoable model support for board settings/links/threads/constants/layer titles/start with round-trip refusal; shared board-properties controls for settings, navigation and starting-point editing; geometry-based pointer/numeric placement, layered start marker and initial/every preference; web and VS Code navigation/main-file ownership wiring, including VS Code's Return to board command. Fixed one-based layer-title rendering without consuming slot 0 (#2994). Added editor-model board persistence/rejection coverage and a focused layer-title view assertion. Changelog updated. Parent owns verification and host proofs; no builds, tests, or formatters were run.
-- Parent verification below supersedes the initial worker handoff. Implementation is committed and built; #1714 remains open until the reviewed delivery PR merges.
+- Parent verification below supersedes the initial worker handoff. Delivery PR #3021 merged at `e7f1fd71f3d20ccc8a2cfe9cc15e127a81c08e0f` after all 20 CI checks passed; #1714 is closed and its Project item is Done.
 
 ## Review Triage Log
 
@@ -112,7 +112,7 @@ Focused model/UI/host tests and paced real-host proofs first. Then `pnpm typeche
 - `pnpm lint`, `pnpm graph`, `pnpm licence`, `pnpm provenance`, `pnpm catalogue:check` and `pnpm command-docs:check` passed. Generated Help release notes were refreshed from the changelog; `pnpm editor-ui-toolchain:check` passed.
 - Full local `pnpm test:strict` passed 5,119/5,119 with no skipped tests. The focused shell/board/navigation integration files passed 41/41. Tile tests now select the tile control explicitly; stale release-note prose and mounted-pane-count assertions were removed rather than re-pinned. Native unknown-kind refusal is guarded by behavior assertions, not diagnostic wording.
 - `pnpm golden` and `pnpm golden:bun` compared all 24 scenes; Node and Bun closing each matched all 8 legacy-game baselines (2 clean boots, 6 expected located failures). No golden was changed.
-- `pnpm bmad:tickets:test` passed 34 ticket tests and 88 issue-preflight tests, followed by successful store validation. Full host receipts follow below; PR/merge metadata remains pending.
+- `pnpm bmad:tickets:test` passed 34 ticket tests and 88 issue-preflight tests, followed by successful store validation. Full host and merge receipts follow below.
 
 ### Full integration receipts, 2026-11-17
 
@@ -121,3 +121,4 @@ Focused model/UI/host tests and paced real-host proofs first. Then `pnpm typeche
 - Its board-frame resolver also requires the browser's document focus, rather than selecting an occluded retained webview merely because its inner controls report visible (#3012).
 - After these repairs, the complete `pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace docs/spec/examples/game --game Main/example.gam` passed (203.60 seconds): 13 bootstrap tests, animation/recovery and sprite proofs, settings/board/art/bitmap with both cancel and keep choices, New project/native program history, and the new board-properties/linked-return/main-ownership flow. No assertion or scenario was skipped.
 - Integrated `origin/main` at `399ad2bcd`, including the merged planning cutover and foundation acceptance work. Incoming main changed no production editor implementation. On the combined tree, full `pnpm typecheck`, all 243 host/graph contract tests, store validation (551 trackers, 438 plans, 35 folders), Help/toolchain checks and the changed native harness lint passed.
+- Closure: PR #3021 merged on 2026-11-17 after all 20 checks succeeded, including every unit shard, browser, VS Code web, mobile, all three desktop hosts, Node/Bun goldens and the aggregate gate. The reviewed head was `b7de892d3de3200fc14917beab01363b892ad1cd`. GitHub closed #1714; the Project item is Done. The clean `/private/tmp/tkr-epic12-night` checkout and its merged local branch were removed after destination ancestry was verified and caches were preserved for the next story. The original checkout was not changed.

@@ -2,7 +2,11 @@
 type: feature
 title: "Board vectors programs sprites and image objects"
 ticket: 11
-status: draft
+status: in-progress
+created: 2026-11-17
+baseline_revision: 5ce9dbbda611d35f8c376ecdc1052837c028b11e
+review: thorough
+review_source: auto
 route: full
 risk: high
 context:
@@ -65,11 +69,18 @@ Given one authored board containing each object kind and opaque residue, editing
 
 ## Implementation Notes
 
-Planning only until #1714 merges; do not start implementation on its unmerged branch. Rebaseline the code map against merged main before building. The owner-approved #2970 planning move removes retired 12.6 from this epic; preserve that scope cutover when it lands. The current normative board format, not a proposed future design language, defines this story.
+#1714 merged in #3021 at `e7f1fd71f3d20ccc8a2cfe9cc15e127a81c08e0f`. This delivery starts on fresh main `5ce9dbbda611d35f8c376ecdc1052837c028b11e` in `/private/tmp/tkr-1721-board-objects`, branch `feat/1721-board-objects`. The later main change is desktop acceptance evidence, not a production board implementation change. #1721 is assigned and in the current sprint; its unique canonical/stock preflight agrees.
+
+The owner-approved #2970 cutover is merged: retired 12.6 belongs to Epic 29.7. Use existing item graphics and authored behavior fixtures here. The current normative board format, not a future design language or native scene schema, defines this story.
+
+Shared data seam: extend the existing `set-board-fields` command and board snapshot with `vectors`, `programs`, `sprites` and `images`; preserve same-version exact read-back, undo and pending acknowledgements. Compare record values structurally, not by object-property insertion order. Authoring defaults and explicit removal/renumbering follow `docs/editor-features.md#p0-board-objects`, committed before implementation.
+
+Two implementation owners cover model persistence and the new focused inspector component. Parent owns the existing controller/canvas/view, host wiring, real proofs, integration and publication. Workers use absolute paths in this worktree, skip all builds/lint/tests/formatters mid-flight, do not commit/push/merge, and never edit each other's assigned files. Parent verification is authoritative.
 
 ## Plan Change Log
 
 - 2026-11-16: expanded the draft against T-23/T-26/T-34/T-35 while #1714 is in flight; retained all existing acceptance and excluded P1/future family-editor scope.
+- 2026-11-17: #3021 and all prerequisites verified merged; canonical #1721 preflight/stock agreement and no competing open PR verified. Owner-delegated recommendations settle snapping, draft cancellation and explicit slot removal in the normative editor rules before code.
 
 ## Review Triage Log
 
