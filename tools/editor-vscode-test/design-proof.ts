@@ -175,6 +175,7 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
           const frame = await waitForDocument(page, expect, item);
           if (frame !== null && (item.id === "board" || item.id === "board-properties")) {
             const summary = frame.locator("summary").filter({ hasText: /^Board properties$/ });
+            await expect.poll(() => summary.count(), { timeout: 2_000, intervals: [50, 100, 200] }).toBe(1);
             const expanded = await summary.evaluate((element) => {
               if (!(element.parentElement instanceof HTMLDetailsElement)) throw new Error("Board properties is not a native details disclosure");
               return element.parentElement.open;
