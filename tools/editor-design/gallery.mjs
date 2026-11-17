@@ -196,7 +196,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         const visible = width > 0 && style[`border${name}Style`] !== "none" && color[3] > 0;
         return {
           side, width, style: style[`border${name}Style`], visible,
-          color: visible ? background(parent(element), color) : null,
+          color: visible ? background(element, color) : null,
           adjacentBackground: visible ? background(parent(element)) : null,
         };
       });
@@ -205,7 +205,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
       const outlineVisible = outlineWidth > 0 && style.outlineStyle !== "none" && outlineInk[3] > 0;
       const outline = {
         visible: outlineVisible, width: outlineWidth, style: style.outlineStyle,
-        color: outlineVisible ? background(parent(element), outlineInk) : null,
+        color: outlineVisible ? background(element, outlineInk, true) : null,
         adjacentBackground: outlineVisible ? background(parent(element)) : null,
       };
       const pseudoIndicators = ["before", "after"].flatMap((pseudo) => {
@@ -216,14 +216,14 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
           const name = `${side[0].toUpperCase()}${side.slice(1)}`;
           const color = rgba(pseudoStyle[`border${name}Color`]);
           const visible = Number.parseFloat(pseudoStyle[`border${name}Width`]) > 0 && pseudoStyle[`border${name}Style`] !== "none" && color[3] > 0;
-          return visible ? background(element, color, true) : null;
+          return visible ? background(element, [...color.slice(0, 3), color[3] * pseudoOpacity]) : null;
         }).filter((color) => color !== null);
         const visible = pseudoStyle.content !== "none" && pseudoStyle.content !== "normal" && pseudoStyle.display !== "none"
           && pseudoOpacity > 0 && Number.parseFloat(pseudoStyle.width) > 0 && Number.parseFloat(pseudoStyle.height) > 0
           && (pseudoBackground[3] > 0 || pseudoBorders.length > 0);
         return visible ? [{
-          pseudo, content: pseudoStyle.content, background: pseudoBackground[3] > 0 ? background(element, pseudoBackground, true) : null,
-          borders: pseudoBorders, adjacentBackground: background(parent(element)),
+          pseudo, content: pseudoStyle.content, background: pseudoBackground[3] > 0 ? background(element, [...pseudoBackground.slice(0, 3), pseudoBackground[3] * pseudoOpacity]) : null,
+          borders: pseudoBorders, adjacentBackground: background(element),
         }] : [];
       });
       const nativeType = element.tagName === "INPUT" && ["checkbox", "radio", "range", "color"].includes(element.type);
@@ -271,8 +271,23 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
     while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
     let focus = null;
     if (active !== null && active.matches(":focus-visible")) {
-      const style = getComputedStyle(active);
-      focus = { label: label(active), tag: active.tagName, outline: style.outline, outlineWidth: Number.parseFloat(style.outlineWidth), outlineColor: background(active, rgba(style.outlineColor), true), background: background(parent(active)) };
+      const activeStyle = getComputedStyle(active);
+      const activeRect = active.getBoundingClientRect();
+      const clippedFile = shippingMode && active.matches('input[type="file"]')
+        && (activeRect.width <= 1 || activeRect.height <= 1 || Number(activeStyle.opacity) === 0 || activeStyle.clip !== "auto" || activeStyle.clipPath !== "none");
+      const indicator = clippedFile ? Array.from(active.labels ?? []).find((label) => {
+        const box = label.getBoundingClientRect();
+        return box.width > 1 && box.height > 1;
+      }) ?? active : active;
+      const style = getComputedStyle(indicator);
+      focus = { label: label(active), tag: active.tagName, outline: style.outline, outlineWidth: Number.parseFloat(style.outlineWidth), outlineColor: background(indicator, rgba(style.outlineColor), true), background: background(parent(indicator)) };
+      if (shippingMode) {
+        const box = indicator.getBoundingClientRect();
+        focus.indicatorTag = indicator.tagName;
+        focus.indicatorVisible = box.width > 1 && box.height > 1 && box.right > 0 && box.bottom > 0
+          && box.left < innerWidth && box.top < innerHeight && style.visibility === "visible"
+          && Number(style.opacity) > 0 && style.clip === "auto" && style.clipPath === "none";
+      }
     }
     return { controls, helperTexts, focus };
   }, shippingMode);
@@ -332,7 +347,7 @@ function controlViolations(metrics) {
 function renderedViolations(metrics) {
   const failures = controlViolations(metrics);
   failures.push(...metrics.helperTexts.filter((helper) => !helper.disabled && helper.textRatio < 4.5).map((helper) => ({ kind: "helper-text-contrast", ...helper })));
-  if (metrics.focus === null || metrics.focus.outlineWidth < 2 || metrics.focus.ratio < 3) failures.push({ kind: "keyboard-focus", focus: metrics.focus });
+  if (metrics.focus === null || metrics.focus.indicatorVisible === false || metrics.focus.outlineWidth < 2 || metrics.focus.ratio < 3) failures.push({ kind: "keyboard-focus", focus: metrics.focus });
   return failures;
 }
 function assertRendered(metrics, context) {
@@ -1100,7 +1115,7 @@ try {
   if (server.exitCode === null) server.kill("SIGKILL");
 }
 async function layoutMetrics(page, dialogMode = null) {
-  return page.evaluate((shippingMode, dialogMode) => {
+  return page.evaluate(({ shippingMode, dialogMode }) => {
     const preferenceDialog = dialogMode === true || dialogMode === "preferences";
     const commandPaletteDialog = dialogMode === "commandPalette";
     const rect = (element) => {
@@ -1172,6 +1187,7 @@ async function layoutMetrics(page, dialogMode = null) {
     const controlRects = controls.map(({ element: _element, ...control }) => control);
     const overlaps = [];
     for (let i = 0; i < controlRects.length; i += 1) for (let j = i + 1; j < controlRects.length; j += 1) {
+      if (controls[i].element.contains(controls[j].element) || controls[j].element.contains(controls[i].element)) continue;
       const a = controlRects[i];
       const b = controlRects[j];
       const overlapWidth = Math.min(a.right, b.right) - Math.max(a.left, b.left);
@@ -1196,7 +1212,7 @@ async function layoutMetrics(page, dialogMode = null) {
     };
     const base = { viewport, pane: pane === null ? null : rect(pane), controls: controlRects, overlaps, outsideViewport, verticalReachability };
     return shippingMode ? { ...base, preferencesDialog, commandPalette } : base;
-  }, shipping, dialogMode);
+  }, { shippingMode: shipping, dialogMode });
 }
 async function verifyVerticalReachability(locator) {
   return locator.evaluate((element) => {

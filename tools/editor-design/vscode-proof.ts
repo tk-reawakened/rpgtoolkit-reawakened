@@ -356,7 +356,7 @@ async function sizeEditorPane(page: Page, targetWidth: number | null) {
 
 async function waitForDocument(page: Page, expect: Expect, item: DesignCase): Promise<Frame | null> {
   const expectedName = item.path.split("/").at(-1)!;
-  const selectedTab = page.locator('.monaco-workbench .tab.active[role="tab"], .monaco-workbench [role="tab"][aria-selected="true"]');
+  const selectedTab = page.locator('.monaco-workbench .part.editor .tab[role="tab"][aria-selected="true"]:visible');
   await expect.poll(async () => {
     if (await selectedTab.count() !== 1) return false;
     const label = await selectedTab.getAttribute("aria-label") ?? await selectedTab.innerText().catch(() => "");
@@ -378,22 +378,25 @@ async function waitForCustomEditorFrame(page: Page, item: DesignCase): Promise<F
     const visibleWebviews = await page.locator("iframe.webview:visible").elementHandles();
     for (const webview of visibleWebviews) {
       const outerFrame = await webview.contentFrame().catch(() => null);
-      const content = outerFrame?.childFrames().find((frame) => frame.name() === "pending-frame");
-      if (content === undefined) continue;
-      const root = content.locator(item.rootSelector);
-      if (await root.count().catch(() => 0) === 1 && await root.isVisible().catch(() => false)) return content;
+      if (outerFrame === null) continue;
+      for (const contentElement of await outerFrame.locator("iframe:visible").elementHandles()) {
+        const content = await contentElement.contentFrame().catch(() => null);
+        if (content === null) continue;
+        const root = content.locator(item.rootSelector);
+        if (await root.count().catch(() => 0) === 1 && await root.isVisible().catch(() => false)) return content;
+      }
     }
     await page.waitForTimeout(pause);
     pause = Math.min(pause * 2, 1_000);
   }
-  throw new Error(`Timed out waiting for visible iframe.webview → pending-frame → ${item.rootSelector} for ${item.path}`);
+  throw new Error(`Timed out waiting for a visible webview and visible content iframe containing ${item.rootSelector} for ${item.path}`);
 }
 
 async function measureDocument(page: Page, item: DesignCase, frame: Frame | null) {
   const { pane, activeTab } = await page.evaluate(() => {
     const editor = document.querySelector(".monaco-workbench .part.editor");
     const rect = editor?.getBoundingClientRect();
-    const tab = document.querySelector('.monaco-workbench .tab.active[role="tab"]') ?? document.querySelector('.monaco-workbench [role="tab"][aria-selected="true"]');
+    const tab = document.querySelector('.monaco-workbench .part.editor .tab.active[role="tab"]') ?? document.querySelector('.monaco-workbench .part.editor .tab[role="tab"][aria-selected="true"]');
     const tabLabel = tab?.getAttribute("aria-label") ?? tab?.textContent?.trim() ?? null;
     const tabState = tab?.getAttribute("aria-label") ?? "";
     return {
@@ -480,14 +483,26 @@ async function measureDocument(page: Page, item: DesignCase, frame: Frame | null
           const background = colorAt(html);
           const foreground = colorAt(html, parseColor(style.color));
           const adjacent = colorAt(parentElement(html) ?? html);
-          const border = colorAt(html, parseColor(style.borderTopColor), true);
-          const borderVisible = contrast(border, adjacent) >= 1.1;
-          const textOnlyButton = html.tagName === "BUTTON" && !borderVisible && !html.matches('[aria-pressed="true"],[aria-selected="true"],.selected');
-          const textRequired = !(html instanceof HTMLInputElement && ["color", "checkbox", "radio", "range"].includes(html.type));
+          const borderEdges = ["top", "right", "bottom", "left"].map((side) => {
+            const width = Number.parseFloat(style.getPropertyValue(`border-${side}-width`));
+            const borderStyle = style.getPropertyValue(`border-${side}-style`);
+            const ink = parseColor(style.getPropertyValue(`border-${side}-color`));
+            const drawn = width > 0 && borderStyle !== "none" && borderStyle !== "hidden" && ink[3] > 0;
+            const effective = drawn ? colorAt(html, ink) : null;
+            return { side, width, style: borderStyle, drawn, effectiveColor: effective?.slice(0, 3) ?? null, contrast: effective === null ? null : contrast(effective, adjacent) };
+          });
+          const drawnEdges = borderEdges.filter((edge) => edge.drawn);
+          const fillContrast = contrast(background, adjacent);
+          const boundaryContrast = Math.max(fillContrast, ...drawnEdges.map((edge) => edge.contrast!));
+          const boundaryVisible = drawnEdges.length > 0 || fillContrast >= 3;
+          const nativeType = html instanceof HTMLInputElement && ["color", "checkbox", "radio", "range"].includes(html.type);
+          const nativeUaUnmeasured = nativeType && style.appearance !== "none";
+          const textOnlyButton = html.tagName === "BUTTON" && drawnEdges.length === 0 && parseColor(style.backgroundColor)[3] === 0 && !html.matches('[aria-selected="true"],.selected');
+          const textRequired = !nativeType;
           return {
             tag: html.tagName.toLowerCase(),
             role: html.getAttribute("role"),
-            name: html.getAttribute("aria-label") ?? html.getAttribute("title") ?? html.textContent?.trim() ?? "",
+            name: html.getAttribute("aria-label") || Array.from((html as HTMLInputElement).labels ?? []).map((label) => label.textContent?.trim() ?? "").join(" ") || html.getAttribute("title") || html.textContent?.trim() || "",
             disabled: html.matches(":disabled,[aria-disabled=true]"),
             readOnly: html instanceof HTMLInputElement || html instanceof HTMLTextAreaElement ? html.readOnly : false,
             selected: html.matches('[aria-selected="true"],[aria-pressed="true"],.selected'),
@@ -497,13 +512,15 @@ async function measureDocument(page: Page, item: DesignCase, frame: Frame | null
             effectiveBackground: background.slice(0, 3),
             adjacentBackground: adjacent.slice(0, 3),
             textContrast: contrast(foreground, background),
-            borderColor: style.borderTopColor,
-            effectiveBorder: border.slice(0, 3),
-            boundaryVisible: borderVisible,
-            boundaryRequired: !textOnlyButton,
-            boundaryContrast: Math.max(contrast(border, adjacent), contrast(background, adjacent)),
+            borderEdges,
+            boundaryVisible,
+            boundaryRequired: !textOnlyButton && !nativeUaUnmeasured,
+            boundaryContrast: nativeUaUnmeasured ? null : boundaryContrast,
+            boundaryAssessment: nativeUaUnmeasured ? "native-UA-appearance-not-measurable-from-CSS" : "CSS-rendered-edges-or-fill",
+            appearance: nativeType ? style.appearance : null,
+            accentColor: nativeType ? style.accentColor : null,
+            checked: html instanceof HTMLInputElement && ["checkbox", "radio"].includes(html.type) ? html.checked : null,
             textRequired,
-            borderWidth: style.borderTopWidth,
             outlineColor: style.outlineColor,
             outlineWidth: style.outlineWidth,
             fontSize: style.fontSize,
