@@ -4,10 +4,10 @@ id = 1
 tracker_id = "#2962"
 type = "story"
 title = "Establish the shared authoring workspace and visual direction"
-description = "Design the shared workspace against a party character, board NPC, equipment, usable item and battle enemy, then deliver reusable navigation and visual foundations."
+description = "Design the shared workspace against a party character, board NPC, equipment, usable item and battle enemy, then compose its navigation and layout using the common design language and components from 11.22/11.23."
 verify = "Representative sparse and populated fixtures validate all five journeys; working shared presentation proves identity, keyboard navigation, themes and narrow panes without claiming unfinished item or enemy functionality."
 covers = ["CAP-15", "CAP-16", "CAP-18"]
-after = ["12.5"]
+after = ["12.5", "11.22", "11.23"]
 hitl = false
 risk = "medium"
 

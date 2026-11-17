@@ -27,7 +27,7 @@ Jensen approved the original six character stories on 2026-11-16, then approved 
 ## Design direction
 
 - Use the accepted direction from the party discussions: RPG Maker's clarity, a flexible workspace and direct visual editing where it helps the task.
-- Apply the website's dark ink surfaces, warm gold emphasis, restrained framing and small radii through reusable semantic styles. Maintain light themes, host high contrast, visible focus and validation cues.
+- Consume the shared design language from 11.22 (#2987) and reusable components/styles from 11.23 (#2988). Apply the website's dark ink surfaces, warm gold emphasis, restrained framing and small radii through reusable semantic styles. Maintain light themes, host high contrast, visible focus and validation cues.
 - Validate one shared design against five examples: a party character, a board NPC, equipment, an item usable from menus/battles, and a battle enemy. Sparse and populated cases matter. Historical screenshots are task references, not current implementation evidence.
 - `.itm` serves both inventory roles and board entities, including NPCs. Equipment, menu, board and battle capabilities remain independent and combinable. Lead with enabled behavior; keep other capabilities discoverable. Do not infer an exclusive type from a name, silently clear inactive fields, or introduce a new format or runtime category.
 - Identity, appearance, reference actions, meaningful lists and selected details share conventions. Character growth, item capabilities and enemy tactics/rewards retain their distinct meanings. Overview, Appearance, Moves, Equipment, Progression and Advanced are a character starting hypothesis; 29.1 settles task-appropriate groups across the family.
@@ -40,7 +40,7 @@ These refine existing capability and T-xx identifiers. Each row has one primary 
 
 | Source | Outcome | Owner |
 | --- | --- | --- |
-| CAP-15/CAP-16/CAP-18; EA-04/EA-06 | Shared task navigation and visual language validated against five representative uses | 29.1 |
+| CAP-15/CAP-16/CAP-18; EA-04/EA-06 | Family-specific task navigation and composition validated against five uses, consuming shared language/styles | 29.1; common contract/styles remain 11.22/11.23 |
 | T-50 | Character identity, profile, starting stats and explicit advanced bindings | 29.2 |
 | T-52 and T-56 graphics subset | Shared stance/detail/preview presentation, with format-specific timing and geometry | 29.3; real enemy adapter in 29.8 |
 | T-51/T-53 | Character moves and actual OR-based unlock rules, body slots and accessories | 29.4 |
@@ -55,9 +55,11 @@ Every story preserves supported data, same-version unknown residue and explicit 
 
 ## Delivery sequence
 
-After the two epic gates:
+After the two epic gates, 29.1 also consumes shared design language 11.22 and styling 11.23. Their planning source is PR #2986; merge that prerequisite before building 29.1. Shared work does not wait for this redesign.
 
-1. **29.1 (#2962): Establish the shared authoring workspace and visual direction.** Document the five workflows and land the common presentation foundation.
+Delivery order:
+
+1. **29.1 (#2962): Establish the shared authoring workspace and visual direction.** Document the five workflows and compose the family workspace from the shared presentation foundation.
 2. **29.2 (#2963): Put character identity and starting stats first.** Fix #2959 and retain explicit bindings.
 3. **29.3 (#2964): Edit appearance and animation in context.** Deliver reusable selection/preview controls and the existing character/item integration; test the enemy subset with an authored contract fixture.
 4. **29.4 (#2965): Make character moves and equipment understandable.** Preserve slot identity and all unlock data.
@@ -72,6 +74,7 @@ Existing story numbers 29.1–29.6 do not change. New local numbers follow the h
 
 | Existing owner | Relationship |
 | --- | --- |
+| 11.22 / #2987 and 11.23 / #2988 | Own the shared placement/action/component contract and common styling across existing surfaces. 29.1 consumes them and owns definition-family composition; no competing style system. |
 | 12.4 / #1715 and 12.5 / #1716 | Delivered sprite and character field foundations; preserve implementations and round-trip contracts. |
 | 12.11 / #1721 | Owns board object placement and local overrides; 29.7 edits the shared item definition and returns to that placement. |
 | 12.12 / #1723 | Delivers broad connected visit/run services using retained P0 editors before 29. The final definition-family acceptance consumes those services. |
@@ -110,3 +113,7 @@ A universal Database, new asset IDs or formats, automatic NPC classification, te
 - Current-layout defect #2959 cites main 2eaf991b966cbf528ab47514f20742e70ed40171. Scope audit also checked main 684f4e01b5e9aa13cbba61a969820d717c2377f1: item currently mounts shared SpriteView; character adds CharacterAuthoringView. No legacy GPL source was consulted.
 
 Input paths in frontmatter are initiative-relative except ../../../ paths, which are relative to this folder. Story 29.1 writes the implementable experience contract under docs/ before code, consistent with G7.
+
+## Shared design language handoff, 2026-11-16
+
+Jensen requested shared styling and a design language defining where things live and what actions do, using Epics 29/30 as inputs. [The shared contract](https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/e0895a9af/docs/design/editor-design-language.md) owns those common conventions; 29.1 retains family-specific hierarchy, navigation and T-50–T-56 coverage. 11.22 (#2987) validates shared compositions/component states; 11.23 (#2988) implements common styles against current editor surfaces independently of this redesign. The family consolidation preserves these shared owners and adds the explicit Epic 12/13 completion gates.
