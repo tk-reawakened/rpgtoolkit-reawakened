@@ -3,7 +3,7 @@ title: "Validate the shared editor design language and component contracts"
 type: feature
 ticket: 22
 created: 2026-11-17
-status: built
+status: done
 baseline_revision: 399ad2bcde28d63a8d707d7043154bfbb21d4cfc
 route: full
 route_source: auto
@@ -129,3 +129,9 @@ Verification-gap reviewer reported no gaps. Intent-alignment reviewer found the 
 - `DesignFixLifecycleReview`: no blockers. Traced actual native exclusive-lock rejection through the host adapter, unchanged prior saved bytes and retained draft, prototype restoration/lock abort, retry and independent revert readback, later conflict/history states, and UUID output/context isolation. Checked final exercised-input fingerprints; no build/test rerun by the reviewer.
 - `DesignFixEvidenceReview`: no blockers. Independently compared all nine exercised fingerprints, counts/runtime, truthful negative receipt, native configuration/custom-editor mapping, real sparse frames and explicit 11.23 limitations. No build/test rerun by the reviewer.
 - Final local checks: 129 frame files and native-error/restored-negative receipts verified; 44 local links/anchors resolved; scoped ESLint and canonical stock/store preflight pass. Production TypeScript, dependencies, goldens and shipped CSS are unchanged.
+
+## Verified merge and closure
+
+- PR #3039 merged on 2026-11-17 at 11:02:58Z as `fb9238707cfe3579fd7aeab63899416cf3143b32`. CI run `44068438324` passed all 20 jobs, including gate, at reviewed PR head `be188b1e3df73226cbef123480bf1c58a1a67136`; this is not an invented exact-head claim about the merge commit.
+- Issue #2987 and its fixed unreleased tooling/document defects closed from that PR; the primary Project is marked done in the current sprint. The canonical store derives this ticket's status from this joined plan, so no duplicate TOML state field is introduced.
+- Story 11.23/#2988 is the next dependency. Epic #1357 stays open; this closure does not claim production styling, native/PWA visual delivery, specialized 29/30 work or standalone Git #1829 complete.
