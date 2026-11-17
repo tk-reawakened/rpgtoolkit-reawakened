@@ -36,12 +36,14 @@ import {
   type VisitResult,
   type Visits,
 } from "@tk-reawakened/editor-model";
-import { createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
 const LAYOUT_SETTING = "workbench.layout";
+/** Which saved run setup the Run button runs, in the user settings layer (ADR 0022 D8.7). */
+const RUN_SETUP_SETTING = "run.setup";
 
 export interface WorkbenchOptions {
   /** Where the project's type folders are; the project root by default. */
@@ -116,6 +118,9 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   let disposed = false;
   let openPrefs: (() => void) | null = null;
   let openNewBoard: (() => void) | null = null;
+  /** Each run's pane, by its tab key. A pane is hidden, never detached, while another tab is in front: moving the player's frame would reload it. */
+  const runPanes = new Map<string, HTMLElement>();
+  let runs = 0;
 
   // Restore the saved layout without waiting for it: the defaults show until it arrives.
   void services.settings.get("user", LAYOUT_SETTING).then((saved) => {
@@ -144,6 +149,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     }
     if (slot === null) return;
     for (const tab of snapshot.tabs) {
+      const pane = runPanes.get(tab.key);
+      if (pane !== undefined) {
+        if (pane.parentElement !== slot) slot.append(pane);
+        pane.hidden = tab.key !== snapshot.active;
+        continue;
+      }
       const document = workspace.documents().find((candidate) => candidate.identity.key === tab.key);
       if (document === undefined) continue;
       let entry = views.get(tab.key);
@@ -325,6 +336,37 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     },
   });
 
+
+  // A run shows its player and its status in a "Running game" tab (ADR 0022 D8.7). When the run is over the player goes
+  // and the status stays, saying how it ended, until the tab is closed or the next run replaces it. Closing the tab stops
+  // the run.
+  project.setRunPresenter({
+    show(frame, run) {
+      for (const key of [...runPanes.keys()]) void tabs.close(key);
+      runs += 1;
+      const key = `run:${runs}`;
+      const doc = element.ownerDocument;
+      const pane = doc.createElement("div");
+      pane.className = "tkr-editor-pane tkr-run-pane";
+      const status = doc.createElement("div");
+      status.className = "tkr-run-pane-status";
+      pane.append(frame, status);
+      const statusView = mountRunStatus(status, run);
+      runPanes.set(key, pane);
+      tabs.openView({
+        key,
+        title: "Running game",
+        kind: "run",
+        close: () => {
+          runPanes.delete(key);
+          statusView.dispose();
+          pane.remove();
+          run.stop();
+        },
+      });
+      return () => { frame.remove(); };
+    },
+  });
   const launcher = createLauncher({ services, workspace });
   const shellWorkspace = {
     ...workspace,
@@ -349,6 +391,18 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     workspace: shellWorkspace,
     launcher,
     creatorTests,
+    ...(options.main === undefined ? {} : { main: options.main }),
+    runSetups: {
+      fs: services.fs,
+      readOnly: services.capabilities.has("folderWrite") ? null : "This is a session copy, so run setups cannot be saved to the project.",
+    },
+    runMemory: {
+      get: async () => {
+        const saved = await services.settings.get("user", RUN_SETUP_SETTING);
+        return saved.ok && typeof saved.value === "string" ? saved.value : null;
+      },
+      set: (name) => { void services.settings.set("user", RUN_SETUP_SETTING, name); },
+    },
     browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
     version,
     onOpened: (result) => {
@@ -461,6 +515,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       openPrefs?.();
       openNewBoard?.();
       disposed = true;
+      project.setRunPresenter(null);
       launcher.dispose();
       creatorTests.dispose();
       unsubscribeTabs();

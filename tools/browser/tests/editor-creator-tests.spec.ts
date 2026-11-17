@@ -44,7 +44,7 @@ async function rememberProject(page: Page, id: string, files: readonly SpecProje
   await page.reload();
   await page.locator("#recent-project").selectOption(id);
   await page.getByRole("button", { name: "Reopen project", exact: true }).click();
-  await expect(page.locator("#settings").getByRole("button", { name: "Collapse Run panel", exact: true })).toBeVisible();
+  await expect(page.locator("#settings").getByRole("button", { name: /^\W*Tests$/ })).toBeVisible();
 }
 
 /** Independently read the real saved project, including any bookkeeping the production host has persisted. */
@@ -139,16 +139,26 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   page.on("console", (message) => { if (/violates.*content security policy|refused to.*(?:script|worker)/i.test(message.text())) csp.push(message.text()); });
   await page.goto(PAGE);
   await rememberProject(page, project, passFiles);
-  const game = page.getByRole("tab", { name: "Run game", exact: true });
+  // The run setup form's launch tabs move with the keyboard (End, Home, and Left wrapping round).
+  await page.getByRole("button", { name: "New run setup", exact: true }).click();
+  const form = page.getByRole("dialog", { name: "New run setup" });
+  const game = form.getByRole("tab", { name: "Run game", exact: true });
+  const program = form.getByRole("tab", { name: "Test program", exact: true });
   await game.focus();
   await game.press("End");
-  const saved = page.getByRole("tab", { name: "Saved tests", exact: true });
-  await expect(saved).toBeFocused();
-  await expect(saved).toHaveAttribute("aria-selected", "true");
-  await saved.press("Home");
+  await expect(program).toBeFocused();
+  await expect(program).toHaveAttribute("aria-selected", "true");
+  await program.press("Home");
   await expect(game).toBeFocused();
   await game.press("ArrowLeft");
-  await expect(saved).toBeFocused();
+  await expect(program).toBeFocused();
+  await form.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  // Saved tests are their own section of the left sidebar, folded until opened (ADR 0022 D8.7, D9).
+  const testsToggle = page.getByRole("button", { name: /^\W*Tests$/ });
+  await expect(testsToggle).toHaveAttribute("aria-expanded", "false");
+  await testsToggle.click();
+  await expect(testsToggle).toHaveAttribute("aria-expanded", "true");
   const tests = page.getByRole("region", { name: "Saved RPGCode tests" });
   await tests.getByRole("spinbutton", { name: "Seed", exact: true }).fill(String(SEED));
   await tests.getByRole("textbox", { name: "Case name contains" }).fill(CREATOR_TEST_CASE_NAME);
@@ -157,11 +167,11 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   const passExpected = expectedRun(await savedInventory(page, project), project, true);
   await verifyVisible(tests, passExpected);
 
-  // Report ownership is the project, not the mounted Run pane.
-  await page.getByRole("button", { name: "Collapse Run panel", exact: true }).click();
+  // Report ownership is the project, not the mounted Tests section: hiding the sidebar unmounts it.
+  await page.getByRole("button", { name: "Collapse left sidebar", exact: true }).click();
   await expect(tests).toHaveCount(0);
-  await page.getByRole("button", { name: "Expand Run panel", exact: true }).click();
-  await saved.click();
+  await page.getByRole("button", { name: "Expand left sidebar", exact: true }).click();
+  await testsToggle.click();
   await verifyVisible(tests, passExpected);
   await tests.getByRole("spinbutton", { name: "Seed", exact: true }).fill(String(SEED));
   await tests.getByRole("textbox", { name: "Case name contains" }).fill(CREATOR_TEST_CASE_NAME);

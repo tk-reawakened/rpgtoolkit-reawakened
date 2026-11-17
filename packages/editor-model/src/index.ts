@@ -406,7 +406,7 @@ export {
   type WorkbenchCommand,
   type WorkbenchCommandSourceOptions,
 } from "./commands.ts";
-export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
+export { createTabs, type TabsSnapshot, type TabState, type TabView, type Tabs } from "./tabs.ts";
 export {
   prepareGamePackage,
   type PackageArtifact,
@@ -442,3 +442,19 @@ export * from "./checkpoint-groups.ts";
 export * from "./animation-authoring.ts";
 
 export type { AnimationFrame } from "./animation-document.ts";
+export {
+  LAUNCH_SETUPS_PATH,
+  LAUNCH_SETUPS_VERSION,
+  deleteLaunchSetup,
+  launchOfSetup,
+  readLaunchSetups,
+  saveLaunchSetup,
+  type BoardSetup,
+  type GameSetup,
+  type LaunchSetup,
+  type LaunchSetupEntry,
+  type LaunchSetupsRead,
+  type LaunchSetupsWrite,
+  type ProgramSetup,
+  type SavedFixture,
+} from "./launch-setups.ts";
