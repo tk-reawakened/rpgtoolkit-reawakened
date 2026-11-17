@@ -24,6 +24,21 @@ export function trackProcess(child: ChildProcess): TrackedProcess {
   return { child, error, closed, errors };
 }
 
+const GRACEFUL_EXIT_MS = 2_000;
+const FORCED_EXIT_MS = 1_000;
+
+async function closeWithin(closed: Promise<number>, milliseconds: number): Promise<number | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      closed,
+      new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), milliseconds); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Attempt every cleanup action and return all failures instead of masking the proof result. */
 export async function cleanupTestRun(browser: ClosableBrowser | undefined, process: TrackedProcess | undefined, workspace: string): Promise<unknown[]> {
   const errors: unknown[] = [];
@@ -33,8 +48,18 @@ export async function cleanupTestRun(browser: ClosableBrowser | undefined, proce
   if (process !== undefined) {
     try { process.child.kill("SIGTERM"); } catch (error) { errors.push(error); }
     try {
-      const code = await process.closed;
-      if (code !== 0 && process.errors.length === 0) errors.push(new Error(`vscode-test-web exited with ${code}`));
+      const code = await closeWithin(process.closed, GRACEFUL_EXIT_MS);
+      if (code === undefined) {
+        errors.push(new Error("vscode-test-web did not exit after SIGTERM; forcing SIGKILL"));
+        try { process.child.kill("SIGKILL"); } catch (error) { errors.push(error); }
+        if (await closeWithin(process.closed, FORCED_EXIT_MS) === undefined) {
+          errors.push(new Error("vscode-test-web did not close after SIGKILL"));
+          process.child.unref();
+          process.child.stdin?.destroy();
+          process.child.stdout?.destroy();
+          process.child.stderr?.destroy();
+        }
+      } else if (code !== 0 && process.errors.length === 0) errors.push(new Error(`vscode-test-web exited with ${code}`));
     } catch (error) { errors.push(error); }
     errors.push(...process.errors);
   }
