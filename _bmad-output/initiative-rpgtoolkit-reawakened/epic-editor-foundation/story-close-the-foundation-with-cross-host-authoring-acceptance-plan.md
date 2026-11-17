@@ -8,8 +8,8 @@ baseline_revision: 2eaf991b966cbf528ab47514f20742e70ed40171
 route: oneshot
 route_source: auto
 risk: high
-review: ""
-review_source: ""
+review: quick
+review_source: pinned
 lenses_ran: []
 review_loop_iteration: 0
 context:
@@ -28,7 +28,7 @@ context:
 
 ## Implementation Notes
 
-Oneshot: approximately 100 lines or fewer of orchestration and fixture isolation, plus mechanical command/docs/tracking updates. Keep the ticket's high risk: an incomplete acceptance report could incorrectly close the foundation even though no shipping runtime or editor behavior changes.
+Oneshot: approximately 120 lines of orchestration, fixture isolation and existing-case assertions, plus mechanical command/docs/tracking updates. The local setup fixes do not change the frozen acceptance scope. Keep the ticket's high risk: an incomplete acceptance report could incorrectly close the foundation even though no shipping runtime or editor behavior changes.
 
 - Add `pnpm editor:acceptance` in the root manifest and `tools/editor-foundation/suite.mjs`, following the existing local-suite subprocess convention. Build/fetch the declared prerequisites before checking; run heavy host proofs serially, without new skips or sleeps.
 - Reuse actual dependency-graph rules and their invalid-fixture controls; the complete shared conformance and game-settings suites exercise browser, VS Code desktop and VS Code web adapters, exact `.gam` bytes/unknown residue, saved revisions, recovery/editId/undo/redo/failure paths and real engine boot.
@@ -37,10 +37,13 @@ Oneshot: approximately 100 lines or fewer of orchestration and fixture isolation
 - Make the language/debug launcher's fixture a fresh temporary copy on every invocation; delete only that owned copy on success or failure and retain its original error if cleanup also fails. Keep replaceable VS Code caches outside fixture copies. The editor launcher already copies its input workspace; supply an authored example in an owned temporary folder.
 - Name proof layers honestly: all three adapters receive conformance/round-trip checks; actual browser/workbench checks cover PWA and VS Code for the Web. Do not claim a physical VS Code desktop-app UI run. Standalone Git #1829 and optional T-02/T-03/T-09 provider capabilities remain outside this foundation closing path.
 - Prerequisite #1710 is merged and green at the baseline. Current main already fixes #2954 with bounded persisted-entry polling; do not overwrite it with the superseded private implementation. Revalidate its actual native path in this suite.
-- The existing shared case `workbench undo and redo retain user edits after the watcher has matched disk` covers #2216's recovery watcher regression; include it unchanged and audit closure only after its applicable host case passes.
+- The existing shared case `workbench undo and redo retain user edits after the watcher has matched disk` covers #2216's recovery watcher regression; retain its exact title/disk assertions and explicitly assert the model and host stay dirty while recovery is unresolved, including after undo and redo. Audit closure only after its applicable host case passes.
 - Child preparation failure aborts before host launches. Independent check failures remain visible and make the final command nonzero; a later passing host cannot hide them. Temporary-workspace cleanup failures also fail the command.
 
 ## Plan Change Log
+
+- Local verification found two orchestration setup defects before CI: the PWA lane collided with another development server (#2989), and the focused native program lane needs a separate full authored `Main/` + `Game/Example/` copy rather than the flattened editor fixture (#2990). Allocate independent service ports by default, respect explicit existing overrides, and clean both owned fixture layouts without stopping or reusing someone else's server.
+- The same run exposed an existing unlogged fast-test exception (#2991): the graph repair case takes 1.43 seconds for five real CLI invocations. Keep every assertion and public-process phase; log a permanent exception beside the case with a maximum 5-second budget, as required by `docs/guardrails.md#exceptions`.
 
 ## Review Triage Log
 
@@ -49,5 +52,5 @@ Oneshot: approximately 100 lines or fewer of orchestration and fixture isolation
 - Run the new command on pinned Node 24.21.0 with inherited native focus/skip selectors set; actual output must still include full native cancel/keep and sprite proofs plus the explicit fixture/creator lanes. All adapter and actual-host checks must pass without skipped tests.
 - Inject a missing package-manager executable to prove preparation fails nonzero before any host proof or success report. Use the existing real probe's wrong module format to prove language-fixture cleanup on a failing native run; compare source fixture bytes before/after.
 - Retain and execute existing held-save/concurrent-edit, CSP-blocking, unavailable-language-worker, native save-failure and autosave negative controls. Do not weaken real byte, revision, fixture output or graph assertions.
-- Scoped ESLint, provenance and ticket-store/preflight validation must pass. No new dependency, golden change or rule exception.
+- Scoped ESLint, provenance and ticket-store/preflight validation must pass. No new dependency or golden change. Log the existing five-process graph-repair test's permanent fast-test exception (#2991), maximum 5 seconds; do not weaken any check.
 - Independent review and exact-head required CI precede merge. Then reconcile story/epic metadata and audit every foundation acceptance clause at the merged revision.

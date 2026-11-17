@@ -673,3 +673,5 @@ This builds the required bundles and fetches test data, then checks editor proje
 The shared tests cover browser, VS Code desktop and VS Code web adapters. The actual UI proofs run in the browser editor and VS Code for the Web; they do not claim a desktop-app UI run. Existing focused-proof environment flags cannot shrink this full acceptance command.
 
 Proofs use owned temporary project copies and remove them afterward; VS Code download caches stay outside those copies. The suite does not include standalone Git or optional tutorial/tileset providers, and does not replace the full pull-request gates.
+
+The command chooses separate available local ports for its browser services unless you set their existing port overrides. It never stops or reuses another development server.
