@@ -88,10 +88,6 @@ if (designProof && (animationProof || boardPropertiesProof || launchProof || boa
 if ((designProof || boardPropertiesProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
 for (const choice of designProof || boardPropertiesProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
-  if (designProof) {
-    await copyFile(resolve(root, "docs/spec/examples/game/Main/example.gam"), resolve(proofWorkspace, game));
-    await cp(resolve(root, "docs/spec/examples/game/Game/Example"), resolve(proofWorkspace, "Game/Example"), { recursive: true, force: true });
-  }
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
     const target = resolve(proofWorkspace, file.path);
     await mkdir(dirname(target), { recursive: true });
@@ -142,6 +138,7 @@ for (const choice of designProof || boardPropertiesProof || animationProof || hi
   const historyPreviewTraceDiagnostics = [];
   try {
     if (designProof) {
+      await copyFile(resolve(root, "docs/spec/examples/game/Main/example.gam"), resolve(proofWorkspace, game));
       const sourceFixture = resolve(root, "docs/spec/examples/game/Game/Example");
       await cp(sourceFixture, resolve(proofWorkspace, "Game/Example"), { recursive: true, force: true });
       const authoredGame = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/game/Main/example.gam")));

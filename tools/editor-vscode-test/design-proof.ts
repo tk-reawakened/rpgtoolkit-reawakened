@@ -19,6 +19,8 @@ type DesignOptions = {
   paneFilter?: string;
 };
 
+const longProgramPath = "Game/Example/Prg/this-is-a-deliberately-long-authored-program-resource-name-for-editor-workbench-tab-reachability-check.prg";
+
 const cases: readonly DesignCase[] = [
   { id: "game", path: "Main/example.gam", kind: "custom-webview", description: "Authored game settings document", rootSelector: ".tkr-settings" },
   { id: "board", path: "Game/Example/Boards/village.brd", kind: "custom-webview", description: "Authored board document", rootSelector: ".tkr-board" },
@@ -28,6 +30,7 @@ const cases: readonly DesignCase[] = [
   { id: "tile-bitmap", path: "Game/Example/Bitmap/house.tbm", kind: "custom-webview", description: "Authored tile bitmap document", rootSelector: ".tkr-bitmap" },
   { id: "animation", path: "Game/Example/Misc/chest/chest.anm", kind: "custom-webview", description: "Authored animation document", rootSelector: ".tkr-animation-editor" },
   { id: "program", path: "Game/Example/Prg/start.prg", kind: "native-program", description: "Authored RPGCode program in VS Code's native text editor; not shared Monaco", rootSelector: ".monaco-editor" },
+  { id: "program-long-name", path: longProgramPath, kind: "native-program", description: "Byte-identical derived alias of the authored program, opened as a real native resource to stress document identity", rootSelector: ".monaco-editor" },
 ];
 
 const themes = [
@@ -60,6 +63,10 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
     const bytes = new Uint8Array(await readFile(sourcePath));
     return { path, source: relative(options.root, sourcePath).replaceAll("\\", "/"), bytes, sha256: sha256(bytes) };
   }));
+  const sourceProgram = authoredFiles.find((file) => file.path === "Game/Example/Prg/start.prg");
+  if (sourceProgram === undefined) throw new Error("The authored native long-resource source program is missing");
+  await writeFile(resolve(workspaceRoot, longProgramPath), sourceProgram.bytes);
+  authoredFiles.push({ ...sourceProgram, path: longProgramPath });
   const workspaceFiles = await Promise.all(authoredFiles.map(async (file) => {
     const bytes = new Uint8Array(await readFile(resolve(workspaceRoot, file.path)));
     if (sha256(bytes) !== file.sha256) throw new Error(`The staged native design fixture differs from its authored source: ${file.path}`);
@@ -108,7 +115,7 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
     limitations: [
       "This is actual VS Code Web, not installed VS Code desktop.",
       "Program captures use the native VS Code text editor and TextDocument authority; shared Monaco is not presented as native.",
-      "The authored example does not synthesize long project/resource names or a dedicated shelf/panel stress fixture; those cases are not certified.",
+      "The long-resource case is a byte-identical temporary alias of the authored start.prg, opened through the actual native file command and preserved by the fixture-byte checks; it is not a newly authored game asset or a full shelf/panel stress certification.",
       "The 640 CSS-pixel editor pane and computed common-control/focus observations are measured; they are not browser zoom or simulated controls.",
       "Existing item coverage is the current authored SpriteView, not expanded item authoring; no enemy provider is implied.",
       "The root-text-scale screenshot uses a temporary 200% inline root font-size and restores its exact prior inline value/priority; it is not browser zoom.",
