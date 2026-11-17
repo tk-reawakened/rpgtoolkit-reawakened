@@ -42,6 +42,7 @@ if (statesOnly && (shipping || surfaceFilter !== undefined || themeFilter !== un
 const includeStates = statesOnly || (!shipping && surfaceFilter === undefined && themeFilter === undefined && paneFilter === undefined);
 const paletteReport = shipping ? [] : assertPalettesReadable();
 if (shipping && statesOnly) throw new Error("Shipping mode captures the real surface matrix; run the existing state proof separately");
+const output = resolve(args.find((arg) => arg.startsWith("--out="))?.slice(6) ?? join(root, shipping ? "docs/design/captures/editor-style" : "docs/design/captures/editor-design", runId));
 const fixtureFiles = (await collectFiles(fixtureRoot)).flatMap((file) => {
   const prefix = "Game/Example/";
   const path = file.path.startsWith(prefix) ? file.path.slice(prefix.length) : file.path.startsWith("Main/") ? file.path : null;
@@ -618,10 +619,14 @@ try {
   if (shipping && manifest.result !== "pass") process.exitCode = 1;
   console.log(`Editor design gallery: ${captures.length} surface captures and ${states.length} state captures in ${output}`);
 } catch (error) {
-  await mkdir(output, { recursive: true });
-  if (page !== undefined) {
-    await writeFile(join(output, "failure.txt"), `${String(error)}\n${await page.locator("body").ariaSnapshot().catch(String)}\n`);
-    await page.screenshot({ path: join(output, "failure.png"), timeout: 2_000 }).catch((captureError) => console.error("Failure capture unavailable:", captureError));
+  try {
+    await mkdir(output, { recursive: true });
+    if (page !== undefined) {
+      await writeFile(join(output, "failure.txt"), `${String(error)}\n${await page.locator("body").ariaSnapshot().catch(String)}\n`);
+      await page.screenshot({ path: join(output, "failure.png"), timeout: 2_000 });
+    }
+  } catch (captureError) {
+    console.error("Failure evidence unavailable:", captureError);
   }
   console.error(`Gallery evidence: ${output}`);
   throw error;
