@@ -1,0 +1,21 @@
+{
+  "state": "write-failed",
+  "file": "state-write-failed.png",
+  "viewport": {
+    "width": 1170,
+    "height": 900
+  },
+  "status": [
+    "Reverted Main/example.gam to the version on disk.",
+    "Unsaved changes",
+    "No staged settings."
+  ],
+  "owner": "Main/example.gam retained draft; another actual native writer owns an exclusive lock",
+  "nativeError": {
+    "name": "NoModificationAllowedError",
+    "message": "Failed to execute 'createWritable' on 'FileSystemFileHandle': An attempt was made to modify an object where modifications are not allowed."
+  },
+  "message": "Could not save Main/example.gam: Main/example.gam: Failed to execute 'createWritable' on 'FileSystemFileHandle': An attempt was made to modify an object where modifications are not allowed.",
+  "backingSha256": "2ed0dd0ebf804fb9bf1ad0d48c67ed54a5634ab1030a64130d977ec764a31946",
+  "presentation": "candidate dark common roles; real native lock rejection, not an injected provider error"
+}

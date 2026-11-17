@@ -1,0 +1,85 @@
+{
+  "scenario": "Actual rendered white-on-white negative control",
+  "command": "node tools/editor-design/gallery.mjs --surface=game-settings --theme=light --pane=640 --out=/tmp/tkr-2987-rendered-negative-white",
+  "runtimeObservedInFailureOutput": "v26.13.0",
+  "exitCodeObserved": 1,
+  "perturbation": {
+    "file": "tools/editor-design/palette.mjs",
+    "candidateControlCss": "background: #ffffff !important; color: #ffffff !important;",
+    "scope": "Only candidate CSS changed; mathematical theme definitions and thresholds were unchanged."
+  },
+  "observedFailure": "Error: Rendered contrast failure (game-settings/640px/light):",
+  "observedControls": [
+    {
+      "label": "Game title",
+      "tag": "INPUT",
+      "foreground": [
+        255,
+        255,
+        255
+      ],
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "adjacentBackground": [
+        255,
+        255,
+        255
+      ],
+      "boundary": [
+        70,
+        86,
+        108
+      ],
+      "boundaryVisible": true,
+      "fontSize": "13px",
+      "lineHeight": "16.25px",
+      "padding": "4px 8px",
+      "radius": "4px",
+      "opacity": 1,
+      "width": 582,
+      "height": 28,
+      "textRatio": 1,
+      "boundaryRatio": 7.478431233093553
+    },
+    {
+      "label": "Project folder",
+      "tag": "INPUT",
+      "foreground": [
+        255,
+        255,
+        255
+      ],
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "adjacentBackground": [
+        255,
+        255,
+        255
+      ],
+      "boundary": [
+        70,
+        86,
+        108
+      ],
+      "boundaryVisible": true,
+      "fontSize": "13px",
+      "lineHeight": "16.25px",
+      "padding": "4px 8px",
+      "radius": "4px",
+      "opacity": 1,
+      "width": 582,
+      "height": 28,
+      "textRatio": 1,
+      "boundaryRatio": 7.478431233093553
+    }
+  ],
+  "restoredPaletteSha256": "15a9c41d2177d585998baf5c59d5787737fd2fcb7278cd6566b457c45e0bddc9",
+  "restorationEvidence": "Restored palette bytes match the final positive manifest workingInputs fingerprint.",
+  "limits": "The original negative run did not record a mutated-input fingerprint; none is invented here. Samples are retained verbatim from its saved failure.txt. The final positive matrix uses Node24.21.0."
+}

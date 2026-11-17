@@ -1,0 +1,16 @@
+{
+  "state": "saved",
+  "file": "state-saved.png",
+  "viewport": {
+    "width": 1170,
+    "height": 900
+  },
+  "status": [
+    "TkrDesign-2026-11-17T10-29-14-957Z-886dfa42-17b2-45b8-8c1c-3964eb1ee1b7: Main/example.gam (project folder; changes write to disk)",
+    "All changes saved",
+    "No staged settings."
+  ],
+  "owner": "Main/example.gam active document",
+  "backingSha256": "2ed0dd0ebf804fb9bf1ad0d48c67ed54a5634ab1030a64130d977ec764a31946",
+  "presentation": "candidate dark common roles; actual native write completed"
+}

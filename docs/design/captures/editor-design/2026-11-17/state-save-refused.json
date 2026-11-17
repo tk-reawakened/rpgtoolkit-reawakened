@@ -1,0 +1,16 @@
+{
+  "state": "save-refused",
+  "file": "state-save-refused.png",
+  "viewport": {
+    "width": 1170,
+    "height": 900
+  },
+  "status": [
+    "Reverted Main/example.gam to the version on disk.",
+    "Unsaved changes",
+    "No staged settings."
+  ],
+  "owner": "Main/example.gam draft versus actual external disk version",
+  "backingSha256": "ec247b6a675544561c688020610b85d54ebcbd2b9f2fedfae45278ef2cd6fcf3",
+  "presentation": "candidate dark common roles; real changed-on-disk refusal preserves both versions"
+}
