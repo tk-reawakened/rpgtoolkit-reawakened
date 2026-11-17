@@ -23,7 +23,7 @@
 
 **T-06 Save / save as / save all / close.** Unsaved-change tracking per editor.
 
-**T-07 Test run.** Launch the current game in the engine from any editor. Programs can be test-run on their own (T-41).
+**T-07 Test run.** Launch the current game in the engine from any editor. Programs can be test-run on their own (T-41). *Reawakened:* a **▶ Run** button in the workbench header runs the game or a saved launch setup; the game shows in a **Running game** tab. Setups are kept in the project's `.tkr/launch.json`, shared with every host ([ADR 0022 D8.7](adr/0022-shared-editor-authoring-contracts.md#d8--launches-and-run-snapshots)).
 
 **T-08 Preferences.** Editor background image, splash screen and tip-of-the-day toggles, UI language (only English shipped), syntax colours, board-editor colours and behaviour.
 
@@ -146,7 +146,7 @@ These rules settle what T-20 to T-24, T-28 and T-33 leave open for the first edi
 
 **T-40 Program editor.** A text editor for `.prg` with **live syntax colouring** (configurable colours and styles per token class). A **bookmark bar** lists comments, functions and labels for quick navigation. **Call tips** show the signature of the function being typed. **Quick reference** lists every built-in with its syntax and description, and inserts on double-click. A configurable header template for new programs. "Notepad mode" (distraction-free window).
 
-**T-41 Test run with fixtures.** Run the current program in the engine. **Test preferences** supply a font, font size, message-window graphic, a set of party members and a board, so the program can run without the rest of the game.
+**T-41 Test run with fixtures.** Run the current program in the engine. **Test preferences** supply a font, font size, message-window graphic, a set of party members and a board, so the program can run without the rest of the game. *Reawakened:* the test preferences are a saved program-test setup in `.tkr/launch.json` (ADR 0022 D8.7).
 
 **T-42 Indent wizard.** Re-indent code by brace depth (indent width configurable).
 
