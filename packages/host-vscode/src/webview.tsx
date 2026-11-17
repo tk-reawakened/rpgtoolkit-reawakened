@@ -8,7 +8,7 @@ const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
   if (event.data.type === "initialize") {
-    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences);
+    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath);
     remoteDocument = remote;
     const fs = {
       readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
@@ -22,7 +22,7 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
         services,
         // The extension host's `settle` request waits for the edits these views have accepted but not yet sent (#2613).
         pendingEdits: remote.pendingEdits,
-        // No `.prg` or `.spc` editor exists in this host, so a linked visit is not offered for them (#2609).
+        // Sprite authoring does not offer linked-document navigation in this view.
         navigation: { pickAsset: (request) => remote.pickAsset(request) },
       });
     } else {
@@ -43,9 +43,25 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
         },
         boardPreferences: remote.boardPreferences,
         pendingEdits: remote.pendingEdits,
+        ...(remote.kind === "board" ? {
+          navigation: {
+            open: async (path: string) => {
+              const outcome = await remote.visit(path, true);
+              return outcome.ok ? null : outcome.message;
+            },
+            returnFromVisit: async () => {
+              const outcome = await remote.returnFromVisit();
+              return outcome.ok ? outcome.message : outcome.message;
+            },
+            setInitialBoard: async (path: string) => {
+              const outcome = await remote.setInitialBoard(path);
+              return outcome.message;
+            },
+            get initialBoardPath() { return remote.initialBoardPath ?? ""; },
+          },
+        } : {}),
       });
     }
-    return;
   }
   remoteDocument?.receive(event.data);
 });

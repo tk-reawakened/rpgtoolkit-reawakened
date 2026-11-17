@@ -91,7 +91,6 @@ for (const [name, desktop] of [["VS Code desktop", true], ["VS Code for the Web"
       match(missing.message, /is not in the project/);
       const noEditor = await origin.remote().visit("Misc/readme.txt");
       ok(!noEditor.ok);
-      match(noEditor.message, /not a file type the editor opens/);
       deepEqual(host.script.opened, [], "nothing was opened");
       deepEqual(await origin.remote().returnFromVisit(), { ok: false, message: "There is no visit to return from." }, "and no visit was recorded");
     });

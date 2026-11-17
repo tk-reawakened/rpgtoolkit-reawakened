@@ -73,7 +73,7 @@ export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snaps
 
 export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly CheckpointEntry[] | void>;
 export type BridgeMessage =
-  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences }
+  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string }
   | { readonly type: "board-preferences"; readonly preferences: EditorPreferences }
   | { readonly type: "snapshot"; readonly snapshot: BridgedSnapshot }
   | { readonly type: "browser-state"; readonly changes: BrowserStatePatch }
@@ -83,6 +83,7 @@ export type BridgeMessage =
   | { readonly type: "preview-result"; readonly requestId: string; readonly picture: BoardPicture }
   | { readonly type: "read-project-result"; readonly requestId: string; readonly result: PlatformResult<Uint8Array> }
   | { readonly type: "visit-result"; readonly requestId: string; readonly outcome: VisitOutcome }
+  | { readonly type: "initial-board-result"; readonly requestId: string; readonly outcome: ReturnOutcome }
   | { readonly type: "return-result"; readonly requestId: string; readonly outcome: ReturnOutcome }
   | { readonly type: "pick-result"; readonly requestId: string; readonly outcome: PickOutcome }
   | { readonly type: "browser-list-result"; readonly requestId: string; readonly result: PlatformResult<readonly DirectoryEntry[]> }
@@ -99,7 +100,9 @@ export type EditorHostRequest =
   | { readonly type: "preview"; readonly requestId: string; readonly request?: BoardPreviewRequest }
   | { readonly type: "read-project"; readonly requestId: string; readonly path: string }
   | { readonly type: "visit"; readonly requestId: string; readonly path: string }
+  | { readonly type: "visit-reference"; readonly requestId: string; readonly path: string }
   | { readonly type: "return-visit"; readonly requestId: string }
+  | { readonly type: "set-initial-board"; readonly requestId: string; readonly path: string }
   | { readonly type: "pick-asset"; readonly requestId: string; readonly request: AssetPickRequest }
   | { readonly type: "browser-context"; readonly changes: BrowserStatePatch }
   | { readonly type: "browser-list"; readonly requestId: string; readonly path: string }
@@ -124,8 +127,10 @@ export interface BridgedDocument {
   preview(request?: BoardPreviewRequest): Promise<BoardPicture>;
   /** The board-editor preferences in force for this document's project (T-33). */
   boardPreferences(): EditorPreferences;
-  visit(path: string): Promise<VisitOutcome>;
+  visit(path: string, reference?: boolean): Promise<VisitOutcome>;
   returnFromVisit(): Promise<ReturnOutcome>;
+  setInitialBoard(path: string): Promise<ReturnOutcome>;
+  initialBoardPath(): Promise<string | undefined>;
   pickAsset(request: AssetPickRequest): Promise<PickOutcome>;
   animationAction?(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<AnimationActionResult>;
   readProject(path: string): Promise<PlatformResult<Uint8Array>>;
@@ -140,6 +145,7 @@ export async function handleEditorHostRequest(
   postMessage: (message: BridgeMessage) => unknown,
 ): Promise<void> {
   if (request.type === "ready") {
+    const initialBoardPath = await document.initialBoardPath();
     await postMessage({
       type: "initialize",
       kind: document.model.kind,
@@ -147,7 +153,10 @@ export async function handleEditorHostRequest(
       capabilities: document.capabilities,
       browserState: document.browserSession.getSnapshot(),
       boardPreferences: document.boardPreferences(),
+      ...(initialBoardPath === undefined ? {} : { initialBoardPath }),
     });
+  } else if (request.type === "set-initial-board") {
+    await postMessage({ type: "initial-board-result", requestId: request.requestId, outcome: await document.setInitialBoard(request.path) });
   } else if (request.type === "browser-context") {
     applyBrowserStatePatch(document.browserSession, request.changes);
   } else if (request.type === "browser-list") {
@@ -176,8 +185,8 @@ export async function handleEditorHostRequest(
     await postMessage({ type: "animation-action-result", requestId: request.requestId, result });
   } else if (request.type === "preview") {
     await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview(request.request) });
-  } else if (request.type === "visit") {
-    await postMessage({ type: "visit-result", requestId: request.requestId, outcome: await document.visit(request.path) });
+  } else if (request.type === "visit" || request.type === "visit-reference") {
+    await postMessage({ type: "visit-result", requestId: request.requestId, outcome: await document.visit(request.path, request.type === "visit-reference") });
   } else if (request.type === "return-visit") {
     await postMessage({ type: "return-result", requestId: request.requestId, outcome: await document.returnFromVisit() });
   } else if (request.type === "pick-asset") {
@@ -265,7 +274,7 @@ export async function handleHistoryPreviewRequest(
       result: { ok: false, reason: "cannot-reload", message: denied },
       snapshot: document.model.getSnapshot(),
     });
-  } else if (request.type === "visit") {
+  } else if (request.type === "visit" || request.type === "visit-reference") {
     await postMessage({ type: "visit-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
   } else if (request.type === "return-visit") {
     await postMessage({ type: "return-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
@@ -277,6 +286,8 @@ export async function handleHistoryPreviewRequest(
     });
   } else if (request.type === "pick-asset") {
     await postMessage({ type: "pick-result", requestId: request.requestId, outcome: { chosen: false } });
+  } else if (request.type === "set-initial-board") {
+    await postMessage({ type: "initial-board-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
   }
 }
 
@@ -352,7 +363,8 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "browser-list" || value.type === "browser-read" || value.type === "read-project") return "path" in value && isProjectPath(value.path);
   if (value.type === "save" || value.type === "return-visit" || value.type === "settled") return true;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
-  if (value.type === "visit") return "path" in value && typeof value.path === "string" && value.path !== "";
+  if (value.type === "visit" || value.type === "visit-reference") return "path" in value && typeof value.path === "string" && value.path !== "";
+  if (value.type === "set-initial-board") return "path" in value && typeof value.path === "string" && value.path !== "";
   if (value.type === "pick-asset") return "request" in value && isAssetPickRequest(value.request);
   if (value.type === "resolve-conflict") return "choice" in value && (value.choice === "keep-local" || value.choice === "reload");
   if (value.type === "animation-action") return "action" in value && ["commit", "list", "retry", "restore", "delete", "ignore"].includes(String(value.action))
@@ -375,6 +387,7 @@ export class RemoteDocument {
   private readonly pendingPreviews = new Map<string, (picture: BoardPicture) => void>();
   private readonly pendingVisits = new Map<string, (outcome: VisitOutcome) => void>();
   private readonly pendingReturns = new Map<string, (outcome: ReturnOutcome) => void>();
+  private readonly pendingInitialBoards = new Map<string, (outcome: ReturnOutcome) => void>();
   private readonly pendingProjectReads = new Map<string, (result: PlatformResult<Uint8Array>) => void>();
   private readonly pendingPicks = new Map<string, (outcome: PickOutcome) => void>();
   private readonly pendingBrowserLists = new Map<string, (result: PlatformResult<readonly DirectoryEntry[]>) => void>();
@@ -391,10 +404,11 @@ export class RemoteDocument {
 
   /** The board-editor preferences the extension host last sent; a view reads them when it acts. */
   readonly boardPreferences: { get(): EditorPreferences; subscribe(listener: () => void): () => void };
+  initialBoardPath: string | undefined;
   private preferences: EditorPreferences;
   private readonly preferenceListeners = new Set<() => void>();
 
-  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES) {
+  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES, initialBoardPath?: string) {
     this.preferences = preferences;
     this.boardPreferences = {
       get: () => this.preferences,
@@ -405,6 +419,7 @@ export class RemoteDocument {
     this.identity = snapshot.identity;
     this.vscode = vscode;
     this.browserSession = createBrowserSession(browserState);
+    this.initialBoardPath = initialBoardPath;
     this.browserSession.subscribe((changes) => {
       if (!this.applyingBrowserState) this.vscode.postMessage({ type: "browser-context", changes });
     });
@@ -480,11 +495,11 @@ export class RemoteDocument {
   }
 
   /** Follow a link to the document at `path`; the extension host opens it in its own editor and remembers the way back. */
-  visit(path: string): Promise<VisitOutcome> {
+  visit(path: string, reference = false): Promise<VisitOutcome> {
     const requestId = `visit-${++this.nextRequest}`;
     return new Promise((resolve) => {
       this.pendingVisits.set(requestId, resolve);
-      this.vscode.postMessage({ type: "visit", requestId, path });
+      this.vscode.postMessage({ type: reference ? "visit-reference" : "visit", requestId, path });
     });
   }
 
@@ -493,6 +508,17 @@ export class RemoteDocument {
     return new Promise((resolve) => {
       this.pendingReturns.set(requestId, resolve);
       this.vscode.postMessage({ type: "return-visit", requestId });
+    });
+  }
+  setInitialBoard(path: string): Promise<ReturnOutcome> {
+    const requestId = `initial-board-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingInitialBoards.set(requestId, (outcome) => {
+        if (outcome.ok) this.initialBoardPath = path;
+        resolve(outcome);
+        this.notify();
+      });
+      this.vscode.postMessage({ type: "set-initial-board", requestId, path });
     });
   }
 
@@ -557,6 +583,7 @@ export class RemoteDocument {
     }
     if (message.type === "visit-result") return void this.settle(this.pendingVisits, message.requestId, message.outcome);
     if (message.type === "return-result") return void this.settle(this.pendingReturns, message.requestId, message.outcome);
+    if (message.type === "initial-board-result") return void this.settle(this.pendingInitialBoards, message.requestId, message.outcome);
     if (message.type === "pick-result") return void this.settle(this.pendingPicks, message.requestId, message.outcome);
     if (message.type === "initialize") return;
     this.snapshot = message.type === "save-result" && !message.result.ok && message.snapshot.saveError === null

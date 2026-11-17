@@ -226,7 +226,7 @@ test("browser Save As replaces its sole source tab, then reopening the source re
   await page.goto("/tools/browser/editor-web/index.html");
   await waitForFolderPicker(page);
   await page.getByRole("button", { name: "Open project folder" }).click();
-  const title = page.getByLabel("Game title");
+  const title = page.getByRole("textbox", { name: "Game title", exact: true });
   await expect(title).toBeVisible();
   await expect(title).toHaveValue("Example Game");
   await expect(page.getByRole("tab", { name: "Main/example.gam", exact: true })).toBeVisible();

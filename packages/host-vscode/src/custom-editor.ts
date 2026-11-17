@@ -1,4 +1,4 @@
-import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { createAnimationAuthoring, asAnimationDocument, asMainDocument, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -235,15 +235,28 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     const folder = this.#port.folderOf(this.uri);
     return folder === undefined ? DEFAULT_EDITOR_PREFERENCES : this.#port.boardPreferences?.(folder) ?? DEFAULT_EDITOR_PREFERENCES;
   }
+  async initialBoardPath(): Promise<string | undefined> {
+    const mains = this.#workspace.documents().filter((document) => document.kind === "main");
+    const main = mains.length === 1 ? mains[0] : undefined;
+    const folder = this.#port.folderOf(this.uri);
+    if (main === undefined || folder === undefined) return undefined;
+    const reference = asMainDocument(main).getSnapshot().settings.initBoard;
+    if (reference === "") return undefined;
+    const layout = await projectLayoutOfMain(this.#fs, folder.key, main.identity.path);
+    return referencePath(layout, "boards", reference);
+  }
 
   /** Follow a link from this document to the file at `path` in a new editor, remembering where it came from (story 11.4). */
-  visit(path: string): Promise<VisitOutcome> {
-    return this.#navigation.visit(this, path);
+  visit(path: string, reference = false): Promise<VisitOutcome> {
+    return this.#navigation.visit(this, path, reference);
   }
 
   /** Go back to where the latest visit started. */
   returnFromVisit(): Promise<ReturnOutcome> {
     return this.#navigation.returnFromVisit(this);
+  }
+  setInitialBoard(path: string): Promise<ReturnOutcome> {
+    return this.#navigation.setInitialBoard(this, path);
   }
 
   /** Let the user choose an asset for a field of this document, through the host's own pick list and dialogs (T-05). */
@@ -397,8 +410,9 @@ interface SettleTarget {
 
 /** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
 interface DocumentNavigation<Uri extends UriLike> {
-  visit(origin: GameDocument<Uri>, path: string): Promise<VisitOutcome>;
+  visit(origin: GameDocument<Uri>, path: string, reference: boolean): Promise<VisitOutcome>;
   returnFromVisit(origin: GameDocument<Uri>): Promise<ReturnOutcome>;
+  setInitialBoard(origin: GameDocument<Uri>, path: string): Promise<ReturnOutcome>;
   pickAsset(origin: GameDocument<Uri>, request: AssetPickRequest): Promise<PickOutcome>;
 }
 
@@ -411,6 +425,8 @@ export interface GameEditorProvider<Uri extends UriLike> {
   /** Connect a webview panel (a new one, or one VS Code re-created after hiding it) to the document's model. */
   resolveCustomEditor(document: GameDocument<Uri>, webview: WebviewPort): void;
   /** The project workspace and files of a folder, for a host view outside a custom editor (the History command, #2833). */
+  returnFromLinkedVisit(uri: Uri): Promise<ReturnOutcome>;
+  /** The project workspace and files of a folder, for a host view outside a custom editor. */
   workspaceFor(folder: WorkspaceFolderLike<Uri>): { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace };
 }
 
@@ -469,13 +485,44 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
   };
 
   const navigation: DocumentNavigation<Uri> = {
-    async visit(origin, path) {
+    async visit(origin, path, reference) {
       const folder = folderOfDocument(origin);
       const project = projectIn(folder, origin.uri);
-      const resolved = await resolveDocumentPath(project.fs, path);
+      const kind = kindForPath(path);
+      if (kind === null) return { ok: false, message: `${path} has no registered editor, so there is nothing to visit.` };
+      let target = path;
+      if (reference) {
+        if (kind.id !== "board" && kind.id !== "program") {
+          return { ok: false, message: "This value is inline code or is not a board or program file. Its text has not been changed." };
+        }
+        const assetKind = kind.id === "board" ? "boards" : "programs";
+        const openMain = project.workspace.documents().filter((document) => document.kind === "main");
+        const mainPaths = openMain.map((document) => document.identity.path);
+        if (mainPaths.length === 0) {
+          const search = [""];
+          const seen = new Set<string>();
+          while (search.length > 0) {
+            const directory = search.pop()!;
+            if (seen.has(directory)) continue;
+            seen.add(directory);
+            const listing = await project.fs.list(directory);
+            if (!listing.ok) return { ok: false, message: `Could not find the owning game file: ${listing.error.message}` };
+            for (const entry of listing.value) {
+              const candidate = directory === "" ? entry.name : `${directory}/${entry.name}`;
+              if (entry.kind === "directory") search.push(candidate);
+              else if (entry.kind === "file" && candidate.toLowerCase().endsWith(".gam")) mainPaths.push(candidate);
+            }
+          }
+        }
+        if (mainPaths.length === 0) return { ok: false, message: "This project has no main game file, so the link cannot be resolved." };
+        const mainPath = mainPaths.length === 1 ? mainPaths[0] : await port.quickPick(mainPaths.map((candidate) => ({ id: candidate, label: candidate })), "Choose the owning main game file");
+        if (mainPath === undefined) return { ok: false, message: "Linked-file navigation cancelled." };
+        const layout = await projectLayoutOfMain(project.fs, folder.key, mainPath);
+        target = referencePath(layout, assetKind, path);
+      }
+      const resolved = await resolveDocumentPath(project.fs, target);
       if (!resolved.ok) return { ok: false, message: resolved.kind === "case-conflict" ? resolved.message : `Could not check ${path}: ${resolved.error.message}` };
       if (!resolved.exists) return { ok: false, message: `${path} is not in the project, so there is nothing to visit.` };
-      if (kindForPath(resolved.path) === null) return { ok: false, message: `${resolved.path} is not a file type the editor opens.` };
       project.visits.begin(origin.model.identity.path, resolved.path);
       try {
         await port.openEditor(port.uriFor(folder, resolved.path));
@@ -502,6 +549,49 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         path: entry.originPath,
         message: wasOpen ? null : `${entry.originPath} had been closed, so it was opened again from its file. Edits that were not saved before it closed are not in it.`,
       };
+    },
+    async setInitialBoard(origin, boardPath) {
+      const folder = folderOfDocument(origin);
+      const project = projectIn(folder, origin.uri);
+      const openMain = project.workspace.documents().filter((document) => document.kind === "main");
+      const mainPaths: string[] = [];
+      if (openMain.length === 0) {
+        const search = [""];
+        const seen = new Set<string>();
+        while (search.length > 0) {
+          const directory = search.pop()!;
+          if (seen.has(directory)) continue;
+          seen.add(directory);
+          const listing = await project.fs.list(directory);
+          if (!listing.ok) return { ok: false, message: `Could not find the owning game file: ${listing.error.message}` };
+          for (const entry of listing.value) {
+            const path = directory === "" ? entry.name : `${directory}/${entry.name}`;
+            if (entry.kind === "directory") search.push(path);
+            else if (entry.kind === "file" && path.toLowerCase().endsWith(".gam")) mainPaths.push(path);
+          }
+        }
+      }
+      const choices = openMain.length > 0 ? openMain.map((document) => document.identity.path) : mainPaths;
+      if (choices.length === 0) return { ok: false, message: "This project has no main game file, so the initial board cannot be changed." };
+      const selected = choices.length === 1 ? choices[0] : await port.quickPick(choices.map((path) => ({ id: path, label: path })), "Choose the owning main game file");
+      if (selected === undefined) return { ok: false, message: "Initial-board change cancelled; no file was changed." };
+      const layout = await projectLayoutOfMain(project.fs, folder.key, selected);
+      const boardLink = linkFor(layout, "boards", boardPath);
+      if (!boardLink.inside) return { ok: false, message: `${boardPath} is not inside this game's Boards folder, so it cannot be set as the initial board.` };
+      try {
+        await port.openEditor(port.uriFor(folder, selected));
+      } catch (error) {
+        return { ok: false, message: `${selected} could not be opened: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      const opened = await project.workspace.open(selected);
+      if (!opened.ok) return { ok: false, message: `${selected}: ${opened.error.kind === "read" || opened.error.kind === "format" ? opened.error.error.message : opened.error.message}` };
+      if (opened.document.kind !== "main") return { ok: false, message: `${selected} is not a supported main game file.` };
+      const owner = hostDocuments.get(opened.document);
+      if (owner === undefined) return { ok: false, message: `${selected} is not open in its game editor, so its undo history cannot be updated safely.` };
+      const result = await opened.document.apply({ type: "apply-settings", changes: { initBoard: boardLink.reference } });
+      if (!result.ok) return { ok: false, message: result.rejection.message };
+      owner.didEdit(result.editId);
+      return { ok: true, path: selected, message: `Changed ${selected}'s initial board. Save the main game file separately.` };
     },
     async pickAsset(origin, request) {
       const folder = folderOfDocument(origin);
@@ -616,6 +706,20 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (unsettled !== null) throw new Error(`Could not back up ${document.model.identity.path}: ${unsettled}. No backup was written.`);
       const id = await port.writeBackup(destination, document.model.serialize());
       return { id, delete: () => port.deleteBackup(destination) };
+    },
+    async returnFromLinkedVisit(uri) {
+      const folder = port.folderOf(uri);
+      if (folder === undefined) return { ok: false, message: "The active file is outside an open project." };
+      const project = projectIn(folder, uri);
+      const returned = project.visits.end();
+      if (returned === null) return { ok: false, message: "There is no visit to return from." };
+      const wasOpen = project.workspace.documents().some((document) => document.identity.path === returned.originPath);
+      try {
+        await port.openEditor(port.uriFor(folder, returned.originPath));
+      } catch (error) {
+        return { ok: false, message: `${returned.originPath} could not be opened: ${error instanceof Error ? error.message : String(error)}` };
+      }
+      return { ok: true, path: returned.originPath, message: wasOpen ? null : `${returned.originPath} was reopened.` };
     },
     workspaceFor,
     resolveCustomEditor(document, webview) {

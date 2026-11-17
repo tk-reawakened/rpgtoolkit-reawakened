@@ -16,11 +16,10 @@ export {
   type BoardDocumentFields,
   type BoardDocumentSnapshot,
   type BoardOpenResult,
+  type SetBoardFieldsCommand,
   type SetTileCommand,
   type SetTilesCommand,
   type ShadeAssignment,
-  type TileAssignment,
-  type TileGesture,
 } from "./board-document.ts";
 export {
   createTilesetArtDocument,

@@ -14,12 +14,14 @@ import {
   clampViewport,
   createBoardDocument,
   createDocumentIdentity,
+  DEFAULT_EDITOR_PREFERENCES,
   pixelToCell,
   previewBoard,
   type BoardCoordSystem,
   type BoardDocument,
   type BoardPreviewRequest,
   type Cell,
+  type EditorPreferences,
 } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { TILE_BITMAP_MAGIC, writeTileBitmap, type TileBitmap } from "@tk-reawakened/editor-model/testing";
@@ -53,7 +55,7 @@ interface Setup {
   readonly el: HTMLElement;
   readonly previews: BoardPreviewRequest[];
   readonly centre: Cell;
-  prefs: { revertToDrawAfterFlood: boolean; recursiveFlood: boolean };
+  prefs: EditorPreferences;
 }
 
 async function setup(system: BoardCoordSystem, options: { undo?: boolean; layers?: number; size?: number; files?: Record<string, Uint8Array> } = {}): Promise<Setup> {
@@ -86,7 +88,7 @@ async function setup(system: BoardCoordSystem, options: { undo?: boolean; layers
   const extent = boardExtent(board);
   const centre = pixelToCell(board, extent.width / 2, extent.height / 2);
   if (centre === null) throw new Error("no centre cell");
-  const state: Setup = { host, doc, session, el, previews, centre, prefs: { revertToDrawAfterFlood: true, recursiveFlood: false } };
+  const state: Setup = { host, doc, session, el, previews, centre, prefs: { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: true, recursiveFlood: false } };
   const source: BoardPreferencesSource = { get: () => state.prefs, subscribe: () => () => undefined };
   let handle: ViewHandle | undefined;
   await act(() => {
@@ -300,7 +302,7 @@ test("flood fill follows the preferences: it returns to Draw, and fills across l
   equal(tool(s, "draw").getAttribute("aria-pressed"), "true", "back to Draw after a flood by default");
   equal(tileAt(s, 1, s.centre), "", "only the current layer");
   ok((await Promise.resolve(s.doc.undo())).ok);
-  s.prefs = { revertToDrawAfterFlood: false, recursiveFlood: true };
+  s.prefs = { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: false, recursiveFlood: true };
   await act(() => tool(s, "flood").click());
   await click(s, s.centre);
   equal(tool(s, "flood").getAttribute("aria-pressed"), "true");
@@ -430,7 +432,7 @@ test("flood preferences are read when the gesture happens: a change after the vi
   await brush(s, ROCK);
   await act(() => tool(s, "flood").click());
   // Changed with no render in between: the view must read the source, not what it last drew with.
-  s.prefs = { revertToDrawAfterFlood: false, recursiveFlood: true };
+  s.prefs = { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: false, recursiveFlood: true };
   await click(s, s.centre);
   equal(tool(s, "flood").getAttribute("aria-pressed"), "true", "the tool stayed, as the new preference says");
   equal(tileAt(s, 1, s.centre), ROCK, "and the fill went through the other layer");
@@ -525,14 +527,14 @@ test("a preference changed with no render in between is the one the next keyboar
   const first = (): HTMLButtonElement => s.el.querySelector<HTMLButtonElement>('.tkr-board-cell[tabindex="0"]')!;
   // The source changes and Space follows in the same turn: Space on a cell sets the cursor and applies the tool in one
   // handler, so the view has not drawn again since the source changed. A copy taken at the last render would be stale.
-  s.prefs = { revertToDrawAfterFlood: false, recursiveFlood: true };
+  s.prefs = { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: false, recursiveFlood: true };
   await act(() => { first().dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true })); });
   await settle();
   equal(tool(s, "flood").getAttribute("aria-pressed"), "true", "the new 'stay on Flood' preference was used");
   equal(tileAt(s, 1, { x: 0, y: 0 }), ROCK, "and the new 'across layers' preference was used");
   // And back the other way with the same shortcut.
   await act(() => tool(s, "flood").click());
-  s.prefs = { revertToDrawAfterFlood: true, recursiveFlood: false };
+  s.prefs = { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: true, recursiveFlood: false };
   await brush(s, GRASS);
   await act(() => { first().dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true })); });
   await settle();

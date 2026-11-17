@@ -1,6 +1,7 @@
 // The board view of story 12.1 over the real board model and the in-memory platform-services double, under the same DOM
 // shim as the settings view. Assertions are on the DOM and on bytes, not on Preact internals.
 import { readFileSync } from "node:fs";
+import { setImmediate as nextTurn } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
@@ -65,15 +66,19 @@ async function setup(
   return { host, doc, view, browser: { session, fs: host.fs, layout: { projectFolder: "" } }, el };
 }
 
-async function show(s: Setup, browser: TilesetBrowserContext = s.browser): Promise<ViewHandle> {
+async function show(
+  s: Setup,
+  browser: TilesetBrowserContext = s.browser,
+  navigation?: { readonly initialBoardPath?: string },
+): Promise<ViewHandle> {
   let handle: ViewHandle | undefined;
   await act(() => {
-    handle = mount(s.el, { document: s.view, services: s.host, browser });
+    handle = mount(s.el, { document: s.view, services: s.host, browser, ...(navigation === undefined ? {} : { navigation }) });
   });
-  // The picture arrives after the view's first render.
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
+  // Flush the in-memory reads and effect updates without depending on elapsed wall-clock time.
+  for (let turn = 0; turn < 8; turn += 1) {
+    await act(() => nextTurn());
+  }
   if (handle === undefined) throw new Error("mount returned nothing");
   return handle;
 }
@@ -84,7 +89,7 @@ const cell = (el: HTMLElement, column: number, row: number): HTMLButtonElement =
   return found;
 };
 const field = (el: HTMLElement): HTMLInputElement => {
-  const found = el.querySelector<HTMLInputElement>('input[type="text"]');
+  const found = el.querySelector<HTMLInputElement>('.tkr-board-cell-row input[type="text"]');
   if (found === null) throw new Error("no tile field");
   return found;
 };
@@ -111,8 +116,6 @@ test("the view names the board, shows its grid with every cell labelled, and dra
   await show(s);
   equal(s.el.querySelector("h2")?.textContent, "Board");
   match(s.el.querySelector(".tkr-board-summary")?.textContent ?? "", /4 × 3 cells, 2 layers/);
-  const grid = s.el.querySelector('[role="grid"]');
-  equal(grid?.getAttribute("aria-label"), "Tiles on layer 1");
   equal(s.el.querySelectorAll('[role="gridcell"]').length, 12);
   equal(cell(s.el, 1, 1).getAttribute("aria-label"), "Column 1, row 1: village.tst1");
   equal(cell(s.el, 4, 3).getAttribute("aria-label"), "Column 4, row 3: village.tst1");
@@ -120,6 +123,134 @@ test("the view names the board, shows its grid with every cell labelled, and dra
   equal(state(s.el), "All changes saved");
   equal(save(s.el).disabled, true);
   deepEqual(alerts(s.el), []);
+});
+
+test("the preview repaints when serialized composition properties change and undo restores the picture", async () => {
+  const s = await setup();
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+  const imagePixels = new WeakMap<HTMLCanvasElement, Uint8ClampedArray>();
+  let paintedPixels: Uint8ClampedArray | undefined;
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: function (this: HTMLCanvasElement) {
+      const canvas = this;
+      return {
+        setTransform() {},
+        fillRect() {},
+        beginPath() {},
+        moveTo() {},
+        lineTo() {},
+        closePath() {},
+        stroke() {},
+        fill() {},
+        drawImage(source: HTMLCanvasElement) {
+          if (canvas.classList.contains("tkr-board-canvas")) paintedPixels = imagePixels.get(source);
+        },
+        createImageData(width: number, height: number) {
+          return { width, height, colorSpace: "srgb", data: new Uint8ClampedArray(width * height * 4) };
+        },
+        putImageData(image: ImageData) { imagePixels.set(canvas, new Uint8ClampedArray(image.data)); },
+        getImageData() { return { data: imagePixels.get(canvas) }; },
+      } as unknown as CanvasRenderingContext2D;
+    },
+  });
+  let latestPixels: Uint8Array | undefined;
+  let previewed = false;
+  const preview = s.view.preview;
+  s.view.preview = async (request) => {
+    const picture = await preview(request);
+    if (picture.ok) latestPixels = picture.rgba;
+    previewed = true;
+    return picture;
+  };
+  try {
+    await show(s);
+    ok(latestPixels !== undefined);
+    ok(paintedPixels !== undefined, "the board canvas paints the preview");
+    const firstPixels = new Uint8Array(paintedPixels);
+    const current = s.doc.getSnapshot().properties;
+    previewed = false;
+    await act(() => {
+      ok(s.doc.apply({
+        type: "set-board-fields",
+        fields: { properties: { ...current, ambient: { r: 255 - current.ambient.r, g: 255 - current.ambient.g, b: 255 - current.ambient.b } } },
+      }).ok);
+    });
+    for (let turn = 0; turn < 8 && !previewed; turn += 1) {
+      await act(() => nextTurn());
+    }
+    ok(previewed, "the preview completes after the property edit");
+    ok(latestPixels !== undefined);
+    ok(paintedPixels !== undefined);
+    ok(latestPixels.some((value, index) => value !== firstPixels[index]), "the serialized ambient change changes the composed pixels");
+    ok(paintedPixels.some((value, index) => value !== firstPixels[index]), "the board canvas paints the changed picture");
+    const changedPixels = new Uint8Array(paintedPixels);
+    previewed = false;
+    await act(async () => { ok((await s.doc.undo()).ok); });
+    for (let turn = 0; turn < 8 && !previewed; turn += 1) {
+      await act(() => nextTurn());
+    }
+    ok(previewed, "the preview completes after undo");
+    ok(paintedPixels !== undefined);
+    deepEqual(new Uint8Array(paintedPixels), firstPixels, "undo restores the original composition on the canvas");
+    ok(changedPixels.some((value, index) => value !== firstPixels[index]));
+  } finally {
+    if (descriptor !== undefined) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", descriptor);
+  }
+});
+test("the initial board draws its start marker when navigation differs only by legacy path casing", async () => {
+  const s = await setup();
+  ok(s.doc.apply({
+    type: "set-board-fields",
+    fields: { properties: { ...s.doc.getSnapshot().properties, start: { x: 16, y: 16, layer: 1 } } },
+  }).ok);
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+  const markerStrokes: string[] = [];
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: function (this: HTMLCanvasElement) {
+      const canvas = this;
+      let style = "";
+      return {
+        set strokeStyle(value: string) { style = value; },
+        get strokeStyle() { return style; },
+        setTransform() {},
+        fillRect() {},
+        beginPath() {},
+        moveTo() {},
+        lineTo() {},
+        closePath() {},
+        stroke() { if (canvas.classList.contains("tkr-board-canvas")) markerStrokes.push(style); },
+        fill() {},
+        drawImage() {},
+        createImageData(width: number, height: number) {
+          return { width, height, colorSpace: "srgb", data: new Uint8ClampedArray(width * height * 4) };
+        },
+        putImageData() {},
+        getImageData() { return { data: new Uint8ClampedArray() }; },
+      } as unknown as CanvasRenderingContext2D;
+    },
+  });
+  try {
+    await show(s, s.browser, { initialBoardPath: "boards/VILLAGE.BRD" });
+    ok(markerStrokes.includes("#fff200"), "the initial board's start marker is drawn");
+  } finally {
+    if (descriptor !== undefined) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", descriptor);
+  }
+});
+test("layer labels use the one-based title slots without changing the unused zero slot", async () => {
+  const s = await setup();
+  ok(s.doc.apply({ type: "set-board-fields", fields: { layerTitles: ["unused zero", "Ground", "Canopy"] } }).ok);
+  await show(s);
+  equal(s.el.querySelector('[role="grid"]')?.getAttribute("aria-label"), "Tiles on layer 1, Ground");
+  const layer = s.el.querySelector<HTMLSelectElement>(".tkr-board-layer-row select");
+  ok(layer !== null);
+  await act(() => {
+    layer.value = "1";
+    layer.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  equal(s.el.querySelector('[role="grid"]')?.getAttribute("aria-label"), "Tiles on layer 2, Canopy");
+  deepEqual(s.doc.getSnapshot().layerTitles, ["unused zero", "Ground", "Canopy"]);
 });
 
 test("the grid is one tab stop that moves with the arrow keys and carries the selection", async () => {

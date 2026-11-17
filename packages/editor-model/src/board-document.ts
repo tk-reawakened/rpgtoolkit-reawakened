@@ -71,8 +71,19 @@ export interface SetTilesCommand {
   readonly shades?: readonly ShadeAssignment[];
 }
 
-/** Every command a board document accepts. Plain data, so a stack of them can be stored and replayed. */
-export type BoardCommand = SetTileCommand | SetTilesCommand;
+/** An accepted edit to board-owned settings, links, threads, constants, layer titles or start. */
+export interface SetBoardFieldsCommand {
+  readonly type: "set-board-fields";
+  readonly fields: {
+    readonly links?: Board["links"];
+    readonly threads?: Board["threads"];
+    readonly constants?: Board["constants"];
+    readonly layerTitles?: Board["layerTitles"];
+    readonly properties?: Board["properties"];
+  };
+}
+
+export type BoardCommand = SetTileCommand | SetTilesCommand | SetBoardFieldsCommand;
 
 /**
  * What a board adds to the shared snapshot: plain JSON a view can draw a grid from and a host can post to a webview
@@ -82,30 +93,33 @@ export type BoardCommand = SetTileCommand | SetTilesCommand;
 export interface BoardDocumentFields {
   /** The minor version the file was opened at and is saved at (AD-18). */
   readonly minor: number;
+  /** Background image reference used by the board preview and visibility control. */
+  readonly backgroundImage: string;
   /** The stored grid of every layer (`sizeX × sizeY`, or the rotated square of an iso-rotated board). */
   readonly grid: BoardGrid;
   /** The logical width in tiles (the stored grid of an iso-rotated board is larger). */
   readonly sizeX: number;
   /** The logical height in tiles. */
   readonly sizeY: number;
-  /** The board's background image reference, or `""` when it has none. */
-  readonly backgroundImage: string;
-  /** How many tile layers the board has. */
-  readonly layers: number;
-  /** The board's `coordType`: 0 is top-down; other values are the isometric systems. */
+  /** Coordinate flags that define the board's stored geometry. */
   readonly coordType: number;
-  /** The layer titles, as stored. */
+  readonly properties: Board["properties"];
+  /** Four directional board/program references. */
+  readonly links: Board["links"];
+  /** Background programs started when the board loads. */
+  readonly threads: Board["threads"];
+  /** Board constants. */
+  readonly constants: Board["constants"];
+  /** Layer titles, indexed 0…layers. */
   readonly layerTitles: readonly string[];
   /** The tile lookup table: `tileMatrix` holds indices into it, and `""` is the empty cell. */
   readonly lut: readonly string[];
-  /**
-   * The tile shading layers, as stored (`docs/spec/formats/board.md#tile-shading`). The picture depends on them, so a view that
-   * redraws the picture when the tiles change redraws it when this does: the array is the model's own and is replaced only
-   * when the shading changes (a stamp's tints, or an undo or redo of them).
-   */
+  /** The tile shading layers, as stored (`docs/spec/formats/board.md#tile-shading`). */
   readonly shadeLayers: readonly BoardShadeLayer[];
-  /** One lookup-table index per cell, layer-major then row-major (`docs/spec/formats/board.md#vector-layout-minor-4-and-later`). */
+  /** One lookup-table index per cell, layer-major then row-major. */
   readonly tileMatrix: readonly number[];
+  /** The count remains read-only. */
+  readonly layers: number;
 }
 
 export type BoardDocumentSnapshot = DocumentSnapshot<BoardCommand> & BoardDocumentFields;
@@ -319,6 +333,16 @@ function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonl
 }
 
 function applyCommand(board: Board, command: BoardCommand): Board {
+  if (command.type === "set-board-fields") {
+    return {
+      ...board,
+      ...(command.fields.links === undefined ? {} : { links: command.fields.links }),
+      ...(command.fields.threads === undefined ? {} : { threads: command.fields.threads }),
+      ...(command.fields.constants === undefined ? {} : { constants: command.fields.constants }),
+      ...(command.fields.layerTitles === undefined ? {} : { layerTitles: command.fields.layerTitles }),
+      ...(command.fields.properties === undefined ? {} : { properties: command.fields.properties }),
+    };
+  }
   if (command.type === "set-tile") return assignTiles(board, [command]);
   const tiled = assignTiles(board, command.cells);
   if (command.shades === undefined || command.shades.length === 0) return tiled;
@@ -342,13 +366,30 @@ function readOnlyReason(model: Board, bytes: Uint8Array): ReadOnlyReason | null 
   };
 }
 
-/** The cells a command names. */
-function assignmentsOf(command: BoardCommand): readonly TileAssignment[] {
+/** The cells a tile command names. */
+function assignmentsOf(command: SetTileCommand | SetTilesCommand): readonly TileAssignment[] {
   return command.type === "set-tile" ? [command] : command.cells;
 }
 
-/** Refuse a command that names a cell outside the board, a tile the table cannot index, or one the file cannot store as typed. */
 function refuse(next: Board, command: BoardCommand, previous: Board): Rejection | null {
+  if (command.type === "set-board-fields") {
+    if (next === previous) return { reason: "invalid", message: "The board settings are unchanged." };
+    const written = writeBoard(next);
+    if (!written.ok) return { reason: "invalid", message: written.error.message };
+    const reread = readBoard(new BinaryReader(written.value));
+    if (!reread.ok) return { reason: "invalid", message: reread.error.message };
+    const actual = reread.value as unknown as Record<string, unknown>;
+    for (const [field, requested] of Object.entries(command.fields)) {
+      if (JSON.stringify(requested) !== JSON.stringify(actual[field])) {
+        return { reason: "invalid", message: `The ${field} value cannot be stored exactly as entered.` };
+      }
+    }
+    const roundTrip = writeBoard(reread.value);
+    if (!roundTrip.ok || firstDifference(written.value, roundTrip.value) !== null) {
+      return { reason: "invalid", message: "The board settings cannot be stored exactly as entered." };
+    }
+    return null;
+  }
   const assignments = assignmentsOf(command);
   for (const assignment of assignments) {
     if (cellIndex(next, assignment.layer, assignment.x, assignment.y) === null) {
@@ -390,6 +431,35 @@ function isAssignment(value: unknown): value is TileAssignment {
     && "layer" in value && typeof value.layer === "number" && "x" in value && typeof value.x === "number"
     && "y" in value && typeof value.y === "number" && "tile" in value && typeof value.tile === "string";
 }
+function isRgb(value: unknown): value is { readonly r: number; readonly g: number; readonly b: number } {
+  if (typeof value !== "object" || value === null) return false;
+  const rgb = value as Record<string, unknown>;
+  return ["r", "g", "b"].every((channel) => typeof rgb[channel] === "number" && Number.isFinite(rgb[channel]));
+}
+
+function isBoardProperties(value: unknown): value is Board["properties"] {
+  if (typeof value !== "object" || value === null) return false;
+  const properties = value as Record<string, unknown>;
+  const start = properties.start;
+  return typeof properties.backgroundImage === "string"
+    && typeof properties.backgroundDrawType === "number" && Number.isFinite(properties.backgroundDrawType)
+    && isRgb(properties.backgroundColour)
+    && typeof properties.backgroundMusic === "string"
+    && typeof properties.enterPrg === "string"
+    && typeof properties.battleBackground === "string"
+    && typeof properties.battleSkill === "number" && Number.isFinite(properties.battleSkill)
+    && typeof properties.allowBattles === "number" && Number.isFinite(properties.allowBattles)
+    && typeof properties.disableSaving === "number" && Number.isFinite(properties.disableSaving)
+    && isRgb(properties.ambient)
+    && typeof start === "object" && start !== null
+    && ["x", "y", "layer"].every((key) => typeof (start as Record<string, unknown>)[key] === "number" && Number.isFinite((start as Record<string, unknown>)[key]));
+}
+
+function isBoardLinks(value: unknown): value is Board["links"] {
+  if (typeof value !== "object" || value === null) return false;
+  const links = value as Record<string, unknown>;
+  return ["north", "south", "east", "west"].every((key) => typeof links[key] === "string");
+}
 
 const GESTURES: readonly string[] = ["draw", "erase", "flood", "rectangle", "stamp", "move", "copy"];
 
@@ -412,28 +482,42 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
   isCommand: (value): value is BoardCommand => {
     if (typeof value !== "object" || value === null || !("type" in value)) return false;
     if (value.type === "set-tile") return isAssignment(value);
+    if (value.type === "set-board-fields" && "fields" in value && typeof value.fields === "object" && value.fields !== null) {
+      const fields = value.fields as Record<string, unknown>;
+      return Object.keys(fields).every((key) => ["links", "threads", "constants", "layerTitles", "properties"].includes(key))
+        && (fields.links === undefined || isBoardLinks(fields.links))
+        && (fields.threads === undefined || (Array.isArray(fields.threads) && fields.threads.every((entry) => typeof entry === "string")))
+        && (fields.constants === undefined || (Array.isArray(fields.constants) && fields.constants.every((entry) => typeof entry === "string")))
+        && (fields.layerTitles === undefined || (Array.isArray(fields.layerTitles) && fields.layerTitles.every((entry) => typeof entry === "string")))
+        && (fields.properties === undefined || isBoardProperties(fields.properties));
+    }
     return value.type === "set-tiles" && "gesture" in value && typeof value.gesture === "string" && GESTURES.includes(value.gesture)
       && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment)
       && (!("shades" in value) || value.shades === undefined || (Array.isArray(value.shades) && value.shades.length <= BOARD_MAX_CELLS && value.shades.every(isShade)));
   },
   apply: applyCommand,
+  refuse,
   label: (command) => {
+    if (command.type === "set-board-fields") return "Edit board properties";
     if (command.type === "set-tiles") {
       return `${GESTURE_WORDS[command.gesture]} ${command.cells.length} ${command.cells.length === 1 ? "cell" : "cells"} on layer ${command.cells[0] === undefined ? 0 : command.cells[0].layer + 1}`;
     }
     return `Put ${command.tile === "" ? "an empty cell" : `"${command.tile}"`} at layer ${command.layer}, column ${command.x}, row ${command.y}`;
   },
-  refuse,
   summary: (model) => `${model.sizeX}×${model.sizeY} board, ${model.sizeL} layers`,
   fields: (model) => ({
     minor: model.minor,
+    backgroundImage: model.properties.backgroundImage,
     grid: boardGrid(model.sizeX, model.sizeY, model.coordType),
     sizeX: model.sizeX,
     sizeY: model.sizeY,
-    backgroundImage: model.properties.backgroundImage,
-    layers: model.sizeL,
     coordType: model.coordType,
+    layers: model.sizeL,
     layerTitles: model.layerTitles,
+    properties: model.properties,
+    links: model.links,
+    threads: model.threads,
+    constants: model.constants,
     lut: model.lut,
     tileMatrix: model.tileMatrix,
     shadeLayers: model.shadeLayers,

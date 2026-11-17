@@ -27,6 +27,7 @@
       "types": "./creator-tests-fixture.d.mts",
       "import": "./creator-tests-fixture.mjs"
     },
-    "./animation-proof": "./animation-proof.ts"
+    "./animation-proof": "./animation-proof.ts",
+    "./board-properties-proof": "./board-properties-proof.ts"
   }
 }

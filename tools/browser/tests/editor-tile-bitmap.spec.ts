@@ -181,9 +181,9 @@ test("Edit tile bitmap in the browser opens that very file in its own tab", asyn
   // The new tab is the file that was chosen, and it shows that file's cells, not the one that was open.
   await expect(page.getByRole("tab", { name: "Bitmap/other.tbm" })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tab", { name: "Bitmap/house.tbm" })).toHaveAttribute("aria-selected", "false");
-  await expect(page.locator(".tkr-bitmap-summary")).toContainText("3 × 1 tiles, 96 × 32 pixels");
+  await expect(page.locator(".tkr-bitmap-summary:visible")).toContainText("3 × 1 tiles, 96 × 32 pixels");
   await expect(page.getByRole("button", { name: "Column 3, row 1: village.tst2, shade 1, 2, 3" })).toBeVisible();
-  await expectCanvas(page.locator("canvas.tkr-bitmap-canvas"), expectedPicture(OTHER));
+  await expectCanvas(page.locator("canvas.tkr-bitmap-canvas:visible"), expectedPicture(OTHER));
 });
 
 test("typing a shade into a field and pressing Enter shades that cell, and the canvas and saved file follow", async ({ page }) => {

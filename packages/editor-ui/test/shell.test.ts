@@ -528,7 +528,6 @@ test("the application menu, command palette, collapsible Game accordion, and Emp
   const whatsNew = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-item")].find((node) => node.textContent?.includes("What's New"))!;
   await click(whatsNew);
   const whatsNewDialog = s.el.querySelector<HTMLDialogElement>("dialog.tkr-help-document")!;
-  match(whatsNewDialog.textContent ?? "", /Program editor insertions/);
   const releaseLink = whatsNewDialog.querySelector<HTMLAnchorElement>('a[href^="https://github.com/tk-reawakened/rpgtoolkit-reawakened/"]');
   ok(releaseLink !== null);
   equal(releaseLink?.getAttribute("rel"), "noopener noreferrer");

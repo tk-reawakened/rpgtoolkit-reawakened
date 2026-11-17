@@ -1,7 +1,10 @@
 import {
+  cellCentre,
+  cellOnBoard,
   cellOutline,
   cellsInRect,
   pendingCells,
+  pixelToCell,
   zoomOf,
   type BoardDocumentSnapshot,
   type BoardEditor,
@@ -32,6 +35,9 @@ export interface BoardCanvasProps {
   readonly board: BoardDocumentSnapshot;
   readonly picture: BoardPicture | null;
   readonly stamp: Stamp | null;
+  readonly startPicking?: boolean;
+  readonly startMarker?: { readonly x: number; readonly y: number; readonly layer: number } | null;
+  readonly onStartCell?: (cell: Cell) => void;
 }
 
 function outline(context: CanvasRenderingContext2D, board: BoardDocumentSnapshot, cell: Cell): void {
@@ -73,6 +79,23 @@ function paint(context: CanvasRenderingContext2D, source: CanvasImageSource | nu
   stroke(pendingCells(board, state, stamp), COLOURS.selection, 2, COLOURS.pending);
   if (state.hover !== null) stroke([state.hover], COLOURS.hover, 1);
   stroke([state.cursor], COLOURS.cursor, 2);
+  if (props.startMarker !== null && props.startMarker !== undefined && props.startMarker.layer === state.layer + 1) {
+    const cell = pixelToCell(board, props.startMarker.x, props.startMarker.y);
+    if (cell !== null && cellOnBoard(board, cell.x, cell.y)) {
+      const point = cellCentre(board, cell.x, cell.y);
+      context.lineWidth = 4 / zoom;
+      context.strokeStyle = "#101010";
+      context.beginPath();
+      context.moveTo(point.x - 7, point.y);
+      context.lineTo(point.x + 7, point.y);
+      context.moveTo(point.x, point.y - 7);
+      context.lineTo(point.x, point.y + 7);
+      context.stroke();
+      context.lineWidth = 2 / zoom;
+      context.strokeStyle = "#fff200";
+      context.stroke();
+    }
+  }
 }
 
 /**
@@ -135,7 +158,14 @@ export function BoardCanvas(props: BoardCanvasProps) {
         if (event.button === 1) event.preventDefault();
         canvas.current?.focus({ preventScroll: true });
         canvas.current?.setPointerCapture?.(event.pointerId);
-        editor.pointerDown(position(event), modifiers(event), event.button);
+        const positionOnCanvas = position(event);
+        if (props.startPicking) {
+          const zoom = zoomOf(state.viewport);
+          const cell = pixelToCell(props.board, state.viewport.x + positionOnCanvas.x / zoom, state.viewport.y + positionOnCanvas.y / zoom);
+          if (cell !== null && cellOnBoard(props.board, cell.x, cell.y)) props.onStartCell?.(cell);
+          return;
+        }
+        editor.pointerDown(positionOnCanvas, modifiers(event), event.button);
       }}
       onPointerMove={(event) => editor.pointerMove(position(event), modifiers(event))}
       onPointerUp={(event) => {

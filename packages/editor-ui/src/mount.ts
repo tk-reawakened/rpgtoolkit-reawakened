@@ -41,12 +41,13 @@ import { PreferencesView, type PreferencesViewProps } from "./preferences-view.t
 import { SettingsView } from "./settings-view.tsx";
 import { TileBitmapView } from "./tile-bitmap-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
-import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
+import type { BoardPropertiesNavigation } from "./board-properties-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import { TilesetArtView } from "./tileset-art-view.tsx";
 import { AnimationView, type AnimationViewDocument } from "./animation-view.tsx";
 import { ProgramView, type ProgramPreferencesSource, type ProgramViewDocument } from "./program-view.tsx";
 import type { TextSurfaceFactory } from "./text-surface.ts";
+import { CharacterAuthoringView, type CharacterAuthoringViewProps } from "./character-authoring-view.tsx";
 
 /** The snapshot/save surface plus a command action; an adapter may acknowledge a command asynchronously. */
 export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCommand> {
@@ -114,7 +115,7 @@ export interface ViewContext {
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
   readonly browser?: TilesetBrowserContext;
   /** Workbench asset picking is available in full hosts, but not in standalone document mounts. */
-  readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset">;
+  readonly navigation?: Pick<CharacterAuthoringViewProps, "pickAsset"> & Partial<BoardPropertiesNavigation>;
   /**
    * Where views report edits they have accepted but not yet handed to the document, so the host's save, close and revert
    * wait for them (#2613). A mount with no host makes its own, which only the views sharing it wait for.
@@ -180,7 +181,9 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       capabilities,
       onEdited,
       ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
+      pendingEdits,
       ...(ctx.boardPreferences === undefined ? {} : { preferences: ctx.boardPreferences }),
+      ...(ctx.navigation === undefined ? {} : { navigation: ctx.navigation }),
     });
   } else if (isTilesetArtView(document)) {
     view = createElement(TilesetArtView, { doc: document, capabilities, onEdited });

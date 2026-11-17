@@ -187,7 +187,7 @@ for (const [name, system, pixels] of LAYOUTS) {
 
   test(`${name}: a flood stops at a wall of different tiles and keeps the tool when the preference is off`, async () => {
     const s = make();
-    s.prefs = { revertToDrawAfterFlood: false, recursiveFlood: false };
+    s.prefs = { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: false, recursiveFlood: false };
     const board = s.doc.getSnapshot();
     // A wall of rock along the whole stored row through the middle splits the board in two (on an iso-stacked board
     // every neighbour is on the next row, so one row is a wall too).
@@ -217,7 +217,7 @@ for (const [name, system, pixels] of LAYOUTS) {
 
   test(`${name}: flood across layers fills the same region on every layer that holds the tile`, async () => {
     const s = make();
-    s.prefs = { revertToDrawAfterFlood: true, recursiveFlood: true };
+    s.prefs = { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: true, recursiveFlood: true };
     s.brush = { kind: "tile", tile: ROCK, label: "rock" };
     s.editor.setTool("flood");
     await click(s, s.centre);
