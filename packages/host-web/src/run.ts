@@ -10,12 +10,12 @@ function isDiagnostic(value: unknown): value is RunDiagnostic {
 }
 
 /**
- * Where a host puts a running game's player frame. `show` receives the frame and the run's `stop`, and returns the
- * function that takes the frame away again. The frame must stay attached while it is shown: moving an iframe in the
- * page reloads it, which would restart the game.
+ * Where a host puts a running game's player frame. `show` receives the frame and the run's handle (its status and
+ * `stop`), and returns the function that takes the frame away again when the run is over. The frame must stay attached
+ * while it is shown: moving an iframe in the page reloads it, which would restart the game.
  */
 export interface RunPresenter {
-  show(frame: HTMLIFrameElement, stop: () => void): () => void;
+  show(frame: HTMLIFrameElement, run: RunHandle): () => void;
 }
 
 /** With no workbench to show it in, the frame floats over the page so it is still seen. */
@@ -104,7 +104,7 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
         }
       };
       window.addEventListener("message", onReady);
-      hide = (presenter() ?? floatingPresenter).show(frame, () => handle.stop());
+      hide = (presenter() ?? floatingPresenter).show(frame, handle);
       return platformOk<RunHandle>(handle);
     };
   return {

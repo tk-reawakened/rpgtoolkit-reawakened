@@ -1,9 +1,21 @@
-import { listGame, type GameGroup, type Launcher, type ProjectLayout } from "@tk-reawakened/editor-model";
+import { listGame, type GameGroup, type LaunchSetup, type Launcher, type ProjectLayout } from "@tk-reawakened/editor-model";
 import type { BoardStart, FileSystemService, Launch, LaunchKind, RunHandle, RunSnapshot, RunStatus } from "@tk-reawakened/platform-services";
 import { Fragment, type ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { CreatorTestsController } from "./creator-tests-controller.ts";
-import { CreatorTestsView } from "./creator-tests-view.tsx";
+
+/** What saving a setup needs from the host: the project's files, and why they cannot be written, if they cannot (ADR 0022 D8.7). */
+export interface RunSetupStore {
+  readonly fs: Pick<FileSystemService, "read" | "write">;
+  /** `null` when setups can be saved; otherwise the sentence that says why not. */
+  readonly readOnly: string | null;
+}
+
+/** What the form did, for the control that opened it. */
+export type RunSetupOutcome =
+  | { readonly kind: "launched"; readonly handle: RunHandle; readonly setup: string | null }
+  | { readonly kind: "saved"; readonly setup: string }
+  | { readonly kind: "deleted"; readonly setup: string }
+  | { readonly kind: "cancelled" };
 
 export interface RunViewProps {
   /** Starts runs through the host's `run` service, saving first (ADR 0022 D8.2). */
@@ -14,8 +26,15 @@ export interface RunViewProps {
   readonly active?: string | null;
   /** Changes when the project's files may have, so the lists are read again. */
   readonly version?: unknown;
-  /** Saved TOOL-5 tests are a separate launch, not a game/board/program run alias (ADR 0022 D9). */
-  readonly creatorTests?: CreatorTestsController;
+  /** Where setups are saved; without it the form only runs once and has no name or save buttons. */
+  readonly store?: RunSetupStore;
+  /** The saved setup the form starts from, or `null`/absent for a new one. */
+  readonly initial?: LaunchSetup | null;
+  /** Saves (and deletes) the setup; the control that owns the setups list gives this, so it can read the file again. */
+  readonly onSave?: (setup: LaunchSetup, replacing: string | null) => Promise<string | null>;
+  readonly onDelete?: (name: string) => Promise<string | null>;
+  /** Told when the form has finished: a run started, a setup was saved or deleted, or it was cancelled. */
+  readonly onDone?: (outcome: RunSetupOutcome) => void;
 }
 
 /** What the view lists from the project: the main files, and the files each test can name. */
@@ -37,7 +56,8 @@ const LAUNCH_LABEL: Readonly<Record<LaunchKind, string>> = {
 };
 
 
-const RUN_MODES = ["game", "board", "program", "saved-tests"] as const;
+/** The launches the form offers, in tab order; saved tests (D9) are not run setups and live in their own panel. */
+const RUN_MODES = ["game", "board", "program"] as const;
 const STATE_LABEL: Readonly<Record<RunStatus["state"], string>> = {
   starting: "Starting",
   running: "Running",
@@ -79,7 +99,7 @@ function describeLaunch(snapshot: RunSnapshot): string {
   return `Program test of ${snapshot.targets[1]?.path ?? "the program"} with fixture "${snapshot.fixture ?? ""}"${at}`;
 }
 
-function Snapshot({ snapshot }: { readonly snapshot: RunSnapshot }) {
+export function Snapshot({ snapshot }: { readonly snapshot: RunSnapshot }) {
   return (
     <dl class="tkr-run-snapshot" aria-label="Run snapshot">
       <dt>Launch</dt>
@@ -118,7 +138,7 @@ function Snapshot({ snapshot }: { readonly snapshot: RunSnapshot }) {
   );
 }
 
-function StatusLine({ status }: { readonly status: RunStatus }) {
+export function StatusLine({ status }: { readonly status: RunStatus }) {
   const detail = status.state === "stalled" && status.stalledOn !== null
     ? `: ${status.stalledOn}`
     : status.message === null ? "" : `: ${status.message}`;
@@ -189,33 +209,39 @@ function Position({ value, onChange }: { readonly value: Omit<BoardStart, "board
   );
 }
 
+
+/** The fixture id of a program test that is run once without being saved. */
+const UNSAVED_FIXTURE = "Unsaved test settings";
+
+const startOf = (start: BoardStart | undefined) => start === undefined ? { x: 1, y: 1, layer: 1 } : { x: start.x, y: start.y, layer: start.layer };
+
 /**
- * The Run panel (T-07, T-41; ADR 0022 D8): three launches that stay distinct — run the game from its start-up, test one
- * board at a chosen position with a chosen party, and test one program under a fixture. Each launch the host cannot do is
- * disabled with the host's reason. A launch saves first; the run's snapshot and status are shown until the next one, and
- * a later edit never changes a running game: running again is a new snapshot.
+ * The run setup form (T-07, T-41; ADR 0022 D8, D8.7): three launches that stay distinct — run the game from its start-up,
+ * test one board at a chosen position with a chosen party, and test one program under a fixture. Each launch the host
+ * cannot do is disabled with the host's reason. A launch saves the documents first. With a store, the setup can also be
+ * named and saved in the project's `.tkr/launch.json`, run again later from the Run button.
  */
-export function RunView({ launcher, fs, layout, active = null, version, creatorTests }: RunViewProps) {
-  const [activeTab, setActiveTab] = useState<LaunchKind | "saved-tests">("game");
+export function RunView({ launcher, fs, layout, active = null, version, store, initial = null, onSave, onDelete, onDone }: RunViewProps) {
+  const [activeTab, setActiveTab] = useState<LaunchKind>(initial?.kind ?? "game");
   const [choices, setChoices] = useState<Choices>(NO_CHOICES);
-  const [main, setMain] = useState("");
-  const [board, setBoard] = useState("");
-  const [boardAt, setBoardAt] = useState({ x: 1, y: 1, layer: 1 });
-  const [boardParty, setBoardParty] = useState<string[]>([]);
-  const [boardSeed, setBoardSeed] = useState("");
-  const [program, setProgram] = useState("");
-  const [fixtureBoard, setFixtureBoard] = useState("");
-  const [fixtureAt, setFixtureAt] = useState({ x: 1, y: 1, layer: 1 });
-  const [fixtureParty, setFixtureParty] = useState<string[]>([]);
-  const [font, setFont] = useState("");
-  const [fontSize, setFontSize] = useState("");
-  const [windowGraphic, setWindowGraphic] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [main, setMain] = useState(initial?.main ?? "");
+  const [board, setBoard] = useState(initial?.kind === "board" ? initial.start.board : "");
+  const [boardAt, setBoardAt] = useState(startOf(initial?.kind === "board" ? initial.start : undefined));
+  const [boardParty, setBoardParty] = useState<string[]>(initial?.kind === "board" ? [...initial.party] : []);
+  const [boardSeed, setBoardSeed] = useState(initial?.kind === "board" && initial.seed !== undefined ? String(initial.seed) : "");
+  const [program, setProgram] = useState(initial?.kind === "program" ? initial.program : "");
+  const fixture = initial?.kind === "program" ? initial.fixture : null;
+  const [fixtureBoard, setFixtureBoard] = useState(fixture?.start?.board ?? "");
+  const [fixtureAt, setFixtureAt] = useState(startOf(fixture?.start));
+  const [fixtureParty, setFixtureParty] = useState<string[]>(fixture === null ? [] : [...fixture.party]);
+  const [font, setFont] = useState(fixture?.font ?? "");
+  const [fontSize, setFontSize] = useState(fixture?.fontSize === undefined ? "" : String(fixture.fontSize));
+  const [windowGraphic, setWindowGraphic] = useState(fixture?.windowGraphic ?? "");
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const [run, setRun] = useState<RunHandle | null>(() => launcher.current());
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
-  const [status, setStatus] = useState<RunStatus | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -240,32 +266,77 @@ export function RunView({ launcher, fs, layout, active = null, version, creatorT
   const chosenBoard = board === "" && activeBoard !== null ? activeBoard : pick(board, choices.boards);
   const chosenProgram = program === "" && activeProgram !== null ? activeProgram : pick(program, choices.programs);
 
-  useEffect(() => {
-    if (run === null) return undefined;
-    setStatus(run.status());
-    const listener = run.onStatus(setStatus);
-    return () => listener.dispose();
-  }, [run]);
-
-  const launch = (request: Launch): void => {
+  const launch = (request: Launch, setup: string | null): void => {
     setBusy(true);
     setRefusal(null);
     void launcher.launch(request).then((outcome) => {
-      // The launcher owns the run; a Run view hidden while it started shows it from `launcher.current()` when reopened.
       if (!mounted.current) return;
       setBusy(false);
       if (!outcome.ok) {
         setRefusal(outcome.message);
         return;
       }
-      setRun(outcome.handle);
+      onDone?.({ kind: "launched", handle: outcome.handle, setup });
     });
   };
   const base = { main: chosenMain, projectFolder: layout.projectFolder };
   const noMain = chosenMain === "" ? "This project has no main (.gam) file." : null;
 
-  const section = (kind: LaunchKind, description: string, body: ComponentChildren, missing: string | null, request: () => Launch) => {
-    const reason = launcher.unavailable(kind) ?? noMain ?? missing;
+  const missing: Readonly<Record<LaunchKind, string | null>> = {
+    game: null,
+    board: chosenBoard === "" ? "This project has no boards to test." : boardParty.length === 0 ? "Choose at least one character for the party."
+      : boardParty.length > 5 ? "Choose no more than five characters." : null,
+    program: chosenProgram === "" ? "This project has no programs to test." : fixtureBoard === "" ? "Choose a fixture board for the isolated scene runner." : null,
+  };
+  const reasonFor = (kind: LaunchKind): string | null => launcher.unavailable(kind) ?? noMain ?? missing[kind];
+
+  const fixtureFields = () => ({
+    party: fixtureParty,
+    ...(font === "" ? {} : { font }),
+    ...(fontSize === "" ? {} : { fontSize: Number(fontSize) }),
+    ...(windowGraphic === "" ? {} : { windowGraphic }),
+    ...(fixtureBoard === "" ? {} : { start: { board: fixtureBoard, ...fixtureAt } }),
+  });
+  const request = (kind: LaunchKind, fixtureId: string): Launch =>
+    kind === "game" ? { kind: "game", ...base }
+      : kind === "board" ? { kind: "board", ...base, start: { board: chosenBoard, ...boardAt }, party: boardParty, ...(boardSeed === "" ? {} : { seed: Number(boardSeed) }) }
+        : { kind: "program", ...base, program: chosenProgram, fixture: { id: fixtureId, ...fixtureFields() } };
+  /** The setup as saved: the main file only when the project has a choice of them, so the setup follows the open game (D8.7). */
+  const setupOf = (setupName: string): LaunchSetup => {
+    const own = { name: setupName, ...(choices.mains.length > 1 ? { main: chosenMain } : {}) };
+    if (activeTab === "board") return { ...own, kind: "board", start: { board: chosenBoard, ...boardAt }, party: [...boardParty], ...(boardSeed === "" ? {} : { seed: Number(boardSeed) }) };
+    if (activeTab === "program") return { ...own, kind: "program", program: chosenProgram, fixture: fixtureFields() };
+    return { ...own, kind: "game" };
+  };
+
+  const save = async (andRun: boolean): Promise<void> => {
+    if (onSave === undefined) return;
+    const trimmed = name.trim();
+    setBusy(true);
+    setRefusal(null);
+    const problem = await onSave(setupOf(trimmed), initial?.name ?? null);
+    if (!mounted.current) return;
+    setBusy(false);
+    if (problem !== null) {
+      setRefusal(problem);
+      return;
+    }
+    if (andRun) launch(request(activeTab, trimmed), trimmed);
+    else onDone?.({ kind: "saved", setup: trimmed });
+  };
+  const remove = async (): Promise<void> => {
+    if (onDelete === undefined || initial === null) return;
+    setBusy(true);
+    setRefusal(null);
+    const problem = await onDelete(initial.name);
+    if (!mounted.current) return;
+    setBusy(false);
+    if (problem !== null) setRefusal(problem);
+    else onDone?.({ kind: "deleted", setup: initial.name });
+  };
+
+  const section = (kind: LaunchKind, description: string, body: ComponentChildren) => {
+    const reason = reasonFor(kind);
     const id = `tkr-run-${kind}-reason`;
     return (
       <div id={`tkr-run-${kind}-panel`} class="tkr-run-tabpanel" role="tabpanel" aria-labelledby={`tkr-run-${kind}-tab`} hidden={activeTab !== kind}>
@@ -273,7 +344,7 @@ export function RunView({ launcher, fs, layout, active = null, version, creatorT
           <legend>{LAUNCH_LABEL[kind]}</legend>
           <p>{description}</p>
           {body}
-          <button type="button" disabled={busy || reason !== null} aria-describedby={reason === null ? undefined : id} onClick={() => launch(request())}>
+          <button type="button" disabled={busy || reason !== null} aria-describedby={reason === null ? undefined : id} onClick={() => launch(request(kind, UNSAVED_FIXTURE), null)}>
             {LAUNCH_LABEL[kind]}
           </button>
           {reason === null ? null : <p id={id} class="tkr-run-unavailable">{reason}</p>}
@@ -282,12 +353,13 @@ export function RunView({ launcher, fs, layout, active = null, version, creatorT
     );
   };
 
-  const finished = status === null || status.state === "ended" || status.state === "failed";
+  const saveReason = store === undefined ? null
+    : store.readOnly ?? (name.trim() === "" ? "Give the setup a name to save it." : null);
+  const runReason = reasonFor(activeTab);
   return (
-    <section class="tkr-run" aria-label="Run">
-      <h2 class="tkr-run-heading">Run</h2>
+    <section class="tkr-run" aria-label="Run setup">
       <div class="tkr-run-tabs" role="tablist" aria-label="Run modes">
-        {RUN_MODES.map((kind) => kind === "saved-tests" && creatorTests === undefined ? null : (
+        {RUN_MODES.map((kind) => (
           <button
             key={kind}
             id={`tkr-run-${kind}-tab`}
@@ -300,7 +372,7 @@ export function RunView({ launcher, fs, layout, active = null, version, creatorT
             onClick={() => setActiveTab(kind)}
             onKeyDown={(event) => {
               if (event.altKey || event.ctrlKey || event.metaKey) return;
-              const count = creatorTests === undefined ? 3 : 4;
+              const count = RUN_MODES.length;
               const index = RUN_MODES.indexOf(kind);
               const next = event.key === "ArrowRight" ? (index + 1) % count
                 : event.key === "ArrowLeft" ? (index + count - 1) % count
@@ -311,18 +383,12 @@ export function RunView({ launcher, fs, layout, active = null, version, creatorT
               event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
             }}
           >
-            {kind === "saved-tests" ? "Saved tests" : LAUNCH_LABEL[kind]}
+            {LAUNCH_LABEL[kind]}
           </button>
         ))}
       </div>
-      {activeTab !== "saved-tests" && choices.mains.length > 1 ? <Select label="Game" value={chosenMain} options={choices.mains} onChange={setMain} /> : null}
-      {section(
-        "game",
-        "Plays the game from its start-up, as a player would see it.",
-        null,
-        null,
-        () => ({ kind: "game", ...base }),
-      )}
+      {choices.mains.length > 1 ? <Select label="Game" value={chosenMain} options={choices.mains} onChange={setMain} /> : null}
+      {section("game", "Plays the game from its start-up, as a player would see it.", null)}
       {section(
         "board",
         "Starts fresh on the chosen board. Choose 1–5 characters in order; the first leads. Column and row are tile coordinates unless the board uses pixel coordinates (flag 4), where zero is allowed. The layer starts at 1.",
@@ -334,9 +400,6 @@ export function RunView({ launcher, fs, layout, active = null, version, creatorT
             <input type="number" step={1} value={boardSeed} onInput={(event) => setBoardSeed(event.currentTarget.value)} />
           </label>
         </>,
-        chosenBoard === "" ? "This project has no boards to test." : boardParty.length === 0 ? "Choose at least one character for the party."
-          : boardParty.length > 5 ? "Choose no more than five characters." : null,
-        () => ({ kind: "board", ...base, start: { board: chosenBoard, ...boardAt }, party: boardParty, ...(boardSeed === "" ? {} : { seed: Number(boardSeed) }) }),
       )}
       {section(
         "program",
@@ -356,37 +419,54 @@ export function RunView({ launcher, fs, layout, active = null, version, creatorT
           </label>
           <Select label="Message window picture" value={windowGraphic} options={choices.pictures} onChange={setWindowGraphic} none="None" />
         </>,
-        chosenProgram === "" ? "This project has no programs to test." : fixtureBoard === "" ? "Choose a fixture board for the isolated scene runner." : null,
-        () => ({
-          kind: "program",
-          ...base,
-          program: chosenProgram,
-          fixture: {
-            id: "Run panel test settings",
-            party: fixtureParty,
-            ...(font === "" ? {} : { font }),
-            ...(fontSize === "" ? {} : { fontSize: Number(fontSize) }),
-            ...(windowGraphic === "" ? {} : { windowGraphic }),
-            ...(fixtureBoard === "" ? {} : { start: { board: fixtureBoard, ...fixtureAt } }),
-          },
-        }),
       )}
-      {creatorTests === undefined ? null : (
-        <div id="tkr-run-saved-tests-panel" class="tkr-run-tabpanel" role="tabpanel" aria-labelledby="tkr-run-saved-tests-tab" hidden={activeTab !== "saved-tests"}>
-          <CreatorTestsView controller={creatorTests} />
+      {store === undefined && onDone === undefined ? null : (
+        <div class="tkr-run-save">
+          {store === undefined ? null : (
+            <label class="tkr-run-field">
+              Setup name
+              <input type="text" value={name} onInput={(event) => setName(event.currentTarget.value)} />
+            </label>
+          )}
+          <div class="tkr-run-save-actions">
+            {store === undefined ? null : (
+              <>
+                <button type="button" disabled={busy || saveReason !== null || runReason !== null} onClick={() => void save(true)}>Save and run</button>
+                <button type="button" disabled={busy || saveReason !== null} onClick={() => void save(false)}>Save</button>
+                {initial === null ? null : <button type="button" disabled={busy || store.readOnly !== null} onClick={() => void remove()}>Delete</button>}
+              </>
+            )}
+            {onDone === undefined ? null : <button type="button" onClick={() => onDone({ kind: "cancelled" })}>Cancel</button>}
+          </div>
+          {saveReason === null ? null : <p class="tkr-run-unavailable">{saveReason}</p>}
         </div>
       )}
-      <div hidden={activeTab === "saved-tests"}>
       {busy ? <p role="status">Saving and starting…</p> : null}
       {refusal === null ? null : <p class="tkr-run-refusal" role="alert">{refusal}</p>}
-      {run === null || status === null ? null : (
-        <div class="tkr-run-current" role="status" aria-label="Current run">
-          <StatusLine status={status} />
-          <Snapshot snapshot={run.snapshot} />
-          {finished ? null : <button type="button" onClick={() => run.stop()}>Stop</button>}
-        </div>
-      )}
-      </div>
     </section>
+  );
+}
+
+/**
+ * A run's status, problems and snapshot, with Stop while it runs (ADR 0022 D8.3). It follows the run until it ends and
+ * keeps showing how it ended.
+ */
+export function RunStatusView({ run }: { readonly run: RunHandle }) {
+  const [status, setStatus] = useState<RunStatus>(() => run.status());
+  useEffect(() => {
+    setStatus(run.status());
+    const listener = run.onStatus(setStatus);
+    return () => listener.dispose();
+  }, [run]);
+  const finished = status.state === "ended" || status.state === "failed";
+  return (
+    <div class="tkr-run-current" role="status" aria-label="Current run">
+      <StatusLine status={status} />
+      <details class="tkr-run-details">
+        <summary>Run snapshot</summary>
+        <Snapshot snapshot={run.snapshot} />
+      </details>
+      {finished ? null : <button type="button" onClick={() => run.stop()}>Stop</button>}
+    </div>
   );
 }

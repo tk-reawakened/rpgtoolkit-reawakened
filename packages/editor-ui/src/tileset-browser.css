@@ -250,7 +250,7 @@
   background: var(--tkr-bg-surface);
   border: 1px solid var(--tkr-border-subtle);
   border-radius: 999px;
-  max-inline-size: min(24rem, 36vw);
+  max-inline-size: var(--tkr-web-status-max, min(24rem, 36vw));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -503,9 +503,14 @@
   border-block-end: 1px solid var(--tkr-border-subtle);
 }
 
+/* The page's status badge is drawn over the end of the workbench bar; the search trigger stops short of it. */
+.tkr-web-shell:has(#settings > section:not([hidden])) {
+  --tkr-web-status-max: min(20rem, 28vw);
+}
+
 .tkr-web-shell:has(#settings > section:not([hidden])) .tkr-command-palette-trigger {
   margin-inline-start: auto;
-  margin-inline-end: auto;
+  margin-inline-end: calc(var(--tkr-web-status-max) + 1.25rem);
 }
 
 /* Application Menu (☰) & Command Palette Bar (.tkr-command-bar) */
@@ -905,8 +910,23 @@
   border-block-end: 1px solid var(--tkr-border-subtle);
 }
 
+/* Tests sits under Files and Game; folded, it is only its heading. */
+.tkr-dock-left > #tkr-panel-tests {
+  flex: 1 1 0%;
+  min-block-size: 0;
+  overflow: hidden;
+  padding: 0;
+  border-block-start: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-tests-body {
+  overflow: auto;
+  min-block-size: 0;
+}
+
 .tkr-dock-left > #tkr-panel-files:has(> .tkr-files[data-collapsed="true"]),
-.tkr-dock-left > #tkr-panel-game:has(> .tkr-game[data-collapsed="true"]) {
+.tkr-dock-left > #tkr-panel-game:has(> .tkr-game[data-collapsed="true"]),
+.tkr-dock-left > #tkr-panel-tests:has(> .tkr-tests[data-collapsed="true"]) {
   flex: 0 0 auto !important;
   min-block-size: auto !important;
 }
@@ -1108,9 +1128,144 @@
   min-block-size: 0;
 }
 
-/* A running game fills its "Running game" tab; the player page scales the game screen to fit. */
+/* The header Run control (ADR 0022 D8.7): what runs, ▶ Run, edit, and Stop while a game runs. It sits after the
+   application menu; in the browser page it clears the page's brand, which is drawn over the start of this bar. */
+.tkr-web-shell:has(#settings > section:not([hidden])) .tkr-run-control {
+  margin-inline-start: 10.5rem;
+}
+
+.tkr-run-control {
+  order: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-inline-size: 0;
+}
+
+.tkr-run-control > select.tkr-run-choice {
+  max-inline-size: 12rem;
+  min-block-size: 1.75rem;
+  font-size: var(--tkr-text-sm);
+}
+
+.tkr-run-control > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  min-block-size: 1.75rem;
+  padding: 0.125rem 0.5rem;
+  font-size: var(--tkr-text-sm);
+}
+
+.tkr-run-control > .tkr-run-busy,
+.tkr-run-control > .tkr-run-refusal {
+  overflow: hidden;
+  max-inline-size: 22rem;
+  font-size: var(--tkr-text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tkr-run-control > .tkr-run-busy {
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-run-control > .tkr-run-refusal {
+  color: var(--tkr-danger, #d93f3f);
+}
+
+.tkr-run-dialog {
+  overflow: auto;
+  inline-size: min(36rem, 100%);
+  max-block-size: 100%;
+  background: var(--tkr-bg-elevated);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-lg);
+  box-shadow: var(--tkr-shadow-overlay);
+}
+
+.tkr-run-dialog .tkr-run-launch {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  align-items: end;
+  gap: 0.5rem 0.75rem;
+}
+
+.tkr-run-dialog .tkr-run-launch > legend,
+.tkr-run-dialog .tkr-run-launch > p,
+.tkr-run-dialog .tkr-run-launch > .tkr-run-field:has(select) {
+  grid-column: 1 / -1;
+}
+
+.tkr-run-dialog .tkr-run-launch > button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.tkr-run-dialog .tkr-run-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-inline-size: 0;
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-run-dialog .tkr-run-field > :is(input, select) {
+  inline-size: 100%;
+  font-weight: 400;
+  color: var(--tkr-fg-primary);
+}
+
+.tkr-run-save > .tkr-run-field {
+  max-inline-size: 20rem;
+}
+
+.tkr-run-save {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-block-start: 0.625rem;
+  border-block-start: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-run-save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* A running game fills its "Running game" tab above its status; the player page scales the game screen to fit. When
+   the run is over the player goes and the status stays. */
 .tkr-run-pane {
   background: #000;
+}
+
+.tkr-run-pane-status {
+  flex: 0 0 auto;
+  overflow: auto;
+  max-block-size: 40%;
+  background: var(--tkr-bg-panel);
+  border-block-start: 1px solid var(--tkr-border-subtle);
+}
+
+.tkr-run-pane-status:only-child {
+  flex: 1 1 auto;
+  max-block-size: none;
+}
+
+.tkr-run-pane-status .tkr-run-current {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  font-size: var(--tkr-text-sm);
+}
+
+.tkr-run-pane-status .tkr-run-state {
+  margin: 0;
 }
 
 .tkr-run-frame {
@@ -1144,9 +1299,10 @@
   text-align: center;
 }
 
-/* 5. Left Navigation Explorers (.tkr-files, .tkr-game) --------------------- */
+/* 5. Left Navigation Explorers (.tkr-files, .tkr-game, .tkr-tests) ---------- */
 .tkr-files,
-.tkr-game {
+.tkr-game,
+.tkr-tests {
   flex: 1 1 0%;
   display: flex;
   flex-direction: column;
@@ -1158,7 +1314,8 @@
 }
 
 .tkr-files[data-collapsed="true"],
-.tkr-game[data-collapsed="true"] {
+.tkr-game[data-collapsed="true"],
+.tkr-tests[data-collapsed="true"] {
   flex: 0 0 auto;
   padding-block: 0.125rem;
 }
@@ -1169,7 +1326,8 @@
 }
 
 .tkr-files h2,
-.tkr-game h2 {
+.tkr-game h2,
+.tkr-tests > h2 {
   flex: 0 0 auto;
   margin: 0;
   padding: 0;

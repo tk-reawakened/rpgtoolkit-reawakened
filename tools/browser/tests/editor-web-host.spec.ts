@@ -414,13 +414,15 @@ test("a saved folder game launches in the live player from the editor", async ({
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
   await page.getByLabel("Game title").fill("Saved launch proof");
-  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   const frame = page.frameLocator('iframe[title="Running game"]');
   await expect(frame.getByLabel("Game screen")).toBeVisible();
   // The workbench fills the viewport and clips its overflow, so the player must be shown on screen, not merely attached:
   // it opens in front, in its own "Running game" tab.
   await expect(page.getByRole("tab", { name: "Running game", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('iframe[title="Running game"]')).toBeInViewport({ ratio: 1 });
+  // Run stays available while a game runs: pressing it again restarts from a new snapshot (ADR 0022 D8.4).
+  await expect(page.getByRole("button", { name: "Run", exact: true })).toBeEnabled();
   const live = async () => frame.locator("#screen").evaluate(() => Reflect.get(window, "__live") as { tick: number; board: string | null; player: unknown; stateHash: string } | undefined);
   await expect.poll(async () => (await live())?.tick ?? 0, { timeout: 30000 }).toBeGreaterThan(30);
   await frame.locator("#screen").press("Enter");
@@ -447,7 +449,7 @@ test("a saved folder game launches in the live player from the editor", async ({
   const preSave = await frame.locator("#screen").evaluate(async () => await Reflect.get(window, "__tkrPreSaveDigest") as { size: number; sha256: string } | undefined);
   expect(preSave).toBeDefined();
   expect(firstSave).toMatchObject(preSave!);
-  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
   await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
   // Do not execute Save in the next run: reading the same bytes proves they survived closing the first player.
   await page.evaluate(async () => {
@@ -460,10 +462,10 @@ test("a saved folder game launches in the live player from the editor", async ({
     await writer.write(new TextEncoder().encode("wait()\n"));
     await writer.close();
   });
-  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   await expect(frame.getByLabel("Game screen")).toBeVisible();
   await expect.poll(async () => await saved(), { timeout: 30000 }).toEqual(firstSave);
-  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
   await expect(page.locator('iframe[title="Running game"]')).toHaveCount(0);
 });
 
@@ -487,14 +489,17 @@ test("a board-backed program runs its declared fixture in the real browser playe
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
-  await page.getByRole("tab", { name: "Test program" }).click();
-  await page.getByRole("combobox", { name: "Program", exact: true }).selectOption("Game/Example/Prg/start.prg");
+  await page.getByRole("button", { name: "New run setup" }).click();
+  const form = page.getByRole("dialog", { name: "New run setup" });
+  await form.getByRole("tab", { name: "Test program" }).click();
+  await form.getByRole("combobox", { name: "Program", exact: true }).selectOption("Game/Example/Prg/start.prg");
   await page.getByRole("combobox", { name: "Start board" }).selectOption("Game/Example/Boards/village.brd");
   await page.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
   await page.getByRole("textbox", { name: "Font", exact: true }).fill("Liberation Sans");
   await page.getByRole("spinbutton", { name: "Font size" }).fill("18");
   await page.getByRole("combobox", { name: "Message window picture" }).selectOption("Game/Example/Bitmap/window.png");
-  await page.getByRole("button", { name: "Test program", exact: true }).click();
+  await form.getByRole("button", { name: "Test program", exact: true }).click();
+  await expect(form).toHaveCount(0);
   const frame = page.frameLocator('iframe[title="Running game"]');
   const scene = async () => frame.locator("#screen").evaluate(() => {
     const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; font?: { size: number }; source?: { asset?: string } }> } } } | undefined;
@@ -514,7 +519,7 @@ test("a board-backed program runs its declared fixture in the real browser playe
   await expect(page.getByLabel("Run snapshot").locator("dd").filter({ hasText: /^[0-9a-f]{16}$/ })).toHaveCount(1);
   await expect(page.getByLabel("Run snapshot")).toContainText("Liberation Sans");
   await expect(page.getByLabel("Run snapshot")).toContainText("Game/Example/Bitmap/window.png");
-  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
 });
 
 test("a board test starts a fresh selected board, party and position in the real browser player", async ({ page }) => {
@@ -539,14 +544,35 @@ test("a board test starts a fresh selected board, party and position in the real
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await expect(page.getByLabel("Game title")).toBeVisible();
-  await page.getByRole("tab", { name: "Test board" }).click();
+  // A saved setup (ADR 0022 D8.7): made from "Add setup…", kept in .tkr/launch.json, and chosen for the Run button.
+  await page.getByRole("combobox", { name: "Run setup" }).selectOption({ label: "Add setup…" });
+  const form = page.getByRole("dialog", { name: "New run setup" });
+  await form.getByRole("tab", { name: "Test board" }).click();
   await page.getByRole("spinbutton", { name: "Column" }).fill("2");
   await page.getByRole("spinbutton", { name: "Row" }).fill("2");
   const party = page.getByRole("listbox", { name: "Party", exact: true }).first();
   await party.selectOption("Game/Example/Chrs/companion.tem");
   await party.selectOption(["Game/Example/Chrs/ada.tem", "Game/Example/Chrs/companion.tem"]);
   await page.getByRole("spinbutton", { name: "Seed" }).fill("23");
-  await page.getByRole("button", { name: "Test board", exact: true }).click();
+  await form.getByRole("textbox", { name: "Setup name" }).fill("Village start");
+  await form.getByRole("button", { name: "Save and run", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Run setup" })).toHaveValue("Village start");
+  const savedSetups = await page.evaluate(async () => {
+    const picker = Reflect.get(window, "showDirectoryPicker") as () => Promise<FileSystemDirectoryHandle>;
+    const file = await (await (await picker()).getDirectoryHandle(".tkr")).getFileHandle("launch.json");
+    return JSON.parse(await (await file.getFile()).text()) as unknown;
+  });
+  expect(savedSetups).toEqual({
+    version: 1,
+    configurations: [{
+      name: "Village start",
+      kind: "board",
+      seed: 23,
+      start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 },
+      party: ["Game/Example/Chrs/companion.tem", "Game/Example/Chrs/ada.tem"],
+    }],
+  });
 
   const frame = page.frameLocator('iframe[title="Running game"]');
   await expect(frame.getByLabel("Game screen")).toBeVisible();
@@ -563,7 +589,7 @@ test("a board test starts a fresh selected board, party and position in the real
   await expect(page.getByLabel("Run snapshot").locator("dd").filter({ hasText: /^[0-9a-f]{16}$/ })).toHaveCount(1);
   await expect(page.getByLabel("Run snapshot")).toContainText("Game/Example/Chrs/companion.tem, Game/Example/Chrs/ada.tem");
   await expect(page.getByLabel("Run snapshot")).toContainText("23");
-  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
 });
 
 // The real browser page is held at the player load boundary to prove an edit during the handoff cannot start stale bytes.
@@ -582,7 +608,7 @@ test("an edit before the player handshake prevents a stale game from starting", 
     await gate;
     await route.continue();
   });
-  await page.getByRole("button", { name: "Run game", exact: true }).click();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
   await requested;
   // The player opens in its own tab; the game settings are one tab back.
   await page.getByRole("tab", { name: "Main/example.gam", exact: true }).click();
