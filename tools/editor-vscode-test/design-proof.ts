@@ -24,6 +24,7 @@ const longProgramPath = "Game/Example/Prg/this-is-a-deliberately-long-authored-p
 const cases: readonly DesignCase[] = [
   { id: "game", path: "Main/example.gam", kind: "custom-webview", description: "Authored game settings document", rootSelector: ".tkr-settings" },
   { id: "board", path: "Game/Example/Boards/village.brd", kind: "custom-webview", description: "Authored board document", rootSelector: ".tkr-board" },
+  { id: "board-properties", path: "Game/Example/Boards/village.brd", kind: "custom-webview", description: "The real board-properties disclosure opened through its native summary control", rootSelector: ".tkr-board" },
   { id: "character", path: "Game/Example/Chrs/ada.tem", kind: "custom-webview", description: "Authored character document including its composed graphics and authoring views", rootSelector: '.tkr-editor-surface[data-tkr-editor="Character"]' },
   { id: "item", path: "Game/Example/Item/chest.itm", kind: "custom-webview", description: "Authored item document; does not imply expanded item authoring", rootSelector: ".tkr-sprite-graphics" },
   { id: "tileset-art", path: "Game/Example/Tiles/village.tst", kind: "custom-webview", description: "Authored tileset artwork document", rootSelector: ".tkr-tileset-art" },
@@ -172,6 +173,14 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
           const item = cases.find((candidate) => candidate.id === caseId)!;
           await openNativeQuickOpenFile(page, expect, item.path);
           const frame = await waitForDocument(page, expect, item);
+          if (frame !== null && (item.id === "board" || item.id === "board-properties")) {
+            const summary = frame.locator("summary").filter({ hasText: /^Board properties$/ });
+            const expanded = await summary.evaluate((element) => {
+              if (!(element.parentElement instanceof HTMLDetailsElement)) throw new Error("Board properties is not a native details disclosure");
+              return element.parentElement.open;
+            });
+            if (expanded !== (item.id === "board-properties")) await summary.click();
+          }
           const measurement = await measureDocument(page, expect, item, frame);
           const captureName = `${item.id}-${pane}-${theme.id}.png`;
           const captureBytes = await page.screenshot({ path: resolve(output, captureName), fullPage: false });
