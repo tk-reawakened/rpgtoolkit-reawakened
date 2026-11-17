@@ -1,8 +1,9 @@
-import { expect, test, _electron as electron, type Page } from "@playwright/test";
+import { expect, test, errors, _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   assetKey,
@@ -157,6 +158,89 @@ async function overlayCommandsInBrowser(page: Page): Promise<readonly OverlayCom
   });
 }
 
+/** Preserve actual Electron boot evidence; a renderer error is not a ninety-second readiness mystery (#2088). */
+async function desktopBoard(player: ElectronApplication): Promise<Page> {
+  const events: string[] = [];
+  const record = (kind: string, value: unknown): void => {
+    events.push(`${kind}: ${String(value).slice(0, 2_000)}`);
+    if (events.length > 64) events.shift();
+  };
+  const child = player.process();
+  child.stdout?.on("data", (value: unknown) => record("stdout", value));
+  child.stderr?.on("data", (value: unknown) => record("stderr", value));
+  const observed = new Set<Page>();
+  const observe = (page: Page): void => {
+    if (observed.has(page)) return;
+    observed.add(page);
+    page.on("console", (message) => record(`console/${message.type()}`, message.text()));
+    page.on("pageerror", (error) => record("pageerror", error));
+    page.on("requestfailed", (request) => record("requestfailed", `${request.url()} ${request.failure()?.errorText}`));
+    page.on("response", (response) => { if (response.status() >= 400) record("response", `${response.status()} ${response.url()}`); });
+  };
+  player.on("window", observe);
+  for (const page of player.windows()) observe(page);
+  let page: Page | undefined;
+  const deadline = Date.now() + 90_000;
+  let pause = 100;
+  try {
+    for (;;) {
+      const slice = Math.min(2_000, Math.max(1, deadline - Date.now()));
+      try {
+        page ??= await player.firstWindow({ timeout: slice });
+        await page.waitForFunction(() => {
+          const live = window.__live;
+          if (live !== undefined && "error" in live && typeof live.error === "string") throw new Error(`Desktop player failed: ${live.error}`);
+          return window.__session !== undefined && window.__session.boardKey() !== null;
+        }, undefined, { timeout: slice, polling: 100 });
+        return page;
+      } catch (error) {
+        if (!(error instanceof errors.TimeoutError) || Date.now() >= deadline) throw error;
+        await delay(Math.min(pause, deadline - Date.now()));
+        pause = Math.min(pause * 2, 1_000);
+      }
+    }
+  } catch (error) {
+    let alarm: ReturnType<typeof setTimeout> | undefined;
+    let state: unknown = { unavailable: "No Electron window was obtained." };
+    try {
+      if (page !== undefined) state = await Promise.race([
+        page.evaluate(() => ({
+          url: location.href,
+          readyState: document.readyState,
+          status: document.querySelector("#live-status")?.textContent ?? null,
+          live: window.__live ?? null,
+          session: window.__session === undefined ? null : { gameId: window.__session.gameId, board: window.__session.boardKey() },
+          geometry: ["viewport", "screen"].map((id) => {
+            const box = document.getElementById(id)?.getBoundingClientRect();
+            return { id, width: box?.width ?? null, height: box?.height ?? null };
+          }),
+        })),
+        new Promise<never>((_resolve, reject) => { alarm = setTimeout(() => reject(new Error("Electron state inspection timed out")), 1_000); }),
+      ]);
+    } catch (inspectionError) {
+      state = { unavailable: String(inspectionError) };
+    } finally {
+      clearTimeout(alarm);
+    }
+    try {
+      const statePath = test.info().outputPath("desktop-boot-state.json");
+      mkdirSync(dirname(statePath), { recursive: true });
+      writeFileSync(statePath, JSON.stringify({ error: String(error), windows: player.windows().map((window) => window.url()), exitCode: child.exitCode, state, events }, null, 2));
+      console.error("Electron boot evidence:", statePath);
+    } catch (attachmentError) {
+      console.error("Could not preserve Electron boot state:", attachmentError);
+    }
+    if (page !== undefined && !page.isClosed()) {
+      try {
+        await page.screenshot({ path: test.info().outputPath("desktop-boot-window.png"), timeout: 2_000 });
+      } catch (screenshotError) {
+        console.error("Could not capture Electron boot window:", screenshotError);
+      }
+    }
+    throw error;
+  }
+}
+
 test("the project's overlays draw in the visible player exactly as they do headless, and the title carries the count", async ({ page }) => {
   test.setTimeout(120_000);
   const pkg = packageFor("overlay-project", { drawVectorsFlags: 1, pathColor: { r: 10, g: 20, b: 30 }, showFpsInTitle: 1 });
@@ -201,13 +285,12 @@ test("a per-run desktop flag adds one overlay without touching the package", asy
       "--diagnostics",
     ],
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: "0", ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}) },
+  }).catch((error: unknown) => {
+    rmSync(dataDir, { recursive: true, force: true });
+    throw error;
   });
   try {
-    const playerWindow = await player.firstWindow();
-    await playerWindow.waitForFunction(() => {
-      const session = window.__session;
-      return session !== undefined && session.boardKey() !== null;
-    }, undefined, { timeout: 90_000 });
+    const playerWindow = await desktopBoard(player);
     const drawn = await overlayCommandsInBrowser(playerWindow);
     expect(drawn, "the per-run flag turns the board-vector overlay on").toHaveLength(4);
     expect(drawn.every((line) => line.rgb.r === 10 && line.rgb.g === 20 && line.rgb.b === 255)).toBe(true);
@@ -244,10 +327,12 @@ test("a desktop overlay does not enable the diagnostics strip", async () => {
       "--", "--debug", "board",
     ],
     env: { ...process.env, ELECTRON_ENABLE_LOGGING: "0", ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}) },
+  }).catch((error: unknown) => {
+    rmSync(dataDir, { recursive: true, force: true });
+    throw error;
   });
   try {
-    const playerWindow = await player.firstWindow();
-    await playerWindow.waitForFunction(() => window.__session?.boardKey() !== null && window.__session !== undefined, undefined, { timeout: 90_000 });
+    const playerWindow = await desktopBoard(player);
     expect(await overlayCommandsInBrowser(playerWindow)).toHaveLength(4);
     await expect(playerWindow.locator("#diagnostics")).toBeHidden();
   } finally {
