@@ -44,7 +44,7 @@ title = "Open and create linked definitions in their own editor tabs"
 description = "Connect board-origin visits to real script, character, item, enemy, artwork and board editors through supported references. Keep placement controls in the inspector and shared definitions in document tabs. Consume Epic 29 and existing editor providers without redesigning their internals."
 verify = "1. Each real supported reference exposes its type/name and Open; repeated ordinary opens focus the existing suitable view while deliberate splits share one document authority. VS Code RPGCode opens its native text editor.\n2. Inspector labels distinguish local placement/overrides from shared definitions. Legacy item-backed sprites retain .itm semantics; .tem/.ene references are reached only through their legitimate owning surfaces. No invented character/enemy placement conversion.\n3. Choose existing and Create new work where a real provider supports creation. Successful creation attaches through a named originating-document edit; cancel/write failure/deleted origin/project switch does not attach elsewhere. Preserve and report any created asset if attachment fails; no false atomic multi-file rollback.\n4. Delayed creation after focusing board B attaches only to the still-valid original A target, or refuses with a reason. Returning restores A's selection/viewport/tool; no duplicate editable model is created.\n5. Verify save/reopen, reference identity, shared-view updates, undo of attachment and failure paths in both hosts. Integrate with #1723; recheck known linked-provider #2609 and lifecycle #2652 instead of silently excluding failures."
 covers = ["CAP-15", "CAP-16", "CAP-18"]
-after = [1]
+after = [1, "29.7", "29.8"]
 hitl = false
 risk = "high"
 
