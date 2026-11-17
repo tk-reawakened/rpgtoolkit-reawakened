@@ -1,0 +1,14 @@
+{
+  "state": "loading-project",
+  "file": "state-loading-project.png",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "status": [
+    "2 games found; select the game to open."
+  ],
+  "owner": "Project opening; native Main/example.gam read is paused",
+  "hostStatus": "2 games found; select the game to open.",
+  "presentation": "current shipping dark styles; real native read resumes afterward"
+}

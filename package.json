@@ -53,6 +53,7 @@
     "browser:build": "node tools/browser/build.mjs",
     "browser:serve": "node tools/browser/serve.mjs --port 4173",
     "browser:test": "node tools/browser/build.mjs && playwright test",
+    "editor:design-gallery": "node tools/editor-design/gallery.mjs",
     "editor:acceptance": "node tools/editor-foundation/suite.mjs",
     "vscode-web:probe": "node tools/vscode-web/run.mjs --probe",
     "vscode-web:test": "node tools/vscode-web/run.mjs",

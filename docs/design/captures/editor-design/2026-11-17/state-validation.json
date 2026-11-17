@@ -1,0 +1,26 @@
+{
+  "state": "validation",
+  "file": "state-validation.png",
+  "viewport": {
+    "width": 1170,
+    "height": 900
+  },
+  "status": [
+    "Reverted Main/example.gam to the version on disk.",
+    "All changes saved",
+    "No staged settings.",
+    "All changes saved",
+    "No staged settings.",
+    "Fix the size to see the board's pixel size."
+  ],
+  "owner": "New board proposal; no document has been created",
+  "width": {
+    "value": "0",
+    "valid": false,
+    "message": "Value must be greater than or equal to 1."
+  },
+  "alerts": [
+    "The width must be a whole number from 1 to 1000."
+  ],
+  "presentation": "candidate dark common roles; native constraint validation and associated inline feedback reject a zero-width proposal"
+}

@@ -1,0 +1,13 @@
+{
+  "state": "empty-project",
+  "file": "state-empty-project.png",
+  "viewport": {
+    "width": 1280,
+    "height": 900
+  },
+  "status": [
+    "No document open."
+  ],
+  "owner": "No project or document is open",
+  "presentation": "current shipping dark styles"
+}

@@ -1,6 +1,6 @@
 # Shared editor design language
 
-Status: shared direction requested by Jensen on 2026-11-16; the baseline below consolidates the approved character and board conversations. Exact layouts, component measurements and theme combinations require the recorded visual validation in story 11.22. Delivery: [11.22 — design language](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2987) and [11.23 — styling implementation](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2988). Story 11.23 implements the shared styling. This is not a claim that the existing UI already conforms.
+Status: owner-requested shared direction, with 11.22 candidate validation recorded on 2026-11-17 in [the evidence record](editor-design-validation.md). This consolidates the approved character/board conversations and the real-editor engineering gallery. Delivery: [11.22 — design language](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2987) and [11.23 — styling implementation](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2988). Story 11.23 implements the shared styling and actual cross-host proof. Existing UI is not claimed to conform already.
 
 ## Purpose and source of truth
 
@@ -108,6 +108,8 @@ In a narrow editor group, reduce visible chrome through named disclosures or rel
 
 ## Host mapping
 
+This maps responsibilities, not a claim every proposed shelf already ships. Existing resource editors are native custom-editor **webview panels**, not contributed sidebar views; the precise current inventory is below.
+
 | Shared role | Web / standalone | VS Code |
 | --- | --- | --- |
 | Workspace, tabs and groups | Existing shared workbench/host layout | Native editor tabs/groups; no nested workspace clone |
@@ -139,6 +141,73 @@ Story 11.23 applies the shared tokens and components across the workbench and ex
 
 11.22 and 11.23 are additional foundation work after the original editor baseline. They do not reopen closed #2703 or 11.12. The original 11.13 closing proof retains its declared baseline scope; the new stories carry their own delivery/verification. Consumer research and contract drafting can proceed, but their implementation uses the delivered shared components. Avoid cycles: shared styling proves representative existing surfaces, not unfinished Epic 29/30 redesigns.
 
+## 11.22 source and migration contract
+
+Candidate measurements and contrast work are recorded in [editor-design-validation.md](editor-design-validation.md). Existing starting tokens are in `packages/editor-ui/src/tileset-art.css` (`--tkr-*`): 0.75/0.8125/0.875/0.9375rem type steps (12/13/14/15px at a 16px root), 4/6px radii, and theme bridges to VS Code. Use 13px-equivalent ordinary controls, 12px supporting help, 14px section identity and 15px document identity as the shared starting hierarchy, expressed in the existing relative units. Keep code/path typography monospace and preserve host scaling. Candidate captures record remaining legacy overrides rather than certifying them as the target. Shipping migration belongs to 11.23.
+
+Authority trace: G1–G7 and accepted ADRs bind; owner decisions and these `docs/` contracts define placement and interaction; captured real-editor evidence validates candidate presentations; historical captures and early workshop proposals are subordinate. Persistence and lifecycle remain ADR 0022 and the editor model. `board-authoring.md` owns board-specific workflow. The character-specific grouping remains a 29.1 hypothesis; 30.1 owns board focus-following behavior. Neither consumer may create a parallel theme or document authority.
+
+| Shared decision | Binding source / consumer | Consequence |
+| --- | --- | --- |
+| Resource documents versus selection properties | ADR 0022 D1–D4; Epic 30 and board-authoring contract | One document authority; tabs for independent resources, inspector for a placement/selection |
+| Focus-following contextual tools | Epic 30 / 30.1; ADR 0022 D7 | Keep the origin view for asynchronous work; entering its shelf does not retarget an edit |
+| Character's everyday identity before technical bindings | Epic 29 / 29.1 | Shared section/reference vocabulary; specialized section hierarchy remains 29.1's validation |
+| Preferences are not authored game settings | ADR 0022 D6 | Separate editor configuration from `.gam` fields and dirty state |
+| Named Run/Test versus previews | ADR 0022 D8–D9 | Reuse launch authority; artwork playback is not a successful game test |
+| Dirty/saving/refused/read-only history | ADR 0022 D3, D11–D12 | Styling reports actual model/I/O outcomes and cannot manufacture saved success |
+| Browser-native controls and shared host boundary | ADR 0031 and ADR 0025; owner direction in this repository | Reuse semantic HTML, layout and native focus; no styling-specific focus engine |
+| Branded standalone defaults, native VS Code theme | Owner-approved Epic 29/30 direction; existing #2703 tokens | Extend semantic roles once; do not paint over authored art or native host chrome |
+
+Use the existing 4px spacing rhythm: 4px within tightly related controls, 8px ordinary row/group separation, 12–16px between sections. Compact controls have a 24px minimum block target rather than a fixed height; allow text expansion. Use 4px control and 6px floating-surface radii where the host does not own them. These are shared implementation targets, not permission to clip a larger native control. At a measured 640px document pane, wrap toolbar groups and use named disclosures for supporting views before reducing content width; keep the document itself visible. Preserve long resource identity and a keyboard route to every collapsed view. Existing header overlap (#3028) is a migration defect, not an approved narrow layout.
+
+Selected actions use paired accent foreground/background and a visible boundary or pressed state. Keyboard focus uses a separate two-pixel outline plus offset; selected and focused remain independently recognizable. Disabled controls cannot act; enabled read-only values remain selectable/readable and must not inherit disabled opacity/cursors (#3027). Validation names the problem beside the proposal; loading and saving describe pending work, while refusal retains the draft and offers the existing reconciliation actions. The validation record identifies which of these states were exercised and which require host implementation evidence.
+
+The reusable cross-surface contracts are: document header/status, section group, selection-following inspector, reference field, shared/local labels, accessible tool button, sparse collection, numeric field, distinct visibility/lock/enabled states, empty/error/read-only states, advanced disclosure, preview/results, and named Run/Test actions. Host-owned tabs, save/undo and command surfaces remain host/platform-services responsibilities. Reuse the current editor-model commands, document lifecycle and provider; a visually plausible but provider-less control is not a component.
+
+For every interaction, document the owning document and project, origin view/selection captured at interaction start, supported command/provider, cancellation and failure outcome, and return route. Selection changes inspector context; **Open** visits the referenced resource, **Choose** attaches a real existing resource, and **Create new** attaches only after successful provider creation to the captured origin. A late result cannot follow mutable global focus. Missing origins refuse/reconcile. No visual treatment manufactures a save, edit, reference, override, or provider capability.
+
+These are composition contracts over existing owners and semantic HTML, not a requirement to invent a universal component class:
+
+| Pattern boundary / current owner | Inputs | Output / state responsibility |
+| --- | --- | --- |
+| Header/status — `shell.tsx`, `settings-view.tsx`, owning host tabs | Actual document snapshot and host capabilities | Display identity, dirty/saving/error/read-only truth; invoke existing commands, never persist independently |
+| Field/section — native label/input/select/fieldset in `game-settings-form.tsx`, `character-authoring-view.tsx`, `sprite-view.tsx`, `new-board-view.tsx` | Owning value/proposal, label, units, supported range, actual errors/read-only state | Existing view handler stages/edits the owner; native focus/validation plus shared semantic styles |
+| Reference/Choose/Create — current field owner plus `asset-picker-view.tsx`, host `pickAsset`/visit and real creation provider | Current reference, project/document/view/selection origin and supported actions | Return a real chosen/created identity to the captured origin; no unsupported provider or styling-specific data store |
+| Sparse collection/outline/tool group — `animation-view.tsx`, board/layers, sprite groups and existing native buttons | Real entries/slot identities, selection, supported operations | Render meaningful content, pressed/selection/accessibility state; owner handles edits, not the list's appearance |
+| Empty/error/read-only/preview — owning view, `settings-view.tsx`, History and native dialog | Actual model/I/O outcome and recoverable data | Explain the next supported action and whose data is shown; preview never becomes another editable authority |
+| Preferences — `preferences-view.tsx` through `createWorkbench.openPreferences`; native VS Code configuration | Author's effective editor configuration | Update the existing preferences model/host configuration, never `.gam` content |
+
+| Action | Success and return route | Cancel / failure outcome |
+| --- | --- | --- |
+| Open reference | Existing visit/native Open focuses its independent resource; Return/Back restores the captured origin's view context | Missing resource leaves the reference/origin intact and explains the failure; visiting never replaces the reference |
+| Choose reference | The real picker returns a supported identity; the field's existing edit transaction applies it to its captured origin | Cancel changes nothing; a missing/changed origin refuses or reconciles rather than following current global focus |
+| Create and attach | Existing provider creates the named resource, then the captured field attaches it; Open visits it separately | Cancel before creation creates nothing; creation failure leaves the original field; successful creation remains recoverable if attachment fails |
+| Apply / cancel staged fields | Existing form Apply commits one accepted document edit; ordinary document Save remains separate | Cancel staged fields discards only the unaccepted proposal, not already accepted document edits |
+| Save | Existing captured-document command writes through its host, clears dirty only on durable success and retains editing context | Pending says Saving; I/O failure keeps draft/dirty and reports why; changed-on-disk uses the existing explicit resolution choices |
+| Revert active document | Confirmed existing command reloads backing bytes into the same authority and returns to its view | Cancel retains the draft; reload failure reports the problem without styling manufacturing a successful reset |
+| Cancel creation/picker | Existing dialog closes and restores the invoker's sensible focus/context | No new edit/resource; do not let late asynchronous completion attach to another document or selection |
+
+| Current surface family | Shared owner for 11.23 | Native VS Code mapping | Kept outside shared styling |
+| --- | --- | --- | --- |
+| Workspace/header, commands, save state | `editor-ui/src/shell.tsx`, `command-palette.tsx`; host composition in `host-web/src/workbench.ts` | Native tabs, command palette, commands and lifecycle; platform-services integration | Host chrome, tab/group geometry, launch/save authority |
+| Game/Files navigation | `editor-ui/src/files-view.tsx`, `game-view.tsx`; host workbench | Native/contributed views and trees | Provider inventory and file semantics |
+| Board | `editor-ui/src/board-view.tsx`, `board-canvas.tsx`, `board-properties-view.tsx`; `host-web/src/index.ts` dispatch | Shared content in a native custom-editor webview panel (`.brd`) | Board tools/inspector behavior #30.1; no enemy provider |
+| Character | `editor-ui/src/character-authoring-view.tsx`, `sprite-view.tsx`; `mount.ts` composition | Shared content in a native custom-editor webview panel (`.tem`) | 29.1 hierarchy and unfinished definition redesign |
+| Item / enemy gap | `editor-ui/src/sprite-view.tsx`, `mount.ts`; item provider in `editor-model/src/kinds.ts` | Existing item content in a native custom-editor webview panel (`.itm`); no enemy editor | Expanded item authoring #1722; absent enemy provider #1734 |
+| Artwork / tileset / animation | `tileset-art-view.tsx`, `tile-bitmap-view.tsx`, `tileset-browser.tsx`, `animation-view.tsx`; `mount.ts` composition | Shared content in native custom-editor webview panels (`.tst`, `.tbm`, `.anm`) | Specialized 29/30 layouts and authored pixels |
+| Program | `program-view.tsx`, existing Monaco integration | Native text editor and TextDocument authority | Monaco/chrome and runtime behavior |
+| Game settings | `game-settings-form.tsx`, `settings-view.tsx` | Shared content in a native custom-editor webview panel (`.gam`) | Authored game data authority and save semantics; not editor preferences |
+| Editor preferences | `preferences-view.tsx` / `mountPreferences` in the browser workbench; existing settings model | Native Settings UI for `rpgToolkit.editor.*`, registered by `extensions/editor/package.json` `contributes.configuration`; no separate contributed PreferencesView | Authored game content and `.gam` document authority |
+| Empty/loading/dirty/saving/failed/read-only | Each owning view and editor-model snapshot; shell status is host-owned | Native document status plus shared semantic labels where content-specific | Persistence outcomes; no synthetic success |
+
+This is the complete shared-style migration boundary, not a claim the captures below already prove visual conformance. Program toolbar/chrome consumes common roles; preserve Monaco's syntax, editor typography and native VS Code text-editor ownership. Future 29/30 specialized work consumes this shared contract; it does not become a prerequisite for 11.23.
+
+See [the validation record](editor-design-validation.md) for real-content capture provenance, dimensions, theme/state checklist and outstanding evidence. Candidate palettes and CSS live only under `tools/editor-design/`; they are not imported by product packages.
+
+The real capture matrix and explicit evidence gaps are maintained in [editor-design-validation.md](editor-design-validation.md). 11.23 must also fix the existing VS Code theme-variable capitalization tracked by #3017: the official Quick Pick theme key is `quickInput.background` and therefore the CSS variable is `--vscode-quickInput-background` (not `--vscode-QuickInput-background`); see [VS Code theme colors](https://code.visualstudio.com/api/references/theme-color#quick-picker). This is a migration note, not a production style change in 11.22.
+
+Additional concrete migration defects: [#3027](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3027) separates enabled read-only fields from disabled controls; [#3028](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3028) removes header/status overlap without hiding commands or long project identity. They are owned by 11.23. The inventory's item expansion (#1722) and missing enemy provider (#1734) remain named feature work, not styling placeholders.
+
 ## Sources
 
 - [Epic 29 approved direction](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2968), especially first-view hierarchy, shared visual language and specialized character sections.
@@ -147,4 +216,4 @@ Story 11.23 applies the shared tokens and components across the workbench and ex
 - [ADR 0022](../adr/0022-shared-editor-authoring-contracts.md), [ADR 0025](../adr/0025-editor-ui-framework-preact-tsx.md), [ADR 0031](../adr/0031-owned-art-editor-with-permissive-reuse.md), [guardrails](../guardrails.md) and [editor capabilities](../editor-features.md).
 - Official engineering references read 2026-11-16: [VS Code views](https://code.visualstudio.com/api/ux-guidelines/views), [webview UX](https://code.visualstudio.com/api/ux-guidelines/webviews), [custom editors](https://code.visualstudio.com/api/extension-guides/custom-editors), [theme colors](https://code.visualstudio.com/api/references/theme-color), [webview persistence](https://code.visualstudio.com/api/extension-guides/webview#persistence), [command naming](https://code.visualstudio.com/api/ux-guidelines/command-palette), [W3C toolbar pattern](https://www.w3.org/WAI/ARIA/apg/patterns/toolbar/).
 
-This document allocates and describes the shared work; live application and visual validation remain open until their tickets provide evidence. No legacy GPL source was consulted.
+This records the shared contract, candidate evidence and explicit migration gaps. Production styling and native cross-host before/after validation belong to 11.23; specialized designs remain with their consumer tickets. No legacy GPL source was consulted.

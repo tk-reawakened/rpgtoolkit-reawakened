@@ -1,0 +1,16 @@
+{
+  "state": "dirty",
+  "file": "state-dirty.png",
+  "viewport": {
+    "width": 1170,
+    "height": 900
+  },
+  "status": [
+    "TkrDesign-2026-11-17T10-29-14-957Z-886dfa42-17b2-45b8-8c1c-3964eb1ee1b7: Main/example.gam (project folder; changes write to disk)",
+    "Unsaved changes",
+    "No staged settings."
+  ],
+  "owner": "Main/example.gam active document",
+  "backingSha256": "666944c9a6cbd406148023e9e57fa01940cc8d980049beea33c1e3f7a2c1abce",
+  "presentation": "candidate dark common roles; actual unsaved edit"
+}

@@ -1,0 +1,19 @@
+{
+  "state": "read-only-preview",
+  "file": "state-read-only-preview.png",
+  "viewport": {
+    "width": 1170,
+    "height": 900
+  },
+  "status": [
+    "Reverted Main/example.gam to the version on disk.",
+    "All changes saved",
+    "No staged settings.",
+    "All changes saved",
+    "No staged settings."
+  ],
+  "owner": "History checkpoint preview, separate from active Main/example.gam",
+  "previewTitle": "Example Game",
+  "backingSha256": "ec247b6a675544561c688020610b85d54ebcbd2b9f2fedfae45278ef2cd6fcf3",
+  "presentation": "candidate dark common roles; real read-only saved-version document; preview writes nothing"
+}
