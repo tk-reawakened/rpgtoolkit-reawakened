@@ -2,7 +2,7 @@
 type: feature
 title: "Keep document history, checkpoint groups and package exclusion"
 ticket: 14
-status: built
+status: done
 review: quick
 review_source: pinned
 lenses_ran: [quick]
@@ -59,3 +59,9 @@ Final source rereview approved the frozen #2917 keyboard-order repair against `2
 New-project completion ordering #2918: CI43988097776 observed physical destination files before the wizard's final durable progress receipt. The unchanged group assertions now run after the existing actual automatic-open checks (old extension host detached, selected `Quest.gam`, and authored game title visible), before any History UI edits. Independent source review traced the awaited storage/history/progress chain and confirmed opening occurs only after successful complete creation; no creation retry, history polling, weaker assertion or production change was added. The focused actual native New project/history proof passed locally (`bg_128`, exit0, 13/13 harness), including exact group receipts, automatic opening, restore races and visible native-history failure reporting. Scoped proof typecheck and lint passed. Final committed-head review confirmation and required CI remain merge gates.
 
 Board gesture acknowledgement #2921: CI43989219781 observed the outline's rendered cells before its asynchronous edit acknowledgement, so the following Ctrl-filled gesture reached the existing busy guard. The canvas now exposes its actual existing `state.busy` through standard `aria-busy`; the proof waits for edit readiness before the next gesture/Undo, retaining all real pointer/keyboard, filled-cell, pixel, persisted-byte and reopen checks without retries or sleeps. Independent source review approved the unchanged input behavior and the readiness chain. After rebuilding the shared UI and extension, the complete unflagged local native-workbench proof passed both cancel/keep scenarios (`bg_131`, exit0, artifact://2868), including board gestures, animation, New project/history, autosave negative control, art, Bitmap, physical refusal, conflict and reload. Harness13/13, proof typecheck and scoped lint passed. Final committed-source confirmation and exact-head required CI remain merge gates.
+
+## Merged closure
+
+- PR #2829 merged as `e052e2db52f5af40c1c2e4274d5c37ed8549d0ad` on 2026-11-17 after independent approval of exact source head `624e94de8434b6d886b4220c668a8b54891bddf4` and successful required CI run `43991181757` (including the browser/native, desktop, mobile, unit, graph and golden gates).
+- The complete unflagged local native-workbench proof passed both cancel/keep paths before the final push; focused creator, animation and New project/history proofs also passed. Receipts and tracked integration fixes are recorded above.
+- The explicit owner-accepted native TextDocument history-failure exception remains in ADR 0022; closure does not claim native saves can be vetoed. Standalone Git #1829 is separate, not delivered by this story.
