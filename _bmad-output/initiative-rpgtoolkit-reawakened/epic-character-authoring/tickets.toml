@@ -1,0 +1,72 @@
+# Character experience rebuild. Existing fields and document contracts stay authoritative.
+[[entry]]
+id = 1
+tracker_id = "#2962"
+type = "story"
+title = "Establish the character workspace and visual direction"
+description = "Walk the character tasks with real data, document their UX contract, and deliver a clear navigation and layout foundation using the TK Reawakened visual language."
+verify = "A working preview makes identity and starting values discoverable, preserves reachable existing controls, and demonstrates light, dark, high-contrast and narrow-pane layouts with reviewed captures."
+covers = ["CAP-15", "CAP-18"]
+after = ["12.5"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 2
+tracker_id = "#2963"
+type = "story"
+title = "Put character identity and starting stats first"
+description = "Make identity, profile and starting values the everyday entry point, with explicit script bindings in Advanced and no changes to document or rename semantics."
+verify = "An author changes identity, profile and starting stats, edits an advanced binding, undoes and redoes, saves and reopens with all values and unrelated data preserved; the first-view defect in #2959 is visibly resolved."
+covers = ["CAP-15", "CAP-18"]
+after = [1, "11.3"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+tracker_id = "#2964"
+type = "story"
+title = "Edit appearance and animation in context"
+description = "Place the selected stance, assignment, playback, timing and collision or activation shape together in the shared sprite editor, keeping full character and item functionality."
+verify = "A selected walk, idle, battle or custom stance previews beside its controls; drawing and numeric geometry editing agree, wizard cancellation is safe, and character/item save and reopen preserve independent assets."
+covers = ["CAP-15", "CAP-18"]
+after = [1, "12.4"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+tracker_id = "#2965"
+type = "story"
+title = "Make character moves and equipment understandable"
+description = "Present configured moves and their actual OR-based unlock rules as readable lists, and organize body-slot eligibility and accessory names without exposing every empty legacy slot at once."
+verify = "Add, change and remove moves and equipment settings; sparse move-slot identity, all unlock fields and unrelated data survive undo, save and reopen, and eligibility summaries match the documented runtime rules."
+covers = ["CAP-15", "CAP-18"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+tracker_id = "#2966"
+type = "story"
+title = "Show what character progression settings produce"
+description = "Show a bounded growth chart and numeric table alongside starting values, threshold and stat-growth controls, with explicit units and an honest boundary around custom level-up programs."
+verify = "Percentage and fixed growth, truncation, maximum level including zero, and invalid arithmetic agree with the documented progression contract; previews never run project scripts or mutate character data."
+covers = ["CAP-15", "CAP-18"]
+after = [1, 2, "20.6"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 6
+tracker_id = "#2967"
+type = "story"
+title = "Prove the connected character-authoring workflow"
+description = "Finish character-specific linked visits and return context, then demonstrate authoring, persistence and real game use in web, VS Code and each shipped standalone editor host."
+verify = "A repeatable authored-fixture walkthrough crosses every character section, follows and returns from real linked providers, saves and reopens the exact edits, and runs the game using the character; actual captures and keyboard checks accompany host-level evidence."
+covers = ["CAP-15", "CAP-18"]
+after = [2, 3, 4, 5, "11.4", "11.6", "11.7", "11.8"]
+hitl = false
+risk = "high"

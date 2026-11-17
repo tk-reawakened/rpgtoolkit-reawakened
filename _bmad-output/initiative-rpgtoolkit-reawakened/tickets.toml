@@ -220,3 +220,11 @@ tracker_id = "#1883"
 slug = "epic-fast-feedback"
 title = "Fast feedback: sub-second tests, faster CI, and guard-rails that warn when broken"
 covers = ["CAP-13"]
+
+[[epic]]
+id = 29
+tracker_id = "#2968"
+slug = "epic-character-authoring"
+title = "Make character authoring clear, visual, and connected"
+covers = ["CAP-15", "CAP-18"]
+after = [{ epic = 11, needs = "delivered lifecycle, navigation, game settings, program editing and launch contracts (11.3, 11.4, 11.6, 11.7, 11.8)" }, { epic = 12, needs = "delivered shared sprite and character model/command providers (12.4, 12.5), not completion of all P0 editors" }, { epic = 20, needs = "documented actor progression provider (20.6) for accurate default-growth projection" }]
