@@ -592,11 +592,16 @@ async function proveNativeTextHistory(
   await expect.poll(() => readBacking(projectPath), { timeout: 30_000, intervals: [100, 250, 500] }).not.toEqual(before);
   const saved = await readBacking(projectPath);
   const entryPrefix = "__tkr_new_project/.tkr-history/entries/";
-  const entries = await Promise.all((await tree()).filter((path) => path.startsWith(entryPrefix) && path.endsWith(".json"))
+  const readNativeEntries = async () => (await Promise.all((await tree()).filter((path) => path.startsWith(entryPrefix) && path.endsWith(".json"))
     .map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as {
       readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number;
-    }));
-  const nativeEntries = entries.filter((entry) => entry.path === historyPath);
+    }))).filter((entry) => entry.path === historyPath);
+  // ADR 0022 D12.10 item 4: a native text save is recorded after VS Code has written the file
+  // (onDidSaveTextDocument), so the `manual` entry can land after the file change seen above.
+  await expect.poll(async () => (await readNativeEntries()).map((entry) => entry.reason).sort(), {
+    timeout: 30_000, intervals: [100, 250, 500, 1_000],
+  }).toEqual(["checkpoint", "manual"]);
+  const nativeEntries = await readNativeEntries();
   expect(nativeEntries.map((entry) => entry.reason).sort()).toEqual(["checkpoint", "manual"]);
   expect(nativeEntries.map((entry) => entry.sha256).sort()).toEqual([
     createHash("sha256").update(before).digest("hex"),
