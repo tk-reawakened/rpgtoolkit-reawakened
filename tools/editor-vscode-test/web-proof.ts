@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
-import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
+import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 import { runVscodeContextualHelpProof } from "./contextual-help-proof.ts";
@@ -1324,10 +1324,9 @@ export async function runVscodeWebProof(
   await openGame(page, gamePath, expect);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! })).toHaveCount(1);
   expect(lifecycleEvents(), JSON.stringify(lifecycleEvents())).toContainEqual({ kind: "open", value: `/${gamePath}` });
-  const openUriEvent = () => lifecycleEvents().find((event) => event.kind === "open-uri"
-    && event.value.endsWith(`/${gamePath}`));
+  const openUriEvent = () => openedDocumentUri(lifecycleEvents(), gamePath);
   await expect.poll(openUriEvent).toBeDefined();
-  const openedUri = openUriEvent()!.value;
+  const openedUri = openUriEvent()!;
   const resolvePayload = (event: { value: string }): { resource: string; viewType: string } | undefined => {
     const parsed: unknown = JSON.parse(event.value);
     if (parsed === null || typeof parsed !== "object" || !("resource" in parsed) || !("viewType" in parsed)
