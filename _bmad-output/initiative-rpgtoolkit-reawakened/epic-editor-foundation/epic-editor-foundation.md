@@ -88,3 +88,16 @@ Authors can open a legacy project in VS Code or in the browser and edit its sett
 - Decision (allocation confirmed, 2026-11-12): the integration registry and the conformance infrastructure of 11.3 are `createDocumentWorkspace` in `editor-model` and the host interface in `tools/editor-vscode-test/conformance/`. Later stories add cases there (a new isolated case file), not new suites; ADR 0026's registry stays unbuilt while it is Proposed, and the workspace is extracted around a second document kind only when one exists.
 - Defects 11.3 found and fixed: a title field kept a discarded draft when the document's title changed under it ([#2188](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2188)); a queued revert discarded an edit accepted after the user chose to revert ([#2189](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2189)). Found and **not** fixed: VS Code's own Revert File confirms nothing ([#2190](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2190)).
 - Entry 11.4 ([#1702](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1702)) is unblocked by 11.3: the workspace, the dialogs surface, close/save-all and the conformance harness it needs all exist. It still owes the dock-library ruling (ADR 0022 D7.2) for its dock panels part.
+
+
+## Shared design-language follow-up, 2026-11-16
+
+Jensen requested a dedicated styling work item and a shared design language defining where things live and what actions do, using the concrete decisions in Epics 29 and 30 as inputs. [docs/design/editor-design-language.md](../../../docs/design/editor-design-language.md) records the common placement, interaction and visual contract.
+
+| Capability / consumer | Owner | Delivery |
+| --- | --- | --- |
+| CAP-15/CAP-18 shared authoring language | 11.22 (#2987) | Validate the placement guide, action semantics, components/states, host mapping and annotated compositions. |
+| CAP-15/CAP-18 shared visual implementation | 11.23 (#2988), after 11.22 | Apply shared tokens/components across existing workbench/editor surfaces and prove host/theme/keyboard behavior. |
+| Character 29.1 and board 30.1 | Their existing epics | Consume 11.22/11.23 for shared presentation; retain specialized task composition and behavior in their own stories. |
+
+These are follow-on foundation stories in the backlog, without a sprint. They do not reopen closed initial styling #2703 or the completed 11.12 sweep, and do not enlarge the original 11.13 baseline proof. Their own acceptance covers the added scope. Shared styling uses representative current editors, so it does not depend on the future character/board redesigns and creates no dependency cycle. Older design research remains historical where the newer contract supersedes it.

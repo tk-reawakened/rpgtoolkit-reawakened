@@ -91,3 +91,13 @@ The visual fixture/action list and RPGCode representation should share one autho
 - [RPGCode test contract TOOL-5](../../../docs/spec/engine/rpgcode-tooling.md#tool-5)
 - [Guardrails](../../../docs/guardrails.md)
 - [Planning handoff](editor-epic-handoff.md)
+
+## Board-authoring decision, 2026-11-16
+
+Jensen approved a separate **Epic 30: Build playable places through connected board authoring**, building on Epics 11–13. The implementable [board authoring contract](../../../docs/design/board-authoring.md) and [epic breakdown](../epic-board-authoring/epic-board-authoring.md) record the scope and acceptance.
+
+The board canvas remains the working context. Its shelf edits the selected placement; scripts, character/enemy/item definitions, artwork and destination boards open through their real providers in document tabs. Returning preserves selection, viewport, tool and brush. Shared definitions and local placement overrides stay distinct.
+
+With two boards visible, the inspector follows the focused board's selection. Focus entering the inspector, outline, asset browser or contextual toolbar retains that board as the authoring target. Focusing another authoring editor changes context; async edits capture their originating document/view/object rather than looking up whichever board is focused when they finish. No board picker or pinning mode is needed for this workflow. VS Code uses native editor groups and a movable contributed inspector view; actual cross-host evidence is part of the first story, not deferred until final integration.
+
+The contract carries official VS Code/W3C references and preserves ADR 0022's existing save-first, fixed-snapshot launch policy. This amendment establishes design direction and planned work; it is not evidence that the journey has been implemented.

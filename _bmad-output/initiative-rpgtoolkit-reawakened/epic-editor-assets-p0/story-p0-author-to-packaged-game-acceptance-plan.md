@@ -9,13 +9,15 @@ status: draft
 
 ## Scope
 
-Prove the complete P0 creator journey from a new game through all P0 editors to a packaged playable web-runner game in both editor hosts.
+Prove the retained Epic 12 creator journey from a new game through its editors to a packaged playable web-runner game in both editor hosts.
 
-Create and configure a new project independently in each supported host, author board, character, item, animation and tile bitmap and script, save and reopen, package via 12.9, then boot and interact with those exact package bytes in the web runner; exercise error paths and accessible routes, and hand the same proof to Epic 15 for desktop.
+Create and configure a new project independently in each supported host, author board, character, item graphics/placement, animation and tile bitmap and script, save and reopen, package via 12.9, then boot and interact with those exact package bytes in the web runner; exercise error paths and accessible routes, and hand the same proof to Epic 15 for desktop.
+
+Owner transfer, 2026-11-16: any non-graphical item behavior needed by the game is supplied as an explicitly identified fixture authored from docs/. Editing that behavior through the UI is accepted later in 29.7/29.6; this proof must not claim T-55 complete or wait on Epic 29. All retained tool, save/package and actual-play evidence remains mandatory.
 
 ## Acceptance and verification
 
-A fresh authored game created independently in VS Code and PWA survives save and reopen, uses every P0 asset editor, packages successfully and plays the actual output in the web runner.
+A fresh authored game created independently in VS Code and PWA survives save and reopen, uses every retained Epic 12 asset editor, packages successfully and plays the actual output in the web runner.
 
 Use the shared document lifecycle and preserve same-version unknown data; exercise relevant failure/cancel, keyboard access and save/reopen paths rather than relying on preview alone. Follow `discovery/inception-proposal.md`, `docs/editor-features.md` and G2/G7; do not claim checks passed without executing them.
 

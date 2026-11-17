@@ -1,3 +1,4 @@
+# Retired local slot 6: moved to 29.7 on 2026-11-16; do not reuse.
 # Epic 12 P0 asset editing; external providers are entry-pinned in the initiative.
 [[entry]]
 id = 1
@@ -119,27 +120,14 @@ after = [10, 3]
 hitl = false
 risk = "high"
 [[entry]]
-id = 6
-tracker_id = "#1722"
-type = "story"
-title = "Item uses equipment pricing and placement links"
-description = "Author item identity, equipment, menu, board and battle uses, prices and eligible characters with shared sprite graphics and explicit definition versus instance scope."
-verify = "An item with distinct equipment and use programs saves and reopens, and visiting it from a board placement retains that placement and its local overrides."
-covers = ["CAP-15"]
-after = [4, 11]
-hitl = false
-risk = "medium"
-
-
-[[entry]]
 id = 12
 tracker_id = "#1723"
 type = "story"
 title = "Connected authoring and test run integration"
-description = "Connect board placements, character and item definitions, artwork, programs and run actions using shared visits and explicit save and revision boundaries."
-verify = "A creator visits and edits a placed item's linked definition and program, returns to the original board selection, saves and runs the chosen board or normal game with the correct revision."
+description = "Connect retained P0 board placements, character definitions, item graphics, artwork, programs and run actions using shared visits and explicit save and revision boundaries."
+verify = "Visit a placed item's existing sprite definition and placement program, edit and return to the original selection, save and run the correct revision; full item behavior authoring is accepted in 29.7/29.6."
 covers = ["CAP-15"]
-after = [3, 5, 6, 7, 8, 11, "11.8", "11.9"]
+after = [3, 5, 7, 8, 11, "11.8", "11.9"]
 hitl = false
 risk = "medium"
 
@@ -190,7 +178,7 @@ title = "Refactor sweep"
 description = "Remove duplication and address deferred review cleanup across the completed P0 asset editor stories without adding feature scope."
 verify = "The sweep accounts for prior review findings and preserves the asset editor and host conformance checks."
 covers = ["CAP-15"]
-after = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17]
+after = [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 15, 16, 17]
 hitl = false
 risk = "low"
 
@@ -199,8 +187,8 @@ id = 14
 tracker_id = "#1725"
 type = "story"
 title = "P0 author to packaged game acceptance"
-description = "Prove the complete P0 creator journey from a new game through all P0 editors to a packaged playable web-runner game in both editor hosts."
-verify = "A fresh authored game created independently in VS Code and PWA survives save and reopen, uses every P0 asset editor, packages successfully and plays the actual output in the web runner."
+description = "Prove the retained Epic 12 creator tools from a fresh project through saved board, character, item graphics, animation, stamp and scripts to a playable package; full item behavior editing is owned by 29.7/29.6."
+verify = "A fresh game authored independently in web and VS Code exercises every retained P0 tool, uses explicitly identified authored item-behavior fixtures, saves/reopens and plays the exact package output without claiming T-55 authoring complete."
 covers = ["CAP-15"]
 after = [13, "11.6", "11.7", "11.8", "11.10", "9.16"]
 hitl = false

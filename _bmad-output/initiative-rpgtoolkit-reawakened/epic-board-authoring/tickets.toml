@@ -1,0 +1,85 @@
+# Epic 30 planned entries, in delivery order. Status derives from ticket plans.
+
+[[entry]]
+id = 1
+tracker_id = "#2974"
+type = "story"
+title = "Establish the board workspace and focus-following inspector"
+description = "Implement the shared board canvas plus contextual inspector shelf from docs/design/board-authoring.md, and prove the host mapping early. Reuse existing shell/command contracts, with shared content in editor-ui and host chrome behind platform-services. This owns the active-view/auxiliary-focus target contract for the epic."
+verify = "1. In web/PWA and actual VS Code, two visible boards retain independent selections. Focusing A or B retargets the inspector; focusing its fields, outline, browser or toolbar retains the originating authoring target.\n2. Split views of one document share data/undo but retain separate view state. Inspector edits name the document/view/object; delayed edits cannot mutate a newly focused board. Closing/deleting the target clears or reconciles the shelf without guessing another board.\n3. VS Code uses native editor tabs/groups and a contributed inspector view; moving/hiding the view preserves behavior. Focusing a non-board editor shows its applicable context or an informative empty state.\n4. Selection/navigation does not dirty documents. Existing Save/Run/focused commands from PR #2950 are reused after checking its delivered state. Board settings can enter the shelf without removing the canvas.\n5. Record real host, revision and normal/narrow-pane visual evidence, keyboard access and theme behavior. Add focused identity/routing checks including a stale asynchronous callback. Implement from the docs contract first; this is a working vertical slice, not a mock-only spike."
+covers = ["CAP-15", "CAP-18"]
+after = ["11.22", "11.23"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 2
+tracker_id = "#2976"
+type = "story"
+title = "Select and shape the scene through an outline and readable overlays"
+description = "Deliver shared canvas/outline selection, discoverable overlap selection, and contextual walls/walk-behind geometry tools. Preserve existing object data and precise point editing while presenting creator-oriented labels."
+verify = "1. Canvas and outline select the same object and expose meaningful names or derived labels without inventing persisted names or changing slot identity.\n2. Overlapping image, sprite and interaction objects can each be selected by pointer and a keyboard/list route. Selection restores after a related tab visit.\n3. Walls and walk-behind areas support existing tile/collision and vector providers, exact points and numeric placement, with clear layer and snap state; verify 2D and supported isometric geometry. No new collision semantics are invented.\n4. Visibility, editing lock and runtime behavior are distinct; hiding overlays changes no collision/trigger data. Vertex labels and source detail can be shown on demand; selection is not conveyed by color alone.\n5. Move/reshape/delete and supported layer operations use normal commands, undo and same-version round trips. Tests cover hidden overlays with unchanged runtime data and the wrong-layer/overlap selection boundaries. Reuse #1720/#1721 and #1850\u2013#1852 rather than duplicate them."
+covers = ["CAP-15", "CAP-18"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+tracker_id = "#2978"
+type = "story"
+title = "Paint from the shared sheet browser and visit artwork without losing the brush"
+description = "Integrate the existing contextual tileset/asset browser as a contiguous sheet in board authoring. Separate selecting a source, applying a brush and opening its artwork. This is board integration of #1713/#2322, not another sheet or pixel editor."
+verify = "1. Neighboring tiles remain visible together; a selected tile or supported region/stamp becomes a brush without painting or modifying the source. Only an explicit board paint action edits the active board.\n2. Browser focus retains the last active board target. Set, scroll, source selection and each board view's tool/brush context survive switching boards and artwork tabs.\n3. Open source uses its real artwork provider in an editor tab; returning restores the originating board context. Both source editing and use-as-brush have discoverable keyboard actions.\n4. Single-tile, supported region and whole-TBM stamp cases exercise real existing provider semantics, undo and persisted edits. Unavailable providers are explicit dependencies, never fake successful actions.\n5. Verify no writes on browsing, no paint broadcast to other boards, and correct source/reference updates after an artwork edit. Preserve shared/local scope under ADR 0019 and ADR 0022."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+tracker_id = "#2980"
+type = "story"
+title = "Open and create linked definitions in their own editor tabs"
+description = "Connect board-origin visits to real script, character, item, enemy, artwork and board editors through supported references. Keep placement controls in the inspector and shared definitions in document tabs. Consume Epic 29 and existing editor providers without redesigning their internals."
+verify = "1. Each real supported reference exposes its type/name and Open; repeated ordinary opens focus the existing suitable view while deliberate splits share one document authority. VS Code RPGCode opens its native text editor.\n2. Inspector labels distinguish local placement/overrides from shared definitions. Legacy item-backed sprites retain .itm semantics; .tem/.ene references are reached only through their legitimate owning surfaces. No invented character/enemy placement conversion.\n3. Choose existing and Create new work where a real provider supports creation. Successful creation attaches through a named originating-document edit; cancel/write failure/deleted origin/project switch does not attach elsewhere. Preserve and report any created asset if attachment fails; no false atomic multi-file rollback.\n4. Delayed creation after focusing board B attaches only to the still-valid original A target, or refuses with a reason. Returning restores A's selection/viewport/tool; no duplicate editable model is created.\n5. Verify save/reopen, reference identity, shared-view updates, undo of attachment and failure paths in both hosts. Integrate with #1723; recheck known linked-provider #2609 and lifecycle #2652 instead of silently excluding failures."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [1, "29.7", "29.8"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 5
+tracker_id = "#2982"
+type = "story"
+title = "Edit interactions and board exits through the selection inspector"
+description = "Organize board program regions and placed-object activation around Name, When, Then, Only if and Placement. Keep source accessible, preserve advanced values, and support an explicit destination/arrival visit for faithfully represented common exits."
+verify = "1. Preserve filename/inline RPGCode, step-on/key activation, repeat distance with units, movement stop, run once, precondition and completion assignment, layer and points. Sprite activation and multitask overrides remain separate.\n2. Expose structured common-action controls only for documented, losslessly recognized forms or existing templates. Unrecognized imported code remains intact and directly editable; no general RPGCode-to-sentence conversion or new visual event builder.\n3. An exit's Open destination uses a board tab. Pick arrival identifies the originating exit, supports Apply/Cancel and return, and never overwrites the destination player-start marker or creates an unrequested reverse link.\n4. A focus switch, deleted door or project switch during picking cannot redirect the update. Applying updates only the explicit original interaction through undoable commands; cancellation changes no game document.\n5. Prove representative trigger flags and an exit through stored data and real engine behavior; retain nondefault legacy fields/residue. Any missing narrow action/provider contract is documented before code and linked to the existing owner, not hidden behind a disabled placeholder."
+covers = ["CAP-15", "CAP-18"]
+after = [2, 4]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 6
+tracker_id = "#2983"
+type = "story"
+title = "Edit board settings images and atmosphere with the canvas in view"
+description = "Use the shared shelf for board-level settings and contextual image/light controls, preserving the visible scene and using existing properties, compositor and lighting providers."
+verify = "1. Board settings explicitly selects the board context; returning to object selection restores its inspector. Group size/coordinate information, layer titles, start/connections, background/music/ambient, encounters, entry program, threads, constants and saving behavior without dropping supported fields.\n2. Reference Open actions use the connected tab contract. Entry program and background threads remain distinct; start marker and door arrival are not conflated.\n3. Images show their top-left anchor and transparency behavior; sprite controls retain their own anchor. Lighting and tile shading show affected layers, units and colors through #1737's real provider and the shared compositor.\n4. Resize previews crop consequences before applying where supported; cancellation preserves data. Bake/convert-to-shading is explicit with clear consequences and supported undo, never a side effect of selection.\n5. Undo, save/reopen and supported .brd/.tkrscn paths preserve same-version data/residue and scene semantics. Numeric alternatives and keyboard/theme checks cover the controls. Unsupported operations are explained, not silently converted."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [1, 4]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 7
+tracker_id = "#2984"
+type = "story"
+title = "Prove the connected board-authoring journey across editor hosts"
+description = "Close the epic with a small real creator journey and focus/lifecycle regression evidence. This is the board-specific acceptance contribution to #1723 and existing P0/P1 closing suites, not a second runner or duplicate broad provider story."
+verify = "1. In web/PWA and actual VS Code, paint a room, shape walls/walk-behind, select overlapping objects, place an item-backed person, follow supported definition/script references, return, edit an exit/arrival and atmosphere, save/reopen, and run the actual board test.\n2. Prove two visible boards with focus switching, auxiliary-control focus, two views of one board, delayed creation/arrival callbacks, cancel, deleted/closed origin and hidden/recreated webview. Assert target identities, actual data and undo; no inactive board changes accidentally.\n3. Follow ADR 0022 D8: board test has explicit valid party/start/seed, saves required documents first, stops on named save failure and launches a fixed recorded snapshot. Later authoring changes do not mutate the running test. Preview and normal Run remain distinct.\n4. Record revision, fixtures, host versions, viewport/theme and real captures for normal/narrow panes, light/dark/high contrast and keyboard-only navigation. Exercise any shipped standalone editor; a player-only shell does not count.\n5. Each provider is real and each journey step has an observed outcome. Missing providers or lifecycle bugs remain unmet acceptance and linked issues. Run focused checks plus applicable repository gates; ordinary unit tests stay under one second and host proofs use paced bounded retries. File every newly found defect and link its fix/evidence."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [2, 3, 4, 5, 6]
+hitl = false
+risk = "medium"

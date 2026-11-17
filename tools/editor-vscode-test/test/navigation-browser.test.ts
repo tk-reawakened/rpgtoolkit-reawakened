@@ -69,7 +69,7 @@ function project() {
   document.body.replaceChildren();
   const element = document.createElement("div");
   document.body.append(element);
-  return { root, dialogs, web, element };
+  return { root, dialogs, web, element, control };
 }
 
 /**
@@ -87,6 +87,14 @@ async function benchFor(web: ReturnType<typeof project>["web"], element: HTMLEle
 async function until(condition: () => boolean, message: string): Promise<void> {
   for (let round = 0; round < 300 && !condition(); round += 1) await settle(act, 1);
   ok(condition(), message);
+}
+
+/** Bound picker completion too, while preserving rejection and the test's finally cleanup. */
+async function completed<T>(pending: Promise<T>, message: string): Promise<T> {
+  let done = false;
+  void pending.then(() => { done = true; }, () => { done = true; });
+  await until(() => done, message);
+  return pending;
 }
 
 const key = async (target: Element | null, name: string, init: KeyboardEventInit = {}): Promise<void> => {
@@ -178,29 +186,63 @@ test("a linked visit opens the target in a tab and returns to its origin, reopen
 });
 
 test("an outside asset is copied into its reserved folder only after the user agrees, and a refusal changes nothing", async () => {
-  const { web, element, dialogs, root } = project();
+  const { web, element, dialogs, root, control } = project();
   const bench = await benchFor(web, element);
-  ok(web.services.capabilities.has("pickFile"), "this host declares that it can choose a file from outside");
+  const pickedBytes = new Uint8Array([7, 7]);
+  const expectedBytes = new Uint8Array([7, 7]);
+  try {
+    ok(web.services.capabilities.has("pickFile"), "this host declares that it can choose a file from outside");
 
-  const cancelled = bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" });
-  await settle(act);
-  equal(element.querySelector('[role="dialog"]')?.getAttribute("aria-label"), "Choose the hero's picture");
-  dialogs.files.push({ name: "hero.png", bytes: new Uint8Array([7, 7]) });
-  dialogs.answers.push("cancel");
-  await click(button(element, "Choose a file from outside the project…"));
-  equal(root.read("Bitmap/hero.png"), null, "cancelling the copy writes nothing");
-  await click(button(element, "Cancel"));
-  deepEqual(await cancelled, { chosen: false }, "the field keeps what it had");
-  equal(element.querySelector('[role="dialog"]'), null);
+    const cancelled = bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" });
+    await settle(act);
+    equal(element.querySelector('[role="dialog"]')?.getAttribute("aria-label"), "Choose the hero's picture");
+    dialogs.files.push({ name: "hero.png", bytes: pickedBytes });
+    dialogs.answers.push("cancel");
+    await click(button(element, "Choose a file from outside the project…"));
+    equal(root.read("Bitmap/hero.png"), null, "cancelling the copy writes nothing");
+    await click(button(element, "Cancel"));
+    deepEqual(await completed(cancelled, "cancelling finishes the asset picker"), { chosen: false }, "the field keeps what it had");
+    equal(element.querySelector('[role="dialog"]'), null);
 
-  const chosen = bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" });
-  await settle(act);
-  dialogs.files.push({ name: "hero.png", bytes: new Uint8Array([7, 7]) });
-  dialogs.answers.push("copy");
-  await click(button(element, "Choose a file from outside the project…"));
-  deepEqual(await chosen, { chosen: true, reference: "hero.png" });
-  deepEqual(root.read("Bitmap/hero.png"), new Uint8Array([7, 7]));
-  bench.dispose();
+    const chosen = bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" });
+    await settle(act);
+    dialogs.files.push({ name: "hero.png", bytes: pickedBytes });
+    dialogs.answers.push("copy");
+    await click(button(element, "Choose a file from outside the project…"));
+    deepEqual(await completed(chosen, "copying finishes the asset picker"), { chosen: true, reference: "hero.png" });
+    deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
+
+    const writesBeforeSelection = control.tick;
+    const existing = bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" });
+    await until(() => element.querySelector('[role="option"]')?.textContent === "hero.png", "the copied asset is available as an existing reference");
+    dialogs.answers.push("use");
+    await click(element.querySelector('[role="option"]'));
+    await click(button(element, "Use hero.png…"));
+    deepEqual(await completed(existing, "choosing an existing reference finishes the picker"), { chosen: true, reference: "hero.png" });
+    deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
+    equal(control.tick, writesBeforeSelection, "choosing an existing reference creates and writes no file");
+
+    control.refuse = true;
+    const readOnlyChoice = bench.pickAsset({ kind: "bitmaps", extensions: [".png"], field: "the hero's picture" });
+    await until(() => element.querySelector('[role="option"]')?.textContent === "hero.png", "existing assets remain selectable when writes are refused");
+    dialogs.answers.push("use");
+    const option = element.querySelector<HTMLElement>('[role="option"][tabindex="0"]');
+    ok(option, "an existing asset is reachable by keyboard");
+    option.focus();
+    equal(document.activeElement, option, "the loaded option has keyboard focus");
+    await key(document.activeElement, "Enter");
+    deepEqual(await completed(readOnlyChoice, "keyboard selection finishes the picker"), { chosen: true, reference: "hero.png" }, "keyboard selection needs no project write");
+    deepEqual(root.read("Bitmap/hero.png"), expectedBytes);
+    equal(control.tick, writesBeforeSelection, "read-only selection changes no file revision");
+  } finally {
+    control.refuse = false;
+    try {
+      const picker = element.querySelector(".tkr-picker");
+      if (picker !== null) await key(picker, "Escape");
+    } finally {
+      bench.dispose();
+    }
+  }
 });
 
 test("the browser says what it cannot do: no rename, no handing a file to the OS", async () => {

@@ -4,6 +4,9 @@
 
 **Superseded for queue/readiness:** the owner subsequently requested inception of all five epics. See the [editor delivery plan](editor-delivery-plan.md) and the epic ticket stores. The empty-breakdown statements below describe the pinned reconnaissance snapshot only.
 
+
+Current ownership update (2026-11-16): Epic 29 now owns the combined character, NPC, item and enemy authoring experience. Item 12.6 moved to 29.7 (#1722); enemy 13.9 moved to 29.8 (#1734). Completed 12.4/12.5, broad connected integration 12.12 and move/status editors 13.10 retain their owners. Finish Epics 12 and 13 before implementation in 29 and 30; retained earlier acceptance uses authored item/enemy fixtures where needed and does not claim the moved functionality complete. The dated inception inventory below remains historical; use the [consolidation decision](../epic-character-authoring/discovery/authoring-family-consolidation.md) for current routing.
+
 ## Existing homes
 
 | Epic / GitHub parent | Existing scope | How the new direction fits |

@@ -21,4 +21,4 @@ Use the shared document lifecycle and preserve same-version unknown data; exerci
 
 ## Dependencies and decision gate
 
-Prerequisites: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12. None newly identified; check the linked proposal and actual providers before implementation.
+Prerequisites: 12.1, 12.2, 12.3, 12.4, 12.5, 12.7, 12.8, 12.9, 12.10, 12.11, 12.12, 12.15, 12.16 and 12.17. The former 12.6 scope moved to 29.7 and is outside this retained-work sweep. Epic 12 completes before 29; check actual providers before implementation.

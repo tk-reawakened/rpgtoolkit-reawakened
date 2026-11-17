@@ -659,3 +659,19 @@ That is epic 2's Done-when 1 as a **CI gate**, not a local habit: the required `
 The proof gives its server two seconds to exit after a graceful stop request. If it stays running, cleanup sends a forced stop and allows one further second for the close notification. Forced or incomplete shutdown is reported as a cleanup failure; it does not turn a failing proof green.
 
 Cleanup still attempts to remove the temporary workspace and keeps the original proof error alongside any teardown errors. These deadlines bound server shutdown, not the authoring scenarios or their assertions.
+
+## Check editor authoring locally
+
+After installing the locked dependencies with the pinned Node version, run:
+
+```sh
+pnpm editor:acceptance
+```
+
+This builds the required bundles and fetches test data, then checks editor project creation, folders and pickers, exact saves and recovery, program language features, and real fixture execution. Each check names its host or capability; any failure makes the command fail. Heavy browser and workbench proofs run one at a time, so local checks do not need a CI round trip.
+
+The shared tests cover browser, VS Code desktop and VS Code web adapters, including outside-asset copy confirmation/cancellation and the exact bytes saved in the reserved folder. The actual UI proofs run in the browser editor and VS Code for the Web; they do not claim a desktop-app UI run or an OS-picker UI proof for every adapter-level check. Existing focused-proof environment flags cannot shrink this full acceptance command.
+
+Proofs use owned temporary project copies and remove them afterward; VS Code download caches stay outside those copies. The suite does not include standalone Git or optional tutorial/tileset providers, and does not replace the full pull-request gates.
+
+The command chooses separate available local ports for its browser services unless you set their existing port overrides. It never stops or reuses another development server.
