@@ -95,9 +95,9 @@ function isInertPath(path) {
   }
 
   // Documentation that no CI lane reads (provenance skips `docs/`, and no tool parses these
-  // Markdown files) is inert: every Markdown file under docs/ except the normative spec.
+  // Markdown files) is inert, excluding the normative spec and bundled editor help.
   // The spec (`docs/spec/`, including its examples) is deliberately excluded above.
-  if (path.startsWith("docs/") && path.endsWith(".md") && !path.startsWith("docs/spec/")) {
+  if (path.startsWith("docs/") && path.endsWith(".md") && !path.startsWith("docs/spec/") && !path.startsWith("docs/help/")) {
     return true;
   }
 

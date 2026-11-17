@@ -13,9 +13,11 @@ import {
   type WorkbenchCommand,
 } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { AUTHORING_GUIDE_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { AUTHORING_GUIDE_MARKDOWN, SAVING_HELP_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
 import { focusedFieldHelp, HelpDocument, type HelpInvokerRef } from "./help-document.tsx";
+import { IconAction } from "./icon-action.tsx";
+import { connectEditorCommands } from "./editor-commands.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 
 export type { CommandCategory, CommandPaletteFileEntry, CommandRegistry, WorkbenchCommand };
@@ -34,6 +36,8 @@ export interface CommandPaletteProps {
   readonly extraCommands?: readonly WorkbenchCommand[];
   readonly version?: unknown;
 }
+
+let palettesMade = 0;
 
 const EMPTY_COMMANDS: readonly WorkbenchCommand[] = [];
 
@@ -74,6 +78,7 @@ export function WorkbenchCommandBar({
   extraCommands = EMPTY_COMMANDS,
   version,
 }: CommandPaletteProps) {
+  const [paletteId] = useState(() => `tkr-palette-${++palettesMade}`);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CommandCategory>("File");
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -129,16 +134,16 @@ export function WorkbenchCommandBar({
     if (restoreFocus && target !== null && target.isConnected) queueMicrotask(() => target.focus());
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (paletteOpen) {
-      queueMicrotask(() => inputRef.current?.focus());
+      inputRef.current?.focus();
     }
   }, [paletteOpen]);
 
-  useEffect(() => {
+  const bindKeyboard = () => {
     if (typeof window === "undefined") return;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.defaultPrevented || document.querySelector(".tkr-help-document[open]") !== null) return;
+      if (!menuWrapRef.current?.isConnected || event.defaultPrevented || document.querySelector(".tkr-help-document[open]") !== null) return;
       const cmdOrCtrl = event.ctrlKey || event.metaKey;
       if (event.key === "F1") {
         event.preventDefault();
@@ -155,6 +160,10 @@ export function WorkbenchCommandBar({
         event.stopPropagation();
         if (paletteOpen) closePalette();
         else openPalette("");
+      } else if (cmdOrCtrl && !event.shiftKey && !event.altKey && !event.isComposing && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        event.stopPropagation();
+        registry.execute("file.save");
       } else if (event.key === "Escape" && menuOpen) {
         event.preventDefault();
         setMenuOpen(false);
@@ -162,7 +171,7 @@ export function WorkbenchCommandBar({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [paletteOpen, menuOpen]);
+  };
 
   useEffect(() => {
     if (!menuOpen || typeof document === "undefined") return;
@@ -221,8 +230,6 @@ export function WorkbenchCommandBar({
           if (active !== undefined) workspace.redo(active);
         }
       },
-      onSelectBoardTool: (tool) => { triggerHostButton(`.tkr-board-tool[data-tool="${tool}"]`); },
-      onSelectAllBoardCells: () => { triggerHostButton(".tkr-board-select-all"); },
       onToggleSecondView: () => { triggerHostButton("#mirror-view"); },
       onOpenPalette: (prefix) => openPalette(prefix),
     });
@@ -245,6 +252,12 @@ export function WorkbenchCommandBar({
         run: () => setHelpDocument({ title: "RPGCode program authoring", markdown: AUTHORING_GUIDE_MARKDOWN }),
       },
       {
+        id: "help.saving",
+        category: "Help",
+        label: "Saving and external file changes",
+        run: () => setHelpDocument({ title: "Saving and external file changes", markdown: SAVING_HELP_MARKDOWN }),
+      },
+      {
         id: "help.whatsNew",
         category: "Help",
         label: "What's New",
@@ -255,13 +268,26 @@ export function WorkbenchCommandBar({
 
   const registry = externalRegistry ?? defaultRegistry;
   useDocumentSnapshot(registry);
+  useLayoutEffect(bindKeyboard, [paletteOpen, menuOpen, registry]);
+  useEffect(() => {
+    const workbench = menuWrapRef.current?.closest<HTMLElement>(".tkr-workbench");
+    const scope = workbench?.closest<HTMLElement>(".tkr-web-shell") ?? workbench;
+    if (scope !== null && scope !== undefined) return connectEditorCommands(scope, registry);
+  }, [registry]);
 
   const filtered = registry.filter(query, projectFiles, onOpenPath);
   const clampedIndex = filtered.length === 0 ? 0 : Math.min(selectedIndex, filtered.length - 1);
 
+  const selectedCommandId = filtered[clampedIndex]?.id;
+  useEffect(() => {
+    if (!paletteOpen) return;
+    document.getElementById(`${paletteId}-option-${clampedIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [paletteOpen, clampedIndex, selectedCommandId, paletteId]);
+
   const runCommand = (item: WorkbenchCommand): void => {
+    if (item.disabled === true) return;
     const fromPalette = paletteOpen;
-    if (item.id === "help.manual" || item.id === "help.whatsNew") {
+    if (item.id === "help.manual" || item.id === "help.whatsNew" || item.id === "help.saving") {
       helpInvokerRef.current = fromPalette ? invokerRef.current : menuButtonRef.current;
     }
     if (fromPalette) {
@@ -273,13 +299,17 @@ export function WorkbenchCommandBar({
       // Give host actions their real invoker before they open UI that owns focus and later returns it.
       menuButtonRef.current?.focus();
     }
-    void item.run();
+    if (registry.getCommands().some((command) => command.id === item.id)) registry.execute(item.id);
+    else if (item.id.startsWith("open:")) void item.run();
   };
 
   const categoryItems = registry.byCategory(activeCategory);
 
   return (
     <div class="tkr-command-bar">
+      <IconAction icon="save" label="Save active editor" shortcut="Control+S" class="tkr-workbench-save"
+        disabled={registry.getCommands().find((command) => command.id === "file.save")?.disabled !== false}
+        onClick={() => registry.execute("file.save")} />
       <div ref={menuWrapRef} class="tkr-app-menu-wrap">
         <button
           ref={menuButtonRef}
@@ -373,6 +403,12 @@ export function WorkbenchCommandBar({
               <input
                 ref={inputRef}
                 type="search"
+                role="combobox"
+                list={undefined}
+                aria-expanded="true"
+                aria-autocomplete="list"
+                aria-controls={`${paletteId}-results`}
+                aria-activedescendant={filtered.length === 0 ? undefined : `${paletteId}-option-${clampedIndex}`}
                 class="tkr-command-palette-input"
                 aria-label="Search commands and files"
                 placeholder="Type a command or file name (prefix with > for commands only)…"
@@ -383,15 +419,16 @@ export function WorkbenchCommandBar({
                 }}
               />
             </div>
-            <ul class="tkr-command-palette-list" role="listbox" aria-label="Matching commands and files">
+            <ul id={`${paletteId}-results`} class="tkr-command-palette-list" role="listbox" aria-label="Matching commands and files">
               {filtered.length === 0 ? (
                 <li class="tkr-command-palette-empty">No matching commands or project files.</li>
               ) : (
                 filtered.map((item, index) => (
-                  <li key={item.id} role="option" aria-selected={index === clampedIndex}>
+                  <li key={item.id} id={`${paletteId}-option-${index}`} role="option" aria-selected={index === clampedIndex} aria-disabled={item.disabled}>
                     <button
                       type="button"
                       class={index === clampedIndex ? "tkr-command-palette-option tkr-command-palette-option-active" : "tkr-command-palette-option"}
+                      disabled={item.disabled}
                       onMouseEnter={() => setSelectedIndex(index)}
                       onClick={() => runCommand(item)}
                     >

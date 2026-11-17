@@ -810,6 +810,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
 
   return (
     <section class={`tkr-program${focusMode ? " tkr-program--focus" : ""}`} aria-label={`Program ${snapshot.identity.path}`}>
+      {focusMode ? <button hidden type="button" data-editor-save="true" disabled={readOnly} onClick={() => void save()}>Save</button> : null}
       {focusMode ? (
         <button type="button" class="tkr-program-exit-focus" onClick={() => setFocusMode(false)}>
           Exit distraction-free mode (Esc)
@@ -818,16 +819,13 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         <>
           <h2 class="tkr-program-heading">{snapshot.identity.path}</h2>
           <div class="tkr-program-toolbar" role="toolbar" aria-label="Program tools">
-            <button type="button" class="tkr-program-save" disabled={readOnly} onClick={() => void save()}>Save</button>
+            <button type="button" data-editor-save="true" class="tkr-program-save" disabled={readOnly} onClick={() => void save()}>Save</button>
             <button type="button" class="tkr-program-header" disabled={readOnly} onClick={insertHeader}>Insert header</button>
             <button type="button" class="tkr-program-toggle-bookmarks" aria-pressed={showBookmarks} aria-controls={bookmarkId} onClick={() => setShowBookmarks(!showBookmarks)}>Bookmarks</button>
             <button ref={referenceToggle} type="button" class="tkr-program-toggle-reference" aria-pressed={showReference} aria-controls={referenceId} onClick={showReference ? closeReference : openReference}>Command reference</button>
             <button type="button" class="tkr-program-focus" onClick={() => { setFocusMode(true); control.current.surface?.focus(); }}>Distraction-free</button>
           </div>
           {snapshot.readOnly === null ? null : <p class="tkr-program-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
-          {capabilities.has("fileWatch") ? null : (
-            <p class="tkr-program-host-note">This host cannot watch files, so a change another program makes to this file is found when you save, and is never saved over.</p>
-          )}
           {conflict === null ? null : (
             <div class="tkr-program-conflict" role="group" aria-label="Changed on disk">
               <p role="alert">{conflict.message}</p>
@@ -879,7 +877,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
               <input ref={referenceSearch} type="search" value={query} onInput={(event) => setQuery(event.currentTarget.value)} />
             </label>
             <p class="tkr-program-reference-hint">Search built-in names, syntax, descriptions, or groups. Select a command to read its description, then use Insert to add it at the cursor.</p>
-            <ul class="tkr-program-reference-list">
+            <ul data-editor-commands="exclude" class="tkr-program-reference-list">
               {visible.map((entry) => (
                 <li key={entry.name}>
                   <button

@@ -225,6 +225,8 @@ for (const system of SYSTEMS) {
     // Hiding a layer changes the picture and nothing else: the drawn cell's pixel is the board's own, then the tile's.
     const withTile = drawnPixel;
     await page.getByRole("region", { name: "Board" }).getByLabel("Layer", { exact: true }).selectOption({ index: 1 });
+    await page.locator(".tkr-board-layers-disclosure > summary").click();
+    await expect(page.locator(".tkr-board-layers-disclosure")).toHaveAttribute("open", "");
     await page.getByLabel("Layer 1", { exact: false }).first().uncheck();
     await expect.poll(pixel).not.toBe(withTile);
     await expect(state(page)).toHaveText("Unsaved changes", { timeout: 1_000 });
@@ -232,7 +234,7 @@ for (const system of SYSTEMS) {
     await expect.poll(pixel).toBe(withTile);
 
     // Save, and read the saved board back from the project folder.
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: "Save active editor", exact: true }).click();
     await expect(state(page)).toHaveText("All changes saved");
     const saved = await readFolderFile(page, folder, "Boards/meadow.brd");
     const read = readBoard(new BinaryReader(saved));
@@ -306,3 +308,56 @@ for (const system of SYSTEMS) {
     expect(await page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
   });
 }
+
+test("focused editor palette, shared Save and keyboard result visibility", async ({ page }, testInfo) => {
+  await installFolder(page, [{ path: "Game/example.gam", bytes: validMain }, { path: "Tiles/village.tst", bytes: tileset }]);
+  await page.goto(EDITOR_URL);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.getByRole("button", { name: "New board…" }).click();
+  const dialog = page.getByRole("dialog", { name: "New board" });
+  await dialog.getByLabel("Name", { exact: true }).fill("commands");
+  await dialog.getByLabel("Width in tiles").fill("8");
+  await dialog.getByLabel("Height in tiles").fill("8");
+  await dialog.getByLabel("Layers").fill("2");
+  await dialog.getByRole("button", { name: "Create board" }).click();
+  const draw = page.getByRole("button", { name: "Draw", exact: true });
+  await expect(draw).toHaveAttribute("aria-pressed", "true");
+  await draw.focus();
+  await expect(page.getByRole("tooltip", { name: "Draw (D)", exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("board-controls.png") });
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Board: Rectangle");
+  await search.press("Enter");
+  await expect(page.getByRole("button", { name: "Rectangle", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Control+Shift+P");
+  await search.fill("Board:");
+  for (let i = 0; i < 18; i++) await search.press("ArrowDown");
+  const selected = page.locator('.tkr-command-palette-list [aria-selected="true"]');
+  await expect(selected).toBeInViewport();
+  const selectedBox = (await selected.boundingBox())!;
+  const listBox = (await page.locator('.tkr-command-palette-list').boundingBox())!;
+  expect(selectedBox.y).toBeGreaterThanOrEqual(listBox.y);
+  expect(selectedBox.y + selectedBox.height).toBeLessThanOrEqual(listBox.y + listBox.height + 1);
+  await expect(search).toBeFocused();
+  await search.press("Escape");
+  // One shared Save drives the real board document and updates its dirty status.
+  await page.locator('.tkr-board-cell-row input').fill("village.tst1");
+  await page.locator('.tkr-board-cell-row input').press("Enter");
+  await expect(state(page)).toHaveText("Unsaved changes");
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect(state(page)).toHaveText("All changes saved");
+  // Switching editor kind removes all board actions and exposes the new editor's controls.
+  await page.getByRole("tab", { name: /Game\/example.gam/ }).click();
+  await page.keyboard.press("Control+Shift+P");
+  await search.fill("Board:");
+  await expect(page.locator('.tkr-command-palette-list [role=option]')).toHaveCount(0);
+  await search.fill("Game settings:");
+  await expect(page.locator('.tkr-command-palette-list [role=option]').first()).toBeVisible();
+  await search.press("Escape");
+  await page.getByRole("tab", { name: /Boards\/commands.brd/ }).click();
+  await page.setViewportSize({ width: 820, height: 760 });
+  await expect(draw).toBeVisible();
+  await page.locator(".tkr-board-controls").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("board-controls-narrow.png") });
+});

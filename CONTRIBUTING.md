@@ -487,7 +487,7 @@ Installing, building, replaying goldens and booting an Android emulator is waste
 The verdict is "defer" only when **every** changed path is one of these, each of which is read by people and by no CI lane:
 
 - a Markdown file in the repository root (`README.md`, `CONTRIBUTING.md`, ...);
-- any Markdown file under `docs/` except `docs/spec/` (the normative spec, which `golden` dump-checks);
+- any Markdown file under `docs/` except `docs/spec/` (the normative spec, which `golden` dump-checks) and `docs/help/` (bundled editor help checked for freshness);
 - the `_bmad/` tree except `_bmad/method/scripts/`, `_bmad/scripts/config_utils.py`, `_bmad/config.toml`, `_bmad/custom/config.toml` and `_bmad/custom/ticketing-store-config.toml` (the ticket tests use those inputs);
 - issue forms under `.github/ISSUE_TEMPLATE/` (`.md`, `.yml`, `.yaml`).
 

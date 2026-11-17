@@ -75,6 +75,8 @@ test("unknown, executable, normative, fixture and workflow paths run everything"
     "stock/main.prg",
     "golden/README.md",
     "golden/ledger.json",
+    "docs/help/saving.md",
+    "docs/help/future-topic.md",
     "docs/spec/README.md",
     "docs/spec/examples/game/readme.md",
     ".github/workflows/README.md",
