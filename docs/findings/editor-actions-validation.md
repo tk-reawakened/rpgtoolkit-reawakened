@@ -45,3 +45,11 @@ Both use Playwright with one worker against `tools/browser/serve.mjs` serving th
 - Independent agent review found Save registration, duplicate shortcut handling, distraction-free Save/overlay visibility, selection-action availability and data-choice filtering gaps. Each is tracked under the implementation issues and fixed.
 
 These changes target the shared browser/desktop workbench palette. They do not add native VS Code extension command registrations.
+
+## Help and metadata follow-up (#2952, #2953)
+
+Generic file-watching notices moved from editor surfaces to the bundled `docs/help/saving.md` page, exposed through the registered `help.saving` command. Actual conflict and save-error UI remains in place. Board dimensions and layer count now share the layer-visibility row.
+
+The existing shell help test verifies the page content and focus restoration. Temporarily substituting an empty markdown string for `SAVING_HELP_MARKDOWN` makes its content assertion fail; restoring it and rebuilding passes. The classifier test verifies that both `docs/help/saving.md` and a future help topic trigger CI. Removing the `docs/help/` exclusion from the inert-path predicate fails that test; restoring it passes. Both checks were run by their test-name patterns, with `pnpm build` before each shell run.
+
+Relevant editor suites (130 tests), board/shell follow-up suites (66 tests), CI classifier tests (21), and editor-toolchain tests (21) passed. The real focused-editor browser proof passed with the compact metadata row. Typecheck, lint, generated-help freshness and headless goldens were rerun for this follow-up.

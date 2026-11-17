@@ -86,12 +86,6 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
           Read only: {snapshot.readOnly.message}
         </p>
       )}
-      {capabilities.has("fileWatch") ? null : (
-        <p class="tkr-settings-host-note">
-          This host cannot watch files, so a change another program makes to this file is found when you save, and is
-          never saved over.
-        </p>
-      )}
       {conflict === null ? null : (
         <div class="tkr-settings-conflict" role="group" aria-label="Changed on disk">
           <p role="alert">{conflict.message}</p>

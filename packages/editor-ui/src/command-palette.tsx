@@ -14,7 +14,7 @@ import {
 } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import { AUTHORING_GUIDE_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
+import { AUTHORING_GUIDE_MARKDOWN, SAVING_HELP_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
 import { focusedFieldHelp, HelpDocument, type HelpInvokerRef } from "./help-document.tsx";
 import { IconAction } from "./icon-action.tsx";
 import { connectEditorCommands } from "./editor-commands.ts";
@@ -252,6 +252,12 @@ export function WorkbenchCommandBar({
         run: () => setHelpDocument({ title: "RPGCode program authoring", markdown: AUTHORING_GUIDE_MARKDOWN }),
       },
       {
+        id: "help.saving",
+        category: "Help",
+        label: "Saving and external file changes",
+        run: () => setHelpDocument({ title: "Saving and external file changes", markdown: SAVING_HELP_MARKDOWN }),
+      },
+      {
         id: "help.whatsNew",
         category: "Help",
         label: "What's New",
@@ -281,7 +287,7 @@ export function WorkbenchCommandBar({
   const runCommand = (item: WorkbenchCommand): void => {
     if (item.disabled === true) return;
     const fromPalette = paletteOpen;
-    if (item.id === "help.manual" || item.id === "help.whatsNew") {
+    if (item.id === "help.manual" || item.id === "help.whatsNew" || item.id === "help.saving") {
       helpInvokerRef.current = fromPalette ? invokerRef.current : menuButtonRef.current;
     }
     if (fromPalette) {
@@ -293,7 +299,8 @@ export function WorkbenchCommandBar({
       // Give host actions their real invoker before they open UI that owns focus and later returns it.
       menuButtonRef.current?.focus();
     }
-    void item.run();
+    if (registry.getCommands().some((command) => command.id === item.id)) registry.execute(item.id);
+    else if (item.id.startsWith("open:")) void item.run();
   };
 
   const categoryItems = registry.byCategory(activeCategory);

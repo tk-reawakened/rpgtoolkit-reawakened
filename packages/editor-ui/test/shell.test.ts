@@ -506,6 +506,14 @@ test("the application menu, command palette, collapsible Game accordion, and Emp
   const helpCat = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("Help"))!;
   await click(helpCat);
   ok([...s.el.querySelectorAll(".tkr-app-menu-item")].some((node) => node.textContent?.includes("Open RPGCode Quick Reference")));
+  await click(button(s.el, "Saving and external file changes"));
+  const savingHelp = s.el.querySelector<HTMLDialogElement>("dialog.tkr-help-document")!;
+  match(savingHelp.textContent ?? "", /When file watching is unavailable, external changes are checked when you save instead/);
+  match(savingHelp.textContent ?? "", /comparison and write are separate operations/);
+  await click(button(s.el, "Close help"));
+  equal(document.activeElement, appMenuBtn);
+  await click(appMenuBtn);
+  await click([...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("Help"))!);
   const manual = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-item")].find((node) => node.textContent?.includes("authoring guide"))!;
   await click(manual);
   const helpDialog = s.el.querySelector<HTMLDialogElement>("dialog.tkr-help-document")!;

@@ -2773,3 +2773,13 @@
 .tkr-command-bar > .tkr-icon-action { order: 2; z-index: 30; }
 .tkr-web-shell:has(#settings > section:not([hidden])) > .tkr-web-topbar .tkr-web-brand { margin-inline-start: 4.75rem; }
 .tkr-board-selection-disclosure > summary { cursor: pointer; font-size: var(--tkr-text-sm); padding: 0.25rem; }
+
+/* Board facts and layer visibility share one quiet row below the tool strip. */
+.tkr-board-info-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+}
+.tkr-board-info-row > .tkr-board-layers-disclosure { max-inline-size: 100%; }

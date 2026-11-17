@@ -307,11 +307,6 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
         </p>
       </div>
       {snapshot.readOnly === null ? null : <p class="tkr-bitmap-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
-      {capabilities.has("fileWatch") ? null : (
-        <p class="tkr-bitmap-host-note">
-          This host cannot watch files, so a change another program makes to this file is found when you save, and is never saved over.
-        </p>
-      )}
       {conflict === null ? null : (
         <div class="tkr-bitmap-conflict" role="group" aria-label="Changed on disk">
           <p role="alert">{conflict.message}</p>

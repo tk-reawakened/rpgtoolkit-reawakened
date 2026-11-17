@@ -326,7 +326,6 @@ export function TilesetArtView({ doc, capabilities, onEdited }: TilesetArtViewPr
     <section class="tkr-tileset-art" aria-label="Tileset artwork">
       <h2 class="tkr-tileset-art-heading">Tile artwork</h2>
       {readOnly ? <p class="tkr-tileset-art-note" role="note">Read only: {snapshot.readOnly?.message}</p> : null}
-      {capabilities.has("fileWatch") ? null : <p class="tkr-tileset-art-note">This host cannot watch files, so external changes are checked when you save.</p>}
       {conflict === null ? null : (
         <div class="tkr-tileset-art-conflict" role="group" aria-label="Changed on disk">
           <p role="alert">{conflict.message}</p>

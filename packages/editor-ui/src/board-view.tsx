@@ -312,19 +312,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
     <section class="tkr-board" aria-label="Board" onKeyDown={onShortcut}>
       <div class="tkr-board-workspace">
       <div class="tkr-board-main">
-      <div class="tkr-board-header-bar">
-        <h2 class="tkr-board-heading">Board</h2>
-        <p class="tkr-board-summary">
-          {size.width} × {size.height} cells, {layers} {layers === 1 ? "layer" : "layers"}
-          {snapshot.coordType & 2 ? ", isometric (rotated)" : snapshot.coordType & 1 ? ", isometric (stacked)" : ""}
-        </p>
-      </div>
       {snapshot.readOnly === null ? null : <p class="tkr-board-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
-      {capabilities.has("fileWatch") ? null : (
-        <p class="tkr-board-host-note">
-          This host cannot watch files, so a change another program makes to this file is found when you save, and is never saved over.
-        </p>
-      )}
       {conflict === null ? null : (
         <div class="tkr-board-conflict" role="group" aria-label="Changed on disk">
           <p role="alert">{conflict.message}</p>
@@ -392,6 +380,14 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
       ) : null}
       </div>
       {historyNote === null ? null : <p class="tkr-board-note" role="status">{historyNote}</p>}
+      <div class="tkr-board-info-row">
+      <div class="tkr-board-header-bar">
+        <h2 class="tkr-board-heading">Board</h2>
+        <p class="tkr-board-summary">
+          {size.width} × {size.height} cells, {layers} {layers === 1 ? "layer" : "layers"}
+          {snapshot.coordType & 2 ? ", isometric (rotated)" : snapshot.coordType & 1 ? ", isometric (stacked)" : ""}
+        </p>
+      </div>
       {layers === 0 ? null : (
         <details class="tkr-board-layers-disclosure">
         <summary>Visible layers</summary>
@@ -428,6 +424,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
         </fieldset>
         </details>
       )}
+      </div>
       <div class="tkr-board-picture">
         <BoardCanvas editor={editor} state={state} board={snapshot} picture={picture} stamp={brush?.kind === "stamp" ? brush.stamp : null} />
         {picture === null ? (

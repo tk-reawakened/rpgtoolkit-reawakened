@@ -826,9 +826,6 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
             <button type="button" class="tkr-program-focus" onClick={() => { setFocusMode(true); control.current.surface?.focus(); }}>Distraction-free</button>
           </div>
           {snapshot.readOnly === null ? null : <p class="tkr-program-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
-          {capabilities.has("fileWatch") ? null : (
-            <p class="tkr-program-host-note">This host cannot watch files, so a change another program makes to this file is found when you save, and is never saved over.</p>
-          )}
           {conflict === null ? null : (
             <div class="tkr-program-conflict" role="group" aria-label="Changed on disk">
               <p role="alert">{conflict.message}</p>
