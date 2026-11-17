@@ -267,6 +267,10 @@ test("node builtin: r4 fires for script-tools/src only, not its tests", () => {
   );
 });
 
+// Permanent fast-test exception (#2991): these five fresh CLI invocations prove generation,
+// a clean check, stale-edge detection, persisted repair and a clean recheck. In-process
+// substitutes would miss the public exit-code/disk contract. Maximum case budget: 5 seconds;
+// observed 1.43 seconds on Node 24.21.0/macOS arm64. Preserve all five phases and assertions.
 test("stale diagram: the check names the spine file and pnpm graph:write, --write repairs it", () => {
   withRoot(
     "stale",
