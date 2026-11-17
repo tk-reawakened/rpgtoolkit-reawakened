@@ -1769,6 +1769,8 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     // Hiding a layer changes the picture only.
     const withTile = drawnPixel;
     await frame.getByLabel("Layer", { exact: true }).selectOption({ index: 1 });
+    await frame.locator(".tkr-board-layers-disclosure > summary").click();
+    await expect(frame.locator(".tkr-board-layers-disclosure")).toHaveAttribute("open", "");
     await frame.getByLabel("Layer 1", { exact: false }).first().uncheck();
     await expect.poll(pixel).not.toBe(withTile);
     await frame.getByRole("button", { name: "Show all", exact: true }).click();

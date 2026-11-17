@@ -53,3 +53,12 @@ Generic file-watching notices moved from editor surfaces to the bundled `docs/he
 The existing shell help test verifies the page content and focus restoration. Temporarily substituting an empty markdown string for `SAVING_HELP_MARKDOWN` makes its content assertion fail; restoring it and rebuilding passes. The classifier test verifies that both `docs/help/saving.md` and a future help topic trigger CI. Removing the `docs/help/` exclusion from the inert-path predicate fails that test; restoring it passes. Both checks were run by their test-name patterns, with `pnpm build` before each shell run.
 
 Relevant editor suites (130 tests), board/shell follow-up suites (66 tests), CI classifier tests (21), and editor-toolchain tests (21) passed. The real focused-editor browser proof passed with the compact metadata row. Typecheck, lint, generated-help freshness and headless goldens were rerun for this follow-up.
+
+## CI repair after integrating main (#2955, #2956, #2957)
+
+Run 44005260159 exposed three integration gaps: the merged changelog needed regenerated Help, host conformance still required the removed generic banner, and the native VS Code board proof clicked a layer checkbox inside the closed disclosure. The generated Help was refreshed, ADR 0022 D3.5 was clarified in a docs-first commit, and the proofs now follow the requested presentation. Conflict, capability, pixel, undo and persisted-byte assertions remain intact.
+
+- On Node 24.21.0, `pnpm test:strict` passed 5,109 tests with no failures or skips. All 78 host conformance cases passed; typecheck, lint, generated-help freshness and headless goldens passed.
+- To verify the new absence assertion, temporarily insert `<p>This host cannot watch files.</p>` before the settings status, run `pnpm build`, then run `node --test --test-name-pattern='capabilities are truthful' tools/editor-vscode-test/test/host-conformance.test.ts`. All three host cases fail with `generic file-watching help does not occupy the editor`. Restore, rebuild and rerun: all three pass, individually below 100 ms. A preliminary source-only mutation without rebuilding did not exercise the consumed package output and is not counted as evidence.
+- The actual VS Code web proof passed settings, board (all three layouts), artwork and bitmap for the cancel path, including the repaired layer disclosure. Its subsequent New Project destination-picker timeout is tracked separately as #2958; this run is not claimed as a complete native-proof pass.
+- Independent review of the repairs found no actionable issues.
