@@ -264,7 +264,8 @@ for (const [name, system, pixels] of LAYOUTS) {
   test(`${name}: the current layer is always visible; show only current and show all change what the picture asks for`, () => {
     const s = make(8, 8, 3);
     const { editor } = s;
-    deepEqual(editor.pictureRequest(), { visibleLayers: [0, 1, 2], showBackground: true });
+    deepEqual(editor.pictureRequest().visibleLayers, [0, 1, 2]);
+    equal(editor.pictureRequest().showBackground, true);
     ok(editor.setLayerVisible(2, false));
     deepEqual(editor.pictureRequest().visibleLayers, [0, 1]);
     equal(editor.setLayerVisible(0, false), false, "the current layer cannot be hidden");
@@ -272,9 +273,11 @@ for (const [name, system, pixels] of LAYOUTS) {
     editor.setLayer(2);
     deepEqual(editor.pictureRequest().visibleLayers, [0, 1, 2], "choosing a hidden layer shows it");
     editor.showOnlyCurrent();
-    deepEqual(editor.pictureRequest(), { visibleLayers: [2], showBackground: false });
+    deepEqual(editor.pictureRequest().visibleLayers, [2]);
+    equal(editor.pictureRequest().showBackground, false);
     editor.showAll();
-    deepEqual(editor.pictureRequest(), { visibleLayers: [0, 1, 2], showBackground: true });
+    deepEqual(editor.pictureRequest().visibleLayers, [0, 1, 2]);
+    equal(editor.pictureRequest().showBackground, true);
     editor.setLayer(99);
     equal(editor.getState().layer, 2);
   });

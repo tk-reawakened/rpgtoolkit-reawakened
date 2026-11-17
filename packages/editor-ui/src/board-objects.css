@@ -1,0 +1,53 @@
+.tkr-board-objects {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.75rem;
+}
+
+.tkr-board-objects > header,
+.tkr-board-object-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.tkr-board-objects h2 {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.tkr-board-object-form,
+.tkr-board-object-field,
+.tkr-board-object-points {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.tkr-board-object-form fieldset,
+.tkr-board-object-points fieldset {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.4rem;
+  min-width: 0;
+  border: 1px solid var(--vscode-panel-border, #777);
+}
+
+.tkr-board-object-form input,
+.tkr-board-object-form select,
+.tkr-board-objects select {
+  max-width: 100%;
+}
+
+.tkr-board-objects dialog {
+  max-width: min(32rem, calc(100vw - 2rem));
+}
+.tkr-board-objects dialog:modal {
+  overscroll-behavior: contain;
+}
+
+.tkr-board-objects dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}

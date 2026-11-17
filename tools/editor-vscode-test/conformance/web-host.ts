@@ -243,7 +243,7 @@ export function createWebBoardProofHost(gam: Uint8Array, files: Readonly<Record<
         picture: async () => {
           if (model.kind === "tile-bitmap") return previewTileBitmap(project.services.fs, project.project.id, model.serialize());
           const preview = await previewBoard(project.services.fs, project.project.id, model.serialize());
-          return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
+          return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings, objectBounds: preview.objectBounds } : preview;
         },
         close: async () => {
           await view.close();

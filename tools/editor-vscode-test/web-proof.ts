@@ -1,5 +1,6 @@
 import { ANIMATION_PROOF_PATH, runAnimationAuthoringProof } from "./animation-proof.ts";
 import { PROPERTIES_BOARD, runBoardPropertiesProof } from "./board-properties-proof.ts";
+import { OBJECTS_BOARD, runBoardObjectsProof } from "./board-objects-proof.ts";
 import { createHash } from "node:crypto";
 import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
@@ -2658,6 +2659,82 @@ export async function runVscodeBoardPropertiesProof(page: Page, expect: Expect, 
       const frame = await openProjectFile(page, "Main/example.gam", expect, ".tkr-settings");
       await frame.getByRole("button", { name: "Save", exact: true }).click();
       await open(PROPERTIES_BOARD);
+    },
+    settle: () => page.waitForTimeout(80),
+  }, expect);
+}
+
+/** Story 12.11 through the packaged custom editor, native definition visits and persisted bytes. */
+export async function runVscodeBoardObjectsProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
+  await openProjectFile(page, "Main/example.gam", expect, ".tkr-settings");
+  const board = async (): Promise<Locator> => {
+    let found: Frame | undefined;
+    await expect.poll(async () => {
+      for (const frame of page.frames()) {
+        if (await frame.locator(".tkr-board:visible").count().catch(() => 0) > 0
+          && await frame.evaluate(() => document.hasFocus()).catch(() => false)) {
+          found = frame; return true;
+        }
+      }
+      return false;
+    }, { timeout: 30_000 }).toBe(true);
+    if (found === undefined) throw new Error("The active object-board custom editor was not found");
+    return found.locator(".tkr-board");
+  };
+  const open = async (path: string): Promise<Locator> => {
+    await focusWorkbench(page);
+    await openNativeQuickOpenFile(page, expect, path);
+    await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+    await page.waitForTimeout(100);
+    return board();
+  };
+  await runBoardObjectsProof({
+    page, read: readBacking, openBoard: open,
+    chooseAsset: async (reference) => {
+      const picker = page.locator(".quick-input-widget");
+      await expect(picker).toBeVisible();
+      const query = picker.locator("input:visible");
+      await query.fill(reference);
+      await expect(picker.getByRole("option", { name: reference, exact: true })).toBeVisible();
+      await query.press("Enter");
+      await expect(picker).toBeHidden();
+      const confirm = page.getByRole("button", { name: "Use it", exact: true });
+      await confirm.click();
+      await expect(confirm).toBeHidden();
+      await page.waitForTimeout(120);
+    },
+    reopenBoard: async (path) => {
+      await runCommand(page, expect, "View: Close Editor");
+      await expect(page.getByRole("tab").filter({ hasText: path.split("/").at(-1)! })).toHaveCount(0);
+      await page.waitForTimeout(150); return open(path);
+    },
+    save: async (editor) => {
+      await editor.getByRole("button", { name: "Save", exact: true }).click();
+      await expect(editor.locator(".tkr-board-state")).toHaveText("All changes saved");
+      const nativeTab = page.getByRole("tab", { selected: true }).filter({ hasText: OBJECTS_BOARD.split("/").at(-1)! }).first();
+      await expect(nativeTab).not.toHaveClass(/dirty/);
+      await page.waitForTimeout(100);
+    },
+    undo: async (editor) => { await editor.locator("canvas").focus(); await page.keyboard.press("ControlOrMeta+z"); },
+    redo: async (editor) => { await editor.locator("canvas").focus(); await page.keyboard.press("ControlOrMeta+Shift+z"); },
+    expectProgram: async (path, text) => {
+      await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+      await expect(page.locator(".editor-instance .monaco-editor").last()).toContainText(text);
+    },
+    expectItem: async (path, name) => {
+      await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+      await expect.poll(async () => {
+        for (const frame of page.frames()) {
+          if (await frame.getByRole("region", { name: "item sprite graphics", exact: true }).evaluateAll((regions, name) => regions.some((region) => region.textContent?.includes(name) === true), name).catch(() => false)) return true;
+        }
+        return false;
+      }, { timeout: 30_000 }).toBe(true);
+    },
+    returnToBoard: async () => {
+      await runCommand(page, expect, "TK Reawakened: Return to board");
+      await page.waitForTimeout(150); return board();
     },
     settle: () => page.waitForTimeout(80),
   }, expect);

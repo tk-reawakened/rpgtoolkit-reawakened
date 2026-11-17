@@ -13,6 +13,8 @@ export interface ProjectLayout {
   readonly projectFolder: string;
 }
 
+const RESERVED_FOLDER_NAMES = new Set(Object.values(ASSET_FOLDERS).map(asciiLower));
+
 /**
  * Where the game named by the main file at `mainPath` keeps its type folders: the project folder the main file declares when
  * that folder exists in the project, else the project root. A main file that cannot be read gives the root.
@@ -24,6 +26,17 @@ export async function projectLayoutOfMain(fs: Pick<FileSystemService, "readProje
   const candidate = main.ok ? projectFolder("", main.value).replace(/\/$/, "") : "";
   if (candidate === "") return { projectFolder: "" };
   return { projectFolder: (await fs.list(candidate)).ok ? candidate : "" };
+}
+/**
+ * The layout of a document under `Game/<project>/<reserved folder>`, or the root layout otherwise.
+ * Matching the reserved folders is ASCII case-insensitive, while the returned path keeps the source's actual case.
+ */
+export function projectLayoutForDocumentPath(path: string): ProjectLayout {
+  const parts = toSlashes(path).split("/");
+  const game = parts.findIndex((part) => asciiLower(part) === "game");
+  const folder = parts[game + 2];
+  if (game < 0 || folder === undefined || !RESERVED_FOLDER_NAMES.has(asciiLower(folder))) return { projectFolder: "" };
+  return { projectFolder: parts.slice(0, game + 2).join("/") };
 }
 
 /** The project-relative path of the folder `kind` lives in, with `/` separators. */

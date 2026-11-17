@@ -100,6 +100,13 @@ the world tint (`tint`), `alpha` and `blend`:
    is non-zero, add it, and clamp once.
 3. **Blend.** `normal`, `additive`, `translucent`, or v3 `source-over` (AD-3). Source and target are straight-alpha RGBA. For `source-over`, let `a = floor(sourceAlpha × alpha / 255)`, `d = targetAlpha`, and `n = a × 255 + d × (255 − a)`. If `n` is zero, leave the target unchanged; otherwise the output alpha is `floor((n + 127) / 255)` and each output colour channel is `floor((source × a × 255 + target × d × (255 − a) + floor(n / 2)) / n)`. Thus a partially transparent destination is not treated as opaque. The normal mode still replaces, not composites. An enabled render-now overlay uses `source-over` so its straight-alpha ink covers the frame once.
 
+**Sprite colour-key selection (Reawakened composition contract, #3029).** White parts of a sprite remain visible
+when its frame has no colour key; transparent pixels still show what is underneath. Technically, an omitted
+`SpriteFrame.transparent` inherits the instance's `SpriteDraw.transparent`. If both are omitted, picture frames
+use the legacy white key and tile frames use the normal tile key. An explicit `null` at either applicable level
+disables additional colour-key exclusion; it is not an instruction to fall back to white. This applies equally
+to already-masked RGBA frames and ordinary textures. Alpha-zero exclusion still applies before tint and blend.
+
 **Text coverage.** Each glyph coverage value is a source alpha for the command's straight RGB colour. Composite it source-over the current straight-alpha target using the same integer rule above (with `a = coverage`), including transparent and translucent targets. An edge of white ink over transparent pixels therefore retains RGB `(255,255,255)` with alpha equal to its coverage; consumers must not multiply the colour a second time.
 An opaque host framebuffer presents a straight-alpha pixel over black. An alpha-capable WebGL host with `premultipliedAlpha: false` receives straight RGBA; with `premultipliedAlpha: true`, the renderer premultiplies RGB at presentation only, so browser composition produces the same visible result. Internal planes remain straight alpha in both cases.
 

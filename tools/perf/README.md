@@ -85,3 +85,22 @@ scans after a cache lane is learned. The proposed 64 KiB warm re-hash work budge
 
 The game still misses display rate: `encodeSurfaceBytes` accounts for 31.4% of sampled self CPU in the candidate.
 The remaining surface/rendering performance is tracked separately in #2795; this integration does not claim to fix it.
+
+## Sprite colour-key correction (#3029)
+
+Apple M1 Pro, 16 GiB RAM, Darwin arm64, Node 24.21.0, headless Playwright Chromium with default GPU.
+Both eight-second `pnpm perf:player` runs used the same demo package (SHA-256
+`fd806539d1c3ed65adb53b1019f95c404e207aed2e9bbb7867c25adec636838b`) and reached `boards/start.brd`.
+These are single-run advisory observations, not evidence of a speedup.
+
+| Measurement | Before | Explicit-null correction |
+|---|---:|---:|
+| Frame rate | 42.8 fps | 43.4 fps |
+| Frame p50 / p99 | 16.7 / 33.4 ms | 16.7 / 33.4 ms |
+| Long tasks | 0 | 0 |
+| Ticks per second | 61.0 | 60.8 |
+| Measured duration | 8.505 s | 8.499 s |
+
+The compositor performs constant-work key selection for each visible sprite: omitted keys inherit, while
+explicit `null` disables keying. It scans no pixels and copies no state. The legacy picture fallback now reuses
+one immutable white-key value rather than allocating that value for every default-key picture sprite.

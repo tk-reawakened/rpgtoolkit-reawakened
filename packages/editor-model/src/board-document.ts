@@ -12,6 +12,7 @@ import {
   type Rejection,
 } from "./binary-document.ts";
 import type { DocumentIdentity } from "./identity.ts";
+import type { BoardObjectKind } from "./board-objects.ts";
 
 /**
  * The board document (`docs/spec/formats/board.md#vector-layout-minor-4-and-later`, ADR 0026): bytes plus a command
@@ -71,7 +72,7 @@ export interface SetTilesCommand {
   readonly shades?: readonly ShadeAssignment[];
 }
 
-/** An accepted edit to board-owned settings, links, threads, constants, layer titles or start. */
+/** An accepted edit to board-owned settings or stored object records. */
 export interface SetBoardFieldsCommand {
   readonly type: "set-board-fields";
   readonly fields: {
@@ -80,15 +81,19 @@ export interface SetBoardFieldsCommand {
     readonly constants?: Board["constants"];
     readonly layerTitles?: Board["layerTitles"];
     readonly properties?: Board["properties"];
+    readonly vectors?: Board["vectors"];
+    readonly programs?: Board["programs"];
+    readonly sprites?: Board["sprites"];
+    readonly images?: Board["images"];
   };
 }
 
 export type BoardCommand = SetTileCommand | SetTilesCommand | SetBoardFieldsCommand;
 
 /**
- * What a board adds to the shared snapshot: plain JSON a view can draw a grid from and a host can post to a webview
- * (no byte arrays, no vectors or programs: a view that needs more asks for it by name in a later story). The arrays are
- * the model's own and are never changed, so an unchanged board gives the same references.
+ * What a board adds to the shared snapshot: plain JSON a view can draw and inspect, and a host can post to a webview.
+ * Stored object slots are not compacted. The arrays are the model's own and are never changed, so an unchanged board
+ * gives the same references.
  */
 export interface BoardDocumentFields {
   /** The minor version the file was opened at and is saved at (AD-18). */
@@ -112,6 +117,10 @@ export interface BoardDocumentFields {
   readonly constants: Board["constants"];
   /** Layer titles, indexed 0…layers. */
   readonly layerTitles: readonly string[];
+  readonly vectors: Board["vectors"];
+  readonly programs: Board["programs"];
+  readonly sprites: Board["sprites"];
+  readonly images: Board["images"];
   /** The tile lookup table: `tileMatrix` holds indices into it, and `""` is the empty cell. */
   readonly lut: readonly string[];
   /** The tile shading layers, as stored (`docs/spec/formats/board.md#tile-shading`). */
@@ -341,6 +350,10 @@ function applyCommand(board: Board, command: BoardCommand): Board {
       ...(command.fields.constants === undefined ? {} : { constants: command.fields.constants }),
       ...(command.fields.layerTitles === undefined ? {} : { layerTitles: command.fields.layerTitles }),
       ...(command.fields.properties === undefined ? {} : { properties: command.fields.properties }),
+      ...(command.fields.vectors === undefined ? {} : { vectors: command.fields.vectors }),
+      ...(command.fields.programs === undefined ? {} : { programs: command.fields.programs }),
+      ...(command.fields.sprites === undefined ? {} : { sprites: command.fields.sprites }),
+      ...(command.fields.images === undefined ? {} : { images: command.fields.images }),
     };
   }
   if (command.type === "set-tile") return assignTiles(board, [command]);
@@ -371,6 +384,21 @@ function assignmentsOf(command: SetTileCommand | SetTilesCommand): readonly Tile
   return command.type === "set-tile" ? [command] : command.cells;
 }
 
+/** Stored record values have no property-order contract. Arrays, raw flags and every named field do. */
+export function sameStoredValue(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((value, index) => sameStoredValue(value, right[index]));
+  }
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) return false;
+  const first = left as Record<string, unknown>;
+  const second = right as Record<string, unknown>;
+  const keys = Object.keys(first);
+  return keys.length === Object.keys(second).length
+    && keys.every((key) => Object.hasOwn(second, key) && sameStoredValue(first[key], second[key]));
+}
+
 function refuse(next: Board, command: BoardCommand, previous: Board): Rejection | null {
   if (command.type === "set-board-fields") {
     if (next === previous) return { reason: "invalid", message: "The board settings are unchanged." };
@@ -380,7 +408,7 @@ function refuse(next: Board, command: BoardCommand, previous: Board): Rejection 
     if (!reread.ok) return { reason: "invalid", message: reread.error.message };
     const actual = reread.value as unknown as Record<string, unknown>;
     for (const [field, requested] of Object.entries(command.fields)) {
-      if (JSON.stringify(requested) !== JSON.stringify(actual[field])) {
+      if (!sameStoredValue(requested, actual[field])) {
         return { reason: "invalid", message: `The ${field} value cannot be stored exactly as entered.` };
       }
     }
@@ -461,6 +489,31 @@ function isBoardLinks(value: unknown): value is Board["links"] {
   return ["north", "south", "east", "west"].every((key) => typeof links[key] === "string");
 }
 
+const OBJECT_FIELDS: Readonly<Record<BoardObjectKind, { readonly strings: readonly string[]; readonly numbers: readonly string[] }>> = {
+  vectors: { strings: ["handle"], numbers: ["attributes", "closed", "layer", "type"] },
+  programs: { strings: ["program", "graphic", "initialVar", "initialValue", "finalVar", "finalValue", "handle"], numbers: ["activate", "activationType", "repeatDistance", "layer", "closed"] },
+  sprites: { strings: ["itemFile", "activationPrg", "multitaskPrg", "initialVar", "initialValue", "finalVar", "finalValue", "loadingVar", "loadingValue"], numbers: ["activate", "activationType", "x", "y", "layer", "reserved"] },
+  images: { strings: ["file"], numbers: ["left", "top", "layer", "drawType", "reserved"] },
+};
+
+function isObjectRecords(value: unknown, kind: BoardObjectKind): boolean {
+  if (!Array.isArray(value)) return false;
+  const fields = OBJECT_FIELDS[kind];
+  return value.every((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return false;
+    const record = entry as Record<string, unknown>;
+    if (!fields.strings.every((key) => typeof record[key] === "string")
+      || !fields.numbers.every((key) => typeof record[key] === "number" && Number.isFinite(record[key]))) return false;
+    if (kind === "vectors" || kind === "programs") {
+      return Array.isArray(record.points) && record.points.every((point: unknown) => typeof point === "object" && point !== null
+        && "x" in point && typeof point.x === "number" && Number.isFinite(point.x)
+        && "y" in point && typeof point.y === "number" && Number.isFinite(point.y));
+    }
+    if (kind !== "images") return true;
+    return isRgb(record.transparent);
+  });
+}
+
 const GESTURES: readonly string[] = ["draw", "erase", "flood", "rectangle", "stamp", "move", "copy"];
 
 const GESTURE_WORDS: Readonly<Record<TileGesture, string>> = {
@@ -484,12 +537,16 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
     if (value.type === "set-tile") return isAssignment(value);
     if (value.type === "set-board-fields" && "fields" in value && typeof value.fields === "object" && value.fields !== null) {
       const fields = value.fields as Record<string, unknown>;
-      return Object.keys(fields).every((key) => ["links", "threads", "constants", "layerTitles", "properties"].includes(key))
+      return Object.keys(fields).every((key) => ["links", "threads", "constants", "layerTitles", "properties", "vectors", "programs", "sprites", "images"].includes(key))
         && (fields.links === undefined || isBoardLinks(fields.links))
         && (fields.threads === undefined || (Array.isArray(fields.threads) && fields.threads.every((entry) => typeof entry === "string")))
         && (fields.constants === undefined || (Array.isArray(fields.constants) && fields.constants.every((entry) => typeof entry === "string")))
         && (fields.layerTitles === undefined || (Array.isArray(fields.layerTitles) && fields.layerTitles.every((entry) => typeof entry === "string")))
-        && (fields.properties === undefined || isBoardProperties(fields.properties));
+        && (fields.properties === undefined || isBoardProperties(fields.properties))
+        && (fields.vectors === undefined || isObjectRecords(fields.vectors, "vectors"))
+        && (fields.programs === undefined || isObjectRecords(fields.programs, "programs"))
+        && (fields.sprites === undefined || isObjectRecords(fields.sprites, "sprites"))
+        && (fields.images === undefined || isObjectRecords(fields.images, "images"));
     }
     return value.type === "set-tiles" && "gesture" in value && typeof value.gesture === "string" && GESTURES.includes(value.gesture)
       && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment)
@@ -518,6 +575,10 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
     links: model.links,
     threads: model.threads,
     constants: model.constants,
+    vectors: model.vectors,
+    programs: model.programs,
+    sprites: model.sprites,
+    images: model.images,
     lut: model.lut,
     tileMatrix: model.tileMatrix,
     shadeLayers: model.shadeLayers,
