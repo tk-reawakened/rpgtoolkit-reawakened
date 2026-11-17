@@ -31,10 +31,10 @@ const cases: readonly DesignCase[] = [
 ];
 
 const themes = [
-  { id: "light", pickerLabel: "Default Light Modern", settingName: "Default Light Modern", kind: "light" },
-  { id: "dark", pickerLabel: "Default Dark Modern", settingName: "Default Dark Modern", kind: "dark" },
-  { id: "high-contrast-dark", pickerLabel: "Default High Contrast", settingName: "Default High Contrast", kind: "high-contrast-dark" },
-  { id: "high-contrast-light", pickerLabel: "Default High Contrast Light", settingName: "Default High Contrast Light", kind: "high-contrast-light" },
+  { id: "light", pickerLabel: "Light Modern", settingName: "Light Modern", kind: "light" },
+  { id: "dark", pickerLabel: "Dark Modern", settingName: "Dark Modern", kind: "dark" },
+  { id: "high-contrast-dark", pickerLabel: "Dark High Contrast", settingName: "Default High Contrast", kind: "high-contrast-dark" },
+  { id: "high-contrast-light", pickerLabel: "Light High Contrast", settingName: "Default High Contrast Light", kind: "high-contrast-light" },
 ] as const;
 
 /** Capture the existing vscode-test-web workbench without injecting candidate or replacement CSS. */
@@ -285,8 +285,9 @@ async function selectTheme(page: Page, expect: Expect, theme: typeof themes[numb
 
 async function selectThemeBySetting(page: Page, expect: Expect, settingName: string) {
   const { widget, picker } = await openThemePicker(page, expect);
-  await picker.fill(settingName);
-  const option = page.getByRole("option", { name: new RegExp(`^${escapeRegExp(settingName)}(?:,|$)`) });
+  const pickerLabel = themes.find((theme) => theme.settingName === settingName)?.pickerLabel ?? settingName;
+  await picker.fill(pickerLabel);
+  const option = page.getByRole("option", { name: new RegExp(`^${escapeRegExp(pickerLabel)}(?:,|$)`) });
   await expect(option).toHaveCount(1);
   await option.click();
   await expect(widget).toBeHidden();

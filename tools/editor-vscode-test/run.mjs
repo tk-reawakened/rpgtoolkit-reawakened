@@ -441,6 +441,8 @@ for (const choice of designProof || boardPropertiesProof || animationProof || hi
         try {
           await mkdir(designOutput, { recursive: true });
           await failedPage.screenshot({ path: resolve(designOutput, "failure.png"), fullPage: true, timeout: 5_000 });
+          const themeStatusHtml = await failedPage.locator(".statusbar-item").filter({ hasText: /^TKR design ·/ }).evaluateAll((items) => items.map((item) => item.outerHTML));
+          await writeFile(resolve(designOutput, "failure-theme-status.json"), JSON.stringify({ failed: true, themeStatusHtml }, null, 2) + "\n");
         } catch (diagnosticError) { cleanupErrors.push(diagnosticError); }
       }
     }
