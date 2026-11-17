@@ -202,3 +202,8 @@ The shared editor workbench (`packages/editor-ui` and `packages/editor-model`) i
   ![VS Code Tileset Artwork Custom Editor](evidence/vscode_artwork_dark.png)
 - **VS Code Game Settings Custom Editor & Explorer Game View**:
   ![VS Code Game Settings Custom Editor](evidence/vscode_settings_dark.png)
+
+
+## Shared language consolidation, 2026-11-16
+
+The owner's follow-up to Epics 29/30 establishes [docs/design/editor-design-language.md](../../../docs/design/editor-design-language.md) as the shared placement, interaction and presentation contract. 11.22 validates its worked compositions and component states; 11.23 implements shared styling. The existing examples and captures above remain historical evidence, not a competing approved layout. In particular, independently editable resources open in document tabs, selection properties belong to the inspector, and the asset browser has a distinct source-selection role even when it shares a shelf. Board focus follows the current authoring view; no pinning mechanism is required for that workflow.

@@ -152,3 +152,8 @@ Riley opens a program directly, uses command help, runs an explicit small fixtur
 ## Mock boundaries and open constraints
 
 The linked atlas is a conceptual layout reference, not an executable prototype, not complete interaction states and not proof of runtime, accessibility or host support. In particular it does not mock every picker, keyboard alternative, conflict comparison, import/migration diff, fixture/trace, localization exercise, teaching reset, release compatibility or provider failure; this spine and coverage table describe those proposals. No new architecture, data model, storage format, plugin contribution API, cross-document transaction, cloud sync, full layout designer, localization model or synchronized animation channel is selected. Before implementation, verify current normative specs, host capabilities and evidence with real creators, including keyboard-only and no-assistant journeys.
+
+
+## Shared language consolidation, 2026-11-16
+
+The owner's follow-up to Epics 29/30 establishes [docs/design/editor-design-language.md](../../../docs/design/editor-design-language.md) as the shared placement, interaction and presentation contract. 11.22 validates its worked compositions and component states; 11.23 implements shared styling. The existing examples and captures above remain historical evidence, not a competing approved layout. In particular, independently editable resources open in document tabs, selection properties belong to the inspector, and the asset browser has a distinct source-selection role even when it shares a shelf. Board focus follows the current authoring view; no pinning mechanism is required for that workflow.

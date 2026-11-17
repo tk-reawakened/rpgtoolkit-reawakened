@@ -55,12 +55,13 @@ Cross-cutting nonfunctional requirements: single document authority and host-own
 6. **30.6 (#2983) — Edit board settings images and atmosphere with the canvas in view.** Group relevant controls around the scene and consume the existing lighting provider.
 7. **30.7 (#2984) — Prove the connected board-authoring journey across editor hosts.** Deliver recorded creator evidence and regression checks with the real runner.
 
-30.2–30.4 follow 30.1; 30.5 follows 30.2/30.4; 30.6 follows 30.1/30.4; 30.7 follows 30.2–30.6. The store carries those exact prerequisites. Stories start in the backlog (Project status draft, no sprint); implementation is not started by this planning change.
+30.1 consumes the shared design-language and styling work in 11.22/11.23; board-specific focus/selection behavior remains here. Research can proceed before those deliver, but implementation reuses their shared components. 30.2–30.4 follow 30.1; 30.5 follows 30.2/30.4; 30.6 follows 30.1/30.4; 30.7 follows 30.2–30.6. The store carries those exact prerequisites. Stories start in the backlog (Project status draft, no sprint); implementation is not started by this planning change.
 
 ## Existing work and boundaries
 
 | Existing issue/provider | Relationship |
 | --- | --- |
+| Shared design language and styling, 11.22 (#2987) / 11.23 (#2988) | Own the common placement/interaction/component contract and its visual implementation; 30.1 consumes them. See [shared design language](../../../docs/design/editor-design-language.md). |
 | Epic 11 #1357 | Supplies document authority, platform-services, native hosts, focused commands, save and launch contracts. |
 | PR #2950, open at planning time | Reuse its final compact tools, focused commands and shared Save; no competing toolbar or save implementation. |
 | #1713 and #2322 | Own browser/brush and sheet/region-brush capabilities. 30.3 integrates them into this experience. |

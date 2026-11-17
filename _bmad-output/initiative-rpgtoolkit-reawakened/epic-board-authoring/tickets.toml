@@ -8,7 +8,7 @@ title = "Establish the board workspace and focus-following inspector"
 description = "Implement the shared board canvas plus contextual inspector shelf from docs/design/board-authoring.md, and prove the host mapping early. Reuse existing shell/command contracts, with shared content in editor-ui and host chrome behind platform-services. This owns the active-view/auxiliary-focus target contract for the epic."
 verify = "1. In web/PWA and actual VS Code, two visible boards retain independent selections. Focusing A or B retargets the inspector; focusing its fields, outline, browser or toolbar retains the originating authoring target.\n2. Split views of one document share data/undo but retain separate view state. Inspector edits name the document/view/object; delayed edits cannot mutate a newly focused board. Closing/deleting the target clears or reconciles the shelf without guessing another board.\n3. VS Code uses native editor tabs/groups and a contributed inspector view; moving/hiding the view preserves behavior. Focusing a non-board editor shows its applicable context or an informative empty state.\n4. Selection/navigation does not dirty documents. Existing Save/Run/focused commands from PR #2950 are reused after checking its delivered state. Board settings can enter the shelf without removing the canvas.\n5. Record real host, revision and normal/narrow-pane visual evidence, keyboard access and theme behavior. Add focused identity/routing checks including a stale asynchronous callback. Implement from the docs contract first; this is a working vertical slice, not a mock-only spike."
 covers = ["CAP-15", "CAP-18"]
-after = []
+after = ["11.22", "11.23"]
 hitl = false
 risk = "high"
 

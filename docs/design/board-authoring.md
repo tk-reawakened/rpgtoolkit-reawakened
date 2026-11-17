@@ -12,6 +12,8 @@ Jensen approved documenting and ticketing this direction after reviewing the leg
 
 This refines the accepted connected-workshop direction and the existing T-20–T-35 capability inventory. Preserve documented behavior and supported data; change how the author reaches it. G2, G7, ADR 0022 (document authority, lifecycle, host layout and launches), ADR 0025 (Preact/TSX), ADR 0031 (browser-led editor mechanisms), and ADR 0019's scene model remain binding. No new format, runtime mechanic, docking library or exception is selected here.
 
+Shared placement, action vocabulary, components and theme roles are defined in [the editor design language](editor-design-language.md). Stories 11.22/11.23 own that shared contract and its styling implementation; 30.1 owns the board-specific active-view/inspector behavior and consumes those components.
+
 ## Workspace and tabs
 
 - Keep the board canvas available during normal object and board-settings work. The inspector shelf presents context; it does not replace the document workspace.
