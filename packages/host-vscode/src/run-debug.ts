@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { platformError, type PlatformResult, type RunHandle, type RunService } from "@tk-reawakened/platform-services";
 import { createLaunchPrompts, pickWorkspace, workspaceRoots } from "./launch-prompts.ts";
-import { launchConfiguration, resolveLaunch, TKR_DEBUG_TYPE, type LaunchPrompts } from "./run-configuration.ts";
+import { launchConfiguration, mergeAnswers, resolveLaunch, TKR_DEBUG_TYPE, type LaunchPrompts } from "./run-configuration.ts";
 import { RunDebugSession, type DapRequest } from "./run-debug-adapter.ts";
 
 /**
@@ -14,9 +14,9 @@ const WORKSPACE_KEY = "__tkrWorkspace";
 
 /** The configurations a new `launch.json` starts with. */
 export const INITIAL_CONFIGURATIONS: vscode.DebugConfiguration[] = [
-  { type: TKR_DEBUG_TYPE, request: "launch", name: "Run game", launch: "game" },
-  { type: TKR_DEBUG_TYPE, request: "launch", name: "Test board", launch: "board" },
-  { type: TKR_DEBUG_TYPE, request: "launch", name: "Test program", launch: "program" },
+  { type: TKR_DEBUG_TYPE, request: "launch", name: "Run game", kind: "game" },
+  { type: TKR_DEBUG_TYPE, request: "launch", name: "Test board", kind: "board" },
+  { type: TKR_DEBUG_TYPE, request: "launch", name: "Test program", kind: "program" },
 ];
 
 /** Prompts that never ask: the adapter turns an already resolved configuration back into a `Launch`. */
@@ -70,7 +70,7 @@ export function registerRunDebugger(context: vscode.ExtensionContext, runForProj
       if (workspace === undefined) return undefined;
       const previous = [...live].find((session) => session.name === configuration.name
         && session.configuration[WORKSPACE_KEY] === workspace.uri.toString());
-      const merged = { ...(previous?.configuration ?? {}), ...withoutUndefined(configuration) };
+      const merged = mergeAnswers(previous?.configuration ?? {}, withoutUndefined(configuration));
       const resolved = await resolveLaunch(merged, workspaceRoots(workspace.uri), createLaunchPrompts(workspace.uri));
       if (!resolved.ok) {
         if (!resolved.cancelled) void vscode.window.showErrorMessage(`${configuration.name}: ${resolved.message}`);
@@ -109,3 +109,4 @@ export function registerRunDebugger(context: vscode.ExtensionContext, runForProj
 function withoutUndefined(configuration: vscode.DebugConfiguration): Record<string, unknown> {
   return Object.fromEntries(Object.entries(configuration).filter(([, value]) => value !== undefined));
 }
+

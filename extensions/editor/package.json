@@ -403,10 +403,10 @@
         "configurationAttributes": {
           "launch": {
             "required": [
-              "launch"
+              "kind"
             ],
             "properties": {
-              "launch": {
+              "kind": {
                 "type": "string",
                 "enum": [
                   "game",
@@ -418,7 +418,7 @@
                   "Test a board: start fresh on an explicit board and position with an explicit party.",
                   "Test a program: run one program under test settings (the fixture)."
                 ],
-                "description": "Which launch to start. Asked for when left out."
+                "description": "Which launch to start (the platform-services Launch kind). Asked for when left out."
               },
               "main": {
                 "type": "string",
@@ -432,50 +432,89 @@
                 "type": "integer",
                 "description": "The seed the run's random numbers start from; 0 when left out. Recorded in the run snapshot."
               },
-              "board": {
-                "type": "string",
-                "description": "Board test: the board to start on. Program test: the fixture board the program starts on. Asked for when left out."
-              },
-              "x": {
-                "type": "integer",
-                "description": "Start column: a one-based tile, or an absolute board pixel when the board uses pixel coordinates. Asked for when left out."
-              },
-              "y": {
-                "type": "integer",
-                "description": "Start row: a one-based tile, or an absolute board pixel when the board uses pixel coordinates. Asked for when left out."
-              },
-              "layer": {
-                "type": "integer",
-                "description": "Start layer, counted from 1. Asked for when left out."
+              "start": {
+                "type": "object",
+                "description": "Board test: where the run starts. Members left out are asked for.",
+                "properties": {
+                  "board": {
+                    "type": "string",
+                    "description": "The board, workspace-relative or under ${workspaceFolder}."
+                  },
+                  "x": {
+                    "type": "integer",
+                    "description": "Column: a one-based tile, or an absolute board pixel when the board uses pixel coordinates."
+                  },
+                  "y": {
+                    "type": "integer",
+                    "description": "Row: a one-based tile, or an absolute board pixel when the board uses pixel coordinates."
+                  },
+                  "layer": {
+                    "type": "integer",
+                    "description": "Layer, counted from 1."
+                  }
+                }
               },
               "party": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
-                "description": "Character (.tem) files, leader first. A board test needs 1 to 5; a program test may use [] for none. Asked for when left out."
+                "description": "Board test: 1 to 5 character (.tem) files, leader first. Asked for when left out."
               },
               "program": {
                 "type": "string",
                 "description": "Program test: the RPGCode program to run. Asked for when left out."
               },
-              "font": {
-                "type": "string",
-                "description": "Program test: the message font's name, or \"\" for the game's default. Asked for when left out."
-              },
-              "fontSize": {
-                "type": [
-                  "number",
-                  "null"
-                ],
-                "description": "Program test: the message font's size in points, or null for the game's default. Asked for when left out."
-              },
-              "windowGraphic": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "description": "Program test: the message-window graphic, or null for none. Asked for when left out."
+              "fixture": {
+                "type": "object",
+                "description": "Program test: the test settings, as a ProgramFixture. Left out entirely, every setting is asked for. Given, an absent font, fontSize, windowGraphic or start means the game's default, none, or no board; only a missing party is asked for.",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "description": "What names this fixture in results; the program path when left out."
+                  },
+                  "font": {
+                    "type": "string",
+                    "description": "The message font's name; the game's default when left out."
+                  },
+                  "fontSize": {
+                    "type": "number",
+                    "description": "The message font's size in points; the game's default when left out."
+                  },
+                  "windowGraphic": {
+                    "type": "string",
+                    "description": "The message-window graphic; none when left out."
+                  },
+                  "party": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Character (.tem) files to add as the party, leader first; [] for none."
+                  },
+                  "start": {
+                    "type": "object",
+                    "description": "The board and position the program starts on; no board when left out.",
+                    "properties": {
+                      "board": {
+                        "type": "string",
+                        "description": "The board, workspace-relative or under ${workspaceFolder}."
+                      },
+                      "x": {
+                        "type": "integer",
+                        "description": "Column: a one-based tile, or an absolute board pixel when the board uses pixel coordinates."
+                      },
+                      "y": {
+                        "type": "integer",
+                        "description": "Row: a one-based tile, or an absolute board pixel when the board uses pixel coordinates."
+                      },
+                      "layer": {
+                        "type": "integer",
+                        "description": "Layer, counted from 1."
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -485,19 +524,19 @@
             "type": "tkr",
             "request": "launch",
             "name": "Run game",
-            "launch": "game"
+            "kind": "game"
           },
           {
             "type": "tkr",
             "request": "launch",
             "name": "Test board",
-            "launch": "board"
+            "kind": "board"
           },
           {
             "type": "tkr",
             "request": "launch",
             "name": "Test program",
-            "launch": "program"
+            "kind": "program"
           }
         ],
         "configurationSnippets": [
@@ -508,7 +547,7 @@
               "type": "tkr",
               "request": "launch",
               "name": "Run game",
-              "launch": "game",
+              "kind": "game",
               "main": "^\"\\${workspaceFolder}/Main/${1:game}.gam\"",
               "projectFolder": "${2:Game/MyGame}"
             }
@@ -520,15 +559,17 @@
               "type": "tkr",
               "request": "launch",
               "name": "Test board",
-              "launch": "board",
+              "kind": "board",
               "main": "^\"\\${workspaceFolder}/Main/${1:game}.gam\"",
               "projectFolder": "${2:Game/MyGame}",
-              "board": "^\"\\${workspaceFolder}/${2}/Boards/${3:start}.brd\"",
-              "x": 1,
-              "y": 1,
-              "layer": 1,
+              "start": {
+                "board": "${2}/Boards/${3:start}.brd",
+                "x": 1,
+                "y": 1,
+                "layer": 1
+              },
               "party": [
-                "^\"\\${workspaceFolder}/${2}/Chrs/${4:hero}.tem\""
+                "${2}/Chrs/${4:hero}.tem"
               ]
             }
           },
@@ -539,18 +580,19 @@
               "type": "tkr",
               "request": "launch",
               "name": "Test program",
-              "launch": "program",
+              "kind": "program",
               "main": "^\"\\${workspaceFolder}/Main/${1:game}.gam\"",
               "projectFolder": "${2:Game/MyGame}",
-              "program": "^\"\\${workspaceFolder}/${2}/Prg/${3:program}.prg\"",
-              "board": "^\"\\${workspaceFolder}/${2}/Boards/${4:start}.brd\"",
-              "x": 1,
-              "y": 1,
-              "layer": 1,
-              "party": [],
-              "font": "",
-              "fontSize": null,
-              "windowGraphic": null
+              "program": "${2}/Prg/${3:program}.prg",
+              "fixture": {
+                "party": [],
+                "start": {
+                  "board": "${2}/Boards/${4:start}.brd",
+                  "x": 1,
+                  "y": 1,
+                  "layer": 1
+                }
+              }
             }
           }
         ]

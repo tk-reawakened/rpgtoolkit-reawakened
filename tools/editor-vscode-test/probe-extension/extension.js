@@ -112,9 +112,9 @@ function activate(context) {
     const workspace = vscode.workspace.workspaceFolders?.[0];
     if (workspace === undefined) throw new Error("The proof workspace is not open");
     const started = await vscode.debug.startDebugging(workspace, {
-      type: "tkr", request: "launch", name: "Proof board", launch: "board",
+      type: "tkr", request: "launch", name: "Proof board", kind: "board",
       main: "${workspaceFolder}/Main/example.gam", projectFolder: "Game/Example", seed: 23,
-      board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1, party: ["Game/Example/Chrs/ada.tem"],
+      start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 }, party: ["Game/Example/Chrs/ada.tem"],
     });
     report(started ? "Debug launch accepted" : "Debug launch refused");
   }));

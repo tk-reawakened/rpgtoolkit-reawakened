@@ -57,9 +57,9 @@ test("initialize declares restart and terminate, no breakpoints, then says it is
 test("launch starts one run, shows its snapshot, and reports state and diagnostics to the Debug Console", async () => {
   const run = harness();
   await run.request("initialize");
-  const response = await run.request("launch", { launch: "board", name: "Test board" });
+  const response = await run.request("launch", { kind: "board", name: "Test board" });
   assert.equal(response.success, true);
-  assert.deepEqual(run.started, [{ launch: "board", name: "Test board" }]);
+  assert.deepEqual(run.started, [{ kind: "board", name: "Test board" }]);
   assert.match(run.console(), /Run snapshot: board launch, runner runner-web, seed 23\./);
   assert.match(run.console(), /Main\/quest\.gam {2}sha256 a{64}/);
   run.runs[0]!.report({ state: "running", tick: 4, board: "Boards/village.brd" });
@@ -76,7 +76,7 @@ test("launch starts one run, shows its snapshot, and reports state and diagnosti
 
 test("a run that ends, or whose tab is closed, ends the debug session", async () => {
   const run = harness();
-  await run.request("launch", { launch: "game" });
+  await run.request("launch", { kind: "game" });
   run.runs[0]!.report({ state: "ended", message: "The player closed.", stateHash: "0123456789abcdef" });
   assert.deepEqual(run.events("exited").map((message) => message.body), [{ exitCode: 0 }]);
   assert.equal(run.events("terminated").length, 1);
@@ -85,7 +85,7 @@ test("a run that ends, or whose tab is closed, ends the debug session", async ()
 
 test("Stop from the toolbar stops the run handle", async () => {
   const run = harness();
-  await run.request("launch", { launch: "game" });
+  await run.request("launch", { kind: "game" });
   const response = await run.request("terminate");
   assert.equal(response.success, true);
   assert.equal(run.runs[0]!.stopped, true);
@@ -97,14 +97,14 @@ test("Stop from the toolbar stops the run handle", async () => {
 
 test("Restart stops the old run and starts the configuration again with a new snapshot", async () => {
   const run = harness();
-  await run.request("launch", { launch: "game", main: "Main/quest.gam" });
-  const response = await run.request("restart", { arguments: { launch: "game", main: "Main/quest.gam", seed: 4 } });
+  await run.request("launch", { kind: "game", main: "Main/quest.gam" });
+  const response = await run.request("restart", { arguments: { kind: "game", main: "Main/quest.gam", seed: 4 } });
   assert.equal(response.success, true);
   assert.equal(run.runs.length, 2);
   assert.equal(run.runs[0]!.stopped, true);
   assert.equal(run.runs[1]!.stopped, false);
   assert.notDeepEqual(run.runs[1]!.handle.snapshot, run.runs[0]!.handle.snapshot);
-  assert.deepEqual(run.started.at(-1), { launch: "game", main: "Main/quest.gam", seed: 4 });
+  assert.deepEqual(run.started.at(-1), { kind: "game", main: "Main/quest.gam", seed: 4 });
   assert.equal(run.events("terminated").length, 0, "the old run's end does not end the session");
   run.runs[1]!.report({ state: "failed", message: "Missing board." });
   assert.deepEqual(run.events("exited").map((message) => message.body), [{ exitCode: 1 }]);
@@ -113,7 +113,7 @@ test("Restart stops the old run and starts the configuration again with a new sn
 
 test("a refused start answers the launch with the run service's reason", async () => {
   const run = harness(["refuse"]);
-  const response = await run.request("launch", { launch: "game" });
+  const response = await run.request("launch", { kind: "game" });
   assert.equal(response.success, false);
   assert.match(String(response.message), /saved file changed/);
   assert.equal(run.runs.length, 0);

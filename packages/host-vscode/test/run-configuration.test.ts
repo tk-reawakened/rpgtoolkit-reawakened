@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { launchConfiguration, resolveLaunch, toWorkspacePath, type LaunchPrompts } from "../src/run-configuration.ts";
+import { launchConfiguration, mergeAnswers, resolveLaunch, toWorkspacePath, type LaunchPrompts } from "../src/run-configuration.ts";
 
 const ROOTS = ["file:///work/quest", "/work/quest"];
 
@@ -20,7 +20,7 @@ function scripted(answers: Partial<Record<keyof LaunchPrompts, unknown[]>>): { p
 
 test("a complete game configuration maps onto a game launch without asking", async () => {
   const { prompts, asked } = scripted({});
-  const resolved = await resolveLaunch({ launch: "game", main: "/work/quest/Main/quest.gam", projectFolder: "Game/Quest", seed: 9 }, ROOTS, prompts);
+  const resolved = await resolveLaunch({ kind: "game", main: "/work/quest/Main/quest.gam", projectFolder: "Game/Quest", seed: 9 }, ROOTS, prompts);
   assert.deepEqual(resolved, { ok: true, launch: { kind: "game", main: "Main/quest.gam", projectFolder: "Game/Quest", seed: 9 } });
   assert.deepEqual(asked, []);
 });
@@ -45,7 +45,7 @@ test("an empty configuration asks for the launch and every value, in the palette
 test("a board test asks only for what is missing and requires a party", async () => {
   const { prompts, asked } = scripted({ coordinate: [1], party: [["Game/Quest/Chrs/ada.tem"]] });
   const resolved = await resolveLaunch({
-    launch: "board", main: "Main/quest.gam", projectFolder: "Game/Quest", board: "Game/Quest/Boards/village.brd", x: 4, y: 5,
+    kind: "board", main: "Main/quest.gam", projectFolder: "Game/Quest", start: { board: "Game/Quest/Boards/village.brd", x: 4, y: 5 },
   }, ROOTS, prompts);
   assert.deepEqual(resolved, {
     ok: true,
@@ -54,38 +54,49 @@ test("a board test asks only for what is missing and requires a party", async ()
   assert.deepEqual(asked, ["coordinate(layer)", "party(Game/Quest,true)"]);
 });
 
-test("a full program fixture is taken from the configuration", async () => {
-  const resolved = await resolveLaunch({
-    launch: "program", main: "Main/quest.gam", projectFolder: "", program: "Prg/start.prg", board: "Boards/village.brd", x: 1, y: 1, layer: 1,
-    party: ["Chrs/ada.tem"], font: "Liberation Sans", fontSize: 18, windowGraphic: "Bitmap/window.png",
-  }, ROOTS, scripted({}).prompts);
-  assert.ok(resolved.ok);
-  assert.deepEqual(resolved.launch, {
+test("a configured program fixture is a ProgramFixture as written; only its party is asked for", async () => {
+  const launch = {
     kind: "program", main: "Main/quest.gam", projectFolder: "", program: "Prg/start.prg",
-    fixture: { id: "Prg/start.prg", party: ["Chrs/ada.tem"], font: "Liberation Sans", fontSize: 18, windowGraphic: "Bitmap/window.png",
+    fixture: { id: "smoke", party: ["Chrs/ada.tem"], font: "Liberation Sans", fontSize: 18, windowGraphic: "Bitmap/window.png",
       start: { board: "Boards/village.brd", x: 1, y: 1, layer: 1 } },
-  });
-  // A restart reruns exactly this launch without asking again.
-  const again = await resolveLaunch(launchConfiguration(resolved.launch), ROOTS, scripted({}).prompts);
-  assert.deepEqual(again, resolved);
+  };
+  // A Launch object is a valid configuration verbatim, and a restart reruns it without asking again.
+  const resolved = await resolveLaunch(launch, ROOTS, scripted({}).prompts);
+  assert.deepEqual(resolved, { ok: true, launch });
+  assert.deepEqual(await resolveLaunch(launchConfiguration(launch as never), ROOTS, scripted({}).prompts), resolved);
+  // Absent optional fixture fields mean the default / none / no board; they are not asked for.
+  const { prompts, asked } = scripted({ party: [[]] });
+  const bare = await resolveLaunch({ kind: "program", main: "Main/quest.gam", projectFolder: "", program: "Prg/start.prg", fixture: {} }, ROOTS, prompts);
+  assert.deepEqual(bare, { ok: true, launch: { kind: "program", main: "Main/quest.gam", projectFolder: "", program: "Prg/start.prg", fixture: { id: "Prg/start.prg", party: [] } } });
+  assert.deepEqual(asked, ["party(,false)"]);
+  const named = await resolveLaunch({ name: "Smoke test", kind: "program", main: "Main/quest.gam", projectFolder: "", program: "Prg/start.prg", fixture: { party: [] } }, ROOTS, scripted({}).prompts);
+  assert.ok(named.ok && named.launch.kind === "program" && named.launch.fixture.id === "Smoke test", "a missing fixture.id is the configuration's name (D8.7)");
+});
+
+test("a restart keeps the session's answers under a partly given start", () => {
+  const previous = { kind: "board", main: "Main/quest.gam", start: { board: "Boards/a.brd", x: 3, y: 4, layer: 1 }, party: ["Chrs/ada.tem"] };
+  assert.deepEqual(mergeAnswers(previous, { kind: "board", start: { board: "Boards/b.brd" } }),
+    { kind: "board", main: "Main/quest.gam", start: { board: "Boards/b.brd", x: 3, y: 4, layer: 1 }, party: ["Chrs/ada.tem"] });
 });
 
 test("cancelling any question cancels the launch", async () => {
-  const resolved = await resolveLaunch({ launch: "game" }, ROOTS, scripted({ main: ["Main/quest.gam"], projectFolder: [undefined] }).prompts);
+  const resolved = await resolveLaunch({ kind: "game" }, ROOTS, scripted({ main: ["Main/quest.gam"], projectFolder: [undefined] }).prompts);
   assert.deepEqual(resolved, { ok: false, cancelled: true });
 });
 
 test("a wrong value refuses with the field's name instead of being guessed or asked", async () => {
   const cases: Array<[Record<string, unknown>, RegExp]> = [
-    [{ launch: "debug" }, /"launch"/],
-    [{ launch: "game", main: "Main/quest.gam", projectFolder: "", seed: 1.5 }, /"seed"/],
-    [{ launch: "game", main: "Main/quest.txt", projectFolder: "" }, /"main"/],
-    [{ launch: "game", main: "/elsewhere/quest.gam", projectFolder: "" }, /"main"/],
-    [{ launch: "game", main: "Main/quest.gam", projectFolder: "Boards" }, /"projectFolder"/],
-    [{ launch: "board", main: "Main/quest.gam", projectFolder: "", board: "../x.brd" }, /"board"/],
-    [{ launch: "board", main: "Main/quest.gam", projectFolder: "", board: "Boards/a.brd", x: "1", y: 1, layer: 1 }, /"x"/],
-    [{ launch: "board", main: "Main/quest.gam", projectFolder: "", board: "Boards/a.brd", x: 1, y: 1, layer: 1, party: "Chrs/a.tem" }, /"party"/],
-    [{ launch: "program", main: "Main/quest.gam", projectFolder: "", program: "Prg/a.prg", board: "Boards/a.brd", x: 1, y: 1, layer: 1, party: [], font: "", fontSize: 0 }, /"fontSize"/],
+    [{ kind: "debug" }, /"kind"/],
+    [{ kind: "game", main: "Main/quest.gam", projectFolder: "", seed: 1.5 }, /"seed"/],
+    [{ kind: "game", main: "Main/quest.txt", projectFolder: "" }, /"main"/],
+    [{ kind: "game", main: "/elsewhere/quest.gam", projectFolder: "" }, /"main"/],
+    [{ kind: "game", main: "Main/quest.gam", projectFolder: "Boards" }, /"projectFolder"/],
+    [{ kind: "board", main: "Main/quest.gam", projectFolder: "", start: "Boards/a.brd" }, /"start"/],
+    [{ kind: "board", main: "Main/quest.gam", projectFolder: "", start: { board: "../x.brd" } }, /"start\.board"/],
+    [{ kind: "board", main: "Main/quest.gam", projectFolder: "", start: { board: "Boards/a.brd", x: "1", y: 1, layer: 1 } }, /"start\.x"/],
+    [{ kind: "board", main: "Main/quest.gam", projectFolder: "", start: { board: "Boards/a.brd", x: 1, y: 1, layer: 1 }, party: "Chrs/a.tem" }, /"party"/],
+    [{ kind: "program", main: "Main/quest.gam", projectFolder: "", program: "Prg/a.prg", fixture: { party: [], fontSize: 0 } }, /"fixture\.fontSize"/],
+    [{ kind: "program", main: "Main/quest.gam", projectFolder: "", program: "Prg/a.prg", fixture: { party: [], start: { board: "Boards/a.brd", x: 1, y: 1, layer: 1.5 } } }, /"fixture\.start\.layer"/],
   ];
   for (const [configuration, field] of cases) {
     const resolved = await resolveLaunch(configuration, ROOTS, scripted({}).prompts);
