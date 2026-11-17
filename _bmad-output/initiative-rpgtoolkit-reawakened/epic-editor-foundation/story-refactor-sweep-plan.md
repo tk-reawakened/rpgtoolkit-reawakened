@@ -3,11 +3,14 @@ title: "Refactor sweep"
 type: refactor
 ticket: 12
 created: 2026-11-16
-status: in-progress
+status: built
 baseline_revision: ef5575585924d5ba2db3545436148df0ddae6db1
 route: oneshot
 route_source: auto
 risk: low
+review: quick
+review_source: pinned
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - "{project-root}/docs/guardrails.md"
@@ -34,11 +37,15 @@ Oneshot: approximately 100 lines or fewer of focused code/tests, with mechanical
 - #2933 tracks stale ADR 0025/epic allocation notes and the contributor guide's single-field tracer description. Record the split toolchain and mounted CSP delivery without rewriting historical owner decisions or claiming a new policy. Document shutdown behavior before its implementation, in a separate docs-first commit.
 - #2859/#2884 describe browser proof fixes now present in merged History. Check each acceptance clause against the actual tests and successful merged-head CI before closing; preserve any uncovered requirement instead of assuming closure.
 - Implemented bounded server shutdown with cleared deadline timers, explicit forced/incomplete-shutdown errors, and handle/stdio release if the close receipt is still absent. The original primary-error aggregation and workspace cleanup remain intact. Both new regressions use a real IPC-acknowledging child with open stdin (no real timer sleeps); the second holds its close receipt to exercise the final deadline.
-- Verified under pinned Node 24.21.0 (the workstation default is Node 26.13.0). The old implementation failed the new escalation regression in 47.03 ms. Replacing SIGKILL with SIGTERM failed the forced-stop assertion; inserting an unbounded post-kill close wait failed the missing-receipt guard. Restored implementations passed individually in 88.74 ms and 85.22 ms; the complete lifecycle file passed 8/8, zero skips. Root build, proof-test typecheck, scoped lint and provenance (1,641 files, zero violations) passed. Actual native teardown proof and independent review remain pending.
+- Verified under pinned Node 24.21.0 (the workstation default is Node 26.13.0). The old implementation failed the new escalation regression in 47.03 ms. Replacing SIGKILL with SIGTERM failed the forced-stop assertion; inserting an unbounded post-kill close wait failed the missing-receipt guard. Restored implementations passed individually in 88.74 ms and 85.22 ms; the complete lifecycle file passed 8/8, zero skips. Root build, proof-test typecheck, scoped lint and provenance (1,641 files, zero violations) passed.
+- Actual local runtime verification passed on the same source: browser History/New Project acceptance 2/2 (7.2 seconds), proof wrapper 13/13 with zero skips, and the complete unflagged native workbench proof in both cancel/keep modes (197.22 seconds), including ordinary server teardown. Fresh-checkout attempts first exposed missing fixture and language-extension build prerequisites; supplying the existing CI-declared prerequisites resolved setup without changing assertions or product behavior.
+- Closed #2859 and #2884 after mapping every acceptance clause to merged PR #2829's persisted-byte/group assertions and successful exact-head CI run `43991181757`, then rerunning the focused browser and complete native proofs locally. Standalone Git and story 11.13 remain separate.
 
 ## Plan Change Log
 
 ## Review Triage Log
+
+- Quick review of source head `fc95b8120adbf6adf624eefb3cf88c6fb628b358`, split between independent lifecycle/error/resource review and documentation/policy/allocation review: both returned no findings. Reviewers did not rerun the submitted verification or claim the pending native proof had passed.
 
 ## Verification
 
