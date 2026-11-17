@@ -3,7 +3,7 @@ title: Animation frames playback and creation wizard
 type: feature
 ticket: 7
 created: 2026-11-15
-status: built
+status: done
 baseline_revision: 96beab02b5bf791a031ae98f9f0957471021c61d
 route: full
 route_source: auto
@@ -178,3 +178,7 @@ The required browser job exposed an integration-only proof failure after the new
 Reproduced the original failure locally with the full unfiltered editor proof and the CI fixture layout (copy `docs/spec/examples/game/Game/Example/.` into a temporary workspace, add `Main/example.gam`, and set `.vscode/settings.json` to `files.autoSave: off`). After `pnpm build`, `node packages/host-vscode/build.mjs`, and `node extensions/editor/build.mjs`, run `pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace "$proof_dir" --game Main/example.gam` without any focused selector. Original navigation failed with the same missing `__tkr_sentinel.gam` treeitem assertion as CI. The identical full command with corrected navigation exited 0, including animation, sprite, new-project and both cancel/keep settings/board/art/bitmap branches. Red log: `/tmp/2699-vscode-full-red.log`; green log: `/tmp/2699-vscode-full-green.log`.
 
 Scoped checks also passed: `pnpm exec tsc -p tools/editor-vscode-test/tsconfig.test.json`, `pnpm exec eslint tools/editor-vscode-test/web-proof.ts`, and `git diff --check`. No product behavior, expected result or required assertion was weakened. Local Node remains 26.13.0; the required remote rerun validates the pinned Node version.
+
+### Merged closure reconciliation, 2026-11-16
+
+PR #2699 merged as `7e9d1c2aedd071b2337c48d6aee1e35ad05c9585` and closed #1718. The merge is an ancestor of the current `origin/main` baseline `684f4e01b5e9aa13cbba61a969820d717c2377f1`. The full model, shared UI, two-host wizard/recovery and negative-proof evidence above belongs to that merged implementation; this update corrects stale `built` metadata, introduces no behavior and claims no new test run. General history remains #1828, not part of this closure.
