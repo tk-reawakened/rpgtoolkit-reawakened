@@ -2,7 +2,7 @@
 type: feature
 title: "Keep document history, checkpoint groups and package exclusion"
 ticket: 14
-status: in-review
+status: built
 review: quick
 review_source: pinned
 lenses_ran: [quick]
@@ -51,3 +51,7 @@ Implementation is built; merge/closure still awaits independent exact-head revie
 - Final review found #2915: the requested game path was raw text while `open-uri` was URI-encoded. Correlation now compares the decoded URI pathname and retains the original full URI for the resolve check. The focused regression covers spaces, `#`, `%`, `?`, non-ASCII names, literal percent sequences and unrelated/stale events; it passed by itself in 1.26 ms. Proof-test typecheck and scoped lint passed. The canonical default browser receipt above precedes this URI-only oracle repair; final exact-head CI remains required.
 
 Integrated creator proof regression #2916: CI43984757689 completed the default editor proof, then the creator race assertion failed. Its pause waited for the diagnostic save trace, which is now intentionally fire-and-forget and cannot block the real save. The proof now pauses the existing physical-write gate for `/Main/example.gam`, waits for its actual `write-request`, edits native text while that write remains held, and releases in `finally`; unchanged assertions require save-race refusal and no test-case execution. No production save behavior changed. The focused actual VS Code Web creator proof passed locally (`proc://creator-physical-save-race`, exit0, harness13/13), including the original write-refusal and changed-during-save assertions, real frame/source-link/hash parity; proof typecheck, scoped lint and runner syntax also passed. Independent rereview and exact new-head CI remain required.
+
+Animation keyboard-order proof regression #2917: CI43986440792 passed other required job groups but observed the old frame order after `Move later`. The proof had dispatched keyboard input after a fixed settling delay even though the preceding save can still disable that button; unlike pointer click, keyboard dispatch does not wait for enabled state. It now waits for the real button to be enabled and for `Frame 2: z.gif` to become current before saving. All persisted-byte and reopened sound/color assertions remain unchanged; no production behavior changed. The actual local focused native animation proof passed (`bg_123`, exit0, 13/13 harness), including sorted-frame creation, metadata/order save and reopen, partial-write refusal/retry, restart and persistent recovery. Scoped proof typecheck and lint passed. Independent review and final exact-head CI are still required.
+
+Final source rereview approved the frozen #2917 keyboard-order repair against `2f944fe523b9232fbf27432be34a59ff6386f1e0`, incorporating earlier reviewed repairs. The proof observes successful actual reordering before Save without retrying the action or weakening metadata/recovery checks. The implementation is built; merge and closure remain gated on the final committed head's required CI.
