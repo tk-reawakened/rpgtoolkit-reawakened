@@ -101,3 +101,10 @@ Jensen requested a dedicated styling work item and a shared design language defi
 | Character 29.1 and board 30.1 | Their existing epics | Consume 11.22/11.23 for shared presentation; retain specialized task composition and behavior in their own stories. |
 
 These are follow-on foundation stories in the backlog, without a sprint. They do not reopen closed initial styling #2703 or the completed 11.12 sweep, and do not enlarge the original 11.13 baseline proof. Their own acceptance covers the added scope. Shared styling uses representative current editors, so it does not depend on the future character/board redesigns and creates no dependency cycle. Older design research remains historical where the newer contract supersedes it.
+
+## Original baseline acceptance delivered, 2026-11-17
+
+Story 11.13/#1711 is delivered by [PR #3014](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3014), merged as `399ad2bcde28d63a8d707d7043154bfbb21d4cfc`. [CI 44028482948](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/44028482948) passed at exact head `2ed9552d7688d97d7a61c4a6452da9e5fb4adaaa`, including the required gate. The local `pnpm editor:acceptance` command passed all nine sections; the final strengthened adapter phase passed 97/97 with no skips.
+
+The [story's merged acceptance audit](story-close-the-foundation-with-cross-host-authoring-acceptance-plan.md#merged-acceptance-audit) maps all five original Done-when clauses to observable proofs and distinguishes adapter checks from actual UI hosts. History 11.14 and cleanup 11.12 were merged first. The original baseline is complete, not the entire expanded epic: 11.22/#2987 has now started in the current sprint, 11.23/#2988 remains its unstarted follow-on, and this parent stays open. Their original backlog allocation above is historical. Standalone Git #1829 remains outside the baseline closing path and is not claimed delivered.
+
