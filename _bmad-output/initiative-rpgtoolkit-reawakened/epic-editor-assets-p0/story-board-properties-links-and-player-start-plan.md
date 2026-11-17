@@ -2,7 +2,7 @@
 type: feature
 title: "Board properties links and player start"
 ticket: 3
-status: in-progress
+status: built
 created: 2026-11-16
 baseline_revision: 684f4e01b5e9aa13cbba61a969820d717c2377f1
 route: full
@@ -64,7 +64,7 @@ No new renderer, navigation stack, program editor or hot reload. No legacy GPL s
 - [x] Wire both hosts through existing project ownership, navigation, pending edits and main save/undo, with no feature UI duplicated in hosts.
 - [x] Prove persistence/untouched-data, invalid/save-failure and coordinate boundaries in focused tests. New ordinary tests individually under one second; behavior-removing perturbations must fail assertions, then restore green.
 - [x] Real browser and VS Code: run the parent-owned proofs for edit/save/reopen settings/start, linked board/program/thread return and initial-board edit/cancel.
-- [ ] Update changelog and append implementation evidence here. Independent review; fix practical blockers, issue-track non-blocking findings. Parent runs local project gates before push/PR/merge.
+- [x] Update changelog and append implementation evidence here. Independent review; fix practical blockers, issue-track non-blocking findings. Parent runs local project gates before push/PR/merge.
 
 Given a supported authored board with nondefault properties and objects, when supported fields and start are edited/saved/reopened in both hosts, then changes persist with every unrelated field intact. Given a link or thread, opening and returning uses the existing provider and restores the board selection. Given confirmed initial-board action, only the owning main startup setting changes and both documents reopen correctly.
 
@@ -78,7 +78,7 @@ The implementation worker owns this story's code/tests/plan/changelog, not unrel
 
 - 2026-11-16: resumed blocked plan after #1705 closed and program provider was verified in current main. Owner authorizes recommended decisions and continuing automatically. Risk raised to high for cross-host/main-document coordination.
 - 2026-11-16 implementation: added undoable model support for board settings/links/threads/constants/layer titles/start with round-trip refusal; shared board-properties controls for settings, navigation and starting-point editing; geometry-based pointer/numeric placement, layered start marker and initial/every preference; web and VS Code navigation/main-file ownership wiring, including VS Code's Return to board command. Fixed one-based layer-title rendering without consuming slot 0 (#2994). Added editor-model board persistence/rejection coverage and a focused layer-title view assertion. Changelog updated. Parent owns verification and host proofs; no builds, tests, or formatters were run.
-- The parent verification record below supersedes the initial worker handoff. Keep the story in progress until the remaining closing gates pass; independent review has cleared the practical findings.
+- Parent verification below supersedes the initial worker handoff. Implementation is committed and built; #1714 remains open until the reviewed delivery PR merges.
 
 ## Review Triage Log
 
@@ -112,9 +112,12 @@ Focused model/UI/host tests and paced real-host proofs first. Then `pnpm typeche
 - `pnpm lint`, `pnpm graph`, `pnpm licence`, `pnpm provenance`, `pnpm catalogue:check` and `pnpm command-docs:check` passed. Generated Help release notes were refreshed from the changelog; `pnpm editor-ui-toolchain:check` passed.
 - Full local `pnpm test:strict` passed 5,119/5,119 with no skipped tests. The focused shell/board/navigation integration files passed 41/41. Tile tests now select the tile control explicitly; stale release-note prose and mounted-pane-count assertions were removed rather than re-pinned. Native unknown-kind refusal is guarded by behavior assertions, not diagnostic wording.
 - `pnpm golden` and `pnpm golden:bun` compared all 24 scenes; Node and Bun closing each matched all 8 legacy-game baselines (2 clean boots, 6 expected located failures). No golden was changed.
-- `pnpm bmad:tickets:test` passed 34 ticket tests and 88 issue-preflight tests, followed by successful store validation. The full browser suite, normal packaged VS Code integration and PR/merge metadata remain to be recorded.
+- `pnpm bmad:tickets:test` passed 34 ticket tests and 88 issue-preflight tests, followed by successful store validation. Full host receipts follow below; PR/merge metadata remains pending.
 
 ### Full integration receipts, 2026-11-17
 
 - The complete browser run exercised 131 cases: 124 passed initially. The seven failures exposed Run-control flex shrinking under Return (#3011), plus stale disconnected-view and unscoped hidden-pane selectors. The Run group now keeps its natural width; assertions target the selected visible editor without changing their pixel, saved-byte, launch or source-location oracles. After rebuilding, `pnpm exec playwright test --last-failed --workers=1` passed all seven. The existing real New run setup and Stop actions verify the layout repair.
-- The normal packaged VS Code sequence exposed a separate fixture-layout blocker (#3018): root-folder packaging scenarios were given the surrounding Toolkit tree rather than the loose-folder asset contents. The harness now resolves and copies the declared asset directory, keeps the original main bytes and real preflight, and creates the late board-properties fixtures' parent directories. The complete native sequence is being rerun; no assertion or scenario has been skipped.
+- The normal packaged VS Code sequence exposed a fixture-layout blocker (#3018): root-folder packaging scenarios were given the surrounding Toolkit tree rather than loose-folder asset contents. The harness now resolves and copies the declared asset directory, keeps the original main bytes and real preflight, and creates the late board-properties fixtures' parent directories.
+- Its board-frame resolver also requires the browser's document focus, rather than selecting an occluded retained webview merely because its inner controls report visible (#3012).
+- After these repairs, the complete `pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace docs/spec/examples/game --game Main/example.gam` passed (203.60 seconds): 13 bootstrap tests, animation/recovery and sprite proofs, settings/board/art/bitmap with both cancel and keep choices, New project/native program history, and the new board-properties/linked-return/main-ownership flow. No assertion or scenario was skipped.
+- Integrated `origin/main` at `399ad2bcd`, including the merged planning cutover and foundation acceptance work. Incoming main changed no production editor implementation. On the combined tree, full `pnpm typecheck`, all 243 host/graph contract tests, store validation (551 trackers, 438 plans, 35 folders), Help/toolchain checks and the changed native harness lint passed.
