@@ -127,3 +127,15 @@ If one fires, the first step is to write an ADR that weighs Vue and React again,
    * Chromium only (no WebKit or Firefox) and Node 26.13.0 rather than the pinned 24.21.0;
    * whether `dependency-cruiser` and the lint scope read `.tsx` as measured by file globs, which were not run;
    * second-hand registry, GitHub and docking-library facts that were not re-fetched, and contributor shares that indicate bus factor but not review authority.
+
+## Follow-up delivery
+
+The initial toolchain and mounted-host checks are delivered. The references to the first settings story above describe the original umbrella, which was later split: the toolchain story delivered the dependency, JSX setup and bundle checks; the adapter story delivered the mounted browser and VS Code checks, including the strict content-security-policy probe. The small browser fixture remains an additional control, not a substitute for the mounted-host proof.
+
+This is a delivery record, not a change to the framework decision or its script, style or Monaco policy.
+
+### References
+
+- [Toolchain story #1831](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1831).
+- [Mounted-host adapter story #1833](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1833).
+- [Merged mounted-host proof #2095](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/2095).
