@@ -1,24 +1,5 @@
----
-type: feature
-title: "Item uses equipment pricing and placement links"
-ticket: 6
-status: draft
----
+# Moved to story 29.7
 
-# Item uses equipment pricing and placement links
+On 2026-11-16, the owner moved 12.6 into Epic 29's shared character, NPC, item and enemy authoring work. GitHub issue #1722 and its history are unchanged.
 
-## Scope
-
-Author item identity, equipment, menu, board and battle uses, prices and eligible characters with shared sprite graphics and explicit definition versus instance scope.
-
-Cover description, key item, buy/sell, eligible characters, equipment slots/bonuses/animation/equip and remove programs, menu/battle HP/SMP and program, board activation and multitask programs; distinguish shared definition from placed instance and retain originating selection.
-
-## Acceptance and verification
-
-An item with distinct equipment and use programs saves and reopens, and visiting it from a board placement retains that placement and its local overrides.
-
-Use the shared document lifecycle and preserve same-version unknown data; exercise relevant failure/cancel, keyboard access and save/reopen paths rather than relying on preview alone. Follow `discovery/inception-proposal.md`, `docs/editor-features.md` and G2/G7; do not claim checks passed without executing them.
-
-## Dependencies and decision gate
-
-Prerequisites: 4, 11. None newly identified; check the linked proposal and actual providers before implementation.
+The only active plan is [29.7](../epic-character-authoring/story-author-items-and-npcs-with-combinable-capabilities-plan.md). The former local slot 12.6 is retired and must not be reused. This file is a navigation note, not a second ticket or implementation plan.

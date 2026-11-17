@@ -1,12 +1,12 @@
-# Character experience rebuild. Existing fields and document contracts stay authoritative.
+# Shared character, NPC, item and enemy authoring. Existing data contracts stay authoritative.
 [[entry]]
 id = 1
 tracker_id = "#2962"
 type = "story"
-title = "Establish the character workspace and visual direction"
-description = "Walk the character tasks with real data, document their UX contract, and deliver a clear navigation and layout foundation using the TK Reawakened visual language."
-verify = "A working preview makes identity and starting values discoverable, preserves reachable existing controls, and demonstrates light, dark, high-contrast and narrow-pane layouts with reviewed captures."
-covers = ["CAP-15", "CAP-18"]
+title = "Establish the shared authoring workspace and visual direction"
+description = "Design the shared workspace against a party character, board NPC, equipment, usable item and battle enemy, then deliver reusable navigation and visual foundations."
+verify = "Representative sparse and populated fixtures validate all five journeys; working shared presentation proves identity, keyboard navigation, themes and narrow panes without claiming unfinished item or enemy functionality."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
 after = ["12.5"]
 hitl = false
 risk = "medium"
@@ -28,9 +28,9 @@ id = 3
 tracker_id = "#2964"
 type = "story"
 title = "Edit appearance and animation in context"
-description = "Place the selected stance, assignment, playback, timing and collision or activation shape together in the shared sprite editor, keeping full character and item functionality."
-verify = "A selected walk, idle, battle or custom stance previews beside its controls; drawing and numeric geometry editing agree, wizard cancellation is safe, and character/item save and reopen preserve independent assets."
-covers = ["CAP-15", "CAP-18"]
+description = "Place stance selection, assignment and preview together in reusable controls, with timing and geometry only for formats that support them."
+verify = "Character and item workflows preserve walk/idle/custom stances and bases; an authored enemy fixture proves the battle-stance subset, and 29.8 proves its real document integration."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
 after = [1, "12.4"]
 hitl = false
 risk = "medium"
@@ -60,13 +60,39 @@ hitl = false
 risk = "high"
 
 [[entry]]
+id = 7
+tracker_id = "#1722"
+type = "story"
+title = "Author items and NPCs with combinable capabilities"
+description = "Deliver item identity, equipment, menu, board and battle behavior, pricing and eligibility in the shared workspace, treating NPCs and board objects as supported item uses and retaining placement scope."
+verify = "NPC, equipment and usable-item fixtures exercise independent and combined capabilities, scripts, shared animation, prices and eligibility; save/reopen, undo and board visits preserve hidden values, residue and local overrides."
+covers = ["CAP-15", "CAP-18"]
+after = [1, 3, "12.4", "12.11"]
+hitl = false
+risk = "high"
+references = ["Moved from 12.6 on 2026-11-16; GitHub #1722 and its history are retained. Former slot 12.6 is retired."]
+
+[[entry]]
+id = 8
+tracker_id = "#1734"
+type = "story"
+title = "Author enemy combat behavior and rewards"
+description = "Deliver enemy stats, battle stances, moves, strengths and weaknesses, tactics, escape rules, critical chances and rewards in the shared workspace with actual encounter links."
+verify = "An authored enemy saves, reopens and loads in a real battle with custom stances, unedited fields and residue preserved; encounter navigation and version-preserving writes are proved."
+covers = ["CAP-16", "CAP-18"]
+after = [1, 3, "13.1", "2.6", "11.3", "11.4", "11.6", "12.4"]
+hitl = false
+risk = "high"
+references = ["Moved from 13.9 on 2026-11-16; GitHub #1734 and its history are retained. Former slot 13.9 is retired."]
+
+[[entry]]
 id = 6
 tracker_id = "#2967"
 type = "story"
-title = "Prove the connected character-authoring workflow"
-description = "Finish character-specific linked visits and return context, then demonstrate authoring, persistence and real game use in web, VS Code and each shipped standalone editor host."
-verify = "A repeatable authored-fixture walkthrough crosses every character section, follows and returns from real linked providers, saves and reopens the exact edits, and runs the game using the character; actual captures and keyboard checks accompany host-level evidence."
-covers = ["CAP-15", "CAP-18"]
-after = [2, 3, 4, 5, "11.4", "11.6", "11.7", "11.8"]
+title = "Prove connected character item and enemy authoring"
+description = "Complete definition-specific visits and return context, then prove character, NPC, equipment, usable-item and enemy journeys through saved data and real game use in each shipped host."
+verify = "All five journeys preserve document identity, local placement overrides, undo and saved values; real linked providers, runtime observations, keyboard checks and host captures prove the combined experience."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [2, 3, 4, 5, 7, 8, "11.4", "11.6", "11.7", "11.8", "13.10"]
 hitl = false
 risk = "high"

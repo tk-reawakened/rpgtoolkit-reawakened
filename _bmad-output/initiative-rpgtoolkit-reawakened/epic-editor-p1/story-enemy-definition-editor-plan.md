@@ -1,23 +1,5 @@
----
-type: feature
-title: "Enemy definition editor"
-ticket: 9
-status: draft
-risk: high
----
+# Moved to story 29.8
 
-## Intent
+On 2026-11-16, the owner moved 13.9 into Epic 29's shared character, NPC, item and enemy authoring work. GitHub issue #1734 and its history are unchanged.
 
-Edit enemy stats, standard and custom battle stances, move strengths and weaknesses, AI or program, run and defeat programs, critical chance and rewards using shared sprite and linked-asset services.
-
-## Scope and acceptance
-
-Use 12.4 sprite stance editing without inventing character-only battle geometry on enemy data; add-to-game opens the actual encounter-pool owner, and old text versions require same-version writer evidence or an explicit owner ruling.
-
-## Verification
-
-A representative enemy is edited, navigated from an encounter, saved, reopened and loaded by the real battle provider with unedited fields and residue intact.
-
-## Dependencies and decisions
-
-Prerequisites: 1, 2.6, 11.3, 11.4, 11.6, 12.4. Apply the epic Notes, format specs, AD-18/19/20/22/29 and connected-authoring direction; T-56 maps to CAP-16. Preserve version and residue, use the existing shared model and browser, and route host access through platform-services. Where provider or host capability is unavailable, preserve data and report the limitation; do not simulate it.
+The only active plan is [29.8](../epic-character-authoring/story-author-enemy-combat-behavior-and-rewards-plan.md). The former local slot 13.9 is retired and must not be reused. This file is a navigation note, not a second ticket or implementation plan.

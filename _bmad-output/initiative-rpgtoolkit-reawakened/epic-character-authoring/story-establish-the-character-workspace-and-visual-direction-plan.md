@@ -1,46 +1,44 @@
 ---
 type: feature
-title: "Establish the character workspace and visual direction"
+title: "Establish the shared authoring workspace and visual direction"
 ticket: 1
 status: draft
+risk: medium
 tracker_id: "#2962"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2962"
 ---
 
-# Establish the character workspace and visual direction
+# Establish the shared authoring workspace and visual direction
 
 ## User outcome
 
-An author understands where to change a character's identity, appearance, abilities, equipment and growth without first scrolling through every field. The editor has the visual character of TK Reawakened and remains a readable working tool.
+Authors recognize the asset and the task they are performing across a party character, board NPC, equipment, usable item and battle enemy. Shared appearance, references and navigation feel consistent, with the relevant behavior in view.
 
 ## Scope and dependencies
 
-Implements the experience foundation of CAP-15/CAP-18 and contributes to #2959. Depends on delivered character field coverage 12.5 (#1716). Read the epic's selected inputs and source-status distinctions first. Inspect the current editor and PR #2950 before changing shared chrome; reuse its final commands and Save integration. Do not wait for all of epic 12 to finish.
+CAP-15/CAP-16/CAP-18; T-50–T-56. Implementation waits for the Epic 29 gates: Epics 12 and 13 complete. Retain 12.5 (#1716) as the direct character foundation. Inspect current delivered code and PR #2950's final shell/Save contracts before touching shared chrome.
 
 ## Acceptance criteria
 
-1. Record actual walkthroughs of opening an existing character, beginning a new one, changing its look/stats, and reaching an advanced binding. Use authored sparse and populated fixtures. Capture the current state and identify the concrete interaction and hierarchy changes; do not treat historical screenshots as a fresh audit.
-2. Write the agreed character experience contract under `docs/` in a documentation commit before implementation. Map every T-50–T-54 control to its destination. The contract includes navigation, preview behavior, field grouping, accessible names, error/empty states and data/view-state ownership. No supported control disappears behind an unavailable destination.
-3. Deliver a working character workspace with recognizable identity context and direct access to the task groups. Overview, Appearance, Moves, Equipment, Progression and Advanced are the starting grouping to evaluate. Selecting a section does not modify the document, reset unsaved accepted edits, discard undo or create a second model.
-4. Apply reusable semantic styles inspired by the website palette and restrained framing. Gold emphasis identifies selected/primary states; focus and error states also have non-color cues. Light, dark and host high-contrast modes remain legible. Avoid per-field cards and fixed marketing-page spacing.
-5. At 1280×720 and in a 640px-wide editor pane, character identity and starting values are discoverable without scrolling past stance configuration. Navigation and primary actions are reachable; section content can scroll but the whole editor does not require horizontal scrolling.
-6. All navigation works by keyboard, exposes its selected state to assistive technology, and leaves focus in a meaningful location. Use native/semantic browser controls and the project's established navigation pattern; do not invent custom focus machinery without need.
-7. Review real captures of representative first views and section navigation before marking downstream stories ready. Record the commit, fixture, viewport, theme and host. Resolve actionable findings in this story or a linked defect; a static mockup alone is not completion.
+1. Walk the current delivered tools and inventory what is implemented versus missing. Evaluate five sparse and populated authored examples: party character, NPC, equipment, usable item and enemy. Use real data; prototypes for unfinished item/enemy functions are clearly identified and cannot count as implemented behavior.
+2. Commit an implementable UX contract under docs/ before code. Map every T-50–T-56 control to a primary owner and destination; record navigation, preview, grouping, empty/error states, keyboard/focus and data/view-state ownership. Preserve the four independent item capabilities and distinguish shared definitions from placements and runtime instances.
+3. Deliver working shared layout/navigation primitives and the character workspace using existing document authority. Evaluate task-appropriate section labels across all five examples. Section changes preserve unsaved accepted edits, undo, selected rows and one document identity; no unavailable destination hides an existing control.
+4. Show identity and primary controls first. An NPC presentation emphasizes appearance/board behavior; equipment emphasizes slots/bonuses; a usable item emphasizes use contexts/effects; enemies emphasize combat behavior. Other item capabilities remain discoverable and combinable. Do not infer type from names or rewrite/clear fields when changing presentation.
+5. Apply website-inspired semantic styles and restrained framing. Gold distinguishes selected/primary actions; non-color cues distinguish focus/error states. Light, dark and host high-contrast modes remain legible without per-field cards or marketing-page spacing.
+6. At 1280×720 and a 640px-wide pane, identity and everyday controls remain discoverable without scrolling through stance configuration or whole-editor horizontal scrolling. Longer sections may scroll. Capture all five representative layouts, marking prototype-only portions honestly.
+7. Register navigation and all other user-triggered actions in CommandRegistry and expose them in the palette. Controls dispatch those commands. Keyboard navigation, selected-state semantics, focus return and accessible labels follow established browser patterns.
+8. Review working captures of the shared foundation before downstream stories become ready. Record commit, fixture, viewport, theme and host. Track actionable findings as issues. The live item/enemy workflows are completed by 29.7/29.8 and verified by 29.6, not claimed from a static mockup here.
 
 ## Implementation boundaries
 
-Own the character composition/layout and its navigation; introduce only the shared presentation primitives needed here. Keep feature-specific changes in 29.2–29.5. Coordinate edits to the shared character view so those stories extend the same layout rather than replacing each other's file wholesale. Retain the shared sprite behavior used by items. A universal Database or new formats/IDs are not part of this story.
+Own the shared composition and presentation primitives; 29.2–29.5 retain character-specific work, 29.7 owns item behavior, and 29.8 owns the enemy document integration. No new formats, exclusive actor types, Database system or second document/Save/launch system. Existing native-kind proposals retain their authority and scope.
 
-## Verification
+## Verification and sources
 
-Exercise navigation with unsaved accepted edits, focused keyboard controls, narrow-pane resizing and retained document identity. Use focused component checks for meaningful state/focus behavior and actual browser/VS Code visual evidence. Do not write tests that only mirror CSS declarations. Follow the repository's fast-test and paced host-operation rules.
+Exercise navigation with unsaved edits, keyboard focus, narrow-pane resizing and retained document identity. Use meaningful component checks and actual browser/VS Code evidence; do not test CSS declarations as behavior. Follow fast-test and paced host-operation rules.
 
-## Sources
-
-- `docs/editor-features.md`, T-50–T-54; `docs/spec/formats/character.md#layout`.
-- `docs/adr/0022-shared-editor-authoring-contracts.md`, document identity, lifecycle and view state; ADR 0025 and ADR 0031.
-- Epic input documents: party decisions, EA-04/EA-06, SC-14/SC-15 and website palette. Older Database proposals remain proposals.
+Sources: docs/editor-features.md T-50–T-56; docs/spec/formats/character.md#layout; docs/spec/formats/item.md#board-items-vs-inventory-items; docs/spec/formats/enemy.md#layout; ADR 0022/0025/0031; the owner command rule and the epic's source map/consolidation decision.
 
 ## Completion record
 
-Not implemented. Add the documentation commit, visual review, captures and executed checks here when delivered.
+Not implemented. Record the documentation commit, visual review, captures and executed checks when delivered.
