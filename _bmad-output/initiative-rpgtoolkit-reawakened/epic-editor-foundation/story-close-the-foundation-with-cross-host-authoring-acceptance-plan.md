@@ -3,7 +3,7 @@ title: "Close the foundation with cross-host authoring acceptance"
 type: feature
 ticket: 13
 created: 2026-11-16
-status: built
+status: done
 baseline_revision: 2eaf991b966cbf528ab47514f20742e70ed40171
 review_base_revision: 34714e326dff69ce15392f70ddcf96a7791f4689
 route: oneshot
@@ -78,4 +78,19 @@ Oneshot: approximately 150 lines of orchestration, fixture isolation and existin
 - The expanded command, at the orchestration code now committed as `bb2a6d10fe5da4a15a1a0c040d8f22b38b86113f`, passed all nine sections in 287.55 seconds with source fixture directories/paths/bytes unchanged. This full run preceded the additional #2997 test-only assertions; the complete adapter phase was then rerun after those assertions and production restoration: 97/97, zero skips, strengthened browser case 108 ms.
 - #2997's focused case passed in 341 ms. A real `createAssetPicker.confirm` mutation returning `Bitmap/hero.png` instead of `hero.png` failed its canonical-reference assertion (330 ms); a separate mutation rewriting the selected asset with identical bytes failed the no-write revision check (`7 !== 6`, 242 ms). Both mutations were removed and the original production file restored before the successful 97-test adapter run.
 - Final view controls: withholding chosen-result completion failed the bounded guard in 624 ms; removing the real tab stop failed the focused-option guard in 299 ms. After the cleanup finding, the withheld-completion control failed normally in 663 ms while a temporary observer confirmed picker removal. Both view mutations and the observer were removed before final positive verification.
-- Final test-only fix: restored targeted build, complete adapter phase 97/97 (6.79 seconds aggregate, strengthened case 117 ms), scoped ESLint passed. Current-base provenance passed with 1,683 files and zero violations; canonical store validation passed with 551 tracker IDs, 438 plans and 35 folders. Required exact-head CI and merge are still pending; `built` is not a claim of merged closure.
+- Final test-only fix: restored targeted build, complete adapter phase 97/97 (6.79 seconds aggregate, strengthened case 117 ms), scoped ESLint passed. Current-base provenance passed with 1,683 files and zero violations; canonical store validation passed with 551 tracker IDs, 438 plans and 35 folders. Exact-head CI `44028482948` completed successfully at `2ed9552d7688d97d7a61c4a6452da9e5fb4adaaa`; required `gate` passed. PR #3014 merged as `399ad2bcde28d63a8d707d7043154bfbb21d4cfc` on 2026-11-17.
+
+## Merged acceptance audit
+
+Pinned implementation: `399ad2bcde28d63a8d707d7043154bfbb21d4cfc`; reviewed/tested PR head: `2ed9552d7688d97d7a61c4a6452da9e5fb4adaaa`; [CI 44028482948](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/44028482948), including required gate, succeeded. The local nine-section command and final modified adapter phase above supplement that exact-head CI.
+
+| Original epic clause | Observable proof |
+| --- | --- |
+| 1. Shared build opens/saves through both hosts, including VS Code web | `host-conformance.test.ts` and `game-settings-hosts.test.ts` exercise real browser/desktop/web adapters; `editor-web-host.spec.ts` and native web-host proofs exercise actual UI hosts and persisted bytes. No physical desktop-app UI claim is substituted for an adapter row. |
+| 2. Workspace, tree, folder/copy-in pickers and dirty tracking | Both navigation suites assert shared identity, visits/return, cancel/no-write and exact outside-copy bytes; the strengthened browser case proves existing selection without writes. Conformance covers held/failed save, close, backup, external changes and undo/redo dirty state. Actual PWA/native workspace scenarios also passed. |
+| 3. Main settings save and load in the runner | `game-settings-hosts.test.ts` edits every T-10–T-14 category through all three adapters, saves/reopens independent bytes, preserves unknown data and boots the result in the engine. |
+| 4. Program language and fixture test execution in both hosts | Actual `editor-program.spec.ts`, native language/debugger scenarios and the separate saved-program fixture execution passed; creator-test/headless parity is also retained. Wrong native module format fails nonzero rather than producing a green result. |
+| 5. Layer boundaries and shared lifecycle conformance | Actual dependency graph and its 16 invalid-fixture controls passed; the complete 97-test adapter/settings/navigation phase passed without skips. Exact-head CI also passed required checks, unit/golden/browser/host lanes and gate. |
+
+History 11.14 was already merged in PR #2829 and reconciled by #2926; the completed 11.12 sweep is recorded separately. This audit completes original 11.13 only. Epic #1357 remains open for 11.22/#2987 and 11.23/#2988; standalone Git 11.15/#1829 remains outside this baseline closing path and is not claimed delivered.
+
