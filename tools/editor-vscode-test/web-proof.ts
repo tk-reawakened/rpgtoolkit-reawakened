@@ -1324,26 +1324,35 @@ export async function runVscodeWebProof(
   await openGame(page, gamePath, expect);
   await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! })).toHaveCount(1);
   expect(lifecycleEvents(), JSON.stringify(lifecycleEvents())).toContainEqual({ kind: "open", value: `/${gamePath}` });
-  const openUriEvent = () => lifecycleEvents().find((event) => event.kind === "open-uri");
+  const openUriEvent = () => lifecycleEvents().find((event) => event.kind === "open-uri"
+    && event.value.endsWith(`/${gamePath}`));
   await expect.poll(openUriEvent).toBeDefined();
   const openedUri = openUriEvent()!.value;
-  const resolveEvent = () => lifecycleEvents().find((event) => event.kind === "resolve");
+  const resolvePayload = (event: { value: string }): { resource: string; viewType: string } | undefined => {
+    const parsed: unknown = JSON.parse(event.value);
+    if (parsed === null || typeof parsed !== "object" || !("resource" in parsed) || !("viewType" in parsed)
+      || typeof parsed.resource !== "string" || typeof parsed.viewType !== "string") return undefined;
+    return { resource: parsed.resource, viewType: parsed.viewType };
+  };
+  const resolveEvent = () => lifecycleEvents().find((event) => event.kind === "resolve"
+    && resolvePayload(event)?.resource === openedUri);
   await expect.poll(resolveEvent).toBeDefined();
-  const resolved = JSON.parse(resolveEvent()!.value) as { resource: string; viewType: string };
+  const resolved = resolvePayload(resolveEvent()!);
+  if (resolved === undefined) throw new Error("Matching custom-editor resolve event vanished before its payload could be read");
   expect(resolved.resource).toBe(openedUri);
   expect(resolved.viewType).toBe("tkr.gameSettings");
 
   // The package command is contributed to both the command palette and .gam Explorer context menu.
   const packageCommand = await commandPalette(page, expect);
   await packageCommand.fill(">RPG Toolkit: Package game");
-  const packageEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "RPG Toolkit: Package game" }).first();
+  const packageEntry = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row").filter({ hasText: "RPG Toolkit: Package game" }).first();
   await expect(packageEntry).toBeVisible();
   await packageCommand.press("Escape");
   await expect(page.locator(".quick-input-widget")).toBeHidden();
 
   const packageCommandInput = await commandPalette(page, expect);
   await packageCommandInput.fill(">Test: Execute Package Game");
-  const packageCommandEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  const packageCommandEntry = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
   await expect(packageCommandEntry).toBeVisible();
   await packageCommandEntry.click();
   await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
@@ -1394,9 +1403,9 @@ export async function runVscodeWebProof(
   // persisted package and descriptor independently of the UI.
   const publishCommand = await commandPalette(page, expect);
   await publishCommand.fill(">Test: Execute Package Game");
-  const publishEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  const publishEntry = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row.focused").filter({ hasText: "Test: Execute Package Game" }).first();
   await expect(publishEntry).toBeVisible();
-  await publishEntry.click();
+  await publishCommand.press("Enter");
   await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
   const inventoryDialog = page.getByRole("dialog");
   await expect(inventoryDialog.getByText(/Included \(\d+\):/)).toBeVisible();
@@ -2412,11 +2421,15 @@ async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
 }
 
 async function commandPalette(page: Page, expect: Expect): Promise<Locator> {
-  await focusWorkbench(page);
-  // Let the previous editor/webview focus transition settle before opening another host UI.
-  await page.waitForTimeout(100);
-  await page.keyboard.press("ControlOrMeta+Shift+P");
   const input = page.locator(".quick-input-widget input:visible");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await focusWorkbench(page);
+    // Let the previous editor/webview focus transition settle before opening another host UI.
+    await page.waitForTimeout(100);
+    await page.keyboard.press("ControlOrMeta+Shift+P");
+    if (await input.waitFor({ state: "visible", timeout: 1_000 }).then(() => true, () => false)) return input;
+    await page.keyboard.press("Escape");
+  }
   await expect(input).toHaveCount(1);
   await expect(input).toBeVisible();
   return input;
