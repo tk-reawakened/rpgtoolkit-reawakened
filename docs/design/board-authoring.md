@@ -111,6 +111,8 @@ Internal references: [editor capabilities](../editor-features.md) T-20–T-35; [
 
 ## Scope and delivery ownership
 
-This is an experience epic over Epics 11–13, not a replacement of their capability contracts. Reuse PR #2950's final focused-command/Save/compact-tools behavior; it was open when planned. Reuse #1713/#2322 for the browser/region-brush provider, #1721 for board objects, #1850–#1852 for native scene/collision, #1737 for lighting and #1723 for broad connected-authoring services. Epic 29 (#2968) owns the character editor's internal experience; this epic opens it and proves the board-origin visit.
+This is an experience epic over Epics 11–13, not a replacement of their capability contracts. Reuse PR #2950's final focused-command/Save/compact-tools behavior; it was open when planned. Reuse #1713/#2322 for the browser/region-brush provider, #1721 for board objects, #1850–#1852 for native scene/collision, #1737 for lighting and #1723 for broad connected-authoring services. Epic 29 (#2968) owns character, NPC, item and enemy definition authoring, including item #1722 (29.7, formerly 12.6) and enemy #1734 (29.8, formerly 13.9). This epic opens those editors and proves board-origin visits.
+
+Owner sequencing, 2026-11-16: finish Epics 12 and 13 before implementation in 29 and 30. These are full completion gates; later cross-epic visits still require their actual providers. Closing the earlier epics does not claim the moved item/enemy authoring complete.
 
 Exact outline grouping, labels, shelf dimensions and shortcuts are implementation design choices validated with real content. A universal database, new engine mechanics, automatic interpretation of arbitrary scripts, a new docking library, new persistence formats, mandatory inspector pinning and a whole-shell redesign are outside this scope.

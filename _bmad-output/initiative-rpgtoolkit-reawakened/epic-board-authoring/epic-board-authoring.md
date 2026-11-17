@@ -3,6 +3,7 @@ type: epic
 title: "Build playable places through connected board authoring"
 parent: initiative-rpgtoolkit-reawakened
 covers: ["CAP-15", "CAP-16", "CAP-18"]
+after: ["epic-editor-assets-p0", "epic-editor-p1"]
 assignee: ""
 risk: high
 stepsCompleted: ["input-selection", "requirements", "ownership-map", "story-breakdown"]
@@ -19,7 +20,7 @@ Board authoring spans painting, geometry, interactions, people/items, images, at
 
 An author can build and test a playable room, follow a reference into its script or definition, and return without losing selection, viewport, tool or brush. With two boards visible the inspector follows the focused board; entering its auxiliary controls retains that target. Definition tabs edit shared assets, while the inspector edits the local placement and its supported overrides.
 
-Jensen requested documentation and implementation tickets on 2026-11-16 and explicitly proposed a separate epic from the initial editor Epics 11–13. This epic owns the connected board experience; it neither replaces those foundations nor reopens completed field-coverage work. Epic 29 (#2968) independently owns character-editor presentation.
+Jensen requested documentation and implementation tickets on 2026-11-16 and explicitly proposed a separate epic from the initial editor Epics 11–13. This epic owns the connected board experience; it neither replaces those foundations nor reopens completed field-coverage work. Epic 29 (#2968) owns character, NPC, item and enemy definition authoring. Item #1722 is now 29.7 (formerly 12.6), and enemy #1734 is now 29.8 (formerly 13.9); their issue identities remain unchanged.
 
 ## Approved contract and selected inputs
 
@@ -47,6 +48,8 @@ Cross-cutting nonfunctional requirements: single document authority and host-own
 
 ## Delivery sequence
 
+**Owner sequencing, 2026-11-16: finish Epics 12 and 13 before implementation starts in Epics 29 and 30.** Both completion gates are recorded in this epic's frontmatter. Planning does not start implementation; neither earlier epic waits back on 29/30. This does not require all of 29 to finish before all of 30: consuming stories still wait for their actual definition providers.
+
 1. **30.1 (#2974) — Establish the board workspace and focus-following inspector.** First vertical slice in real VS Code and web hosts; establish the common targeting and shelf contract.
 2. **30.2 (#2976) — Select and shape the scene through an outline and readable overlays.** Preserve precise geometry and runtime semantics while making selection and visibility understandable.
 3. **30.3 (#2978) — Paint from the shared sheet browser and visit artwork without losing the brush.** Integrate the existing sheet and brush providers into the board flow.
@@ -68,13 +71,13 @@ Cross-cutting nonfunctional requirements: single document authority and host-own
 | #1720/#1721 | Existing board tools and object commands; 30.2/30.5 present and connect them. |
 | #1850/#1851/#1852 | Own scene lowering, .brd/.tkrscn editing and tile/asset collision. No second scene model here. |
 | #1714 | Existing board properties/start; 30.6 reorganizes the experience while preserving behavior. |
-| #1734/#1737 | Enemy editor and lighting providers; consume these from 30.4/30.6 instead of recreating them. |
+| #1734 (29.8) / #1737 (13.12) | Enemy authoring is now owned by Epic 29; lighting remains in Epic 13. Consume these from 30.4/30.6 instead of recreating them. A missing enemy editor leaves that visit unmet. |
 | #1723 | Owns broader connected-authoring/test services. 30.4/30.7 contribute board-origin integration and evidence. |
-| Epic 29 #2968, planning PR #2970 | Character authoring internals and reusable visual patterns. 30.4 opens that editor; no duplicate character UI work. |
+| Epic 29 #2968, planning PR #2970 | Character, NPC, item and enemy definition internals. 30.4 opens those editors; no duplicate definition UI work. Shared design language/styles remain in 11.22/11.23. |
 | #2609/#2652 | Known linked-provider and pending-edit lifecycle issues; recheck at implementation and link fixes/unmet acceptance rather than suppressing failures. |
 | #2961 | Known publisher area-classification bug; publish this epic with an explicit editor-ui map override, as Epic 29 did. No tool fix is included here. |
 
-External dependencies are capability-specific, not blanket waits for every story in Epics 11–13. At implementation inception, pin the current revision and reconcile provider status and overlap before editing shared components. Missing providers retain their existing owning issue; the integration story cannot call a disabled control a completed journey. Broader event builders, new encounter/runtime mechanics, arbitrary code interpretation, new formats, a universal database and wholesale shell replacement are out of scope.
+The owner's full Epic 12/13 completion gates apply before implementation. Additional dependencies remain capability-specific, including shared language/styles in 11.22/11.23 and actual definition providers from Epic 29. At implementation inception, pin the current revision and reconcile provider status and overlap before editing shared components. Missing providers retain their existing owning issue; the integration story cannot call a disabled control a completed journey. Broader event builders, new encounter/runtime mechanics, arbitrary code interpretation, new formats, a universal database and wholesale shell replacement are out of scope.
 
 ## Done when
 
