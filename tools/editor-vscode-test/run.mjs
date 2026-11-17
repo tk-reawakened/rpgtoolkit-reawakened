@@ -361,6 +361,8 @@ for (const choice of designProof || boardPropertiesProof || animationProof || hi
       console.log("vscode.dev board properties, linked native programs, return and startup ownership proof passed");
     };
     if (designProof) {
+      await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+      await expect(page.locator(".monaco-workbench")).toBeVisible();
       await runVscodeDesignProof(page, expect, {
         root,
         extension,
@@ -433,6 +435,15 @@ for (const choice of designProof || boardPropertiesProof || animationProof || hi
     }
   } catch (error) {
     failure = error;
+    if (designProof && browser !== undefined) {
+      const failedPage = browser.pages().at(-1);
+      if (failedPage !== undefined) {
+        try {
+          await mkdir(designOutput, { recursive: true });
+          await failedPage.screenshot({ path: resolve(designOutput, "failure.png"), fullPage: true, timeout: 5_000 });
+        } catch (diagnosticError) { cleanupErrors.push(diagnosticError); }
+      }
+    }
   } finally {
     if (browser !== undefined) {
       try { await browser.unrouteAll({ behavior: "wait" }); } catch (error) { cleanupErrors.push(error); }
