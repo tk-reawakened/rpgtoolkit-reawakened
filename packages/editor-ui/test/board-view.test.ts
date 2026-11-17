@@ -58,7 +58,7 @@ async function setup(
     resolveConflict: (choice) => doc.resolveConflict(choice),
     preview: async () => {
       const preview = await previewBoard(host.fs, "memory-project", doc.serialize());
-      return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
+      return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings, objectBounds: preview.objectBounds } : preview;
     },
   };
   const el = document.createElement("div");
@@ -143,6 +143,9 @@ test("the preview repaints when serialized composition properties change and und
         closePath() {},
         stroke() {},
         fill() {},
+        fillText() {},
+        setLineDash() {},
+        strokeRect() {},
         drawImage(source: HTMLCanvasElement) {
           if (canvas.classList.contains("tkr-board-canvas")) paintedPixels = imagePixels.get(source);
         },
@@ -222,6 +225,9 @@ test("the initial board draws its start marker when navigation differs only by l
         closePath() {},
         stroke() { if (canvas.classList.contains("tkr-board-canvas")) markerStrokes.push(style); },
         fill() {},
+        fillText() {},
+        setLineDash() {},
+        strokeRect() {},
         drawImage() {},
         createImageData(width: number, height: number) {
           return { width, height, colorSpace: "srgb", data: new Uint8ClampedArray(width * height * 4) };

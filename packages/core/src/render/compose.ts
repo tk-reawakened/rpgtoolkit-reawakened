@@ -18,6 +18,7 @@ import type {
 const TILE_SIZE = 32;
 const NO_TINT: Tint = { r: 0, g: 0, b: 0 };
 const TILE_KEY: Rgb = { r: 0, g: 1, b: 2 };
+const DEFAULT_SPRITE_KEY: Rgb = { r: 255, g: 255, b: 255 };
 
 export type BoardBlit = {
   readonly asset: AssetKey;
@@ -42,6 +43,7 @@ export type SpriteFrame = {
   readonly height?: number;
   readonly anchorX?: number;
   readonly anchorY?: number;
+  /** Absent inherits the instance key; explicit null disables additional colour-key exclusion. */
   readonly transparent?: Rgb | null;
   readonly tint?: Tint;
 };
@@ -69,6 +71,7 @@ export type SpriteDraw = {
   readonly src?: Rect;
   readonly width?: number;
   readonly height?: number;
+  /** Absent uses the legacy frame-kind key; explicit null disables additional colour-key exclusion. */
   readonly transparent?: Rgb | null;
   readonly tint?: Tint;
   readonly alpha?: number;
@@ -421,7 +424,9 @@ function emitSprite(
 
   if (visible(dstRect, view.viewport)) {
     if (texture !== null) {
-      const key = sprite.frame?.transparent ?? sprite.transparent ?? { r: 255, g: 255, b: 255 };
+      const frameKey = sprite.frame?.transparent;
+      const inheritedKey = frameKey === undefined ? sprite.transparent : frameKey;
+      const key = inheritedKey === undefined ? DEFAULT_SPRITE_KEY : inheritedKey;
       const tint = view.include.shading ? ambientTint(board, view.globalAmbient) : NO_TINT;
       const alpha = sprite.translucency ?? sprite.alpha ?? 255;
       const blend = sprite.blend ?? "normal";
@@ -446,7 +451,9 @@ function emitSprite(
       const tileIndex = sprite.frame?.tile ?? sprite.tile;
       const tileAsset = sprite.frame?.asset ?? sprite.asset;
       if (tileIndex !== null && tileIndex !== undefined && tileAsset !== undefined) {
-        const key = sprite.frame?.transparent ?? sprite.transparent ?? TILE_KEY;
+        const frameKey = sprite.frame?.transparent;
+        const inheritedKey = frameKey === undefined ? sprite.transparent : frameKey;
+        const key = inheritedKey === undefined ? TILE_KEY : inheritedKey;
         const tint = view.include.shading ? ambientTint(board, view.globalAmbient) : NO_TINT;
         const alpha = sprite.translucency ?? sprite.alpha ?? 255;
         const blend = sprite.blend ?? "normal";

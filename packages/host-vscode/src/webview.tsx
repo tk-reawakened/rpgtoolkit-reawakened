@@ -45,6 +45,7 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
         pendingEdits: remote.pendingEdits,
         ...(remote.kind === "board" ? {
           navigation: {
+            pickAsset: (request) => remote.pickAsset(request),
             open: async (path: string) => {
               const outcome = await remote.visit(path, true);
               return outcome.ok ? null : outcome.message;

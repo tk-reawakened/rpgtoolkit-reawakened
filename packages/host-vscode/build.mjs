@@ -17,3 +17,4 @@ await Promise.all([
 ]);
 await cp(resolve(root, "../editor-ui/src/tileset-browser.css"), resolve(out, "tileset-browser.css"));
 await cp(resolve(root, "../editor-ui/src/tileset-art.css"), resolve(out, "tileset-art.css"));
+await cp(resolve(root, "../editor-ui/src/board-objects.css"), resolve(out, "board-objects.css"));

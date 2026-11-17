@@ -15,7 +15,7 @@ import {
   createProjectTree,
   createTabs,
   createVisits,
-  DEFAULT_WORKBENCH_PANELS,
+  projectLayoutForDocumentPath,
   listCandidates,
   linkFor,
   kindForPath,
@@ -39,6 +39,7 @@ import {
   type Tabs,
   type VisitResult,
   type Visits,
+  DEFAULT_WORKBENCH_PANELS,
 } from "@tk-reawakened/editor-model";
 import { createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
@@ -77,7 +78,7 @@ export interface Workbench {
   /** Go back to where the latest visit started, opening it again if it was closed. */
   returnFromVisit(): Promise<ReturnResult>;
   /** Show a folder-aware picker over the workbench and resolve with its outcome; unchosen leaves the field as it was. */
-  pickAsset(request: PickAssetRequest): Promise<PickOutcome>;
+  pickAsset(request: PickAssetRequest, originPath?: string): Promise<PickOutcome>;
   /**
    * Show the editor preferences over the workbench (T-08). They are read from and saved to the host's settings (the
    * browser's storage for the user layer, `.tkr/editor-settings.json` for the project layer) and never to the game.
@@ -168,11 +169,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           container.className = "tkr-editor-pane";
           slot.append(container);
           entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource, {
-            pickAsset: (request) => workbench.pickAsset(request),
+            pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
             open: async (path) => {
               const kind = kindForPath(path)?.id;
-              if (kind !== "board" && kind !== "program") return "This value is inline code or is not a board or program file. Its text has not been changed.";
-              const target = referencePath(projectLayout, kind === "board" ? "boards" : "programs", path);
+              if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : "bitmaps";
+              const target = referencePath(projectLayout, folder, path);
               const visited = await visits.visit(document, target);
               if (!visited.ok) return "message" in visited.error ? visited.error.message : visited.error.error.message;
               show(visited.document);
@@ -491,12 +493,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       if (result.ok) show(result.document);
       return result;
     },
-    pickAsset(request) {
+    pickAsset(request, originPath) {
       const doc = element.ownerDocument;
       const before = doc.activeElement;
       const picker = createAssetPicker({
         services: { fs: services.fs, dialogs: services.dialogs, capabilities: services.capabilities },
-        layout: projectLayout,
+        layout: originPath === undefined || /\.gam$/i.test(originPath) ? projectLayout : projectLayoutForDocumentPath(originPath),
         kind: request.kind,
         extensions: request.extensions,
         field: request.field,

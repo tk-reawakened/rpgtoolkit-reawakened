@@ -1,3 +1,4 @@
+import type { Colorref } from "@tk-reawakened/core";
 import {
   cellCentre,
   cellOnBoard,
@@ -5,6 +6,9 @@ import {
   cellsInRect,
   pendingCells,
   pixelToCell,
+  rectangleObjectPoints,
+  screenToBoard,
+  translatedObject,
   zoomOf,
   type BoardDocumentSnapshot,
   type BoardEditor,
@@ -38,6 +42,8 @@ export interface BoardCanvasProps {
   readonly startPicking?: boolean;
   readonly startMarker?: { readonly x: number; readonly y: number; readonly layer: number } | null;
   readonly onStartCell?: (cell: Cell) => void;
+  readonly colourPicking?: boolean;
+  readonly onColourPixel?: (colour: Colorref) => void;
 }
 
 function outline(context: CanvasRenderingContext2D, board: BoardDocumentSnapshot, cell: Cell): void {
@@ -45,6 +51,102 @@ function outline(context: CanvasRenderingContext2D, board: BoardDocumentSnapshot
   context.beginPath();
   corners.forEach((corner, index) => (index === 0 ? context.moveTo(corner.x, corner.y) : context.lineTo(corner.x, corner.y)));
   context.closePath();
+}
+
+function regionPath(context: CanvasRenderingContext2D, points: readonly Pixel[], closed: boolean): void {
+  context.beginPath();
+  points.forEach((point, index) => index === 0 ? context.moveTo(point.x, point.y) : context.lineTo(point.x, point.y));
+  if (closed) context.closePath();
+}
+
+/** Editor guides are separate from the engine picture; missing art is a labelled box, never a fake decoded texture. */
+function paintObjects(context: CanvasRenderingContext2D, props: BoardCanvasProps): void {
+  const { board, state, picture } = props;
+  const zoom = zoomOf(state.viewport);
+  const selected = state.objectSelection;
+  const pending = state.pending;
+  const delta = pending?.kind === "object-move" ? pending.delta : null;
+  const visible = (layer: number): boolean => layer >= 1 && layer <= board.layers && !state.hidden.includes(layer - 1);
+  const bounds = picture?.ok ? picture.objectBounds : [
+    ...board.sprites.map((sprite, index) => ({ kind: "sprites" as const, index, left: sprite.x - 16, top: sprite.y - 32, width: 32, height: 32, placeholder: true })),
+    ...board.images.map((image, index) => ({ kind: "images" as const, index, left: image.left, top: image.top, width: 32, height: 32, placeholder: true })),
+  ];
+  for (const boundsOf of bounds) {
+    const object = board[boundsOf.kind][boundsOf.index];
+    if (object === undefined || !visible(object.layer)) continue;
+    const active = selected?.kind === boundsOf.kind && selected.index === boundsOf.index;
+    if (!boundsOf.placeholder && !active && state.mode !== boundsOf.kind) continue;
+    const left = boundsOf.left + (active ? delta?.x ?? 0 : 0);
+    const top = boundsOf.top + (active ? delta?.y ?? 0 : 0);
+    if (boundsOf.placeholder) {
+      context.fillStyle = "#454545";
+      context.fillRect(left, top, boundsOf.width, boundsOf.height);
+      context.strokeStyle = "#b7b7b7";
+      context.lineWidth = 1 / zoom;
+      context.beginPath();
+      context.moveTo(left, top);
+      context.lineTo(left + boundsOf.width, top + boundsOf.height);
+      context.moveTo(left + boundsOf.width, top);
+      context.lineTo(left, top + boundsOf.height);
+      context.stroke();
+      context.fillStyle = "#fff";
+      context.font = `${9 / zoom}px sans-serif`;
+      context.fillText(`${boundsOf.kind === "sprites" ? "S" : "I"}${boundsOf.index}`, left + 2 / zoom, top + 10 / zoom);
+    }
+    context.lineWidth = (active ? 3 : 1) / zoom;
+    context.strokeStyle = active ? COLOURS.selection : "#b7b7b7";
+    context.setLineDash(active && delta !== null ? [4 / zoom, 3 / zoom] : []);
+    context.strokeRect(left, top, boundsOf.width, boundsOf.height);
+    context.setLineDash([]);
+  }
+  if (state.mode === "vectors" || state.mode === "programs") {
+    const colours: Readonly<Record<number, string>> = { 0: "#aaa", 1: "#fff", 2: "#30dd78", 4: "#ffa34c", 8: "#4b9dff", 16: "#ff73d7" };
+    for (const kind of ["vectors", "programs"] as const) {
+      board[kind].forEach((object, index) => {
+        const type = "type" in object ? object.type : "program";
+        if (!visible(object.layer) || state.hiddenObjectTypes.includes(type)) return;
+        const active = selected?.kind === kind && selected.index === index;
+        const points = active && delta !== null ? translatedObject(object, delta, state.pointSelection).points : object.points;
+        regionPath(context, points, object.closed !== 0);
+        context.lineWidth = (active ? 3 : 1.5) / zoom;
+        context.strokeStyle = active ? COLOURS.selection : type === "program" ? "#ffe14a" : colours[type] ?? "#aaa";
+        context.stroke();
+        if (active) {
+          for (let at = 0; at < points.length; at += 1) {
+            const point = points[at]!;
+            context.fillStyle = state.pointSelection.includes(at) ? "#fff" : COLOURS.selection;
+            context.fillRect(point.x - 3 / zoom, point.y - 3 / zoom, 6 / zoom, 6 / zoom);
+          }
+          if (points.length > 0) {
+            const xs = points.map((point) => point.x), ys = points.map((point) => point.y);
+            context.lineWidth = 1 / zoom;
+            context.setLineDash([4 / zoom, 3 / zoom]);
+            context.strokeRect(Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+            context.setLineDash([]);
+          }
+        }
+      });
+    }
+  }
+  if (pending?.kind === "object-path") {
+    regionPath(context, [...pending.points, pending.current], false);
+    context.strokeStyle = COLOURS.selection;
+    context.lineWidth = 2 / zoom;
+    context.stroke();
+    for (const point of pending.points) {
+      context.fillStyle = "#fff";
+      context.fillRect(point.x - 3 / zoom, point.y - 3 / zoom, 6 / zoom, 6 / zoom);
+    }
+  } else if (pending?.kind === "object-rectangle") {
+    regionPath(context, rectangleObjectPoints(board, pending.anchor, pending.current), true);
+    context.strokeStyle = COLOURS.selection;
+    context.lineWidth = 2 / zoom;
+    context.stroke();
+  } else if (pending?.kind === "object-box") {
+    context.strokeStyle = COLOURS.selection;
+    context.lineWidth = 1 / zoom;
+    context.strokeRect(pending.anchor.x, pending.anchor.y, pending.current.x - pending.anchor.x, pending.current.y - pending.anchor.y);
+  }
 }
 
 /** Draw the picture, the grid, the selection, the gesture in progress and the cursor. */
@@ -79,6 +181,7 @@ function paint(context: CanvasRenderingContext2D, source: CanvasImageSource | nu
   stroke(pendingCells(board, state, stamp), COLOURS.selection, 2, COLOURS.pending);
   if (state.hover !== null) stroke([state.hover], COLOURS.hover, 1);
   stroke([state.cursor], COLOURS.cursor, 2);
+  paintObjects(context, props);
   if (props.startMarker !== null && props.startMarker !== undefined && props.startMarker.layer === state.layer + 1) {
     const cell = pixelToCell(board, props.startMarker.x, props.startMarker.y);
     if (cell !== null && cellOnBoard(board, cell.x, cell.y)) {
@@ -159,6 +262,15 @@ export function BoardCanvas(props: BoardCanvasProps) {
         canvas.current?.focus({ preventScroll: true });
         canvas.current?.setPointerCapture?.(event.pointerId);
         const positionOnCanvas = position(event);
+        if (props.colourPicking) {
+          if (event.button !== 0 || picture === null || !picture.ok) return;
+          const point = screenToBoard(state.viewport, positionOnCanvas.x, positionOnCanvas.y);
+          const x = Math.floor(point.x), y = Math.floor(point.y);
+          if (x < 0 || y < 0 || x >= picture.width || y >= picture.height) return;
+          const offset = (y * picture.width + x) * 4;
+          props.onColourPixel?.({ r: picture.rgba[offset]!, g: picture.rgba[offset + 1]!, b: picture.rgba[offset + 2]! });
+          return;
+        }
         if (props.startPicking) {
           const zoom = zoomOf(state.viewport);
           const cell = pixelToCell(props.board, state.viewport.x + positionOnCanvas.x / zoom, state.viewport.y + positionOnCanvas.y / zoom);
@@ -167,10 +279,10 @@ export function BoardCanvas(props: BoardCanvasProps) {
         }
         editor.pointerDown(positionOnCanvas, modifiers(event), event.button);
       }}
-      onPointerMove={(event) => editor.pointerMove(position(event), modifiers(event))}
+      onPointerMove={(event) => { if (!props.startPicking && !props.colourPicking) editor.pointerMove(position(event), modifiers(event)); }}
       onPointerUp={(event) => {
         canvas.current?.releasePointerCapture?.(event.pointerId);
-        void editor.pointerUp(position(event), modifiers(event));
+        if (!props.startPicking && !props.colourPicking) void editor.pointerUp(position(event), modifiers(event));
       }}
       onPointerCancel={() => editor.pointerCancel()}
       onWheel={(event) => {

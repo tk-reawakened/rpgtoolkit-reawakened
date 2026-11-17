@@ -8,7 +8,8 @@ import { chromium, expect } from "@playwright/test";
 import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader, projectFolder, readMainFile } from "@tk-reawakened/core";
 import { buildNewBoard } from "@tk-reawakened/editor-model";
 import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
-import { runVscodeBoardPropertiesProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { boardObjectsProofFiles } from "./board-objects-proof.ts";
+import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -61,6 +62,7 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const animationProof = process.env.TKR_VSCODE_ANIMATION_PROOF === "1";
 const boardPropertiesProof = process.env.TKR_VSCODE_BOARD_PROPERTIES_PROOF === "1";
+const boardObjectsProof = process.env.TKR_VSCODE_BOARD_OBJECTS_PROOF === "1";
 const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
 const boardProof = process.env.TKR_VSCODE_BOARD_PROOF === "1";
 const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
@@ -334,7 +336,17 @@ for (const choice of boardPropertiesProof || animationProof || historyProof || s
       await runVscodeBoardPropertiesProof(page, expect, workbenchUrl, readBacking);
       console.log("vscode.dev board properties, linked native programs, return and startup ownership proof passed");
     };
-    if (boardPropertiesProof) {
+    const proveBoardObjects = async () => {
+      for (const file of boardObjectsProofFiles()) {
+        await mkdir(dirname(resolve(proofWorkspace, file.path)), { recursive: true });
+        await writeBacking(file.path, file.bytes);
+      }
+      await runVscodeBoardObjectsProof(page, expect, workbenchUrl, readBacking);
+      console.log("vscode.dev board objects, definition visits, native confirmation and saved-record proof passed");
+    };
+    if (boardObjectsProof) {
+      await proveBoardObjects();
+    } else if (boardPropertiesProof) {
       await proveBoardProperties();
     } else if (creatorTestsProof) {
       const { runCreatorSpecs } = await import(pathToFileURL(resolve(root, "packages/script-spec/dist/browser.js")).href);
@@ -391,6 +403,7 @@ for (const choice of boardPropertiesProof || animationProof || historyProof || s
       console.log(`vscode.dev settings, board, art and bitmap proof passed (${choice})`);
       if (choice === "cancel") await proveNewProject();
       if (choice === "cancel") await proveBoardProperties();
+      if (choice === "cancel") await proveBoardObjects();
     }
   } catch (error) {
     failure = error;

@@ -52,6 +52,7 @@ copyFileSync(join(root, "media/icons/png/tkr-32.png"), join(editorWebDist, "tkr-
 copyFileSync(join(root, "media/icons/png/tkr-128.png"), join(editorWebDist, "tkr-128.png"));
 copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(editorWebDist, "tileset-browser.css"));
 copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(editorWebDist, "tileset-art.css"));
+copyFileSync(join(root, "packages/editor-ui/src/board-objects.css"), join(editorWebDist, "board-objects.css"));
 copyFileSync(join(root, "packages/editor-ui/src/program-view.css"), join(editorWebDist, "program-view.css"));
 // The page bundle carries Monaco (story 11.7). Its icon font is the one non-script asset: the file loader emits it next
 // to the bundle under its own name and the bundle's stylesheet points at it, so the page loads it from its own origin

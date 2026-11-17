@@ -11,7 +11,7 @@ import { registerRunDebugger } from "./run-debug.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
+import { boardPreviewRootForPath, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
@@ -284,6 +284,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
         const browserSession = createBrowserSession();
         const readOnlyFs = createVscodeFileSystem(folder.uri);
         const projectId = preview.document.identity.projectId;
+        const previewRoot = boardPreviewRootForPath(path);
         const readOnlyPreview = {
           model: preview.document,
           path,
@@ -295,9 +296,9 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
             if (preview.document.kind === "board") {
               const started = Date.now();
               console.error("[history-preview-trace] composer-enter", { path, projectId });
-              const picture = await previewBoard(readOnlyFs, projectId, preview.document.serialize(), request);
+              const picture = await previewBoard(readOnlyFs, projectId, preview.document.serialize(), { ...request, root: previewRoot });
               console.error("[history-preview-trace] composer-resolved", { path, projectId, ok: picture.ok, elapsedMs: Date.now() - started, ...(picture.ok ? { width: picture.width, height: picture.height } : {}) });
-              return picture.ok ? { ok: true as const, width: picture.width, height: picture.height, rgba: picture.rgba, warnings: picture.warnings } : picture;
+              return picture.ok ? { ok: true as const, width: picture.width, height: picture.height, rgba: picture.rgba, warnings: picture.warnings, objectBounds: picture.objectBounds } : picture;
             }
             if (preview.document.kind === "tile-bitmap") return previewTileBitmap(readOnlyFs, projectId, preview.document.serialize());
             return { ok: false as const, message: `A ${preview.document.kind} history version has no picture.` };

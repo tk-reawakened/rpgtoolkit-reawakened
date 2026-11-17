@@ -56,6 +56,7 @@ interface Setup {
   readonly previews: BoardPreviewRequest[];
   readonly centre: Cell;
   prefs: EditorPreferences;
+  dispose(): void;
 }
 
 async function setup(system: BoardCoordSystem, options: { undo?: boolean; layers?: number; size?: number; files?: Record<string, Uint8Array> } = {}): Promise<Setup> {
@@ -78,7 +79,7 @@ async function setup(system: BoardCoordSystem, options: { undo?: boolean; layers
     preview: async (request) => {
       previews.push(request ?? {});
       const preview = await previewBoard(host.fs, "memory-project", doc.serialize(), request);
-      return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings } : preview;
+      return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings, objectBounds: preview.objectBounds } : preview;
     },
     ...(options.undo === false ? {} : { undo: () => doc.undo(), redo: () => doc.redo() }),
   };
@@ -88,7 +89,7 @@ async function setup(system: BoardCoordSystem, options: { undo?: boolean; layers
   const extent = boardExtent(board);
   const centre = pixelToCell(board, extent.width / 2, extent.height / 2);
   if (centre === null) throw new Error("no centre cell");
-  const state: Setup = { host, doc, session, el, previews, centre, prefs: { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: true, recursiveFlood: false } };
+  const state: Setup = { host, doc, session, el, previews, centre, prefs: { ...DEFAULT_EDITOR_PREFERENCES, revertToDrawAfterFlood: true, recursiveFlood: false }, dispose: () => handle?.dispose() };
   const source: BoardPreferencesSource = { get: () => state.prefs, subscribe: () => () => undefined };
   let handle: ViewHandle | undefined;
   await act(() => {
@@ -220,13 +221,16 @@ for (const [name, system] of LAYOUTS) {
     equal(boxes[3]?.disabled, true, "a board with no background image has no background to show");
     await act(() => { boxes[2]!.click(); });
     await settle();
-    deepEqual(s.previews.at(-1), { visibleLayers: [0, 1], showBackground: true });
+    deepEqual(s.previews.at(-1)?.visibleLayers, [0, 1]);
+    equal(s.previews.at(-1)?.showBackground, true);
     await act(() => button(s, ".tkr-board-only-current").click());
     await settle();
-    deepEqual(s.previews.at(-1), { visibleLayers: [0], showBackground: false });
+    deepEqual(s.previews.at(-1)?.visibleLayers, [0]);
+    equal(s.previews.at(-1)?.showBackground, false);
     await act(() => button(s, ".tkr-board-show-all").click());
     await settle();
-    deepEqual(s.previews.at(-1), { visibleLayers: [0, 1, 2], showBackground: true });
+    deepEqual(s.previews.at(-1)?.visibleLayers, [0, 1, 2]);
+    equal(s.previews.at(-1)?.showBackground, true);
     const layerSelect = s.el.querySelector<HTMLSelectElement>(".tkr-board-row select");
     ok(layerSelect !== null);
     await act(() => { layerSelect.value = "2"; layerSelect.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -569,4 +573,35 @@ test("real board icon tools, selection and Save are commands without asset-list 
     await settle();
     equal(s.doc.getSnapshot().dirty, false);
   } finally { disconnect(); }
+});
+
+test("an unapplied object draft survives Tiles mode and can return to its original slot", async (t) => {
+  const s = await setup("2d");
+  t.after(() => { s.dispose(); s.el.remove(); });
+  await act(() => button(s, '[data-board-mode="vectors"]').click());
+  await settle();
+  const add = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Add vector");
+  ok(add);
+  await act(() => add.click());
+  await settle();
+  ok((await s.doc.save()).ok);
+  const bytes = s.doc.serialize();
+  const storedHandle = s.doc.getSnapshot().vectors[0]!.handle;
+  await act(() => {
+    const handle = s.el.querySelector<HTMLInputElement>('[aria-label="Handle"]');
+    ok(handle);
+    handle.value = "retained unapplied handle";
+    handle.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(() => button(s, '[data-board-mode="tiles"]').click());
+  await act(() => button(s, '[data-board-mode="vectors"]').click());
+  await settle();
+  const back = [...s.el.querySelectorAll("button")].find((button) => button.textContent === "Return to draft");
+  ok(back, "the pending draft has an accessible route back to its stored slot");
+  await act(() => back.click());
+  await settle();
+  equal(s.el.querySelector<HTMLInputElement>('[aria-label="Handle"]')?.value, "retained unapplied handle");
+  equal(s.doc.getSnapshot().vectors[0]!.handle, storedHandle);
+  deepEqual(s.doc.serialize(), bytes);
+  equal(s.doc.getSnapshot().dirty, false);
 });
