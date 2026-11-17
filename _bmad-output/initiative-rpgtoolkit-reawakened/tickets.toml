@@ -215,6 +215,14 @@ after = [{ epic = 9, needs = "the runner contract and live player session used b
 
 
 [[epic]]
+id = 30
+tracker_id = "#2985"
+slug = "epic-board-authoring"
+title = "Build playable places through connected board authoring"
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [{ epic = 11, needs = "existing document, platform-services, native tabs/views and launch contracts; only missing provider capabilities block the consuming story" }, { epic = 12, needs = "existing board/object/properties/browser providers, native scene integration and connected services; do not duplicate their implementation" }, { epic = 13, needs = "sheet/region-brush, artwork, enemy and lighting providers for 30.3, 30.4 and 30.6 respectively" }]
+
+[[epic]]
 id = 28
 tracker_id = "#1883"
 slug = "epic-fast-feedback"
