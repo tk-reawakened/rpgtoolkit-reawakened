@@ -67,9 +67,11 @@ A vision to realize. RPG Toolkit 3 (final release 2007) is a Windows-only, GPL-2
 - **CAP-15**
   - **intent:** Authors can build a complete game with the P0 editors: workspace and file tree, main file, board editor, program editor with test-run, character, item, animation and tile bitmap editors, and packaging (editor-features §11 P0).
   - **success:** A new game authored only with these tools, in each editor host, loads and plays in the web runner.
+  - **delivery ownership (owner, 2026-11-16):** Epic 12 delivers its retained foundations and editors first. Full item/NPC behavior authoring T-55 moves to 29.7 (#1722), with combined experience acceptance in 29.6; closing Epic 12 alone does not claim that moved coverage complete.
 - **CAP-16**
   - **intent:** Authors get the P1 tools: tile editor, grabber, tileset editor, enemy, special move, status effect and background editors, lighting and shading, auto-tiler, undo and clipboard, export image, legacy upgrade wizards.
   - **success:** Each P1 tool opens, edits and saves its legacy format so the result loads in the runner and in a re-open; auto-tiler output matches the variant order of community sample sets.
+  - **delivery ownership (owner, 2026-11-16):** Epic 13 delivers its retained tools first. Enemy authoring T-56 moves to 29.8 (#1734), with combined acceptance in 29.6. Authored enemy fixtures can prove move/status/background tools before an enemy editor exists. Finish Epics 12 and 13 before implementation of Epics 29 and 30.
 - **CAP-17**
   - **intent:** Beginners get the P2 tools: visual event builder, skin editor, audio preview, setup builder and tutorials.
   - **success:** The visual event builder emits RPGCode that runs and lints clean.

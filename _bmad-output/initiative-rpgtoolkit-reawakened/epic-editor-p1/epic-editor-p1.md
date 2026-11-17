@@ -13,19 +13,21 @@ remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1359"
 
 ## Description
 
-Tile editor, tile grabber, tileset and bitmap font editors, enemy, special move, status effect and battle background editors, lighting and shading, the auto-tiler, undo and clipboard, export image and legacy upgrade wizards.
+Tile editor, tile grabber, tileset and bitmap font editors, special move, status effect and battle background editors, lighting and shading, the auto-tiler, undo and clipboard, export image and legacy upgrade wizards.
 
 Owner-approved expansion: a connected artwork workspace with persistent layered/animated sources, sheet-first drawing, contextual variants, reusable recipes, terrain and isometric construction, and standard-format external artist workflows. The story split and repository/GitHub publication were approved together; implementation still follows the contract gates below.
 
+Owner update, 2026-11-16: enemy authoring moved from 13.9 to 29.8 (#1734), keeping all T-56 requirements. Epic 13 finishes its retained tools before Epics 29/30 start; its battle-data proofs use authored enemy fixtures and do not wait for the enemy editor. See the [consolidation decision](../epic-character-authoring/discovery/authoring-family-consolidation.md).
+
 ## Outcome
 
-Authors get the full legacy toolset beyond P0; the CAP-16 success check is the signal.
+Authors get the retained tools beyond P0. CAP-16 is delivered jointly with the moved T-56 enemy editor in 29.8/29.6; closing Epic 13 alone does not claim that enemy-authoring coverage complete.
 
 The supplied tools cover the complete artwork workflow without making them mandatory: authors can succeed with external tools and supported exchange formats, or mix both routes without losing their editable sources.
 
 ## Done when
 
-1. Each P1 tool opens, edits and saves its legacy format and the result loads in the runner and re-opens unchanged.
+1. Each retained P1 tool opens, edits and saves its legacy format and the result loads in the runner and re-opens unchanged. Move/status/background behavior uses authored enemies and the real battle provider; full T-56 authoring is accepted in 29.8/29.6.
 2. The auto-tiler picks tiles from the 8-neighbour rules and matches the variant order of community sample sets.
 3. Export image writes the current view or the whole board without editor overlays.
 4. The coordinate and legacy-board upgrades of T-30 and T-31 run in the editor with correct object movement.
@@ -35,7 +37,7 @@ The supplied tools cover the complete artwork workflow without making them manda
 
 ## Boundaries
 
-P1 tools of editor-features section 11. Not P0 or P2.
+Retained P1 tools of editor-features section 11. Enemy T-56 is now owned by 29.8; 13.10 and 13.11 retain move/status/background editing. No reverse dependency on Epic 29 is introduced.
 
 The expanded artwork requirements below map to CAP-16. Epic 11 continues to own shared documents, history, navigation, host capabilities and run/test services; Epic 12 owns the shared browser, generic animation editing, native scene placement and collision integration; Epic 27 owns the baseline native tile/pack contracts and their I/O/checker. This epic owns the artwork-specific contract extension and implementation after those providers, not a second format family, browser or lifecycle. An application-specific editable-file adapter is separate scope; standard exchange must not depend on one. No new core runtime format reader is authorized here.
 
@@ -63,7 +65,7 @@ The expanded artwork requirements below map to CAP-16. Epic 11 continues to own 
 - Source conflict: section 11's P1 list omits T-39 although section 4 and research F-05 explicitly inventory animated tiles; entry 6 owns `.tan` editing and consumes the one 12.2 browser.
 - Source conflict: T-42–44 and T-46 are not assigned a priority in section 11; CAP-14 and 10.5/10.7 own language rewrites and formatting, while entry 16 owns the P1 editor-facing review/apply workflows, including project-wide upgrade and cleanup, without a second formatter or syntax engine.
 - Source conflict: T-73's 2.x project-layout upgrade is listed in the feature inventory but the initiative spec explicitly makes it a non-priority non-goal; no implementation is assigned without a future owner scope decision, and unpublished entry 17 is retired. T-71 is not a distinct compiler tool; P0 packaging owns the distribution package.
-- Source conflict: AD-18's same-version preservation and the Done-when legacy save obligation cannot be met by assuming every reader has a matching writer; enemy's minor-0 text reader and binary-only `writeEnemy` are a concrete example (`packages/core/src/formats/actor/enemy.ts`); each affected entry must prove or implement same-version writing from the normative format spec, or obtain a docs-first owner ruling before changing format, never silently upgrade.
+- Source conflict: AD-18's same-version preservation and the Done-when legacy save obligation cannot be met by assuming every reader has a matching writer; the moved enemy story 29.8 retains the minor-0 text-reader versus binary-only `writeEnemy` preservation question as a concrete example (`packages/core/src/formats/actor/enemy.ts`); each affected entry must prove or implement same-version writing from the normative format spec, or obtain a docs-first owner ruling before changing format, never silently upgrade.
 - Requirement map to CAP-16: T-36 → 1–3; T-37 → 4; T-38 → 5; T-39 → 6; T-25 → 7–8; T-56 → 9; T-57/58 → 10; T-63 → 11; T-23/26 lighting and shading → 12; T-28 expanded clipboard → 13 (basic board undo belongs to 12.1); T-32 → 14; T-30/31 → 15; T-42–44/46 editor presentation → 16 (transform providers 10.5/10.7); integrated acceptance → 19; T-65 → 20.
 - External dependencies: 11.1–11.4 supply shared contracts, lifecycle and linked visits; 11.7 supplies text integration; 12.1 board tracer, 12.2 the one contextual browser, 12.3 board properties, 12.11 board object modes and inspector, and 12.4 shared sprite editing; 10.5 and 10.7 are existing language-tool provider entries. Each leaf names the actual provider it needs; parent must declare the cross-epic edges.
 - Art-tool reuse remains an evidence-gated choice, not a selected dependency: entry 2 compares suitable maintained candidates and an in-house route for license/transitives G6, host/keyboard/offline support, document/undo integration and required pixel operations before any new dependency is installed; if no candidate qualifies, implement in-house.
@@ -71,7 +73,7 @@ The expanded artwork requirements below map to CAP-16. Epic 11 continues to own 
 - Shared registration and integration is owned by entry 1; art, board and database stories modify their own feature modules, with ordering inside each lane and adapter/registry changes routed through the initial stable registration contract; none creates a second browser. No synchronised multi-cell animation channel, cross-document atomic undo, plugin UI or hot reload is assumed.
 
 - Decision (2026-11-13, owner approved breakdown and publication): product direction is owned editor with permissive reuse and browser-led interaction; 13.2 selects components, not whether to own the product. The source preservation and third-party workflow requirements below reflect the owner's subsequent decisions, not additional scope approved merely by ADR 0031.
-- Added CAP-16 requirements: A-1 persistent editable layers/frames/recipes and source/output separation → 21–22; A-2 sheet-first drawing and reusable region brush → 23; A-3 shared/local contextual editing → 24; A-4 artwork timeline and multi-cell water animation → 21, 25; A-5 reusable non-destructive recipes → 26; A-6 terrain generator and actual-provider sandbox → 27; A-7 isometric construction, anchors and tall blocks → 28; A-8 standard external exchange, handoff and reviewed reimport without compulsory drawing UI → 21, 29–30. Existing T-ID requirements remain assigned; 18 and 19 close the full union.
+- Added CAP-16 requirements: A-1 persistent editable layers/frames/recipes and source/output separation → 21–22; A-2 sheet-first drawing and reusable region brush → 23; A-3 shared/local contextual editing → 24; A-4 artwork timeline and multi-cell water animation → 21, 25; A-5 reusable non-destructive recipes → 26; A-6 terrain generator and actual-provider sandbox → 27; A-7 isometric construction, anchors and tall blocks → 28; A-8 standard external exchange, handoff and reviewed reimport without compulsory drawing UI → 21, 29–30. Existing T-ID requirements remain assigned; 18 and 19 close the retained Epic 13 union, while moved T-56 is accepted in 29.8/29.6.
 - Sequencing: entry 1 remains the small legacy tracer after entry 2. Entry 21 specifies and obtains approval for source/interchange/timing changes before entry 22 implements persistence; 3 then supplies the complete toolset and 23 its sheet interaction. Contextual variants consume 12.16/12.17; animation consumes 13.6, 12.7 and 27.4. Terrain and iso consume the recipe service and existing scene/collision providers. Native generation never substitutes for entry 7's sample-derived legacy compatibility evidence.
 - Contract gate: 21 must settle storage ownership, exact animation timing and supported output lowering in normative docs and a separate docs-first commit before dependent code. Do not smuggle a new native extension, per-frame runtime timing, synchronised channels or source schema into a UI implementation. If a new kind or runtime contract is necessary, obtain the required ADR/contract approval as part of 21 before its implementation can start; the committed capability must not be reduced to a preview or unsupported message.
 - Complete, not captive: our tools must supply the artwork workflow, but external artists can use standard exchange without our drawing UI. Preserve original third-party source files; accepting their rendered output does not claim structural import or lossless editable round trips. PNG follows the existing image policy. The precise sheet/animation metadata exchange is a required output of 21, not an unnamed assumed JSON convention.

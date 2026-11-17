@@ -187,7 +187,7 @@ This traceability keeps a broad product vision from silently replacing delivery 
 | **13.5 / T-38** | Two-set curation, GPH conversion/import/export, duplicate removal, insert/delete/blank/move/reorder/display width and reference impact. | Curate reusable kits with staged confirmation, not just arrange thumbnails. |
 | **13.6 / T-39** | TAN editing, exact frame order/count including empty middle frames, speed, reopen and actual playback. | Animation task with target-specific constraints. |
 | **13.7, 13.8 / T-25** | Rights-cleared community samples and approved index mapping; eight-neighbor corner-aware painting with neighbor updates and undo. | Terrain configuration and brush, distinct from a generator. |
-| **13.9–13.11** | Enemy, special-move/status and battle-background editors; links, preservation and actual battle-provider loading. | Consumers of shared art/preview/pickers, not replacement screens inside a paint app. |
+| **29.8 (formerly 13.9), 13.10–13.11** | Enemy, special-move/status and battle-background editors; links, preservation and actual battle-provider loading. | Consumers of shared art/preview/pickers, not replacement screens inside a paint app. |
 | **13.12** | Board light/shade editing and explicit conversion/bake. | Board enhancement that may reuse visual tools, not art-layer lighting or a second compositor. |
 | **13.13** | Expanded board clipboard with supported selection types, undo/reload and explicit exclusions. | Board selection semantics remain distinct from pixel clipboard. |
 | **13.14** | Clean current/whole-board PNG export through shared compositor; indexed at the defined color boundary, no editor overlays. | Export task, not an arbitrary promise to export every editor format. |

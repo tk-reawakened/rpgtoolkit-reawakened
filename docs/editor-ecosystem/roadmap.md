@@ -2,6 +2,8 @@
 
 Part of the [editor ecosystem proposal](README.md). **Proposed.** No ticket, epic or sprint is created or changed by this page. If the owner accepts a phase, its stories are planned through BMAD and published to the GitHub project in the usual way.
 
+Owner sequencing update, 2026-11-16: finish Epics 12 and 13 before implementation in Epics 29 and 30. Full item/NPC authoring is now 29.7 (#1722, formerly 12.6); enemy authoring is 29.8 (#1734, formerly 13.9). The combined definition experience belongs to Epic 29 and connected board experience to Epic 30. The broader Database/native/contribution proposals below retain their recorded approval status; this move does not approve them.
+
 ## In plain terms
 
 The proposal does not add a big new project in front of the editors. It changes the order of a few things inside the epics that already exist, so that the general parts are built at the moment a second editor needs them. The parts that are truly new (native kinds, importers, plugin contributions) come after the first release, as the ADR 0005 amendment already says.
@@ -15,8 +17,8 @@ The proposal does not add a big new project in front of the editors. It changes 
 | Kind registry and document contract | The main file (11.2) | The board tracer (12.1) |
 | Kind-conformance suite | Main file and board | With lifecycle conformance (11.3) |
 | Generated host manifests | The first host story (11.18) | The second kind in VS Code |
-| The form | Editor preferences (11.5) | The first Database form (12.5 or 12.6) |
-| The Database view | Character (12.5) | Item (12.6) |
+| The form | Editor preferences (11.5) | The first Database form (12.5 or 29.7) |
+| The Database view | Character (12.5) | Item (29.7) |
 | The project index | Pickers and navigation (11.4) | Reference review on rename; "used by" in the Database |
 | Contract-first views | The animation editor on `.anm` (12.7) | The native clip in the editor (27.6) |
 | Import with a recipe | The tile grabber (13.4) | The animation wizard (12.7), then outside formats |

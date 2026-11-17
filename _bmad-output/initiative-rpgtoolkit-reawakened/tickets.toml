@@ -228,3 +228,11 @@ tracker_id = "#1883"
 slug = "epic-fast-feedback"
 title = "Fast feedback: sub-second tests, faster CI, and guard-rails that warn when broken"
 covers = ["CAP-13"]
+
+[[epic]]
+id = 29
+tracker_id = "#2968"
+slug = "epic-character-authoring"
+title = "Character, NPC, item and enemy authoring"
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [{ epic = 2, needs = "actor formats (2.6) for the moved enemy definition editor" }, { epic = 11, needs = "shared lifecycle, navigation, game settings, program editing and launch contracts (11.3, 11.4, 11.6, 11.7, 11.8)" }, { epic = 12, needs = "owner sequencing gate: finish Epic 12 before starting Epic 29; reuse sprite/character (12.4, 12.5), board placement (12.11) and connected services (12.12)" }, { epic = 13, needs = "owner sequencing gate: finish Epic 13 before starting Epic 29; reuse registration (13.1) and real linked move/status editors (13.10)" }, { epic = 20, needs = "documented actor progression provider (20.6) for accurate default-growth projection" }]
