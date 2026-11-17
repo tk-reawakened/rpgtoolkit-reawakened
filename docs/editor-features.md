@@ -14,6 +14,8 @@
 
 The workbench command palette offers the focused editor's tools and actions, labelled with the editor kind. Switching or closing that editor removes its commands; opening the palette retains the last editor focus. Split views target only the most recently focused editor. Commands invoke the same action as the editor control and respect its current disabled/read-only state. Actions inside collapsed editor sections remain searchable and reveal their section when invoked. Data choices such as individual pixels, tiles and asset-list entries are not commands. Select fields offer a command that reveals and focuses the field for keyboard selection.
 
+A shared Save button and Ctrl/Cmd+S command save the focused editor through its existing save flow, including pending edits and conflict handling. It is disabled when the editor cannot save. Save All remains a separate command. Standalone editor mounts retain their own Save control.
+
 The board's tools, history and view controls use compact icons in one wrapping strip alongside the current layer. Each icon has an accessible name, a tooltip on hover and keyboard focus (including its shortcut), a visible focus indicator and a non-colour-only selected state. Layer visibility is a disclosure so the canvas stays prominent. Existing keyboard and document semantics remain unchanged.
 
 **T-02 Docked side panels.**
