@@ -3,7 +3,7 @@ title: "Refactor sweep"
 type: refactor
 ticket: 12
 created: 2026-11-16
-status: built
+status: done
 baseline_revision: ef5575585924d5ba2db3545436148df0ddae6db1
 route: oneshot
 route_source: auto
@@ -39,7 +39,8 @@ Oneshot: approximately 100 lines or fewer of focused code/tests, with mechanical
 - Implemented bounded server shutdown with cleared deadline timers, explicit forced/incomplete-shutdown errors, and handle/stdio release if the close receipt is still absent. The original primary-error aggregation and workspace cleanup remain intact. Both new regressions use a real IPC-acknowledging child with open stdin (no real timer sleeps); the second holds its close receipt to exercise the final deadline.
 - Verified under pinned Node 24.21.0 (the workstation default is Node 26.13.0). The old implementation failed the new escalation regression in 47.03 ms. Replacing SIGKILL with SIGTERM failed the forced-stop assertion; inserting an unbounded post-kill close wait failed the missing-receipt guard. Restored implementations passed individually in 88.74 ms and 85.22 ms; the complete lifecycle file passed 8/8, zero skips. Root build, proof-test typecheck, scoped lint and provenance (1,641 files, zero violations) passed.
 - Actual local runtime verification passed on the same source: browser History/New Project acceptance 2/2 (7.2 seconds), proof wrapper 13/13 with zero skips, and the complete unflagged native workbench proof in both cancel/keep modes (197.22 seconds), including ordinary server teardown. Fresh-checkout attempts first exposed missing fixture and language-extension build prerequisites; supplying the existing CI-declared prerequisites resolved setup without changing assertions or product behavior.
-- Closed #2859 and #2884 after mapping every acceptance clause to merged PR #2829's persisted-byte/group assertions and successful exact-head CI run `43991181757`, then rerunning the focused browser and complete native proofs locally. Standalone Git and story 11.13 remain separate.
+- Closed #2859, #2884, #2860, #2873 and #2874 after mapping their acceptance clauses to merged PR #2829's persisted-byte/group assertions and successful exact-head CI run `43991181757`, then rerunning focused browser and complete native proofs locally. Standalone Git and story 11.13 remain separate.
+- Delivery closed: PR #2951 merged as `2eaf991b966cbf528ab47514f20742e70ed40171`; integrated source head `6cea79201a339b632d2842fa2e2a81823b373bc2` passed required CI run `44002721717`. The current main also contains bounded native History metadata polling; final cross-host acceptance remains story 11.13.
 
 ## Plan Change Log
 
