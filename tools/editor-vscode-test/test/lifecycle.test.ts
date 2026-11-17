@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { getDefaultResultOrder, setDefaultResultOrder } from "node:dns";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { createServer } from "node:http";
-import { access, mkdtemp } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -97,3 +98,47 @@ test("cleanup attempts removal and preserves the proof error with teardown failu
   assert.deepEqual(combined.errors, [primary, closeFailure]);
   await assert.rejects(access(workspace), { code: "ENOENT" });
 });
+
+for (const holdClose of [false, true]) {
+  test(holdClose ? "cleanup bounds a missing close receipt after forcing the server to stop" : "cleanup escalates a SIGTERM-ignoring server and removes its workspace", async (t) => {
+    const workspace = await mkdtemp(join(tmpdir(), "tkr-lifecycle-stubborn-"));
+    const child = spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => process.send("term-received")); process.stdin.resume(); process.send("ready");'], { stdio: ["pipe", "ignore", "inherit", "ipc"] });
+    const tracked = trackProcess(child);
+    let releaseClose: (() => void) | undefined;
+    const receipt = holdClose ? new Promise<void>((resolve) => { releaseClose = resolve; }) : undefined;
+    const observed = holdClose ? { ...tracked, closed: tracked.closed.then(async (code) => { await receipt; return code; }) } : tracked;
+    const kill = t.mock.method(child, "kill");
+    const unref = t.mock.method(child, "unref");
+    let cleanup: Promise<unknown[]> | undefined;
+    try {
+      await Promise.race([once(child, "message"), tracked.error]);
+      t.mock.timers.enable({ apis: ["setTimeout"] });
+      const acknowledgement = once(child, "message");
+      cleanup = cleanupTestRun(undefined, observed, workspace);
+      const [signal] = await acknowledgement;
+      assert.equal(signal, "term-received");
+      t.mock.timers.tick(60_000);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.ok(kill.mock.calls.some((call) => call.arguments[0] === "SIGKILL"), "the unresponsive real server must receive a forced stop");
+      if (holdClose) {
+        t.mock.timers.tick(60_000);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.ok(unref.mock.callCount() > 0, "a missing close receipt must not keep the proof process alive");
+      }
+      const errors = await cleanup;
+      assert.match(String(errors[0]), /SIGTERM.*SIGKILL/);
+      if (holdClose) assert.ok(errors.some((error) => /did not close after SIGKILL/.test(String(error))));
+      const primary = new Error("original authoring proof failed");
+      const combined = combineProofErrors(primary, errors);
+      assert.ok(combined instanceof AggregateError);
+      assert.equal(combined.errors[0], primary);
+      await assert.rejects(access(workspace), { code: "ENOENT" });
+    } finally {
+      releaseClose?.();
+      child.kill("SIGKILL");
+      await tracked.closed;
+      await cleanup;
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+}
