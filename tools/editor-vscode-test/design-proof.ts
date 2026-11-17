@@ -198,6 +198,7 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
             browserViewport: measurement.viewport,
             focus: measurement.focus,
             controls: measurement.controls,
+            feedbackTexts: measurement.feedbackTexts,
             layout: measurement.layout,
             screenshot: captureName,
             screenshotSha256: captureHash,
@@ -417,22 +418,23 @@ async function outsideFramePaintLayers(frame: Frame): Promise<HostPaintLayer[]> 
     const element = await current.frameElement();
     try {
       layers.push(...await element.evaluate((iframe) => {
+        if (!(iframe instanceof Element)) throw new Error("Actual webview frame is not a DOM element");
         const result: HostPaintLayer[] = [];
         for (let node: Element | null = iframe; node !== null;) {
           const style = getComputedStyle(node);
           const srgb = /^color\(srgb\s+(.+)\)$/.exec(style.backgroundColor);
           let channels: number[];
           if (srgb !== null) {
-            const [color, alpha = "1"] = srgb[1].split("/");
+            const [color, alpha = "1"] = srgb[1]!.split("/");
             const normalized = (token: string) => token.trim().endsWith("%") ? Number.parseFloat(token) / 100 : Number(token);
-            channels = [...color.trim().split(/\s+/).map((token) => Math.max(0, Math.min(1, normalized(token))) * 255), Math.max(0, Math.min(1, normalized(alpha)))];
+            channels = [...color!.trim().split(/\s+/).map((token) => Math.max(0, Math.min(1, normalized(token))) * 255), Math.max(0, Math.min(1, normalized(alpha)))];
           } else {
             if (!/^rgba?\(/.test(style.backgroundColor)) throw new Error(`Unmeasurable actual host backdrop: ${style.backgroundColor}`);
             channels = style.backgroundColor.match(/[\d.]+/g)!.map(Number);
           }
           if ((channels.length !== 3 && channels.length !== 4) || !channels.every(Number.isFinite)) throw new Error(`Unmeasurable actual host backdrop: ${style.backgroundColor}`);
           result.push({
-            background: [channels[0], channels[1], channels[2], channels[3] ?? 1],
+            background: [channels[0]!, channels[1]!, channels[2]!, channels[3] ?? 1],
             opacity: Number(style.opacity),
             element: node.tagName.toLowerCase(),
           });
@@ -469,6 +471,7 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
   if (activeTab.modified) violations.push(`active document tab is marked modified: ${activeTab.label ?? item.path}`);
   let focus: Record<string, unknown>;
   let controls: Record<string, unknown>[];
+  let feedbackTexts: Record<string, unknown>[] | null;
   let layout: Record<string, unknown>;
   if (frame !== null) {
     const firstControl = frame.locator(`${item.rootSelector} :is(button,input:not([type="hidden"]),select,textarea):enabled:visible`).first();
@@ -496,12 +499,12 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
       const parseColor = (value: string): RGBA => {
         const srgb = /^color\(srgb\s+(.+)\)$/.exec(value);
         if (srgb !== null) {
-          const [color, alpha = "1"] = srgb[1].split("/");
+          const [color, alpha = "1"] = srgb[1]!.split("/");
           const normalized = (token: string) => token.trim().endsWith("%") ? Number.parseFloat(token) / 100 : Number(token);
-          const channels = color.trim().split(/\s+/).map((token) => Math.max(0, Math.min(1, normalized(token))) * 255);
+          const channels = color!.trim().split(/\s+/).map((token) => Math.max(0, Math.min(1, normalized(token))) * 255);
           const opacity = Math.max(0, Math.min(1, normalized(alpha)));
           if (channels.length !== 3 || !channels.every(Number.isFinite) || !Number.isFinite(opacity)) throw new Error(`Cannot measure computed CSS color: ${value}`);
-          return [channels[0], channels[1], channels[2], opacity];
+          return [channels[0]!, channels[1]!, channels[2]!, opacity];
         }
         if (!/^rgba?\(/.test(value)) throw new Error(`Cannot measure computed CSS color: ${value}`);
         const parts = value.match(/[\d.]+%?/g);
@@ -510,8 +513,9 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
           const numeric = Number.parseFloat(part);
           return part.endsWith("%") ? numeric * 2.55 : numeric;
         };
-        const alpha = parts.length > 3 ? (parts[3].endsWith("%") ? Number.parseFloat(parts[3]) / 100 : Number.parseFloat(parts[3])) : 1;
-        return [channel(parts[0]), channel(parts[1]), channel(parts[2]), alpha];
+        const alphaToken = parts[3];
+        const alpha = alphaToken === undefined ? 1 : (alphaToken.endsWith("%") ? Number.parseFloat(alphaToken) / 100 : Number.parseFloat(alphaToken));
+        return [channel(parts[0]!), channel(parts[1]!), channel(parts[2]!), alpha];
       };
       const composite = (foreground: RGBA, background: RGBA): RGBA => {
         const alpha = foreground[3] + background[3] * (1 - foreground[3]);
@@ -538,14 +542,16 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
         if (foreground[3] < 0.999) throw new Error(`Computed color has no opaque backing surface at ${element.tagName.toLowerCase()}`);
         return foreground;
       };
-      const luminance = (rgba: RGBA) => rgba.slice(0, 3).reduce((sum, channel, index) => {
+      const linearChannel = (channel: number) => {
         const normalized = channel / 255;
-        const linear = normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
-        return sum + linear * [0.2126, 0.7152, 0.0722][index];
-      }, 0);
+        return normalized <= 0.04045 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+      };
+      const luminance = (rgba: RGBA) =>
+        linearChannel(rgba[0]) * 0.2126 + linearChannel(rgba[1]) * 0.7152 + linearChannel(rgba[2]) * 0.0722;
       const contrast = (first: RGBA, second: RGBA) => {
-        const values = [luminance(first), luminance(second)].sort((a, b) => b - a);
-        return (values[0] + 0.05) / (values[1] + 0.05);
+        const firstLuminance = luminance(first);
+        const secondLuminance = luminance(second);
+        return (Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05);
       };
       const active = document.activeElement as HTMLElement | null;
       const activeStyle = active === null ? null : getComputedStyle(active);
@@ -608,6 +614,22 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
             rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
           };
         });
+      const feedbackTexts = [...root.querySelectorAll(".tkr-board-preview-state,.tkr-board-warnings")]
+        .filter(visible)
+        .map((element) => {
+          const style = getComputedStyle(element);
+          const background = colorAt(element);
+          const foreground = colorAt(element, parseColor(style.color));
+          return {
+            selector: element.className,
+            text: element.textContent?.trim() ?? "",
+            foreground: style.color,
+            effectiveForeground: foreground.slice(0, 3),
+            background: style.backgroundColor,
+            effectiveBackground: background.slice(0, 3),
+            textContrast: contrast(foreground, background),
+          };
+        });
       const focusBackground = active === null ? null : colorAt(parentElement(active) ?? active);
       const focus = active === null ? { found: false } : {
         found: active !== document.body && active !== document.documentElement,
@@ -654,6 +676,7 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
       return {
         focus,
         controls,
+        feedbackTexts,
         layout: {
           viewport: { width: innerWidth, height: innerHeight },
           document: { width: documentRoot.scrollWidth, height: documentRoot.scrollHeight },
@@ -668,6 +691,7 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
     }, { rootSelector: item.rootSelector, hostPaintLayers });
     focus = inside.focus;
     controls = inside.controls;
+    feedbackTexts = inside.feedbackTexts;
     layout = inside.layout;
   } else {
     focus = await page.evaluate(() => {
@@ -676,6 +700,7 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
       return { found: active !== null && active !== document.body, tag: active?.tagName.toLowerCase(), role: active?.getAttribute("role"), outlineColor: style?.outlineColor, outlineWidth: style?.outlineWidth, outlineStyle: style?.outlineStyle };
     });
     controls = [];
+    feedbackTexts = null;
     layout = await page.evaluate(() => ({
       viewport: { width: innerWidth, height: innerHeight },
       document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight },
@@ -701,12 +726,17 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
       violations.push(`sampled control boundary contrast below 3:1 (${control.name || control.tag}, ${control.boundaryContrast.toFixed(2)}:1)`);
     }
   }
+  for (const feedback of feedbackTexts ?? []) {
+    if (typeof feedback.textContrast === "number" && feedback.textContrast < 4.5) {
+      violations.push(`preview feedback text contrast below 4.5:1 (${feedback.selector}, ${feedback.textContrast.toFixed(2)}:1)`);
+    }
+  }
   if (item.kind === "custom-webview" && focus.found === true) {
     if (focus.focusVisible !== true) violations.push("keyboard focus is not reported by :focus-visible");
     if (parseFloat(String(focus.outlineWidth)) < 2) violations.push("keyboard focus outline is thinner than 2 CSS pixels");
     if (typeof focus.focusContrast === "number" && focus.focusContrast < 3) violations.push(`keyboard focus contrast below 3:1 (${focus.focusContrast.toFixed(2)}:1)`);
   }
-  return { pane, activeTab, viewport, focus, controls, layout, violations };
+  return { pane, activeTab, viewport, focus, controls, feedbackTexts, layout, violations };
 }
 
 async function captureRootTextScale(page: Page, expect: Expect, output: string, workspaceRoot: string, workspaceFiles: readonly { path: string; bytes: Uint8Array; sha256: string }[]) {
@@ -790,6 +820,7 @@ async function captureRootTextScale(page: Page, expect: Expect, output: string, 
       hostPane,
       before,
       after,
+      feedbackTexts: null,
       originalStyle,
       restoredStyle,
       screenshot,
