@@ -181,6 +181,8 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
               return element.parentElement.open;
             });
             if (expanded !== (item.id === "board-properties")) await summary.click();
+            const loading = frame.locator(".tkr-board-preview-state").filter({ hasText: /^Drawing the board…$/ });
+            await expect.poll(() => loading.count(), { timeout: 2_000, intervals: [50, 100, 200] }).toBe(0);
           }
           const measurement = await measureDocument(page, expect, item, frame);
           const captureName = `${item.id}-${pane}-${theme.id}.png`;
