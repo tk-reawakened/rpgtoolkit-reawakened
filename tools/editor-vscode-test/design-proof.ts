@@ -692,7 +692,7 @@ async function captureRootTextScale(page: Page, expect: Expect, output: string, 
   await openNativeQuickOpenFile(page, expect, gameCase.path);
   const frame = await waitForDocument(page, expect, gameCase);
   if (frame === null) throw new Error("Actual game settings webview frame missing for root text scaling");
-  const activeTab = page.locator('.monaco-workbench .tab.active[role="tab"], .monaco-workbench [role="tab"][aria-selected="true"]');
+  const activeTab = page.locator('.monaco-workbench .part.editor .tab[role="tab"][aria-selected="true"]:visible');
   const activeTabLabel = await activeTab.getAttribute("aria-label") ?? await activeTab.innerText();
   const readScale = () => frame.evaluate(() => {
     const root = document.documentElement;
