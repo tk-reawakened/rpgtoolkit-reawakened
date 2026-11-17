@@ -11,7 +11,7 @@ route_source: auto
 risk: high
 review: quick
 review_source: pinned
-lenses_ran: []
+lenses_ran: [quick]
 review_loop_iteration: 0
 context:
   - "{project-root}/docs/guardrails.md"
@@ -32,7 +32,7 @@ context:
 Oneshot: approximately 120 lines of orchestration, fixture isolation and existing-case assertions, plus mechanical command/docs/tracking updates. The local setup fixes do not change the frozen acceptance scope. Keep the ticket's high risk: an incomplete acceptance report could incorrectly close the foundation even though no shipping runtime or editor behavior changes.
 
 - Add `pnpm editor:acceptance` in the root manifest and `tools/editor-foundation/suite.mjs`, following the existing local-suite subprocess convention. Build/fetch the declared prerequisites before checking; run heavy host proofs serially, without new skips or sleeps.
-- Reuse actual dependency-graph rules and their invalid-fixture controls; the complete shared conformance and game-settings suites exercise browser, VS Code desktop and VS Code web adapters, exact `.gam` bytes/unknown residue, saved revisions, recovery/editId/undo/redo/failure paths and real engine boot.
+- Reuse actual dependency-graph rules and their invalid-fixture controls; the complete shared conformance and game-settings suites exercise browser, VS Code desktop and VS Code web adapters, exact `.gam` bytes/unknown residue, saved revisions, recovery/editId/undo/redo/failure paths and real engine boot. Include both `navigation-browser.test.ts` and `navigation-vscode.test.ts` for linked visits, reserved-folder asset picking, cancelled copy/no write, confirmed copy/exact bytes and existing-reference/no-write behavior across the same three adapter modes.
 - Reuse the browser workspace/History/program/creator specs for real folder handles, pickers, fresh New Project, durable restore bytes, Monaco/language-worker behavior, failure controls and real fixture execution. Do not replace these with mocked wiring or source-text tests.
 - Reuse `tools/vscode-web/run.mjs` for the real native language/debug client, then the native editor proof's complete unflagged cancel/keep scenarios, focused program fixture and creator-test scenarios. Clear inherited `TKR_VSCODE_*_PROOF` selectors before setting each intended lane, so an ambient focus/skip flag cannot silently narrow acceptance.
 - Make the language/debug launcher's fixture a fresh temporary copy on every invocation; delete only that owned copy on success or failure and retain its original error if cleanup also fails. Keep replaceable VS Code caches outside fixture copies. The editor launcher already copies its input workspace; supply an authored example in an owned temporary folder.
@@ -49,6 +49,9 @@ Oneshot: approximately 120 lines of orchestration, fixture isolation and existin
 
 ## Review Triage Log
 
+- Initial quick review, `FoundationRunnerReview`: no findings.
+- Initial quick review, `FoundationCoverageReview`: **medium — patch, LIVE, #2996**. The adapter phase omitted the browser and VS Code navigation suites, so its green report did not prove Done-when 2's outside-asset copy-in. Parent checked the actual cancellation, confirmation/reference and independent stored-byte assertions; VS Code runs both desktop and web modes. Refreshed remote main `34714e326` has no relevant runtime/test changes. Add the existing suites, name the adapter-level proof honestly, run them locally and independently re-review the final implementation before committing the fix.
+
 ## Verification
 
 - Run the new command on pinned Node 24.21.0 with inherited native focus/skip selectors set; actual output must still include full native cancel/keep and sprite proofs plus the explicit fixture/creator lanes. All adapter and actual-host checks must pass without skipped tests.
@@ -64,3 +67,5 @@ Oneshot: approximately 120 lines of orchestration, fixture isolation and existin
 - The strengthened #2216 case passed its applicable VS Code desktop watcher path in 133 ms. Temporarily allowing the real recovery producer to drop pending recovery and reconcile matching disk bytes made the case fail at `matching disk does not silently resolve pending recovery` (107 ms). Restoring the producer restored the pass (138 ms). Browser/Web rows retain their capability-based early returns; this is not a physical desktop-app UI claim.
 - Scoped ESLint passed for the four changed tool/test sources. Before the remote-base refresh, provenance scanned 1,672 files with zero violations and canonical store validation passed for 534 tracker IDs, 432 plans and 33 folders.
 - Full post-fix acceptance on the refreshed main base passed all nine sections in 298.15 seconds on Node 24.21.0 (runtime-code revision `e810c4fe3fd00e514d317f86ec9a416232fbb15d`): 16 graph-control tests, 81 adapter/settings tests, 28 PWA tests, actual native language/debugger scenarios, 13 native filesystem/workspace guards, complete native cancel/keep plus sprite/New Project/History, saved program fixture execution, and saved creator-test/headless parity. Reported test skips: zero. Poisoned inherited focus/skip selectors did not narrow the native proof; committed language and authored-game fixture directories, file paths and bytes were unchanged.
+- The real native wrong-module control (`PROBE_FORMAT=iife pnpm vscode-web:probe`) failed in the VS Code web host with `Couldn't find a debug adapter descriptor for debug type 'probe'`, returned 1, removed its owned temporary fixture copy and left the committed fixture directories, file paths and bytes unchanged (3.00 seconds). This validates the language launcher's failure-cleanup path rather than a mocked exception.
+- Restoring the probe's proper CommonJS format (`PROBE_FORMAT=cjs`) restored real activation, debug-adapter registration and a successful session; the command returned 0, removed its owned copy and preserved committed fixture directories/paths/bytes (2.90 seconds).

@@ -670,7 +670,7 @@ pnpm editor:acceptance
 
 This builds the required bundles and fetches test data, then checks editor project creation, folders and pickers, exact saves and recovery, program language features, and real fixture execution. Each check names its host or capability; any failure makes the command fail. Heavy browser and workbench proofs run one at a time, so local checks do not need a CI round trip.
 
-The shared tests cover browser, VS Code desktop and VS Code web adapters. The actual UI proofs run in the browser editor and VS Code for the Web; they do not claim a desktop-app UI run. Existing focused-proof environment flags cannot shrink this full acceptance command.
+The shared tests cover browser, VS Code desktop and VS Code web adapters, including outside-asset copy confirmation/cancellation and the exact bytes saved in the reserved folder. The actual UI proofs run in the browser editor and VS Code for the Web; they do not claim a desktop-app UI run or an OS-picker UI proof for every adapter-level check. Existing focused-proof environment flags cannot shrink this full acceptance command.
 
 Proofs use owned temporary project copies and remove them afterward; VS Code download caches stay outside those copies. The suite does not include standalone Git or optional tutorial/tileset providers, and does not replace the full pull-request gates.
 
