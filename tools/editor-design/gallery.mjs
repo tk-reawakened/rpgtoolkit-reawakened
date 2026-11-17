@@ -179,17 +179,17 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         const style = getComputedStyle(target);
         if (rgba(style.backgroundColor)[3] > 0) cues.fill = { color: own, behind: adjacent };
         for (const side of ["Top", "Right", "Bottom", "Left"]) {
-          if (Number.parseFloat(style[`border${side}Width`]) > 0 && !["none", "hidden"].includes(style[`border${side}Style`])) add(`border${side}`, rgba(style[`border${side}Color`]), adjacent);
+          if (Number.parseFloat(style[`border${side}Width`]) >= 1 && !["none", "hidden"].includes(style[`border${side}Style`])) add(`border${side}`, rgba(style[`border${side}Color`]), adjacent);
         }
         for (const name of ["::before", "::after"]) {
           const pseudo = getComputedStyle(target, name);
           if (pseudo.content === "none" || pseudo.content === "normal" || pseudo.display === "none" || pseudo.visibility === "hidden" || Number(pseudo.opacity) <= 0) continue;
-          if (requireArea && (Number.parseFloat(pseudo.width) <= 0 || Number.parseFloat(pseudo.height) <= 0)) continue;
+          if (requireArea && (!(Number.parseFloat(pseudo.width) >= 1) || !(Number.parseFloat(pseudo.height) >= 1))) continue;
           const fill = rgba(pseudo.backgroundColor);
           fill[3] *= Number(pseudo.opacity);
           add(`${name}-fill`, fill, own);
           for (const side of ["Top", "Right", "Bottom", "Left"]) {
-            if (Number.parseFloat(pseudo[`border${side}Width`]) > 0 && !["none", "hidden"].includes(pseudo[`border${side}Style`])) {
+            if (Number.parseFloat(pseudo[`border${side}Width`]) >= 1 && !["none", "hidden"].includes(pseudo[`border${side}Style`])) {
               const ink = rgba(pseudo[`border${side}Color`]);
               ink[3] *= Number(pseudo.opacity);
               add(`${name}-border${side}`, ink, own);

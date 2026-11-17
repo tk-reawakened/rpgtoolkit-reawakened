@@ -572,17 +572,17 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
           const style = getComputedStyle(target);
           if (parseColor(style.backgroundColor)[3] > 0) cues.fill = { color: own, behind: adjacent };
           for (const side of ["top", "right", "bottom", "left"]) {
-            if (Number.parseFloat(style.getPropertyValue(`border-${side}-width`)) > 0 && !["none", "hidden"].includes(style.getPropertyValue(`border-${side}-style`))) add(`border-${side}`, parseColor(style.getPropertyValue(`border-${side}-color`)), adjacent);
+            if (Number.parseFloat(style.getPropertyValue(`border-${side}-width`)) >= 1 && !["none", "hidden"].includes(style.getPropertyValue(`border-${side}-style`))) add(`border-${side}`, parseColor(style.getPropertyValue(`border-${side}-color`)), adjacent);
           }
           for (const name of ["::before", "::after"]) {
             const pseudo = getComputedStyle(target, name);
             if (pseudo.content === "none" || pseudo.content === "normal" || pseudo.display === "none" || pseudo.visibility === "hidden" || Number(pseudo.opacity) <= 0) continue;
-            if (requireArea && (Number.parseFloat(pseudo.width) <= 0 || Number.parseFloat(pseudo.height) <= 0)) continue;
+            if (requireArea && (!(Number.parseFloat(pseudo.width) >= 1) || !(Number.parseFloat(pseudo.height) >= 1))) continue;
             const fill = parseColor(pseudo.backgroundColor);
             fill[3] *= Number(pseudo.opacity);
             add(`${name}-fill`, fill, own);
             for (const side of ["top", "right", "bottom", "left"]) {
-              if (Number.parseFloat(pseudo.getPropertyValue(`border-${side}-width`)) > 0 && !["none", "hidden"].includes(pseudo.getPropertyValue(`border-${side}-style`))) {
+              if (Number.parseFloat(pseudo.getPropertyValue(`border-${side}-width`)) >= 1 && !["none", "hidden"].includes(pseudo.getPropertyValue(`border-${side}-style`))) {
                 const ink = parseColor(pseudo.getPropertyValue(`border-${side}-color`));
                 ink[3] *= Number(pseudo.opacity);
                 add(`${name}-border-${side}`, ink, own);
