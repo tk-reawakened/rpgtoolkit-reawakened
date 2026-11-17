@@ -9,6 +9,7 @@ import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap
 import { buildNewBoard } from "@tk-reawakened/editor-model";
 import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
 import { runVscodeBoardPropertiesProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeDesignProof } from "../editor-design/vscode-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -58,6 +59,16 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
   createWebAdapterBytes(gameFiles[0], game, externalTitle),
   createWebAdapterBytes(gameFiles[0], "__tkr_sentinel.gam", sentinelTitle),
 ]);
+const designProof = process.env.TKR_VSCODE_DESIGN_PROOF === "1";
+const designPhase = process.env.TKR_EDITOR_DESIGN_PHASE;
+const designOutput = process.env.TKR_EDITOR_DESIGN_OUT;
+const designCaseFilter = process.env.TKR_EDITOR_DESIGN_CASES;
+const designThemeFilter = process.env.TKR_EDITOR_DESIGN_THEMES;
+const designPaneFilter = process.env.TKR_EDITOR_DESIGN_PANES;
+if (designProof && (designPhase !== "before" && designPhase !== "after")) throw new Error("TKR_EDITOR_DESIGN_PHASE must be before or after when TKR_VSCODE_DESIGN_PROOF=1");
+if (designProof && (designOutput === undefined || !designOutput.startsWith("/") || resolve(designOutput) === root || resolve(designOutput).startsWith(`${root}/`))) {
+  throw new Error("TKR_EDITOR_DESIGN_OUT must be an absolute destination outside the repository root");
+}
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const animationProof = process.env.TKR_VSCODE_ANIMATION_PROOF === "1";
 const boardPropertiesProof = process.env.TKR_VSCODE_BOARD_PROPERTIES_PROOF === "1";
@@ -71,10 +82,16 @@ const historyProof = process.env.TKR_VSCODE_HISTORY_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
 const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
-if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
-if ((boardPropertiesProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of boardPropertiesProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+if (designProof && (animationProof || boardPropertiesProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof)) {
+  throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
+}
+if ((designProof || boardPropertiesProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of designProof || boardPropertiesProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
+  if (designProof) {
+    await copyFile(resolve(root, "docs/spec/examples/game/Main/example.gam"), resolve(proofWorkspace, game));
+    await cp(resolve(root, "docs/spec/examples/game/Game/Example"), resolve(proofWorkspace, "Game/Example"), { recursive: true, force: true });
+  }
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
     const target = resolve(proofWorkspace, file.path);
     await mkdir(dirname(target), { recursive: true });
@@ -124,6 +141,15 @@ for (const choice of boardPropertiesProof || animationProof || historyProof || s
   const probeDiagnostics = [];
   const historyPreviewTraceDiagnostics = [];
   try {
+    if (designProof) {
+      const sourceFixture = resolve(root, "docs/spec/examples/game/Game/Example");
+      await cp(sourceFixture, resolve(proofWorkspace, "Game/Example"), { recursive: true, force: true });
+      const authoredGame = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/game/Main/example.gam")));
+      const providedGame = new Uint8Array(await readFile(resolve(proofWorkspace, game)));
+      if (authoredGame.length !== providedGame.length || !authoredGame.every((byte, index) => byte === providedGame[index])) {
+        throw new Error("Design proof requires the authored docs/spec/examples/game/Main/example.gam fixture");
+      }
+    }
     if (launchProof || boardProof || programProof || guardProof || historyProof) {
       await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
       if (programProof || guardProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
@@ -334,7 +360,20 @@ for (const choice of boardPropertiesProof || animationProof || historyProof || s
       await runVscodeBoardPropertiesProof(page, expect, workbenchUrl, readBacking);
       console.log("vscode.dev board properties, linked native programs, return and startup ownership proof passed");
     };
-    if (boardPropertiesProof) {
+    if (designProof) {
+      await runVscodeDesignProof(page, expect, {
+        root,
+        extension,
+        workspace: proofWorkspace,
+        game,
+        phase: designPhase,
+        output: designOutput,
+        caseFilter: designCaseFilter,
+        themeFilter: designThemeFilter,
+        paneFilter: designPaneFilter,
+      });
+      console.log(`VS Code native editor design ${designPhase} evidence captured at ${designOutput}`);
+    } else if (boardPropertiesProof) {
       await proveBoardProperties();
     } else if (creatorTestsProof) {
       const { runCreatorSpecs } = await import(pathToFileURL(resolve(root, "packages/script-spec/dist/browser.js")).href);

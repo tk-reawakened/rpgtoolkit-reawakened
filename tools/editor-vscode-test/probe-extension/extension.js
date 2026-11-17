@@ -13,6 +13,27 @@ function activate(context) {
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
   context.subscriptions.push(status);
   const report = (text) => { status.text = text; status.show(); };
+  const startupThemeName = vscode.workspace.getConfiguration("workbench").get("colorTheme");
+  const startupThemeKind = ["unknown", "light", "dark", "high-contrast-dark", "high-contrast-light"][vscode.window.activeColorTheme.kind] ?? "unknown";
+  let designInfoStatus;
+  const getDesignInfo = () => {
+    const theme = vscode.window.activeColorTheme;
+    const themeName = vscode.workspace.getConfiguration("workbench").get("colorTheme");
+    const themeKind = ["unknown", "light", "dark", "high-contrast-dark", "high-contrast-light"][theme.kind] ?? "unknown";
+    return { vscodeVersion: vscode.version, themeName, themeKind, initialThemeName: startupThemeName, initialThemeKind: startupThemeKind };
+  };
+  const publishDesignInfo = () => {
+    if (designInfoStatus === undefined) {
+      designInfoStatus = vscode.window.createStatusBarItem("tkr.editorWebProof.designInfo", vscode.StatusBarAlignment.Left, 99);
+      context.subscriptions.push(designInfoStatus);
+    }
+    const info = getDesignInfo();
+    designInfoStatus.text = `TKR design · ${info.themeName} · ${info.themeKind}`;
+    designInfoStatus.tooltip = JSON.stringify(info);
+    designInfoStatus.show();
+  };
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.getDesignInfo", getDesignInfo));
+  context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(publishDesignInfo));
   const publishRunHandle = (handle) => {
     lastRunHandle = handle;
     if (runHandlePanel === undefined) {
