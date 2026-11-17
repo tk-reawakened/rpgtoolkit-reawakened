@@ -124,6 +124,11 @@ function hex(channels) {
   return `#${channels.map((channel) => Math.round(channel).toString(16).padStart(2, "0")).join("")}`;
 }
 async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visible"), shippingMode = false) {
+  if (shippingMode) {
+    await expect.poll(() => page.evaluate(() => document.getAnimations().filter((animation) =>
+      animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity)
+    ).length), { timeout: 2_000, intervals: [50, 100, 200] }).toBe(0);
+  }
   const observed = await scope.locator("button, input, select, textarea").evaluateAll((elements, shippingMode) => {
     const rgba = (text) => {
       const srgb = /^color\(srgb\s+(.+)\)$/.exec(text);
@@ -236,8 +241,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         }] : [];
       });
       const nativeType = element.tagName === "INPUT" && ["checkbox", "radio", "range", "color"].includes(element.type);
-      const nativeUaUnmeasured = shippingMode && nativeType && style.appearance !== "none"
-        && !borderEdges.some((edge) => edge.visible) && rgba(style.backgroundColor)[3] === 0;
+      const nativeUaUnmeasured = shippingMode && nativeType && style.appearance !== "none";
       const textRequired = !shippingMode || !(element.tagName === "INPUT" && ["color", "checkbox", "radio", "range"].includes(element.type));
       const textOnlyButton = element.tagName === "BUTTON" && !borderEdges.some((edge) => edge.visible) && rgba(style.backgroundColor)[3] === 0 && !selectedIndicatorRequired;
       const boundaryRequired = shippingMode ? !textOnlyButton && !nativeUaUnmeasured : true;
@@ -1133,7 +1137,7 @@ async function layoutMetrics(page, dialogMode = null) {
     };
     const activeTab = document.querySelector('[role="tab"][aria-selected="true"]');
     const sharedSelector = ".tkr-panel-toggles > *, .tkr-web-topbar .tkr-web-status, .tkr-web-topbar .tkr-web-brand, .tkr-web-project-controls > button, .tkr-web-session-open, .tkr-web-game-choice, .tkr-web-recent-open, .tkr-web-empty-explorer-header";
-    const preferenceSelector = ".tkr-picker-overlay[aria-label='Editor preferences'] > button, .tkr-preferences > label, .tkr-preferences > input, .tkr-preferences > p, .tkr-pref-label, .tkr-pref-help, .tkr-pref-source, .tkr-pref > input, .tkr-pref > select, .tkr-pref > textarea, .tkr-pref > button, .tkr-pref-layer select, .tkr-pref-error";
+    const preferenceSelector = ".tkr-picker-overlay[aria-label='Editor preferences'] button, .tkr-preferences > label, .tkr-preferences > input, .tkr-preferences > p, .tkr-pref-label, .tkr-pref-help, .tkr-pref-source, .tkr-pref > input, .tkr-pref > select, .tkr-pref > textarea, .tkr-pref-layer select, .tkr-pref-error";
     const paletteSelector = ".tkr-command-palette-overlay .tkr-command-palette-input, .tkr-command-palette-overlay .tkr-command-palette-option, .tkr-command-palette-overlay .tkr-command-palette-empty";
     const modeSelector = preferenceDialog ? preferenceSelector : commandPaletteDialog ? paletteSelector : shippingMode
       ? ".tkr-command-bar button, .tkr-command-bar select, .tkr-command-bar input, .tkr-command-bar textarea, .tkr-program-toolbar button, .tkr-program-toolbar select, .tkr-program-toolbar input, .tkr-program-toolbar textarea, .tkr-program-bookmarks button, .tkr-program-reference button, .tkr-program-reference input, .tkr-program-reference select, .tkr-program-reference textarea, .tkr-program-reference-hint, .tkr-program-body > .tkr-program-text"
@@ -1145,53 +1149,68 @@ async function layoutMetrics(page, dialogMode = null) {
       const insidePreferenceDialog = element.closest('[role="dialog"][aria-label="Editor preferences"]') !== null;
       const insideCommandPalette = element.closest('[role="dialog"][aria-label="Command palette"]') !== null;
       const insideRequestedDialog = preferenceDialog ? insidePreferenceDialog : commandPaletteDialog ? insideCommandPalette : !element.closest(".tkr-app-menu-popup, .tkr-app-menu-submenu, .tkr-command-palette-overlay, [role='dialog']");
-      return style.display !== "none" && element.getBoundingClientRect().width > 0
-        && (!shippingMode || (style.visibility === "visible" && insideRequestedDialog));
+      const box = element.getBoundingClientRect();
+      return style.display !== "none" && box.width > 0
+        && (!shippingMode || (box.height > 0 && insideRequestedDialog
+          && element.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })));
     });
     const controls = visibleCandidates.map((element) => ({ element, selector: element.className || element.tagName.toLowerCase(), text: (element.getAttribute("aria-label") || element.textContent || "").trim().slice(0, 100), ...rect(element) }));
-    const outsideViewport = controls.filter((item) => item.left < 0 || item.right > innerWidth).map(({ selector, left, right, top, bottom }) => ({ selector, left, right, top, bottom, axis: "horizontal" }));
+    const outsideViewport = shippingMode ? [] : controls.filter((item) => item.left < 0 || item.right > innerWidth).map(({ selector, left, right, top, bottom }) => ({ selector, left, right, top, bottom, axis: "horizontal" }));
     const verticalReachability = [];
+    const horizontalReachability = [];
     const scrollingElement = document.scrollingElement;
-    for (const item of controls.filter((candidate) => candidate.top < -1 || candidate.bottom > innerHeight + 1)) {
+    const measureReachability = (item, axis) => {
+      const horizontal = axis === "horizontal";
       const ancestors = [];
-      for (let node = item.element; node !== null; node = node.parentElement) ancestors.push(node);
+      for (let node = item.element.parentElement; node !== null; node = node.parentElement) ancestors.push(node);
       const scrollBefore = ancestors.map((node) => ({ node, top: node.scrollTop, left: node.scrollLeft }));
       const windowBefore = { x: scrollX, y: scrollY };
       const nearestScrollable = ancestors.find((node) => {
         const style = getComputedStyle(node);
-        return node === scrollingElement
-          ? node.scrollHeight > node.clientHeight + 1
-          : /(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 1;
+        const overflow = horizontal ? style.overflowX : style.overflowY;
+        const hasScroll = horizontal ? node.scrollWidth > node.clientWidth + 1 : node.scrollHeight > node.clientHeight + 1;
+        return hasScroll && (node === scrollingElement || /(auto|scroll|overlay)/.test(overflow));
       });
-      item.element.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
-      const after = rect(item.element);
-      let visibleLeft = Math.max(0, after.left);
-      let visibleTop = Math.max(0, after.top);
-      let visibleRight = Math.min(innerWidth, after.right);
-      let visibleBottom = Math.min(innerHeight, after.bottom);
-      for (const node of ancestors) {
-        const style = getComputedStyle(node);
-        if (node === item.element || !/(hidden|clip|auto|scroll|overlay)/.test(`${style.overflowY} ${style.overflowX}`)) continue;
-        const clip = node.getBoundingClientRect();
-        if (/(hidden|clip|auto|scroll|overlay)/.test(style.overflowX)) {
-          visibleLeft = Math.max(visibleLeft, clip.left);
-          visibleRight = Math.min(visibleRight, clip.right);
+      try {
+        item.element.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
+        const after = rect(item.element);
+        let visibleLeft = Math.max(0, after.left);
+        let visibleTop = Math.max(0, after.top);
+        let visibleRight = Math.min(innerWidth, after.right);
+        let visibleBottom = Math.min(innerHeight, after.bottom);
+        for (const node of ancestors) {
+          const style = getComputedStyle(node);
+          const clip = node.getBoundingClientRect();
+          if (/(hidden|clip|auto|scroll|overlay)/.test(style.overflowX)) {
+            visibleLeft = Math.max(visibleLeft, clip.left);
+            visibleRight = Math.min(visibleRight, clip.right);
+          }
+          if (/(hidden|clip|auto|scroll|overlay)/.test(style.overflowY)) {
+            visibleTop = Math.max(visibleTop, clip.top);
+            visibleBottom = Math.min(visibleBottom, clip.bottom);
+          }
         }
-        if (/(hidden|clip|auto|scroll|overlay)/.test(style.overflowY)) {
-          visibleTop = Math.max(visibleTop, clip.top);
-          visibleBottom = Math.min(visibleBottom, clip.bottom);
-        }
+        const moved = scrollBefore.some(({ node, top, left }) => Math.abs(node.scrollTop - top) > 1 || Math.abs(node.scrollLeft - left) > 1)
+          || Math.abs(scrollY - windowBefore.y) > 1 || Math.abs(scrollX - windowBefore.x) > 1;
+        const reached = nearestScrollable !== undefined && moved && visibleRight - visibleLeft > 1 && visibleBottom - visibleTop > 1;
+        return {
+          selector: item.selector, reachable: reached, scrollRoute: nearestScrollable === undefined ? null : (nearestScrollable === scrollingElement ? "document" : nearestScrollable.className || nearestScrollable.tagName.toLowerCase()),
+          moved, visibleRect: { left: visibleLeft, top: visibleTop, right: visibleRight, bottom: visibleBottom },
+        };
+      } finally {
+        for (const saved of scrollBefore.reverse()) saved.node.scrollTo(saved.left, saved.top);
+        window.scrollTo(windowBefore.x, windowBefore.y);
       }
-      const moved = scrollBefore.some(({ node, top, left }) => Math.abs(node.scrollTop - top) > 1 || Math.abs(node.scrollLeft - left) > 1)
-        || Math.abs(scrollY - windowBefore.y) > 1 || Math.abs(scrollX - windowBefore.x) > 1;
-      const reached = nearestScrollable !== undefined && moved && visibleRight - visibleLeft > 1 && visibleBottom - visibleTop > 1;
-      verticalReachability.push({
-        selector: item.selector, reachable: reached, scrollRoute: nearestScrollable === undefined ? null : (nearestScrollable === scrollingElement ? "document" : nearestScrollable.className || nearestScrollable.tagName.toLowerCase()),
-        moved, visibleRect: { left: visibleLeft, top: visibleTop, right: visibleRight, bottom: visibleBottom },
-      });
-      if (!reached) outsideViewport.push({ selector: item.selector, top: after.top, bottom: after.bottom, axis: "vertical", reachable: false });
-      for (const saved of scrollBefore.reverse()) saved.node.scrollTo(saved.left, saved.top);
-      window.scrollTo(windowBefore.x, windowBefore.y);
+    };
+    for (const item of controls.filter((candidate) => candidate.top < -1 || candidate.bottom > innerHeight + 1)) {
+      const observation = measureReachability(item, "vertical");
+      verticalReachability.push(observation);
+      if (!observation.reachable) outsideViewport.push({ selector: item.selector, top: item.top, bottom: item.bottom, axis: "vertical", reachable: false });
+    }
+    if (shippingMode) for (const item of controls.filter((candidate) => candidate.left < -1 || candidate.right > innerWidth + 1)) {
+      const observation = measureReachability(item, "horizontal");
+      horizontalReachability.push(observation);
+      if (!observation.reachable) outsideViewport.push({ selector: item.selector, left: item.left, right: item.right, axis: "horizontal", reachable: false });
     }
     const controlRects = controls.map(({ element: _element, ...control }) => control);
     const overlaps = [];
@@ -1209,6 +1228,11 @@ async function layoutMetrics(page, dialogMode = null) {
       rect: rect(preferenceElement), scrollTop: preferenceElement.scrollTop, scrollHeight: preferenceElement.scrollHeight,
       clientHeight: preferenceElement.clientHeight, overflowY: getComputedStyle(preferenceElement).overflowY,
     };
+    const preferencePanel = preferenceElement?.querySelector(".tkr-picker") ?? null;
+    const preferencesPanel = preferencePanel === null ? null : {
+      rect: rect(preferencePanel), scrollTop: preferencePanel.scrollTop, scrollHeight: preferencePanel.scrollHeight,
+      clientHeight: preferencePanel.clientHeight, overflowY: getComputedStyle(preferencePanel).overflowY,
+    };
     const paletteElement = commandPaletteDialog ? document.querySelector(".tkr-command-palette-dialog") : null;
     const commandPalette = paletteElement === null ? null : {
       rect: rect(paletteElement), scrollTop: paletteElement.scrollTop, scrollHeight: paletteElement.scrollHeight,
@@ -1220,7 +1244,7 @@ async function layoutMetrics(page, dialogMode = null) {
       forcedColors: matchMedia("(forced-colors: active)").matches,
     };
     const base = { viewport, pane: pane === null ? null : rect(pane), controls: controlRects, overlaps, outsideViewport, verticalReachability };
-    return shippingMode ? { ...base, preferencesDialog, commandPalette } : base;
+    return shippingMode ? { ...base, horizontalReachability, preferencesDialog, preferencesPanel, commandPalette } : base;
   }, { shippingMode: shipping, dialogMode });
 }
 async function verifyVerticalReachability(locator) {

@@ -172,7 +172,7 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
           const item = cases.find((candidate) => candidate.id === caseId)!;
           await openNativeQuickOpenFile(page, expect, item.path);
           const frame = await waitForDocument(page, expect, item);
-          const measurement = await measureDocument(page, item, frame);
+          const measurement = await measureDocument(page, expect, item, frame);
           const captureName = `${item.id}-${pane}-${theme.id}.png`;
           const captureBytes = await page.screenshot({ path: resolve(output, captureName), fullPage: false });
           const captureHash = sha256(new Uint8Array(captureBytes));
@@ -438,7 +438,7 @@ async function outsideFramePaintLayers(frame: Frame): Promise<HostPaintLayer[]> 
   return layers;
 }
 
-async function measureDocument(page: Page, item: DesignCase, frame: Frame | null) {
+async function measureDocument(page: Page, expect: Expect, item: DesignCase, frame: Frame | null) {
   const { pane, activeTab } = await page.evaluate(() => {
     const editor = document.querySelector(".monaco-workbench .part.editor");
     const rect = editor?.getBoundingClientRect();
@@ -462,6 +462,9 @@ async function measureDocument(page: Page, item: DesignCase, frame: Frame | null
   let layout: Record<string, unknown>;
   if (frame !== null) {
     await frame.locator("body").press("Tab");
+    await expect.poll(() => frame.evaluate(() => document.getAnimations().filter((animation) =>
+      animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity)
+    ).length), { timeout: 2_000, intervals: [50, 100, 200] }).toBe(0);
     const hostPaintLayers = await outsideFramePaintLayers(frame);
     const inside = await frame.evaluate(({ rootSelector, hostPaintLayers }) => {
       const root = document.querySelector(rootSelector);
