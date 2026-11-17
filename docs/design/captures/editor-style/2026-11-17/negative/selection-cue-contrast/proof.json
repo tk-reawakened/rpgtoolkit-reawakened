@@ -1,0 +1,21 @@
+{
+  "purpose": "Selection-specific contrast must not borrow a normal control border or focus outline.",
+  "perturbation": "Reset selected background, border and shadow to ordinary control paint, leaving the normal border; add only a 2px pseudo-element at 1% white opacity. Rebuild the native host and extension before native capture.",
+  "browser": {
+    "result": "failed selected-state-indicator for Bookmarks as intended; the unchanged normal border still measured 5.63:1",
+    "screenshot": "browser-program-normal-dark.png",
+    "screenshotSha256": "a8038823b433a545d49d28f41ccfca8c8b088e9342ec217ca3e70deecc2d44ba",
+    "receipt": "browser.json.gz",
+    "portableReceiptSha256": "74895c601c3e2b28bba82e372144d8887349a4235c06cf482891a9d116e3c782"
+  },
+  "vscodeWeb": {
+    "result": "failed selected-control contrast for Tiles (1) as intended; the only changed cue measured 1.03:1",
+    "version": "1.148.0-insider",
+    "screenshot": "native-board-normal-dark.png",
+    "screenshotSha256": "b91611d66270b9685635f949e55e67f6a30b48b98ff0877a0eaf9b842f78e08b",
+    "receipt": "native.json.gz",
+    "portableReceiptSha256": "de8cb0dc406ee2f041e77d1d947dceb3b90048402c63d1991ebc093def391cef"
+  },
+  "staleArtifactGuard": "Before rebuilding the perturbed native extension, the proof failed explicitly on stale tileset-browser.css; after rebuilding, it failed on the intended selected-cue violation.",
+  "restoration": "Production styles were restored and the rebuilt native board proof passed with the style-CSP assertion enabled."
+}

@@ -1,0 +1,24 @@
+{
+  "sourceRevisionAtRun": "3cd984ce6e9f2525c1c696358c2dda93437e2621",
+  "note": "Instrumentation and temporary selection-paint removal were uncommitted; receipts retain exact working-input hashes. Focus remained visible while actual persistent-selection checks failed.",
+  "runs": [
+    {
+      "host": "browser",
+      "rawSha256": "3a639df5b3996035efef1b6c9f4cc9a9a01ee89d7699742cdd8eb301e8552a2d",
+      "portableSha256": "994dbcbbc113040780edf65bddb2fec02b497627cc8a60b17590de8f16361aed",
+      "manifest": "browser.json.gz",
+      "frames": [
+        "browser-program-normal-dark.png"
+      ]
+    },
+    {
+      "host": "native",
+      "rawSha256": "86a04c3e7d4538ebffca85bf19f9e1339443426d6ec1c2e9fe3ee5fe24c029e9",
+      "portableSha256": "ab89d1fc7968ee811b2c14b7c507cac947b634e1440df82c75c3014a58c64323",
+      "manifest": "native.json.gz",
+      "frames": [
+        "native-board-normal-dark.png"
+      ]
+    }
+  ]
+}
