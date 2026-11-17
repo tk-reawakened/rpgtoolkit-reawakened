@@ -9,7 +9,7 @@ import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap
 import { buildNewBoard } from "@tk-reawakened/editor-model";
 import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
 import { runVscodeBoardPropertiesProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
-import { runVscodeDesignProof } from "../editor-design/vscode-proof.ts";
+import { runVscodeDesignProof } from "./design-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
