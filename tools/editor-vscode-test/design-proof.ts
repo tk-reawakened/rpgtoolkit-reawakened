@@ -735,6 +735,7 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
   }
   if (item.kind === "custom-webview" && focus.found === true) {
     if (focus.focusVisible !== true) violations.push("keyboard focus is not reported by :focus-visible");
+    if (typeof focus.outlineStyle !== "string" || focus.outlineStyle === "none" || focus.outlineStyle === "hidden") violations.push("keyboard focus outline has no painted style");
     if (parseFloat(String(focus.outlineWidth)) < 2) violations.push("keyboard focus outline is thinner than 2 CSS pixels");
     if (typeof focus.focusContrast === "number" && focus.focusContrast < 3) violations.push(`keyboard focus contrast below 3:1 (${focus.focusContrast.toFixed(2)}:1)`);
   }

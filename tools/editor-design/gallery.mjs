@@ -293,7 +293,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         return box.width > 1 && box.height > 1;
       }) ?? active : active;
       const style = getComputedStyle(indicator);
-      focus = { label: label(active), tag: active.tagName, outline: style.outline, outlineWidth: Number.parseFloat(style.outlineWidth), outlineColor: background(indicator, rgba(style.outlineColor), true), background: background(parent(indicator)) };
+      focus = { label: label(active), tag: active.tagName, outline: style.outline, outlineStyle: style.outlineStyle, outlineWidth: Number.parseFloat(style.outlineWidth), outlineColor: background(indicator, rgba(style.outlineColor), true), background: background(parent(indicator)) };
       if (shippingMode) {
         const box = indicator.getBoundingClientRect();
         focus.indicatorTag = indicator.tagName;
@@ -408,7 +408,7 @@ function controlViolations(metrics) {
 function renderedViolations(metrics) {
   const failures = controlViolations(metrics);
   failures.push(...metrics.helperTexts.filter((helper) => !helper.disabled && helper.textRatio < 4.5).map((helper) => ({ kind: "helper-text-contrast", ...helper })));
-  if (metrics.focus === null || metrics.focus.indicatorVisible === false || metrics.focus.outlineWidth < 2 || metrics.focus.ratio < 3) failures.push({ kind: "keyboard-focus", focus: metrics.focus });
+  if (metrics.focus === null || metrics.focus.indicatorVisible === false || metrics.focus.outlineStyle === "none" || metrics.focus.outlineStyle === "hidden" || metrics.focus.outlineWidth < 2 || metrics.focus.ratio < 3) failures.push({ kind: "keyboard-focus", focus: metrics.focus });
   return failures;
 }
 function assertRendered(metrics, context) {
