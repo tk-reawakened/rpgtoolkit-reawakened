@@ -6,6 +6,7 @@ import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { createVscodeServices } from "./services.ts";
 import { registerVscodeGameRunner } from "./player.ts";
+import { registerRunDebugger } from "./run-debug.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
@@ -25,7 +26,9 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
 /** Registers the editors and the run commands; returns the count of document changes, which the other commands compare across a save. */
 export function registerGameSettings(context: vscode.ExtensionContext): () => number {
   let generation = 0;
-  registerVscodeGameRunner(context, () => generation, (root) => createVscodeServices(root, context, () => generation).run!);
+  const runForProject = (root: vscode.Uri) => createVscodeServices(root, context, () => generation).run!;
+  registerVscodeGameRunner(context, () => generation, runForProject);
+  registerRunDebugger(context, runForProject);
   context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(() => { generation += 1; }));
   registerGameView(context);
   registerPackageGameCommand(context);

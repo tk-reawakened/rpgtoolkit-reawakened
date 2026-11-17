@@ -31,7 +31,10 @@
     "onCommand:tkr.testProgram",
     "onCommand:tkr.newAnimation",
     "onCommand:tkr.runSavedTests",
-    "onCommand:tkr.animationRecovery"
+    "onCommand:tkr.animationRecovery",
+    "onDebugResolve:tkr",
+    "onDebugDynamicConfigurations:tkr",
+    "onDebugInitialConfigurations"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -392,7 +395,167 @@
           "patternErrorMessage": "Enter a colour as # and six hexadecimal digits."
         }
       }
-    }
+    },
+    "debuggers": [
+      {
+        "type": "tkr",
+        "label": "TK Reawakened game",
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "launch"
+            ],
+            "properties": {
+              "launch": {
+                "type": "string",
+                "enum": [
+                  "game",
+                  "board",
+                  "program"
+                ],
+                "enumDescriptions": [
+                  "Run the game the way a player starts it: from the main file's configured start-up.",
+                  "Test a board: start fresh on an explicit board and position with an explicit party.",
+                  "Test a program: run one program under test settings (the fixture)."
+                ],
+                "description": "Which launch to start. Asked for when left out."
+              },
+              "main": {
+                "type": "string",
+                "description": "The game's .gam main file, workspace-relative or under ${workspaceFolder}. Asked for when left out."
+              },
+              "projectFolder": {
+                "type": "string",
+                "description": "The folder that holds Boards, Prg and the other type folders: \"\" for the workspace folder itself (package layout) or \"Game/<game>\". Asked for when left out."
+              },
+              "seed": {
+                "type": "integer",
+                "description": "The seed the run's random numbers start from; 0 when left out. Recorded in the run snapshot."
+              },
+              "board": {
+                "type": "string",
+                "description": "Board test: the board to start on. Program test: the fixture board the program starts on. Asked for when left out."
+              },
+              "x": {
+                "type": "integer",
+                "description": "Start column: a one-based tile, or an absolute board pixel when the board uses pixel coordinates. Asked for when left out."
+              },
+              "y": {
+                "type": "integer",
+                "description": "Start row: a one-based tile, or an absolute board pixel when the board uses pixel coordinates. Asked for when left out."
+              },
+              "layer": {
+                "type": "integer",
+                "description": "Start layer, counted from 1. Asked for when left out."
+              },
+              "party": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Character (.tem) files, leader first. A board test needs 1 to 5; a program test may use [] for none. Asked for when left out."
+              },
+              "program": {
+                "type": "string",
+                "description": "Program test: the RPGCode program to run. Asked for when left out."
+              },
+              "font": {
+                "type": "string",
+                "description": "Program test: the message font's name, or \"\" for the game's default. Asked for when left out."
+              },
+              "fontSize": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "description": "Program test: the message font's size in points, or null for the game's default. Asked for when left out."
+              },
+              "windowGraphic": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Program test: the message-window graphic, or null for none. Asked for when left out."
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "tkr",
+            "request": "launch",
+            "name": "Run game",
+            "launch": "game"
+          },
+          {
+            "type": "tkr",
+            "request": "launch",
+            "name": "Test board",
+            "launch": "board"
+          },
+          {
+            "type": "tkr",
+            "request": "launch",
+            "name": "Test program",
+            "launch": "program"
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "TK Reawakened: Run game",
+            "description": "Run the game from its configured start-up in the Running Game tab.",
+            "body": {
+              "type": "tkr",
+              "request": "launch",
+              "name": "Run game",
+              "launch": "game",
+              "main": "^\"\\${workspaceFolder}/Main/${1:game}.gam\"",
+              "projectFolder": "${2:Game/MyGame}"
+            }
+          },
+          {
+            "label": "TK Reawakened: Test board",
+            "description": "Start fresh on a board at a position with a party.",
+            "body": {
+              "type": "tkr",
+              "request": "launch",
+              "name": "Test board",
+              "launch": "board",
+              "main": "^\"\\${workspaceFolder}/Main/${1:game}.gam\"",
+              "projectFolder": "${2:Game/MyGame}",
+              "board": "^\"\\${workspaceFolder}/${2}/Boards/${3:start}.brd\"",
+              "x": 1,
+              "y": 1,
+              "layer": 1,
+              "party": [
+                "^\"\\${workspaceFolder}/${2}/Chrs/${4:hero}.tem\""
+              ]
+            }
+          },
+          {
+            "label": "TK Reawakened: Test program",
+            "description": "Run one program with test settings.",
+            "body": {
+              "type": "tkr",
+              "request": "launch",
+              "name": "Test program",
+              "launch": "program",
+              "main": "^\"\\${workspaceFolder}/Main/${1:game}.gam\"",
+              "projectFolder": "${2:Game/MyGame}",
+              "program": "^\"\\${workspaceFolder}/${2}/Prg/${3:program}.prg\"",
+              "board": "^\"\\${workspaceFolder}/${2}/Boards/${4:start}.brd\"",
+              "x": 1,
+              "y": 1,
+              "layer": 1,
+              "party": [],
+              "font": "",
+              "fontSize": null,
+              "windowGraphic": null
+            }
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "build": "node ../../packages/host-vscode/build.mjs && node build.mjs"

@@ -89,6 +89,47 @@ function activate(context) {
       report("Board launch accepted");
     } else report(`Board launch refused: ${result?.error?.message ?? "unknown error"}`);
   }));
+  // Run and Debug (ADR 0037): drive a `tkr` session the way F5, the debug toolbar and the tab's close button do.
+  const debugProof = { started: 0, ended: 0, restarts: 0, snapshots: 0 };
+  const debugStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
+  context.subscriptions.push(debugStatus);
+  const reportDebug = () => {
+    debugStatus.text = `tkr debug: started ${debugProof.started}, ended ${debugProof.ended}, restarts ${debugProof.restarts}, snapshots ${debugProof.snapshots}`;
+    debugStatus.show();
+  };
+  context.subscriptions.push(vscode.debug.onDidStartDebugSession((session) => { if (session.type === "tkr") { debugProof.started += 1; reportDebug(); } }));
+  context.subscriptions.push(vscode.debug.onDidTerminateDebugSession((session) => { if (session.type === "tkr") { debugProof.ended += 1; reportDebug(); } }));
+  context.subscriptions.push(vscode.debug.registerDebugAdapterTrackerFactory("tkr", {
+    createDebugAdapterTracker: () => ({
+      onDidSendMessage: (message) => {
+        if (message.type === "response" && message.command === "restart" && message.success) debugProof.restarts += 1;
+        if (message.type === "event" && message.event === "output" && /^Run snapshot: board launch/.test(message.body?.output ?? "")) debugProof.snapshots += 1;
+        reportDebug();
+      },
+    }),
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.debugExampleBoard", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    const started = await vscode.debug.startDebugging(workspace, {
+      type: "tkr", request: "launch", name: "Proof board", launch: "board",
+      main: "${workspaceFolder}/Main/example.gam", projectFolder: "Game/Example", seed: 23,
+      board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1, party: ["Game/Example/Chrs/ada.tem"],
+    });
+    report(started ? "Debug launch accepted" : "Debug launch refused");
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.restartDebug", async () => {
+    await vscode.commands.executeCommand("workbench.action.debug.restart");
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.stopDebug", async () => {
+    await vscode.debug.stopDebugging(vscode.debug.activeDebugSession);
+  }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.closeRunningGameTab", async () => {
+    const tabs = vscode.window.tabGroups.all.flatMap((group) => group.tabs)
+      .filter((tab) => tab.input instanceof vscode.TabInputWebview && /^(Running Game|Testing )/.test(tab.label));
+    if (tabs.length !== 1) throw new Error(`Expected one Running Game tab; found ${tabs.length}`);
+    await vscode.window.tabGroups.close(tabs[0]);
+  }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.copyMainFileBytes", async () => {
     console.info("[vscode-web-proof-probe] copy command invoked");
     const workspace = vscode.workspace.workspaceFolders?.[0];
