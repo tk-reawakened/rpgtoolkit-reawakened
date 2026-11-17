@@ -16,7 +16,7 @@ The workbench command palette offers the focused editor's tools and actions, lab
 
 A shared Save button and Ctrl/Cmd+S command save the focused editor through its existing save flow, including pending edits and conflict handling. It is disabled when the editor cannot save. Save All remains a separate command. Standalone editor mounts retain their own Save control. General file-watching and external-change explanations belong in [Saving and external file changes](help/saving.md), available from Help and the command palette, rather than persistent editor banners. Actual conflicts, read-only states and save failures remain visible where they require attention.
 
-The board's tools, history and view controls use compact icons in one wrapping strip alongside the current layer. Each icon has an accessible name, a tooltip on hover and keyboard focus (including its shortcut), a visible focus indicator and a non-colour-only selected state. Layer visibility is a disclosure so the canvas stays prominent. Existing keyboard and document semantics remain unchanged.
+The board's tools, history and view controls use compact icons in one wrapping strip alongside the current layer. Each icon has an accessible name, a tooltip on hover and keyboard focus (including its shortcut), a visible focus indicator and a non-colour-only selected state. Layer visibility is a disclosure so the canvas stays prominent. The board heading, cell dimensions and layer count share its row instead of occupying a separate row above the tools. Existing keyboard and document semantics remain unchanged.
 
 **T-02 Docked side panels.**
 * **Left:** tools for the active editor.
