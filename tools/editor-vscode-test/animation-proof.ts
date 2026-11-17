@@ -5,6 +5,8 @@ export const ANIMATION_PROOF_PATH = "Misc/host-proof.anm";
 export interface AnimationProofHost {
   create(): Promise<Locator>;
   reopen(): Promise<Locator>;
+  /** Use the host's visible Save control: workbench chrome or the standalone editor. */
+  save(editor: Locator): Promise<void>;
   /** Close affected documents and recreate the host session before recovery. */
   restart(): Promise<void>;
   restore(reason: "before-wizard" | "before-restore"): Promise<void>;
@@ -19,6 +21,7 @@ export async function runAnimationAuthoringProof(host: AnimationProofHost, expec
   console.log("animation proof: creating a new animation");
   let editor = await host.create();
   const click = async (name: string) => { await editor.getByRole("button", { name, exact: true }).click(); await host.settle(); };
+  const save = async () => { await host.save(editor); await host.settle(); };
   const decode = async () => {
     const bytes = await host.read(ANIMATION_PROOF_PATH);
     if (bytes === null) throw new Error("The animation destination is missing");
@@ -44,11 +47,11 @@ export async function runAnimationAuthoringProof(host: AnimationProofHost, expec
   await editor.getByLabel("red", { exact: true }).fill("17");
   await editor.getByLabel("green", { exact: true }).fill("29");
   await editor.getByLabel("blue", { exact: true }).fill("41");
-  await click("Save");
+  await save();
   await expect.poll(async () => (await decode()).frames[0]).toEqual({ image: "z.gif", transparent: { r: 17, g: 29, b: 41 }, sound: "Sounds/first.wav" });
   await editor.getByLabel("Canvas width", { exact: true }).fill("8");
   await editor.getByLabel("Canvas height", { exact: true }).fill("6");
-  await click("Save");
+  await save();
   // Authored GIF source is 4×3; the unequal 8×6 canvas must scale each source pixel twice.
   // Its first opaque palette entry is (10,20,30).
   // Canvas pixels (including premultiplied transparent RGB) prove a real rendered frame, not merely mounted controls.
@@ -62,7 +65,7 @@ export async function runAnimationAuthoringProof(host: AnimationProofHost, expec
   await moveLater.focus();
   await moveLater.press("Enter");
   await expect(editor.getByRole("button", { name: "Frame 2: z.gif", exact: true })).toHaveAttribute("aria-current", "true");
-  await click("Save");
+  await save();
   await expect.poll(async () => (await decode()).frames[1]?.sound).toBe("Sounds/first.wav");
   editor = await host.reopen();
   await click("Frame 2: z.gif");
@@ -144,7 +147,7 @@ export async function runAnimationAuthoringProof(host: AnimationProofHost, expec
   await editor.getByLabel("Image reference", { exact: true }).fill("village.tst1");
   await editor.getByLabel("Canvas width", { exact: true }).fill("64");
   await editor.getByLabel("Canvas height", { exact: true }).fill("64");
-  await click("Save");
+  await save();
   await expect.poll(async () => editor.getByRole("img", { name: "Animation frame 1 preview" }).evaluate((element) => {
     const canvas = element as HTMLCanvasElement;
     return { width: canvas.width, height: canvas.height, pixels: [...canvas.getContext("2d")!.getImageData(31, 31, 2, 1).data] };

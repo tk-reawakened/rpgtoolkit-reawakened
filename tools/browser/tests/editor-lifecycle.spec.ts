@@ -113,7 +113,7 @@ test("the browser host undoes by editId, saves all, cancels a close, reverts, an
   }, { bytes: validMain, folderName: folder });
   expect(outside).toBe(true);
 
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   const conflict = page.getByRole("group", { name: "Changed on disk" });
   await expect(conflict).toBeVisible();
   await expect(conflict).toContainText("Mine");

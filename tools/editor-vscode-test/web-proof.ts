@@ -2551,6 +2551,7 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
     }
   };
   await runAnimationAuthoringProof({
+    save: async (editor) => { await editor.getByRole("button", { name: "Save", exact: true }).click(); },
     create: async () => {
       await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "New animation");
       const input = page.getByRole("textbox", { name: "New animation" });
