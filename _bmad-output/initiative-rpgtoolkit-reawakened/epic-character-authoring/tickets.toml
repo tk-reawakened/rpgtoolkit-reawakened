@@ -4,10 +4,10 @@ id = 1
 tracker_id = "#2962"
 type = "story"
 title = "Establish the character workspace and visual direction"
-description = "Walk the character tasks with real data, document their UX contract, and deliver a clear navigation and layout foundation using the TK Reawakened visual language."
+description = "Walk the character tasks with real data, document their UX contract, and deliver a clear navigation and layout foundation using the shared design language and components delivered by 11.22/11.23."
 verify = "A working preview makes identity and starting values discoverable, preserves reachable existing controls, and demonstrates light, dark, high-contrast and narrow-pane layouts with reviewed captures."
 covers = ["CAP-15", "CAP-18"]
-after = ["12.5"]
+after = ["12.5", "11.22", "11.23"]
 hitl = false
 risk = "medium"
 

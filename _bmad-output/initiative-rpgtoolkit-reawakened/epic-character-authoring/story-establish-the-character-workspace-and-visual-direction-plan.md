@@ -15,21 +15,21 @@ An author understands where to change a character's identity, appearance, abilit
 
 ## Scope and dependencies
 
-Implements the experience foundation of CAP-15/CAP-18 and contributes to #2959. Depends on delivered character field coverage 12.5 (#1716). Read the epic's selected inputs and source-status distinctions first. Inspect the current editor and PR #2950 before changing shared chrome; reuse its final commands and Save integration. Do not wait for all of epic 12 to finish.
+Implements the experience foundation of CAP-15/CAP-18 and contributes to #2959. Depends on delivered character field coverage 12.5 (#1716), shared design language 11.22 (#2987), and shared styling 11.23 (#2988). Use the [shared editor design language](https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/e0895a9af/docs/design/editor-design-language.md); its planning prerequisite is PR #2986. Research and contract drafting can proceed, but implementation consumes the shared components. Read the epic's selected inputs and source-status distinctions first. Inspect the current editor and PR #2950 before changing shared chrome; reuse its final commands and Save integration. Do not wait for all of epic 12 to finish.
 
 ## Acceptance criteria
 
 1. Record actual walkthroughs of opening an existing character, beginning a new one, changing its look/stats, and reaching an advanced binding. Use authored sparse and populated fixtures. Capture the current state and identify the concrete interaction and hierarchy changes; do not treat historical screenshots as a fresh audit.
 2. Write the agreed character experience contract under `docs/` in a documentation commit before implementation. Map every T-50–T-54 control to its destination. The contract includes navigation, preview behavior, field grouping, accessible names, error/empty states and data/view-state ownership. No supported control disappears behind an unavailable destination.
 3. Deliver a working character workspace with recognizable identity context and direct access to the task groups. Overview, Appearance, Moves, Equipment, Progression and Advanced are the starting grouping to evaluate. Selecting a section does not modify the document, reset unsaved accepted edits, discard undo or create a second model.
-4. Apply reusable semantic styles inspired by the website palette and restrained framing. Gold emphasis identifies selected/primary states; focus and error states also have non-color cues. Light, dark and host high-contrast modes remain legible. Avoid per-field cards and fixed marketing-page spacing.
+4. Consume the reusable semantic styles/components delivered by 11.23 under the 11.22 contract, including the website palette and restrained framing; do not build a competing character-specific style system. Gold emphasis identifies selected/primary states; focus and error states also have non-color cues. Light, dark and host high-contrast modes remain legible. Avoid per-field cards and fixed marketing-page spacing.
 5. At 1280×720 and in a 640px-wide editor pane, character identity and starting values are discoverable without scrolling past stance configuration. Navigation and primary actions are reachable; section content can scroll but the whole editor does not require horizontal scrolling.
 6. All navigation works by keyboard, exposes its selected state to assistive technology, and leaves focus in a meaningful location. Use native/semantic browser controls and the project's established navigation pattern; do not invent custom focus machinery without need.
 7. Review real captures of representative first views and section navigation before marking downstream stories ready. Record the commit, fixture, viewport, theme and host. Resolve actionable findings in this story or a linked defect; a static mockup alone is not completion.
 
 ## Implementation boundaries
 
-Own the character composition/layout and its navigation; introduce only the shared presentation primitives needed here. Keep feature-specific changes in 29.2–29.5. Coordinate edits to the shared character view so those stories extend the same layout rather than replacing each other's file wholesale. Retain the shared sprite behavior used by items. A universal Database or new formats/IDs are not part of this story.
+Own the character composition/layout and its navigation; consume the shared presentation primitives from 11.23; contribute a reusable addition back to that contract only when a concrete character task requires it. Keep feature-specific changes in 29.2–29.5. Coordinate edits to the shared character view so those stories extend the same layout rather than replacing each other's file wholesale. Retain the shared sprite behavior used by items. A universal Database or new formats/IDs are not part of this story.
 
 ## Verification
 
@@ -44,3 +44,8 @@ Exercise navigation with unsaved accepted edits, focused keyboard controls, narr
 ## Completion record
 
 Not implemented. Add the documentation commit, visual review, captures and executed checks here when delivered.
+
+
+## Shared styling ownership, 2026-11-16
+
+The owner requested an explicit shared design language and styling work item after the character/board discussions. 11.22 (#2987) defines and validates the common placement/action/component contract; 11.23 (#2988) implements it across existing surfaces. This story retains character hierarchy, task grouping and navigation. Shared work does not wait for the future character redesign, avoiding a dependency cycle.

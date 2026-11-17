@@ -36,7 +36,7 @@ These are scoped acceptance requirements under the existing capability and T-xx 
 
 | Existing requirement / source | Character outcome | Primary story |
 | --- | --- | --- |
-| CAP-15; EA-04/EA-06; SC-14/SC-15 | Task-led navigation, hierarchy and shared visual language | 29.1 |
+| CAP-15; EA-04/EA-06; SC-14/SC-15 | Character task-led navigation and hierarchy, consuming the shared language/components | 29.1 (shared contract/style owners: 11.22/11.23) |
 | T-50 | Identity, profile and starting stats first; explicit advanced bindings | 29.2 |
 | T-52; F-06 | Stance selection, animation, timing and collision/activation in context | 29.3 |
 | T-51, T-53; F-07 | Understandable move eligibility, body slots and accessories | 29.4 |
@@ -54,7 +54,7 @@ All stories preserve supported character data, unknown same-version residue and 
 5. **29.5 (#2966) — Show what progression settings produce.** Add a bounded, accurate growth preview with a readable numeric alternative.
 6. **29.6 (#2967) — Prove the connected character-authoring workflow.** Verify navigation, save/reopen, undo, keyboard access and game use across hosts, using the delivered sections.
 
-29.2–29.5 depend on 29.1. 29.5 also depends on 29.2 for the starting-value context. 29.6 depends on all four implemented sections. Existing providers are pinned in `tickets.toml`; no whole unfinished epic blocks the design work. All six stories start as draft, with no sprint assigned.
+29.1 implementation consumes 11.22 (#2987) and 11.23 (#2988); research and contract drafting may proceed before delivery. 29.2–29.5 depend on 29.1. 29.5 also depends on 29.2 for the starting-value context. 29.6 depends on all four implemented sections. Existing providers are pinned in `tickets.toml`; no whole unfinished epic blocks the design work. All six stories start as draft, with no sprint assigned.
 
 ## Existing work and integration boundaries
 
@@ -79,7 +79,7 @@ All stories preserve supported character data, unknown same-version residue and 
 
 ## Scope boundaries and cross-editor handoff
 
-This epic supplies reusable presentation patterns and demonstrates them in the character editor. Other editor rebuilds can reuse the same semantic tokens, navigation conventions, reference actions, list/detail treatment and preview layouts. Each other editor still needs its own task walkthrough and acceptance. The user is discussing those editors in a separate fork; this epic does not claim their implementation.
+Shared placement/action/component rules now belong to 11.22 (#2987), and common styling implementation to 11.23 (#2988). This epic consumes those patterns and demonstrates the character-specific composition. Other editor rebuilds can reuse the same semantic tokens, navigation conventions, reference actions, list/detail treatment and preview layouts. Each other editor still needs its own task walkthrough and acceptance. The user is discussing those editors in a separate fork; this epic does not claim their implementation.
 
 A universal Database, new asset identifiers or formats, templates, batch editing, new traits, combat rules, whole-shell redesign and wholesale recreation of the legacy UI are outside this approval. Older research sometimes proposes these features. Its proposals are supporting material, not owner approval to implement them here. A character definition remains distinct from starting-party membership, board placement and runtime inventory.
 
@@ -94,3 +94,8 @@ A universal Database, new asset identifiers or formats, templates, batch editing
 - Current-layout evidence: #2959 cites `mount.ts`, `sprite-view.tsx` and `character-authoring-view.tsx` at main `2eaf991b966cbf528ab47514f20742e70ed40171`. Historical captures are not a fresh walkthrough. No legacy GPL source was consulted.
 
 Input paths in frontmatter are initiative-relative unless they begin `../../../`, which is relative to this epic directory. Story 29.1 writes the resulting implementable experience contract under `docs/` before code, consistent with G7.
+
+
+## Shared design language handoff, 2026-11-16
+
+Jensen requested shared styling and a design language defining where things live and what actions do, using Epics 29/30 as the inputs. [The shared contract](https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/e0895a9af/docs/design/editor-design-language.md) owns those common conventions; 29.1 retains character-specific hierarchy, navigation and T-50–T-54 coverage. 11.22 (#2987) validates shared compositions/component states; 11.23 (#2988) implements common styles against current editor surfaces and does not depend on this redesign. Merge the shared planning prerequisite PR #2986 before building 29.1. This changes ownership/prerequisites, not approved character capabilities.
