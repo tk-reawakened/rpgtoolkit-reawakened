@@ -487,7 +487,6 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       await host.settle();
       same(editor.conflictShown(), host.capabilities.has("fileWatch"), "the change is shown at once exactly when the host declares fileWatch");
       if (!host.capabilities.has("fileWatch")) {
-        check(/cannot watch files/.test(editor.text()), "a host that cannot watch says so");
         await editor.save();
       }
       check(editor.conflictShown(), "by the save at the latest the change is shown");
@@ -655,7 +654,8 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
         host.capabilities.has("folderWrite"),
         "folderWrite is declared exactly when a save reaches the project folder",
       );
-      same(/cannot watch files/.test(editor.text()), !host.capabilities.has("fileWatch"), "the view says live change detection is missing exactly when fileWatch is");
+      // ADR 0022 D3.5: generic host limitations belong in Help; the shell tests cover that document.
+      check(!/cannot watch files/.test(editor.text()), "generic file-watching help does not occupy the editor");
       await host.writeOutside(GAME, retitled(fixture, "Seen live?"));
       await host.settle();
       same(editor.title() === "Seen live?", host.capabilities.has("fileWatch"), "fileWatch is declared exactly when an outside change reaches the view without a save");

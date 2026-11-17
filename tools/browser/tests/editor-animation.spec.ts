@@ -60,6 +60,7 @@ test("animation creation and multi-frame recovery survive both native storage re
   await boot(page);
   const editor = () => page.getByRole("main", { name: "Animation editor" });
   await runAnimationAuthoringProof({
+    save: async () => { await page.getByRole("button", { name: "Save active editor", exact: true }).click(); },
     create: async () => {
       await page.getByRole("button", { name: "New animation…", exact: true }).click();
       const dialog = page.getByRole("dialog");

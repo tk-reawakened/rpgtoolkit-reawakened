@@ -250,7 +250,7 @@ export function TilesetBrowser({ context }: TilesetBrowserProps) {
       }}>
         {sources.map((source) => <option key={source.path} value={source.path}>{source.reference} ({source.kind === "tiles" ? suffix(source.path).slice(1) : "tile bitmap"})</option>)}
       </select>
-      <div class="tkr-tileset-browser-list" ref={list} role="list" aria-label="Tiles and assets" onScroll={(event) => session.update({ path, scrollTop: event.currentTarget.scrollTop })}>
+      <div data-editor-commands="exclude" class="tkr-tileset-browser-list" ref={list} role="list" aria-label="Tiles and assets" onScroll={(event) => session.update({ path, scrollTop: event.currentTarget.scrollTop })}>
         {items.map((item) => (
           <div
             key={item.reference}

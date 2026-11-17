@@ -419,7 +419,9 @@ export async function runVscodeNewProjectProof(
   await widget.getByRole("checkbox", { name: "Start-up program", exact: true }).check();
   await widget.getByRole("checkbox", { name: "Empty start board", exact: true }).check();
   await widget.getByRole("button", { name: "OK", exact: true }).click();
-  await expect(widget).toContainText("New project: choose the destination folder");
+  // The native folder picker initializes its filesystem after accepting the checklist (#2958).
+  // Observe readiness within the host-proof budget; never repeat the accepted wizard action.
+  await expect(widget).toContainText("New project: choose the destination folder", { timeout: 30_000 });
   // Remembered-directory initialization can finish after the dialog title appears.
   await expect(widget.getByRole("option").first()).toBeVisible({ timeout: 30_000 });
   // Retry only idempotent navigation; the Create action below is dispatched exactly once.
@@ -1451,15 +1453,13 @@ export async function runVscodeWebProof(
   page = await host.restart(page);
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   expect(await host.readBacking()).toEqual(saved);
+  // The shell appears before the restored webview; its later activation can dismiss an early palette (#2960).
+  await waitForTitledEditor(page, title, expect);
 
 
   // Save through the registered package command's Save As dialog in the real VS Code web workbench, then inspect its
   // persisted package and descriptor independently of the UI.
-  const publishCommand = await commandPalette(page, expect);
-  await publishCommand.fill(">Test: Execute Package Game");
-  const publishEntry = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row.focused").filter({ hasText: "Test: Execute Package Game" }).first();
-  await expect(publishEntry).toBeVisible();
-  await publishCommand.press("Enter");
+  await runCommand(page, expect, "Test: Execute Package Game");
   await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
   const inventoryDialog = page.getByRole("dialog");
   await expect(inventoryDialog.getByText(/Included \(\d+\):/)).toBeVisible();
@@ -1769,6 +1769,8 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     // Hiding a layer changes the picture only.
     const withTile = drawnPixel;
     await frame.getByLabel("Layer", { exact: true }).selectOption({ index: 1 });
+    await frame.locator(".tkr-board-layers-disclosure > summary").click();
+    await expect(frame.locator(".tkr-board-layers-disclosure")).toHaveAttribute("open", "");
     await frame.getByLabel("Layer 1", { exact: false }).first().uncheck();
     await expect.poll(pixel).not.toBe(withTile);
     await frame.getByRole("button", { name: "Show all", exact: true }).click();
@@ -2549,6 +2551,7 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
     }
   };
   await runAnimationAuthoringProof({
+    save: async (editor) => { await editor.getByRole("button", { name: "Save", exact: true }).click(); },
     create: async () => {
       await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "New animation");
       const input = page.getByRole("textbox", { name: "New animation" });

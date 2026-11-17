@@ -247,7 +247,7 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
   return <main class="tkr-animation-editor" aria-label="Animation editor">
     <header class="tkr-animation-toolbar">
       <h1>Animation</h1>
-      <button type="button" disabled={disabled} onClick={() => void save()}>Save</button>
+      <button type="button" data-editor-save="true" disabled={disabled} onClick={() => void save()}>Save</button>
       <label>Canvas width <input type="number" min="1" step="1" value={typeValue("width")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, width: value })); void scalar("width", value); }} /></label>
       <label>Canvas height <input type="number" min="1" step="1" value={typeValue("height")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, height: value })); void scalar("height", value); }} /></label>
       <label>Global delay (seconds) <input type="number" min="0" step="0.001" value={typeValue("delay")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, delay: value })); void scalar("delay", value); }} /></label>

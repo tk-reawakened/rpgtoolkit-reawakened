@@ -335,7 +335,15 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await page.getByRole("button", { name: "Distraction-free" }).click();
   await expect(page.getByRole("toolbar", { name: "Program tools" })).toHaveCount(0);
   await expect(page.locator(".monaco-editor .view-lines")).toBeVisible();
-  await page.getByRole("button", { name: /Exit distraction-free/ }).click();
+  await page.keyboard.press("ControlOrMeta+Shift+p");
+  await page.getByRole("combobox", { name: "Search commands and files" }).fill("Program: Exit distraction-free");
+  const exitCommand = page.locator(".tkr-command-palette-option").filter({ hasText: "Program: Exit distraction-free" });
+  await expect(exitCommand).toHaveCount(1);
+  expect(await exitCommand.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return element.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2));
+  })).toBe(true);
+  await exitCommand.click();
   await expect(page.getByRole("toolbar", { name: "Program tools" })).toBeVisible();
 
   // Save: the typed text, the CRLF endings, the Windows-1252 byte and the missing final newline all reach the file.

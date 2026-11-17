@@ -712,7 +712,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited, pendingEdits }: Sp
         : <p role="note">This host cannot safely reload the file in place. Both versions remain unchanged.</p>}
     </div>}
     {snapshot.saveError !== null && <p role="alert">{snapshot.saveError.message}</p>}
-    <button type="button" onClick={() => void saveSprite()} disabled={disabled || !snapshot.dirty || snapshot.saving}>{snapshot.saving ? "Saving…" : "Save sprite"}</button>
+    <button type="button" data-editor-save="true" onClick={() => void saveSprite()} disabled={disabled || !snapshot.dirty || snapshot.saving}>{snapshot.saving ? "Saving…" : "Save sprite"}</button>
     <p role="status" aria-live="polite">{feedback || (snapshot.dirty ? "Unsaved sprite changes." : "All sprite changes saved.")}</p>
   </section>;
 }

@@ -231,7 +231,8 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   } else {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }
-  render(view, el);
+  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings" };
+  render(createElement("div", { class: "tkr-editor-surface", "data-tkr-editor": titles[document.kind] ?? document.kind }, view), el);
   return {
     ...(isProgramView(document) ? { revealSource } : {}),
     dispose() {

@@ -6,6 +6,8 @@ import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
   createAssetPicker,
+  createDocumentIdentity,
+  openProgramDocument,
   createDocumentWorkspace,
   createLayoutModel,
   DEFAULT_WORKBENCH_PANELS,
@@ -504,6 +506,14 @@ test("the application menu, command palette, collapsible Game accordion, and Emp
   const helpCat = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("Help"))!;
   await click(helpCat);
   ok([...s.el.querySelectorAll(".tkr-app-menu-item")].some((node) => node.textContent?.includes("Open RPGCode Quick Reference")));
+  await click(button(s.el, "Saving and external file changes"));
+  const savingHelp = s.el.querySelector<HTMLDialogElement>("dialog.tkr-help-document")!;
+  match(savingHelp.textContent ?? "", /When file watching is unavailable, external changes are checked when you save instead/);
+  match(savingHelp.textContent ?? "", /comparison and write are separate operations/);
+  await click(button(s.el, "Close help"));
+  equal(document.activeElement, appMenuBtn);
+  await click(appMenuBtn);
+  await click([...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-category")].find((node) => node.textContent?.includes("Help"))!);
   const manual = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-app-menu-item")].find((node) => node.textContent?.includes("authoring guide"))!;
   await click(manual);
   const helpDialog = s.el.querySelector<HTMLDialogElement>("dialog.tkr-help-document")!;
@@ -577,7 +587,7 @@ test("a hidden bottom panel has its own button in the dock, so a restored layout
   const layout = createLayoutModel([...DEFAULT_WORKBENCH_PANELS, { id: "history", title: "History", side: "bottom", visible: false, size: 320, minSize: 160, maxSize: 640 }]);
   const el = document.createElement("div");
   document.body.append(el);
-  await act(() => { mountShell(el, { layout, tabs, tree, projectLayout: { projectFolder: "" }, fs: host.fs, workspace: Object.assign({}, workspace, { historyPanel: { files: host.fs } }), onOpened: () => {}, onOpenPath: () => {}, onPackage: async () => ({ ok: false, message: "not used" }), onDownload: async () => ({ ok: true }), onEditorElement: () => {} }); });
+  await act(() => { const mounted = mountShell(el, { layout, tabs, tree, projectLayout: { projectFolder: "" }, fs: host.fs, workspace: Object.assign({}, workspace, { historyPanel: { files: host.fs } }), onOpened: () => {}, onOpenPath: () => {}, onPackage: async () => ({ ok: false, message: "not used" }), onDownload: async () => ({ ok: true }), onEditorElement: () => {} }); shellDisposers.push(() => mounted.dispose()); });
   await settle();
   const showHistory = el.querySelector<HTMLButtonElement>("button[aria-label='Show History panel']");
   ok(showHistory !== null, "the dock names the hidden History panel");
@@ -586,4 +596,58 @@ test("a hidden bottom panel has its own button in the dock, so a restored layout
   ok(el.querySelector("[aria-label='Document history']") !== null, "pressing it shows the panel");
   ok(layout.getPanels().find((panel) => panel.id === "history")?.visible === true);
   workspace.dispose();
+});
+
+test("palette keyboard selection scrolls into view and announces the active result", async () => {
+  const s = await setup();
+  const slot = s.editorSlot()!;
+  slot.innerHTML = `<div data-tkr-editor="Board">${Array.from({ length: 40 }, (_, i) => `<button>Action ${i}</button>`).join("")}</div>`;
+  await settle();
+  await click(button(s.el, "Command palette"));
+  const input = s.el.querySelector<HTMLInputElement>('.tkr-command-palette-input')!;
+  await act(() => { input.value = 'Board: Action'; input.dispatchEvent(new Event('input', { bubbles: true })); });
+  await settle();
+  const option = s.el.querySelector<HTMLElement>('[role=option]:nth-child(20)')!;
+  let scrolled = 0;
+  option.scrollIntoView = (options) => { equal((options as ScrollIntoViewOptions).block, 'nearest'); scrolled++; };
+  for (let i = 0; i < 19; i++) {
+    await act(() => { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); });
+  }
+  await settle();
+  equal(input.getAttribute('aria-activedescendant'), option.id);
+  equal(option.getAttribute('aria-selected'), 'true');
+  ok(scrolled > 0);
+  equal(document.activeElement, input, 'typing focus remains in the search field');
+});
+
+
+test("shared Save settles program text once per shortcut, including distraction-free mode", async () => {
+  const path = "Prg/intro.prg";
+  const s = await setup(undefined, { ...FILES, [path]: new TextEncoder().encode("x = 1\n") });
+  const opened = await openProgramDocument(s.host.fs, createDocumentIdentity("memory-project", path));
+  ok(opened.ok);
+  const doc = opened.document;
+  let saves = 0;
+  const { mount } = await import("@tk-reawakened/editor-ui");
+  let handle: ReturnType<typeof mount> | undefined;
+  await act(() => { handle = mount(s.editorSlot()!, {
+    document: { kind: doc.kind, identity: doc.identity, getSnapshot: () => doc.getSnapshot(), subscribe: (listener) => doc.subscribe(listener), apply: (command: Parameters<typeof doc.apply>[0]) => doc.apply(command), resolveConflict: (choice) => doc.resolveConflict(choice), save: () => { saves++; return doc.save(); } },
+    services: s.host,
+  }); });
+  try {
+    await settle();
+    let targetSaves = 0;
+    const textarea = s.el.querySelector<HTMLTextAreaElement>('textarea')!;
+    // Like Monaco's onKeyDown, a text surface may implement its own Save binding.
+    textarea.addEventListener('keydown', (event) => { if (event.ctrlKey && event.key === 's') targetSaves++; });
+    await act(() => { textarea.value = 'x = 2\n'; textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+    await key(textarea, 's', { ctrlKey: true });
+    equal(saves, 1); equal(targetSaves, 0);
+    equal(new TextDecoder().decode(s.host.bytesOf(path)!), 'x = 2\n');
+    await click(button(s.el, 'Distraction-free'));
+    await act(() => { textarea.value = 'x = 3\n'; textarea.dispatchEvent(new Event('input', { bubbles: true })); });
+    await key(textarea, 's', { ctrlKey: true });
+    equal(saves, 2); equal(targetSaves, 0);
+    equal(new TextDecoder().decode(s.host.bytesOf(path)!), 'x = 3\n');
+  } finally { await act(() => handle?.dispose()); }
 });

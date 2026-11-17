@@ -5,6 +5,7 @@ import { after, before, test } from "node:test";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import {
+  createCommandRegistry,
   boardExtent,
   boardTileAt,
   boardToScreen,
@@ -26,6 +27,8 @@ import { createBrowserSession, type BrowserSession } from "../dist/brush.js";
 import type { BoardPreferencesSource, BoardViewDocument, ViewHandle } from "../src/mount.ts";
 import type { mount as MountFn } from "../src/index.ts";
 import { exampleTileset } from "./fixtures.ts";
+
+import { connectEditorCommands } from "../dist/editor-commands.js";
 
 const PATH = "Boards/map.brd";
 const GRASS = "village.tst1";
@@ -53,8 +56,8 @@ interface Setup {
   prefs: { revertToDrawAfterFlood: boolean; recursiveFlood: boolean };
 }
 
-async function setup(system: BoardCoordSystem, options: { undo?: boolean; layers?: number; files?: Record<string, Uint8Array> } = {}): Promise<Setup> {
-  const built = buildNewBoard({ name: "map", coordSystem: system, pixelCoordinates: false, width: 8, height: 8, layers: options.layers ?? 2, backgroundImage: "", template: null });
+async function setup(system: BoardCoordSystem, options: { undo?: boolean; layers?: number; size?: number; files?: Record<string, Uint8Array> } = {}): Promise<Setup> {
+  const built = buildNewBoard({ name: "map", coordSystem: system, pixelCoordinates: false, width: options.size ?? 8, height: options.size ?? 8, layers: options.layers ?? 2, backgroundImage: "", template: null });
   if (!built.ok) throw new Error(built.message);
   const host = createMemoryPlatformServices({ files: { [PATH]: built.bytes, "Tiles/village.tst": exampleTileset(), ...(options.files ?? {}) } });
   const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", PATH), built.bytes);
@@ -534,4 +537,34 @@ test("a preference changed with no render in between is the one the next keyboar
   await act(() => { first().dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true })); });
   await settle();
   equal(tool(s, "draw").getAttribute("aria-pressed"), "true", "the changed 'return to Draw' preference was used");
+});
+
+
+test("real board icon tools, selection and Save are commands without asset-list entries", async () => {
+  const s = await setup("2d", { size: 2, layers: 1 });
+  s.el.classList.add("tkr-editor-slot");
+  const commands = createCommandRegistry();
+  const disconnect = connectEditorCommands(s.el, commands);
+  try {
+    for (const label of ["Draw", "Select", "Flood fill", "Erase", "Rectangle", "Dropper", "Scroll", "Zoom"]) {
+      const command = commands.filter(`Board: ${label}`).find((entry) => entry.label === `Board: ${label}`);
+      ok(command, label);
+      await act(() => { commands.execute(command.id); });
+      const selected = s.el.querySelector<HTMLButtonElement>(`.tkr-board-tool[aria-label="${label}"]`)!;
+      equal(selected.getAttribute("aria-pressed"), "true");
+      ok(selected.title.includes(label));
+      ok(selected.querySelector('svg[aria-hidden="true"]'));
+    }
+    equal(commands.filter("More actions").length, 0);
+    equal(commands.filter("Select as board brush").length, 0);
+    await act(() => { commands.execute(commands.filter("Board: Draw")[0]!.id); });
+    await act(() => { commands.execute(commands.filter("Board: Select all")[0]!.id); });
+    ok(s.el.querySelector('.tkr-board-selection')?.textContent?.includes("columns 1 to 2"));
+    await act(() => { s.doc.apply({ type: "set-tile", layer: 0, x: 0, y: 0, tile: GRASS }); });
+    await settle();
+    equal(commands.getCommands().find((command) => command.id === "file.save")?.disabled, false);
+    await act(() => { commands.execute("file.save"); });
+    await settle();
+    equal(s.doc.getSnapshot().dirty, false);
+  } finally { disconnect(); }
 });
