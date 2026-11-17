@@ -13,6 +13,7 @@ import {
   type CoordLayout,
 } from "@tk-reawakened/core";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
+import type { WizardHistory } from "./wizard-history.ts";
 import type { Preferences, PreferencesSnapshot } from "./preferences.ts";
 import { reservedFolder, unusableName, type ProjectLayout } from "./reserved-folders.ts";
 
@@ -199,7 +200,7 @@ export async function uniqueBoardName(fs: NewBoardStorage, layout: ProjectLayout
  * Create the board in the project's boards folder (T-20). Nothing is written when the settings are invalid, the template
  * cannot be read as a board, or a file of that name (compared without regard to A-Z case) already exists.
  */
-export async function createBoardFile(fs: NewBoardStorage, layout: ProjectLayout, settings: NewBoardSettings): Promise<CreateBoardResult> {
+export async function createBoardFile(fs: NewBoardStorage, layout: ProjectLayout, settings: NewBoardSettings, history?: WizardHistory): Promise<CreateBoardResult> {
   const problems = validateNewBoard(settings);
   if (problems.length > 0) return { ok: false, reason: "invalid", message: problems[0]!.message };
   let template: Board | null = null;
@@ -220,8 +221,15 @@ export async function createBoardFile(fs: NewBoardStorage, layout: ProjectLayout
     return { ok: false, reason: "exists", message: `${folder}/${name} already exists (names are compared without regard to A-Z case). Nothing was created; choose another name.` };
   }
   const path = `${folder}/${name}`;
+  // The destination is recorded in a group before the first write, and its bytes registered after (D12.10 item 6).
+  const group = history === undefined ? null : await history.begin("New board", [path]);
+  if (group !== null && !group.ok) return { ok: false, reason: "failed", message: `Could not create ${path}: its history checkpoint could not be recorded: ${group.message}. Nothing was written.` };
   const written = await fs.write(path, built.bytes);
   if (!written.ok) return { ok: false, reason: "failed", message: `Could not create ${path}: ${written.error.message}` };
+  if (group !== null && history !== undefined) {
+    const recorded = await history.written(group.groupId, path, built.bytes);
+    if (!recorded.ok) return { ok: false, reason: "failed", message: `${path} was written, but its history could not be recorded: ${recorded.message}` };
+  }
   return { ok: true, path };
 }
 

@@ -8,6 +8,7 @@ import {
   createAssetPicker,
   createDocumentWorkspace,
   createLayoutModel,
+  DEFAULT_WORKBENCH_PANELS,
   createProjectTree,
   createTabs,
   type AnyDocument,
@@ -566,4 +567,23 @@ test("the application menu, command palette, collapsible Game accordion, and Emp
   await click(button(emptyEl, "Reopen project"));
   equal(reopenedId, "proj-1");
   handle.dispose();
+});
+
+test("a hidden bottom panel has its own button in the dock, so a restored layout cannot make it unreachable (#2849)", async () => {
+  const host = createMemoryPlatformServices({ files: FILES });
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  const tree = createProjectTree({ services: host, workspace });
+  const tabs = createTabs(workspace);
+  const layout = createLayoutModel([...DEFAULT_WORKBENCH_PANELS, { id: "history", title: "History", side: "bottom", visible: false, size: 320, minSize: 160, maxSize: 640 }]);
+  const el = document.createElement("div");
+  document.body.append(el);
+  await act(() => { mountShell(el, { layout, tabs, tree, projectLayout: { projectFolder: "" }, fs: host.fs, workspace: Object.assign({}, workspace, { historyPanel: { files: host.fs } }), onOpened: () => {}, onOpenPath: () => {}, onPackage: async () => ({ ok: false, message: "not used" }), onDownload: async () => ({ ok: true }), onEditorElement: () => {} }); });
+  await settle();
+  const showHistory = el.querySelector<HTMLButtonElement>("button[aria-label='Show History panel']");
+  ok(showHistory !== null, "the dock names the hidden History panel");
+  await act(() => showHistory!.click());
+  await settle();
+  ok(el.querySelector("[aria-label='Document history']") !== null, "pressing it shows the panel");
+  ok(layout.getPanels().find((panel) => panel.id === "history")?.visible === true);
+  workspace.dispose();
 });

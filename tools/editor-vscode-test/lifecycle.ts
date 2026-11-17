@@ -87,3 +87,9 @@ export function decodePersistedBytes(encoded: string, panelId: string): Uint8Arr
   }
   return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
 }
+
+/** Correlate an opened resource with its filesystem path, not the URI's escaped spelling. */
+export function openedDocumentUri(events: readonly { readonly kind: string; readonly value: string }[], path: string): string | undefined {
+  return events.find((event) => event.kind === "open-uri"
+    && decodeURIComponent(new URL(event.value).pathname).endsWith(`/${path}`))?.value;
+}

@@ -3,6 +3,7 @@ import { platformOk, platformError, type Capability, type DialogService, type Fi
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
+import type { HistoryPolicy, HistoryReason } from "@tk-reawakened/editor-model";
 
 /**
  * The custom editor of every registered document kind (ADR 0026) without the `vscode` module: the provider methods VS Code's workbench calls, written
@@ -46,6 +47,9 @@ export interface GameEditorPort<Uri extends UriLike> {
   deleteBackup(destination: Uri): Promise<void>;
   /** Native text documents live outside the shared model workspace; replacement/removal must refuse while one is open. */
   isTextDocumentOpen?(uri: Uri): boolean;
+  /** Snapshot and restore a normal VS Code text editor through its native buffer and undo stack. */
+  nativeTextDocument?(uri: Uri): Promise<{ readonly bytes: Uint8Array; readonly dirty: boolean } | null>;
+  restoreNativeTextDocument?(uri: Uri, bytes: Uint8Array | null, expected: Uint8Array | null, groupId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string } | null>;
   /** Ask VS Code to save the editor for this URI, regardless of which editor has focus. */
   saveEditor(uri: Uri): Promise<Uri | undefined>;
   /** The URI of the project-relative `path` in `folder`. */
@@ -66,6 +70,16 @@ export interface GameEditorPort<Uri extends UriLike> {
    * supplies a timer it expires by hand, so no proof depends on elapsed time.
    */
   startSettleTimer?(onExpire: () => void): { cancel(): void };
+  /**
+   * VS Code does not tell a custom editor why it is saving (ADR 0022 D12.10 item 3). When `files.autoSave` is
+   * `afterDelay` for `uri`, this is its delay in milliseconds; otherwise `null`. A save is recorded as `auto` only when
+   * this is not `null` and it arrives within that delay plus one second of the document's last accepted edit.
+   */
+  autoSaveDelayMs?(uri: Uri): number | null;
+  /** The retention settings in force for `folder` (D12.8); the user's values only, never a workspace's (D6.3). */
+  historyPolicy?(folder: WorkspaceFolderLike<Uri>): HistoryPolicy;
+  /** The current time in milliseconds; `Date.now` when the port gives none. A test supplies its own so no proof depends on elapsed time. */
+  now?(): number;
   /** Show a pick list and resolve with the chosen item's id, or `undefined` when the user dismisses it. */
   quickPick(items: readonly { readonly id: string; readonly label: string; readonly description?: string }[], placeholder: string): Promise<string | undefined>;
 }
@@ -77,6 +91,26 @@ export interface GameEditEvent<Uri extends UriLike> {
   undo(): void;
   redo(): void;
 }
+type DocumentChangeEvent = { readonly document: { readonly model: { readonly kind: string } } };
+
+/** Give one registered custom-editor view type only the edits for its document kinds. */
+export function eventsForDocumentKind<Event extends DocumentChangeEvent>(
+  source: (listener: (event: Event) => unknown) => { dispose(): void },
+  kinds: readonly string[],
+): (listener: (event: Event) => unknown) => { dispose(): void } {
+  return (listener) => source((event) => {
+    if (kinds.includes(event.document.model.kind)) listener(event);
+  });
+}
+
+/** The document kinds each custom-editor manifest view type is permitted to dirty. */
+export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
+  "tkr.gameSettings": ["main", "character", "item"],
+  "tkr.board": ["board"],
+  "tkr.tileset": ["tileset"],
+  "tkr.tileBitmap": ["tile-bitmap"],
+  "tkr.animation": ["animation"],
+} as const;
 
 /** What a webview panel gives the provider. */
 export interface WebviewPort {
@@ -102,6 +136,22 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** How many `saveCustomDocument` calls have finished, and the last one's result. */
   #saves = 0;
   #lastSave: SaveResult = { ok: true };
+  /** When the document's latest accepted edit arrived and which edit that was, to tell an autosave from an explicit Save. */
+  #lastEditAt = 0;
+  #lastHead: string | null = null;
+  /** Explicit Save commands from this editor's own Save button that have not finished; their saves are never `auto`. */
+  #restoreGroupId: string | null = null;
+  #explicitSaves = 0;
+
+  #now(): number {
+    return this.#port.now?.() ?? Date.now();
+  }
+
+  #saveReason(): HistoryReason {
+    if (this.#explicitSaves > 0) return "manual";
+    const delay = this.#port.autoSaveDelayMs?.(this.uri) ?? null;
+    return delay !== null && this.#now() - this.#lastEditAt <= delay + 1000 ? "auto" : "manual";
+  }
 
   constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession) {
     this.uri = uri;
@@ -113,6 +163,15 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.#navigation = navigation;
     this.#port = port;
     this.#fire = fire;
+    this.#lastEditAt = this.#now();
+    this.#lastHead = model.getSnapshot().edits.at(-1)?.editId ?? null;
+    model.subscribe(() => {
+      const head = model.getSnapshot().edits.at(-1)?.editId ?? null;
+      if (head !== this.#lastHead) {
+        this.#lastHead = head;
+        this.#lastEditAt = this.#now();
+      }
+    });
   }
 
   /** Hand an accepted edit to VS Code's undo stack; VS Code undoes it by its `editId` (AD-19). */
@@ -262,9 +321,10 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
       this.#lastSave = failed;
       return failed;
     }
-    let result = await this.model.save();
+    const reason = this.#saveReason();
+    let result = await this.model.save(reason, { groupId: this.#restoreGroupId });
     for (let round = 1; result.ok && this.model.getSnapshot().dirty && round < SAVE_ROUNDS; round += 1) {
-      result = await this.model.save();
+      result = await this.model.save(reason, { groupId: this.#restoreGroupId });
     }
     if (result.ok && this.model.getSnapshot().dirty) {
       const path = this.model.identity.path;
@@ -283,11 +343,14 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * `saveCustomDocument` (#2092). The result is that call's, so an edit made during the write is written by the same
    * save (see `save`), and a workbench that never called it is reported as not saving.
    */
-  async saveThroughWorkbench(): Promise<SaveResult> {
+  async saveThroughWorkbench(groupId: string | null = null): Promise<SaveResult> {
     const path = this.model.identity.path;
     const before = this.#saves;
+    const previousRestoreGroupId = this.#restoreGroupId;
     let accepted = false;
     try {
+      this.#restoreGroupId = groupId;
+      this.#explicitSaves += 1;
       accepted = (await this.#port.saveEditor(this.uri)) !== undefined;
     } catch (error) {
       // The provider's own failure when it ran (a refused write, or edits that kept outrunning it); otherwise VS Code's.
@@ -299,6 +362,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         code: null,
         message: `Could not save ${path}: ${error instanceof Error ? error.message : String(error)}`,
       } };
+    } finally {
+      this.#explicitSaves -= 1;
+      this.#restoreGroupId = previousRestoreGroupId;
     }
     if (!accepted && this.#saves !== before && !this.#lastSave.ok) return this.#lastSave;
     if (!accepted || this.#saves === before) {
@@ -344,17 +410,42 @@ export interface GameEditorProvider<Uri extends UriLike> {
   backupCustomDocument(document: GameDocument<Uri>, destination: Uri): Promise<{ readonly id: string; delete(): Promise<void> }>;
   /** Connect a webview panel (a new one, or one VS Code re-created after hiding it) to the document's model. */
   resolveCustomEditor(document: GameDocument<Uri>, webview: WebviewPort): void;
+  /** The project workspace and files of a folder, for a host view outside a custom editor (the History command, #2833). */
+  workspaceFor(folder: WorkspaceFolderLike<Uri>): { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace };
 }
 
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
   const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession }>();
+  const hostDocuments = new WeakMap<AnyDocument, GameDocument<Uri>>();
+  const createWorkspace = (folder: WorkspaceFolderLike<Uri>, fs: FileSystemService): DocumentWorkspace => {
+    const policy = port.historyPolicy;
+    return createDocumentWorkspace({
+      projectId: folder.key,
+      services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) },
+      ...(policy === undefined ? {} : { historyPolicy: () => policy.call(port, folder) }),
+      externalHistory: {
+        current: async (path) => await port.nativeTextDocument?.(port.uriFor(folder, path)) ?? null,
+        apply: async (path, bytes, expected, groupId) => await port.restoreNativeTextDocument?.(port.uriFor(folder, path), bytes, expected, groupId) ?? null,
+      },
+      settleOpenDocument: async (model) => {
+        const document = hostDocuments.get(model);
+        return document === undefined || await document.settleViews() === null;
+      },
+      restoreOpenDocument: async (model, editId, groupId) => {
+        const document = hostDocuments.get(model);
+        if (document === undefined) return model.save("manual", { groupId });
+        document.didEdit(editId);
+        return document.saveThroughWorkbench(groupId);
+      },
+    });
+  };
   type Project = { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession; readonly path: string };
   const projectIn = (folder: WorkspaceFolderLike<Uri>, uri: Uri): Project => {
     let project = workspaces.get(folder.key);
     if (project === undefined) {
       const fs = port.fileSystem(folder);
-      const workspace = createDocumentWorkspace({ projectId: folder.key, services: { fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) } });
+      const workspace = createWorkspace(folder, fs);
       project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
       workspaces.set(folder.key, project);
     }
@@ -365,6 +456,16 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     const folder = port.folderOf(document.uri);
     if (folder === undefined) throw new Error(`${document.model.identity.path} is outside the open workspace`);
     return folder;
+  };
+
+  const workspaceFor = (folder: WorkspaceFolderLike<Uri>): { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace } => {
+    const existing = workspaces.get(folder.key);
+    if (existing !== undefined) return existing;
+    const fs = port.fileSystem(folder);
+    const workspace = createWorkspace(folder, fs);
+    const project = { fs, workspace, visits: createVisits(workspace), browserSession: createBrowserSession() };
+    workspaces.set(folder.key, project);
+    return project;
   };
 
   const navigation: DocumentNavigation<Uri> = {
@@ -445,10 +546,13 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const identity = createDocumentIdentity(folder.key, resolved.path);
         const kind = kindForPath(resolved.path);
         if (kind === null) throw new Error(`${nameOf(uri)} is not a file type the editor opens.`);
-        const recovered = await recoverDocument(kind, fs, identity, await port.readBackup(backupId));
+        // The recovered document keeps its history sink, so a recovered save still keeps the version it replaces (D12.10 items 4 and 5).
+        const recovered = await recoverDocument(kind, workspace.storage, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
-        return new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession);
+        const document = new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession);
+        hostDocuments.set(document.model, document);
+        return document;
       }
       const known = new Set(workspace.documents());
       const opened = await workspace.open(path);
@@ -460,7 +564,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (known.has(opened.document)) {
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
-      return new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession);
+      const document = new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession);
+      hostDocuments.set(document.model, document);
+      return document;
     },
     async saveCustomDocument(document) {
       const result = await document.save();
@@ -489,7 +595,8 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       // VS Code replaces the source tab with the destination once this resolves, so a source edit made during the write
       // (which the copy does not hold) fails the Save As and keeps the source open with its work (#2201).
       const copied = document.model.getSnapshot();
-      const result = await document.model.saveAs(project.fs, identity);
+      // Save As through the workspace's storage, so an existing destination keeps its prior bytes in history (D12.10 items 4 and 6).
+      const result = await document.model.saveAs(project.workspace.storage, identity);
       if (!result.ok) throw new Error(result.failure.message);
       if (!sameRevision(document.model.getSnapshot(), copied)) {
         throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);
@@ -510,6 +617,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const id = await port.writeBackup(destination, document.model.serialize());
       return { id, delete: () => port.deleteBackup(destination) };
     },
+    workspaceFor,
     resolveCustomEditor(document, webview) {
       const publish = () => { void webview.postMessage({ type: "snapshot", snapshot: document.model.getSnapshot() }); };
       const subscription = document.model.subscribe(publish);

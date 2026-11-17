@@ -454,9 +454,12 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
         if (result?.ok) {
           const record = (which === "undo" ? beforeSnapshot.edits : afterSnapshot.edits).find((edit) => edit.editId === result!.editId);
           if (record !== undefined) {
-            const changes = which === "undo"
-              ? inverseTextEdits(afterSnapshot.text, beforeSnapshot.text, record.command)
-              : record.command.edits;
+            const command = record.command;
+            const changes = command.type === "restore-version"
+              ? null
+              : which === "undo"
+                ? inverseTextEdits(afterSnapshot.text, beforeSnapshot.text, command)
+                : command.edits;
             if (changes !== null) {
               const removed: TextTree[] = [];
               const insert = historyRevisions.current.get(String(result.editId));

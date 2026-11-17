@@ -121,7 +121,8 @@ function fileSystemPort(disk: Disk): VscodeFileSystemPort<Uri> {
     async createDirectory() {},
     async writeFile(uri, bytes) {
       if (disk.refuse) throw Object.assign(new Error("the workspace refuses writes"), { code: "NoPermissions" });
-      const held = disk.hold;
+      // A test that holds "the next write" holds the document's write, never the editor's own history record (ADR 0022 D12.10).
+      const held = uri.path.includes("/.tkr-history/") ? null : disk.hold;
       if (held !== null) {
         disk.hold = null;
         held.start();

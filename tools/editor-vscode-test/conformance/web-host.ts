@@ -145,7 +145,7 @@ class WebEditor implements ConformanceEditor {
 
 /** A browser host over a fresh project holding the fixture as `GAME` and a retitled copy as `SECOND`. */
 export function createWebConformanceHost(fixture: Uint8Array, act: Act): ConformanceHost {
-  const control: WriteControl = { refuse: false, hold: null, tick: 0 };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("project", control);
   root.put(GAME, fixture);
   root.put(SECOND, retitled(fixture, "Second game"));
@@ -219,7 +219,7 @@ export function createWebBoardProofHost(gam: Uint8Array, files: Readonly<Record<
   disk(path: string): Promise<Uint8Array | null>;
   settle(): Promise<void>;
 } {
-  const control: WriteControl = { refuse: false, hold: null, tick: 0 };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("project", control);
   root.put(GAME, gam);
   for (const [path, bytes] of Object.entries(files)) root.put(path, bytes);
@@ -259,7 +259,7 @@ export function createWebBoardProofHost(gam: Uint8Array, files: Readonly<Record<
 
 /** The browser host holding `files` besides a `.gam`, for the character proof of #1716: its workspace saves and closes the document. */
 export function createWebCharacterProofHost(gam: Uint8Array, files: Readonly<Record<string, Uint8Array>>, act: Act): CharacterProofHost {
-  const control: WriteControl = { refuse: false, hold: null, tick: 0 };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("project", control);
   root.put(GAME, gam);
   for (const [path, bytes] of Object.entries(files)) root.put(path, bytes);

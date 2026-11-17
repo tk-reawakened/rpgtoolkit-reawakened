@@ -363,6 +363,12 @@ export function createWorkbenchCommands(options: WorkbenchCommandSourceOptions):
       shortcut: "Ctrl+P",
       run: () => onOpenPalette(""),
     }]),
+    ...(hasPanel("history") ? [{
+      id: "history.openPanel",
+      category: "View" as const,
+      label: "Show Document History",
+      run: () => layout.show("history"),
+    }] : []),
     ...(hasPanel("run") ? [{
       id: "run.openPanel",
       category: "Run" as const,

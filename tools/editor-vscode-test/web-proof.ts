@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
-import { autosaveSetting, combineProofErrors, decodePersistedBytes } from "./lifecycle.ts";
+import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 import { runVscodeContextualHelpProof } from "./contextual-help-proof.ts";
@@ -15,6 +15,23 @@ type Expect = typeof playwrightExpect;
 type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean };
 type CspConsoleViolation = { text: string; url: string; lineNumber: number; columnNumber: number };
 type ProofRunSnapshot = { readonly stateHash: string | null };
+type NewProjectHistoryProofHost = {
+  pauseWrite(path: string): Promise<void>;
+  resumeWrite(): void;
+  pauseNativeRestoreRead(path: string): Promise<void>;
+  resumeRead(): void;
+  readEvents(): { kind: "readDirectory" | "readFile"; path: string }[];
+  nativeRestoreReadEvents(): readonly { readonly kind: "readFile"; readonly path: string }[];
+  writeEvents(): readonly { readonly kind: "write-request" | "write"; readonly path: string }[];
+  writeOperationEvents(): readonly { readonly kind: "write-request" | "write" | "write-failed"; readonly path: string }[];
+  failedWriteEvents(): readonly { readonly kind: "write-failed"; readonly path: string }[];
+  failWritesUnder(pathPrefix: string): void;
+  allowWrites(): void;
+  writeBacking(path: string, bytes: Uint8Array): Promise<void>;
+  readonly bitmapPath: string;
+  bitmapPictureForBytes(bytes: Uint8Array): { width: number; height: number; data: number[] };
+  previewTrace?(): readonly string[];
+};
 
 async function verifyHostRunHash(page: Page, frame: Frame, expect: Expect): Promise<void> {
   let handleFrame: Frame | undefined;
@@ -55,9 +72,10 @@ async function verifyHostRunHash(page: Page, frame: Frame, expect: Expect): Prom
 type ProofHost = {
   restart(page: Page, offlineBytes?: Uint8Array): Promise<Page>;
   readBacking(path?: string): Promise<Uint8Array>;
-  readHostEvents(): { kind: "save-request" | "save" | "revert"; value: string }[];
-  pauseSave(): void;
-  resumeSave(): void;
+  readHostEvents(): { kind: "open" | "open-uri" | "resolve" | "edit" | "save" | "save-uri"; value: string }[];
+  pauseWrite(path: string): Promise<void>;
+  resumeWrite(): void;
+  writeEvents(): readonly { readonly kind: "write-request" | "write"; readonly path: string }[];
   externalBytes: Uint8Array;
   sentinelTitle: string;
   sentinelBytes: Uint8Array;
@@ -76,6 +94,7 @@ type ProofHost = {
   bitmapPicture(edited: boolean): { width: number; height: number; data: number[] };
   /** What the file must hold after the proof's two edits and Save, written by hand from the stored layout. */
   bitmapSaved: Uint8Array;
+  saveViaWorkbenchShortcut?: "Meta+S" | "Control+S";
   /** Boards of each coordinate layout (`coordType` 0, 1, 2), each 8 × 8 with two layers, for the canvas scenario. */
   canvasBoards: { path: string; label: string; coordType: number }[];
 };
@@ -293,17 +312,84 @@ export async function runVscodeGuardProof(
   expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
 }
 
-/** Drive the real workbench wizard and folder picker, then verify independent storage and the automatically opened editor. */
+type WizardGroupRecord = {
+  readonly id: string;
+  readonly schema: number;
+  readonly reason: string;
+  readonly name: string | null;
+  readonly restores: string | null;
+  readonly files: readonly { readonly path: string; readonly before: string | null; readonly after: string | null; readonly status: string }[];
+  readonly uncovered: readonly unknown[];
+};
+
+async function proveWizardGroupFromBacking(
+  projectPath: string,
+  expectedName: string,
+  writtenPaths: readonly string[],
+  tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  expect: Expect,
+): Promise<void> {
+  const folder = `${projectPath}/.tkr-history/groups/`;
+  const allPaths = await tree();
+  const records = allPaths.filter((path) => path.startsWith(folder) && path.endsWith(".json"));
+  const matching: { readonly path: string; readonly record: WizardGroupRecord }[] = [];
+  for (const path of records) {
+    const record = JSON.parse(new TextDecoder().decode(await readBacking(path))) as WizardGroupRecord;
+    if (record.name === expectedName) matching.push({ path, record });
+  }
+  expect(matching, `${expectedName} wizard wrote one durable group record`).toHaveLength(1);
+  const { path: groupPath, record: manifest } = matching[0]!;
+  let group = manifest;
+  const progressFolder = `${projectPath}/.tkr-history/progress/${group.id}/`;
+  const progressPaths = allPaths.filter((path) => {
+    if (!path.startsWith(progressFolder)) return false;
+    return /^\d+\.json$/.test(path.slice(progressFolder.length));
+  }).sort((a, b) => Number(b.slice(progressFolder.length, -5)) - Number(a.slice(progressFolder.length, -5)));
+  for (const progressPath of progressPaths) {
+    try {
+      const update = JSON.parse(new TextDecoder().decode(await readBacking(progressPath))) as WizardGroupRecord;
+      if (update.schema !== 1 || update.id !== group.id || !Array.isArray(update.files) || update.files.length !== group.files.length
+        || !update.files.every((file, index) => file.path === group.files[index]!.path && file.before === group.files[index]!.before
+          && (file.after === null || /^[a-f0-9]{64}$/.test(file.after))
+          && ["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "uncovered"].includes(file.status))) continue;
+      group = { ...group, files: update.files };
+      break;
+    } catch { /* A torn progress record leaves the preceding durable record authoritative. */ }
+  }
+  expect(groupPath).toBe(`${folder}${group.id}.json`);
+  expect(group.schema).toBe(1);
+  expect(group.reason).toBe("before-wizard");
+  expect(group.name).toBe(expectedName);
+  expect(group.restores).toBeNull();
+  expect(group.uncovered).toEqual([]);
+  expect(group.files.map((item) => item.path).sort()).toEqual([...writtenPaths].sort());
+  expect(group.files.every((item) => item.before === null), "new wizard destinations are recorded absent before writing").toBe(true);
+  expect(group.files.every((item) => item.status === "written"), "all planned destinations were registered as written").toBe(true);
+  for (const path of writtenPaths) {
+    const bytes = await readBacking(`${projectPath}/${path}`);
+    const written = group.files.find((item) => item.path === path);
+    expect(written?.after, `${path} records an actual written-byte SHA-256`).toBe(createHash("sha256").update(bytes).digest("hex"));
+  }
+  expect(group.files.length).toBe(writtenPaths.length);
+}
+
+
 export async function runVscodeNewProjectProof(
   page: Page,
   expect: Expect,
   workbenchUrl: string,
   tree: () => Promise<readonly string[]>,
   readBacking: (path: string) => Promise<Uint8Array>,
+  historyHost: NewProjectHistoryProofHost,
 ): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
   const before = await tree();
+  const bitmapPath = historyHost.bitmapPath;
+  const bitmapBefore = await readBacking(bitmapPath);
+  const tilesetPath = "__tkr_new_project/Tiles/village.tst";
+  const tilesetBefore = await readBacking(tilesetPath);
   const widget = page.locator(".quick-input-widget");
   const commandInput = await commandPalette(page, expect);
   await commandInput.fill(">RPG Toolkit: New project");
@@ -353,8 +439,10 @@ export async function runVscodeNewProjectProof(
     "__tkr_new_project/Prg/start.prg",
     "__tkr_new_project/Boards/start.brd",
   ];
-  await expect.poll(tree, { timeout: 30_000 }).toEqual([...before, ...additions].sort());
+  await expect.poll(async () => (await tree()).filter((path) => !path.startsWith("__tkr_new_project/.tkr-history/")), { timeout: 30_000 }).toEqual([...new Set([...before, ...additions])].sort());
   expect(new TextDecoder().decode(await readBacking("__tkr_new_project/keep.txt"))).toBe("Keep this file");
+  expect(await readBacking(bitmapPath)).toEqual(bitmapBefore);
+  expect(await readBacking(tilesetPath)).toEqual(tilesetBefore);
   const bytes = await readBacking("__tkr_new_project/Main/Quest.gam");
   const parsed = readMainFile(new BinaryReader(bytes, "Main/Quest.gam"));
   expect(parsed.ok).toBe(true);
@@ -379,6 +467,745 @@ export async function runVscodeNewProjectProof(
     }
     expect(titles).toContain("Native wizard quest");
   }).toPass({ timeout: 60_000, intervals: [100, 250, 500, 1_000] });
+  // Destination files appear before progress is durable; automatic open follows the completed wizard.
+  await proveWizardGroupFromBacking("__tkr_new_project", "New project", ["Main/Quest.gam", "Prg/start.prg", "Boards/start.brd"], tree, readBacking, expect);
+  await proveNativeHistoryUi(page, expect, tree, readBacking, historyHost);
+  await proveNativeNewBoard(page, expect, tree, readBacking, historyHost);
+  await proveNativeBitmapHistory(page, expect, tree, readBacking, historyHost);
+  await proveNativeTextSaveFailure(page, expect, readBacking, historyHost);
+}
+
+async function proveNativeHistoryUi(
+  page: Page,
+  expect: Expect,
+  tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  historyHost: NewProjectHistoryProofHost,
+): Promise<void> {
+  const gamePath = "__tkr_new_project/Main/Quest.gam";
+  const generatedBytes = await readBacking(gamePath);
+  let editor = await waitForWritableEditorFrame(page, "History proof editor", "Game title");
+  await editor.getByRole("textbox", { name: "Game title", exact: true }).fill("History first");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
+  await expect.poll(async () => {
+    const parsed = readMainFile(new BinaryReader(await readBacking(gamePath), gamePath));
+    return parsed.ok ? parsed.value.gameTitle : null;
+  }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe("History first");
+  const firstSaved = await readBacking(gamePath);
+
+  editor = await waitForWritableEditorFrame(page, "History proof editor after first save", "Game title");
+  await editor.getByRole("textbox", { name: "Game title", exact: true }).fill("History second");
+  await editor.getByRole("button", { name: "Apply changes" }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
+  await expect.poll(async () => {
+    const parsed = readMainFile(new BinaryReader(await readBacking(gamePath), gamePath));
+    return parsed.ok ? parsed.value.gameTitle : null;
+  }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe("History second");
+  const secondSaved = await readBacking(gamePath);
+  const entryFolder = "__tkr_new_project/.tkr-history/entries/";
+  const entryPaths = (await tree()).filter((path) => path.startsWith(entryFolder) && path.endsWith(".json"));
+  const storedEntries = await Promise.all(entryPaths.map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as {
+    readonly id: string; readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number;
+  }));
+  const gameEntries = storedEntries.filter((entry) => entry.path === "Main/Quest.gam");
+  expect(gameEntries).toHaveLength(3);
+  expect(gameEntries.map((entry) => entry.reason).sort()).toEqual(["checkpoint", "manual", "manual"]);
+  expect(gameEntries.map((entry) => entry.sha256).sort()).toEqual([
+    createHash("sha256").update(generatedBytes).digest("hex"),
+    createHash("sha256").update(firstSaved).digest("hex"),
+    createHash("sha256").update(secondSaved).digest("hex"),
+  ].sort());
+  expect(gameEntries.map((entry) => entry.size).sort((a, b) => a - b)).toEqual([generatedBytes.length, firstSaved.length, secondSaved.length].sort((a, b) => a - b));
+
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
+  const picker = page.locator(".quick-input-widget");
+  let options = picker.getByRole("option").filter({ hasText: "saved" });
+  const savedCount = await options.count();
+  if (savedCount !== 2) {
+    const persisted = (await tree()).filter((path) => path.startsWith("__tkr_new_project/.tkr-history/"));
+    const pickerText = await picker.innerText().catch(() => "");
+    const notifications = await page.locator(".notifications-toasts").innerText().catch(() => "");
+    throw new Error(`Expected two saved versions in the real History picker; found ${savedCount}. Picker: ${pickerText}; notifications: ${notifications}; persisted history entries: ${JSON.stringify(gameEntries)}; history paths: ${persisted.join(", ")}`);
+  }
+  await expect(options).toHaveCount(2);
+  const restoreEventsStart = historyHost.writeEvents().length;
+  const writeReached = historyHost.pauseWrite(`/${gamePath}`);
+  try {
+    await options.last().click();
+    await verifyHistoryPreview(page, expect, "History first");
+    await expectNativeHistoryRestorePaused(historyHost, restoreEventsStart, writeReached, gamePath, readBacking, secondSaved, expect);
+  } finally {
+    historyHost.resumeWrite();
+  }
+  await expectNativeHistoryRestorePersisted(historyHost, restoreEventsStart, gamePath, readBacking, firstSaved, expect);
+  const reportText = /Each file is reported separately; the restore is itself in history, so it can be undone\./;
+  const report = page.getByRole("dialog", { name: /Info: Restored/ }).getByText(reportText);
+  await expect(report).toBeVisible({ timeout: 30_000 });
+  editor = await waitForWritableEditorFrame(page, "History editor after restoring the first save", "Game title");
+  await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History first");
+
+  await expectOpenRecoveryRefusal(page, expect, historyHost, "Main/Quest.gam", gamePath, firstSaved, readBacking);
+  await closeRecoverySourceEditor(page, expect, /^Quest\.gam(?:,|$)/);
+  const restoreAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Main/Quest.gam");
+  const undoEventsStart = historyHost.writeEvents().length;
+  const undoWriteReached = historyHost.pauseWrite(`/${gamePath}`);
+  try {
+    await restoreAction.click();
+    await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, gamePath, readBacking, firstSaved, expect);
+  } finally {
+    historyHost.resumeWrite();
+  }
+  await expectNativeHistoryRestorePersisted(historyHost, undoEventsStart, gamePath, readBacking, secondSaved, expect);
+  await confirmRecoveryGroupReport(page, expect, "Main/Quest.gam");
+  await openNativeQuickOpenFile(page, expect, gamePath);
+  editor = await waitForWritableEditorFrame(page, "History editor after restoring the restore", "Game title");
+  await expect(editor.getByRole("textbox", { name: "Game title", exact: true })).toHaveValue("History second");
+  await proveNativeTextHistory(page, expect, tree, readBacking, historyHost);
+}
+
+async function proveNativeTextHistory(
+  page: Page,
+  expect: Expect,
+  tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  host: NewProjectHistoryProofHost,
+): Promise<void> {
+  const projectPath = "__tkr_new_project/Prg/start.prg";
+  const historyPath = "Prg/start.prg";
+  const before = await readBacking(projectPath);
+  await closeRecoverySourceEditor(page, expect, /^History preview: Main\/Quest\.gam(?:,|$)/);
+  await closeRecoverySourceEditor(page, expect, /^Quest\.gam(?:,|$)/);
+  await openNativeQuickOpenFile(page, expect, projectPath);
+  let editor = page.locator(".monaco-editor:visible").last();
+  let lines = editor.locator(".view-lines");
+  await expect(lines).toBeVisible();
+  await lines.click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("// Native history pre-save baseline proof");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect.poll(() => readBacking(projectPath), { timeout: 30_000, intervals: [100, 250, 500] }).not.toEqual(before);
+  const saved = await readBacking(projectPath);
+  const entryPrefix = "__tkr_new_project/.tkr-history/entries/";
+  const entries = await Promise.all((await tree()).filter((path) => path.startsWith(entryPrefix) && path.endsWith(".json"))
+    .map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as {
+      readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number;
+    }));
+  const nativeEntries = entries.filter((entry) => entry.path === historyPath);
+  expect(nativeEntries.map((entry) => entry.reason).sort()).toEqual(["checkpoint", "manual"]);
+  expect(nativeEntries.map((entry) => entry.sha256).sort()).toEqual([
+    createHash("sha256").update(before).digest("hex"),
+    createHash("sha256").update(saved).digest("hex"),
+  ].sort());
+
+  await closeRecoverySourceEditor(page, expect, /^start\.prg(?:,|$)/);
+  await openNativeQuickOpenFile(page, expect, projectPath);
+  editor = page.locator(".monaco-editor:visible").last();
+  lines = editor.locator(".view-lines");
+  await expect(lines).toBeVisible();
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
+  const picker = page.locator(".quick-input-widget");
+  const checkpoint = picker.getByRole("option").filter({ hasText: "checkpoint" });
+  await expect(checkpoint).toHaveCount(1);
+  const writeEventsStart = host.writeEvents().length;
+  const readEventsStart = host.readEvents().length;
+  const readReached = host.pauseNativeRestoreRead(`/${projectPath}`);
+  try {
+    await checkpoint.click();
+    await readReached;
+    expect(host.nativeRestoreReadEvents()).toEqual([{ kind: "readFile", path: `/${projectPath}` }]);
+    await lines.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("// Concurrent native edit must survive history restore");
+    await expect(lines).toContainText("Concurrent native edit must survive history restore");
+  } finally {
+    host.resumeRead();
+  }
+  await expect.poll(async () => page.locator("body").innerText()).toMatch(/start\.prg:\s+failed/i);
+  expect(await readBacking(projectPath)).toEqual(saved);
+  await expect(lines).toContainText("Concurrent native edit must survive history restore");
+  expect(host.writeEvents().slice(writeEventsStart).filter((event) => event.path === `/${projectPath}`)).toEqual([]);
+  await lines.click();
+  await page.keyboard.press("ControlOrMeta+Z");
+}
+
+async function proveNativeTextSaveFailure(
+  page: Page,
+  expect: Expect,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  host: NewProjectHistoryProofHost,
+): Promise<void> {
+  const projectPath = "__tkr_new_project/Prg/start.prg";
+  const historyRoot = "/__tkr_new_project/.tkr-history";
+  const marker = "// Native history failure still allows VS Code to save";
+  await closeRecoverySourceEditor(page, expect, /^start\.prg(?:,|$)/);
+  const externalMarker = "// Unrecorded external native baseline";
+  const priorBytes = await readBacking(projectPath);
+  const externalBaseline = new Uint8Array([...priorBytes, ...new TextEncoder().encode(`\n${externalMarker}\n`)]);
+  await host.writeBacking(projectPath, externalBaseline);
+  await openNativeQuickOpenFile(page, expect, projectPath);
+  const editor = page.locator(".monaco-editor:visible").last();
+  const lines = editor.locator(".view-lines");
+  const nativeTab = page.getByRole("tab", { name: /^start\.prg(?:,|$)/ });
+  await expect(lines).toBeVisible();
+  await expect(lines).toContainText(externalMarker);
+  await expect(nativeTab).toHaveCount(1);
+  await expect(nativeTab).toHaveAttribute("aria-selected", "true");
+  const before = await readBacking(projectPath);
+  expect(before).toEqual(externalBaseline);
+  const operationStart = host.writeOperationEvents().length;
+  const failureStart = host.failedWriteEvents().length;
+  host.failWritesUnder(historyRoot);
+  try {
+    await lines.click();
+    await page.keyboard.press("ControlOrMeta+End");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type(marker);
+    await expect(lines).toContainText(marker);
+    await page.keyboard.press("ControlOrMeta+S");
+
+    const notifications = page.locator(".notifications-toasts");
+    await expect(notifications).toContainText(
+      /Could not keep the previous version of Prg\/start\.prg in recovery history before saving:.*VS Code may still save this document\./s,
+      { timeout: 30_000 },
+    );
+    await expect.poll(async () => new TextDecoder().decode(await readBacking(projectPath)), {
+      timeout: 30_000, intervals: [100, 250, 500],
+    }).toContain(marker);
+    await expect(nativeTab).not.toHaveClass(/dirty/, { timeout: 30_000 });
+    await expect(notifications).toContainText(
+      /Prg\/start\.prg was saved, but its recovery history could not be recorded:/,
+      { timeout: 30_000 },
+    );
+  } finally {
+    host.allowWrites();
+  }
+
+  const failures = host.failedWriteEvents().slice(failureStart);
+  expect(failures.length).toBeGreaterThan(0);
+  expect(failures.every((event) => event.path.startsWith(`${historyRoot}/`))).toBe(true);
+  const operations = host.writeOperationEvents().slice(operationStart);
+  expect(operations).toContainEqual({ kind: "write", path: `/${projectPath}` });
+  expect(operations.filter((event) => event.path.startsWith(historyRoot)).every((event) => event.kind !== "write")).toBe(true);
+  expect(await readBacking(projectPath)).not.toEqual(before);
+  expect(new TextDecoder().decode(await readBacking(projectPath))).toContain(marker);
+  await expect(nativeTab).toHaveCount(1);
+  await expect(nativeTab).not.toHaveClass(/dirty/);
+  console.log("Native TextDocument Save preserved the actual .prg edit and clean state while visibly reporting failed history capture; only history writes were injected to fail");
+}
+
+async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: string): Promise<void> {
+  let preview: Frame | undefined;
+  let previewTitle: Locator | undefined;
+  await expect.poll(async () => {
+    for (const frame of page.frames()) {
+      const title = frame.getByRole("textbox", { name: "Game title", exact: true });
+      if (await frame.getByRole("heading", { name: "Game settings", exact: true }).count() > 0
+        && await title.count() > 0 && await title.isDisabled() && await title.inputValue() === expectedTitle) {
+        preview = frame;
+        previewTitle = title;
+        return true;
+      }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  if (preview === undefined || previewTitle === undefined) throw new Error("The History command did not open the shared editor in read-only mode.");
+  await expect(previewTitle).toHaveValue(expectedTitle);
+  await expect(previewTitle).toBeDisabled();
+  await expect(preview.getByRole("note")).toContainText("Read only");
+}
+async function expectNativeHistoryRestorePaused(
+  host: NewProjectHistoryProofHost,
+  eventsStart: number,
+  writeReached: Promise<void>,
+  path: string,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  expectedBefore: Uint8Array,
+  expect: Expect,
+): Promise<void> {
+  const request = { kind: "write-request" as const, path: `/${path}` };
+  await expect.poll(() => host.writeEvents().slice(eventsStart).filter((event) => event.path === request.path)).toContainEqual(request);
+  await writeReached;
+  expect(host.writeEvents().slice(eventsStart).filter((event) => event.path === request.path)).toEqual([request]);
+  expect(await readBacking(path)).toEqual(expectedBefore);
+}
+
+async function expectNativeHistoryRestorePersisted(
+  host: NewProjectHistoryProofHost,
+  eventsStart: number,
+  path: string,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  expectedAfter: Uint8Array,
+  expect: Expect,
+): Promise<void> {
+  const request = { kind: "write-request" as const, path: `/${path}` };
+  await expect.poll(() => host.writeEvents().slice(eventsStart).filter((event) => event.path === request.path)).toEqual([request, { kind: "write", path: request.path }]);
+  await expect.poll(() => readBacking(path), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toEqual(expectedAfter);
+}
+
+async function selectRecoveryRestoreAction(page: Page, expect: Expect, projectRoot: string, historyPath: string): Promise<Locator> {
+  await runCommand(page, expect, "TK Reawakened: Project recovery", "Select workspace folder");
+  const roots = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: projectRoot });
+  await expect(roots).toHaveCount(1);
+  await roots.click();
+  await expect(page.getByRole("textbox", { name: "Choose a persistent recovery group" })).toBeVisible();
+  const groups = page.locator(".quick-input-widget").getByRole("option")
+    .filter({ hasText: "before-restore" })
+    .filter({ hasText: `${historyPath}: written` });
+  await expect(groups).toHaveCount(1);
+  await groups.click();
+  const restoreAction = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "Restore group" });
+  await expect(restoreAction).toHaveCount(1);
+  return restoreAction;
+}
+
+async function expectOpenRecoveryRefusal(
+  page: Page,
+  expect: Expect,
+  historyHost: NewProjectHistoryProofHost,
+  historyPath: string,
+  backingPath: string,
+  expectedBytes: Uint8Array,
+  readBacking: (path: string) => Promise<Uint8Array>,
+): Promise<void> {
+  const eventsStart = historyHost.writeEvents().length;
+  const action = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", historyPath);
+  await action.click();
+  await expect(page.getByText(`Save or resolve your work and close ${historyPath} before replacing or removing it.`, { exact: true })).toBeVisible({ timeout: 30_000 });
+  expect(historyHost.writeEvents().slice(eventsStart).filter((event) => event.path === `/${backingPath}`)).toEqual([]);
+  expect(await readBacking(backingPath)).toEqual(expectedBytes);
+}
+
+async function closeRecoverySourceEditor(page: Page, expect: Expect, tabName: RegExp): Promise<void> {
+  const sourceTab = page.getByRole("tab", { name: tabName });
+  await expect(sourceTab).toHaveCount(1);
+  await sourceTab.click();
+  await closeActiveEditor(page, expect);
+  await expect(sourceTab).toHaveCount(0);
+}
+
+async function confirmRecoveryGroupReport(page: Page, expect: Expect, historyPath: string): Promise<void> {
+  const report = page.getByRole("dialog").filter({ hasText: `${historyPath}: written` }).last();
+  await expect(report).toBeVisible({ timeout: 30_000 });
+  await report.getByRole("button", { name: "OK", exact: true }).click();
+}
+
+function assertBoardPreviewRequestIdentity(historyHost: NewProjectHistoryProofHost, sourcePath: string, expect: Expect): void {
+  const identity = historyHost.previewTrace?.().find((entry) => entry.includes("stage=request-send")
+    && entry.includes(`path: ${sourcePath}`)
+    && entry.includes("projectId: tkr-testfs://") && entry.includes("/__tkr_new_project"));
+  expect(identity, `The History preview did not originate from ${sourcePath}.`).toBeDefined();
+}
+
+async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath: string, expectedTile: string, historyHost: NewProjectHistoryProofHost, beforeRender: () => Promise<void>): Promise<string> {
+  assertBoardPreviewRequestIdentity(historyHost, sourcePath, expect);
+  let preview: Frame | undefined;
+  try {
+    await expect.poll(async () => {
+      const boardFrames: Frame[] = [];
+      for (const frame of page.frames()) {
+        const board = frame.getByRole("region", { name: "Board", exact: true });
+        if (await board.count() > 0 && await board.isVisible().catch(() => false)) boardFrames.push(frame);
+      }
+      const readOnlyFrames: Frame[] = [];
+      const writableFrames: Frame[] = [];
+      for (const frame of boardFrames) {
+        const note = frame.getByRole("note").filter({ hasText: "Read only:" });
+        if (await note.count() > 0 && await note.isVisible().catch(() => false)) readOnlyFrames.push(frame);
+        else writableFrames.push(frame);
+      }
+      const matchingPreviews: Frame[] = [];
+      for (const frame of readOnlyFrames) {
+        const tile = frame.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
+        if (await tile.count() > 0 && await tile.inputValue().catch(() => "") === expectedTile) matchingPreviews.push(frame);
+      }
+      preview = matchingPreviews[0];
+      return writableFrames.length === 1 && matchingPreviews.length === 1;
+    }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  } catch (error) {
+    const frames = await Promise.all(page.frames().map(async (frame) => ({
+      name: frame.name(),
+      url: frame.url(),
+      boards: await frame.locator(".tkr-board").count().catch(() => -1),
+      bitmapCanvases: await frame.locator("canvas.tkr-bitmap-canvas").count().catch(() => -1),
+      readOnlyNotes: await frame.locator(".tkr-board-readonly, .tkr-bitmap-readonly").count().catch(() => -1),
+      body: (await frame.locator("body").textContent({ timeout: 1_000 }).catch(() => "") ?? "").slice(0, 240),
+    })));
+    const tabs = await page.getByRole("tab").allTextContents().catch(() => []);
+    const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
+    throw new Error(`Native read-only History frame did not mount. Tabs: ${JSON.stringify(tabs)}. Frames: ${JSON.stringify(frames)}. Correlated preview stages:\n${trace}\n${String(error)}`);
+  }
+  if (preview === undefined) throw new Error(`The native History preview for ${expectedTile} did not mount beside its writable originating board editor.`);
+  await expect(preview.locator(".tkr-board-readonly")).toContainText("Saved version");
+  const previewTile = preview.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
+  await expect(previewTile).toHaveAttribute("readonly", "");
+  await expect(preview.locator(".tkr-board-brush")).toBeDisabled();
+  await expect(preview.locator(".tkr-board-readonly")).toContainText("Read only");
+  await beforeRender();
+  const previewState = preview.locator(".tkr-board-preview-state");
+  try {
+    await expect(previewState).toHaveCount(0, { timeout: 30_000 });
+  } catch (error) {
+    const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
+    const canvas = preview.locator("canvas");
+    const canvasCount = await canvas.count();
+    const canvasSize = canvasCount === 0 ? null : await canvas.first().evaluate((element) => {
+      const target = element as HTMLCanvasElement;
+      return { width: target.width, height: target.height, clientWidth: target.clientWidth, clientHeight: target.clientHeight };
+    }).catch(() => null);
+    const renderState = {
+      status: await previewState.textContent().catch(() => null),
+      pictureText: await preview.locator(".tkr-board-picture").textContent().catch(() => null),
+      canvasCount,
+      canvasSize,
+      readOnlyText: await preview.locator(".tkr-board-readonly").textContent().catch(() => null),
+    };
+    throw new Error(`Native board History preview remained pending. Render state: ${JSON.stringify(renderState)}. Filesystem reads: ${JSON.stringify(historyHost.readEvents().slice(-30))}. Correlated preview stages (last 128):\n${trace}\n${String(error)}`);
+  }
+  await expect.poll(() => historyHost.readEvents().some((event) =>
+    event.kind === "readFile" && event.path.replaceAll("\\", "/").endsWith("/Tiles/village.tst"),
+  )).toBe(true);
+  await expect(preview.getByRole("status").filter({ hasText: "No picture:" })).toHaveCount(0);
+  const canvas = preview.getByRole("img", { name: "The board as the engine draws it", exact: true });
+  await expect(canvas).toBeVisible();
+  const readPicture = () => canvas.evaluate((element) => {
+    const target = element as HTMLCanvasElement;
+    const context = target.getContext("2d");
+    if (context === null || target.width === 0 || target.height === 0) return { width: 0, height: 0, hash: 0, colours: 0 };
+    const pixels = context.getImageData(0, 0, target.width, target.height).data;
+    const colours = new Set<string>();
+    let hash = 2_166_136_261;
+    for (let offset = 0; offset < pixels.length; offset += 4) {
+      const red = pixels[offset] ?? 0;
+      const green = pixels[offset + 1] ?? 0;
+      const blue = pixels[offset + 2] ?? 0;
+      const alpha = pixels[offset + 3] ?? 0;
+      hash = Math.imul(hash ^ red, 16_777_619);
+      hash = Math.imul(hash ^ green, 16_777_619);
+      hash = Math.imul(hash ^ blue, 16_777_619);
+      hash = Math.imul(hash ^ alpha, 16_777_619);
+      if (colours.size < 3) colours.add(`${red},${green},${blue},${alpha}`);
+    }
+    return { width: target.width, height: target.height, hash: hash >>> 0, colours: colours.size };
+  });
+  await expect.poll(async () => (await readPicture()).colours, { timeout: 30_000 }).toBeGreaterThan(1);
+  const picture = await readPicture();
+  return `${picture.width}x${picture.height}:${picture.hash}`;
+}
+
+async function proveNativeNewBoard(
+  page: Page,
+  expect: Expect,
+  tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  historyHost: NewProjectHistoryProofHost,
+): Promise<void> {
+  const commandContexts: string[] = [];
+  page.on("console", (message) => {
+    const text = message.text();
+    if (text.includes("[history-preview-trace] command-context")) commandContexts.push(text);
+  });
+  const openBoardHistoryPicker = async (): Promise<void> => {
+    const commandContextStart = commandContexts.length;
+    const boardTabName = /^Native history board\.brd(?:,|$)/;
+    await page.getByRole("tab", { name: boardTabName }).click();
+    await expect(page.getByRole("tab", { name: boardTabName, selected: true })).toBeVisible();
+    await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
+    await expect.poll(() => commandContexts.length > commandContextStart, { timeout: 5_000 }).toBe(true);
+    const context = commandContexts[commandContextStart];
+    if (context === undefined) throw new Error("The Board history command context was not recorded.");
+    expect(context).toContain("activeTabLabel: Native history board.brd");
+    expect(context).toContain("customEditorUri: tkr-testfs://");
+    const customEditorUri = /customEditorUri: (tkr-testfs:\/\/[^,}]+)/.exec(context)?.[1];
+    if (customEditorUri === undefined) throw new Error("The active Board history command did not report its custom-editor URI.");
+    expect(decodeURIComponent(customEditorUri)).toMatch(/\/Boards\/Native history board\.brd$/);
+  };
+  await runCommand(page, expect, "RPG Toolkit: New board", "New board: project");
+  const widget = page.locator(".quick-input-widget");
+  await expect(widget).toContainText("New board: project");
+  await widget.getByRole("option", { name: "__tkr_new_project", exact: true }).click();
+  const answer = widget.getByRole("textbox");
+  await expect(widget).toContainText("Name of the new board");
+  await answer.fill("Native history board");
+  await answer.press("Enter");
+
+  const choose = async (label: string): Promise<void> => {
+    const option = widget.getByRole("option", { name: label, exact: true })
+      .or(widget.getByRole("option", { name: `${label}, current`, exact: true }));
+    await expect(option).toBeVisible();
+    await option.click();
+  };
+  await expect(widget).toContainText("New board: start from");
+  await choose("A blank board");
+  await expect(widget).toContainText("New board: layout");
+  await choose("Top-down (2D)");
+  await expect(widget).toContainText("New board: coordinates");
+  await choose("Tile coordinates");
+
+  for (const [prompt, value] of [["Width in tiles", "4"], ["Height in tiles", "3"], ["Number of layers", "1"], ["Background image (leave empty for none)", ""]] as const) {
+    await expect(widget).toContainText(prompt);
+    await answer.fill(value);
+    await answer.press("Enter");
+  }
+  await expect(page.getByRole("tab", { name: /^Native history board\.brd(?:,|$)/, selected: true })).toBeVisible({ timeout: 30_000 });
+  await proveWizardGroupFromBacking("__tkr_new_project", "New board", ["Boards/Native history board.brd"], tree, readBacking, expect);
+  const boardPath = "__tkr_new_project/Boards/Native history board.brd";
+  const generatedBytes = await readBacking(boardPath);
+  const boardEditor = await waitForWritableEditorFrame(page, "new board before saving history", "Tile for column 1, row 1");
+  const tileField = boardEditor.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
+  const savedCellTile = (bytes: Uint8Array): string | null => {
+    const parsed = readBoard(new BinaryReader(bytes, boardPath));
+    if (!parsed.ok) return null;
+    const index = parsed.value.tileMatrix[0];
+    return index === undefined ? null : parsed.value.lut[index] ?? null;
+  };
+  await tileField.fill("village.tst1");
+  await tileField.press("Enter");
+  await expect(boardEditor.locator(".tkr-board-state")).toHaveText("Unsaved changes");
+  await boardEditor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(boardEditor.locator(".tkr-board-state")).toHaveText("All changes saved");
+  await expect.poll(async () => savedCellTile(await readBacking(boardPath)), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe("village.tst1");
+  const firstSaved = await readBacking(boardPath);
+  expect(firstSaved).not.toEqual(generatedBytes);
+
+  await tileField.fill("village.tst2");
+  await tileField.press("Enter");
+  await expect(boardEditor.locator(".tkr-board-state")).toHaveText("Unsaved changes");
+  await boardEditor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(boardEditor.locator(".tkr-board-state")).toHaveText("All changes saved");
+  await expect.poll(async () => savedCellTile(await readBacking(boardPath)), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe("village.tst2");
+  const secondSaved = await readBacking(boardPath);
+  expect(secondSaved).not.toEqual(firstSaved);
+  const boardEntryPaths = (await tree()).filter((path) => path.startsWith("__tkr_new_project/.tkr-history/entries/") && path.endsWith(".json"));
+  const boardEntries = await Promise.all(boardEntryPaths.map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as { readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number }));
+  const savedBoardEntries = boardEntries.filter((entry) => entry.path === "Boards/Native history board.brd");
+  expect(savedBoardEntries).toHaveLength(3);
+  expect(savedBoardEntries.map((entry) => entry.reason).sort()).toEqual(["checkpoint", "manual", "manual"]);
+  expect(savedBoardEntries.map((entry) => entry.sha256).sort()).toEqual([
+    createHash("sha256").update(generatedBytes).digest("hex"),
+    createHash("sha256").update(firstSaved).digest("hex"),
+    createHash("sha256").update(secondSaved).digest("hex"),
+  ].sort());
+  expect(savedBoardEntries.map((entry) => entry.size).sort((a, b) => a - b)).toEqual([generatedBytes.length, firstSaved.length, secondSaved.length].sort((a, b) => a - b));
+
+  const reportText = /Each file is reported separately; the restore is itself in history, so it can be undone\./;
+  await openBoardHistoryPicker();
+  let saved = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "saved" });
+  await expect(saved).toHaveCount(2);
+  const restoreEventsStart = historyHost.writeEvents().length;
+  const writeReached = historyHost.pauseWrite(`/${boardPath}`);
+  let firstPreviewPicture: string | undefined;
+  try {
+    await saved.last().click();
+    firstPreviewPicture = await verifyBoardHistoryPreview(page, expect, "Boards/Native history board.brd", "village.tst1", historyHost, async () => {
+      await expectNativeHistoryRestorePaused(historyHost, restoreEventsStart, writeReached, boardPath, readBacking, secondSaved, expect);
+      historyHost.resumeWrite();
+    });
+  } finally {
+    historyHost.resumeWrite();
+  }
+  if (firstPreviewPicture === undefined) throw new Error("The first board History preview did not produce a picture fingerprint.");
+  await expectNativeHistoryRestorePersisted(historyHost, restoreEventsStart, boardPath, readBacking, firstSaved, expect);
+  await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
+
+  await expectOpenRecoveryRefusal(page, expect, historyHost, "Boards/Native history board.brd", boardPath, firstSaved, readBacking);
+  await closeRecoverySourceEditor(page, expect, /^Native history board\.brd(?:,|$)/);
+  const undoAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Boards/Native history board.brd");
+  const undoEventsStart = historyHost.writeEvents().length;
+  const undoWriteReached = historyHost.pauseWrite(`/${boardPath}`);
+  try {
+    await undoAction.click();
+    await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, boardPath, readBacking, firstSaved, expect);
+  } finally {
+    historyHost.resumeWrite();
+  }
+  await expectNativeHistoryRestorePersisted(historyHost, undoEventsStart, boardPath, readBacking, secondSaved, expect);
+  await confirmRecoveryGroupReport(page, expect, "Boards/Native history board.brd");
+  const restoredBoard = await openProjectFile(page, boardPath, expect, ".tkr-board");
+  await expect(restoredBoard.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true })).toHaveValue("village.tst2");
+}
+
+async function proveNativeBitmapHistory(
+  page: Page,
+  expect: Expect,
+  tree: () => Promise<readonly string[]>,
+  readBacking: (path: string) => Promise<Uint8Array>,
+  historyHost: NewProjectHistoryProofHost,
+): Promise<void> {
+  const bitmapPath = historyHost.bitmapPath;
+  const projectPath = bitmapPath.replace(/^__tkr_new_project\//, "");
+  const generatedBytes = await readBacking(bitmapPath);
+  const editor = await openProjectFile(page, bitmapPath, expect, ".tkr-bitmap");
+  await expect(editor.getByRole("heading", { name: "Tile bitmap" })).toBeVisible();
+  await expect(editor.locator(".tkr-bitmap-summary")).toContainText("2 × 2 tiles, 64 × 64 pixels");
+  await expectCanvasPixels(editor, expect, historyHost.bitmapPictureForBytes(generatedBytes));
+
+  await editor.getByRole("combobox", { name: "Source", exact: true }).selectOption({ label: "village.tst (tst)" });
+  const tile = editor.locator('[data-browser-reference="village.tst1"] .tkr-tileset-browser-source');
+  await expect(tile).toBeVisible();
+  await tile.click();
+  await expect(tile).toHaveAttribute("aria-pressed", "true");
+  expect(await readBacking(bitmapPath)).toEqual(generatedBytes);
+  await editor.getByRole("button", { name: "Draw", exact: true }).click();
+  await editor.getByRole("button", { name: /^Column 2, row 1:/ }).click();
+  await expect(editor.getByRole("button", { name: "Column 2, row 1: village.tst1, shade 10, -20, 30", exact: true })).toBeVisible();
+  await expect(editor.locator(".tkr-bitmap-state")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
+  const generatedHash = createHash("sha256").update(generatedBytes).digest("hex");
+  await expect.poll(async () => createHash("sha256").update(await readBacking(bitmapPath)).digest("hex"), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).not.toBe(generatedHash);
+  const firstSaved = await readBacking(bitmapPath);
+  expect(firstSaved).not.toEqual(generatedBytes);
+  await expectCanvasPixels(editor, expect, historyHost.bitmapPictureForBytes(firstSaved));
+
+  await editor.getByRole("button", { name: /^Column 1, row 1:/ }).click();
+  const red = editor.getByLabel("Red", { exact: true });
+  await red.fill("-255");
+  await red.press("Enter");
+  await expect(editor.getByRole("button", { name: "Column 1, row 1: village.tst1, shade -255, 0, 0", exact: true })).toBeVisible();
+  await expect(editor.locator(".tkr-bitmap-state")).toHaveText("Unsaved changes");
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(editor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
+  const firstHash = createHash("sha256").update(firstSaved).digest("hex");
+  await expect.poll(async () => createHash("sha256").update(await readBacking(bitmapPath)).digest("hex"), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).not.toBe(firstHash);
+  const secondSaved = await readBacking(bitmapPath);
+  expect(secondSaved).not.toEqual(firstSaved);
+  await expectCanvasPixels(editor, expect, historyHost.bitmapPictureForBytes(secondSaved));
+
+  const entryPaths = (await tree()).filter((path) => path.startsWith("__tkr_new_project/.tkr-history/entries/") && path.endsWith(".json"));
+  const entries = await Promise.all(entryPaths.map(async (path) => JSON.parse(new TextDecoder().decode(await readBacking(path))) as {
+    readonly path: string; readonly reason: string; readonly sha256: string; readonly size: number;
+  }));
+  const bitmapEntries = entries.filter((entry) => entry.path === projectPath);
+  expect(bitmapEntries).toHaveLength(3);
+  expect(bitmapEntries.map((entry) => entry.reason).sort()).toEqual(["checkpoint", "manual", "manual"]);
+  expect(bitmapEntries.map((entry) => entry.sha256).sort()).toEqual([
+    generatedHash,
+    firstHash,
+    createHash("sha256").update(secondSaved).digest("hex"),
+  ].sort());
+  expect(bitmapEntries.map((entry) => entry.size).sort((a, b) => a - b)).toEqual([generatedBytes.length, firstSaved.length, secondSaved.length].sort((a, b) => a - b));
+
+  const reportText = /Each file is reported separately; the restore is itself in history, so it can be undone\./;
+  await runCommand(page, expect, "RPG Toolkit: Document history", "Restore a saved version or recovery group");
+  let saved = page.locator(".quick-input-widget").getByRole("option").filter({ hasText: "saved" });
+  await expect(saved).toHaveCount(2);
+  const restoreEventsStart = historyHost.writeEvents().length;
+  const writeReached = historyHost.pauseWrite(`/${bitmapPath}`);
+  try {
+    await saved.last().click();
+    await verifyBitmapHistoryPreview(page, expect, "Bitmap/history.tbm", historyHost.bitmapPictureForBytes(firstSaved), historyHost, async () => {
+      await expectNativeHistoryRestorePaused(historyHost, restoreEventsStart, writeReached, bitmapPath, readBacking, secondSaved, expect);
+      historyHost.resumeWrite();
+    });
+  } finally {
+    historyHost.resumeWrite();
+  }
+  await expectNativeHistoryRestorePersisted(historyHost, restoreEventsStart, bitmapPath, readBacking, firstSaved, expect);
+  await expectCanvasPixels(editor, expect, historyHost.bitmapPictureForBytes(firstSaved));
+  await expect(editor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
+  await expect(page.getByRole("dialog", { name: /Info: Restored/ }).last().getByText(reportText)).toBeVisible({ timeout: 30_000 });
+
+  await expectOpenRecoveryRefusal(page, expect, historyHost, "Bitmap/history.tbm", bitmapPath, firstSaved, readBacking);
+  await closeRecoverySourceEditor(page, expect, /^history\.tbm(?:,|$)/);
+  const undoAction = await selectRecoveryRestoreAction(page, expect, "__tkr_new_project", "Bitmap/history.tbm");
+  const undoEventsStart = historyHost.writeEvents().length;
+  const undoWriteReached = historyHost.pauseWrite(`/${bitmapPath}`);
+  try {
+    await undoAction.click();
+    await expectNativeHistoryRestorePaused(historyHost, undoEventsStart, undoWriteReached, bitmapPath, readBacking, firstSaved, expect);
+  } finally {
+    historyHost.resumeWrite();
+  }
+  await expectNativeHistoryRestorePersisted(historyHost, undoEventsStart, bitmapPath, readBacking, secondSaved, expect);
+  await confirmRecoveryGroupReport(page, expect, "Bitmap/history.tbm");
+  const restoredEditor = await openProjectFile(page, bitmapPath, expect, ".tkr-bitmap");
+  await expectCanvasPixels(restoredEditor, expect, historyHost.bitmapPictureForBytes(secondSaved));
+  await expect(restoredEditor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
+}
+
+async function verifyBitmapHistoryPreview(
+  page: Page,
+  expect: Expect,
+  sourcePath: string,
+  expectedPicture: { width: number; height: number; data: number[] },
+  historyHost: NewProjectHistoryProofHost,
+  beforeRender: () => Promise<void>,
+): Promise<void> {
+  assertBoardPreviewRequestIdentity(historyHost, sourcePath, expect);
+  let preview: Frame | undefined;
+  await expect.poll(async () => {
+    const readOnlyFrames: Frame[] = [];
+    let writableFrames = 0;
+    for (const frame of page.frames()) {
+      if (frame.isDetached()) continue;
+      try {
+        const canvas = frame.locator("canvas.tkr-bitmap-canvas");
+        if (await canvas.count() === 0 || !await canvas.isVisible()) continue;
+        const note = frame.getByRole("note").filter({ hasText: "Read only:" });
+        if (await note.count() > 0 && await note.isVisible()) readOnlyFrames.push(frame);
+        else writableFrames += 1;
+      } catch {
+        // Webview frames can be replaced while VS Code restores the just-opened custom editor.
+      }
+    }
+    preview = readOnlyFrames.at(-1);
+    return writableFrames === 1 && readOnlyFrames.length >= 1;
+  }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  if (preview === undefined) throw new Error("The native History preview did not open a read-only bitmap editor.");
+  await expect(preview.getByRole("heading", { name: "Tile bitmap" })).toBeVisible();
+  await expect(preview.locator(".tkr-bitmap-readonly")).toContainText("Read only");
+  await expect(preview.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true })).toHaveAttribute("readonly", "");
+  await expect(preview.getByLabel("Width in tiles")).toHaveAttribute("readonly", "");
+  await expect(preview.getByLabel("Height in tiles")).toHaveAttribute("readonly", "");
+  const shadingInputs = preview.locator(".tkr-bitmap-shading input");
+  await expect(shadingInputs).toHaveCount(5);
+  for (let index = 0; index < 5; index += 1) await expect(shadingInputs.nth(index)).toBeDisabled();
+
+  await beforeRender();
+
+  try {
+    await expect.poll(async () => {
+      const matchingPreviews: Frame[] = [];
+      let writableFrames = 0;
+      for (const frame of page.frames()) {
+        if (frame.isDetached()) continue;
+        try {
+          const canvas = frame.locator("canvas.tkr-bitmap-canvas");
+          if (await canvas.count() === 0 || !await canvas.isVisible()) continue;
+          const note = frame.getByRole("note").filter({ hasText: "Read only:" });
+          if (await note.count() > 0 && await note.isVisible()) {
+            const matches = await canvas.evaluate((element, want) => {
+              const target = element as HTMLCanvasElement;
+              if (target.width !== want.width || target.height !== want.height) return false;
+              const context = target.getContext("2d");
+              if (context === null) return false;
+              const pixels = context.getImageData(0, 0, target.width, target.height).data;
+              return pixels.length === want.data.length && want.data.every((value, index) => pixels[index] === value);
+            }, expectedPicture);
+            if (matches) matchingPreviews.push(frame);
+          } else {
+            writableFrames += 1;
+          }
+        } catch {
+          // Ignore a webview replaced between enumerating and inspecting its frame.
+        }
+      }
+      preview = matchingPreviews[0];
+      return writableFrames === 1 && matchingPreviews.length === 1;
+    }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+  } catch (error) {
+    const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
+    throw new Error(`The native History bitmap preview did not settle to the expected read-only pixels. Correlated preview stages (last 128):\n${trace}\n${String(error)}`);
+  }
+  if (preview === undefined) throw new Error("The native History preview did not show the exact saved tile-bitmap pixels in read-only mode.");
+  await expectCanvasPixels(preview, expect, expectedPicture);
 }
 
 /** Exercise the shipped VS Code custom editor with real sprite bytes through the workspace bridge. */
@@ -542,27 +1369,48 @@ export async function runVscodeWebProof(
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await readCspViolations(page.mainFrame(), "browser workbench");
   await expect(page.locator(".monaco-workbench")).toBeVisible();
-  await enableWorkbenchTraceLogging(page, expect);
+  const lifecycleStart = host.readHostEvents().length;
+  const lifecycleEvents = () => host.readHostEvents().slice(lifecycleStart);
   await openGame(page, gamePath, expect);
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! })).toHaveCount(1);
+  expect(lifecycleEvents(), JSON.stringify(lifecycleEvents())).toContainEqual({ kind: "open", value: `/${gamePath}` });
+  const openUriEvent = () => openedDocumentUri(lifecycleEvents(), gamePath);
+  await expect.poll(openUriEvent).toBeDefined();
+  const openedUri = openUriEvent()!;
+  const resolvePayload = (event: { value: string }): { resource: string; viewType: string } | undefined => {
+    const parsed: unknown = JSON.parse(event.value);
+    if (parsed === null || typeof parsed !== "object" || !("resource" in parsed) || !("viewType" in parsed)
+      || typeof parsed.resource !== "string" || typeof parsed.viewType !== "string") return undefined;
+    return { resource: parsed.resource, viewType: parsed.viewType };
+  };
+  const resolveEvent = () => lifecycleEvents().find((event) => event.kind === "resolve"
+    && resolvePayload(event)?.resource === openedUri);
+  await expect.poll(resolveEvent).toBeDefined();
+  const resolved = resolvePayload(resolveEvent()!);
+  if (resolved === undefined) throw new Error("Matching custom-editor resolve event vanished before its payload could be read");
+  expect(resolved.resource).toBe(openedUri);
+  expect(resolved.viewType).toBe("tkr.gameSettings");
 
   // The package command is contributed to both the command palette and .gam Explorer context menu.
   const packageCommand = await commandPalette(page, expect);
   await packageCommand.fill(">RPG Toolkit: Package game");
-  const packageEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "RPG Toolkit: Package game" }).first();
+  const packageEntry = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row").filter({ hasText: "RPG Toolkit: Package game" }).first();
   await expect(packageEntry).toBeVisible();
   await packageCommand.press("Escape");
   await expect(page.locator(".quick-input-widget")).toBeHidden();
 
   const packageCommandInput = await commandPalette(page, expect);
   await packageCommandInput.fill(">Test: Execute Package Game");
-  const packageCommandEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  const packageCommandEntry = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
   await expect(packageCommandEntry).toBeVisible();
   await packageCommandEntry.click();
   await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(/Included \(\d+\):/)).toBeVisible();
   await page.keyboard.press("Escape");
 
-  const editor = await waitForEditorFrame(page, "initial Game settings editor");
+  await openGame(page, gamePath, expect);
+  await expect(page.getByRole("tab", { selected: true }).filter({ hasText: gamePath.split("/").at(-1)! })).toHaveCount(1);
+  const editor = await waitForWritableEditorFrame(page, "initial Game settings editor", "Game title", gamePath.split("/").at(-1)!);
   const titleField = editor.getByLabel("Game title");
   await expectVisibleWithFrameDiagnostics(page, titleField, expect, "initial Game title field");
   assertNoCspConsoleViolations(consoleViolations, "before installing the actual settings-document CSP listener");
@@ -573,12 +1421,25 @@ export async function runVscodeWebProof(
   await editor.getByRole("button", { name: "Apply changes" }).click();
   const savedTab = page.getByRole("tab").filter({ hasText: gamePath.split("/").at(-1)! }).first();
   await expect(savedTab).toHaveClass(/dirty/);
-  await editor.getByRole("button", { name: "Save" }).click();
+  const editEvent = () => lifecycleEvents().find((event) => event.kind === "edit");
+  await expect.poll(editEvent).toBeDefined();
+  const edit = JSON.parse(editEvent()!.value) as { resource: string; label: string };
+  expect(edit.resource).toBe(openedUri);
+  if (host.saveViaWorkbenchShortcut !== undefined) {
+    await page.keyboard.press(host.saveViaWorkbenchShortcut);
+  } else {
+    await editor.getByRole("button", { name: "Save" }).click();
+  }
+  await expect.poll(lifecycleEvents, { timeout: 5_000, intervals: [50, 100, 250] }).toContainEqual({ kind: "save", value: `/${gamePath}` });
+  const savedUriEvent = () => lifecycleEvents().find((event) => event.kind === "save-uri");
+  await expect.poll(savedUriEvent).toBeDefined();
+  expect(savedUriEvent()!.value).toBe(openedUri);
+  const expectedHash = createHash("sha256").update(expectedBytes).digest("hex");
+  await expect.poll(async () => createHash("sha256").update(await host.readBacking(gamePath)).digest("hex"), { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(expectedHash);
   const saved = await readWorkspaceBytes(page, expect);
   expect(saved).not.toEqual(before);
   expect(saved).toEqual(expectedBytes);
   expect(host.readHostEvents()).toContainEqual({ kind: "save", value: `/${gamePath}` });
-  expect(host.readHostEvents()).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
   await expect.poll(() => frameCspViolations(page, editor, consoleViolations)).toEqual([]);
   expect(await host.readBacking()).toEqual(saved);
   await expect(savedTab).not.toHaveClass(/dirty/);
@@ -591,9 +1452,9 @@ export async function runVscodeWebProof(
   // persisted package and descriptor independently of the UI.
   const publishCommand = await commandPalette(page, expect);
   await publishCommand.fill(">Test: Execute Package Game");
-  const publishEntry = page.locator(".quick-input-list .monaco-list-row").filter({ hasText: "Test: Execute Package Game" }).first();
+  const publishEntry = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row.focused").filter({ hasText: "Test: Execute Package Game" }).first();
   await expect(publishEntry).toBeVisible();
-  await publishEntry.click();
+  await publishCommand.press("Enter");
   await expect(page.getByText(/Preflight passed:/)).toBeVisible({ timeout: 15_000 });
   const inventoryDialog = page.getByRole("dialog");
   await expect(inventoryDialog.getByText(/Included \(\d+\):/)).toBeVisible();
@@ -720,7 +1581,6 @@ export async function runVscodeWebProof(
     recoveredEditor = await waitForTitledEditor(page, recoveredTitle, expect);
   };
   await verifySentinel();
-  expect(host.readHostEvents()).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
   const choiceTraceStart = backupTrackerLogs.length;
   const hostEventsStart = host.readHostEvents().length;
   if (host.choice === "cancel") {
@@ -744,17 +1604,16 @@ export async function runVscodeWebProof(
     /CommandService#executeCommand workbench\.action\.files\.(?:save|revert)/i.test(entry));
   expect(forbiddenCommands).toEqual([]);
   expect(host.readHostEvents().slice(hostEventsStart)).toEqual([]);
-  // Hold the real extension at its save API boundary, change focus to another dirty editor,
-  // then let the save proceed. Only the originating document may be written.
-  host.pauseSave();
-  const saveStart = host.readHostEvents().length;
+  // Pause the actual backing write, change focus to another dirty editor, then let the save proceed.
+  const saveStart = host.writeEvents().length;
+  host.pauseWrite(`/${gamePath}`);
   try {
     await recoveredEditor.getByRole("button", { name: "Save" }).click();
-    await expect.poll(() => host.readHostEvents().slice(saveStart)).toContainEqual({ kind: "save-request", value: `/${gamePath}` });
+    await expect.poll(() => host.writeEvents().slice(saveStart)).toContainEqual({ kind: "write-request", path: `/${gamePath}` });
     await sentinelTab.click();
     await expect(sentinelTab).toHaveClass(/dirty/);
   } finally {
-    host.resumeSave();
+    host.resumeWrite();
   }
   // Keep the other editor active until the original document's bytes really reach disk.
   await expect.poll(async () => Array.from(await host.readBacking()), { timeout: 30_000 }).toEqual(Array.from(recoveredBytes));
@@ -890,6 +1749,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     await expect(state).toHaveText("Unsaved changes");
     const drawn = await tile2.count();
     expect(drawn, `${entry.label}: the drag drew a line of cells`).toBeGreaterThanOrEqual(5);
+    await expect(canvas).toHaveAttribute("aria-busy", "false");
     // The pointer left the focus on the canvas, so the keys below are pressed on the board, not on the page body.
     await expect(canvas).toBeFocused();
     await expect.poll(pixel, { message: `${entry.label}: the rendered canvas shows the drawn tile` }).not.toBe(emptyPixel);
@@ -937,6 +1797,8 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     await expect(state).toHaveText("Unsaved changes");
     const edge = await tile2.count();
     expect(edge, `${entry.label}: the rectangle added cells`).toBeGreaterThan(base);
+    // Visible cells can precede the async edit acknowledgement; do not start the next gesture while busy.
+    await expect(canvas).toHaveAttribute("aria-busy", "false");
     await page.mouse.move(cornerA.x, cornerA.y);
     await page.keyboard.down("Control");
     await page.mouse.down();
@@ -944,6 +1806,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     await page.mouse.up();
     await page.keyboard.up("Control");
     await expect.poll(() => tile2.count()).toBeGreaterThan(edge);
+    await expect(canvas).toHaveAttribute("aria-busy", "false");
     await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(() => tile2.count()).toBe(edge);
     await page.keyboard.press("ControlOrMeta+z");
@@ -1139,11 +2002,10 @@ async function waitForCustomEditorFrame(page: Page, label: string, selector: str
   const deadline = Date.now() + 30_000;
   let pause = 100;
   while (Date.now() < deadline) {
-    const outer = await page.locator("iframe.webview:visible").first().elementHandle({ timeout: 250 }).catch(() => null);
-    if (outer) {
-      const outerFrame = await outer.contentFrame().catch(() => null);
-      const content = outerFrame?.childFrames().find((frame) => frame.name() === "pending-frame");
-      if (content && await content.locator(selector).count().catch(() => 0) > 0) return content;
+    for (const content of page.frames()) {
+      if (content.name() !== "pending-frame" || await content.locator(selector).count().catch(() => 0) === 0) continue;
+      const readOnly = await content.locator(".tkr-board-readonly, .tkr-bitmap-readonly").count().catch(() => 0);
+      if (readOnly === 0) return content;
     }
     await page.waitForTimeout(pause);
     pause = Math.min(pause * 2, 1_000);
@@ -1286,8 +2148,8 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 /** Run a command from the palette and wait for its quick-pick row. */
-async function runCommand(page: Page, expect: Expect, title: string): Promise<void> {
-  await runCommandMatching(page, expect, title, title);
+async function runCommand(page: Page, expect: Expect, title: string, quickInputName?: string): Promise<void> {
+  await runCommandMatching(page, expect, title, title, false, quickInputName);
 }
 
 /** Dispatch one verified palette row atomically; never retry an attempted dispatch (#2720, #2726). */
@@ -1347,7 +2209,7 @@ async function runCommandMatching(page: Page, expect: Expect, search: string, la
     }
     if (dismissed && dispatched) throw new Error(`Dismissed palette row ${label} was dispatched by the negative control`);
     if (dispatched) {
-      if (nextPrompt !== undefined) await expect(widget).toContainText(nextPrompt);
+      if (nextPrompt !== undefined) await expect(page.getByRole("textbox", { name: nextPrompt })).toBeVisible();
       else await expect(widget).toBeHidden();
       return;
     }
@@ -1440,6 +2302,28 @@ async function waitForEditorFrame(page: Page, label: string): Promise<Frame> {
   }
   await logFrameDiagnostics(page, `${label} content frame not found`);
   throw new Error(`Timed out waiting for the named pending-frame child of iframe.webview for ${label}`);
+}
+
+async function waitForWritableEditorFrame(page: Page, label: string, fieldName: string, selectedTabLabel?: string): Promise<Frame> {
+  const deadline = Date.now() + 30_000;
+  let pause = 100;
+  let candidates: Frame[] = [];
+  while (Date.now() < deadline) {
+    candidates = [];
+    for (const frame of page.frames()) {
+      const field = frame.getByRole("textbox", { name: fieldName, exact: true });
+      if (await field.count() > 0 && await field.isVisible().catch(() => false) && await field.isEditable().catch(() => false)) candidates.push(frame);
+    }
+    if (selectedTabLabel === undefined && candidates.length > 0) return candidates[0]!;
+    if (selectedTabLabel !== undefined && candidates.length === 1) {
+      const selectedTab = page.getByRole("tab", { selected: true }).filter({ hasText: selectedTabLabel });
+      if (await selectedTab.count() === 1) return candidates[0]!;
+    }
+    await page.waitForTimeout(pause);
+    pause = Math.min(pause * 2, 1_000);
+  }
+  await logFrameDiagnostics(page, `${label} writable editor not uniquely correlated with the selected tab`);
+  throw new Error(`Timed out waiting for ${label}; selectedTab=${selectedTabLabel ?? "any"}; writableFrames=${JSON.stringify(candidates.map((frame) => frame.url()))}`);
 }
 
 async function readCspViolations(frame: Frame, label: string): Promise<string[]> {
@@ -1590,11 +2474,15 @@ async function closeActiveEditor(page: Page, expect: Expect): Promise<void> {
 }
 
 async function commandPalette(page: Page, expect: Expect): Promise<Locator> {
-  await focusWorkbench(page);
-  // Let the previous editor/webview focus transition settle before opening another host UI.
-  await page.waitForTimeout(100);
-  await page.keyboard.press("ControlOrMeta+Shift+P");
   const input = page.locator(".quick-input-widget input:visible");
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await focusWorkbench(page);
+    // Let the previous editor/webview focus transition settle before opening another host UI.
+    await page.waitForTimeout(100);
+    await page.keyboard.press("ControlOrMeta+Shift+P");
+    if (await input.waitFor({ state: "visible", timeout: 1_000 }).then(() => true, () => false)) return input;
+    await page.keyboard.press("Escape");
+  }
   await expect(input).toHaveCount(1);
   await expect(input).toBeVisible();
   return input;
@@ -1657,13 +2545,14 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
   };
   await runAnimationAuthoringProof({
     create: async () => {
-      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "Project-relative .anm destination in Misc");
-      const input = page.locator(".quick-input-widget input:visible");
+      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "New animation");
+      const input = page.getByRole("textbox", { name: "New animation" });
       await expect(page.locator(".quick-input-widget")).toContainText("Project-relative .anm destination in Misc");
       await input.fill(ANIMATION_PROOF_PATH);
       await input.press("Escape");
       expect(await read(ANIMATION_PROOF_PATH)).toBeNull();
-      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "Project-relative .anm destination in Misc");
+      await runCommandMatching(page, expect, "TK Reawakened: New animation", "TK Reawakened: New animation", false, "New animation");
+      await expect(page.locator(".quick-input-widget")).toContainText("Project-relative .anm destination in Misc");
       await expect(input).toBeVisible(); await input.fill(ANIMATION_PROOF_PATH); await input.press("Enter");
       return (await waitForCustomEditorFrame(page, "new animation", ".tkr-animation-editor")).locator(".tkr-animation-editor");
     },

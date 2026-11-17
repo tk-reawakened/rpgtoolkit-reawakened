@@ -10,6 +10,8 @@ interface StoredFile {
 
 export interface WriteControl {
   refuse: boolean;
+  /** File names whose write is refused, so a test can fail one file of a multi-file operation after its history is recorded. */
+  refuseNames: Set<string> | undefined;
   /** The next write to hold: it calls `start` when it reaches its close, then waits for `wait`. */
   hold: { readonly wait: Promise<void>; start(): void } | null;
   tick: number;
@@ -20,10 +22,13 @@ export class MemoryDirectory {
   readonly name: string;
   readonly children = new Map<string, MemoryDirectory | StoredFile>();
   readonly #control: WriteControl;
+  /** The editor's own history folder: a test that holds "the next write" holds the document's write, never history's (ADR 0022 D12.10). */
+  readonly #inHistory: boolean;
 
-  constructor(name: string, control: WriteControl) {
+  constructor(name: string, control: WriteControl, inHistory = false) {
     this.name = name;
     this.#control = control;
+    this.#inHistory = inHistory || name === ".tkr-history";
   }
 
   async getDirectoryHandle(name: string, options?: { readonly create?: boolean }): Promise<MemoryDirectory> {
@@ -31,7 +36,7 @@ export class MemoryDirectory {
     if (existing instanceof MemoryDirectory) return existing;
     if (existing !== undefined) throw new DOMException(`${name} is not a folder`, "TypeMismatchError");
     if (options?.create !== true) throw new DOMException(`${name} was not found`, "NotFoundError");
-    const child = new MemoryDirectory(name, this.#control);
+    const child = new MemoryDirectory(name, this.#control, this.#inHistory);
     this.children.set(name, child);
     return child;
   }
@@ -46,17 +51,18 @@ export class MemoryDirectory {
     }
     const stored = file;
     const control = this.#control;
+    const inHistory = this.#inHistory;
     return {
       kind: "file",
       name,
       getFile: async () => ({ size: stored.bytes.length, lastModified: stored.modified, arrayBuffer: async () => stored.bytes.slice().buffer }),
       createWritable: async () => {
-        if (control.refuse) throw new DOMException("The folder refuses writes", "NotAllowedError");
+        if (control.refuse || control.refuseNames?.has(name)) throw new DOMException("The folder refuses writes", "NotAllowedError");
         let pending = stored.bytes.slice();
         return {
           write: async (data: ArrayBuffer) => { pending = new Uint8Array(data.slice(0)); },
           close: async () => {
-            const held = control.hold;
+            const held = inHistory ? null : control.hold;
             if (held !== null) {
               control.hold = null;
               held.start();

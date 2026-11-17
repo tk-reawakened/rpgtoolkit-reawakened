@@ -8,7 +8,7 @@ import { resolveDocumentPath } from "./workspace.ts";
 import { unusableName } from "./reserved-folders.ts";
 
 export interface AnimationBitmap { readonly path: string; readonly bytes: Uint8Array }
-export interface AnimationAuthoring extends CheckpointGroups {
+export interface AnimationAuthoring extends Pick<CheckpointGroups, "list" | "retry" | "restore" | "ignoreHistory" | "deleteGroup"> {
   commitAnimation(command: AnimationCommand, bitmaps: readonly AnimationBitmap[]): Promise<PlatformResult<CheckpointGroup>>;
 }
 /** Own the TBM format/validation in the model, never in a view or host. */

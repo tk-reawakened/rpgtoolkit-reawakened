@@ -45,7 +45,7 @@ test("retry saves the exact pending ANM revision after rejected save and protect
   ok(doc.undo().ok);
   const retried = await authoring.retry(failed.value.id); ok(retried.ok); equal(retried.value.files.at(-1)!.status, "written"); equal(doc.getSnapshot().dirty, false);
   const restored = await authoring.restore(failed.value.id); ok(restored.ok); equal(doc.getSnapshot().frames.length, 0);
-  const again = await authoring.restore(failed.value.id); ok(again.ok); equal(again.value.files.at(-1)!.status, "written");
+  const again = await authoring.restore(failed.value.id); ok(again.ok); equal(again.value.files.at(-1)!.status, "already-as-wanted");
 });
 
 test("new destination and TBM validation refuse before any targets; text minor zero remains read-only", async () => {

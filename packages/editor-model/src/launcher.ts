@@ -85,7 +85,7 @@ export function createLauncher({ services, workspace }: LauncherOptions): Launch
       const refused = unavailable(launch.kind);
       const run = services.run;
       if (refused !== null || run === undefined) return { ok: false, reason: "unavailable", message: refused ?? "" };
-      for (const entry of await workspace.saveAll()) {
+      for (const entry of await workspace.saveAll("before-run")) {
         if (!entry.result.ok) {
           return {
             ok: false,
