@@ -478,20 +478,24 @@ test("the probe can fail: under the strict policy of the other editor pages Mona
   await expect.poll(async () => (await violations(page)).map((violation) => violation.directive)).toEqual(expect.arrayContaining(["style-src-attr"]));
 });
 
-test("a language server that cannot load leaves the program editable, saveable and reopenable, and says so", async ({ page }) => {
-  await installProject(page, [{ path: "Main/example.gam", bytes: main }, { path: PROGRAM, bytes: programBytes }]);
-  await page.route("**/language-worker.js", (route) => route.abort());
-  await openProgram(page);
-  await expect(page.locator(".tkr-program-language-note")).toContainText(/Language features (are unavailable|stopped)/);
-  await focusEnd(page);
-  await page.keyboard.type("\nz = 3");
-  await page.keyboard.press("ControlOrMeta+s");
-  const unserved = await savedText(page, PROGRAM, (text) => text.endsWith("z = 3"));
-  expect(unserved.endsWith("x = 1 // trailing\r\nz = 3")).toBe(true);
-  await expect(page.locator(".tkr-program-state")).toContainText("All changes saved");
-  // Header and command insertion do not use the server.
-  await page.getByRole("button", { name: "Insert header" }).click();
-  await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg/);
+test.describe("language server unavailable", () => {
+  // The installed editor caches the worker; block service workers so the network refusal below is real.
+  test.use({ serviceWorkers: "block" });
+  test("a language server that cannot load leaves the program editable, saveable and reopenable, and says so", async ({ page }) => {
+    await installProject(page, [{ path: "Main/example.gam", bytes: main }, { path: PROGRAM, bytes: programBytes }]);
+    await page.route("**/language-worker.js", (route) => route.abort());
+    await openProgram(page);
+    await expect(page.locator(".tkr-program-language-note")).toContainText(/Language features (are unavailable|stopped)/);
+    await focusEnd(page);
+    await page.keyboard.type("\nz = 3");
+    await page.keyboard.press("ControlOrMeta+s");
+    const unserved = await savedText(page, PROGRAM, (text) => text.endsWith("z = 3"));
+    expect(unserved.endsWith("x = 1 // trailing\r\nz = 3")).toBe(true);
+    await expect(page.locator(".tkr-program-state")).toContainText("All changes saved");
+    // Header and command insertion do not use the server.
+    await page.getByRole("button", { name: "Insert header" }).click();
+    await expect.poll(() => editorText(page)).toMatch(/^\/\/ intro\.prg/);
+  });
 });
 
 test("an edit the document cannot store is refused whole, said in an alert, and the editor goes back to the document's text", async ({ page }) => {
