@@ -287,3 +287,16 @@ references = ["docs/design/editor-design-language.md", "Epic 29 #2968 and Epic 3
 after = [22]
 hitl = false
 risk = "medium"
+
+[[entry]]
+id = 24
+tracker_id = "#3148"
+type = "story"
+title = "Deliver and prove the installable standalone editor PWA"
+description = "Close the original Epic 11 PWA acceptance gap: deliver an installable standalone editor entry using the existing shared editor UI and browser platform services. Keep the existing browser and VS Code host behavior, project files and document lifecycle intact."
+verify = "The actual installable editor entry has a valid manifest and the appropriate service-worker scope; its installed application opens a real project, edits and saves through platform-services, and independent stored bytes contain the change. Verify unsupported browsers fail with an actionable explanation, the ordinary browser and VS Code routes still work, and no player service-worker cache or authored project data is overwritten."
+covers = ["CAP-15", "CAP-18", "T-01", "T-02", "T-10", "T-40"]
+references = ["Epic 11 #1357 done-when 1", "Acceptance gap #3148", "docs/design/editor-design-language.md"]
+after = [13]
+hitl = false
+risk = "high"

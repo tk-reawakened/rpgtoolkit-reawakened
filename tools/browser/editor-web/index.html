@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- ADR 0029: a standalone page that hosts Monaco allows inline styles and its own font; scripts stay strict, with no eval and no blob: workers (a classic same-origin worker is `worker-src 'self'`). -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; worker-src 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; manifest-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; worker-src 'self'">
+    <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" href="./dist/favicon.ico" sizes="16x16 32x32 48x48">
     <link rel="icon" type="image/png" sizes="32x32" href="./dist/tkr-32.png">
     <link rel="stylesheet" href="./dist/tileset-browser.css">
