@@ -126,6 +126,15 @@ function hex(channels) {
 async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visible"), shippingMode = false) {
   const observed = await scope.locator("button, input, select, textarea").evaluateAll((elements, shippingMode) => {
     const rgba = (text) => {
+      const srgb = /^color\(srgb\s+(.+)\)$/.exec(text);
+      if (srgb !== null) {
+        const [channels, alpha = "1"] = srgb[1].split("/");
+        const normalized = (token) => token.trim().endsWith("%") ? Number.parseFloat(token) / 100 : Number(token);
+        const values = channels.trim().split(/\s+/).map(normalized);
+        const opacity = normalized(alpha);
+        if (values.length !== 3 || !values.every(Number.isFinite) || !Number.isFinite(opacity)) throw new Error(`Unmeasurable rendered color: ${text}`);
+        return [...values.map((value) => Math.max(0, Math.min(1, value)) * 255), Math.max(0, Math.min(1, opacity))];
+      }
       if (!/^rgba?\(/.test(text)) throw new Error(`Unmeasurable rendered color: ${text}`);
       const values = text.match(/[\d.]+/g).map(Number);
       return [values[0], values[1], values[2], values[3] ?? 1];

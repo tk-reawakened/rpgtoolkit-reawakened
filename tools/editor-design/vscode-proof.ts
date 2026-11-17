@@ -416,7 +416,6 @@ async function measureDocument(page: Page, item: DesignCase, frame: Frame | null
   let layout: Record<string, unknown>;
   if (frame !== null) {
     await frame.locator("body").press("Tab");
-    const inside = await frame.evaluate((rootSelector) => {
       const root = document.querySelector(rootSelector);
       if (root === null || document.querySelectorAll(rootSelector).length !== 1) throw new Error(`Selected native webview document root is missing or ambiguous: ${rootSelector}`);
       const visible = (element: Element) => {
@@ -587,7 +586,6 @@ async function measureDocument(page: Page, item: DesignCase, frame: Frame | null
           bodyBackground: getComputedStyle(document.body).backgroundColor,
         },
       };
-    }, item.rootSelector);
     focus = inside.focus;
     controls = inside.controls;
     layout = inside.layout;
