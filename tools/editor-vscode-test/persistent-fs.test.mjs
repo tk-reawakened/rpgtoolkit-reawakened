@@ -264,9 +264,17 @@ test("the VS Code provider reports creation and later changes", async () => {
       FileSystemError: { Unavailable: (message) => new Error(message) },
       FileChangeType: { Created: 1, Changed: 2, Deleted: 3 },
       StatusBarAlignment: { Left: 1 },
-      window: { createStatusBarItem() { return { text: "", show() {}, dispose() {} }; } },
+      window: {
+        activeColorTheme: { kind: 2 },
+        createStatusBarItem() { return { text: "", show() {}, dispose() {} }; },
+        onDidChangeActiveColorTheme() { return {}; },
+      },
       EventEmitter: class { event() {} fire(changes) { events.push(...changes); } },
-      workspace: { registerFileSystemProvider(_scheme, value) { provider = value; return {}; } },
+      workspace: {
+        getConfiguration() { return { get: () => "Default Dark Modern" }; },
+        onDidChangeConfiguration() { return {}; },
+        registerFileSystemProvider(_scheme, value) { provider = value; return {}; },
+      },
       commands: { registerCommand() { return {}; } },
       // The probe also watches `tkr` debug sessions (ADR 0037); this test exercises only its file system.
       debug: {
