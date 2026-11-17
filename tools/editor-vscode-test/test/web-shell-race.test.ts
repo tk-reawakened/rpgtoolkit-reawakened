@@ -25,6 +25,8 @@ function shellModulePath(dir: string): string {
   return join(resolve("packages/host-web/dist"), `${basename(dir)}-shell.mjs`);
 }
 
+// Keep the disabled fieldset separate from the synthetic buttons: these cases deliberately force overlapping opens
+// to exercise rollback even though the real browser UI blocks competing user clicks.
 describe("browser shell lifecycle races", { concurrency: false }, () => {
   test("a stale candidate cannot retire a project with a newer same-project open pending", async () => {
   const dir = await mkdtemp(join(tmpdir(), "tkr-shell-race-"));
@@ -32,6 +34,7 @@ describe("browser shell lifecycle races", { concurrency: false }, () => {
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><button id="new-project"></button><main></main><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<fieldset id="project-open-controls"></fieldset>');
     document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
@@ -46,7 +49,11 @@ export const openWebProject = async () => A;
 export const reopenWebProject = real.reopenWebProject;
 export const listRecentWebProjects = async () => [];
 export const newWebProject = real.newWebProject;
-export const createSessionCopy = real.createSessionCopy;
+export const createSessionCopy = (...args) => {
+  const project = real.createSessionCopy(...args);
+  globalThis.B = project;
+  return project;
+};
 export const mountDocumentView = real.mountDocumentView;
 const workbenches = [];
 globalThis.workbenches = workbenches;
@@ -90,6 +97,7 @@ export function createWorkbench(project, element) {
       throw new Error(`shell did not reach expected state: status=${document.getElementById("host-status")?.textContent}; choices=${[...document.querySelectorAll<HTMLOptionElement>("#project-game option")].map((option) => option.value).join(",")}; settings=${document.getElementById("settings")?.textContent}`);
     };
     const byId = (id: string) => document.getElementById(id)!;
+    const activeSettings = () => document.querySelector<HTMLElement>("#settings > section:not([hidden])")!;
     byId("open-project").click();
     await until(() => (byId("project-game") as HTMLSelectElement).options.length === 2);
     const gameSelect = byId("project-game") as HTMLSelectElement;
@@ -101,6 +109,7 @@ export function createWorkbench(project, element) {
       releaseStaleFirst?: () => void;
       releaseStaleSecond?: () => void;
       A?: { workspace: { documents(): readonly { identity: { path: string } }[] } };
+      B?: { workspace: { documents(): readonly { identity: { path: string }; getSnapshot(): { dirty: boolean; gameTitle: string } }[] } };
     };
     await until(() => controls.staleFirstViewReady === true);
     byId("open-selected-game").click();
@@ -115,18 +124,22 @@ export function createWorkbench(project, element) {
     Object.defineProperty(input, "files", { configurable: true, value: [{ name: "B.gam", arrayBuffer: async () => Uint8Array.from(original).buffer }] });
     input.dispatchEvent(new Event("change"));
     await until(() => byId("host-status").textContent?.includes("B.gam") === true);
-    await until(() => document.querySelector<HTMLInputElement>('#settings .tkr-settings input[type="text"]') !== null);
+    await until(() => controls.B?.workspace.documents().some((item) => item.identity.path === "B.gam") === true);
+    const sessionBDocument = controls.B!.workspace.documents().find((item) => item.identity.path === "B.gam")!;
+    await until(() => Boolean(activeSettings()?.querySelector('.tkr-settings input[type="text"]')));
     assert.match(byId("host-status").textContent ?? "", /B\.gam/);
-    const title = document.querySelector<HTMLInputElement>('#settings .tkr-settings input[type="text"]')!;
+    const title = activeSettings().querySelector<HTMLInputElement>('.tkr-settings input[type="text"]')!;
     title.value = "Still writable";
     title.dispatchEvent(new Event("input", { bubbles: true }));
-    const apply = document.querySelector<HTMLButtonElement>("#settings .tkr-settings-apply")!;
+    const apply = activeSettings().querySelector<HTMLButtonElement>(".tkr-settings-apply")!;
     await until(() => !apply.disabled);
     apply.click();
-    await until(() => document.querySelector("#settings .tkr-settings-state")?.textContent === "Unsaved changes");
-    const button = [...document.querySelectorAll<HTMLButtonElement>("#settings button")].find((item) => item.textContent === "Save")!;
+    await until(() => sessionBDocument.getSnapshot().gameTitle === "Still writable" && sessionBDocument.getSnapshot().dirty);
+    await until(() => activeSettings().querySelector(".tkr-settings-state")?.textContent === "Unsaved changes");
+    const button = [...activeSettings().querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Save")!;
     button.click();
-    await until(() => byId("settings").textContent?.includes("All changes saved") === true);
+    await until(() => activeSettings().textContent?.includes("All changes saved") === true && !sessionBDocument.getSnapshot().dirty);
+    assert.equal(sessionBDocument.getSnapshot().gameTitle, "Still writable", "the newer session's edited title is saved");
   } finally {
     await cleanupBrowserShell(shellPath);
     await rm(dir, { recursive: true, force: true });
@@ -139,6 +152,7 @@ test("failed and later opens clean stale documents only after same-workspace acq
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><button id="new-project"></button><main></main><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<fieldset id="project-open-controls"></fieldset>');
     document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
@@ -323,6 +337,7 @@ test("a stale same-project candidate cannot activate after the newer open fails"
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><button id="new-project"></button><main></main><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<fieldset id="project-open-controls"></fieldset>');
     document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section><section id="run"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const fixtureUrl = pathToFileURL(resolve("docs/spec/examples/game/Main/example.gam")).href;
@@ -418,6 +433,7 @@ test("same stable project id in separate workspaces does not share pending-open 
   GlobalRegistrator.register();
   try {
     document.body.innerHTML = `<button id="open-project"></button><button id="new-project"></button><main></main><input id="open-session" type="file"><label id="project-game-label"></label><select id="project-game"></select><button id="open-selected-game"></button><label id="recent-project-label"></label><select id="recent-project"></select><button id="reopen-project"></button><div id="document-actions" hidden><button id="undo"></button><button id="redo"></button><button id="save-as"></button><button id="save-all"></button><button id="revert"></button><button id="close"></button></div><p id="host-status"></p><section id="settings"></section>`;
+    document.body.insertAdjacentHTML("beforeend", '<fieldset id="project-open-controls"></fieldset>');
     document.body.insertAdjacentHTML("beforeend", '<button id="mirror-view"></button><section id="mirror"></section>');
     const hostUrl = pathToFileURL(resolve("packages/host-web/dist/index.js")).href;
     const platformUrl = pathToFileURL(resolve("packages/platform-services/dist/index.js")).href;
