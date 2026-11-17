@@ -212,6 +212,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         if (selected === "true") element.setAttribute("aria-selected", "false");
         for (const name of [...element.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) element.classList.remove(name);
         settle();
+        layers.delete(element);
         const neutral = sample(element, true);
         const changed = Object.entries(actual).filter(([key, cue]) => JSON.stringify(cue.color) !== JSON.stringify(neutral[key]?.color));
         return { changed: changed.length > 0, cues: changed.map(([key, cue]) => ({ key, ...cue })) };
@@ -220,6 +221,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         if (pressed === null) element.removeAttribute("aria-pressed"); else element.setAttribute("aria-pressed", pressed);
         if (selected === null) element.removeAttribute("aria-selected"); else element.setAttribute("aria-selected", selected);
         settle();
+        layers.delete(element);
       }
     };
     const controls = elements.filter((element) => {
