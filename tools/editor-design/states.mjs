@@ -6,9 +6,9 @@ import { setTimeout as delay } from "node:timers/promises";
 import { expect } from "@playwright/test";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
-async function snapshot(page, output, state, details) {
+async function snapshot(page, output, state, details, observe) {
   await mkdir(output, { recursive: true });
-  const record = { state, file: `state-${state}.png`, viewport: page.viewportSize(), status: await page.getByRole("status").allTextContents(), ...details };
+  const record = { state, file: `state-${state}.png`, viewport: page.viewportSize(), status: await page.getByRole("status").allTextContents(), ...details, ...await observe(details, state) };
   await page.screenshot({ path: join(output, record.file) });
   await delay(100);
   await writeFile(join(output, `state-${state}.json`), `${JSON.stringify(record, null, 2)}\n`);
@@ -34,8 +34,8 @@ async function editTitle(page, text) {
   await editor.locator(".tkr-settings-state").scrollIntoViewIfNeeded();
 }
 
-export async function captureOpeningStates(page, output) {
-  const records = [await snapshot(page, output, "empty-project", { owner: "No project or document is open", presentation: "current shipping dark styles" })];
+export async function captureOpeningStates(page, output, observe) {
+  const records = [await snapshot(page, output, "empty-project", { owner: "No project or document is open", presentation: "current shipping dark styles" }, observe)];
   await page.evaluate(() => {
     const original = FileSystemFileHandle.prototype.getFile;
     let release;
@@ -56,14 +56,14 @@ export async function captureOpeningStates(page, output) {
     await page.getByLabel("Game in project").selectOption("Main/example.gam");
     await page.getByRole("button", { name: "Open selected game", exact: true }).click();
     await page.waitForFunction(() => Reflect.get(window, "__designLoadingEntered") === true, undefined, { timeout: 5_000, polling: 100 });
-    records.push(await snapshot(page, output, "loading-project", { owner: "Project opening; native Main/example.gam read is paused", hostStatus: await page.locator("#host-status").innerText(), presentation: "current shipping dark styles; real native read resumes afterward" }));
+    records.push(await snapshot(page, output, "loading-project", { owner: "Project opening; native Main/example.gam read is paused", hostStatus: await page.locator("#host-status").innerText(), presentation: "current shipping dark styles; real native read resumes afterward" }, observe));
   } finally {
     await page.evaluate(() => Reflect.get(window, "__designReleaseLoading")()).catch((error) => console.error("Could not release owned loading gate:", error));
   }
   return records;
 }
 
-export async function captureDocumentStates(page, output, externalMainBytes) {
+export async function captureDocumentStates(page, output, externalMainBytes, observe) {
   await page.getByRole("tab", { name: "Main/example.gam", exact: true }).click();
   const editor = page.locator(".tkr-editor-pane:visible");
   const title = editor.getByLabel("Game title", { exact: true });
@@ -73,7 +73,7 @@ export async function captureDocumentStates(page, output, externalMainBytes) {
   const records = [];
   await editTitle(page, "Design validation saved title");
   expect(sha256(await backingBytes(page))).toBe(originalHash);
-  records.push(await snapshot(page, output, "dirty", { owner: "Main/example.gam active document", backingSha256: originalHash, presentation: "candidate dark common roles; actual unsaved edit" }));
+  records.push(await snapshot(page, output, "dirty", { owner: "Main/example.gam active document", backingSha256: originalHash, presentation: "candidate dark common roles; actual unsaved edit" }, observe));
 
   await page.evaluate(() => {
     const original = FileSystemFileHandle.prototype.createWritable;
@@ -94,14 +94,14 @@ export async function captureDocumentStates(page, output, externalMainBytes) {
     await page.waitForFunction(() => Reflect.get(window, "__designSavingEntered") === true, undefined, { timeout: 5_000, polling: 100 });
     await expect(editor.locator(".tkr-settings-state")).toHaveText("Saving…");
     expect(sha256(await backingBytes(page))).toBe(originalHash);
-    records.push(await snapshot(page, output, "saving", { owner: "Main/example.gam active document; actual native write is paused", backingSha256: originalHash, presentation: "candidate dark common roles; no fabricated save result" }));
+    records.push(await snapshot(page, output, "saving", { owner: "Main/example.gam active document; actual native write is paused", backingSha256: originalHash, presentation: "candidate dark common roles; no fabricated save result" }, observe));
   } finally {
     await page.evaluate(() => Reflect.get(window, "__designReleaseSaving")()).catch((error) => console.error("Could not release owned save gate:", error));
   }
   await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
   const savedHash = sha256(await backingBytes(page));
   expect(savedHash).not.toBe(originalHash);
-  records.push(await snapshot(page, output, "saved", { owner: "Main/example.gam active document", backingSha256: savedHash, presentation: "candidate dark common roles; actual native write completed" }));
+  records.push(await snapshot(page, output, "saved", { owner: "Main/example.gam active document", backingSha256: savedHash, presentation: "candidate dark common roles; actual native write completed" }, observe));
 
   // Revert a new draft so the saved value is read back from storage, not merely echoed by the edited model.
   await editTitle(page, "Discard this readback-control draft");
@@ -140,7 +140,7 @@ export async function captureDocumentStates(page, output, externalMainBytes) {
     await expect(title).toHaveValue("Retained failed-write draft");
     expect(sha256(await backingBytes(page))).toBe(savedHash);
     await failure.scrollIntoViewIfNeeded();
-    records.push(await snapshot(page, output, "write-failed", { owner: "Main/example.gam retained draft; another actual native writer owns an exclusive lock", nativeError: await page.evaluate(() => Reflect.get(window, "__designNativeWriteError")), message: await failure.innerText(), backingSha256: savedHash, presentation: "candidate dark common roles; real native lock rejection, not an injected provider error" }));
+    records.push(await snapshot(page, output, "write-failed", { owner: "Main/example.gam retained draft; another actual native writer owns an exclusive lock", nativeError: await page.evaluate(() => Reflect.get(window, "__designNativeWriteError")), message: await failure.innerText(), backingSha256: savedHash, presentation: "candidate dark common roles; real native lock rejection, not an injected provider error" }, observe));
   } finally {
     await page.evaluate(() => Reflect.get(window, "__designReleaseWriteLock")());
   }
@@ -173,7 +173,7 @@ export async function captureDocumentStates(page, output, externalMainBytes) {
   await conflict.scrollIntoViewIfNeeded();
   await expect(title).toHaveValue("Retained unsaved draft");
   expect(sha256(await backingBytes(page))).toBe(outsideHash);
-  records.push(await snapshot(page, output, "save-refused", { owner: "Main/example.gam draft versus actual external disk version", backingSha256: outsideHash, presentation: "candidate dark common roles; real changed-on-disk refusal preserves both versions" }));
+  records.push(await snapshot(page, output, "save-refused", { owner: "Main/example.gam draft versus actual external disk version", backingSha256: outsideHash, presentation: "candidate dark common roles; real changed-on-disk refusal preserves both versions" }, observe));
   await conflict.getByRole("button", { name: "Use the version on disk", exact: true }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
 
@@ -190,7 +190,7 @@ export async function captureDocumentStates(page, output, externalMainBytes) {
   await previewTitle.scrollIntoViewIfNeeded();
   await expect(previewTitle).toBeInViewport();
   expect(sha256(await backingBytes(page))).toBe(outsideHash);
-  records.push(await snapshot(page, output, "read-only-preview", { owner: "History checkpoint preview, separate from active Main/example.gam", previewTitle: await previewTitle.inputValue(), backingSha256: outsideHash, presentation: "candidate dark common roles; real read-only saved-version document; preview writes nothing" }));
+  records.push(await snapshot(page, output, "read-only-preview", { owner: "History checkpoint preview, separate from active Main/example.gam", previewTitle: await previewTitle.inputValue(), backingSha256: outsideHash, presentation: "candidate dark common roles; real read-only saved-version document; preview writes nothing" }, observe));
 
   await page.getByRole("button", { name: "New board…", exact: true }).click();
   const proposal = page.getByRole("dialog", { name: "New board", exact: true });
@@ -208,7 +208,7 @@ export async function captureDocumentStates(page, output, externalMainBytes) {
   await create.click();
   await expect(proposal).toBeVisible();
   await expect(proposal.getByRole("alert")).toHaveText("The width must be a whole number from 1 to 1000.");
-  records.push(await snapshot(page, output, "validation", { owner: "New board proposal; no document has been created", width: validity, alerts: await proposal.getByRole("alert").allTextContents(), presentation: "candidate dark common roles; native constraint validation and associated inline feedback reject a zero-width proposal" }));
+  records.push(await snapshot(page, output, "validation", { owner: "New board proposal; no document has been created", width: validity, alerts: await proposal.getByRole("alert").allTextContents(), presentation: "candidate dark common roles; native constraint validation and associated inline feedback reject a zero-width proposal" }, observe));
   await proposal.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(sha256(await backingBytes(page))).toBe(outsideHash);
   return records;
