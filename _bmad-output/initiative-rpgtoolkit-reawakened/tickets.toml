@@ -215,6 +215,14 @@ after = [{ epic = 9, needs = "the runner contract and live player session used b
 
 
 [[epic]]
+id = 30
+tracker_id = "#2985"
+slug = "epic-board-authoring"
+title = "Build playable places through connected board authoring"
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [{ epic = 11, needs = "existing document, platform-services, native tabs/views and launch contracts plus shared design language and styling (11.22/11.23)" }, { epic = 12, needs = "owner sequencing gate: finish Epic 12 before starting Epic 30; reuse board/object/properties/browser providers, native scene integration and connected services" }, { epic = 13, needs = "owner sequencing gate: finish Epic 13 before starting Epic 30; reuse sheet/region-brush, artwork and lighting providers; enemy authoring #1734 moves to Epic 29" }]
+
+[[epic]]
 id = 28
 tracker_id = "#1883"
 slug = "epic-fast-feedback"
