@@ -406,7 +406,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     open,
     pickAsset: async (kind) => {
       const request = kind === "program" ? { kind: "programs" as const, extensions: [".prg"], field: "program source" }
-        : kind === "sprite" ? { kind: "items" as const, extensions: [".itm", ".tem"], field: "item sprite definition" }
+        : kind === "sprite" ? { kind: "items" as const, extensions: [".itm"], field: "item sprite definition" }
           : { kind: "bitmaps" as const, extensions: [".png", ".bmp", ".jpg", ".jpeg", ".gif", ".tbm"], field: "board image" };
       const outcome = await pick(request);
       return outcome.chosen ? outcome.reference : null;
