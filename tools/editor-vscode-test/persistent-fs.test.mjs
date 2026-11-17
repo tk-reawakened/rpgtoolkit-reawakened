@@ -125,6 +125,12 @@ test("the VS Code provider reports creation and later changes", async () => {
       EventEmitter: class { event() {} fire(changes) { events.push(...changes); } },
       workspace: { registerFileSystemProvider(_scheme, value) { provider = value; return {}; } },
       commands: { registerCommand() { return {}; } },
+      // The probe also watches `tkr` debug sessions (ADR 0037); this test exercises only its file system.
+      debug: {
+        onDidStartDebugSession() { return {}; },
+        onDidTerminateDebugSession() { return {}; },
+        registerDebugAdapterTrackerFactory() { return {}; },
+      },
     };
     const source = (await readFile(new URL("./probe-extension/extension.js", import.meta.url), "utf8"))
       .replace("__TKR_PROOF_SECRET__", bridge.token);
