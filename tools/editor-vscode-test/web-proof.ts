@@ -391,7 +391,6 @@ export async function runVscodeNewProjectProof(
     "__tkr_new_project/Boards/start.brd",
   ];
   await expect.poll(async () => (await tree()).filter((path) => !path.startsWith("__tkr_new_project/.tkr-history/")), { timeout: 30_000 }).toEqual([...new Set([...before, ...additions])].sort());
-  await proveWizardGroupFromBacking("__tkr_new_project", "New project", ["Main/Quest.gam", "Prg/start.prg", "Boards/start.brd"], tree, readBacking, expect);
   expect(new TextDecoder().decode(await readBacking("__tkr_new_project/keep.txt"))).toBe("Keep this file");
   expect(await readBacking(bitmapPath)).toEqual(bitmapBefore);
   expect(await readBacking(tilesetPath)).toEqual(tilesetBefore);
@@ -419,6 +418,8 @@ export async function runVscodeNewProjectProof(
     }
     expect(titles).toContain("Native wizard quest");
   }).toPass({ timeout: 60_000, intervals: [100, 250, 500, 1_000] });
+  // Destination files appear before progress is durable; automatic open follows the completed wizard.
+  await proveWizardGroupFromBacking("__tkr_new_project", "New project", ["Main/Quest.gam", "Prg/start.prg", "Boards/start.brd"], tree, readBacking, expect);
   await proveNativeHistoryUi(page, expect, tree, readBacking, historyHost);
   await proveNativeNewBoard(page, expect, tree, readBacking, historyHost);
   await proveNativeBitmapHistory(page, expect, tree, readBacking, historyHost);
