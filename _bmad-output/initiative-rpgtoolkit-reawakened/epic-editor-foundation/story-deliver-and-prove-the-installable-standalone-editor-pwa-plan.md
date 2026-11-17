@@ -3,7 +3,7 @@ title: "Deliver and prove the installable standalone editor PWA"
 type: feature
 ticket: 24
 created: 2026-11-17
-status: in-review
+status: done
 baseline_revision: 6f9d389a5af4bc210eb4be43806ceaa0a807bd0b
 route: full
 route_source: auto
@@ -56,7 +56,7 @@ context:
 - [x] `tools/browser/editor-web/` and `tools/browser/build.mjs` — provide an editor-specific valid manifest, appropriately scoped worker, and shell registration/build; choose asset/cache policy that cannot overwrite player or project data.
 - [x] `tools/browser/serve.mjs` and browser proof tools — support and exercise the actual served/installed entry, scoped worker and independently observed persisted project bytes, including coexistence and failure paths.
 - [x] `docs/editor-ecosystem/current-state.md` — document installation, required secure/browser capabilities and precise persistence/offline limits.
-- [ ] Validate the existing ordinary-browser and VS Code host paths, and obtain independent review and exact-head required CI.
+- [x] Validate the existing ordinary-browser and VS Code host paths, and obtain independent review and exact-head required CI.
 
 **Acceptance Criteria:**
 - Given the served editor in a supported browser, when installed and launched as the registered app, then its standalone window runs the existing editor and opens, edits and saves a folder-backed project; a separate reader sees the change and an untouched sibling remains unchanged.
@@ -84,3 +84,4 @@ Run the focused installed-application proof, editor browser regression and relev
 - Browser unsupported-folder message and existing folder save/reload: 2/2 passed (new case 719 ms). Browser test TypeScript and scoped ESLint passed; provenance scanned 1,705 files with zero violations; stock/store preflight found #3148 and its plan.
 - A deliberate failure after `PWA.install` returned nonzero, preserved the original error and printed successful uninstall; the restored positive passed. Denying the worker at the HTTP server returned the intended bounded 15-second activation diagnostic; the browser-route attempt did not intercept the worker and was removed (#3159). The restored positive and scoped proof lint passed afterward.
 - Full serial local browser suite: 132/133 passed; the language-worker negative control was bypassed by the new shell cache (#3161). The same failure was observed in CI. Blocking service workers only in that negative case restores an actually refused language worker without changing its edit/save assertions; the targeted real-browser case then passed locally.
+- PR #3160 merged as `73ad4adef0e91088c139fd541ddc60d8acc6341e` after its exact head `57b9028b96dfce650741bfeb35212deb3409a7de` passed the required gate in [CI run 44173953948](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/44173953948), including browser, VS Code Web and all desktop lanes. The installed-host proof substitutes OPFS for the native folder picker; it does not establish OS-picker permissions or access to an external directory.
