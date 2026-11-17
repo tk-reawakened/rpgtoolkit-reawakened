@@ -49,7 +49,7 @@ test("browser host mounts the shared settings view and keeps CSP quiet while edi
   const nextTitle = `Browser host proof ${Date.now()}`;
   await title.fill(nextTitle);
   await page.getByRole("button", { name: "Apply changes" }).click();
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect(title).toHaveValue(nextTitle);
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as ProofWindow).__tkrCspViolations ?? [])).toEqual([]);
@@ -206,7 +206,7 @@ test("browser folder handle and identity survive reload and re-selection", async
   expect(identity.length).toBeGreaterThan(0);
   await title.fill("Stable browser project");
   await page.getByRole("button", { name: "Apply changes" }).click();
-  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
   await page.reload();
   await waitForFolderPicker(page);

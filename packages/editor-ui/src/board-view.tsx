@@ -25,6 +25,7 @@ import type { TilesetBrowserContext } from "./tileset-browser.tsx";
 import type { BoardPreferencesSource, BoardViewDocument } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 import type { BrowserSelection } from "./brush.ts";
+import { IconAction } from "./icon-action.tsx";
 import { BoardCanvas } from "./board-canvas.tsx";
 import { TilesetBrowser } from "./tileset-browser.tsx";
 
@@ -346,36 +347,36 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           {resolveError === null ? null : <p class="tkr-board-error">{resolveError}</p>}
         </div>
       )}
+      <div class="tkr-board-controls">
       <div class="tkr-board-toolbar tkr-board-toolbar-tools" role="toolbar" aria-label="Board tools">
         {BOARD_TOOLS.map((tool) => (
-          <button
+          <IconAction
+            icon={tool}
+            label={TOOL_LABELS[tool].label}
+            shortcut={TOOL_LABELS[tool].key}
             key={tool}
             type="button"
             class={state.tool === tool ? "tkr-board-tool tkr-board-tool-active" : "tkr-board-tool"}
             data-tool={tool}
             aria-pressed={state.tool === tool}
-            aria-keyshortcuts={TOOL_LABELS[tool].key}
             onClick={() => editor.setTool(tool)}
-          >
-            {TOOL_LABELS[tool].label}
-          </button>
+          />
         ))}
       </div>
       <div class="tkr-board-toolbar tkr-board-toolbar-view" role="toolbar" aria-label="Board view">
         {canHistory ? (
           <>
-            <button type="button" class="tkr-board-undo" disabled={!snapshot.canUndo || readOnly} aria-keyshortcuts="Control+Z" onClick={() => history("undo")}>Undo</button>
-            <button type="button" class="tkr-board-redo" disabled={!snapshot.canRedo || readOnly} aria-keyshortcuts="Control+Y" onClick={() => history("redo")}>Redo</button>
+            <IconAction icon="undo" label="Undo" shortcut="Control+Z" class="tkr-board-undo" disabled={!snapshot.canUndo || readOnly} onClick={() => history("undo")} />
+            <IconAction icon="redo" label="Redo" shortcut="Control+Y" class="tkr-board-redo" disabled={!snapshot.canRedo || readOnly} onClick={() => history("redo")} />
           </>
         ) : (
           <span class="tkr-board-host-note">Use this editor's own Undo and Redo.</span>
         )}
-        <button type="button" class="tkr-board-zoom-out" disabled={state.viewport.zoomIndex <= 0} aria-keyshortcuts="-" onClick={() => editor.zoomOut()}>Zoom out</button>
+        <IconAction icon="minus" label="Zoom out" shortcut="-" class="tkr-board-zoom-out" disabled={state.viewport.zoomIndex <= 0} onClick={() => editor.zoomOut()} />
         <span class="tkr-board-zoom">{zoomPercent}%</span>
-        <button type="button" class="tkr-board-zoom-in" disabled={state.viewport.zoomIndex >= ZOOM_STEPS.length - 1} aria-keyshortcuts="+" onClick={() => editor.zoomIn()}>Zoom in</button>
-        <button type="button" class="tkr-board-grid-toggle" aria-pressed={state.grid} aria-keyshortcuts="G" onClick={() => editor.toggleGrid()}>Grid</button>
+        <IconAction icon="plus" label="Zoom in" shortcut="+" class="tkr-board-zoom-in" disabled={state.viewport.zoomIndex >= ZOOM_STEPS.length - 1} onClick={() => editor.zoomIn()} />
+        <IconAction icon="grid" label="Grid" shortcut="G" class="tkr-board-grid-toggle" aria-pressed={state.grid} onClick={() => editor.toggleGrid()} />
       </div>
-      {historyNote === null ? null : <p class="tkr-board-note" role="status">{historyNote}</p>}
       {layers > 1 ? (
         <div class="tkr-board-row tkr-board-layer-row">
           <label for={`${ids}-layer`}>Layer</label>
@@ -389,7 +390,11 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           </select>
         </div>
       ) : null}
+      </div>
+      {historyNote === null ? null : <p class="tkr-board-note" role="status">{historyNote}</p>}
       {layers === 0 ? null : (
+        <details class="tkr-board-layers-disclosure">
+        <summary>Visible layers</summary>
         <fieldset class="tkr-board-visibility">
           <legend>Visible layers</legend>
           {Array.from({ length: layers }, (_, index) => {
@@ -421,6 +426,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           <button type="button" class="tkr-board-only-current" onClick={() => editor.showOnlyCurrent()}>Show only current</button>
           <button type="button" class="tkr-board-show-all" onClick={() => editor.showAll()}>Show all</button>
         </fieldset>
+        </details>
       )}
       <div class="tkr-board-picture">
         <BoardCanvas editor={editor} state={state} board={snapshot} picture={picture} stamp={brush?.kind === "stamp" ? brush.stamp : null} />
@@ -445,7 +451,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
       {state.message === null ? null : (
         <p class="tkr-board-message" role={state.message.kind === "error" ? "alert" : "status"}>{state.message.text}</p>
       )}
-      {state.tool !== "select" && selection === null ? null : (
+      <details class="tkr-board-selection-disclosure" open={state.tool === "select" || selection !== null}>
+        <summary>Selection actions</summary>
         <fieldset class="tkr-board-selection">
           <legend>Selection</legend>
           <p class="tkr-board-note" role="status">
@@ -463,7 +470,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
           <button type="button" class="tkr-board-select-all" onClick={() => editor.selectAll()}>Select all</button>
           <button type="button" class="tkr-board-clear-selection" disabled={selection === null} onClick={() => editor.cancel()}>Clear selection</button>
         </fieldset>
-      )}
+      </details>
       {size.width === 0 || size.height === 0 || layers === 0 ? (
         <p class="tkr-board-empty">This board has no cells.</p>
       ) : (
@@ -560,7 +567,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences }:
       </p>
       <button
         type="button"
-        class="tkr-board-save"
+        data-editor-save="true" class="tkr-board-save"
         disabled={readOnly || savePending || snapshot.saving || conflict !== null || !snapshot.dirty}
         onClick={() => {
           setSavePending(true);

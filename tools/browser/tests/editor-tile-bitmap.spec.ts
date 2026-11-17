@@ -161,7 +161,7 @@ test("the tile bitmap editor lays its grid out as a grid and paints the composit
   const edited = bitmap(2, 2, (x, y) => (x === 0 && y === 0 ? cellOf("village.tst2") : x === 1 && y === 0 ? cellOf("village.tst2", 10, -20, 30) : cellOf("village.tst1")));
   await expectCanvas(canvas, expectedPicture(edited));
   expect(await readProjectFile(page, "Bitmap/house.tbm")).toEqual([...bytesOf(HOUSE)]);
-  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect(editor.locator(".tkr-bitmap-state")).toHaveText("All changes saved");
   await expect.poll(() => readProjectFile(page, "Bitmap/house.tbm")).toEqual([...bytesOf(edited)]);
 });
@@ -197,6 +197,6 @@ test("typing a shade into a field and pressing Enter shades that cell, and the c
   await expect(editor.getByRole("button", { name: "Column 1, row 1: village.tst1, shade -255, 0, 0" })).toBeVisible();
   const shaded = bitmap(2, 2, (x, y) => (x === 0 && y === 0 ? cellOf("village.tst1", -255, 0, 0) : x === 1 && y === 0 ? cellOf("village.tst2", 10, -20, 30) : cellOf("village.tst1")));
   await expectCanvas(editor.locator("canvas.tkr-bitmap-canvas"), expectedPicture(shaded));
-  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect.poll(() => readProjectFile(page, "Bitmap/house.tbm")).toEqual([...bytesOf(shaded)]);
 });

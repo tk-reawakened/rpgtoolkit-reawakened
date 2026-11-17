@@ -225,7 +225,6 @@ export function createWorkbenchCommands(options: WorkbenchCommandSourceOptions):
       id: "file.saveAll",
       category: "File",
       label: "Save All Open Documents",
-      shortcut: "Ctrl+S",
       run: () => {
         if (onSaveAll !== undefined) {
           onSaveAll();

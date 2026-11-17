@@ -533,7 +533,7 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
       </p>
       <button
         type="button"
-        class="tkr-bitmap-save"
+        data-editor-save="true" class="tkr-bitmap-save"
         disabled={readOnly || savePending || snapshot.saving || conflict !== null || !snapshot.dirty}
         onClick={() => {
           setSavePending(true);

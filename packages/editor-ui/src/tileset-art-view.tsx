@@ -436,7 +436,7 @@ export function TilesetArtView({ doc, capabilities, onEdited }: TilesetArtViewPr
       {editNotice === null ? null : <p class="tkr-tileset-art-error" role="alert">{editNotice}</p>}
       {refusal === null ? null : <p class="tkr-tileset-art-error" role="alert">The paint command was refused or failed: {refusal}</p>}
       <p class="tkr-tileset-art-state" role="status">{snapshot.saving || savePending ? "Saving…" : snapshot.dirty ? "Unsaved changes" : "All changes saved"}</p>
-      <button type="button" disabled={saveDisabled} onClick={() => {
+      <button type="button" data-editor-save="true" disabled={saveDisabled} onClick={() => {
         setSavePending(true);
         void doc.save().then((result) => {
           setSaveError(result.ok ? null : result.failure.message);

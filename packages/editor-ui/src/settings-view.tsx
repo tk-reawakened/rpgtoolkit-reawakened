@@ -135,7 +135,7 @@ export function SettingsView({ doc, capabilities, onEdited }: SettingsViewProps)
       </p>
       <button
         type="button"
-        class="tkr-settings-save"
+        data-editor-save="true" class="tkr-settings-save"
         disabled={readOnly || savePending || snapshot.saving || conflict !== null || !snapshot.dirty}
         onClick={() => {
           saveErrorAtStart.current = snapshot.saveError;

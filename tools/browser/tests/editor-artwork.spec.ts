@@ -211,7 +211,7 @@ test("actual browser art gestures stay private until accepted, share history, an
   await page.keyboard.press("Escape");
   await page.mouse.up();
   await expectPixel(page, canvas, 5, 7, rgbaAt(initial, 5, 7));
-  await expect(main.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save active editor", exact: true })).toBeDisabled();
 
   await beginStroke(page, canvas, 12, 13);
   await expectPixel(page, canvas, 12, 13, pink);
@@ -220,7 +220,7 @@ test("actual browser art gestures stay private until accepted, share history, an
   await page.mouse.up();
   await expectPixel(page, canvas, 12, 13, rgbaAt(initial, 12, 13));
   await expectPixel(page, mirror, 12, 13, rgbaAt(initial, 12, 13));
-  await expect(main.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save active editor", exact: true })).toBeDisabled();
   await canvas.scrollIntoViewIfNeeded();
 
   await beginStroke(page, canvas, 3, 7, 8, 7);
@@ -270,8 +270,8 @@ test("actual browser art gestures stay private until accepted, share history, an
   await expectPixel(page, mirror, 14, 15, rgbaAt(initial, 14, 15));
   await page.mouse.up();
   await expectPixel(page, mirror, 14, 15, green);
-  await expect(main.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
-  await main.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Save active editor", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   const saved = changed(accepted, [{ x: 14, y: 15, rgba: green }]);
   await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
   await toggleSecondView();
@@ -284,7 +284,7 @@ test("actual browser art gestures stay private until accepted, share history, an
   await expectPixel(page, mirror, 14, 15, rgbaAt(initial, 14, 15));
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expectPixel(page, mirror, 14, 15, green);
-  await expect(main.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save active editor", exact: true })).toBeDisabled();
 
   await openFile(page, "Tiles/other.tst");
   await expectPixel(page, surface(main), 5, 7, rgbaAt(initial, 5, 7));
@@ -327,9 +327,9 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
     (window as ProofWindow).__tkrArtLock = await file.createWritable(options);
   }, folder);
   try {
-    await main.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: "Save active editor", exact: true }).click();
     await expect(main.locator(".tkr-tileset-art-error")).toBeVisible();
-    await expect(main.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Save active editor", exact: true })).toBeEnabled();
     await expectPixel(page, canvas, 5, 7, green);
     expect(await storedBytes(page, folder, "Tiles/art.tst")).toEqual(artBytes);
   } finally {
@@ -340,7 +340,7 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
       proof.__tkrArtLock = null;
     });
   }
-  await main.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   let saved = changed(artBytes, [{ x: 5, y: 7, rgba: green }]);
   await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
   await expect(main.locator(".tkr-tileset-art-error")).toHaveCount(0);
@@ -351,10 +351,10 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
     await beginStroke(page, canvas, 11, 12);
     await page.mouse.up();
     await expectPixel(page, canvas, 11, 12, pink);
-    await main.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: "Save active editor", exact: true }).click();
     saved = changed(saved, [{ x: 11, y: 12, rgba: pink }]);
     await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
-    await expect(main.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Save active editor", exact: true })).toBeDisabled();
   } finally {
     await page.context().setOffline(false);
   }
@@ -365,7 +365,7 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
   const mine = changed(saved, [{ x: 25, y: 26, rgba: blue }]);
   const external = changed(saved, [{ x: 27, y: 28, rgba: pink }]);
   await writeBacking(page, folder, external);
-  await main.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   const conflict = main.getByRole("group", { name: "Changed on disk" });
   await expect(conflict).toBeVisible();
   await expectPixel(page, canvas, 25, 26, blue);
@@ -387,7 +387,7 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
   if (!smaller.ok) throw smaller.error;
   const smallerBytes = Array.from(smaller.value);
   await writeBacking(page, folder, smallerBytes);
-  await main.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect(conflict).toBeVisible();
   await conflict.getByRole("button", { name: "Use the version on disk", exact: true }).click();
   await expect(conflict).toBeHidden();
@@ -395,7 +395,7 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
   await canvas.focus();
   await page.keyboard.press("Space");
   await expectPixel(page, canvas, 15, 15, pink, 16);
-  await main.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   const final = changed(smallerBytes, [{ x: 15, y: 15, rgba: pink }]);
   await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(final);
   expect(await storedBytes(page, folder, "Main/example.gam")).toEqual(mainBytes);

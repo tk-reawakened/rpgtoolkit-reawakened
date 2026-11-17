@@ -1,3 +1,5 @@
+import { connectEditorCommands } from "../dist/editor-commands.js";
+import { createCommandRegistry } from "@tk-reawakened/editor-model";
 // Component fault-injection regression for #2578, not actual-host admission evidence. The real shared model and TST codec
 // own edits and conflict resolution; only the view's save I/O port is decorated to reject.
 import { after, before, test } from "node:test";
@@ -94,3 +96,26 @@ function paintEncoded(bytes: Uint8Array, red: number): Uint8Array {
   if (!doc.ok || !paint(doc.document, red).ok) throw new Error("could not encode expected TST pixel edit");
   return doc.document.serialize();
 }
+
+
+test("real tileset view exposes the shared Save action and saves pixel edits", async () => {
+  const initial = exampleTileset();
+  const host = createMemoryPlatformServices({ files: { [PATH]: initial } });
+  const opened = createTilesetArtDocument(host.fs, identity, initial);
+  ok(opened.ok);
+  const doc = opened.document;
+  const el = document.createElement("div"); el.className = "tkr-editor-slot"; document.body.append(el);
+  let handle: ViewHandle | undefined;
+  await act(() => { handle = mount(el, { document: doc, services: host }); });
+  const commands = createCommandRegistry();
+  const disconnect = connectEditorCommands(el, commands);
+  try {
+    await act(() => { ok(paint(doc, 220).ok); });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const save = commands.getCommands().find((command) => command.id === "file.save");
+    ok(save); equal(save.disabled, false);
+    await act(async () => { commands.execute("file.save"); await new Promise<void>((resolve) => setImmediate(resolve)); });
+    equal(doc.getSnapshot().dirty, false);
+    deepEqual(host.bytesOf(PATH), doc.serialize());
+  } finally { disconnect(); await act(() => handle?.dispose()); el.remove(); }
+});
