@@ -10,6 +10,12 @@
 
 **T-01 Multi-document workspace.** One window holds many editors as tabs. Several files of the same type can be open at once. Only one **project** (game) is open at a time. The title bar shows the editor type, file and project.
 
+### Focused editor actions
+
+The workbench command palette offers the focused editor's tools and actions, labelled with the editor kind. Switching or closing that editor removes its commands; opening the palette retains the last editor focus. Split views target only the most recently focused editor. Commands invoke the same action as the editor control and respect its current disabled/read-only state. Actions inside collapsed editor sections remain searchable and reveal their section when invoked. Data choices such as individual pixels, tiles and asset-list entries are not commands. Select fields offer a command that reveals and focuses the field for keyboard selection.
+
+The board's tools, history and view controls use compact icons in one wrapping strip alongside the current layer. Each icon has an accessible name, a tooltip on hover and keyboard focus (including its shortcut), a visible focus indicator and a non-colour-only selected state. Layer visibility is a disclosure so the canvas stays prominent. Existing keyboard and document semantics remain unchanged.
+
 **T-02 Docked side panels.**
 * **Left:** tools for the active editor.
 * **Right:** project file tree, a "new editor" launcher, a **tileset browser** that lists the tiles of the last-opened tileset and feeds the active editor (or opens a tile editor when nothing else is active), and, when the board editor is active, the **board object inspector**.
