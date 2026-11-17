@@ -50,6 +50,8 @@ mkdirSync(editorWebDist, { recursive: true });
 copyFileSync(join(root, "media/icons/favicon.ico"), join(editorWebDist, "favicon.ico"));
 copyFileSync(join(root, "media/icons/png/tkr-32.png"), join(editorWebDist, "tkr-32.png"));
 copyFileSync(join(root, "media/icons/png/tkr-128.png"), join(editorWebDist, "tkr-128.png"));
+copyFileSync(join(root, "media/icons/png/tkr-192.png"), join(editorWebDist, "tkr-192.png"));
+copyFileSync(join(root, "media/icons/png/tkr-512.png"), join(editorWebDist, "tkr-512.png"));
 copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(editorWebDist, "tileset-browser.css"));
 copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(editorWebDist, "tileset-art.css"));
 copyFileSync(join(root, "packages/editor-ui/src/board-objects.css"), join(editorWebDist, "board-objects.css"));
@@ -86,6 +88,30 @@ await build({
   ...bundleOptions,
 });
 console.log("built tools/browser/editor-web/dist/language-worker.js");
+
+// The editor is a separate installable app. Its worker owns only its exact static shell, not player caches or projects.
+const editorShell = [
+  "./index.html", "./manifest.webmanifest",
+  "./dist/editor-web.js", "./dist/editor-web.css", "./dist/monaco-editor.worker.js", "./dist/language-worker.js",
+  "./dist/codicon.ttf", "./dist/tileset-browser.css", "./dist/tileset-art.css", "./dist/board-objects.css",
+  "./dist/program-view.css", "./dist/favicon.ico", "./dist/tkr-32.png", "./dist/tkr-128.png",
+  "./dist/tkr-192.png", "./dist/tkr-512.png",
+];
+const editorHash = createHash("sha256");
+for (const path of editorShell) {
+  editorHash.update(path);
+  editorHash.update(readFileSync(join(here, "editor-web", path)));
+}
+await build({
+  entryPoints: [join(here, "editor-web", "worker.js")],
+  outfile: join(here, "editor-web", "service-worker.js"),
+  ...bundleOptions,
+  define: {
+    "__EDITOR_VERSION__": JSON.stringify(editorHash.digest("hex").slice(0, 16)),
+    "__EDITOR_SHELL__": JSON.stringify(editorShell),
+  },
+});
+console.log("built tools/browser/editor-web/service-worker.js");
 
 // No browser artefact may contain a WebAssembly module: the page's strict `script-src 'self'` forbids instantiation, and
 // the only dependency that ships one (the Vorbis decoder) is aliased to a stub (#1325,

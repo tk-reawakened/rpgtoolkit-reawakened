@@ -1,0 +1,14 @@
+{
+  "id": "/tools/browser/editor-web/index.html",
+  "name": "RPG Toolkit Reawakened Editor",
+  "short_name": "Toolkit Editor",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#202020",
+  "theme_color": "#202020",
+  "icons": [
+    { "src": "./dist/tkr-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./dist/tkr-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

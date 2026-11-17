@@ -3,14 +3,14 @@ title: "Deliver and prove the installable standalone editor PWA"
 type: feature
 ticket: 24
 created: 2026-11-17
-status: in-progress
+status: in-review
 baseline_revision: 6f9d389a5af4bc210eb4be43806ceaa0a807bd0b
 route: full
 route_source: auto
 risk: high
 review: thorough
 review_source: auto
-lenses_ran: []
+lenses_ran: [PwaShellSafety, PwaProofIntegrity]
 review_loop_iteration: 0
 context:
   - "{project-root}/docs/guardrails.md"
@@ -53,9 +53,9 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `tools/browser/editor-web/` and `tools/browser/build.mjs` — provide an editor-specific valid manifest, appropriately scoped worker, and shell registration/build; choose asset/cache policy that cannot overwrite player or project data.
-- [ ] `tools/browser/serve.mjs` and browser proof tools — support and exercise the actual served/installed entry, scoped worker and independently observed persisted project bytes, including coexistence and failure paths.
-- [ ] `docs/editor-ecosystem/current-state.md` — document installation, required secure/browser capabilities and precise persistence/offline limits.
+- [x] `tools/browser/editor-web/` and `tools/browser/build.mjs` — provide an editor-specific valid manifest, appropriately scoped worker, and shell registration/build; choose asset/cache policy that cannot overwrite player or project data.
+- [x] `tools/browser/serve.mjs` and browser proof tools — support and exercise the actual served/installed entry, scoped worker and independently observed persisted project bytes, including coexistence and failure paths.
+- [x] `docs/editor-ecosystem/current-state.md` — document installation, required secure/browser capabilities and precise persistence/offline limits.
 - [ ] Validate the existing ordinary-browser and VS Code host paths, and obtain independent review and exact-head required CI.
 
 **Acceptance Criteria:**
@@ -65,10 +65,21 @@ context:
 
 ## Implementation Notes
 
+- The editor receives a separate manifest and versioned, allowlisted shell cache; registration scope stays under its existing served path. The worker does not cache project content or take control of the separate player. Manifest identity is fixed to the current local deployment path; arbitrary subpath deployment is not claimed.
+- The headed proof installs and launches the actual PWA with Chromium DevTools, asserts standalone display, opens a folder-backed project through the real editor/host, checks saved bytes from another page and reopens offline. The folder picker is explicitly substituted with OPFS, not an OS-selected directory; existing browser filesystem behavior remains separately tested.
+
 ## Plan Change Log
 
 ## Review Triage Log
 
+- Independent `PwaShellSafety` review found no concrete shell, scope, CSP or cache finding.
+- Independent `PwaProofIntegrity` review found an unbounded worker-ready wait and activation race (#3154), and failure-path installed-app cleanup (#3155). Replace readiness with a bounded activation/old-cache condition, uninstall in failure-safe cleanup, preserve the original error and always remove the temporary profile. Run deliberate missing-worker and post-install failure controls before the restored positive.
+- `PwaProofIntegrity` re-reviewed both fixes and found no concrete remaining issue.
+
 ## Verification
 
 Run the focused installed-application proof, editor browser regression and relevant worker/coexistence tests locally, plus scoped lint/type/build and ticket preflight. Record browser/OS versions, independent-byte oracle and any limitations. Run browser/native hosts serially with settling. Exact-head required CI and independent review precede merge.
+
+- Local macOS arm64 / Chromium 156.0.8078.4: actual CDP install and standalone launch, UI edit/save, independent OPFS read of saved `.gam` and unchanged sibling, offline reopen, separate real player registration and its descriptor-cache sentinel all passed. The picker is substituted with OPFS, not a native OS picker. The original relative manifest ID was rejected by Chromium (#3151); its processed ID is now asserted. The first coexistence harness used a player-version cache that the player's own activation removed (#3153); the fixed proof uses its persistent descriptor cache.
+- Browser unsupported-folder message and existing folder save/reload: 2/2 passed (new case 719 ms). Browser test TypeScript and scoped ESLint passed; provenance scanned 1,705 files with zero violations; stock/store preflight found #3148 and its plan.
+- A deliberate failure after `PWA.install` returned nonzero, preserved the original error and printed successful uninstall; the restored positive passed. Denying the worker at the HTTP server returned the intended bounded 15-second activation diagnostic; the browser-route attempt did not intercept the worker and was removed (#3159). The restored positive and scoped proof lint passed afterward.
