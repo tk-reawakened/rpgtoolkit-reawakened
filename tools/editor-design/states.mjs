@@ -8,7 +8,7 @@ import { expect } from "@playwright/test";
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 async function snapshot(page, output, state, details, observe) {
   await mkdir(output, { recursive: true });
-  const record = { state, file: `state-${state}.png`, viewport: page.viewportSize(), status: await page.getByRole("status").allTextContents(), ...details, ...await observe(details) };
+  const record = { state, file: `state-${state}.png`, viewport: page.viewportSize(), status: await page.getByRole("status").allTextContents(), ...details, ...await observe(details, state) };
   await page.screenshot({ path: join(output, record.file) });
   await delay(100);
   await writeFile(join(output, `state-${state}.json`), `${JSON.stringify(record, null, 2)}\n`);

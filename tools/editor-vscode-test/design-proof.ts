@@ -555,6 +555,33 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
         const secondLuminance = luminance(second);
         return (Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05);
       };
+      const selectionPaintDiffers = (element: HTMLElement) => {
+        const savedClass = element.getAttribute("class");
+        const savedStyle = element.getAttribute("style");
+        const pressed = element.getAttribute("aria-pressed");
+        const selected = element.getAttribute("aria-selected");
+        const paint = () => {
+          const signature = (style: CSSStyleDeclaration) => [style.backgroundColor, style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor, style.borderTopStyle, style.borderRightStyle, style.borderBottomStyle, style.borderLeftStyle, style.boxShadow];
+          const pseudo = (name: string) => {
+            const style = getComputedStyle(element, name);
+            return style.content === "none" || style.content === "normal" || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ? null : signature(style);
+          };
+          return JSON.stringify([signature(getComputedStyle(element)), pseudo("::before"), pseudo("::after")]);
+        };
+        try {
+          element.style.setProperty("transition", "none", "important");
+          const selectedPaint = paint();
+          if (pressed === "true") element.setAttribute("aria-pressed", "false");
+          if (selected === "true") element.setAttribute("aria-selected", "false");
+          for (const name of [...element.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) element.classList.remove(name);
+          return selectedPaint !== paint();
+        } finally {
+          if (savedClass === null) element.removeAttribute("class"); else element.setAttribute("class", savedClass);
+          if (savedStyle === null) element.removeAttribute("style"); else element.setAttribute("style", savedStyle);
+          if (pressed === null) element.removeAttribute("aria-pressed"); else element.setAttribute("aria-pressed", pressed);
+          if (selected === null) element.removeAttribute("aria-selected"); else element.setAttribute("aria-selected", selected);
+        }
+      };
       const active = document.activeElement as HTMLElement | null;
       const activeStyle = active === null ? null : getComputedStyle(active);
       const activeRect = active?.getBoundingClientRect();
@@ -591,6 +618,7 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
             disabled: html.matches(":disabled,[aria-disabled=true]"),
             readOnly: html instanceof HTMLInputElement || html instanceof HTMLTextAreaElement ? html.readOnly : false,
             selected: html.matches('[aria-selected="true"],[aria-pressed="true"],.selected'),
+            selectedPaintDiffers: html.matches('[aria-selected="true"],[aria-pressed="true"],.selected') ? selectionPaintDiffers(html) : null,
             foreground: style.color,
             effectiveForeground: foreground.slice(0, 3),
             background: style.backgroundColor,
@@ -718,6 +746,9 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
   if (item.kind === "custom-webview" && controls.length === 0) violations.push("no visible common controls were sampled");
   for (const control of controls) {
     if (control.disabled === true) continue;
+    if (control.selected === true && control.selectedPaintDiffers !== true) {
+      violations.push(`selected control has no distinct persistent paint (${control.name || control.tag})`);
+    }
     if (control.textRequired === true && typeof control.textContrast === "number" && control.textContrast < 4.5) {
       violations.push(`sampled control text contrast below 4.5:1 (${control.name || control.tag}, ${control.textContrast.toFixed(2)}:1)`);
     }

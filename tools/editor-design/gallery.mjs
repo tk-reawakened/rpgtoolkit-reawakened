@@ -168,6 +168,33 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
       return front.slice(0, 3);
     };
     const label = (element) => element.getAttribute("aria-label") || Array.from(element.labels ?? []).map((item) => item.textContent.trim()).join(" ") || element.textContent.trim();
+    const selectionPaintDiffers = (element) => {
+      const savedClass = element.getAttribute("class");
+      const savedStyle = element.getAttribute("style");
+      const pressed = element.getAttribute("aria-pressed");
+      const selected = element.getAttribute("aria-selected");
+      const paint = () => {
+        const signature = (style) => [style.backgroundColor, style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor, style.borderTopStyle, style.borderRightStyle, style.borderBottomStyle, style.borderLeftStyle, style.boxShadow];
+        const pseudo = (name) => {
+          const style = getComputedStyle(element, name);
+          return style.content === "none" || style.content === "normal" || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ? null : signature(style);
+        };
+        return JSON.stringify([signature(getComputedStyle(element)), pseudo("::before"), pseudo("::after")]);
+      };
+      try {
+        element.style.setProperty("transition", "none", "important");
+        const selectedPaint = paint();
+        if (pressed === "true") element.setAttribute("aria-pressed", "false");
+        if (selected === "true") element.setAttribute("aria-selected", "false");
+        for (const name of [...element.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) element.classList.remove(name);
+        return selectedPaint !== paint();
+      } finally {
+        if (savedClass === null) element.removeAttribute("class"); else element.setAttribute("class", savedClass);
+        if (savedStyle === null) element.removeAttribute("style"); else element.setAttribute("style", savedStyle);
+        if (pressed === null) element.removeAttribute("aria-pressed"); else element.setAttribute("aria-pressed", pressed);
+        if (selected === null) element.removeAttribute("aria-selected"); else element.setAttribute("aria-selected", selected);
+      }
+    };
     const controls = elements.filter((element) => {
       const rect = element.getBoundingClientRect();
       const disabled = element.matches(":disabled") || element.closest('[aria-disabled="true"]') !== null;
@@ -252,7 +279,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         label: label(element), tag: element.tagName, type: element.getAttribute("type") ?? null,
         foreground: background(element, ink), background: back, adjacentBackground: background(parent(element)),
         borderEdges, outline, pseudoIndicators, boundaryRequired, textRequired,
-        selected, selectedIndicatorRequired, stateIndicatorRequired: selectedIndicatorRequired || customCheckedIndicator,
+        selected, selectedIndicatorRequired, selectedPaintDiffers: selected ? selectionPaintDiffers(element) : null, stateIndicatorRequired: selectedIndicatorRequired || customCheckedIndicator,
         pressed, checked, indeterminate: "indeterminate" in element ? element.indeterminate : null,
         value: element.tagName === "INPUT" && ["color", "range"].includes(element.type) ? element.value : null,
         appearance: nativeType ? style.appearance : null, accentColor: nativeType ? style.accentColor : null,
@@ -326,20 +353,20 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         backgroundRatio: indicator.background === null ? null : contrastRatio(hex(indicator.background), hex(indicator.adjacentBackground)),
         borderRatios: indicator.borders.map((color) => contrastRatio(hex(color), hex(indicator.adjacentBackground))),
       }));
-      const shapeRatios = [
+      const persistentRatios = [
         fillRatio,
         ...borderEdges.filter((edge) => edge.visible).map((edge) => edge.contrastRatio),
-        ...(outline.visible ? [outline.contrastRatio] : []),
         ...pseudoIndicators.flatMap((indicator) => [
           ...(indicator.backgroundRatio === null ? [] : [indicator.backgroundRatio]), ...indicator.borderRatios,
         ]),
       ];
-      const indicatorRatio = Math.max(0, ...shapeRatios);
+      const indicatorRatio = Math.max(0, ...persistentRatios);
+      const boundaryRatio = Math.max(indicatorRatio, ...(outline.visible ? [outline.contrastRatio] : []));
       return {
         ...control, borderEdges, outline, pseudoIndicators, fillRatio, indicatorRatio,
-        selectedIndicatorVisible: indicatorRatio >= 3,
+        selectedIndicatorVisible: indicatorRatio >= 3 && (!control.selected || control.selectedPaintDiffers === true),
         boundaryRatio: control.boundaryAssessment === "native-UA-appearance-not-measurable-from-CSS"
-          ? null : indicatorRatio,
+          ? null : boundaryRatio,
         textRatio: contrastRatio(hex(control.foreground), hex(control.background)),
       };
     }),
@@ -762,9 +789,9 @@ try {
   await page.goto(`http://127.0.0.1:${port}/tools/browser/editor-web/index.html`);
   await page.waitForFunction(() => Reflect.get(window, "__tkrDesignFolder") !== undefined);
   if (shipping && statesOnly) await page.emulateMedia({ colorScheme: stateTheme === "light" ? "light" : "dark", forcedColors: stateTheme === "highContrast" ? "active" : "none" });
-  const observeState = async (details) => {
+  const observeState = async (details, state) => {
     const metrics = await renderedMetrics(page, page, shipping);
-    const layout = await layoutMetrics(page);
+    const layout = await layoutMetrics(page, state === "validation" ? "newBoard" : null);
     return {
       theme: stateTheme, metrics, layout, violations: controlViolations(metrics),
       layoutViolations: shipping ? [
@@ -1193,6 +1220,7 @@ async function layoutMetrics(page, dialogMode = null) {
   return page.evaluate(({ shippingMode, dialogMode }) => {
     const preferenceDialog = dialogMode === true || dialogMode === "preferences";
     const commandPaletteDialog = dialogMode === "commandPalette";
+    const newBoardDialog = dialogMode === "newBoard";
     const rect = (element) => {
       const box = element.getBoundingClientRect();
       return { left: box.left, top: box.top, right: box.right, bottom: box.bottom, width: box.width, height: box.height };
@@ -1201,16 +1229,18 @@ async function layoutMetrics(page, dialogMode = null) {
     const sharedSelector = ".tkr-panel-toggles > *, .tkr-web-topbar .tkr-web-status, .tkr-web-topbar .tkr-web-brand, .tkr-web-project-controls > button, .tkr-web-session-open, .tkr-web-game-choice, .tkr-web-recent-open, .tkr-web-empty-explorer-header";
     const preferenceSelector = ".tkr-picker-overlay[aria-label='Editor preferences'] button, .tkr-preferences > label, .tkr-preferences > input, .tkr-preferences > p, .tkr-pref-label, .tkr-pref-help, .tkr-pref-source, .tkr-pref > input, .tkr-pref > select, .tkr-pref > textarea, .tkr-pref-layer select, .tkr-pref-error";
     const paletteSelector = ".tkr-command-palette-overlay .tkr-command-palette-input, .tkr-command-palette-overlay .tkr-command-palette-option, .tkr-command-palette-overlay .tkr-command-palette-empty";
-    const modeSelector = preferenceDialog ? preferenceSelector : commandPaletteDialog ? paletteSelector : shippingMode
+    const boardSelector = ".tkr-picker-overlay[aria-label='New board'] .tkr-new-board, .tkr-new-board :is(h2, label, input, select, button, [role='alert'], [role='status'])";
+    const modeSelector = preferenceDialog ? preferenceSelector : commandPaletteDialog ? paletteSelector : newBoardDialog ? boardSelector : shippingMode
       ? ".tkr-command-bar button, .tkr-command-bar select, .tkr-command-bar input, .tkr-command-bar textarea, .tkr-program-toolbar button, .tkr-program-toolbar select, .tkr-program-toolbar input, .tkr-program-toolbar textarea, .tkr-program-bookmarks button, .tkr-program-reference button, .tkr-program-reference input, .tkr-program-reference select, .tkr-program-reference textarea, .tkr-program-reference-hint, .tkr-program-body > .tkr-program-text"
       : ".tkr-program-body > *";
-    const selector = preferenceDialog || commandPaletteDialog ? modeSelector : `${sharedSelector}, ${modeSelector}`;
-    const candidates = [...new Set([...document.querySelectorAll(selector), ...(activeTab === null || preferenceDialog || commandPaletteDialog ? [] : [activeTab])])];
+    const selector = preferenceDialog || commandPaletteDialog || newBoardDialog ? modeSelector : `${sharedSelector}, ${modeSelector}`;
+    const candidates = [...new Set([...document.querySelectorAll(selector), ...(activeTab === null || preferenceDialog || commandPaletteDialog || newBoardDialog ? [] : [activeTab])])];
     const visibleCandidates = candidates.filter((element) => {
       const style = getComputedStyle(element);
       const insidePreferenceDialog = element.closest('[role="dialog"][aria-label="Editor preferences"]') !== null;
       const insideCommandPalette = element.closest('[role="dialog"][aria-label="Command palette"]') !== null;
-      const insideRequestedDialog = preferenceDialog ? insidePreferenceDialog : commandPaletteDialog ? insideCommandPalette : !element.closest(".tkr-app-menu-popup, .tkr-app-menu-submenu, .tkr-command-palette-overlay, [role='dialog']");
+      const insideNewBoard = element.closest('[role="dialog"][aria-label="New board"]') !== null;
+      const insideRequestedDialog = preferenceDialog ? insidePreferenceDialog : commandPaletteDialog ? insideCommandPalette : newBoardDialog ? insideNewBoard : !element.closest(".tkr-app-menu-popup, .tkr-app-menu-submenu, .tkr-command-palette-overlay, [role='dialog']");
       const box = element.getBoundingClientRect();
       return style.display !== "none" && box.width > 0
         && (!shippingMode || (box.height > 0 && insideRequestedDialog
