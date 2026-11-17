@@ -442,3 +442,19 @@ export * from "./checkpoint-groups.ts";
 export * from "./animation-authoring.ts";
 
 export type { AnimationFrame } from "./animation-document.ts";
+export {
+  LAUNCH_SETUPS_PATH,
+  LAUNCH_SETUPS_VERSION,
+  deleteLaunchSetup,
+  launchOfSetup,
+  readLaunchSetups,
+  saveLaunchSetup,
+  type BoardSetup,
+  type GameSetup,
+  type LaunchSetup,
+  type LaunchSetupEntry,
+  type LaunchSetupsRead,
+  type LaunchSetupsWrite,
+  type ProgramSetup,
+  type SavedFixture,
+} from "./launch-setups.ts";
