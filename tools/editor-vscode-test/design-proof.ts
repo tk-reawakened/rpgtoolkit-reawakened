@@ -24,7 +24,7 @@ const longProgramPath = "Game/Example/Prg/this-is-a-deliberately-long-authored-p
 const cases: readonly DesignCase[] = [
   { id: "game", path: "Main/example.gam", kind: "custom-webview", description: "Authored game settings document", rootSelector: ".tkr-settings" },
   { id: "board", path: "Game/Example/Boards/village.brd", kind: "custom-webview", description: "Authored board document", rootSelector: ".tkr-board" },
-  { id: "character", path: "Game/Example/Chrs/ada.tem", kind: "custom-webview", description: "Authored character document", rootSelector: ".tkr-character-authoring" },
+  { id: "character", path: "Game/Example/Chrs/ada.tem", kind: "custom-webview", description: "Authored character document including its composed graphics and authoring views", rootSelector: '.tkr-editor-surface[data-tkr-editor="Character"]' },
   { id: "item", path: "Game/Example/Item/chest.itm", kind: "custom-webview", description: "Authored item document; does not imply expanded item authoring", rootSelector: ".tkr-sprite-graphics" },
   { id: "tileset-art", path: "Game/Example/Tiles/village.tst", kind: "custom-webview", description: "Authored tileset artwork document", rootSelector: ".tkr-tileset-art" },
   { id: "tile-bitmap", path: "Game/Example/Bitmap/house.tbm", kind: "custom-webview", description: "Authored tile bitmap document", rootSelector: ".tkr-bitmap" },
@@ -461,7 +461,9 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
   let controls: Record<string, unknown>[];
   let layout: Record<string, unknown>;
   if (frame !== null) {
-    await frame.locator("body").press("Tab");
+    const firstControl = frame.locator(`${item.rootSelector} :is(button,input:not([type="hidden"]),select,textarea):enabled:visible`).first();
+    await firstControl.focus();
+    await firstControl.press("Tab");
     await expect.poll(() => frame.evaluate(() => document.getAnimations().filter((animation) =>
       animation.playState === "running" && Number.isFinite(animation.effect?.getComputedTiming().endTime ?? Infinity)
     ).length), { timeout: 2_000, intervals: [50, 100, 200] }).toBe(0);
@@ -472,7 +474,8 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
       const visible = (element: Element) => {
         const rect = element.getBoundingClientRect();
         const style = getComputedStyle(element);
-        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden"
+          && element.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true });
       };
       const parentElement = (element: Element): Element | null => {
         if (element.parentElement !== null) return element.parentElement;

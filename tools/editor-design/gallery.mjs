@@ -348,6 +348,54 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
     focus: observed.focus === null ? null : { ...observed.focus, ratio: contrastRatio(hex(observed.focus.outlineColor), hex(observed.focus.background)) },
   };
 }
+async function focusedLabelPaint(page, screenshot) {
+  return page.evaluate(async (base64) => {
+    const active = document.activeElement;
+    if (active === null) return null;
+    const walker = document.createTreeWalker(active, NodeFilter.SHOW_TEXT);
+    const rectangles = [];
+    for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
+      if (!node.textContent.trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      for (const box of range.getClientRects()) {
+        const left = Math.max(0, Math.ceil(box.left));
+        const top = Math.max(0, Math.ceil(box.top));
+        const right = Math.min(innerWidth, Math.floor(box.right));
+        const bottom = Math.min(innerHeight, Math.floor(box.bottom));
+        if (right - left > 2 && bottom - top > 2) rectangles.push({ left, top, width: right - left, height: bottom - top });
+      }
+    }
+    if (rectangles.length === 0) return null;
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+    const weights = [0.2126, 0.7152, 0.0722];
+    try {
+      const samples = rectangles.map((box) => {
+        const canvas = new OffscreenCanvas(box.width, box.height);
+        const context = canvas.getContext("2d");
+        context.drawImage(bitmap, -box.left, -box.top);
+        const { data } = context.getImageData(0, 0, box.width, box.height);
+        let darkest = 1, lightest = 0;
+        for (let index = 0; index < data.length; index += 4) {
+          let luminance = 0;
+          for (let channel = 0; channel < 3; channel += 1) {
+            const value = data[index + channel] / 255;
+            luminance += (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4) * weights[channel];
+          }
+          darkest = Math.min(darkest, luminance);
+          lightest = Math.max(lightest, luminance);
+        }
+        canvas.width = 0;
+        return { ...box, contrast: (lightest + 0.05) / (darkest + 0.05) };
+      });
+      return { label: active.textContent.trim(), samples, minimumContrast: Math.min(...samples.map((sample) => sample.contrast)), scope: "actual focused DOM-text raster rectangles, not an accessibility certification" };
+    } finally {
+      bitmap.close();
+    }
+  }, screenshot.toString("base64"));
+}
+
 function controlViolations(metrics) {
   const failures = metrics.controls.filter((control) => !control.disabled && (
     (control.textRequired && control.textRatio < 4.5)
@@ -820,7 +868,10 @@ try {
             ...layout.outsideViewport.map((control) => ({ kind: "outside-viewport", ...control })),
           ];
           const name = `${title}-${paneLabel}-${theme}.png`;
-          await page.screenshot({ path: join(output, name) });
+          const screenshot = await page.screenshot({ path: join(output, name), scale: "css" });
+          metrics.focusLabelPaint = theme === "highContrast" ? await focusedLabelPaint(page, screenshot) : null;
+          if (surface.name === "program" && theme === "highContrast" && metrics.focusLabelPaint === null) throw new Error("Forced-colors program focus has no actual text-raster sample");
+          if (metrics.focusLabelPaint !== null && metrics.focusLabelPaint.minimumContrast < 4.5) violations.push({ kind: "focused-label-raster", ...metrics.focusLabelPaint });
           await delay(100);
           captures.push({
             file: name, phase, surface: surface.label, fixture: fixtureFiles.find((file) => file.path === surface.path).source,
@@ -1249,6 +1300,16 @@ async function layoutMetrics(page, dialogMode = null) {
 }
 async function verifyVerticalReachability(locator) {
   return locator.evaluate((element) => {
+    const nativeControl = element;
+    const nativeRect = element.getBoundingClientRect();
+    const nativeStyle = getComputedStyle(element);
+    if (element.matches('input[type="file"]') && (nativeRect.width <= 1 || nativeRect.height <= 1
+      || Number(nativeStyle.opacity) === 0 || nativeStyle.clip !== "auto" || nativeStyle.clipPath !== "none")) {
+      element = Array.from(element.labels ?? []).find((label) => {
+        const box = label.getBoundingClientRect();
+        return box.width > 1 && box.height > 1 && label.checkVisibility({ opacityProperty: true, visibilityProperty: true });
+      }) ?? element;
+    }
     const rect = () => {
       const box = element.getBoundingClientRect();
       return { left: box.left, top: box.top, right: box.right, bottom: box.bottom };
@@ -1292,6 +1353,7 @@ async function verifyVerticalReachability(locator) {
       const reachable = visible && (initialVisible || (route !== undefined && moved));
       return {
         reachable, moved, scrollRoute: initialVisible && visible ? "already-visible" : route === undefined ? null : route === scrollingElement ? "document" : route.className || route.tagName.toLowerCase(),
+        target: element === nativeControl ? "control" : "associated-visible-label",
         initialRect: initial, afterScrollRect: after, visibleRect: { left: visibleLeft, top: visibleTop, right: visibleRight, bottom: visibleBottom },
       };
     } finally {
