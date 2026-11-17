@@ -1,0 +1,18 @@
+{
+  "purpose": "Focus and hover paint must not masquerade as a persistent selected cue.",
+  "method": "The real selected Collapse left sidebar button was keyboard-focused during the actual dirty-project capture. Its selected pseudo-element background was temporarily made transparent, then restored; both runs retained the same focused control.",
+  "negative": {
+    "result": "selected-state-indicator failed for Collapse left sidebar; changed selection cues were empty even though its focus outline was 10.51:1 and ordinary border indicator was 5.21:1",
+    "screenshot": "negative-state-dirty.png",
+    "screenshotSha256": "18c115b76d4c00247e2302eade03a58023c492628dc7b2ec309a502d26d703e4",
+    "receipt": "negative.json.gz",
+    "portableReceiptSha256": "6571b6a9e2e192ea7d1478fe978a48221615697488e75ca96b27fea306cadfca"
+  },
+  "restored": {
+    "result": "passed with the same control focused and the selected ::after marker measured as a changed cue",
+    "screenshot": "restored-state-dirty.png",
+    "screenshotSha256": "20768d2b612b77667bea182855d07a0af93568bdb5ecf606c95d76163d89ae59",
+    "receipt": "restored.json.gz",
+    "portableReceiptSha256": "90853344ac28b7f06b6e89f599bd93f4e400a6eae52463967b9fd78277e38ea1"
+  }
+}

@@ -1,0 +1,2411 @@
+{
+  "schema": "tkr-editor-style-proof-v1",
+  "baselineRevision": "4ff4ed3dee07c66119867f5a859a797797a4b798",
+  "beforeRevision": "1d0b666818fadea23a06d9f8648c459f0a40c032",
+  "afterRevision": "a6f545712a8f44a6f4e57d22537b5d966ce53b76",
+  "normalization": "Full receipts preserve all measurements and original result/invariant values. Only machine-specific checkout/home/evidence paths become portable placeholders. Raw and normalized receipt SHA-256 values are distinct. Gzip uses mtime=0.",
+  "invariantApplicability": {
+    "browser": [
+      "presentationOnlyProbesPreservedSeededOpfsBytes",
+      "seededOpfsFilesMatchedFixtureBeforeAndAfterCapture",
+      "editorPreferencesLeftGameBytesUnchanged",
+      "commandPaletteLeftGameBytesUnchanged",
+      "unsavedStatusAbsentAfterCapture",
+      "authoredFixturesRechecked"
+    ],
+    "browser-states": [
+      "nativeStateProofRestoredSeededOpfsBytesAtEnd",
+      "seededOpfsFilesMatchedFixtureBeforeAndAfterCapture",
+      "unsavedStatusAbsentAfterCapture",
+      "authoredFixturesRechecked"
+    ]
+  },
+  "disclosureRegister": [
+    {
+      "field": "Loopback test origins and native status-bar virtual-filesystem authority",
+      "artifact": "Full receipts and unmodified real-host PNGs",
+      "why": "Identify the isolated actual test host/workspace without masking measured UI",
+      "reducedForm": "Ephemeral loopback ports and generated virtual fixture IDs only; no LAN/device identity or authentication credential"
+    }
+  ],
+  "limitations": [
+    "Computed role samples and focused DOM-text raster regression checks are not complete accessibility certification.",
+    "Native-UA internal control paint is explicitly unmeasured where the browser does not expose it.",
+    "The browser engineering host is not an installed editor PWA; VS Code Web is not desktop proof.",
+    "Existing decoder defect #2698 remains visibly reported, not hidden by this styling change.",
+    "The existing native numeric validation bubble can overlap New board's inline error (#3146)."
+  ],
+  "runs": [
+    {
+      "host": "browser",
+      "phase": "before",
+      "frameCount": 107,
+      "result": "fail",
+      "measuredViolationCount": 3728,
+      "rawManifestSha256": "f0ef8a85dbc3b96114543fa1c8f60e4390ac945d5ef344e5773e882dba7fbd68",
+      "portableManifestSha256": "f0ef8a85dbc3b96114543fa1c8f60e4390ac945d5ef344e5773e882dba7fbd68",
+      "gzipSha256": "552ddd69cb3a498d633213bdf329270054d51d73b6682ea24e1978dbf4e905e7",
+      "manifest": "verified/browser-before/manifest.json.gz",
+      "captures": [
+        {
+          "file": "game-settings-normal-dark.png",
+          "bytes": 181305,
+          "sha256": "d77d24bd0aef608262696c224a28f90163ea6de76620c8ff38e5a66a712abef8"
+        },
+        {
+          "file": "game-settings-normal-light.png",
+          "bytes": 189992,
+          "sha256": "3c5c87382c05a9f1b44ad8fd04a21a70f4e543306b5a33b1a5b1d1ddce8bd5d9"
+        },
+        {
+          "file": "game-settings-normal-highContrast.png",
+          "bytes": 163436,
+          "sha256": "c3642aa39404f9ccbac50a6ed7d04b0e2a6f964b19619dfa122f9f56ccbe4a43"
+        },
+        {
+          "file": "game-settings-normal-root-text-200-long-title.png",
+          "bytes": 207878,
+          "sha256": "71e03521fd87c2d262c40d7909bf2433d9968fe0fd762efd7fd6820c288abd1e"
+        },
+        {
+          "file": "game-settings-640px-dark.png",
+          "bytes": 150491,
+          "sha256": "f55c48cf6cbd15c5fb9b46297a351ef03dab3f8adc23f718350be2840fe8d04d"
+        },
+        {
+          "file": "game-settings-640px-light.png",
+          "bytes": 157763,
+          "sha256": "a57c7178b713e28a1fa656ad53b4705a429de4b3e0d13642af48eb9f7b356880"
+        },
+        {
+          "file": "game-settings-640px-highContrast.png",
+          "bytes": 136294,
+          "sha256": "17a167d1a838afc9e5b30c1ea0b534d360fb73f06f3987f274f00ec8d5d4024f"
+        },
+        {
+          "file": "board-normal-dark.png",
+          "bytes": 208943,
+          "sha256": "d5ec5d96b4f020c76c28cf4caad3d3d2eba62edae98fa74f6bcefc661aa3e490"
+        },
+        {
+          "file": "board-normal-light.png",
+          "bytes": 216758,
+          "sha256": "73a4ce2ef1d21c2e5c6e959b1da91a85c40cea9902e7f256886ad2d926b74538"
+        },
+        {
+          "file": "board-normal-highContrast.png",
+          "bytes": 187912,
+          "sha256": "3eb2b2b3715f2e351fa415008485376487f595321020cedc0fb3f1309bb28da4"
+        },
+        {
+          "file": "board-640px-dark.png",
+          "bytes": 203729,
+          "sha256": "d8e765bf25b36c0680ef8964a72c501c1b5eb0a445024345638b1b6f11a2cc6a"
+        },
+        {
+          "file": "board-640px-light.png",
+          "bytes": 209418,
+          "sha256": "77cd8e6a79e6c802e5c6b6a8dbdf14f0a5890a18dc350972e98f214959a9b1a5"
+        },
+        {
+          "file": "board-640px-highContrast.png",
+          "bytes": 185969,
+          "sha256": "cac821beb4404152f8076b3aef187d4a6cfbca2c3a4cc0beefaf4a8a473288f7"
+        },
+        {
+          "file": "character-normal-dark.png",
+          "bytes": 199898,
+          "sha256": "476d72ce4a2004fe07ad90518d979c11b4df4119e6d59d96204ff0f2bfde193a"
+        },
+        {
+          "file": "character-normal-light.png",
+          "bytes": 208924,
+          "sha256": "d14437ebd454f0fd0cc12faba3886bfab9fb4f433fd8487f941f1651c80b4787"
+        },
+        {
+          "file": "character-normal-highContrast.png",
+          "bytes": 182910,
+          "sha256": "0c127ca8eaec9552c5a1fc2c2c5051d1743ed488090efe8d6ebafc036d12b8a1"
+        },
+        {
+          "file": "character-640px-dark.png",
+          "bytes": 182661,
+          "sha256": "30f607f4d209ac8280114602135c93d82ea5275a37fe86a7fc9fecf8d1297a5d"
+        },
+        {
+          "file": "character-640px-light.png",
+          "bytes": 190748,
+          "sha256": "92e616275e9029d9ad59f7b9345b6fd3206311d874956e4f78d06736715b5752"
+        },
+        {
+          "file": "character-640px-highContrast.png",
+          "bytes": 165405,
+          "sha256": "3dc7be099747a9fcccc92b7f1afc3dc0d6cc594d5e0114f68b3669b967272165"
+        },
+        {
+          "file": "item-normal-dark.png",
+          "bytes": 203800,
+          "sha256": "388d9435241702112c6a6ab1a1db71826d643d1b8330983da495535a210878cf"
+        },
+        {
+          "file": "item-normal-light.png",
+          "bytes": 213472,
+          "sha256": "9a9398e0ad31c2394bb7c1709fb3ad292a6a6dde492189a2d4832006176eb026"
+        },
+        {
+          "file": "item-normal-highContrast.png",
+          "bytes": 190654,
+          "sha256": "340e6973d275e9febeff23714c8eda0dd705ad8713cd31de43c30e899509c72a"
+        },
+        {
+          "file": "item-640px-dark.png",
+          "bytes": 182162,
+          "sha256": "170335cd8048842b56699d177b1ee1ea459a5eae100b8c53768ea28aa29e278e"
+        },
+        {
+          "file": "item-640px-light.png",
+          "bytes": 189137,
+          "sha256": "f44b3340d2e8b079d0ee490e2278c954fa2b3c8abb3fd929ee979b88f4eb2b94"
+        },
+        {
+          "file": "item-640px-highContrast.png",
+          "bytes": 167135,
+          "sha256": "cb42109911b7c5d4d24ad82f28d8ed2daad23e8d7c73f169fb646127e2003e4a"
+        },
+        {
+          "file": "tileset-normal-dark.png",
+          "bytes": 115015,
+          "sha256": "beb42fc35f10767590edb2fc7737ff98ddad8073c3241cfa4a8ebaf21e370382"
+        },
+        {
+          "file": "tileset-normal-light.png",
+          "bytes": 120029,
+          "sha256": "794c3da6f74b60d2877d1868c062a18ecf161eee36a04b633bbc58bd46852563"
+        },
+        {
+          "file": "tileset-normal-highContrast.png",
+          "bytes": 103956,
+          "sha256": "9de13077b946e449bb0692b217d8e9f2c2e8cd38a0f48d03013db5c4576c77fa"
+        },
+        {
+          "file": "tileset-640px-dark.png",
+          "bytes": 113640,
+          "sha256": "3b57de7e0aea16f75e861644a07ff52ddc6f1fc9c924b40142d861b48177f2a6"
+        },
+        {
+          "file": "tileset-640px-light.png",
+          "bytes": 118552,
+          "sha256": "b59a077cf3fe9207b163d518cefd94ee323172efd0742c1fe773677714e1ba48"
+        },
+        {
+          "file": "tileset-640px-highContrast.png",
+          "bytes": 102453,
+          "sha256": "bbecd097d3fed94d59aa32e0c1632a50f66b10aedb57ac7b44ca611e61213af6"
+        },
+        {
+          "file": "animation-normal-dark.png",
+          "bytes": 211232,
+          "sha256": "77692160ee58c826e88bc0b9e4fee11651e73d1f08a8dee80797fcafe9ebd1c2"
+        },
+        {
+          "file": "animation-normal-light.png",
+          "bytes": 220414,
+          "sha256": "e2f10580f6905252f0ecd0bae25ae4b85f38cc56eafbc38d287707fd2eb223a3"
+        },
+        {
+          "file": "animation-normal-highContrast.png",
+          "bytes": 186443,
+          "sha256": "ad8b0a5ed15df2ab1e9b4ca3af4525175e25c3cba70e55132d1cf7b1bd781b33"
+        },
+        {
+          "file": "animation-640px-dark.png",
+          "bytes": 212300,
+          "sha256": "141d40920cb4a8e6d5dad4c31e631e286de02683d0ecd0e79cd9e559bc607c6c"
+        },
+        {
+          "file": "animation-640px-light.png",
+          "bytes": 220969,
+          "sha256": "9e6dec86dbf6d3c47912b413c90d2434f401808e137960d365e01896877a1c05"
+        },
+        {
+          "file": "animation-640px-highContrast.png",
+          "bytes": 186911,
+          "sha256": "5ff4f58f4b0de6df70b6cd21134479821cfd0f56d317d647892580b46be219cb"
+        },
+        {
+          "file": "program-normal-dark.png",
+          "bytes": 164658,
+          "sha256": "da15e923141601837ca2637ff0ff68801cf014f3c504e6b0e9c6a239967604f6"
+        },
+        {
+          "file": "program-normal-light.png",
+          "bytes": 170769,
+          "sha256": "f82833e473fd0b93c922384a713ab0d583a9dc8d404e6ef45ece3a27b186f490"
+        },
+        {
+          "file": "program-normal-highContrast.png",
+          "bytes": 146177,
+          "sha256": "f38541fa5d8ef93f3d73ce79e4e38e1af8324a47b95d1fa9200a6a57d19a6602"
+        },
+        {
+          "file": "program-640px-dark.png",
+          "bytes": 159037,
+          "sha256": "0c28f87711f88fd9ee8ae2aff9b50e2dd4b2b8998b7be7091ebda137b1863b6d"
+        },
+        {
+          "file": "program-640px-dark-reference-closed.png",
+          "bytes": 118733,
+          "sha256": "5d860d6f7367a723b8233bfee7924cf53c1555ffe8ebf85d95b1f6d2c419b531"
+        },
+        {
+          "file": "program-640px-light.png",
+          "bytes": 164797,
+          "sha256": "e6c3a9d48d1eb23376c5d900bf799593787330eaa60f37abc062ccdc5f947491"
+        },
+        {
+          "file": "program-640px-highContrast.png",
+          "bytes": 141586,
+          "sha256": "b715ca4269901d9e6981c20c9c5f693491c47c241f2f3f0975e87786bf94dac1"
+        },
+        {
+          "file": "tile-bitmap-normal-dark.png",
+          "bytes": 133209,
+          "sha256": "16a7c000f8ac064c856287f759c771bf135e354b25ebf43658162848547a56d0"
+        },
+        {
+          "file": "tile-bitmap-normal-light.png",
+          "bytes": 139514,
+          "sha256": "44dbc57b536dc379cb00d735a0beab1d85f3640a886025f6c4b828ce6924d89f"
+        },
+        {
+          "file": "tile-bitmap-normal-highContrast.png",
+          "bytes": 120721,
+          "sha256": "7827218fe282226d7b7bf79855a81b96357df8cc04b5636bfd842270c04aad03"
+        },
+        {
+          "file": "tile-bitmap-640px-dark.png",
+          "bytes": 111599,
+          "sha256": "3c215dd5f3a8c113a29a8a502e0f09896a64fc70aba03a5b1ac1d25860abaec3"
+        },
+        {
+          "file": "tile-bitmap-640px-light.png",
+          "bytes": 116237,
+          "sha256": "c14c760f6eb25eda3ad088f9df0dcfb4771cae52b4167e2daac9f90dfd61c315"
+        },
+        {
+          "file": "tile-bitmap-640px-highContrast.png",
+          "bytes": 100889,
+          "sha256": "59013340b4cf8de232453c9b991500f46048ee1ed04135948a20af3d89483847"
+        },
+        {
+          "file": "game-settings-sparse-normal-dark.png",
+          "bytes": 178290,
+          "sha256": "d4751de9ae689899077d0c4c98b264e262d3d6c28c3fa182905e3c59ad620d33"
+        },
+        {
+          "file": "game-settings-sparse-normal-light.png",
+          "bytes": 186716,
+          "sha256": "80ee6a85425089fb855f461fe8d96454c83403f3c6b735c0ae26465994969482"
+        },
+        {
+          "file": "game-settings-sparse-normal-highContrast.png",
+          "bytes": 158663,
+          "sha256": "cbca91cc599661e43c7cc736e9c0eca109039393d6f6cb95c669914f4d267423"
+        },
+        {
+          "file": "game-settings-sparse-640px-dark.png",
+          "bytes": 159566,
+          "sha256": "00bc956b80f454b218964e02043b15f933de269b9d3e29203bb68658d40309f3"
+        },
+        {
+          "file": "game-settings-sparse-640px-light.png",
+          "bytes": 166600,
+          "sha256": "01062e452bfb541f6ad632bc33f938115e3ea737e5b0a3bb2e4feb31062ec7bf"
+        },
+        {
+          "file": "game-settings-sparse-640px-highContrast.png",
+          "bytes": 141882,
+          "sha256": "e146864f83bed049003b328ba62a7efdd079166dc6f0dc75a0651c07bfcb6a88"
+        },
+        {
+          "file": "board-sparse-normal-dark.png",
+          "bytes": 136217,
+          "sha256": "3d606dc77b45a993dfa7a1bdbec4a52e59f637760e3f4ca412b29fc7d88d6494"
+        },
+        {
+          "file": "board-sparse-normal-light.png",
+          "bytes": 143138,
+          "sha256": "a6a05ff34965baba43741b68771d2da1a6f6c310041dcb4f2bece52ae7497703"
+        },
+        {
+          "file": "board-sparse-normal-highContrast.png",
+          "bytes": 122505,
+          "sha256": "428b62e96ba6e6042279a4bcb3147923807b8c757447ec2532ea6fea5997aad5"
+        },
+        {
+          "file": "board-sparse-640px-dark.png",
+          "bytes": 104430,
+          "sha256": "12954f636cc4ca5f0689702c9a7e8a276996525f739e09008fbe7a849447a693"
+        },
+        {
+          "file": "board-sparse-640px-light.png",
+          "bytes": 109712,
+          "sha256": "36bc6c073536f797170d45b47792db2e47662743d3b960702f6409e938c9cf51"
+        },
+        {
+          "file": "board-sparse-640px-highContrast.png",
+          "bytes": 94575,
+          "sha256": "e9ee1a2ff8c9d0851d4f948547a15ba141d8d0697dcbfe562ffb46cb9cd006a7"
+        },
+        {
+          "file": "character-sparse-normal-dark.png",
+          "bytes": 166711,
+          "sha256": "eb4f66594fef895d3536ac48d1a6800c7845747c8580c1a990e4c98291672874"
+        },
+        {
+          "file": "character-sparse-normal-light.png",
+          "bytes": 172264,
+          "sha256": "382090ab31fe5066eb9216820a7d520272925d1e0554fbd10fd38d66e4822b45"
+        },
+        {
+          "file": "character-sparse-normal-highContrast.png",
+          "bytes": 152765,
+          "sha256": "58787b3021d351d772fe379d4cf7ca69b43a164102262ca64827a4bad16816ef"
+        },
+        {
+          "file": "character-sparse-640px-dark.png",
+          "bytes": 192843,
+          "sha256": "f3c78746daaef13d1e5db97cec7fc413f0417c54d2ba3db146407b9aea36f9ff"
+        },
+        {
+          "file": "character-sparse-640px-light.png",
+          "bytes": 200230,
+          "sha256": "dfa4ea6cb76c022f79b123a84ba8d3b288a6dee03cc6a1521a548e73083adf00"
+        },
+        {
+          "file": "character-sparse-640px-highContrast.png",
+          "bytes": 174257,
+          "sha256": "fb88d5046e2d37bb41d5c254184e082701676bd274ec7a0c3416158a427e5e19"
+        },
+        {
+          "file": "item-sparse-normal-dark.png",
+          "bytes": 166369,
+          "sha256": "7b32a77610cdc3d45c390b6fdc7af76ab942ca8bc1d8f508eb5cc5a1348cf93a"
+        },
+        {
+          "file": "item-sparse-normal-light.png",
+          "bytes": 171915,
+          "sha256": "27549a06f4c405dc2e142fc71bca146ace56028665568e900cd53b9841d77dd9"
+        },
+        {
+          "file": "item-sparse-normal-highContrast.png",
+          "bytes": 152853,
+          "sha256": "37196129f2fcf0d7046b28eb05debb039eef4edeb01d15ccc3a47a640e6524b4"
+        },
+        {
+          "file": "item-sparse-640px-dark.png",
+          "bytes": 192388,
+          "sha256": "ff8390535fb12c09785ebe4a3c98a9c3267c06719b9c255bf1c2553a17c1e24e"
+        },
+        {
+          "file": "item-sparse-640px-light.png",
+          "bytes": 199750,
+          "sha256": "abb39ff763a6931e052c9e35428b0cba5e9eb5c133b1781e6b1e6608fa4faaa6"
+        },
+        {
+          "file": "item-sparse-640px-highContrast.png",
+          "bytes": 174039,
+          "sha256": "aef4e9778d20d2ea91e7ed61c9fff4d0b794e98d8295766503e3526e501c3c1c"
+        },
+        {
+          "file": "tileset-sparse-normal-dark.png",
+          "bytes": 112706,
+          "sha256": "1eeaabf00871986470eada4a2506b37dc2c89c671005ba483def0d960d6a3dbf"
+        },
+        {
+          "file": "tileset-sparse-normal-light.png",
+          "bytes": 118009,
+          "sha256": "2e03b9c403b8cdf4515b223fe82da110671c9421ec262e7a0f4ca4ffc282ab62"
+        },
+        {
+          "file": "tileset-sparse-normal-highContrast.png",
+          "bytes": 101934,
+          "sha256": "b4fd9910bc57ee424768084d799802644afa84192bc0146d9a31bbdcecbefdb3"
+        },
+        {
+          "file": "tileset-sparse-640px-dark.png",
+          "bytes": 110801,
+          "sha256": "3447cecf1ab1abd2aefb2cdd6aea3a1d8738b1f75be5d4a2b6d6f50e1d8ff8f4"
+        },
+        {
+          "file": "tileset-sparse-640px-light.png",
+          "bytes": 116012,
+          "sha256": "56fdfff8749df61ce857308ea143499bb19c8b10b1ce6015b76a984a76a0bcf2"
+        },
+        {
+          "file": "tileset-sparse-640px-highContrast.png",
+          "bytes": 100022,
+          "sha256": "848572944560b65ac9e2c560367d7be54d65727dccafd73c30e04d0d60d63254"
+        },
+        {
+          "file": "animation-sparse-normal-dark.png",
+          "bytes": 210101,
+          "sha256": "b6ee880c58364448e96ef29e4701d44a50ec260e6c5a669ba6ea1f3a60f463e7"
+        },
+        {
+          "file": "animation-sparse-normal-light.png",
+          "bytes": 219062,
+          "sha256": "1bd64b6e0d02fb5ed0506064a9a93999e410693657921a1042048bfdf411d1c8"
+        },
+        {
+          "file": "animation-sparse-normal-highContrast.png",
+          "bytes": 185378,
+          "sha256": "2e96ebb520570373bb7cce304bb3ee059048019dbd1b2414c60f618aa234b14e"
+        },
+        {
+          "file": "animation-sparse-640px-dark.png",
+          "bytes": 210671,
+          "sha256": "994cf3311bfc3cc9c46ea50aa5f385d6803d4c9311b57b5d66c8e98379522917"
+        },
+        {
+          "file": "animation-sparse-640px-light.png",
+          "bytes": 219411,
+          "sha256": "9a413a33489b6b88a14bbb95964487ee11ec66d1bc6001df8d28e7a349faf0ed"
+        },
+        {
+          "file": "animation-sparse-640px-highContrast.png",
+          "bytes": 186063,
+          "sha256": "3c569598a74a6e42afe9317a56ccb98063133050f5940917d320585761e5c303"
+        },
+        {
+          "file": "program-sparse-normal-dark.png",
+          "bytes": 158607,
+          "sha256": "4562250c750bf1391d62c28fa9da65b1f3927ccda653c5cef0b688d17515c58c"
+        },
+        {
+          "file": "program-sparse-normal-light.png",
+          "bytes": 163603,
+          "sha256": "17a03b6c713b435502819cee8201eadb51bb5cfd4ed8d843a957908f6fcbb7fb"
+        },
+        {
+          "file": "program-sparse-normal-highContrast.png",
+          "bytes": 141686,
+          "sha256": "a3440ead13f40dd07647b1fd2d845b6ccf695ab27f4ef9c2d7fbcbef48208e41"
+        },
+        {
+          "file": "program-sparse-640px-dark.png",
+          "bytes": 156136,
+          "sha256": "9d2ce18a95a56ba11f1ece21e6eeee81caa5f75c06d0f5b4a9f61129e658b62c"
+        },
+        {
+          "file": "program-sparse-640px-light.png",
+          "bytes": 161041,
+          "sha256": "18cde45b0618c8f775303bbe55bddced99839a4cfbfaf8605433afaeb73f54ab"
+        },
+        {
+          "file": "program-sparse-640px-highContrast.png",
+          "bytes": 139210,
+          "sha256": "e1cf11f24af6137f0a555b40bf7a8ab3e80791a56407c3e5636575f3b38c7823"
+        },
+        {
+          "file": "long-resource-identity-open-tab-header.png",
+          "bytes": 154858,
+          "sha256": "e13c62a8e8a57290576f292b7ece37dfa83aef2844c226feeabf5ee6bfc8dd03"
+        },
+        {
+          "file": "editor-preferences-normal-dark.png",
+          "bytes": 239767,
+          "sha256": "64296a69842a3c00362c066511aa3d1769193112a061da65a438c3e35f1bb5b7"
+        },
+        {
+          "file": "editor-preferences-normal-dark-keyboard-return.png",
+          "bytes": 192038,
+          "sha256": "2ad4d9ea592f9c0f54c5b7dd059515651dd7ffbd29eda464bdac39cca90d7898"
+        },
+        {
+          "file": "editor-preferences-normal-light.png",
+          "bytes": 269367,
+          "sha256": "09c1b7259b0178b7a7f87e111b597bf3650e81998b47dd5eca0d3d8a73998d3b"
+        },
+        {
+          "file": "editor-preferences-normal-light-keyboard-return.png",
+          "bytes": 201095,
+          "sha256": "ac3a82c86e6189f22f363b50c0399fb3db670f9a215353bbc57cb73bd2ac08ff"
+        },
+        {
+          "file": "editor-preferences-normal-highContrast.png",
+          "bytes": 220410,
+          "sha256": "922756fe586b4553d6d7ca5629cf732d5272b264ea5941d7b70b27e392ff8107"
+        },
+        {
+          "file": "editor-preferences-normal-highContrast-keyboard-return.png",
+          "bytes": 170757,
+          "sha256": "19b69ca27fa07459ed50dff3376515a549c21dbee56c4fb77dffe971fa7638b4"
+        },
+        {
+          "file": "editor-preferences-640px-dark.png",
+          "bytes": 231605,
+          "sha256": "18c0d0fbd15f0599359f278c4438bb4aea79032409d91e8f2fb2c6d7fec36890"
+        },
+        {
+          "file": "editor-preferences-640px-dark-keyboard-return.png",
+          "bytes": 161147,
+          "sha256": "1a5f1509309a47d5fc37d81a91c18dfd73b5224096631bafa2daa1a8d47dec44"
+        },
+        {
+          "file": "editor-preferences-640px-light.png",
+          "bytes": 260344,
+          "sha256": "adf9490dbc53b8d656bc18fece0941681c8687df1f78670243aa9937e1143737"
+        },
+        {
+          "file": "editor-preferences-640px-light-keyboard-return.png",
+          "bytes": 168686,
+          "sha256": "7a1f94701323a4c84071a9e290ba949432add0a2647c428f51359d2876045b6c"
+        },
+        {
+          "file": "editor-preferences-640px-highContrast.png",
+          "bytes": 213080,
+          "sha256": "418f0b8cea7a2b5761e1d2e325313e1235406e670ff4283004896ccf61791147"
+        },
+        {
+          "file": "editor-preferences-640px-highContrast-keyboard-return.png",
+          "bytes": 144086,
+          "sha256": "bf755f50a878df8b0dac2a9b3c21037fe8b2459908ab09053536656655f9a806"
+        },
+        {
+          "file": "command-palette-640-dark.png",
+          "bytes": 162116,
+          "sha256": "55c9d4dac15c60152d296a8cef1d28813b022b406321369b4ded5fb88b26936b"
+        },
+        {
+          "file": "command-palette-640-dark-keyboard-return.png",
+          "bytes": 161125,
+          "sha256": "9dc4fcf3ba4924c4f71fd11c5c74e75886f3a45d1358d90bc4f502e0b0e979e0"
+        }
+      ]
+    },
+    {
+      "host": "browser-states-dark",
+      "phase": "before",
+      "frameCount": 12,
+      "result": "fail",
+      "measuredViolationCount": 318,
+      "rawManifestSha256": "e08727df60cb39687861208ca3efffc59ea370cf1efcf32c3be4cbbb51ae49ea",
+      "portableManifestSha256": "e08727df60cb39687861208ca3efffc59ea370cf1efcf32c3be4cbbb51ae49ea",
+      "gzipSha256": "ac3218a7938e0f614f44e76cf6d67b346efed380e92c4ba955a6222d9636c865",
+      "manifest": "verified/browser-states-dark-before/manifest.json.gz",
+      "captures": [
+        {
+          "file": "landing-session-input-keyboard-focus.png",
+          "bytes": 47324,
+          "sha256": "bbe2627f8fddfa9151fbdb7c62482296e020c7578b6aa371607e58862563beee"
+        },
+        {
+          "file": "landing-root-text-200-control-reachability.png",
+          "bytes": 105376,
+          "sha256": "7c9dbca16636cbcba204c816f7dea44618a0ac46c9bfc8aaf18fb5ae4f8bd895"
+        },
+        {
+          "file": "game-settings-enabled-readonly-movement-key.png",
+          "bytes": 186969,
+          "sha256": "0bcb63ee35b2a86ce7eb5e9f2dc7d0ab440a313241b4de48795fbf3a307e1227"
+        },
+        {
+          "file": "state-empty-project.png",
+          "bytes": 47324,
+          "sha256": "bbe2627f8fddfa9151fbdb7c62482296e020c7578b6aa371607e58862563beee"
+        },
+        {
+          "file": "state-loading-project.png",
+          "bytes": 62133,
+          "sha256": "0ef239c777827cbdffff83c13343a4203e1db8e0d6be85019eb245f4a0fd8b8b"
+        },
+        {
+          "file": "state-dirty.png",
+          "bytes": 181817,
+          "sha256": "4a757e85a24d7c1df1355fee705642ed029353d0c1436aeadb1e1a3111788b7a"
+        },
+        {
+          "file": "state-saving.png",
+          "bytes": 184356,
+          "sha256": "04a1e6643c61392377f119550b193ea2590544b56d028ea546ba3cf1497f415e"
+        },
+        {
+          "file": "state-saved.png",
+          "bytes": 185210,
+          "sha256": "a089bc0823a367d8471db429ce06ddee2ba0d4e13c20124b99690a2eddd34dd8"
+        },
+        {
+          "file": "state-write-failed.png",
+          "bytes": 191836,
+          "sha256": "661b4e9f0873eb6c8beffc11d457e159a8ce2c59ec99c9d06dcdcef40e6ca0a8"
+        },
+        {
+          "file": "state-save-refused.png",
+          "bytes": 175702,
+          "sha256": "c8664fe8f8ec1849345f6ec06871e9c0fb3522935c953e8720a66c04e652e309"
+        },
+        {
+          "file": "state-read-only-preview.png",
+          "bytes": 177446,
+          "sha256": "e3c3e62010b0d0c1023cb71b66250a30d3a847d5f2c428dafdde41b27fb01fca"
+        },
+        {
+          "file": "state-validation.png",
+          "bytes": 190475,
+          "sha256": "dc919422906cf91079c57e72bd54663429b044004f6dc7d34323d3a2aab81f2f"
+        }
+      ]
+    },
+    {
+      "host": "browser-states-light",
+      "phase": "before",
+      "frameCount": 12,
+      "result": "fail",
+      "measuredViolationCount": 309,
+      "rawManifestSha256": "dd5fcc02312c7270a22aae417770f045b11904ac4101d23b2d9b065d9f94001e",
+      "portableManifestSha256": "dd5fcc02312c7270a22aae417770f045b11904ac4101d23b2d9b065d9f94001e",
+      "gzipSha256": "e489910b587ae544e5452adf7b81962cff5c294493a80e20e80e8f7068106f72",
+      "manifest": "verified/browser-states-light-before/manifest.json.gz",
+      "captures": [
+        {
+          "file": "landing-session-input-keyboard-focus.png",
+          "bytes": 51661,
+          "sha256": "bcacf3f93392e3b6c6554efb014afd0360897ddf8d8f2413be0fd89419cf438d"
+        },
+        {
+          "file": "landing-root-text-200-control-reachability.png",
+          "bytes": 114678,
+          "sha256": "064ccbf13b46f1f4050b507e128c573467830360615403a27d990e2610743851"
+        },
+        {
+          "file": "game-settings-enabled-readonly-movement-key.png",
+          "bytes": 197209,
+          "sha256": "c7ce0d4725e0806e58af93e4943b5b13216c7074c298d9143693ac76a1fb58bc"
+        },
+        {
+          "file": "state-empty-project.png",
+          "bytes": 51661,
+          "sha256": "bcacf3f93392e3b6c6554efb014afd0360897ddf8d8f2413be0fd89419cf438d"
+        },
+        {
+          "file": "state-loading-project.png",
+          "bytes": 66874,
+          "sha256": "0b10980cff7df47ebd98861aaba5d84ee730e4d382d744f3a6cbcb68e932cd70"
+        },
+        {
+          "file": "state-dirty.png",
+          "bytes": 190552,
+          "sha256": "c8bd6d3a5a6938c7d3c530f3adadfe9252aeb4cc0a44167e27a2b3238ac8d92f"
+        },
+        {
+          "file": "state-saving.png",
+          "bytes": 193607,
+          "sha256": "ceb2f8a8be05a32364d5f6957f37ebfa879e7ba15c922c9c71152f216c1090be"
+        },
+        {
+          "file": "state-saved.png",
+          "bytes": 194521,
+          "sha256": "57d8103f65d1773fbd188034e3ee787336fcc9b34a39f5e47c0441f66f65d519"
+        },
+        {
+          "file": "state-write-failed.png",
+          "bytes": 200761,
+          "sha256": "9f5110cbee0a37d9dec370338f6bf592671276b4b8be924df6c7de26a6853863"
+        },
+        {
+          "file": "state-save-refused.png",
+          "bytes": 184582,
+          "sha256": "8ae4c175bac3042dc3a18b7603a3afda4e812b47684701b6f19062ae54674f5a"
+        },
+        {
+          "file": "state-read-only-preview.png",
+          "bytes": 186733,
+          "sha256": "b81b0620160c1e9e8f771f28b0fc39bbe336ad32777525e9ab1fd1cf5bd3a56d"
+        },
+        {
+          "file": "state-validation.png",
+          "bytes": 232867,
+          "sha256": "52d4a0092ff4dc8d79c08db15bee0d62970475ad0c26fd1576382ace0f8a7d78"
+        }
+      ]
+    },
+    {
+      "host": "browser-states-highContrast",
+      "phase": "before",
+      "frameCount": 12,
+      "result": "fail",
+      "measuredViolationCount": 4,
+      "rawManifestSha256": "a4a66ebec303e10ca29a4f5a39765b1a7f4939e3caf686659c6d266e6a8abc2d",
+      "portableManifestSha256": "a4a66ebec303e10ca29a4f5a39765b1a7f4939e3caf686659c6d266e6a8abc2d",
+      "gzipSha256": "e113fd803a4d3f96964a0f7c829a10ac3eeaed69bd98c7e0d68c31586f648d28",
+      "manifest": "verified/browser-states-highContrast-before/manifest.json.gz",
+      "captures": [
+        {
+          "file": "landing-session-input-keyboard-focus.png",
+          "bytes": 43569,
+          "sha256": "e6f0a53ff9379140669f2a16e18da274e11d70d8e86d6de1b0a6092e3af28070"
+        },
+        {
+          "file": "landing-root-text-200-control-reachability.png",
+          "bytes": 100436,
+          "sha256": "654fe160a63555258ef7efefec549025330cde8ef5feff23840d8c8e6930fdd5"
+        },
+        {
+          "file": "game-settings-enabled-readonly-movement-key.png",
+          "bytes": 168342,
+          "sha256": "97c9ab2fd6d3be0f7af8eebb448713222d49dc70943aa9a32dd1aec297f0ccd3"
+        },
+        {
+          "file": "state-empty-project.png",
+          "bytes": 43569,
+          "sha256": "e6f0a53ff9379140669f2a16e18da274e11d70d8e86d6de1b0a6092e3af28070"
+        },
+        {
+          "file": "state-loading-project.png",
+          "bytes": 57300,
+          "sha256": "bac1df9564645a2a5d7d3d311173379e09be1cfd35ed45ad77926d89bf2d87b9"
+        },
+        {
+          "file": "state-dirty.png",
+          "bytes": 163119,
+          "sha256": "dee90acdba1e05616b2441da548c0e47e42dc0da9e0554db842a218c9c305652"
+        },
+        {
+          "file": "state-saving.png",
+          "bytes": 165139,
+          "sha256": "d0acd14f1e150ba4165940627631bff453570c7ac6f2226a778648ac4cad916b"
+        },
+        {
+          "file": "state-saved.png",
+          "bytes": 165818,
+          "sha256": "48e2e8d98210f7cb9fc2725548690fd6c0be53c8827eba9b613bd0785d919268"
+        },
+        {
+          "file": "state-write-failed.png",
+          "bytes": 169631,
+          "sha256": "f4b59752ae14c0f079b905420fe13e34f861b1682419020f0a29f015dc215aab"
+        },
+        {
+          "file": "state-save-refused.png",
+          "bytes": 157653,
+          "sha256": "99df29bc662dfabeb8e112e17564a1f55397ff416004b9ff15a8435db0d7a713"
+        },
+        {
+          "file": "state-read-only-preview.png",
+          "bytes": 159709,
+          "sha256": "9712dbe3e0ea707cbed063ba2f04874c354587bc0fe8c423a76c02e269639f27"
+        },
+        {
+          "file": "state-validation.png",
+          "bytes": 175483,
+          "sha256": "595009f6f8e6b25aa78be017dc190053cafe9fcfbb3ac1113a7a33fc11c4e881"
+        }
+      ]
+    },
+    {
+      "host": "vscode",
+      "phase": "before",
+      "frameCount": 81,
+      "result": "measured-violations",
+      "measuredViolationCount": 2936,
+      "rawManifestSha256": "5d7dacf10a79d868abd71a5b987d9eefef4af7b1445130a1c3e0b405c8519947",
+      "portableManifestSha256": "97fe6406d167150752f8855fb1b73237e743d088cc07b43798652fc4f0609378",
+      "gzipSha256": "b62a503340a57e4d077bae8d3664362652f062e397f69ed7d857ad2ca91ea72d",
+      "manifest": "verified/vscode-before/manifest.json.gz",
+      "captures": [
+        {
+          "file": "game-normal-light.png",
+          "bytes": 187990,
+          "sha256": "cb3b877a3fe700c86feef945373f080a2d08bfa1e9040c30dce60ce563b0d821"
+        },
+        {
+          "file": "board-normal-light.png",
+          "bytes": 208275,
+          "sha256": "66972f2bc91045a54b09d8e6b8dd5c0afdbe938f29c82b57dea51fa3df2e50de"
+        },
+        {
+          "file": "board-properties-normal-light.png",
+          "bytes": 150543,
+          "sha256": "74ed2de2a7e1f4921604901b39004d936d1e0d8858d68b83a6bd9a7d7d496231"
+        },
+        {
+          "file": "character-normal-light.png",
+          "bytes": 213060,
+          "sha256": "a7339aba8c3425e9b989181cc5ba922de2d6a0b0e7293c13d641699f816e92e8"
+        },
+        {
+          "file": "item-normal-light.png",
+          "bytes": 206191,
+          "sha256": "b926ced9475b46b92af5a6300cecad0f0e2d7c3c308534f9a840c6e822402640"
+        },
+        {
+          "file": "tileset-art-normal-light.png",
+          "bytes": 98671,
+          "sha256": "e8f092c5ad3791ac1bbbf1a49b418806420e340611a405b3acae756825f52f6c"
+        },
+        {
+          "file": "tile-bitmap-normal-light.png",
+          "bytes": 150023,
+          "sha256": "c5acb8cbe25eda60a17261cac32c50d78da43928732d4d07dc3f709c1a3dd4f1"
+        },
+        {
+          "file": "animation-normal-light.png",
+          "bytes": 171266,
+          "sha256": "a0ed89d69dba77367d8f31b38e0ee1a3a1dba7f66c961853377a04a7619baf65"
+        },
+        {
+          "file": "program-normal-light.png",
+          "bytes": 95437,
+          "sha256": "7a92d0d0f48364ddc61e67b756dd59a52d1247e4c9a54c6f201ef160d4f9f191"
+        },
+        {
+          "file": "program-long-name-normal-light.png",
+          "bytes": 104287,
+          "sha256": "df91aa65f7171cbc17b9e207cc116599ef0f4ff07a17f310aed9e8f0a6d65a35"
+        },
+        {
+          "file": "game-640px-light.png",
+          "bytes": 142848,
+          "sha256": "85f525a9fd0c79ce010ec14026036e080fe665bfce39351c442e91f8cc62de34"
+        },
+        {
+          "file": "board-640px-light.png",
+          "bytes": 177636,
+          "sha256": "cf3d55aa6f31fd94a8ffe3a6fc89284d5bc2da3a8c688a62720ea49da21bd104"
+        },
+        {
+          "file": "board-properties-640px-light.png",
+          "bytes": 130753,
+          "sha256": "0ebf581b97228a9cec370f07fa743ed2f2998e79cc442526be36d1ab4043e6f0"
+        },
+        {
+          "file": "character-640px-light.png",
+          "bytes": 177642,
+          "sha256": "023d6e0f521c86eeea169faa2d15cd418e5ed164a625b2cb6f98004856349d00"
+        },
+        {
+          "file": "item-640px-light.png",
+          "bytes": 176535,
+          "sha256": "6b1df797d82ec8d95e288ed71d8371bf844a4573149b4f8084cfe05e2c3217bb"
+        },
+        {
+          "file": "tileset-art-640px-light.png",
+          "bytes": 99140,
+          "sha256": "625fec8ea9670c4273e672ed9d4e5a0474bb444d47a536d527d0119cf00826c9"
+        },
+        {
+          "file": "tile-bitmap-640px-light.png",
+          "bytes": 131023,
+          "sha256": "7af84278accc7ec3e3f5cd9fbac9cf23b3843042f988fd68e1a2e0044f3b07eb"
+        },
+        {
+          "file": "animation-640px-light.png",
+          "bytes": 182144,
+          "sha256": "9eccfc7d835a1a06341c54a475d3fee7ea5234f206362f8d65cf0cec27469a5f"
+        },
+        {
+          "file": "program-640px-light.png",
+          "bytes": 89512,
+          "sha256": "7ce7bdadd81850221a9db7705a9d54abb40bc8a67871f26efd51eb45e299b327"
+        },
+        {
+          "file": "program-long-name-640px-light.png",
+          "bytes": 91228,
+          "sha256": "98c70b9cfbe380a2045d9932cfbb7ce6ea27eb1233bd6c3cf67070f978fb8f08"
+        },
+        {
+          "file": "game-normal-dark.png",
+          "bytes": 215191,
+          "sha256": "c50936779e5e4d0820e082e9d5750726a93d049ab0885595195d347f4a97f38e"
+        },
+        {
+          "file": "board-normal-dark.png",
+          "bytes": 226751,
+          "sha256": "c1f08433d5bbdac1d2aed6b228eb48045b3acff7f2732c3be892721fdefbee25"
+        },
+        {
+          "file": "board-properties-normal-dark.png",
+          "bytes": 167184,
+          "sha256": "cacdc36ec11f91dbad5d86e7b8e9ce9b28c33d78d97d016e6e780f2c666d3bb1"
+        },
+        {
+          "file": "character-normal-dark.png",
+          "bytes": 221983,
+          "sha256": "97db0bec3996d4b775d4e1772bc11eef9bc75a3adf4081950b4c280d508108bc"
+        },
+        {
+          "file": "item-normal-dark.png",
+          "bytes": 212880,
+          "sha256": "8b51a32a527b8e253e1bda80ffa2518f9616c816487c85668bd5bd11d86bafe2"
+        },
+        {
+          "file": "tileset-art-normal-dark.png",
+          "bytes": 107808,
+          "sha256": "65447799ed78ae7147fe6dfe764511c4a7a23c42eec8bcfad75a2cf09852ed66"
+        },
+        {
+          "file": "tile-bitmap-normal-dark.png",
+          "bytes": 156268,
+          "sha256": "50c56e0b4c3ce9e6e19d04826b6bc7b68f71a8db41a054a2c28482168da1fed8"
+        },
+        {
+          "file": "animation-normal-dark.png",
+          "bytes": 179106,
+          "sha256": "54c0dabc3d24ea17501ed0e5a5d5f7f254b4ea89adfee9b11155aa675ec970f0"
+        },
+        {
+          "file": "program-normal-dark.png",
+          "bytes": 100050,
+          "sha256": "86882512b9356ea79df7cfacae28da703ff8fdb459609f8f14298204b02f8d79"
+        },
+        {
+          "file": "program-long-name-normal-dark.png",
+          "bytes": 105859,
+          "sha256": "2a1d21f2d61573adb5c518508b9fea412ebd3d28fb20995063142cb82a67c707"
+        },
+        {
+          "file": "game-640px-dark.png",
+          "bytes": 143564,
+          "sha256": "4be7d71172114b7e205d86b7b790b10fd1c0fea03f1e74b053529bae113632be"
+        },
+        {
+          "file": "board-640px-dark.png",
+          "bytes": 179891,
+          "sha256": "c2c13fef4f1d738a3dba09b98d10931fd8682c8ca9822f25b8cb32e097ce5d43"
+        },
+        {
+          "file": "board-properties-640px-dark.png",
+          "bytes": 132403,
+          "sha256": "12f595971e934b29eec3be1b1e1915de19528db9f6bd5e8d91ee1cc84f233f4f"
+        },
+        {
+          "file": "character-640px-dark.png",
+          "bytes": 176064,
+          "sha256": "4094b130c58b9b06c3d45f922e5cb33e8737f6d1b9d5d3e680aa27ef582152ed"
+        },
+        {
+          "file": "item-640px-dark.png",
+          "bytes": 174775,
+          "sha256": "fef622c87f0c0a21e79474ab5808a68b0545ac296fb10d32829f22fd62c71630"
+        },
+        {
+          "file": "tileset-art-640px-dark.png",
+          "bytes": 100352,
+          "sha256": "5634d3d552cacd0e8455533ca124841c153fce39fa0d5e61077f9001d018e1e3"
+        },
+        {
+          "file": "tile-bitmap-640px-dark.png",
+          "bytes": 132001,
+          "sha256": "82781ce426036da4c88b5425e1a6a708c01aa8462c6e09930bb110c31e698dec"
+        },
+        {
+          "file": "animation-640px-dark.png",
+          "bytes": 184171,
+          "sha256": "8755b4beeab51dbe7d775b3c01837d6359d71d1e071540fc226fb15e98303f41"
+        },
+        {
+          "file": "program-640px-dark.png",
+          "bytes": 92572,
+          "sha256": "79b259790dfa08f923fa574dcaa2dc1e3abc6522beef930b8ff8298ad35c5ab5"
+        },
+        {
+          "file": "program-long-name-640px-dark.png",
+          "bytes": 93014,
+          "sha256": "218090d228259c425653395a0cd451523a9e1f5d2a934dd0edad13c76e061983"
+        },
+        {
+          "file": "game-normal-high-contrast-dark.png",
+          "bytes": 233043,
+          "sha256": "d29e2acf29c92585076c49df1c08b3095c6602130ab6f1381adb9f43b8c532d3"
+        },
+        {
+          "file": "board-normal-high-contrast-dark.png",
+          "bytes": 224975,
+          "sha256": "c483b4f7786f35693b16bd12c979b007749beefd7f1d3d4802152f20c176b05f"
+        },
+        {
+          "file": "board-properties-normal-high-contrast-dark.png",
+          "bytes": 176246,
+          "sha256": "c4b1d8126074701eeeb9ee3c7a3256dd1663be6f59bbf45a968fba6234d2c55b"
+        },
+        {
+          "file": "character-normal-high-contrast-dark.png",
+          "bytes": 229263,
+          "sha256": "029e103922c507918f6b30f5f022e7a050564255511ff2bb3902077eb63d0106"
+        },
+        {
+          "file": "item-normal-high-contrast-dark.png",
+          "bytes": 221806,
+          "sha256": "4cd91ee03fd3dd917c2013e9ceabaffe317a6ed5e7383b2e30694fd7b2c425c1"
+        },
+        {
+          "file": "tileset-art-normal-high-contrast-dark.png",
+          "bytes": 105859,
+          "sha256": "9bebf0550458496cae2b6873148767a186f0586ff1bb38c380383ec4c74e6aac"
+        },
+        {
+          "file": "tile-bitmap-normal-high-contrast-dark.png",
+          "bytes": 162450,
+          "sha256": "95777dc863670d0f28b05ab5e9cab9bad7605ec235788ffd13f184d830e121ab"
+        },
+        {
+          "file": "animation-normal-high-contrast-dark.png",
+          "bytes": 176750,
+          "sha256": "3da05ad494198d2182e8affacf41d5356ecc9a649b2f3ea77a76f51b1fe7878a"
+        },
+        {
+          "file": "program-normal-high-contrast-dark.png",
+          "bytes": 97538,
+          "sha256": "e2c712e71efab416abaec1673b0a29bb63da5afe07ec6c58686962a990ca9b84"
+        },
+        {
+          "file": "program-long-name-normal-high-contrast-dark.png",
+          "bytes": 102669,
+          "sha256": "4266362030270958a4e6e8ba3a4bb9467c57cffb65a38ada8e1589c695b38532"
+        },
+        {
+          "file": "game-640px-high-contrast-dark.png",
+          "bytes": 152585,
+          "sha256": "a73a9d956d4759a66c495cc7b6b5e25304e91671f0fcb8d30028ae268c77886b"
+        },
+        {
+          "file": "board-640px-high-contrast-dark.png",
+          "bytes": 174748,
+          "sha256": "cf1012373bcd31eb9e92aacf2dfcc9ff0eeda3fc1b44f2481102d1fbb926dc2b"
+        },
+        {
+          "file": "board-properties-640px-high-contrast-dark.png",
+          "bytes": 138096,
+          "sha256": "985ca589eb9114dbc0b92e710d0abf494e8b58882f648f68b29cd9e88dd073dc"
+        },
+        {
+          "file": "character-640px-high-contrast-dark.png",
+          "bytes": 179434,
+          "sha256": "fbabded9e2551ec5fa28e19f950459a0c078deebb7c06a49422c421fcbe4ddd3"
+        },
+        {
+          "file": "item-640px-high-contrast-dark.png",
+          "bytes": 177551,
+          "sha256": "e88313e293b2063a9826e3fe240f109b3a375e9dc3f4038b7f8e44c1c22443bf"
+        },
+        {
+          "file": "tileset-art-640px-high-contrast-dark.png",
+          "bytes": 97050,
+          "sha256": "1a8ff70aa8da7474404f156abf4273c3b1e3684b0ccc63b972674db59f4d832c"
+        },
+        {
+          "file": "tile-bitmap-640px-high-contrast-dark.png",
+          "bytes": 134348,
+          "sha256": "d9a8379dd121d8508318429d6c24f9b2748cec10bad808bed5a1a612293195f6"
+        },
+        {
+          "file": "animation-640px-high-contrast-dark.png",
+          "bytes": 181634,
+          "sha256": "8d1b7647175b31ced6fd26bf7694328cbf5634e1c9c5183e2578ae30e2255f12"
+        },
+        {
+          "file": "program-640px-high-contrast-dark.png",
+          "bytes": 89967,
+          "sha256": "1daaf815915b9ab418cf01f7516268ff842a774e4037085ff2cbdb850f23825b"
+        },
+        {
+          "file": "program-long-name-640px-high-contrast-dark.png",
+          "bytes": 89850,
+          "sha256": "30ce196141b3d31203666392c578846b429620424888705e71c3d2ddfd8f8fdb"
+        },
+        {
+          "file": "game-normal-high-contrast-light.png",
+          "bytes": 215460,
+          "sha256": "f8114e15b4876eb67b4839fbf27f959d6c5303f030cb9e0e346a6eb455dd0d66"
+        },
+        {
+          "file": "board-normal-high-contrast-light.png",
+          "bytes": 224492,
+          "sha256": "c827b48a4d93dbae00c251fd4a2bd9049247f2dd43e842f7f18ae346c6628eb0"
+        },
+        {
+          "file": "board-properties-normal-high-contrast-light.png",
+          "bytes": 165850,
+          "sha256": "96165bfc5301e7a124c54b005b1ded96103b5077c8533a3209b69a681f99e3cf"
+        },
+        {
+          "file": "character-normal-high-contrast-light.png",
+          "bytes": 229284,
+          "sha256": "c777b0effd3367c482362bf4482856fd7c3a86e67cd7f6613fa4df94fb4065d1"
+        },
+        {
+          "file": "item-normal-high-contrast-light.png",
+          "bytes": 221208,
+          "sha256": "88a2546b8f2c2484da6a98463c9d92ed1c8a7f9267e517cf22b7e8e6b5b6f14c"
+        },
+        {
+          "file": "tileset-art-normal-high-contrast-light.png",
+          "bytes": 106360,
+          "sha256": "f4302e68da6a426d32ba24679643feb8f417f71116a47f40fd6bb06bc00f1b69"
+        },
+        {
+          "file": "tile-bitmap-normal-high-contrast-light.png",
+          "bytes": 156325,
+          "sha256": "acd8b465bd186f345c326e82389fd717eae5e433bc4f5fd54b9dcc1af3cbcd38"
+        },
+        {
+          "file": "animation-normal-high-contrast-light.png",
+          "bytes": 177502,
+          "sha256": "bf335318da00bed2fbf616aad73cd62ca2fa0cec4f3b1b66ec8b3a5403c94dfe"
+        },
+        {
+          "file": "program-normal-high-contrast-light.png",
+          "bytes": 97179,
+          "sha256": "5ca71c67291c7cb7ae5e61aceb4548dd9fdb26d4bacff80f87023749e210fd1b"
+        },
+        {
+          "file": "program-long-name-normal-high-contrast-light.png",
+          "bytes": 101954,
+          "sha256": "a5367bbd201630bec646069b713055f4ca9553c66b4c700dd40da555cfce3273"
+        },
+        {
+          "file": "game-640px-high-contrast-light.png",
+          "bytes": 141967,
+          "sha256": "8e945fbec4358bb52a06d3b7e927cbba5555518939bb3f7c0dea08ec01647315"
+        },
+        {
+          "file": "board-640px-high-contrast-light.png",
+          "bytes": 177286,
+          "sha256": "6d40658def983aae1101e28addd7436b6fde4d4a454cc94aa8814e765e0116f9"
+        },
+        {
+          "file": "board-properties-640px-high-contrast-light.png",
+          "bytes": 130035,
+          "sha256": "46f29fe19dd46c948949554066d1bb6a2a21d4afdff9a1fe0d67cd62dd679b3a"
+        },
+        {
+          "file": "character-640px-high-contrast-light.png",
+          "bytes": 178346,
+          "sha256": "cd244bc2305b98ea5262c913a9cd5891dc9d5d2c4d1f590ff40a063de74d4e5d"
+        },
+        {
+          "file": "item-640px-high-contrast-light.png",
+          "bytes": 177154,
+          "sha256": "50616280d8e010ffd88b839ae4233c97b4876f2d0bc04afb482664411ec1d3d0"
+        },
+        {
+          "file": "tileset-art-640px-high-contrast-light.png",
+          "bytes": 97253,
+          "sha256": "6cd974e226229ca29dedb5bc1a0a0fd808fd020ec69fdb8c7d7b17d5a68d10fb"
+        },
+        {
+          "file": "tile-bitmap-640px-high-contrast-light.png",
+          "bytes": 131272,
+          "sha256": "9f8fe68c75bb30840a079badfdb7f542944f91b6cbdf6af1c9ba6b071b90ef2d"
+        },
+        {
+          "file": "animation-640px-high-contrast-light.png",
+          "bytes": 181834,
+          "sha256": "9a82ae5e858f3f7a70429cbbf164f6eb29806917c0748d85acf4e0f76027bd5a"
+        },
+        {
+          "file": "program-640px-high-contrast-light.png",
+          "bytes": 89479,
+          "sha256": "5d0516cd27768a103382660942daa37ebaae9e0a207a1c43a07e48546281af88"
+        },
+        {
+          "file": "program-long-name-640px-high-contrast-light.png",
+          "bytes": 89770,
+          "sha256": "c412c4936992a04487ba52bb2747fffdc776c9d580cbf91bd6db6bf6f89f4d03"
+        },
+        {
+          "file": "game-root-text-scale-200.png",
+          "bytes": 212970,
+          "sha256": "491c9fc765c658521d570e7d19b8b06fde0a99f757af8e04b014652325c137b8"
+        }
+      ]
+    },
+    {
+      "host": "browser",
+      "phase": "after",
+      "frameCount": 107,
+      "result": "pass",
+      "measuredViolationCount": 0,
+      "rawManifestSha256": "7a48fb672bbc00c0b9b3cddca3f6b002eacc7ea04216a3471db00979b6e4d268",
+      "portableManifestSha256": "7a48fb672bbc00c0b9b3cddca3f6b002eacc7ea04216a3471db00979b6e4d268",
+      "gzipSha256": "28bb954c5b21d1532e2f1acb10c16514ed09898e2d69894325d84d7bf46a48bb",
+      "manifest": "verified/browser-after/manifest.json.gz",
+      "captures": [
+        {
+          "file": "game-settings-normal-dark.png",
+          "bytes": 194013,
+          "sha256": "b3835686fbc6f8d0b9e193529f2c59a8c5eb7e5f2630aca5481802cc2f3ae98f"
+        },
+        {
+          "file": "game-settings-normal-light.png",
+          "bytes": 191374,
+          "sha256": "cc0a6bac7a70278eb954598e0f317759a848a93bdd15a1698cc6a640c2df9801"
+        },
+        {
+          "file": "game-settings-normal-highContrast.png",
+          "bytes": 165468,
+          "sha256": "b74cead0770f879b7063bfaaf9c5cb35f4463cccf26cb6404d737175beb4f88e"
+        },
+        {
+          "file": "game-settings-normal-root-text-200-long-title.png",
+          "bytes": 205609,
+          "sha256": "1137bf7197ace0d5742bd8ac9d779ebba056f25820833b5bcd2221ecc2d4c98d"
+        },
+        {
+          "file": "game-settings-640px-dark.png",
+          "bytes": 195738,
+          "sha256": "49585dcce7d0afd6d9ad3ba9796cc672918d114d530330c4a90dce97360d2b6e"
+        },
+        {
+          "file": "game-settings-640px-light.png",
+          "bytes": 192986,
+          "sha256": "6ab052ac6703817c205e5dae28081fb0bf6388dbc1f53a44e0fe3934f4956fb6"
+        },
+        {
+          "file": "game-settings-640px-highContrast.png",
+          "bytes": 165853,
+          "sha256": "e02491df63162ecaafa3dcfb7a33311c1bb07928fb13165afa3e8e95ab49e201"
+        },
+        {
+          "file": "board-normal-dark.png",
+          "bytes": 213096,
+          "sha256": "b2a963f439b93b788532b88f83e03a3a931841b880817449942f9ae3d3c933d4"
+        },
+        {
+          "file": "board-normal-light.png",
+          "bytes": 208760,
+          "sha256": "2f8dda45a9af8f21e01479752256d4a72b4b93db4d1c653314cefa245eae0f6f"
+        },
+        {
+          "file": "board-normal-highContrast.png",
+          "bytes": 187232,
+          "sha256": "81ec1d1dd86b8919713aabd98cf1ae71c2ad6c224774051ea25524456270e0fd"
+        },
+        {
+          "file": "board-640px-dark.png",
+          "bytes": 214392,
+          "sha256": "c8db18ecab5e9e04a25bd01d0356e3a2fb3b77032419c54adab031a143a3fed1"
+        },
+        {
+          "file": "board-640px-light.png",
+          "bytes": 210011,
+          "sha256": "442ac5553860a861c2885a765347b35a8ee96057485192d2517c9ba02939a778"
+        },
+        {
+          "file": "board-640px-highContrast.png",
+          "bytes": 190750,
+          "sha256": "5fe0113b8a00cb6e378f565e8b00e74b863efa853dfcb6824920425556311d3c"
+        },
+        {
+          "file": "character-normal-dark.png",
+          "bytes": 207994,
+          "sha256": "4cef4df8f391f76495b653eab42966b6404fcec34a541b2d1d285c207f26e046"
+        },
+        {
+          "file": "character-normal-light.png",
+          "bytes": 200438,
+          "sha256": "25d8598ff89ab43be5a5e7b371fdeb49a3f2455723bb83ed40ad5271bccf9141"
+        },
+        {
+          "file": "character-normal-highContrast.png",
+          "bytes": 178812,
+          "sha256": "9f67ef47f7da083ce1b9b78493758f4fdbf9d4743629374d0bf509dd26242569"
+        },
+        {
+          "file": "character-640px-dark.png",
+          "bytes": 195200,
+          "sha256": "803d182f328bf0dd36e8e5622107d2070ce470046691f17ca3a7ba06d540e514"
+        },
+        {
+          "file": "character-640px-light.png",
+          "bytes": 188657,
+          "sha256": "23a5cf737baa51d5273d05bfe83a89a07a1ba327554c5c85000079b43f1e65c6"
+        },
+        {
+          "file": "character-640px-highContrast.png",
+          "bytes": 165946,
+          "sha256": "88a47f79691021a2ab2e9722025949dc732ed5b1dd413c387209e983c57a5bb8"
+        },
+        {
+          "file": "item-normal-dark.png",
+          "bytes": 219424,
+          "sha256": "aecf4c36a787583a99e21307aac36384082159d8187e730272be352b656deade"
+        },
+        {
+          "file": "item-normal-light.png",
+          "bytes": 210905,
+          "sha256": "4a535aee98d0a9b2c0c2a0884103a677d6e29df0fd8fb2b9c1a76335749649f5"
+        },
+        {
+          "file": "item-normal-highContrast.png",
+          "bytes": 190334,
+          "sha256": "e65ac90b39ae00513db8cbfb53ac4fb43c3760b3ff308f48922226167cb3b032"
+        },
+        {
+          "file": "item-640px-dark.png",
+          "bytes": 195034,
+          "sha256": "9c005eaf9d866230538c05e438d466ddb8988bd614c9720f104d7b9e8d7b95b8"
+        },
+        {
+          "file": "item-640px-light.png",
+          "bytes": 187978,
+          "sha256": "df61f8e93ccd55009d8337163ce38fc82aa8851f7ab2dc1a7b7c2d5ca600d916"
+        },
+        {
+          "file": "item-640px-highContrast.png",
+          "bytes": 165712,
+          "sha256": "7ae254cc3bfec8699250c82d6dff32c4898161d07554381ac84bd1915257abef"
+        },
+        {
+          "file": "tileset-normal-dark.png",
+          "bytes": 124254,
+          "sha256": "fc2eb364898cbdaadc6b504838a79eba9a63869d16d3c02e8ce2f52430b01710"
+        },
+        {
+          "file": "tileset-normal-light.png",
+          "bytes": 121803,
+          "sha256": "a3e00557eccadafb914813593f45a83aa9811692f06251840f5acb558cfda8d0"
+        },
+        {
+          "file": "tileset-normal-highContrast.png",
+          "bytes": 108657,
+          "sha256": "05d28c0e712f1c829aac11df2b1eef3e7d4da8d49cc0c27ebf34d1a42c357700"
+        },
+        {
+          "file": "tileset-640px-dark.png",
+          "bytes": 123451,
+          "sha256": "1ac9b428034ca94dd169ff4d4b07c733ad44a58285580f296c43a4283feba820"
+        },
+        {
+          "file": "tileset-640px-light.png",
+          "bytes": 121094,
+          "sha256": "7c26587006e6a23218b2718a27b3be461f3c49c0f5af0018cdd86b4dc9ca4658"
+        },
+        {
+          "file": "tileset-640px-highContrast.png",
+          "bytes": 107626,
+          "sha256": "4f4923d3f06776d92896ac8c37e395687850979e7e664108eea20b4e6213a541"
+        },
+        {
+          "file": "animation-normal-dark.png",
+          "bytes": 227812,
+          "sha256": "da3b4c249c9eb76bd4d26e063f397e9f6d2381eaeaddd1089d203eca4fbe5434"
+        },
+        {
+          "file": "animation-normal-light.png",
+          "bytes": 221207,
+          "sha256": "9b718b6129e50eff9c4e3e06d3168f3b8a2a8cbf246bbc3d01602047cdc20ab1"
+        },
+        {
+          "file": "animation-normal-highContrast.png",
+          "bytes": 187913,
+          "sha256": "4770723726320779adb7329a65d2b5aad51e57bf046a542234db3d2f17c70967"
+        },
+        {
+          "file": "animation-640px-dark.png",
+          "bytes": 226416,
+          "sha256": "0420ed559292e8913027d41ef234c94addd87257468724000c1976480bb6ad3f"
+        },
+        {
+          "file": "animation-640px-light.png",
+          "bytes": 219983,
+          "sha256": "804b106145d994cec1078161a975c3b5a201e247303a7d2a236cfabeb8d0c63a"
+        },
+        {
+          "file": "animation-640px-highContrast.png",
+          "bytes": 185145,
+          "sha256": "fb15f99fe92b9c197c853bfa9413221d6535edadb87e3cba87f516bf672602b4"
+        },
+        {
+          "file": "program-normal-dark.png",
+          "bytes": 167190,
+          "sha256": "3978db033ed8ffced906660794bff8ff6429739cde46141b1bfbd682be44f15e"
+        },
+        {
+          "file": "program-normal-light.png",
+          "bytes": 163877,
+          "sha256": "3919c6e7de0868f6f9bd682e3b61b85e63385020f31bed51b1304a65616344bf"
+        },
+        {
+          "file": "program-normal-highContrast.png",
+          "bytes": 142051,
+          "sha256": "fa11f9413821548cd305a47fda84f4313dd65eaf5486743bb5ca2f6f23125ae0"
+        },
+        {
+          "file": "program-640px-dark.png",
+          "bytes": 166394,
+          "sha256": "e2504088829eb676aca6c13f487f4b1d21d4588f335ac44c65e0342b3b31c95b"
+        },
+        {
+          "file": "program-640px-dark-reference-closed.png",
+          "bytes": 131103,
+          "sha256": "cb9fb3596cadb24f2245fbd9cf7ac2ea3eda4f3653bbf5fa314396d3f9963c05"
+        },
+        {
+          "file": "program-640px-light.png",
+          "bytes": 162320,
+          "sha256": "ed4631f03431bb4994265eb71111e0a637ef9c6beb0031fdbc06aadab273df3c"
+        },
+        {
+          "file": "program-640px-highContrast.png",
+          "bytes": 140816,
+          "sha256": "df37084de65bc049557b8a0f93fa2c6fd3b2d32373c232ef0c2c626125fb2f04"
+        },
+        {
+          "file": "tile-bitmap-normal-dark.png",
+          "bytes": 145845,
+          "sha256": "620727a160f7ab55ea9ea7ad3064a40b65095f14a183597029f95fef6bf2423e"
+        },
+        {
+          "file": "tile-bitmap-normal-light.png",
+          "bytes": 142754,
+          "sha256": "f6916644e5d68856b706a70008a6145b2f63c25330509648080dadd1fcab9108"
+        },
+        {
+          "file": "tile-bitmap-normal-highContrast.png",
+          "bytes": 124707,
+          "sha256": "a9519b0bac17467fe85184505a045dc585da51ee298dd4ab31854bec060a27e8"
+        },
+        {
+          "file": "tile-bitmap-640px-dark.png",
+          "bytes": 125469,
+          "sha256": "570220b1e10b1a3fe343a83cac9d3e3b64f086b965351648ce143450e3530db4"
+        },
+        {
+          "file": "tile-bitmap-640px-light.png",
+          "bytes": 122706,
+          "sha256": "28907ca2ada35683e1f18d0f9354aacf3a5b50f187f1bdb78c6e23dddcf7e419"
+        },
+        {
+          "file": "tile-bitmap-640px-highContrast.png",
+          "bytes": 106972,
+          "sha256": "d23079341cea37798803fe25415fa2583b3fa9263f5a6f3cd88d186d984eeadf"
+        },
+        {
+          "file": "game-settings-sparse-normal-dark.png",
+          "bytes": 191632,
+          "sha256": "58273baa7b9c174732a1f3768854471ead544bbb177388980766189e605f68e6"
+        },
+        {
+          "file": "game-settings-sparse-normal-light.png",
+          "bytes": 187549,
+          "sha256": "7c98505bb3a5248276818116055f9d398165e2113258874877f3989e1a645e94"
+        },
+        {
+          "file": "game-settings-sparse-normal-highContrast.png",
+          "bytes": 161709,
+          "sha256": "7aea10e30c6446ee3e0be27a8d9cfdaefeaeaa3e776451a8c364265d717e8f60"
+        },
+        {
+          "file": "game-settings-sparse-640px-dark.png",
+          "bytes": 187631,
+          "sha256": "af976276b0bd2233b6eebbd87af25375643cf36e8a1e6f5c6b2d7b4f31e66041"
+        },
+        {
+          "file": "game-settings-sparse-640px-light.png",
+          "bytes": 183090,
+          "sha256": "8c0b1a5308c1fb35d258c022e11e315a8d4278dcffcfc25c55186fd6be4cd6b5"
+        },
+        {
+          "file": "game-settings-sparse-640px-highContrast.png",
+          "bytes": 157059,
+          "sha256": "f46bf933b2c21b8ccf3ef69c1e5504957b75048d96be58baf05879ac26a2e6ae"
+        },
+        {
+          "file": "board-sparse-normal-dark.png",
+          "bytes": 138796,
+          "sha256": "e7d20d9c1b23b23e700b7d0e7ae9225a30906ae0ce8dfc112eb5f463ce36729a"
+        },
+        {
+          "file": "board-sparse-normal-light.png",
+          "bytes": 136144,
+          "sha256": "80f65576e4db4f68e70fe23d76942e815793986f7c7265ed23fce3113ae7babf"
+        },
+        {
+          "file": "board-sparse-normal-highContrast.png",
+          "bytes": 117901,
+          "sha256": "c228383798130f40c6352ac7a2e7ed0716176b023976c57d628a854abcb8483e"
+        },
+        {
+          "file": "board-sparse-640px-dark.png",
+          "bytes": 112596,
+          "sha256": "3b65b81d9b48c394d37c4005c0d921415534d962290781901b332c3771a88c7c"
+        },
+        {
+          "file": "board-sparse-640px-light.png",
+          "bytes": 110203,
+          "sha256": "660bf36f92b3789d7310844e96389a33e6de200f56be86e4a239e479a43c5f52"
+        },
+        {
+          "file": "board-sparse-640px-highContrast.png",
+          "bytes": 95606,
+          "sha256": "a54cb17694aab40fc551546350b363758ccdea17e414b4ed9a3b4d353d274f55"
+        },
+        {
+          "file": "character-sparse-normal-dark.png",
+          "bytes": 177339,
+          "sha256": "f1599af8a49cc8e8bbc95e5a7c1617beb26d9d3c73638bd75b87cd358825964f"
+        },
+        {
+          "file": "character-sparse-normal-light.png",
+          "bytes": 169187,
+          "sha256": "69465ac1146bc449fd6a785531f90139218e335154a2877ad25c7a7ab29a7529"
+        },
+        {
+          "file": "character-sparse-normal-highContrast.png",
+          "bytes": 152613,
+          "sha256": "5efa3aee0af0d1f6827047b7689416aaed15706d77dfb73eb7490a183160315a"
+        },
+        {
+          "file": "character-sparse-640px-dark.png",
+          "bytes": 208068,
+          "sha256": "955d0b2c3596e27dc0ec393d69851ca7bf30eaf08a4ef57034e0dac4df47b441"
+        },
+        {
+          "file": "character-sparse-640px-light.png",
+          "bytes": 199245,
+          "sha256": "8c9d0991637dc36fd4dbb19d8a23daa4edb0a104fda1e8db6a0c0f75f22f7114"
+        },
+        {
+          "file": "character-sparse-640px-highContrast.png",
+          "bytes": 176555,
+          "sha256": "03619f5a704ea165a55c1b873c7a92da9ef2fa653fd73ae0b1413098f0c61e75"
+        },
+        {
+          "file": "item-sparse-normal-dark.png",
+          "bytes": 176910,
+          "sha256": "e6123150972fa102b557059c82297eb1986ab85a065973c21a9240d982213211"
+        },
+        {
+          "file": "item-sparse-normal-light.png",
+          "bytes": 168854,
+          "sha256": "22eba81c5e57555ac47832bc1b1c819eb46ee8ac1a4b8c0092b5eeeda6a50e21"
+        },
+        {
+          "file": "item-sparse-normal-highContrast.png",
+          "bytes": 152537,
+          "sha256": "aaffa9a476ac023cc663f17e19691428e1f005bc785b81d279ecd65c07e8c10a"
+        },
+        {
+          "file": "item-sparse-640px-dark.png",
+          "bytes": 207748,
+          "sha256": "0c6b01126b2ac67dc0a909e8abe433f1aa3b26f3a5f44946769bf03f4fee6e10"
+        },
+        {
+          "file": "item-sparse-640px-light.png",
+          "bytes": 198923,
+          "sha256": "926f332359e9ba90c8e49ba08018eed43a767039c346d57eb0d4380b056e36a5"
+        },
+        {
+          "file": "item-sparse-640px-highContrast.png",
+          "bytes": 176544,
+          "sha256": "844ef4b40a92eb1137158bf66efbe8a922f942933e4a253e02616845f5928a31"
+        },
+        {
+          "file": "tileset-sparse-normal-dark.png",
+          "bytes": 120161,
+          "sha256": "7d8f884bb85bb0c34f0bafcd2c8f2dd43fdb9b2965725291f7bf1ea653c51343"
+        },
+        {
+          "file": "tileset-sparse-normal-light.png",
+          "bytes": 118135,
+          "sha256": "495b87c87ca2917d244d1810a59058fedd269d482bdb7e444d00daeb18c3c2b5"
+        },
+        {
+          "file": "tileset-sparse-normal-highContrast.png",
+          "bytes": 104790,
+          "sha256": "40458ec9356b6d0dfe40d68bdc3efced5b824edec00da96632328cc50acdd20f"
+        },
+        {
+          "file": "tileset-sparse-640px-dark.png",
+          "bytes": 118862,
+          "sha256": "b6be740ae5593dc796df193c5f85589ce2310b6d6a49dc7dca057c8da3ad85e2"
+        },
+        {
+          "file": "tileset-sparse-640px-light.png",
+          "bytes": 116857,
+          "sha256": "904605889c1938b80ecd9bc4646ee570f4c41a04af8b14023e41d9b4e12b72e0"
+        },
+        {
+          "file": "tileset-sparse-640px-highContrast.png",
+          "bytes": 103443,
+          "sha256": "cb5cf5f3d9ffbc538bf128f31af3b08b1e2996dee94a8694d0271134701f166e"
+        },
+        {
+          "file": "animation-sparse-normal-dark.png",
+          "bytes": 225920,
+          "sha256": "3710c565f509d59e4046edd1be8295ee778d9735066a717df9d6e06046e6bc61"
+        },
+        {
+          "file": "animation-sparse-normal-light.png",
+          "bytes": 219462,
+          "sha256": "284ba1acbabcbb6d6cbf7403d033a8a59cbab569d9ab85edf44c1b7c348d1ecd"
+        },
+        {
+          "file": "animation-sparse-normal-highContrast.png",
+          "bytes": 186491,
+          "sha256": "ee3e424f4af24520c0e5a189bc13d22cb7344d23652d5fe9483c7eea6dfb4478"
+        },
+        {
+          "file": "animation-sparse-640px-dark.png",
+          "bytes": 224266,
+          "sha256": "2f9723984153b1781132421a42e1bd18a0de68140b4defbdfcd20ee89a4d2dbb"
+        },
+        {
+          "file": "animation-sparse-640px-light.png",
+          "bytes": 218178,
+          "sha256": "f338f1983d6e4f21166b3e15612870006b67ed58c0f247d1e954092ea3234d63"
+        },
+        {
+          "file": "animation-sparse-640px-highContrast.png",
+          "bytes": 183703,
+          "sha256": "4eff51688760bae0a1f81064fdca32c1e86f61965452a38c41f75e72419716a8"
+        },
+        {
+          "file": "program-sparse-normal-dark.png",
+          "bytes": 154370,
+          "sha256": "7e3aa8e87a455efa3a3a4ae4f9caab1c8ef02efe2c25eff363fb1885171b84c9"
+        },
+        {
+          "file": "program-sparse-normal-light.png",
+          "bytes": 150751,
+          "sha256": "2433d194963166963c63f1a02421634f392556ecf7db86662126c913578a3543"
+        },
+        {
+          "file": "program-sparse-normal-highContrast.png",
+          "bytes": 132036,
+          "sha256": "8b2583e265689587e2be83c0409b4c14db2d7065ad485db7e43161ebe475a9c0"
+        },
+        {
+          "file": "program-sparse-640px-dark.png",
+          "bytes": 153890,
+          "sha256": "d70632018aa679f21ac980e7a94a7bd614cd16f2166949cc4db0a6705de9e1e3"
+        },
+        {
+          "file": "program-sparse-640px-light.png",
+          "bytes": 150008,
+          "sha256": "6830e6c0f79524a9259374f3e4e758dab3a0b01cdaab4b51d0795da930a6d087"
+        },
+        {
+          "file": "program-sparse-640px-highContrast.png",
+          "bytes": 130838,
+          "sha256": "4cff007450b81f21dbb315be6c3d50461efa2363e2f3a8babf8ca1dc879973d6"
+        },
+        {
+          "file": "long-resource-identity-open-tab-header.png",
+          "bytes": 149613,
+          "sha256": "4e0abe59f02856554a2cce351ae0c4b77974c5dc45e834b9ec4fde0f05eeef15"
+        },
+        {
+          "file": "editor-preferences-normal-dark.png",
+          "bytes": 243234,
+          "sha256": "f6442478fe9ceea6cd71ecb1edea9c150f24f5e690d10602be817f3bb52044a0"
+        },
+        {
+          "file": "editor-preferences-normal-dark-keyboard-return.png",
+          "bytes": 196168,
+          "sha256": "ae6c3232f15f77055185e04f2b96f395710533f79204f720c222e317a718c6e1"
+        },
+        {
+          "file": "editor-preferences-normal-light.png",
+          "bytes": 243159,
+          "sha256": "c09ecb8af781c8b1fcf1954c1255bb32af039ff59c3da10a702fdc06422faf18"
+        },
+        {
+          "file": "editor-preferences-normal-light-keyboard-return.png",
+          "bytes": 192729,
+          "sha256": "d64e80052866505f242cd0151c40da55fb6d6cb497dd923e1bc20eb86b5b7f76"
+        },
+        {
+          "file": "editor-preferences-normal-highContrast.png",
+          "bytes": 182993,
+          "sha256": "28c5cbfd097e0a78104c5b1b2da50531008d9cb2c9c063fb13d027bcabbb4eb0"
+        },
+        {
+          "file": "editor-preferences-normal-highContrast-keyboard-return.png",
+          "bytes": 167048,
+          "sha256": "78aff24f945d29d556cb3bda22ee71f53681e2c87e4a8812b084274a5b42cd9b"
+        },
+        {
+          "file": "editor-preferences-640px-dark.png",
+          "bytes": 223170,
+          "sha256": "076836445d06e7df6b937349394313f9f11b417b03d6aaed348dcaf5a7cc38e8"
+        },
+        {
+          "file": "editor-preferences-640px-dark-keyboard-return.png",
+          "bytes": 193212,
+          "sha256": "390e25eccb884bc64ae3a50044a00f87c5e683283d298550509ef072be7c8235"
+        },
+        {
+          "file": "editor-preferences-640px-light.png",
+          "bytes": 224995,
+          "sha256": "16d02c9a6b408bbfe797e85705eb71768eaf600dfd182b498cab8826be66a5ce"
+        },
+        {
+          "file": "editor-preferences-640px-light-keyboard-return.png",
+          "bytes": 189547,
+          "sha256": "14548aa25de4eb6c95f36c4f3a6517ea3cb9f1382d58ad7315710ed4026c3aa7"
+        },
+        {
+          "file": "editor-preferences-640px-highContrast.png",
+          "bytes": 171497,
+          "sha256": "a63ed522884602c30d829bf4dc65a9a82988d5641a42596502b6f11572a7a244"
+        },
+        {
+          "file": "editor-preferences-640px-highContrast-keyboard-return.png",
+          "bytes": 162744,
+          "sha256": "02adbcd3974b40d102b731f7b77330c66aa20c6093cbee52f2fd6cbdd255a55b"
+        },
+        {
+          "file": "command-palette-640-dark.png",
+          "bytes": 214095,
+          "sha256": "312b50249d2fedcc4f8f71e2492f7800cd7e90db7f979bff14cfac6203950480"
+        },
+        {
+          "file": "command-palette-640-dark-keyboard-return.png",
+          "bytes": 193240,
+          "sha256": "d3c4063cdd1f0380358e60c5b93f442daab8005c425cfd0bdcc3cd495c9075cf"
+        }
+      ]
+    },
+    {
+      "host": "browser-states-dark",
+      "phase": "after",
+      "frameCount": 12,
+      "result": "pass",
+      "measuredViolationCount": 0,
+      "rawManifestSha256": "72735c59513ca5883d977a83297a6d3b355ccaffa4ba19372dc112c7c0913d35",
+      "portableManifestSha256": "72735c59513ca5883d977a83297a6d3b355ccaffa4ba19372dc112c7c0913d35",
+      "gzipSha256": "1d1b00cd7f45380e23cd380d7a5df2834c39ec31d200e4a655cde295c39d0625",
+      "manifest": "verified/browser-states-dark-after/manifest.json.gz",
+      "captures": [
+        {
+          "file": "landing-session-input-keyboard-focus.png",
+          "bytes": 49950,
+          "sha256": "727752fa1aa9c3708b02646d73baf6e36e46ea280d4456a93523173aed22d352"
+        },
+        {
+          "file": "landing-root-text-200-control-reachability.png",
+          "bytes": 111347,
+          "sha256": "47d02bf2069454de44033d0fa2a5fa290838075cde3ecd3726309a22811fc362"
+        },
+        {
+          "file": "game-settings-enabled-readonly-movement-key.png",
+          "bytes": 200167,
+          "sha256": "532fc5c54e60b5011cb1007968b304b1420d9f61ea93c1294e91007bafcf16d3"
+        },
+        {
+          "file": "state-empty-project.png",
+          "bytes": 49950,
+          "sha256": "727752fa1aa9c3708b02646d73baf6e36e46ea280d4456a93523173aed22d352"
+        },
+        {
+          "file": "state-loading-project.png",
+          "bytes": 63999,
+          "sha256": "2685c7223acd685e0504a616dd0ff46f47e6a820ab263c4c4ee5b13e1353cd81"
+        },
+        {
+          "file": "state-dirty.png",
+          "bytes": 194531,
+          "sha256": "3a9f4553104ce888cdb9078ae5ab4c2a4a14106fd803b988c5162bb9f3d97f04"
+        },
+        {
+          "file": "state-saving.png",
+          "bytes": 197399,
+          "sha256": "8ff7574026b36d1fe58b221087d099be3e3402fcbdd0533335ebfcad55b1d7bd"
+        },
+        {
+          "file": "state-saved.png",
+          "bytes": 198323,
+          "sha256": "b77c2cbdb1ba724c27abababce8ef8149a526a532e5f51cf1ae5b967da38bb8e"
+        },
+        {
+          "file": "state-write-failed.png",
+          "bytes": 193850,
+          "sha256": "0e1481cdb72e188adc3fd834e6cfece8e0e68c19f99686bf88afa0f13ac8dfc2"
+        },
+        {
+          "file": "state-save-refused.png",
+          "bytes": 182414,
+          "sha256": "5ae78b28a255959a1b5ef763d52ab9c89f002fdd60fe88bcc6d345f6018b5b9d"
+        },
+        {
+          "file": "state-read-only-preview.png",
+          "bytes": 183827,
+          "sha256": "58715e2b6b688f1f837000303d5df471b6642098106d9b50adf51afaa3b79a7f"
+        },
+        {
+          "file": "state-validation.png",
+          "bytes": 204819,
+          "sha256": "53cfbd93986553b80e7a0e36c93abb93d86ce9904b161a3f895650db8810abdd"
+        }
+      ]
+    },
+    {
+      "host": "browser-states-light",
+      "phase": "after",
+      "frameCount": 12,
+      "result": "pass",
+      "measuredViolationCount": 0,
+      "rawManifestSha256": "a4946bba150824dad281d0773210adebe13f8fe9a1b4fdae29733bf7d459bd8c",
+      "portableManifestSha256": "a4946bba150824dad281d0773210adebe13f8fe9a1b4fdae29733bf7d459bd8c",
+      "gzipSha256": "bc33c69ec8a92defd6e032243c48d19a6ee1dcbae2432ee86e72b7bba81a6b63",
+      "manifest": "verified/browser-states-light-after/manifest.json.gz",
+      "captures": [
+        {
+          "file": "landing-session-input-keyboard-focus.png",
+          "bytes": 51696,
+          "sha256": "c4442381c077c6a2985f4d07d13d970fc00e822c52c638378d75802364b637fc"
+        },
+        {
+          "file": "landing-root-text-200-control-reachability.png",
+          "bytes": 114457,
+          "sha256": "84cdc32d4ebfe8451f08eb28fad5cbf74adabceb59063281e16e3a40b69a814e"
+        },
+        {
+          "file": "game-settings-enabled-readonly-movement-key.png",
+          "bytes": 198251,
+          "sha256": "585d853e0b830af53b81b3c36147fe87ade2fd3356a1181fdb377b8f3716fce2"
+        },
+        {
+          "file": "state-empty-project.png",
+          "bytes": 51696,
+          "sha256": "c4442381c077c6a2985f4d07d13d970fc00e822c52c638378d75802364b637fc"
+        },
+        {
+          "file": "state-loading-project.png",
+          "bytes": 66060,
+          "sha256": "0112aab7a79d82395dab9443c6be2e95d37194d366569e8d7f313a568bfb7a16"
+        },
+        {
+          "file": "state-dirty.png",
+          "bytes": 191530,
+          "sha256": "e54ae19b211b6f9eaa6302bfa8a6c53754de5efaec71d68c44fc09f7fff296a0"
+        },
+        {
+          "file": "state-saving.png",
+          "bytes": 194398,
+          "sha256": "f08e5fc3ed71c65850ebb6ecf734f23c43737eb262179e1d47d7077aaae5b50b"
+        },
+        {
+          "file": "state-saved.png",
+          "bytes": 195291,
+          "sha256": "31e9f58744df6d551a4d90ced37b47f4f0886ef15a1fd04a11d5db16a7dd4395"
+        },
+        {
+          "file": "state-write-failed.png",
+          "bytes": 191235,
+          "sha256": "02007ad566c095aecb50d95842979ba57e132bcfce1b2e44ea076359bdffe2a6"
+        },
+        {
+          "file": "state-save-refused.png",
+          "bytes": 179113,
+          "sha256": "4b64902599c4a882bf44f8dcff3c6687d44de93b98edd21cc6034f52766f1928"
+        },
+        {
+          "file": "state-read-only-preview.png",
+          "bytes": 180801,
+          "sha256": "848b061c263572e65f18d0bf3949e4e6e1ce70827a28fa19a480ea062074d94c"
+        },
+        {
+          "file": "state-validation.png",
+          "bytes": 206242,
+          "sha256": "a4fb7febb567ee80d8b57fb3cfe623279364821967eeef6c866e368316cd4599"
+        }
+      ]
+    },
+    {
+      "host": "browser-states-highContrast",
+      "phase": "after",
+      "frameCount": 12,
+      "result": "pass",
+      "measuredViolationCount": 0,
+      "rawManifestSha256": "be42366bd23cd2586daa46354d908f09cd4cb227935947eea26959915377e4ed",
+      "portableManifestSha256": "be42366bd23cd2586daa46354d908f09cd4cb227935947eea26959915377e4ed",
+      "gzipSha256": "e6334cb8934f311b79f612479f8bd0c87ded686b5ca67b7d7864dc15ec7b27ed",
+      "manifest": "verified/browser-states-highContrast-after/manifest.json.gz",
+      "captures": [
+        {
+          "file": "landing-session-input-keyboard-focus.png",
+          "bytes": 44835,
+          "sha256": "dbcd271292b5bea47bdb37bd5f033de8826b9f978cc2e59426b14beeccca58ee"
+        },
+        {
+          "file": "landing-root-text-200-control-reachability.png",
+          "bytes": 102454,
+          "sha256": "a60e753a64b04e63ebff0f2e33eeb45ff8f823165ff5c74060db014d7a68f9a7"
+        },
+        {
+          "file": "game-settings-enabled-readonly-movement-key.png",
+          "bytes": 170060,
+          "sha256": "301cc84ddb96ee6f335a65e336893eb841c05d83a412aec2d34ab22b89ec63c7"
+        },
+        {
+          "file": "state-empty-project.png",
+          "bytes": 44808,
+          "sha256": "0a67b911ff11d81ee5d12922283e402dd8e07f267d65152df14981b4f9de6a13"
+        },
+        {
+          "file": "state-loading-project.png",
+          "bytes": 52350,
+          "sha256": "5c0c9a54b1afd1389744e0e60b072e8a38e2f49e5296043bce38a50bee0b6c5f"
+        },
+        {
+          "file": "state-dirty.png",
+          "bytes": 165075,
+          "sha256": "47dc4b54b6816b5f959636f788fcec4eec8ccbbd0b2fb13d2af4348698340726"
+        },
+        {
+          "file": "state-saving.png",
+          "bytes": 166867,
+          "sha256": "81e4accebc4dc134985a8888a0a683048b0f33ee17710450280df7e34f0d12c3"
+        },
+        {
+          "file": "state-saved.png",
+          "bytes": 167604,
+          "sha256": "48aaa2c621ebd89240e819b716896c5fddd96621bef07fce9d0ae33421071e97"
+        },
+        {
+          "file": "state-write-failed.png",
+          "bytes": 163743,
+          "sha256": "cc596a66d5d89dbc2f37c4ec25638c808c228792871bdf8c02ad726286f1eda4"
+        },
+        {
+          "file": "state-save-refused.png",
+          "bytes": 154528,
+          "sha256": "71623d2cb988e53d73e8a38642731ea720e06e36f0865a4129b94763b5036adb"
+        },
+        {
+          "file": "state-read-only-preview.png",
+          "bytes": 156664,
+          "sha256": "0f2e7338fcfbb9c1f1ad795486804a6a7fb7a820cd01ce12a9574a71f94a316b"
+        },
+        {
+          "file": "state-validation.png",
+          "bytes": 154978,
+          "sha256": "72dde375b54766715de98e4ecd4306405de82b3cc811267a5928bddc4a5d40fb"
+        }
+      ]
+    },
+    {
+      "host": "vscode",
+      "phase": "after",
+      "frameCount": 81,
+      "result": "green",
+      "measuredViolationCount": 0,
+      "rawManifestSha256": "93ca1d732a25bfefebe177f6cdfd78860ec5c8c9d71386cece3dbff29b54d00c",
+      "portableManifestSha256": "1574a26e75bec83cfbf90c5a7685d03d7cb4ba4b4c6259789d432925dd15c6a3",
+      "gzipSha256": "1edd49668601152150f7fd4a8d8ac267c953e9a3e8910ec691318a1423b84107",
+      "manifest": "verified/vscode-after/manifest.json.gz",
+      "captures": [
+        {
+          "file": "game-normal-light.png",
+          "bytes": 189598,
+          "sha256": "db6de4213b763f5663787c8b26a9249bf5c6c601856c3cd6eff69b1eb3b94a93"
+        },
+        {
+          "file": "board-normal-light.png",
+          "bytes": 208005,
+          "sha256": "69819203c560e62642ddc213f7ff88c94b55adfa5946846e4cbc2fbe3446214d"
+        },
+        {
+          "file": "board-properties-normal-light.png",
+          "bytes": 152407,
+          "sha256": "a03f1dfc5d9eca875980c4194007846f8e8337d2677657a4304416ae957e9e7e"
+        },
+        {
+          "file": "character-normal-light.png",
+          "bytes": 214765,
+          "sha256": "da77b1b373db689f86508302a074077935ead84f6232de9d87610ddb98104736"
+        },
+        {
+          "file": "item-normal-light.png",
+          "bytes": 209495,
+          "sha256": "1b8796c7e6dc55c30b070e129cd9c7a06d23bdaab7ad9cc2a780da5346e3cb90"
+        },
+        {
+          "file": "tileset-art-normal-light.png",
+          "bytes": 98918,
+          "sha256": "1c9b8077576725a2baf0af946003aaf05f16926f155132ab4565f02eb5d94985"
+        },
+        {
+          "file": "tile-bitmap-normal-light.png",
+          "bytes": 150766,
+          "sha256": "b007731eb7f4d7e45a77de8d1a78c13f9aedf9a4a7c4904921715dabc70a416e"
+        },
+        {
+          "file": "animation-normal-light.png",
+          "bytes": 171161,
+          "sha256": "d711748062b25d1b97109239188dd2ae6a65ac64d90187e9a39842dee6b3e8d9"
+        },
+        {
+          "file": "program-normal-light.png",
+          "bytes": 95420,
+          "sha256": "98091ceb7cd766f9c9c703334f8364f5674c15e1d687ba4fa00658f84a31d661"
+        },
+        {
+          "file": "program-long-name-normal-light.png",
+          "bytes": 104109,
+          "sha256": "29e72cb4a0ee1fa35a352566b1870b2bada4f507b777618c5b4b5537c1632306"
+        },
+        {
+          "file": "game-640px-light.png",
+          "bytes": 145348,
+          "sha256": "7f52570076ee05f24ca8be9882249367cc8083eaa243c4a5538304c31266db23"
+        },
+        {
+          "file": "board-640px-light.png",
+          "bytes": 175805,
+          "sha256": "d58e6bda4658726833776fd66efde5afb7608b92d3520cf81dd4e6d452f68591"
+        },
+        {
+          "file": "board-properties-640px-light.png",
+          "bytes": 130659,
+          "sha256": "be38cbc0d1b2a52b30f75a85fe394d8fbf7d363261c1255e2d0fae7c0ba31928"
+        },
+        {
+          "file": "character-640px-light.png",
+          "bytes": 179705,
+          "sha256": "8cf0dbf983be58505ea644a0c13b09f1f10b4686129eb273e9c1d50530b808e8"
+        },
+        {
+          "file": "item-640px-light.png",
+          "bytes": 176316,
+          "sha256": "87ee2a21bd8b407bb7834e3b1aa2cf9c41d8bc95ae1f70098695b59cff3b5491"
+        },
+        {
+          "file": "tileset-art-640px-light.png",
+          "bytes": 99621,
+          "sha256": "28cfa0f1bf46908ad537f116069b21794f35f18c95f434bc891c095a32afafae"
+        },
+        {
+          "file": "tile-bitmap-640px-light.png",
+          "bytes": 132101,
+          "sha256": "d3552b2e26de86d4d403e86ba288d7600e0d689b13ea3e20349adc390821c3d9"
+        },
+        {
+          "file": "animation-640px-light.png",
+          "bytes": 183535,
+          "sha256": "60b63c89f16bb3383b5dbcfcd8607e173eac5f4a094e3df5fed87e8aa0172a74"
+        },
+        {
+          "file": "program-640px-light.png",
+          "bytes": 89111,
+          "sha256": "8e6f0f443dc5365a41d14da237f9813e54d42fbf946bc5e037f1d63383050167"
+        },
+        {
+          "file": "program-long-name-640px-light.png",
+          "bytes": 90823,
+          "sha256": "e9f50ac815e1c66e897578b94fba0799d691bd10ddd5f094837183232987beff"
+        },
+        {
+          "file": "game-normal-dark.png",
+          "bytes": 215981,
+          "sha256": "51004068a55f0aee4b21afa8d1241688a5413a10d833dd4428306e3d857821e9"
+        },
+        {
+          "file": "board-normal-dark.png",
+          "bytes": 225345,
+          "sha256": "d13e61c403d31a965aa5b5d89131c5aba32c2533e5ac67828bb0008551e8af3a"
+        },
+        {
+          "file": "board-properties-normal-dark.png",
+          "bytes": 169533,
+          "sha256": "9cc150be9a78b3e30ec6a421d84e04f263daa09a97f78a7cae755fe5aefc9d05"
+        },
+        {
+          "file": "character-normal-dark.png",
+          "bytes": 223911,
+          "sha256": "706dcb51defab0c2aa218149d6084bac38d427323d7b96d54a165bfc576ad00a"
+        },
+        {
+          "file": "item-normal-dark.png",
+          "bytes": 215817,
+          "sha256": "73c931f58aa8ef47e84e02e65e685212e91f1e721aa976b39fe22b2fbd090124"
+        },
+        {
+          "file": "tileset-art-normal-dark.png",
+          "bytes": 107136,
+          "sha256": "7ea16a28acb2ceb6685f283681893ee4638414506b0a6b7e9e8fb7f1a7429391"
+        },
+        {
+          "file": "tile-bitmap-normal-dark.png",
+          "bytes": 154772,
+          "sha256": "0ec962bd0f909ceafb2cd548221a95ea08e72b648debb374153daddafcf95264"
+        },
+        {
+          "file": "animation-normal-dark.png",
+          "bytes": 180163,
+          "sha256": "5497751fc326fb14b9898db10538a7c5f78b88fb3a46f4faea4cdc09d8961d13"
+        },
+        {
+          "file": "program-normal-dark.png",
+          "bytes": 99477,
+          "sha256": "a974bc54ad9035a9720393a6a16ddd023a25488097b6b983494b533c7d5a88cd"
+        },
+        {
+          "file": "program-long-name-normal-dark.png",
+          "bytes": 105266,
+          "sha256": "233457878935991e71deaed361a74d012f423eea4d4805d708adb761b0eaca91"
+        },
+        {
+          "file": "game-640px-dark.png",
+          "bytes": 146676,
+          "sha256": "a57b44e78dfb4976276cd3a44d30da087eb04626cd950851421c47d61d1d2e7c"
+        },
+        {
+          "file": "board-640px-dark.png",
+          "bytes": 178045,
+          "sha256": "02fce91aef45192e71e7736387818fce9d758bf6909ca9f852a5db9dd1b7b22a"
+        },
+        {
+          "file": "board-properties-640px-dark.png",
+          "bytes": 132428,
+          "sha256": "8b70e72ab1c14bd6a454dea8fb7b14a6f3a63e313447003b8ce38907748e4e47"
+        },
+        {
+          "file": "character-640px-dark.png",
+          "bytes": 178121,
+          "sha256": "51570171de931c2e118a8330e52fc6b53406389ef267ba9b4ba68ba389eb2fa4"
+        },
+        {
+          "file": "item-640px-dark.png",
+          "bytes": 174852,
+          "sha256": "4c9a42ea2362df5fd826dc72f775bc6571c0891f518ea110594041176545787e"
+        },
+        {
+          "file": "tileset-art-640px-dark.png",
+          "bytes": 99840,
+          "sha256": "9ed8a9a4b3d992a6d18f3664ddb96c45f4b1d7babad69e8b57e9f26185174a6e"
+        },
+        {
+          "file": "tile-bitmap-640px-dark.png",
+          "bytes": 131100,
+          "sha256": "27d7d2e36cebd6724707141bde822e62ca02550f2486132481bf155913365f66"
+        },
+        {
+          "file": "animation-640px-dark.png",
+          "bytes": 186287,
+          "sha256": "f421d563c6e48e782533b95fccfb03c0dfc3fc82c02c944df04f1b24f048dd38"
+        },
+        {
+          "file": "program-640px-dark.png",
+          "bytes": 92254,
+          "sha256": "f5e70b12c4a64d4ba84b2b8a52509e255275c74fb9db1a5153df1b460547a19e"
+        },
+        {
+          "file": "program-long-name-640px-dark.png",
+          "bytes": 92704,
+          "sha256": "444e7095821aa0bbb3af21a5b80bd7d4d64c497480d1ab98371283b95d23aa5b"
+        },
+        {
+          "file": "game-normal-high-contrast-dark.png",
+          "bytes": 235200,
+          "sha256": "e745c38c26f75dbaf3165bddc8bc42cdbc0e2d44f479ce4d365a2ae8a222ce85"
+        },
+        {
+          "file": "board-normal-high-contrast-dark.png",
+          "bytes": 228946,
+          "sha256": "bbfca5a06ab62023cc15d3f2a8f85c87646e5491db13f3805b8e88f5deab67e1"
+        },
+        {
+          "file": "board-properties-normal-high-contrast-dark.png",
+          "bytes": 178716,
+          "sha256": "6f381706158da0d4e0a87b451b17e51e8f4c2d19a16bb330ba1ac2e0c997b6f1"
+        },
+        {
+          "file": "character-normal-high-contrast-dark.png",
+          "bytes": 230697,
+          "sha256": "ec0afbd1e4ffcc44312131fcfac01c57303cf6d5e009fb7cc035a76de34c645f"
+        },
+        {
+          "file": "item-normal-high-contrast-dark.png",
+          "bytes": 225336,
+          "sha256": "8d61f0488a995d85ae29724a71a1bc3f44af62c7ea28ca8b1302c5a24d840dfe"
+        },
+        {
+          "file": "tileset-art-normal-high-contrast-dark.png",
+          "bytes": 104733,
+          "sha256": "d6f9548f090ed57ec509592992e4336b7adde7138e836275550f3aff4b48b386"
+        },
+        {
+          "file": "tile-bitmap-normal-high-contrast-dark.png",
+          "bytes": 158285,
+          "sha256": "958edb1f2615b692aa06f5c5ec87cb431e307b2b87d667b1941ec61be67d4be2"
+        },
+        {
+          "file": "animation-normal-high-contrast-dark.png",
+          "bytes": 177269,
+          "sha256": "9bbdd4d10ac1ac7fd938314fe2b7e0c75bd2a465b18926917835d462fede6de8"
+        },
+        {
+          "file": "program-normal-high-contrast-dark.png",
+          "bytes": 97573,
+          "sha256": "1e2c001c8b207ba08ddfe084f653974ef7c218ea8f822b2c97fb89ba8eb97b54"
+        },
+        {
+          "file": "program-long-name-normal-high-contrast-dark.png",
+          "bytes": 102726,
+          "sha256": "6224d003df02d5ce275dc4d19a043e19a3a690e702c928f7dec293e1fcf34219"
+        },
+        {
+          "file": "game-640px-high-contrast-dark.png",
+          "bytes": 156564,
+          "sha256": "7675c563666f210a71cc73c7399e295df7941d7f2c585dc834d4317ba908be62"
+        },
+        {
+          "file": "board-640px-high-contrast-dark.png",
+          "bytes": 179491,
+          "sha256": "4b1f9bfab5b8e41ad5aa9f27e11a3a9ca96564242271486aa56ee95c9c548cce"
+        },
+        {
+          "file": "board-properties-640px-high-contrast-dark.png",
+          "bytes": 137577,
+          "sha256": "f0d36c61dd3975d6d4cbb9181833ff5d7a7181a5273787d54b8702635f0a0ca1"
+        },
+        {
+          "file": "character-640px-high-contrast-dark.png",
+          "bytes": 181727,
+          "sha256": "218aaea3ec694a5b917a27574b8f77bba34dd974a5aff13fa3728d247c3959e8"
+        },
+        {
+          "file": "item-640px-high-contrast-dark.png",
+          "bytes": 178274,
+          "sha256": "57716fccf81473e910eabe8a309874352a33044d1d48a62b15e250b8023b1ee3"
+        },
+        {
+          "file": "tileset-art-640px-high-contrast-dark.png",
+          "bytes": 95950,
+          "sha256": "99c7ecaeda25d75f3d4fa6256f2e01d13d8317d19eb1ec532f5994227ec095f0"
+        },
+        {
+          "file": "tile-bitmap-640px-high-contrast-dark.png",
+          "bytes": 131615,
+          "sha256": "9ab577b19a1ddfdcc899a66e8fb162108a942859dcf0d5335ad9240978409d45"
+        },
+        {
+          "file": "animation-640px-high-contrast-dark.png",
+          "bytes": 182507,
+          "sha256": "3f3c6471f3db589bbbbcee097d688e80ddcf86047501f45b3dbe33925a762395"
+        },
+        {
+          "file": "program-640px-high-contrast-dark.png",
+          "bytes": 89965,
+          "sha256": "48f605f0a2d520f2d5b3e5c83e08e8efbf86e5c3f12b4d09fb10b4b70e05d53e"
+        },
+        {
+          "file": "program-long-name-640px-high-contrast-dark.png",
+          "bytes": 89857,
+          "sha256": "db19cc6f1ac4fdd29dd63bcf9ecff26242ceec91b5c04c33c914d1ae5a5d6316"
+        },
+        {
+          "file": "game-normal-high-contrast-light.png",
+          "bytes": 215930,
+          "sha256": "a644a0877e583e47a7edbf49288079b831281da933efa8cbd06aea24a78bff1c"
+        },
+        {
+          "file": "board-normal-high-contrast-light.png",
+          "bytes": 222935,
+          "sha256": "d9259eef21f9db5981b88cdca19197dc666b370e3da0b31a3b75cbfac344bbf2"
+        },
+        {
+          "file": "board-properties-normal-high-contrast-light.png",
+          "bytes": 167845,
+          "sha256": "06695c3db1884fa8116143950b7bd0bd4730c5e1d373b467f209364e42de690d"
+        },
+        {
+          "file": "character-normal-high-contrast-light.png",
+          "bytes": 230195,
+          "sha256": "07e6262ca4990956474ae11088b17be54ef24797268a5f862f4bc07bc65ea751"
+        },
+        {
+          "file": "item-normal-high-contrast-light.png",
+          "bytes": 224418,
+          "sha256": "d89ca68f45fdfa0ea46d801cd35551fd6e0393d0e6dcbefe4ce748178938440b"
+        },
+        {
+          "file": "tileset-art-normal-high-contrast-light.png",
+          "bytes": 106173,
+          "sha256": "5acc5516f52771c3d4676520e3f5970e1aa3efeaef70c12ffcd3affc46971490"
+        },
+        {
+          "file": "tile-bitmap-normal-high-contrast-light.png",
+          "bytes": 157389,
+          "sha256": "b9b39bcadfb5791c89ab9af5f18d1b0bb8b829b058b3c0c505dcf93000d9767e"
+        },
+        {
+          "file": "animation-normal-high-contrast-light.png",
+          "bytes": 177689,
+          "sha256": "8df7b27e9ff2caf2d18c8ce5c7ea95685e5752a841fc748a053ddb20c6275ac6"
+        },
+        {
+          "file": "program-normal-high-contrast-light.png",
+          "bytes": 97058,
+          "sha256": "a89b64a297b60bd2cc7d5f1d4906c481823133945006c18666d7bfa9b6c4c1ce"
+        },
+        {
+          "file": "program-long-name-normal-high-contrast-light.png",
+          "bytes": 101840,
+          "sha256": "0b518912a262ba2239dafef997ef2d4eee43dca15915ece60fb148ddbfdb4c1c"
+        },
+        {
+          "file": "game-640px-high-contrast-light.png",
+          "bytes": 145700,
+          "sha256": "51068c79ba79a2b2b81f77a874b87f5e6d249caa306ebbd917d930aceb057aa5"
+        },
+        {
+          "file": "board-640px-high-contrast-light.png",
+          "bytes": 175915,
+          "sha256": "43c2107b29e72bb834d2225681532ce13f4c423be2ca560021445892f92c693a"
+        },
+        {
+          "file": "board-properties-640px-high-contrast-light.png",
+          "bytes": 129521,
+          "sha256": "74da4508a0bfd3f94a52d2a7071251042124369c503bc1bb0a95149ab32a4194"
+        },
+        {
+          "file": "character-640px-high-contrast-light.png",
+          "bytes": 180440,
+          "sha256": "7841ae39f1f67647e43594a3d57c6db69920e72256ff13ed764235f5b1e9a542"
+        },
+        {
+          "file": "item-640px-high-contrast-light.png",
+          "bytes": 177313,
+          "sha256": "642e8d9506a212cdd988ddc37428d29bcd55e0d95e53e75f29d64b3a33a7f500"
+        },
+        {
+          "file": "tileset-art-640px-high-contrast-light.png",
+          "bytes": 97549,
+          "sha256": "c4dee59cbd53d5be8c3d5d58d2c5ff58c3aa0d821c0f2696c0e1a671a62f3b4a"
+        },
+        {
+          "file": "tile-bitmap-640px-high-contrast-light.png",
+          "bytes": 132847,
+          "sha256": "367d136ac841eb66ad1f7779b104a686e57a0eb4836249326d6f70aba05b7585"
+        },
+        {
+          "file": "animation-640px-high-contrast-light.png",
+          "bytes": 182212,
+          "sha256": "adae8da0090bff55a23a4ad6ef157cc9330d6bba050ab4d0ea9b42caa752941f"
+        },
+        {
+          "file": "program-640px-high-contrast-light.png",
+          "bytes": 89232,
+          "sha256": "72318177f5dc2cdfc2d5dd6aa5c98bb8be1e36b64c1022dabb3c4ba0693d4f6f"
+        },
+        {
+          "file": "program-long-name-640px-high-contrast-light.png",
+          "bytes": 89535,
+          "sha256": "04cb075cc5f429242e7aa6df73f3cb990fdbadae3203fd0d2f2f345199ea08ec"
+        },
+        {
+          "file": "game-root-text-scale-200.png",
+          "bytes": 175340,
+          "sha256": "5a87445723457df3d49cb381a74b28010d70033f2b0d85801a55ee702801dc35"
+        }
+      ]
+    }
+  ],
+  "hostPin": "863bc0ba9e89df07ecf700ce40f2fa35b2a3b123"
+}
