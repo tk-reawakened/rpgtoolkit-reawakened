@@ -45,8 +45,9 @@ try {
   run("prepare language-extension dependencies", npm, ["--prefix", "extensions/rpgcode", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]);
   part("dependency-graph failure controls", pnpm, ["graph:test"]);
   part("actual dependency graph", pnpm, ["graph"]);
-  part("browser / VS Code desktop / VS Code web adapters: lifecycle, exact saves and engine boot", process.execPath, [
+  part("browser / VS Code desktop / VS Code web adapters: navigation/copy-in, lifecycle, exact saves and engine boot", process.execPath, [
     "--test", "tools/editor-vscode-test/test/host-conformance.test.ts", "tools/editor-vscode-test/test/game-settings-hosts.test.ts",
+    "tools/editor-vscode-test/test/navigation-browser.test.ts", "tools/editor-vscode-test/test/navigation-vscode.test.ts",
   ]);
   part("PWA: workspace, pickers, new project, History, program language and fixture execution", pnpm, [
     "browser:test", "tools/browser/tests/editor-web-host.spec.ts", "tools/browser/tests/editor-history.spec.ts",
