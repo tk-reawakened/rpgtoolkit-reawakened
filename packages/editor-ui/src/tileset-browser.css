@@ -1792,6 +1792,21 @@ fieldset.tkr-web-project-controls {
   overflow: auto;
 }
 
+.tkr-board-preview-state,
+.tkr-board-warnings {
+  align-self: stretch;
+  min-inline-size: 0;
+  margin: 0;
+  padding: var(--tkr-space-2) var(--tkr-space-3);
+  color: var(--tkr-fg-primary);
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-xs);
+  overflow-wrap: anywhere;
+}
+.tkr-board-warnings { padding-inline-start: calc(var(--tkr-space-3) + 1em); }
+
 .tkr-board-canvas {
   display: block;
   max-inline-size: 100%;
