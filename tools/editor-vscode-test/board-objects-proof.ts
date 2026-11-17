@@ -55,6 +55,7 @@ export interface BoardObjectsProofHost {
   undo(editor: Locator): Promise<void>;
   redo(editor: Locator): Promise<void>;
   read(path: string): Promise<Uint8Array>;
+  chooseAsset(reference: string): Promise<void>;
   expectProgram(path: string, text: string): Promise<void>;
   expectItem(path: string, name: string): Promise<void>;
   returnToBoard(): Promise<Locator>;
@@ -86,6 +87,27 @@ export async function runBoardObjectsProof(host: BoardObjectsProofHost, expect: 
     const bounds = await surface.boundingBox(); if (bounds === null) throw new Error("The board canvas is not visible");
     return (x: number, y: number) => { const point = boardToScreen(viewport, x, y); return { x: bounds.x + point.x, y: bounds.y + point.y }; };
   };
+  const dragAndUndo = async (kind: "vectors" | "programs" | "sprites" | "images", x: number, y: number, storedDelta: { readonly x: number; readonly y: number }) => {
+    const original = await decode();
+    const persisted = await host.read(OBJECTS_BOARD);
+    const record = original[kind][1]!;
+    const moved = "points" in record
+      ? { ...record, points: record.points.map((point) => ({ x: point.x + storedDelta.x, y: point.y + storedDelta.y })) }
+      : "itemFile" in record ? { ...record, x: record.x + storedDelta.x, y: record.y + storedDelta.y }
+        : { ...record, left: record.left + storedDelta.x, top: record.top + storedDelta.y };
+    await editor.locator('[data-tool="select"]').click();
+    await inspector().getByLabel("Stored slot", { exact: true }).selectOption("");
+    await host.settle();
+    const coordinates = await canvasCoordinates();
+    const from = coordinates(x, y), to = coordinates(x + 32, y + 32);
+    await host.page.mouse.move(from.x, from.y); await host.page.mouse.down();
+    await host.page.mouse.move(to.x, to.y, { steps: 4 }); await host.page.mouse.up(); await host.settle();
+    await expect(inspector().getByLabel("Stored slot", { exact: true })).toHaveValue("1");
+    await host.save(editor);
+    await expect.poll(async () => (await decode())[kind]).toEqual(original[kind].map((value, index) => index === 1 ? moved : value));
+    await host.undo(editor); await host.settle(); await host.save(editor);
+    expect(await host.read(OBJECTS_BOARD)).toEqual(persisted);
+  };
   await expect.poll(async () => canvas().evaluate((element) => {
     const surface = element as HTMLCanvasElement;
     const rgba = surface.getContext("2d")!.getImageData(0, 0, surface.width, surface.height).data;
@@ -114,9 +136,13 @@ export async function runBoardObjectsProof(host: BoardObjectsProofHost, expect: 
   await expect(dialog).not.toBeVisible();
   await expect(inspector().getByLabel("Stored slot", { exact: true })).toHaveValue("1");
   expect(await host.read(OBJECTS_BOARD)).toEqual(saved);
+  // The off-grid first vertex 72 moves toward 104, snaps to 96, and translates every vertex by 24.
+  await dragAndUndo("vectors", 96, 96, { x: 24, y: 32 });
 
   await mode("programs"); await slot(1);
   await inspector().getByLabel("Repeat distance (pixels)", { exact: true }).fill("24"); await apply();
+  await host.save(editor);
+  await dragAndUndo("programs", 96, 96, { x: 32, y: 32 });
   await inspector().getByRole("button", { name: "Open program", exact: true }).click();
   await host.expectProgram(OBJECTS_PROGRAM, "OBJECT REGION SOURCE"); editor = await host.returnToBoard();
   await expect(editor.locator('[data-board-mode="programs"]')).toHaveAttribute("aria-pressed", "true");
@@ -129,6 +155,11 @@ export async function runBoardObjectsProof(host: BoardObjectsProofHost, expect: 
   const spritePoint = (await canvasCoordinates())(132, 176);
   await host.page.mouse.click(spritePoint.x, spritePoint.y); await host.settle();
   await expect(inspector().getByLabel("Stored slot", { exact: true })).toHaveValue("1");
+  await dragAndUndo("sprites", 176, 176, { x: 32, y: 32 });
+  await inspector().getByLabel("Item definition", { exact: true }).fill("");
+  await inspector().getByRole("button", { name: "Choose item", exact: true }).click();
+  await host.chooseAsset("objects-chest.itm");
+  await expect(inspector().getByLabel("Item definition", { exact: true })).toHaveValue("objects-chest.itm");
   await inspector().getByLabel("Activation program override", { exact: true }).fill("objects-link.prg"); await apply();
   await inspector().getByRole("button", { name: "Open item", exact: true }).click();
   await host.expectItem(OBJECTS_ITEM, OBJECTS_ITEM_NAME); editor = await host.returnToBoard();
@@ -148,6 +179,8 @@ export async function runBoardObjectsProof(host: BoardObjectsProofHost, expect: 
   await expect.poll(async () => (await decode()).images[1]).toEqual(before.images[1]);
   await host.redo(editor); await host.settle(); await host.save(editor);
   await expect.poll(async () => (await decode()).images[1]?.left).toBe(48);
+  // The off-grid image origin 48 moves toward the midpoint 80, whose increasing-coordinate tie is 96.
+  await dragAndUndo("images", 64, 176, { x: 48, y: 32 });
   let result = await decode();
   expect(result.programs[1]?.repeatDistance).toBe(24);
   expect(result.sprites[1]?.activationPrg).toBe("objects-link.prg");
@@ -173,25 +206,55 @@ export async function runBoardObjectsProof(host: BoardObjectsProofHost, expect: 
   expect((await decode()).vectors[2]?.points).toEqual([{ x: 32, y: 32 }, { x: 96, y: 32 }, { x: 96, y: 64 }, { x: 32, y: 64 }]);
 
   await mode("programs");
-  await inspector().getByRole("button", { name: "Add program", exact: true }).click(); await host.settle();
+  await editor.locator('[data-tool="draw"]').click();
+  const programCoordinates = await canvasCoordinates();
+  for (const point of [{ x: 192, y: 32 }, { x: 224, y: 32 }]) {
+    const at = programCoordinates(point.x, point.y);
+    await host.page.mouse.click(at.x, at.y); await host.settle();
+  }
+  await canvas().press("Control+Enter"); await host.settle();
   await inspector().getByLabel("Inline RPGCode", { exact: true }).fill("end()"); await apply();
   await mode("sprites");
-  await inspector().getByRole("button", { name: "Add sprite", exact: true }).click(); await host.settle();
+  const spriteCreation = (await canvasCoordinates())(176, 64);
+  await host.page.mouse.click(spriteCreation.x, spriteCreation.y); await host.settle();
+  await expect(inspector().getByLabel("X pixel (bottom-centre)", { exact: true })).toHaveValue("176");
+  await expect(inspector().getByLabel("Y pixel (bottom-centre)", { exact: true })).toHaveValue("95");
   await inspector().getByLabel("Item definition", { exact: true }).fill("objects-chest.itm"); await apply();
   await mode("images");
-  await inspector().getByRole("button", { name: "Add image", exact: true }).click(); await host.settle();
+  const imageCreation = (await canvasCoordinates())(64, 192);
+  await host.page.mouse.click(imageCreation.x, imageCreation.y); await host.settle();
+  await expect(inspector().getByLabel("Left (pixels)", { exact: true })).toHaveValue("64");
+  await expect(inspector().getByLabel("Top (pixels)", { exact: true })).toHaveValue("192");
   await inspector().getByLabel("Image file", { exact: true }).fill("objects.bmp");
   await inspector().getByLabel("Left (pixels)", { exact: true }).fill("96");
   await inspector().getByLabel("Top (pixels)", { exact: true }).fill("192"); await apply(); await host.save(editor);
   await expect.poll(async () => (await decode()).images[2]?.top).toBe(192);
   result = await decode();
   expect(result.programs[2]?.program).toBe("end()");
+  expect(result.programs[2]?.closed).toBe(0);
+  expect(result.programs[2]?.points).toEqual([{ x: 192, y: 32 }, { x: 224, y: 32 }]);
   expect(result.sprites[2]?.itemFile).toBe("objects-chest.itm");
   expect(result.images[2]?.file).toBe("objects.bmp"); expect(result.images[2]?.left).toBe(96);
   expect(result.vectors[0]).toEqual(before.vectors[0]); expect(result.programs[0]).toEqual(before.programs[0]);
   expect(result.sprites[0]).toEqual(before.sprites[0]); expect(result.images[0]).toEqual(before.images[0]);
   expect(result.residue).toEqual(before.residue);
   expect(await host.read(OBJECTS_ITEM)).toEqual(definitionBefore);
+  await mode("vectors"); await slot(2);
+  const beforeReorder = await decode(), reorderBytes = await host.read(OBJECTS_BOARD);
+  await inspector().getByRole("button", { name: "Move up", exact: true }).click(); await host.settle(); await host.save(editor);
+  await expect(inspector().getByLabel("Stored slot", { exact: true })).toHaveValue("1");
+  expect((await decode()).vectors).toEqual([beforeReorder.vectors[0], beforeReorder.vectors[2], beforeReorder.vectors[1]]);
+  await host.undo(editor); await host.settle(); await host.save(editor);
+  expect(await host.read(OBJECTS_BOARD)).toEqual(reorderBytes);
+  await mode("images"); await slot(0);
+  const beforeRemoval = await decode(), removalBytes = await host.read(OBJECTS_BOARD);
+  await inspector().getByRole("button", { name: "Remove slot and renumber", exact: true }).click();
+  await editor.getByRole("dialog").getByRole("button", { name: "Remove and renumber", exact: true }).click();
+  await host.settle(); await host.save(editor);
+  expect((await decode()).images).toEqual(beforeRemoval.images.slice(1));
+  expect((await decode()).residue).toEqual(beforeRemoval.residue);
+  await host.undo(editor); await host.settle(); await host.save(editor);
+  expect(await host.read(OBJECTS_BOARD)).toEqual(removalBytes);
   editor = await host.reopenBoard(OBJECTS_BOARD);
   await mode("sprites"); await slot(2);
   await expect(inspector().getByLabel("Item definition", { exact: true })).toHaveValue("objects-chest.itm");

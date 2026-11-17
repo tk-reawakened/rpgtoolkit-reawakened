@@ -407,14 +407,16 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     return commitObjects(objectFields(kind, [...records, object]), { kind, index: records.length });
   };
   const polygonMode = (): boolean => state.mode === "vectors" || state.mode === "programs";
+  const objectVisible = (kind: BoardObjectKind, object: BoardObject): boolean =>
+    object.layer === state.layer + 1 && !state.hidden.includes(object.layer - 1)
+    && !(kind === "vectors" && "type" in object && state.hiddenObjectTypes.includes(object.type))
+    && !(kind === "programs" && state.hiddenObjectTypes.includes("program"));
   const hitObject = (pixel: Pixel): number | null => {
     if (state.mode === "tiles") return null;
     let best = 16 / zoomOf(state.viewport);
     let found: number | null = null;
     options.board()[state.mode].forEach((object, index) => {
-      if (object.layer !== state.layer + 1 || state.hidden.includes(object.layer - 1)
-        || (state.mode === "vectors" && "type" in object && state.hiddenObjectTypes.includes(object.type))
-        || (state.mode === "programs" && state.hiddenObjectTypes.includes("program"))) return;
+      if (!objectVisible(state.mode as BoardObjectKind, object)) return;
       const distance = objectHitDistance(object, pixel, options.objectBounds?.(state.mode as BoardObjectKind, index) ?? undefined);
       if (distance <= best) { best = distance; found = index; }
     });
@@ -468,11 +470,11 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       await appendObject(state.mode as "vectors" | "programs", pending.anchor, points);
     }
   };
-  const splitEdge = async (object: BoardObject, pixel: Pixel): Promise<void> => {
+  const splitEdge = async (object: BoardObject, pixel: Pixel, modifiers: Modifiers): Promise<void> => {
     if (!("points" in object)) return;
     const edge = nearestObjectSegment(object.points, object.closed !== 0, pixel);
     if (edge === null) return;
-    const point = snapObjectPoint(options.board(), edge.point, true === ((options.board().coordType & 4) === 0));
+    const point = snapObjectPoint(options.board(), edge.point, modifiers.ctrl === true);
     const points = [...object.points.slice(0, edge.index + 1), point, ...object.points.slice(edge.index + 1)];
     if (await replaceObject({ ...object, points })) publish({ pointSelection: [edge.index + 1] });
   };
@@ -504,8 +506,10 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         if (previous?.x !== at.x || previous.y !== at.y) publish({ pending: { ...pending, points: [...pending.points, at], current: at } });
         return;
       }
-      const object = selectedObject();
-      if (object !== null && "points" in object) {
+      const selected = state.objectSelection;
+      const object = selected?.kind === state.mode ? selectedObject() : null;
+      const visible = object !== null && objectVisible(state.mode as BoardObjectKind, object);
+      if (visible && selected !== null && object !== null && "points" in object) {
         const index = nearestObjectPoint(object.points, pixel, 16 / zoomOf(state.viewport));
         if (index !== null) {
           publish({ pointSelection: [index], pending: modifiers.alt === true ? null : { kind: "object-move", anchor: pixel, delta: { x: 0, y: 0 } } });
@@ -513,7 +517,16 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
           return;
         }
         const edge = nearestObjectSegment(object.points, object.closed !== 0, pixel);
-        if (edge !== null && edge.distance <= 16 / zoomOf(state.viewport)) { void splitEdge(object, pixel); return; }
+        if (modifiers.alt === true && edge !== null && edge.distance <= 16 / zoomOf(state.viewport)) {
+          void splitEdge(object, pixel, modifiers);
+          return;
+        }
+        if (modifiers.alt === true) {
+          const at = snapObjectPoint(options.board(), pixel, modifiers.ctrl === true);
+          const points = [...object.points, at];
+          publish({ pending: { kind: "object-path", points, current: at, resume: selected.index }, pointSelection: [], message: null });
+          return;
+        }
       }
       const at = snapObjectPoint(options.board(), pixel, modifiers.ctrl === true);
       publish({ pending: { kind: "object-path", points: [at], current: at, resume: null }, objectSelection: null, pointSelection: [], message: null });

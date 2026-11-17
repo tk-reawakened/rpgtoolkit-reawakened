@@ -2692,6 +2692,19 @@ export async function runVscodeBoardObjectsProof(page: Page, expect: Expect, wor
   };
   await runBoardObjectsProof({
     page, read: readBacking, openBoard: open,
+    chooseAsset: async (reference) => {
+      const picker = page.locator(".quick-input-widget");
+      await expect(picker).toBeVisible();
+      const query = picker.locator("input:visible");
+      await query.fill(reference);
+      await expect(picker.getByRole("option", { name: reference, exact: true })).toBeVisible();
+      await query.press("Enter");
+      await expect(picker).toBeHidden();
+      const confirm = page.getByRole("button", { name: "Use it", exact: true });
+      await confirm.click();
+      await expect(confirm).toBeHidden();
+      await page.waitForTimeout(120);
+    },
     reopenBoard: async (path) => {
       await runCommand(page, expect, "View: Close Editor");
       await expect(page.getByRole("tab").filter({ hasText: path.split("/").at(-1)! })).toHaveCount(0);

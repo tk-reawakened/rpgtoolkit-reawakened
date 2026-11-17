@@ -18,6 +18,7 @@ import {
   foldPath,
 } from "@tk-reawakened/core";
 import { boardExtent } from "./board-geometry.ts";
+import { projectLayoutForDocumentPath } from "./reserved-folders.ts";
 import { previewBoardSprites } from "./board-sprite-preview.ts";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
@@ -89,10 +90,10 @@ const MAX_FILES = 20000;
 
 /** The asset root beside a canonical Game/<project>/Boards file, or the package root for loose boards (AD-5). */
 export function boardPreviewRootForPath(path: string): AssetRoot {
-  const canonical = foldPath(path);
-  if (!canonical.startsWith("game/")) return PACKAGE_ROOT;
-  const boards = canonical.indexOf("/boards/", 6);
-  return boards < 0 ? PACKAGE_ROOT : { kind: "game", projectPath: canonical.slice(5, boards) };
+  const projectFolder = projectLayoutForDocumentPath(path).projectFolder;
+  const folded = foldPath(projectFolder);
+  if (!folded.startsWith("game/")) return PACKAGE_ROOT;
+  return { kind: "game", projectPath: folded.slice("game/".length) };
 }
 
 /** The hydrated board with the layers and background the request hides taken out of the picture only. */

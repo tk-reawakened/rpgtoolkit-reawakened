@@ -281,3 +281,9 @@ Every finding below was re-checked against code, tests and spec at `c8b7772f`. T
 ### Still open, no ticket
 
 - None. Every finding re-checked above is promoted, resolved with a recorded venue, or awaiting one of the four owner rulings (#642, #680, #854, #855).
+
+## Deferred from: code review of story-board-vectors-programs-sprites-and-image-objects-plan (2026-11-17)
+
+- **#3067 — corrupt/extreme ANM preview dimensions:** `board-sprite-preview.ts:55-62` passes signed ANM canvas dimensions to the existing unchecked allocator in `sprite-document.ts:516-523`. Backlog/no sprint per the owner's instruction to keep rare imported-input hardening out of normal Epic 12 delivery. A future fix should validate dimensions/work before allocation and isolate the bad item as a placeholder/warning; never allocate extreme buffers as a test.
+- **#3040 — linked item provider's game-folder graphics:** the real linked definition opens, but its graphics preview resolves package-root Misc/Bitmap paths. Owned by immediately following connected-authoring story #1723; not claimed fixed by #1721's placement preview. Verify actual edited shared art and its board return/run journey there.
+

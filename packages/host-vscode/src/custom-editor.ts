@@ -1,4 +1,4 @@
-import { boardPreviewRootForPath, createAnimationAuthoring, asAnimationDocument, asMainDocument, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { boardPreviewRootForPath, projectLayoutForDocumentPath, createAnimationAuthoring, asAnimationDocument, asMainDocument, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -600,7 +600,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const project = projectIn(folder, origin.uri);
       const picker = createAssetPicker({
         services: { fs: project.fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) },
-        layout: { projectFolder: "" },
+        layout: /\.gam$/i.test(origin.model.identity.path)
+          ? await projectLayoutOfMain(project.fs, folder.key, origin.model.identity.path)
+          : projectLayoutForDocumentPath(origin.model.identity.path),
         kind: request.kind,
         extensions: request.extensions,
         field: request.field,

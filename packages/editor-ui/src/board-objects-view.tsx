@@ -1,4 +1,4 @@
-import { createEditTracker } from "@tk-reawakened/editor-model";
+import { createEditTracker, sameStoredValue } from "@tk-reawakened/editor-model";
 import type { BoardDocumentSnapshot, BoardObjectKind, BoardObjectSelection, PendingEdits, SetBoardFieldsCommand } from "@tk-reawakened/editor-model";
 import { coordLayout, pixelToTile, tileToPixel } from "@tk-reawakened/core";
 import type { BoardImage, BoardPoint, BoardProgram, BoardSprite, BoardVector } from "@tk-reawakened/core";
@@ -51,6 +51,7 @@ export function BoardObjectsView(props: BoardObjectsViewProps) {
   const [titleId] = useState(() => `tkr-board-object-remove-${++inspectorsMade}`);
   const [draft, setDraft] = useState<RecordValue | null>(source ?? null);
   const [draftOwner, setDraftOwner] = useState({ kind: mode, index: selectedIndex });
+  const sourceBaseline = useRef<RecordValue | null>(source ?? null);
   const [dirty, setDirty] = useState(false);
   const [positionUnits, setPositionUnits] = useState<"pixels" | "tiles">("pixels");
   const [saving, setSaving] = useState(false);
@@ -59,6 +60,7 @@ export function BoardObjectsView(props: BoardObjectsViewProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (!dirty) {
+      sourceBaseline.current = source ?? null;
       setDraft(source ?? null);
       setDraftOwner({ kind: mode, index: selectedIndex });
     }
@@ -76,13 +78,31 @@ export function BoardObjectsView(props: BoardObjectsViewProps) {
   const apply = async (): Promise<void> => {
     if (draft === null || selectedIndex === null || disabled) return;
     if (draftOwner.kind !== mode || draftOwner.index !== selectedIndex) { setMessage("Selection changed while this draft was open. Re-select its original object before applying."); return; }
+    const latest = doc.getSnapshot();
+    const currentSource = latest[mode][selectedIndex];
+    if (sourceBaseline.current === null || currentSource === undefined || !sameStoredValue(currentSource, sourceBaseline.current)) {
+      setMessage("This object changed while the draft was open. Discard the draft or refresh the selection before applying.");
+      return;
+    }
+    if ("layer" in sourceBaseline.current && "layer" in draft && draft.layer !== sourceBaseline.current.layer
+      && (!Number.isInteger(draft.layer) || draft.layer < 1 || draft.layer > latest.layers)) {
+      setMessage(`Layer must be between 1 and ${latest.layers}.`);
+      return;
+    }
+    if ("type" in draft && draft.type === 8 && "attributes" in sourceBaseline.current && "attributes" in draft
+      && (sourceBaseline.current.type !== 8 || draft.attributes !== sourceBaseline.current.attributes)
+      && (!Number.isInteger(draft.attributes) || draft.attributes < 1 || draft.attributes > latest.layers)) {
+      setMessage(`Stairs target layer must be between 1 and ${latest.layers}.`);
+      return;
+    }
     const finish = submitted.current.begin();
     setSaving(true); setMessage(null);
     try {
-      const result = await doc.apply({ type: "set-board-fields", fields: { [mode]: records.map((record, index) => index === selectedIndex ? draft : record) } as SetBoardFieldsCommand["fields"] });
+      const result = await doc.apply({ type: "set-board-fields", fields: { [mode]: latest[mode].map((record, index) => index === selectedIndex ? draft : record) } as SetBoardFieldsCommand["fields"] });
       if (!result.ok) { setMessage(result.rejection.message); return; }
       const edit = doc.getSnapshot().edits.find((entry) => entry.editId === result.editId);
       onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? `Edit ${labels[mode].toLowerCase()}` });
+      sourceBaseline.current = draft;
       setDirty(false);
     } catch (error) { setMessage(error instanceof Error ? error.message : String(error)); }
     finally { finish(); setSaving(false); }
@@ -109,7 +129,7 @@ export function BoardObjectsView(props: BoardObjectsViewProps) {
     if (mode === "programs") {
       const p = draft as BoardProgram;
       const inline = !/\.prg$/i.test(p.program);
-      return <>{input(inline ? "Inline RPGCode" : "Program file", p.program, (x) => update("program", x as never))}<button type="button" disabled={disabled || saving || !navigation} onClick={() => void linkedInput("program", p.program, (x) => update("program", x as never))}>Choose program</button><button type="button" disabled={disabled || saving || !navigation || inline} onClick={() => void openLink(p.program)}>Open program</button>{input("Layer", p.layer, (x) => update("layer", asInt(x) as never), true)}<label>Trigger<select aria-label="Trigger" value={p.activationType & 1} disabled={disabled || saving} onChange={(e) => { setDirty(true); update("activationType", (p.activationType & ~1) | Number(e.currentTarget.value) as never); }}><option value="0">Step on</option><option value="1">Key press</option></select></label>{check("Repeat while inside", flag(p.activationType, 2), (on) => update("activationType", withFlag(p.activationType, 2, on) as never))}{check("Stop movement", flag(p.activationType, 4), (on) => update("activationType", withFlag(p.activationType, 4, on) as never))}{input("Repeat distance (pixels)", p.repeatDistance, (x) => update("repeatDistance", asInt(x) as never), true)}{conditional(p)}{pointTable(p.points)}</>;
+      return <>{inline ? <label class="tkr-board-object-field">Inline RPGCode<textarea aria-label="Inline RPGCode" value={p.program} disabled={disabled || saving} onInput={(event) => { setDirty(true); update("program", event.currentTarget.value as never); }} /></label> : input("Program file", p.program, (x) => update("program", x as never))}<button type="button" disabled={disabled || saving || !navigation} onClick={() => void linkedInput("program", p.program, (x) => update("program", x as never))}>Choose program</button><button type="button" disabled={disabled || saving || !navigation || inline} onClick={() => void openLink(p.program)}>Open program</button>{input("Layer", p.layer, (x) => update("layer", asInt(x) as never), true)}<label>Trigger<select aria-label="Trigger" value={p.activationType & 1} disabled={disabled || saving} onChange={(e) => { setDirty(true); update("activationType", (p.activationType & ~1) | Number(e.currentTarget.value) as never); }}><option value="0">Step on</option><option value="1">Key press</option></select></label>{check("Repeat while inside", flag(p.activationType, 2), (on) => update("activationType", withFlag(p.activationType, 2, on) as never))}{check("Stop movement", flag(p.activationType, 4), (on) => update("activationType", withFlag(p.activationType, 4, on) as never))}{input("Repeat distance (pixels)", p.repeatDistance, (x) => update("repeatDistance", asInt(x) as never), true)}{conditional(p)}{pointTable(p.points)}</>;
     }
     if (mode === "sprites") {
       const s = draft as BoardSprite;
@@ -130,7 +150,7 @@ export function BoardObjectsView(props: BoardObjectsViewProps) {
       return <><p>Instance overrides apply to this board placement; item behavior remains on the shared definition.</p>{input("Item definition", s.itemFile, (x) => update("itemFile", x))}<button type="button" disabled={disabled || saving || !navigation} onClick={() => void linkedInput("sprite", s.itemFile, (x) => update("itemFile", x))}>Choose item</button><button type="button" disabled={disabled || saving || !navigation || !s.itemFile} onClick={() => void openLink(s.itemFile)}>Open item</button><label>Position units<select aria-label="Position units" value={positionUnits} disabled={disabled || saving} onChange={(event) => setPositionUnits(event.currentTarget.value as "pixels" | "tiles")}><option value="pixels">Pixels</option><option value="tiles">Tiles</option></select></label>{positionInputs}{input("Layer", s.layer, (x) => update("layer", asInt(x)), true)}{input("Activation program override", s.activationPrg, (x) => update("activationPrg", x))}{input("Multitask program override", s.multitaskPrg, (x) => update("multitaskPrg", x))}<label>Trigger<select aria-label="Trigger" value={s.activationType & 1} disabled={disabled || saving} onChange={(e) => { setDirty(true); update("activationType", (s.activationType & ~1) | Number(e.currentTarget.value)); }}><option value="0">Step on</option><option value="1">Key press</option></select></label>{input("Show when board loads if variable", s.loadingVar, (x) => update("loadingVar", x))}{input("Show when board loads if value", s.loadingValue, (x) => update("loadingValue", x))}{conditional(s)}</>;
     }
     const image = draft as BoardImage;
-    return <>{input("Image file", image.file, (x) => update("file", x as never))}<button type="button" disabled={disabled || saving || !navigation} onClick={() => void linkedInput("image", image.file, (x) => update("file", x as never))}>Choose image</button><button type="button" disabled={disabled || saving || !navigation || !image.file} onClick={() => void openLink(image.file)}>Open image</button>{input("Left (pixels)", image.left, (x) => update("left", asInt(x as never)), true)}{input("Top (pixels)", image.top, (x) => update("top", asInt(x as never)), true)}{input("Layer", image.layer, (x) => update("layer", asInt(x as never)), true)}<fieldset><legend>Transparent RGB</legend>{(["r", "g", "b"] as const).map((channel) => input(channel.toUpperCase(), image.transparent[channel], (x) => update("transparent", { ...image.transparent, [channel]: asInt(x) } as never)))}<button type="button" disabled={disabled || saving} onClick={() => onPickTransparent((colour) => { setDirty(true); update("transparent", colour as never); })}>Pick colour from canvas</button></fieldset></>;
+    return <>{input("Image file", image.file, (x) => update("file", x as never))}<button type="button" disabled={disabled || saving || !navigation} onClick={() => void linkedInput("image", image.file, (x) => update("file", x as never))}>Choose image</button><button type="button" disabled={disabled || saving || !navigation || !/\.tbm$/i.test(image.file)} onClick={() => void openLink(image.file)}>Open image</button>{image.file !== "" && !/\.tbm$/i.test(image.file) ? <p>Only tile-bitmap (.tbm) images can be opened here. Other picture formats can be replaced with Choose image.</p> : null}{input("Left (pixels)", image.left, (x) => update("left", asInt(x as never)), true)}{input("Top (pixels)", image.top, (x) => update("top", asInt(x as never)), true)}{input("Layer", image.layer, (x) => update("layer", asInt(x as never)), true)}<fieldset><legend>Transparent RGB</legend>{(["r", "g", "b"] as const).map((channel) => input(channel.toUpperCase(), image.transparent[channel], (x) => update("transparent", { ...image.transparent, [channel]: asInt(x) } as never)))}<button type="button" disabled={disabled || saving} onClick={() => onPickTransparent((colour) => { setDirty(true); update("transparent", colour as never); })}>Pick colour from canvas</button></fieldset></>;
   };
   const ownerMatches = draftOwner.kind === mode && draftOwner.index === selectedIndex;
   return (
@@ -160,7 +180,7 @@ export function BoardObjectsView(props: BoardObjectsViewProps) {
           <button type="button" disabled={disabled || saving || !dirty || !ownerMatches} onClick={() => void apply()}>Apply</button>
         </div>
       </> : null}
-      {dirty ? <button type="button" disabled={saving} onClick={() => { setDirty(false); setMessage(null); }}>Discard draft</button> : null}
+      {dirty ? <button type="button" disabled={saving} onClick={() => { sourceBaseline.current = source === undefined ? null : structuredClone(source); setDraft(source ?? null); setDirty(false); setMessage(null); }}>Discard draft</button> : null}
       {message === null ? null : <p role="status">{message}</p>}
       <dialog ref={dialog} aria-labelledby={titleId} onClose={() => setConfirm(false)}>
         <h2 id={titleId}>Remove {labels[mode].toLowerCase()} slot?</h2>

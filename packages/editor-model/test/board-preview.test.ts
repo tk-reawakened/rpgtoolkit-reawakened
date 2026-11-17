@@ -17,7 +17,7 @@ import {
   type GameState,
 } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { buildNewBoard, createDocumentIdentity, createBoardDocument, previewBoard, type BoardCoordSystem, type BoardDocument } from "../src/index.ts";
+import { boardPreviewRootForPath, buildNewBoard, createBoardDocument, createDocumentIdentity, previewBoard, type BoardCoordSystem, type BoardDocument } from "../src/index.ts";
 
 const tileset = new Uint8Array(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions", "tileset", "tileset_detail1.tst")));
 
@@ -78,6 +78,11 @@ function engineView(bytes: Uint8Array, width: number, height = width): Uint8Arra
   return surface.rgba;
 }
 
+
+test("board preview roots follow the owning game's reserved-folder path", () => {
+  deepEqual(boardPreviewRootForPath("Game/Example/Boards/nested/Map.brd"), { kind: "game", projectPath: "example" });
+  deepEqual(boardPreviewRootForPath("Boards/nested/Map.brd"), PACKAGE_ROOT);
+});
 test("the editor's preview is the engine's viewbrd pixels for the same board, before and after an edit", async () => {
   const host = createMemoryPlatformServices({ files: FILES });
   const identity = createDocumentIdentity("memory-project", "Boards/village.brd");

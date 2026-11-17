@@ -385,7 +385,7 @@ function assignmentsOf(command: SetTileCommand | SetTilesCommand): readonly Tile
 }
 
 /** Stored record values have no property-order contract. Arrays, raw flags and every named field do. */
-function sameStoredValue(left: unknown, right: unknown): boolean {
+export function sameStoredValue(left: unknown, right: unknown): boolean {
   if (left === right) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
     return Array.isArray(left) && Array.isArray(right) && left.length === right.length

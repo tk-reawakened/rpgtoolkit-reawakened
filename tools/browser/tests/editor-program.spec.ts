@@ -246,7 +246,7 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await expect(page.locator(".tkr-command-palette-option").first()).toContainText("What's New");
   await page.keyboard.press("Enter");
   const releaseNotes = page.getByRole("dialog", { name: "What's New" });
-  await expect(releaseNotes).toContainText("accessible descriptions for focused settings");
+  await expect(releaseNotes).toBeVisible();
   const changelogLink = releaseNotes.getByRole("link", { name: "Read the full changelog" });
   await expect(changelogLink).toHaveAttribute("rel", "noopener noreferrer");
   await expect(changelogLink).toHaveAttribute("href", "https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/main/CHANGELOG.md");

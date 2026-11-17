@@ -58,6 +58,15 @@ test("board objects render, edit, visit definitions and survive browser save and
     page,
     read: (path) => read(page, path),
     openBoard: async (path) => { await openFile(page, path); await expect(board()).toBeVisible(); return board(); },
+    chooseAsset: async (reference) => {
+      const picker = page.getByRole("dialog", { name: /Choose item/i });
+      await expect(picker).toBeVisible();
+      await picker.getByRole("option", { name: reference, exact: true }).click();
+      await picker.getByRole("button", { name: `Use ${reference}…`, exact: true }).click();
+      await page.getByRole("button", { name: "Use it", exact: true }).click();
+      await expect(picker).toBeHidden();
+      await page.waitForTimeout(100);
+    },
     reopenBoard: async (path) => {
       await page.getByRole("button", { name: `Close ${path}`, exact: true }).click();
       await expect(page.getByRole("tab", { name: path, exact: true })).toHaveCount(0);

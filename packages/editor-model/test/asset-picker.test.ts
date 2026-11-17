@@ -5,9 +5,19 @@ import { test } from "node:test";
 import { platformError } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { copyIntoReservedFolder, createAssetPicker, linkFor, listCandidates, referencePath, reservedFolder, unusableName } from "../src/index.ts";
-
+import { projectLayoutForDocumentPath } from "../src/reserved-folders.ts";
 const ROOT = { projectFolder: "" };
 const bytes = (...values: number[]): Uint8Array => new Uint8Array(values);
+
+test("a document selects its owning game's exact-case layout", () => {
+  deepEqual(projectLayoutForDocumentPath("Game/Example/Boards/nested/Map.brd"), { projectFolder: "Game/Example" });
+  deepEqual(projectLayoutForDocumentPath("gAmE/MyGame/Boards/sub/map.brd"), { projectFolder: "gAmE/MyGame" });
+  deepEqual(projectLayoutForDocumentPath("Boards/nested/Map.brd"), { projectFolder: "" });
+  deepEqual(projectLayoutForDocumentPath("Game/Example/Prg/start.prg"), { projectFolder: "Game/Example" });
+  deepEqual(projectLayoutForDocumentPath("Game/Example/Item/nested/chest.itm"), { projectFolder: "Game/Example" });
+  deepEqual(projectLayoutForDocumentPath("Game/Example/Misc/chest.anm"), { projectFolder: "Game/Example" });
+  deepEqual(projectLayoutForDocumentPath("samples/Game/MyGame/Bitmap/art.tbm"), { projectFolder: "samples/Game/MyGame" });
+});
 
 test("a link is the path inside the type folder, sub-folders kept, with the legacy separator", () => {
   deepEqual(linkFor(ROOT, "boards", "Boards/inn.brd"), { inside: true, reference: "inn.brd" });

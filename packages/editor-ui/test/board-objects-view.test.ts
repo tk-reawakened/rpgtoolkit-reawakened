@@ -90,7 +90,7 @@ async function setup(mode: "vectors" | "programs" | "sprites" | "images" = "vect
 
 async function input(root: HTMLElement, label: string, value: string): Promise<void> {
   await act(() => {
-    const field = root.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+    const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${label}"]`);
     if (!field) throw new Error(`missing input: ${label}`);
     field.value = value;
     field.dispatchEvent(new Event("input", { bubbles: true }));
@@ -209,6 +209,113 @@ test("an unapplied draft survives selecting another object kind without renderin
   equal(s.root.querySelector<HTMLInputElement>('[aria-label="Image file"]')?.value, "sample.png");
   deepEqual(s.doc.serialize(), bytes);
   equal(s.doc.getSnapshot().dirty, false);
+});
+test("staged handle refuses to overwrite intervening geometry and can be retried after discard", async () => {
+  const s = await setup();
+  await input(s.root, "Handle", "staged");
+  const latest = s.doc.getSnapshot().vectors[0] as BoardVector;
+  const result = await s.doc.apply({ type: "set-board-fields", fields: { vectors: [{ ...latest, points: [{ x: 27, y: 2 }, ...latest.points.slice(1)] }] } });
+  ok(result.ok);
+  await click(s.root, "Apply");
+  ok(s.root.querySelector('[role="status"]')?.textContent);
+  equal((s.doc.getSnapshot().vectors[0] as BoardVector).points[0]?.x, 27);
+  await click(s.root, "Discard draft");
+  await input(s.root, "Handle", "retry");
+  await click(s.root, "Apply");
+  equal((s.doc.getSnapshot().vectors[0] as BoardVector).handle, "retry");
+  equal((s.doc.getSnapshot().vectors[0] as BoardVector).points[0]?.x, 27);
+});
+
+test("inline RPGCode textarea preserves comments and newlines through Save and reopen", async () => {
+  const s = await setup("programs");
+  const initial = s.doc.getSnapshot().programs[0]!;
+  const inline = { ...initial, program: "say \"hello\"\n// keep this comment\nwait 1" };
+  const seeded = await s.doc.apply({ type: "set-board-fields", fields: { programs: [inline] } });
+  ok(seeded.ok);
+  await s.doc.save();
+  await act(() => s.renderView("programs", 0));
+  const value = "say \"updated\"\n// keep this comment\nwait 2";
+  await input(s.root, "Inline RPGCode", value);
+  await click(s.root, "Apply");
+  await s.doc.save();
+  const bytes = s.savedBytes();
+  ok(bytes);
+  const reopened = createBoardDocument(createMemoryPlatformServices({ files: { [PATH]: bytes } }).fs, s.doc.identity, bytes);
+  ok(reopened.ok);
+  equal(reopened.document.getSnapshot().programs[0]?.program, value);
+});
+
+test("changed invalid layer is refused while an untouched unusual loaded layer remains editable", async () => {
+  const s = await setup();
+  const original = s.doc.getSnapshot().vectors[0] as BoardVector;
+  const seeded = await s.doc.apply({ type: "set-board-fields", fields: { vectors: [{ ...original, layer: 9 }] } });
+  ok(seeded.ok);
+  await act(() => s.renderView("vectors", 0));
+  await input(s.root, "Handle", "allowed");
+  await click(s.root, "Apply");
+  equal((s.doc.getSnapshot().vectors[0] as BoardVector).layer, 9);
+  await input(s.root, "Layer", "3");
+  await click(s.root, "Apply");
+  ok(s.root.querySelector('[role="status"]')?.textContent);
+  equal((s.doc.getSnapshot().vectors[0] as BoardVector).layer, 9);
+});
+test("changed invalid stairs target layer is refused", async () => {
+  const s = await setup();
+  const vector = s.doc.getSnapshot().vectors[0] as BoardVector;
+  const seeded = await s.doc.apply({ type: "set-board-fields", fields: { vectors: [{ ...vector, type: 8, attributes: 1 }] } });
+  ok(seeded.ok);
+  await act(() => s.renderView("vectors", 0));
+  await input(s.root, "Stairs target layer", "3");
+  await click(s.root, "Apply");
+  ok(s.root.querySelector('[role="status"]')?.textContent);
+  equal((s.doc.getSnapshot().vectors[0] as BoardVector).attributes, 1);
+});
+
+test("choosing Stairs requires a valid newly interpreted target layer", async () => {
+  const s = await setup();
+  await act(() => {
+    const type = s.root.querySelector<HTMLSelectElement>('[aria-label="Type"]');
+    ok(type);
+    type.value = "8";
+    type.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await click(s.root, "Apply");
+  equal(s.doc.getSnapshot().vectors[0]!.type, 2);
+  equal(s.doc.getSnapshot().vectors[0]!.attributes, 8);
+  await input(s.root, "Stairs target layer", "1");
+  await click(s.root, "Apply");
+  equal(s.doc.getSnapshot().vectors[0]!.type, 8);
+  equal(s.doc.getSnapshot().vectors[0]!.attributes, 1);
+});
+
+test("raster image Open is unavailable while tile-bitmap Open remains available", async () => {
+  const s = await setup("images");
+  let opened = "";
+  const navigation = { open: async (path: string) => { opened = path; return null; }, pickAsset: async () => null };
+  s.renderView("images", 0, navigation);
+  const open = [...s.root.querySelectorAll("button")].find((button) => button.textContent === "Open image");
+  ok(open?.disabled);
+  await input(s.root, "Image file", "Boards/picture.tbm");
+  const currentOpen = [...s.root.querySelectorAll("button")].find((button) => button.textContent === "Open image");
+  ok(currentOpen && !currentOpen.disabled);
+  await click(s.root, "Open image");
+  equal(opened, "Boards/picture.tbm");
+});
+test("Undoing slot renumbering prevents a draft from overwriting the restored record", async () => {
+  const s = await setup();
+  const first = s.doc.getSnapshot().vectors[0] as BoardVector;
+  const second = { ...first, handle: "second", points: [{ x: 30, y: 31 }] };
+  const seeded = await s.doc.apply({ type: "set-board-fields", fields: { vectors: [first, second] } });
+  ok(seeded.ok);
+  const removed = await s.doc.apply({ type: "set-board-fields", fields: { vectors: [second] } });
+  ok(removed.ok);
+  await act(() => s.renderView("vectors", 0));
+  await input(s.root, "Handle", "staged survivor");
+  ok((await s.doc.undo()).ok);
+  await click(s.root, "Apply");
+  ok(s.root.querySelector('[role="status"]')?.textContent);
+  equal((s.doc.getSnapshot().vectors[0] as BoardVector).handle, first.handle);
+  equal((s.doc.getSnapshot().vectors[1] as BoardVector).handle, "second");
 });
 
 for (const [layout, field, value, expected] of [

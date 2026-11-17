@@ -1,13 +1,17 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
+import { BinaryReader, readBoard, writeBoard } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import {
   boardToScreen, buildNewBoard, createBoardDocument, createBoardEditor, createDocumentIdentity,
   DEFAULT_EDITOR_PREFERENCES, type BoardCoordSystem, type Modifiers, type Pixel,
 } from "../src/index.ts";
+import { defaultBoardObject } from "../src/board-object-tools.ts";
 
-function rig(coordSystem: BoardCoordSystem = "2d") {
-  const built = buildNewBoard({ name: "objects", coordSystem, pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null });
+function rig(coordSystem: BoardCoordSystem = "2d", initialBytes?: Uint8Array) {
+  const built = initialBytes === undefined
+    ? buildNewBoard({ name: "objects", coordSystem, pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null })
+    : { ok: true as const, bytes: initialBytes };
   ok(built.ok);
   const host = createMemoryPlatformServices({ files: { "Boards/objects.brd": built.bytes } });
   const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/objects.brd"), built.bytes);
@@ -20,7 +24,7 @@ function rig(coordSystem: BoardCoordSystem = "2d") {
     editor.pointerDown(screen(point), modifiers);
     await editor.pointerUp(screen(point), modifiers);
   };
-  return { doc, editor, screen, click, bytes: built.bytes };
+  return { doc, editor, screen, click, bytes: built.bytes, host };
 }
 
 test("a polygon is one edit only on finish, and Undo restores the original bytes", async () => {
@@ -40,6 +44,131 @@ test("a polygon is one edit only on finish, and Undo restores the original bytes
   editor.sync();
   deepEqual(doc.serialize(), bytes);
   equal(editor.getState().objectSelection, null);
+});
+
+test("remove and reorder preserve raw slots, residue, undo bytes, and saved order", async () => {
+  const built = buildNewBoard({ name: "objects", coordSystem: "2d", pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  const decoded = readBoard(new BinaryReader(built.bytes));
+  ok(decoded.ok);
+  const points = [{ x: 32, y: 32 }, { x: 64, y: 32 }];
+  const source = {
+    ...decoded.value,
+    vectors: [32, 96, 160].map((x, index) => ({
+      ...defaultBoardObject("vectors", 1, { x, y: 32 }, points), handle: `slot-${index}`, attributes: index + 10,
+    })),
+    programs: [
+      { ...defaultBoardObject("programs", 1, { x: 0, y: 0 }, []), graphic: "reserved.gph", handle: "empty slot" },
+      { ...defaultBoardObject("programs", 1, { x: 0, y: 0 }, points), program: "kept.prg", activationType: 64 },
+    ],
+    residue: Uint8Array.of(17, 39, 205, 0),
+  };
+  const encoded = writeBoard(source);
+  ok(encoded.ok);
+  const { doc, editor, host } = rig("2d", encoded.value);
+  editor.setMode("vectors");
+  const original = [...doc.getSnapshot().vectors];
+  const originalBytes = doc.serialize();
+  editor.selectObject(1);
+  ok(await editor.removeObject());
+  deepEqual(doc.getSnapshot().vectors, [original[0], original[2]]);
+  equal(editor.getState().objectSelection, null);
+  deepEqual(doc.getSnapshot().programs, source.programs);
+  const removalId = doc.getSnapshot().edits.at(-1)!.editId;
+  ok(doc.undo(removalId).ok);
+  editor.sync();
+  deepEqual(doc.serialize(), originalBytes);
+  editor.selectObject(0);
+  ok(await editor.reorderObject(2));
+  deepEqual(doc.getSnapshot().vectors, [original[1], original[2], original[0]]);
+  equal(editor.getState().objectSelection?.index, 2);
+  deepEqual(doc.getSnapshot().programs, source.programs);
+  const reorderedBytes = doc.serialize();
+  const reorderId = doc.getSnapshot().edits.at(-1)!.editId;
+  ok(doc.undo(reorderId).ok);
+  editor.sync();
+  deepEqual(doc.serialize(), originalBytes);
+  ok(doc.redo(reorderId).ok);
+  editor.sync();
+  deepEqual(doc.serialize(), reorderedBytes);
+  ok((await doc.save()).ok);
+  const saved = await host.fs.readProject("memory-project", "Boards/objects.brd");
+  ok(saved.ok);
+  const reopened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/objects.brd"), saved.value);
+  ok(reopened.ok);
+  deepEqual(reopened.document.getSnapshot().vectors, [original[1], original[2], original[0]]);
+  deepEqual(reopened.document.getSnapshot().programs, source.programs);
+  deepEqual(reopened.document.serialize().slice(-4), Uint8Array.of(17, 39, 205, 0));
+});
+
+test("Draw starts a new path on a segment, while Alt subdivides and Ctrl controls snapping", async () => {
+  const { doc, editor, screen, click } = rig();
+  editor.setMode("vectors");
+  await click({ x: 32, y: 32 });
+  await click({ x: 96, y: 32 });
+  ok(await editor.finishObjectPath(false));
+  editor.pointerDown(screen({ x: 64, y: 32 }), {});
+  equal(editor.getState().pending?.kind, "object-path");
+  equal(doc.getSnapshot().vectors[0]!.points.length, 2);
+  editor.cancel();
+  editor.selectObject(0);
+  await click({ x: 64, y: 32 }, { alt: true });
+  deepEqual(doc.getSnapshot().vectors[0]!.points, [{ x: 32, y: 32 }, { x: 64, y: 32 }, { x: 96, y: 32 }]);
+  editor.cancel();
+  await click({ x: 41, y: 47 });
+  await click({ x: 64, y: 96 });
+  ok(await editor.finishObjectPath(false));
+  deepEqual(doc.getSnapshot().vectors[1]!.points, [{ x: 32, y: 32 }, { x: 64, y: 96 }]);
+  editor.cancel();
+  await click({ x: 41, y: 47 }, { ctrl: true });
+  await click({ x: 80, y: 95 }, { ctrl: true });
+  ok(await editor.finishObjectPath(false));
+  deepEqual(doc.getSnapshot().vectors[2]!.points, [{ x: 41, y: 47 }, { x: 80, y: 95 }]);
+});
+
+for (const ctrl of [false, true]) {
+  test(`Alt segment insertion ${ctrl ? "reverses" : "uses"} grid snapping`, async () => {
+    const { doc, editor, click } = rig();
+    editor.setMode("vectors");
+    await click({ x: 32, y: 32 }); await click({ x: 96, y: 96 });
+    ok(await editor.finishObjectPath(false));
+    await click({ x: 69, y: 70 }, { alt: true, ctrl });
+    const inserted = ctrl ? { x: 70, y: 70 } : { x: 64, y: 64 };
+    deepEqual(doc.getSnapshot().vectors[0]!.points, [{ x: 32, y: 32 }, inserted, { x: 96, y: 96 }]);
+    const editId = doc.getSnapshot().edits.at(-1)!.editId;
+    ok(doc.undo(editId).ok);
+    deepEqual(doc.getSnapshot().vectors[0]!.points, [{ x: 32, y: 32 }, { x: 96, y: 96 }]);
+  });
+}
+
+test("Alt resumes a visible region, and hidden geometry is not a Draw target", async () => {
+  const { doc, editor, screen, click } = rig();
+  editor.setMode("vectors");
+  await click({ x: 32, y: 32 });
+  await click({ x: 96, y: 32 });
+  ok(await editor.finishObjectPath(false));
+  editor.selectObject(0);
+  editor.pointerDown(screen({ x: 96, y: 96 }), { alt: true });
+  equal(editor.getState().pending?.kind, "object-path");
+  editor.cancel();
+  deepEqual(doc.getSnapshot().vectors[0]!.points, [{ x: 32, y: 32 }, { x: 96, y: 32 }]);
+  editor.pointerDown(screen({ x: 96, y: 96 }), { alt: true });
+  await click({ x: 128, y: 96 });
+  ok(await editor.finishObjectPath(true));
+  deepEqual(doc.getSnapshot().vectors[0]!.points, [{ x: 32, y: 32 }, { x: 96, y: 32 }, { x: 96, y: 96 }, { x: 128, y: 96 }]);
+  editor.selectObject(0);
+  editor.setLayer(1);
+  editor.setLayerVisible(0, false);
+  editor.pointerDown(screen({ x: 32, y: 32 }), {});
+  equal(editor.getState().pending?.kind, "object-path");
+  editor.cancel();
+  editor.setLayer(0);
+  editor.setLayerVisible(0, true);
+  editor.setObjectTypeVisible(1, false);
+  editor.pointerDown(screen({ x: 32, y: 32 }), {});
+  equal(editor.getState().pending?.kind, "object-path");
+  editor.cancel();
+  deepEqual(doc.getSnapshot().vectors[0]!.points, [{ x: 32, y: 32 }, { x: 96, y: 32 }, { x: 96, y: 96 }, { x: 128, y: 96 }]);
 });
 
 test("Escape, tool and mode changes cancel uncommitted regions without dirtying the board", async () => {

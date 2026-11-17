@@ -325,6 +325,11 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     if (typing(event.target) || event.defaultPrevented
       || (event.target instanceof Element && event.target.closest("dialog[open]") !== null)) return;
     const command = event.ctrlKey || event.metaKey;
+    if (!event.altKey && state.pending?.kind === "object-path" && event.key === "Enter") {
+      event.preventDefault();
+      void editor.finishObjectPath(event.ctrlKey);
+      return;
+    }
     if (command && !event.altKey) {
       const key = event.key.toLowerCase();
       if (key === "z" && canHistory) {
@@ -354,11 +359,6 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     if ((state.mode === "vectors" || state.mode === "programs") && event.key.toLowerCase() === "x") {
       event.preventDefault();
       editor.resumeObjectPath();
-      return;
-    }
-    if (state.pending?.kind === "object-path" && event.key === "Enter") {
-      event.preventDefault();
-      void editor.finishObjectPath(event.ctrlKey);
       return;
     }
     const tool = KEY_TOOLS.get(event.key.toLowerCase());
