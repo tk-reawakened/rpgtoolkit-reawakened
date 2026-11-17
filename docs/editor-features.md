@@ -141,6 +141,16 @@ Draw collision and trigger regions, place item sprites and pictures, and edit th
 * **Removal and order are explicit.** Clearing a file reference keeps its slot. Removing an object is a distinct **Remove slot and renumber** action: a native confirmation explains that later stored indices change, and cancellation changes nothing. Removal preserves the relative order and complete data of surviving records. Moving a vector to another slot is likewise an explicit operation, never sorting or compacting as cleanup.
 * **Inspector drafts.** Numeric/text alternatives reach the same stored outcomes as canvas edits. A refused command leaves its draft available and reports the refusal. Applying a draft after its stored source changed refuses rather than overwriting an intervening canvas edit or a different renumbered record. Inline RPGCode preserves line breaks. Newly changed layer and stairs-target fields must name an existing 1-based board layer; unrelated unusual loaded values remain untouched. Navigation, selection and display visibility are view state, not document edits; linked definitions use the existing visit/return mechanism.
 
+<a id="p0-connected-authoring"></a>
+### Reawakened rules for connected authoring (story 12.12)
+
+Follow a placed item's graphics and local programs to their source editors, then return to the board and run the saved result. These rules join the delivered P0 editors; they do not add the deferred item-behaviour forms.
+
+* **Local and shared work are distinct.** A placement's activation and parallel-program references belong to that board record. Opening its item definition opens the one shared document identity; changing that definition or its artwork affects every reference to it. Describe other uses as unknown unless they are actually known, rather than implying the current placement owns the definition.
+* **Links keep their owning game.** Resolve a linked source and its preview assets through the reserved folders of the source document's game, preserving the filesystem's stored spelling. Do not fall back to another game's identically named asset. Choose uses the existing confirmed picker; Open uses the existing source visit. Unsupported source-editor formats remain preview-only, not advertised as editable.
+* **Return and Save are explicit.** A visit returns to the original board and stored-slot selection without changing placement data. Accepted edits remain in their shared document history. After a source is successfully saved, returning to its caller refreshes its saved-asset preview; previewing or returning does not save another document automatically.
+* **A preview is not a run.** A board test starts the selected saved board with the saved setup and bypasses normal startup. A normal game run follows the saved main file's startup. Both use the existing immutable saved-project snapshot: later editor changes neither restart nor change an already running game. Save and start a new run to use the newer revision.
+
 ---
 
 ## 4. Tile tools (T-36 … T-39)
