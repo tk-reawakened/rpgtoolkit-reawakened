@@ -8,6 +8,8 @@ import {
   type AssetKind,
   createLayoutModel,
   createPreferences,
+  createWizardHistory,
+  HISTORY_SETTING_IDS,
   createProgramFile,
   createProjectTree,
   createTabs,
@@ -196,7 +198,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     await preferences.refresh();
     const remembered = newBoardSettingsFrom(preferences.getSnapshot());
     const finish = async (settings: NewBoardSettings): Promise<CreateBoardResult> => {
-      const result = await createBoardFile(services.fs, projectLayout, settings);
+      const result = await createBoardFile(services.fs, projectLayout, settings, createWizardHistory(workspace.checkpoints));
       if (!result.ok) return result;
       const problem = await rememberNewBoard(preferences, settings);
       await tree.refresh();
@@ -324,13 +326,27 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   });
 
   const launcher = createLauncher({ services, workspace });
+  const shellWorkspace = {
+    ...workspace,
+    historyPanel: {
+      files: services.fs,
+      mountPreview: (previewElement: HTMLElement, previewDocument: AnyDocument) => mountDocumentView(project, previewDocument, previewElement, projectLayout, openSource, undefined, main),
+      offer: {
+        isEnabled: async () => {
+          const stored = await services.settings.get("user", HISTORY_SETTING_IDS.offerIgnore);
+          return !(stored.ok && stored.value === false);
+        },
+        onNever: () => { void services.settings.set("user", HISTORY_SETTING_IDS.offerIgnore, false); },
+      },
+    },
+  };
   const shell: ViewHandle = mountShell(element, {
     layout,
     tabs,
     tree,
     projectLayout,
     fs: services.fs,
-    workspace,
+    workspace: shellWorkspace,
     launcher,
     creatorTests,
     browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },

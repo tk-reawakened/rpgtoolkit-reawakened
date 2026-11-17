@@ -1,4 +1,4 @@
-import { kindById, markRecoveredDocumentDirty, type AnyDocument, type ApplyResult, type ConflictChoice, type ConflictResult, type DocumentIdentity, type DocumentKind, type DocumentSnapshot, type DocumentStorage, type ExternalChange, type ExternalCheck, type HistoryResult, type OpenError, type RevertResult, type SaveFailure, type SaveResult } from "@tk-reawakened/editor-model";
+import { kindById, markRecoveredDocumentDirty, type AnyDocument, type ApplyResult, type ConflictChoice, type ConflictResult, type DocumentIdentity, type DocumentKind, type DocumentSnapshot, type DocumentStorage, type ExternalCheck, type ExternalChange, type HistoryReason, type HistoryResult, type OpenError, type RevertResult, type SaveFailure, type SaveOptions, type SaveResult } from "@tk-reawakened/editor-model";
 import type { PlatformResult } from "@tk-reawakened/platform-services";
 
 export type BackupRecoveryResult =
@@ -20,6 +20,7 @@ export async function recoverDocument(kind: DocumentKind, storage: DocumentStora
       return lastRead;
     },
     writeProject: (project, path, bytes) => storage.writeProject(project, path, bytes),
+    ...(storage.history === undefined ? {} : { history: storage.history }),
   };
   const recovered = kind.create(recordingStorage, identity, backup);
   if (!recovered.ok) return recovered;
@@ -90,8 +91,8 @@ class RecoveryDocument {
     return this.#document.undo(editId);
   }
   redo(editId?: string): HistoryResult { return this.#document.redo(editId); }
-  async save(): Promise<SaveResult> {
-    if (!this.#pending) return this.#document.save();
+  async save(reason?: HistoryReason, options?: SaveOptions): Promise<SaveResult> {
+    if (!this.#pending) return this.#document.save(reason, options);
     this.#saveError = this.#failure();
     this.#publish();
     return { ok: false, failure: this.#saveError };
@@ -108,7 +109,10 @@ class RecoveryDocument {
     this.#publish();
     return this.#observed === undefined ? "unknown" : "conflict";
   }
-  resolveConflict(choice: ConflictChoice): ConflictResult {
+  restoreVersion(bytes: Uint8Array, label?: string): ApplyResult { return this.#document.restoreVersion(bytes, label); }
+  resolveConflict(choice: "keep-local"): ConflictResult;
+  resolveConflict(choice: ConflictChoice): ConflictResult | Promise<ConflictResult>;
+  resolveConflict(choice: ConflictChoice): ConflictResult | Promise<ConflictResult> {
     if (!this.#pending) return this.#document.resolveConflict(choice);
     return { ok: false, reason: "cannot-reload", message: "Recovery requires a fresh disk check; use the editor's conflict controls." };
   }
@@ -124,6 +128,9 @@ class RecoveryDocument {
       return { ok: false, reason: "cannot-reload", message: this.#observed === undefined ? "The file still cannot be read; nothing was changed." : "The disk version is available now. Review it and choose again." };
     }
     if (choice === "reload") {
+      // The recovered work is about to be discarded: keep it in history first, and stop if that fails (D12.10 item 5).
+      const kept = await this.#storage.history?.keepBeforeWrite(this.identity.path, this.#document.serialize(), "before-conflict-resolution");
+      if (kept !== undefined && !kept.ok) return { ok: false, reason: "cannot-reload", message: `Your recovered version could not be kept in history, so the disk version was not loaded: ${kept.message}` };
       const result = await this.#document.revert(this.#document.getSnapshot().edits.at(-1)?.editId ?? null);
       if (!result.ok) return { ok: false, reason: "cannot-reload", message: result.failure.message };
     } else {
@@ -143,7 +150,7 @@ class RecoveryDocument {
         return { ok: false, reason: "cannot-reload", message: "The disk version changed or could not be checked. Review it and choose again." };
       }
       if (this.#document.getSnapshot().conflict !== null) {
-        const result = this.#document.resolveConflict("keep-local");
+        const result = await this.#document.resolveConflict("keep-local");
         if (!result.ok) return result;
       }
       markRecoveredDocumentDirty(this.#document);

@@ -14,6 +14,7 @@ import {
   type MainFile,
 } from "@tk-reawakened/core";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
+import type { WizardHistory } from "./wizard-history.ts";
 import { reservedFolder, unusableName } from "./reserved-folders.ts";
 
 /**
@@ -387,7 +388,7 @@ interface Listing {
  * it. Names are compared ASCII-folded; differently-cased existing reserved asset folders are refused because stored
  * references use their canonical spelling, which may not resolve on case-sensitive storage.
  */
-export async function createNewProject(storage: NewProjectStorage, settings: NewProjectSettings, definitions: readonly StarterDefinition[] = STARTER_DEFINITIONS): Promise<CreateProjectResult> {
+export async function createNewProject(storage: NewProjectStorage, settings: NewProjectSettings, definitions: readonly StarterDefinition[] = STARTER_DEFINITIONS, history?: WizardHistory): Promise<CreateProjectResult> {
   const planned = planNewProject(settings, definitions);
   if (!planned.ok) return { ok: false, reason: "invalid", problems: planned.problems, message: planned.problems[0]!.message };
   const { plan } = planned;
@@ -497,6 +498,11 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
   const written: string[] = [];
   const failed = (message: string, pending: readonly string[]): CreateProjectResult => ({ ok: false, reason: "failed", message, written, pending });
   const todo = actions;
+  // The group naming every planned destination, absent ones included, is durably recorded before the first write (D12.10 item 6).
+  const group = history === undefined ? null : await history.begin("New project", todo.map((action) => action.path));
+  if (group !== null && !group.ok) {
+    return { ok: false, reason: "failed", message: `The project was not created because its history checkpoint could not be recorded: ${group.message}. Nothing was written.`, written, pending: todo.map((action) => action.path) };
+  }
   for (const folder of toMake) {
     const made = await storage.createFolder(folder);
     if (!made.ok) return failed(`Could not create the folder ${folder}: ${made.error.message} ${describeProgress(written, todo.map((action) => action.path))}`, todo.map((action) => action.path));
@@ -514,6 +520,12 @@ export async function createNewProject(storage: NewProjectStorage, settings: New
       return failed(`Could not write ${action.path}: ${reason} ${describeProgress(written, pending)}`, pending);
     }
     written.push(action.path);
+    if (group !== null && history !== undefined) {
+      const recorded = await history.written(group.groupId, action.path, action.file.bytes);
+      if (!recorded.ok) {
+        return failed(`${action.path} was written, but its history could not be recorded: ${recorded.message} ${describeProgress(written, todo.slice(index + 1).map((item) => item.path))}`, todo.slice(index + 1).map((item) => item.path));
+      }
+    }
   }
   const main = actions[actions.length - 1]!;
   return { ok: true, mainPath: main.path, written };

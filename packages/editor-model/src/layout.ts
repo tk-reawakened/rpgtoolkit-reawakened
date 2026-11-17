@@ -41,6 +41,7 @@ export const DEFAULT_WORKBENCH_PANELS: readonly PanelDefinition[] = [
   { id: "game", title: "Game", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
   { id: "tileset", title: "Tileset", side: "right", visible: true, size: 288, minSize: 192, maxSize: 480 },
   { id: "run", title: "Run", side: "bottom", visible: true, size: 208, minSize: 128, maxSize: 480 },
+  { id: "history", title: "History", side: "bottom", visible: false, size: 320, minSize: 160, maxSize: 640 },
 ];
 
 export interface PanelState {

@@ -1,0 +1,48 @@
+{
+  "startedAt": 1794805549489,
+  "startedIso": "2026-11-16T05:05:49.489Z",
+  "seconds": 3600,
+  "host": {
+    "platform": "darwin",
+    "release": "27.2.0",
+    "cpus": 8,
+    "node": "v26.13.0"
+  },
+  "plan": {
+    "workload": "automated-seeded-paced-script",
+    "note": "Gesture timing is this script's assumption, not an observation of a person.",
+    "seed": 1828,
+    "debounceMs": 1000,
+    "burstGestures": "3-24 gestures per burst",
+    "gestureGapSeconds": "lognormal, median 2.0 s, clipped to 0.3-20 s",
+    "pauseSeconds": "70% uniform 8-60 s; 25% uniform 60-180 s; 5% uniform 180-480 s",
+    "gestureMix": "80% brush stroke (1-40 cells), 5% erase stroke, 12% rectangle fill (up to 25 x 20 cells), 3% undo of the last edit",
+    "boardDwellMinutes": "8-20 minutes on one board before moving to the next of the working set",
+    "manualSave": "15% of bursts end with Ctrl+S 0.3-0.9 s after the last gesture",
+    "beforeRun": "about 3 per hour: a run saves every dirty document with reason before-run",
+    "boards": [
+      "Caoquest/Boards/town2.brd",
+      "Caoquest/Boards/town3.brd",
+      "Caoquest/Boards/start.brd"
+    ]
+  },
+  "seeded": [
+    {
+      "path": "Boards/town2.brd",
+      "sourceBytes": 39184,
+      "seedBytes": 2255
+    },
+    {
+      "path": "Boards/town3.brd",
+      "sourceBytes": 75670,
+      "seedBytes": 2070
+    },
+    {
+      "path": "Boards/start.brd",
+      "sourceBytes": 440424,
+      "seedBytes": 8425
+    }
+  ],
+  "plannedActions": 484,
+  "plannedGestures": 477
+}

@@ -4,7 +4,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createPreferences, PREFERENCE_CATALOGUE, preferenceById, validatePreference, vscodeContributions } from "../src/index.ts";
+import { createPreferences, historyPolicyFrom, HISTORY_SETTING_IDS, PREFERENCE_CATALOGUE, preferenceById, validatePreference, vscodeContributions } from "../src/index.ts";
 
 const entry = (id: string) => {
   const found = preferenceById(id);
@@ -113,4 +113,23 @@ test("only a multi-line string may hold line breaks, and neither may hold other 
   equal(validatePreference(board, "a\nb").ok, false);
   equal(validatePreference(header, "x".repeat(501)).ok, false);
   equal(vscodeContributions().configuration.properties["rpgToolkit.program.headerTemplate"]!.editPresentation, "multilineText");
+});
+
+test("history retention is user-only: the catalogue marks it, VS Code restricts it, and a project value is ignored (#1828)", async () => {
+  for (const id of [HISTORY_SETTING_IDS.mergeSeconds, HISTORY_SETTING_IDS.floorHours, HISTORY_SETTING_IDS.warnMiB, HISTORY_SETTING_IDS.maxFileMiB]) {
+    equal(preferenceById(id)?.projectLayer, false, `${id} is user-only`);
+    equal(vscodeContributions().restrictedConfigurations.includes(`rpgToolkit.${id}`), true, `${id} is restricted in an untrusted workspace`);
+  }
+  const host = createMemoryPlatformServices({});
+  const settings = host.settings;
+  // A cloned project tries to change the person's retention: the project layer must not win.
+  ok((await settings.set("project", HISTORY_SETTING_IDS.mergeSeconds, 300)).ok);
+  ok((await settings.set("user", HISTORY_SETTING_IDS.mergeSeconds, 5)).ok);
+  const prefs = createPreferences({ settings });
+  await prefs.refresh();
+  const row = prefs.getSnapshot().rows.find((candidate) => candidate.entry.id === HISTORY_SETTING_IDS.mergeSeconds)!;
+  equal(row.effective, 5);
+  equal(row.source, "user");
+  ok(prefs.getSnapshot().problems.some((problem) => problem.id === HISTORY_SETTING_IDS.mergeSeconds && problem.layer === "project"), "the ignored project value is reported once");
+  deepEqual(historyPolicyFrom((id) => (id === HISTORY_SETTING_IDS.warnMiB ? 2 : undefined)).warnBytes, 2 * 1024 * 1024, "the policy follows the effective setting");
 });

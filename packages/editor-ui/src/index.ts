@@ -16,5 +16,6 @@ export type { ShellProps } from "./shell.tsx";
 export { ProgramView, type ProgramPreferencesSource, type ProgramViewDocument, type ProgramViewProps } from "./program-view.tsx";
 export { createPlainTextSurface, diffText, type LanguageFeatures, type SurfaceDiagnostic, type TextChange, type TextSelection, type TextSurface, type TextSurfaceFactory, type TextSurfaceHost } from "./text-surface.ts";
 export { leaseLanguageClient, startLanguageClient, LANGUAGE_IDLE_MS, type LanguageClient, type LanguageLease } from "./language-client.ts";
+export { mountHistory } from "./mount.ts";
 export { createCreatorTestsController, type CreatorTestsController, type CreatorTestsControllerOptions, type CreatorTestsFrame, type CreatorTestsRequest, type CreatorTestsState } from "./creator-tests-controller.ts";
 export { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";

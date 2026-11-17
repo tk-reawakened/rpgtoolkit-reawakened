@@ -128,6 +128,12 @@ export function Workbench({ layout, panels, tabs, headerBar, children }: Workben
     return (
       <div class={`tkr-dock-header tkr-dock-header-${side}`}>
         {side === "bottom" ? <span class="tkr-dock-header-title">{sidePanels.map((p) => p.title).join(" / ")}</span> : null}
+        {/* Each hidden panel can be shown on its own, so a restored layout can never make one unreachable (#2849). */}
+        {sidePanels.filter((panel) => !panel.visible).map((panel) => (
+          <button key={`show-${panel.id}`} type="button" class="tkr-dock-show-btn" aria-label={`Show ${panel.title} panel`} onClick={() => layout.show(panel.id)}>
+            {panel.title}
+          </button>
+        ))}
         <button
           type="button"
           class="tkr-dock-collapse-btn"

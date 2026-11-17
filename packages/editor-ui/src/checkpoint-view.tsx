@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { CheckpointEntry, CheckpointGroups } from "@tk-reawakened/editor-model";
 
-export function CheckpointView({ groups, version = 0 }: { readonly groups: CheckpointGroups; readonly version?: number }) {
+export function CheckpointView({ groups, version = 0 }: { readonly groups: Pick<CheckpointGroups, "list" | "retry" | "restore" | "ignoreHistory" | "deleteGroup">; readonly version?: number }) {
   const [items, setItems] = useState<readonly CheckpointEntry[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

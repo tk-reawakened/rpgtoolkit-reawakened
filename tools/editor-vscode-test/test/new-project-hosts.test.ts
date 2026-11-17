@@ -14,6 +14,7 @@ import type { runNewProject as RunNewProject } from "@tk-reawakened/host-vscode/
 import type { Workbench } from "@tk-reawakened/host-web";
 import { engineBoot } from "../conformance/engine-view.ts";
 import { MemoryDirectory, type WriteControl } from "../conformance/memory-directory.ts";
+import { proveRestoreLifecycle, proveWizardGroup } from "../history-proof.ts";
 import { settle, type Act } from "../conformance/view.ts";
 
 let act: Act;
@@ -51,7 +52,7 @@ function userStorage() {
 }
 
 function folder(files: Readonly<Record<string, Uint8Array>> = {}) {
-  const control: WriteControl = { refuse: false, hold: null, tick: 0 };
+  const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("games", control);
   for (const [path, bytes] of Object.entries(files)) root.put(path, bytes);
   document.body.replaceChildren();
@@ -177,7 +178,11 @@ test("the browser wizard makes a blank project: the 14 folders, a main file that
   ok(result.ok);
   equal(result.mainPath, "Main/Quest.gam");
   equal(element.querySelector('[role="dialog"]'), null, "the wizard closes");
-  deepEqual(folderNames(root), [...Object.values(ASSET_FOLDERS), "Main"].sort());
+  // The creation is one durably recorded history group inside the new project (ADR 0022 D12.7, D12.10 item 6); the helper
+  // reads it through this host's own project filesystem, and the exact tree assertion names it rather than filtering it.
+  deepEqual(folderNames(root), [".tkr-history", ...Object.values(ASSET_FOLDERS), "Main"].sort());
+  const wizardGroup = await proveWizardGroup(result.project.services.fs, [result.mainPath], "New project");
+  deepEqual(wizardGroup, { ok: true, problems: [] }, "the produced project's group names its plan and every written file's hash");
   const main = mainOf(root.read("Main/Quest.gam"));
   equal(main.gameTitle, "Quest");
   deepEqual([main.startupPrg, main.initBoard, main.initChar], ["", "", ""], "nothing was copied that was not asked for");
@@ -201,6 +206,9 @@ test("the browser wizard makes a blank project: the 14 folders, a main file that
   deepEqual(bench.tabs.getSnapshot().tabs.map((tab) => tab.path), ["Main/Quest.gam"]);
   equal(stage.querySelector(".tkr-settings input")?.getAttribute("value") ?? (stage.querySelector(".tkr-settings input") as HTMLInputElement | null)?.value, "Quest");
   bench.dispose();
+  // The restore lifecycle runs on this host's own workspace and documents, after the tree and settings assertions.
+  const lifecycle = await proveRestoreLifecycle(result.project.workspace, result.mainPath, (document, title) => { document.apply({ type: "set-game-title", title } as never); });
+  deepEqual(lifecycle, { ok: true, problems: [] }, "save, restore and restore-of-restore run on this host's own workspace");
   result.project.deactivate();
 });
 
@@ -287,7 +295,7 @@ test("a refused write leaves the wizard open with what was written and pending, 
   await type(field(element, "Game name"), "Quest");
   await tick(element, "Start-up program");
   await press(element, ".tkr-new-project-choose");
-  control.refuse = true;
+  control.refuseNames = new Set(["start.prg"]);
   await submit(element);
   match(alerts(element), /Could not write Prg\/start\.prg/);
   match(alerts(element), /deletes nothing here, because it cannot prove that file is this write's own/);
@@ -298,7 +306,7 @@ test("a refused write leaves the wizard open with what was written and pending, 
   // The browser created the file before the refused write committed anything: the wizard leaves it alone.
   deepEqual(root.read("Prg/start.prg"), new Uint8Array(0), "the empty file stays; the wizard cannot prove it made it");
 
-  control.refuse = false;
+  control.refuseNames = undefined;
   await submit(element);
   match(alerts(element), /Prg\/start\.prg already exists; the editor refuses existing files/);
   ok(element.querySelector('[role="dialog"]') !== null, "the wizard stays open");

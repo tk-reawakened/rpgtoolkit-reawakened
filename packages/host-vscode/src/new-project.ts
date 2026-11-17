@@ -7,6 +7,7 @@ import {
   type NewProjectSettings,
   type NewProjectStorage,
   type StarterDefinition,
+  type WizardHistory,
 } from "@tk-reawakened/editor-model";
 
 /**
@@ -33,6 +34,8 @@ export interface NewProjectUi {
 export interface NewProjectDestination<Handle> {
   readonly storage: NewProjectStorage;
   readonly handle: Handle;
+  /** The new project's own history, so the whole creation is one restorable group (ADR 0022 D12.10 item 6). */
+  readonly history?: WizardHistory;
 }
 
 export interface NewProjectEnvironment<Handle> {
@@ -84,7 +87,7 @@ export async function runNewProject<Handle>(env: NewProjectEnvironment<Handle>):
   if (destination === undefined) return cancelled;
 
   try {
-    const created = await createNewProject(destination.storage, settings, starters);
+    const created = await createNewProject(destination.storage, settings, starters, destination.history);
     if (!created.ok) return { ok: false, reason: "refused", message: created.message };
     return { ok: true, handle: destination.handle, mainPath: created.mainPath, written: created.written };
   } catch (error) {

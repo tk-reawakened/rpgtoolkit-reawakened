@@ -5,6 +5,7 @@ import {
   foldPath,
   PACKAGE_LIMITS,
   readMainFile,
+  readZip,
   stripTypeFolder,
   utf8Decode,
   utf8Encode,
@@ -19,6 +20,25 @@ const RESERVED_EXPORT_FOLDER = ".tkr-exports";
 const RESERVED_TESTS_FOLDER = ".tkr-tests";
 const RESERVED_SCRIPT_SPEC_PATH = "prg/script-spec";
 const EDITOR_ONLY_EXTENSIONS = new Set([".tkrscn", ".tkrtile", ".tkrpack"]);
+
+/**
+ * Every entry of a produced archive that the packaging rules exclude (`packaging-and-paths.md`): under `Saved/`, the
+ * reserved history, export or creator-test folders, the root-relative script-spec helper library, a `Main/` file other
+ * than the selected main file, a creator test, or an editor-only file. This is separate from the inventory filter.
+ */
+export function producedArchiveViolations(paths: readonly string[], selectedMain: string): readonly string[] {
+  const selected = foldPath(selectedMain);
+  return paths.filter((path) => {
+    const folded = foldPath(path.replaceAll(String.fromCharCode(92), "/"));
+    const parts = folded.split("/");
+    const name = parts.at(-1) ?? "";
+    if (["saved", ".tkr-history", ".tkr-exports", ".tkr-tests"].includes(parts[0] ?? "") && parts.length > 1) return true;
+    if (parts[0] === "prg" && parts[1] === "script-spec") return true;
+    if (parts[0] === "main" && parts.length > 1 && folded !== selected) return true;
+    if (name.endsWith(".spec.prg")) return true;
+    return [...EDITOR_ONLY_EXTENSIONS].some((extension) => name.endsWith(extension));
+  });
+}
 
 /** The writer still enforces package limits; inventory also stops before it accumulates an oversized project. */
 interface CollectedFiles {
@@ -51,6 +71,12 @@ export interface PrepareGamePackageOptions {
   readonly mainPath: string;
   /** The release version is author-entered; the legacy `.gam` format has no version field. */
   readonly version: string;
+  /**
+   * The inventory predicate, when a caller must supply its own (a fault-injection test proving the produced-archive check
+   * on its own, or a future host with a stricter rule). The produced-archive check below runs whatever this says, so the
+   * exclusions are still verified on the bytes that would be handed to the author.
+   */
+  readonly inventoryFilter?: (path: string, mainPath: string, kind: "file" | "directory") => boolean;
 }
 
 function failure(message: string): { readonly ok: false; readonly message: string } {
@@ -79,7 +105,7 @@ function safeEntryName(name: string): boolean {
   return name.length > 0 && name !== "." && name !== ".." && !name.includes("/") && !name.includes("\\");
 }
 
-async function collectFiles(fs: FileSystemService, mainPath: string): Promise<FileCollectionOutcome> {
+async function collectFiles(fs: FileSystemService, mainPath: string, exclude: (path: string, mainPath: string, kind: "file" | "directory") => boolean): Promise<FileCollectionOutcome> {
   const pending: { readonly path: string; readonly excluded: boolean }[] = [{ path: "", excluded: false }];
   const files: PackageFile[] = [];
   const excludedFiles: string[] = [];
@@ -104,7 +130,7 @@ async function collectFiles(fs: FileSystemService, mainPath: string): Promise<Fi
       if (!safeEntryName(entry.name)) return failure(`The project contains an unsafe path entry in ${folder.path || "the project root"}.`);
       const path = folder.path === "" ? entry.name : `${folder.path}/${entry.name}`;
       if (entry.kind === "link") return failure(`The project contains a symbolic link at ${path}. This host cannot follow symbolic links safely, so the game was not packaged (L23).`);
-      const excluded = folder.excluded || isExcluded(path, mainPath, entry.kind);
+      const excluded = folder.excluded || exclude(path, mainPath, entry.kind);
       if (entry.kind === "directory") {
         pending.push({ path, excluded });
       } else if (excluded) {
@@ -161,7 +187,7 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
     return failure(`Save open documents before packaging: ${saveFailures.map(({ result }) => result.ok ? "" : result.failure.message).join("; ")}`);
   }
 
-  const collected = await collectFiles(options.services.fs, options.mainPath);
+  const collected = await collectFiles(options.services.fs, options.mainPath, options.inventoryFilter ?? isExcluded);
   if (!collected.ok) return collected;
   const mainFile = collected.files.find(({ path }) => foldPath(path) === foldPath(options.mainPath));
   if (mainFile === undefined) return failure(`The selected main file ${options.mainPath} is missing or excluded.`);
@@ -193,6 +219,11 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   };
   const archive = writeDistributionPackage({ files: collected.files, manifest });
   if (!archive.ok) return failure(`Package preflight failed: ${archive.error.message}`);
+  // The exclusions are verified on the bytes just produced, not assumed from the inventory filter (ADR 0022 D12.10 item 12).
+  const produced = readZip(archive.value, packageName);
+  if (!produced.ok) return failure(`The produced package could not be read back to verify it: ${produced.error.message}`);
+  const violations = producedArchiveViolations(produced.value.map(({ path }) => path), mainFile.path);
+  if (violations.length > 0) return failure(`The package was not offered because the archive it produced holds files that must never be packaged: ${violations.join(", ")}.`);
 
   const digest = await exportService.sha256(archive.value);
   if (!digest.ok) return failure(`Could not calculate the install descriptor's SHA-256: ${digest.error.message}`);

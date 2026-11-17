@@ -65,11 +65,13 @@ test("preflight creates a readable playable TPK and exact sibling install descri
     ok(prepared.excludedFiles.includes(path), `${path} should be reported as excluded`);
   }
 
+  ok(!prepared.includedFiles.some((path) => path.startsWith(".tkr-history")), "history is never an included file");
   const loaded = loadPackage({ kind: "tpk", name: prepared.package.fileName, bytes: prepared.package.bytes });
   ok(loaded.ok, loaded.ok ? "" : loaded.error.message);
   const manifest = readDistributionManifest(loaded.value);
   ok(manifest.ok, manifest.ok ? "" : manifest.error.message);
   equal(manifest.value.main, "Main/demo.gam");
+  ok(!loaded.value.files.some((file) => file.path.startsWith(".tkr-history")), "the produced archive holds no history record");
   deepEqual(new Set(manifest.value.index), new Set(prepared.includedFiles));
   const shipped = loaded.value.files.map((file) => file.path.toLowerCase());
   deepEqual(shipped.filter((path) => path.includes(".tkr-tests") || path.endsWith(".spec.prg")), [], "the produced package holds no creator-test file");
@@ -262,4 +264,17 @@ test("preflight checks listed file sizes before reading and rechecks the bytes r
   equal(afterRead.ok, false);
   if (!afterRead.ok) match(afterRead.message, /Prg\/start\.prg exceeds the per-file package limit/);
   second.workspace.dispose();
+});
+
+test("a leaky inventory cannot hand the author an archive holding an excluded file: the produced bytes are checked (#2842)", async () => {
+  const { workspace, services } = packageHost(authoredFiles("start.prg", "start.brd", "Prg/Script-Spec/startup.prg"));
+  // Every excluded class is really present in the project and really reaches the inventory, as a broken filter would let it.
+  const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3", inventoryFilter: () => false });
+  ok(!outcome.ok, "the export is refused");
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Boards/editor.tkrscn", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
+    ok(outcome.message.includes(path), `${path} is named in the refusal: ${outcome.message}`);
+  }
+  match(outcome.message, /archive it produced holds files that must never be packaged/);
+  // Nothing was handed out: no package, no descriptor.
+  deepEqual(Object.keys(outcome).includes("value"), false);
 });

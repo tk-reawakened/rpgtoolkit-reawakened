@@ -56,9 +56,12 @@ export async function runAnimationAuthoringProof(host: AnimationProofHost, expec
     const canvas = element as HTMLCanvasElement;
     return { width: canvas.width, height: canvas.height, pixels: [...canvas.getContext("2d")!.getImageData(0, 0, 4, 1).data] };
   })).toEqual({ width: 8, height: 6, pixels: [10, 20, 30, 255, 10, 20, 30, 255, 0, 0, 0, 0, 0, 0, 0, 0] });
-  await editor.getByRole("button", { name: "Move later", exact: true }).focus();
-  await editor.getByRole("button", { name: "Move later", exact: true }).press("Enter");
-  await host.settle();
+  const moveLater = editor.getByRole("button", { name: "Move later", exact: true });
+  // Keyboard dispatch does not wait for a button disabled by the preceding save.
+  await expect(moveLater).toBeEnabled();
+  await moveLater.focus();
+  await moveLater.press("Enter");
+  await expect(editor.getByRole("button", { name: "Frame 2: z.gif", exact: true })).toHaveAttribute("aria-current", "true");
   await click("Save");
   await expect.poll(async () => (await decode()).frames[1]?.sound).toBe("Sounds/first.wav");
   editor = await host.reopen();

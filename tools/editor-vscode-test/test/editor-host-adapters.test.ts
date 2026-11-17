@@ -324,6 +324,7 @@ test("web and VS Code adapters persist identical edited bytes through the workbe
   deepEqual(webBackupBytes, vscodeBackupBytes);
 });
 
+
 test("VS Code backup recovery requires an explicit choice before saving", async () => {
   const original = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor4.gam", import.meta.url)));
   const identity = createDocumentIdentity("file:///project", gamePath);

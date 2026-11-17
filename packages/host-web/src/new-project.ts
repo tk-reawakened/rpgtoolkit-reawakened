@@ -1,4 +1,4 @@
-import { createNewProject, type NewProjectSettings, type StarterDefinition } from "@tk-reawakened/editor-model";
+import { createNewProject, createProjectWizardHistory, type NewProjectSettings, type StarterDefinition } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
 import { mountNewProject, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { createWebFileSystem } from "./filesystem.ts";
@@ -114,7 +114,8 @@ export function newWebProject(options: NewWebProjectOptions): Promise<NewWebProj
     onCreate: async (settings: NewProjectSettings) => {
       const root = destination;
       if (root === null) return { ok: false, message: "Choose the folder to make the project in." };
-      const created = await createNewProject(createWebFileSystem(root, STAGING_ID), settings, options.starters);
+      const files = createWebFileSystem(root, STAGING_ID);
+      const created = await createNewProject(files, settings, options.starters, createProjectWizardHistory(files, STAGING_ID));
       if (!created.ok) {
         return { ok: false, message: created.message, ...(created.reason === "conflicts" ? { details: created.conflicts.map((conflict) => conflict.path) } : created.reason === "failed" ? { details: created.pending } : {}) };
       }

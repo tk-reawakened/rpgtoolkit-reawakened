@@ -7,7 +7,7 @@ import { access, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { autosaveSetting, cleanupTestRun, combineProofErrors, decodePersistedBytes, trackProcess, waitForHttpServer } from "../lifecycle.ts";
+import { autosaveSetting, cleanupTestRun, combineProofErrors, decodePersistedBytes, openedDocumentUri, trackProcess, waitForHttpServer } from "../lifecycle.ts";
 
 test("autosave observations tolerate an incomplete write without accepting invalid settings", () => {
   const bytes = (value: string) => new TextEncoder().encode(value);
@@ -24,6 +24,23 @@ test("the persisted-byte probe can observe an empty file without accepting malfo
   assert.deepEqual(decodePersistedBytes("AQI=", "panel"), new Uint8Array([1, 2]));
   assert.throws(() => decodePersistedBytes("AQ?=", "panel"), /panel.*valid Base64/);
   assert.throws(() => decodePersistedBytes("A", "panel"), /panel.*valid Base64/);
+});
+
+test("opened document correlation decodes filenames and ignores stale or unrelated URI paths", () => {
+  for (const [path, uri] of [
+    ["Main/My Game #100%?.gam", "tkr-testfs://proof/project/Main/My%20Game%20%23100%25%3F.gam"],
+    ["Main/é.gam", "tkr-testfs://proof/project/Main/%C3%A9.gam"],
+    ["Main/literal%20.gam", "tkr-testfs://proof/project/Main/literal%2520.gam"],
+  ] as const) {
+    const events = [
+      { kind: "open-uri", value: "tkr-testfs://proof/project/Misc/earlier.anm" },
+      { kind: "open-uri", value: `tkr-testfs://proof/unrelated?file=${uri}` },
+      { kind: "save", value: uri },
+      { kind: "open-uri", value: uri },
+    ];
+    assert.equal(openedDocumentUri(events, path), uri);
+    assert.equal(openedDocumentUri(events.slice(0, -1), path), undefined);
+  }
 });
 
 test("the process tracker captures asynchronous spawn errors and observes close", async () => {
