@@ -261,3 +261,29 @@ covers = ["CAP-15", "CAP-18", "T-40"]
 after = [1]
 hitl = true
 risk = "medium"
+
+[[entry]]
+id = 22
+tracker_id = "#2987"
+type = "story"
+title = "Validate the shared editor design language and component contracts"
+description = "Consolidate the accepted Epic 29 character and Epic 30 board direction into a reusable editor design language covering where things live, what actions do, component states and visual tokens. Start from docs/design/editor-design-language.md; validate and refine its baseline through annotated real-content compositions rather than inventing a parallel design."
+verify = "1. Publish the docs-first shared contract: workspace/nav/document tabs/task toolbar/outline/inspector/asset browser/results/settings roles, a placement decision guide, shared-versus-local scope, Open/Choose/Create semantics, and active-authoring-view targeting with auxiliary focus retained.\n2. Trace each shared decision to Epic 29, Epic 30, ADR 0022 or explicit owner direction; preserve specialized editor contracts. Resolve contradictions with historical mockups; distinguish approved direction from exact layout/type/spacing hypotheses needing validation.\n3. Inventory current shared tokens/components and produce an annotated layout/component/state gallery using real sparse/populated board, character, item/enemy, artwork/animation, program-chrome and settings content. Include light/dark/high-contrast, normal and 640px-wide panes, and a native VS Code mapping. The gallery is engineering evidence, not a user-facing implementation dashboard.\n4. Define semantic token roles and measured text/control contrast, typography/spacing, icons/labels, selection versus keyboard focus, dirty/saving/failed/read-only, validation/empty/loading states and browser/host scaling behavior. Website swatches are references, not unverified production pairs.\n5. Record the concrete migration inventory and reusable component boundaries for 11.23, preserving #2703 foundations, PR #2950 command/Save work and browser-native capabilities. No framework/dock/library/runtime or document-authority change is selected by styling.\n6. Review the worked examples for discoverability and state ownership; record revision, fixture, host/viewport/theme and explicit unresolved items. Existing code need not be restyled in this story. 29.1 and 30.1 consume this contract, while their specialized layout and behavior stay in those stories."
+covers = ["CAP-15", "CAP-18"]
+references = ["docs/design/editor-design-language.md", "Epic 29 #2968 and Epic 30 #2985"]
+after = [4]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 23
+tracker_id = "#2988"
+type = "story"
+title = "Apply the shared visual language across the editor workbench and controls"
+description = "Implement the validated shared design language from 11.22 using reusable semantic styles and common components. Apply the website-inspired standalone identity and host-aware light/dark/high-contrast treatment to the workbench and existing editor surfaces; remove the need for each editor to invent its own styling."
+verify = "1. Implement the token/state/type/spacing/component contracts of docs/design/editor-design-language.md once in shared editor-ui styles/components. Preserve VS Code theme variables/native chrome; use neutral art stages and readable paired foregrounds. Do not hard-code standalone brand colors across hosts.\n2. Apply consistent shared presentation to navigation, document chrome, task toolbars, shelves, reference fields, section groups, lists, inputs, buttons, validation, empty and save/status surfaces. Record every migration inventory item as delivered or an explicitly scoped follow-up with a real owning issue; no silently omitted surface.\n3. Demonstrate the common styles on current board, character, item/enemy, artwork/animation, program chrome and settings. This story changes common presentation, not the specialized authoring hierarchy or new functionality owned by Epics 29/30. It has no dependency on their future implementation.\n4. Keyboard focus remains distinct from selection; disabled/read-only/error/dirty states are understandable without color alone. Long names, text scaling, normal/narrow panes and hidden/relocated shelves remain usable. Use native/semantic controls and meaningful accessible names; do not add custom focus machinery merely to style controls.\n5. Preserve existing commands, document identity, undo/save and focused-target behavior. Browsing/theme/layout changes do not dirty files. Run targeted functional regressions around changed common controls and applicable host proofs; tests must not simply assert copied CSS declarations.\n6. Record real before/after captures with revision, fixture, viewport/theme and host version in web/PWA and actual VS Code, plus any shipped standalone editor. Check supported light/dark/high-contrast and keyboard states. Resolve measured contrast and layout failures; file all found defects. Follow fast-unit-test and paced-host rules.\n7. Update component guidance and hand off stable styles to 29.1 and 30.1 so those stories consume them rather than reintroduce a separate palette or component system. Do not reopen closed #2703 or replace PR #2950 functionality."
+covers = ["CAP-15", "CAP-18"]
+references = ["docs/design/editor-design-language.md", "Epic 29 #2968 and Epic 30 #2985"]
+after = [22]
+hitl = false
+risk = "medium"

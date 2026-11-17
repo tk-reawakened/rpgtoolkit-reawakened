@@ -1,0 +1,98 @@
+# Shared character, NPC, item and enemy authoring. Existing data contracts stay authoritative.
+[[entry]]
+id = 1
+tracker_id = "#2962"
+type = "story"
+title = "Establish the shared authoring workspace and visual direction"
+description = "Design the shared workspace against a party character, board NPC, equipment, usable item and battle enemy, then compose its navigation and layout using the common design language and components from 11.22/11.23."
+verify = "Representative sparse and populated fixtures validate all five journeys; working shared presentation proves identity, keyboard navigation, themes and narrow panes without claiming unfinished item or enemy functionality."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = ["12.5", "11.22", "11.23"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 2
+tracker_id = "#2963"
+type = "story"
+title = "Put character identity and starting stats first"
+description = "Make identity, profile and starting values the everyday entry point, with explicit script bindings in Advanced and no changes to document or rename semantics."
+verify = "An author changes identity, profile and starting stats, edits an advanced binding, undoes and redoes, saves and reopens with all values and unrelated data preserved; the first-view defect in #2959 is visibly resolved."
+covers = ["CAP-15", "CAP-18"]
+after = [1, "11.3"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+tracker_id = "#2964"
+type = "story"
+title = "Edit appearance and animation in context"
+description = "Place stance selection, assignment and preview together in reusable controls, with timing and geometry only for formats that support them."
+verify = "Character and item workflows preserve walk/idle/custom stances and bases; an authored enemy fixture proves the battle-stance subset, and 29.8 proves its real document integration."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [1, "12.4"]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+tracker_id = "#2965"
+type = "story"
+title = "Make character moves and equipment understandable"
+description = "Present configured moves and their actual OR-based unlock rules as readable lists, and organize body-slot eligibility and accessory names without exposing every empty legacy slot at once."
+verify = "Add, change and remove moves and equipment settings; sparse move-slot identity, all unlock fields and unrelated data survive undo, save and reopen, and eligibility summaries match the documented runtime rules."
+covers = ["CAP-15", "CAP-18"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+tracker_id = "#2966"
+type = "story"
+title = "Show what character progression settings produce"
+description = "Show a bounded growth chart and numeric table alongside starting values, threshold and stat-growth controls, with explicit units and an honest boundary around custom level-up programs."
+verify = "Percentage and fixed growth, truncation, maximum level including zero, and invalid arithmetic agree with the documented progression contract; previews never run project scripts or mutate character data."
+covers = ["CAP-15", "CAP-18"]
+after = [1, 2, "20.6"]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 7
+tracker_id = "#1722"
+type = "story"
+title = "Author items and NPCs with combinable capabilities"
+description = "Deliver item identity, equipment, menu, board and battle behavior, pricing and eligibility in the shared workspace, treating NPCs and board objects as supported item uses and retaining placement scope."
+verify = "NPC, equipment and usable-item fixtures exercise independent and combined capabilities, scripts, shared animation, prices and eligibility; save/reopen, undo and board visits preserve hidden values, residue and local overrides."
+covers = ["CAP-15", "CAP-18"]
+after = [1, 3, "12.4", "12.11"]
+hitl = false
+risk = "high"
+references = ["Moved from 12.6 on 2026-11-16; GitHub #1722 and its history are retained. Former slot 12.6 is retired."]
+
+[[entry]]
+id = 8
+tracker_id = "#1734"
+type = "story"
+title = "Author enemy combat behavior and rewards"
+description = "Deliver enemy stats, battle stances, moves, strengths and weaknesses, tactics, escape rules, critical chances and rewards in the shared workspace with actual encounter links."
+verify = "An authored enemy saves, reopens and loads in a real battle with custom stances, unedited fields and residue preserved; encounter navigation and version-preserving writes are proved."
+covers = ["CAP-16", "CAP-18"]
+after = [1, 3, "13.1", "2.6", "11.3", "11.4", "11.6", "12.4"]
+hitl = false
+risk = "high"
+references = ["Moved from 13.9 on 2026-11-16; GitHub #1734 and its history are retained. Former slot 13.9 is retired."]
+
+[[entry]]
+id = 6
+tracker_id = "#2967"
+type = "story"
+title = "Prove connected character item and enemy authoring"
+description = "Complete definition-specific visits and return context, then prove character, NPC, equipment, usable-item and enemy journeys through saved data and real game use in each shipped host."
+verify = "All five journeys preserve document identity, local placement overrides, undo and saved values; real linked providers, runtime observations, keyboard checks and host captures prove the combined experience."
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [2, 3, 4, 5, 7, 8, "11.4", "11.6", "11.7", "11.8", "13.10"]
+hitl = false
+risk = "high"

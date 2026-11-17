@@ -37,8 +37,8 @@ First-class editable for the first release (ADR 0005 amendment). All are legacy 
 | Board | `.brd` | Board editor | 12.1, 12.3, 12.10, 12.11 |
 | Program | `.prg`, `*.spec.prg` | Code editor; later visual events | 11.7, 11.9, 14.2 |
 | Character | `.tem` | Character editor | 12.5 |
-| Item | `.itm` | Item editor | 12.6 |
-| Enemy | `.ene` | Enemy editor | 13.9 |
+| Item | `.itm` | Item editor | 29.7 |
+| Enemy | `.ene` | Enemy editor | 29.8 |
 | Special move, status effect | `.spc`, `.ste` | Move and effect editors | 13.10 |
 | Battle background | `.bkg` | Background editor | 13.11 |
 | Animation | `.anm` | Animation editor | 12.7 |

@@ -220,3 +220,20 @@ tracker_id = "#1883"
 slug = "epic-fast-feedback"
 title = "Fast feedback: sub-second tests, faster CI, and guard-rails that warn when broken"
 covers = ["CAP-13"]
+
+[[epic]]
+id = 29
+tracker_id = "#2968"
+slug = "epic-character-authoring"
+title = "Character, NPC, item and enemy authoring"
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [{ epic = 2, needs = "actor formats (2.6) for the moved enemy definition editor" }, { epic = 11, needs = "shared lifecycle, navigation, game settings, program editing and launch contracts (11.3, 11.4, 11.6, 11.7, 11.8)" }, { epic = 12, needs = "owner sequencing gate: finish Epic 12 before starting Epic 29; reuse sprite/character (12.4, 12.5), board placement (12.11) and connected services (12.12)" }, { epic = 13, needs = "owner sequencing gate: finish Epic 13 before starting Epic 29; reuse registration (13.1) and real linked move/status editors (13.10)" }, { epic = 20, needs = "documented actor progression provider (20.6) for accurate default-growth projection" }]
+
+[[epic]]
+id = 30
+tracker_id = "#2985"
+slug = "epic-board-authoring"
+title = "Build playable places through connected board authoring"
+covers = ["CAP-15", "CAP-16", "CAP-18"]
+after = [{ epic = 11, needs = "existing document, platform-services, native tabs/views and launch contracts plus shared design language and styling (11.22/11.23)" }, { epic = 12, needs = "owner sequencing gate: finish Epic 12 before starting Epic 30; reuse board/object/properties/browser providers, native scene integration and connected services" }, { epic = 13, needs = "owner sequencing gate: finish Epic 13 before starting Epic 30; reuse sheet/region-brush, artwork and lighting providers; enemy authoring #1734 moves to Epic 29" }, { epic = 29, needs = "real item/NPC and enemy definition editors (29.7, 29.8) for linked-definition integration in 30.4 only; independent board stories do not wait for the whole epic" }]
+

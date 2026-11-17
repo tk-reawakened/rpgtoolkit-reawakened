@@ -13,22 +13,24 @@ remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1358"
 
 ## Description
 
-The board editor (tiles, layers, vectors, programs, sprites, images, properties), character, item, animation and tile bitmap editors, and packaging let an author build a complete game inside either host.
+The board editor (tiles, layers, vectors, programs, sprites, images, properties), delivered character fields and shared character/item graphics, animation and tile bitmap editors, and packaging form the retained P0 authoring foundation in either host.
+
+Owner update, 2026-11-16: full item/NPC behavior authoring moved from 12.6 to 29.7 (#1722). Completed 12.4/12.5 stay here. Finish Epics 12 and 13 before starting 29/30; this epic has no dependency back on Epic 29. See the [consolidation decision](../epic-character-authoring/discovery/authoring-family-consolidation.md).
 
 ## Outcome
 
-A person can author a game from scratch; the CAP-15 success check, such a game loading and playing in the web runner from either host, is the signal.
+A person can author and package a playable game using the retained tools from either host. Explicit authored fixture data supplies item behavior before its full editor lands in 29.7. CAP-15 remains allocated across this epic and 29.7/29.6; closing Epic 12 alone does not claim T-55 authoring complete.
 
 ## Done when
 
-1. A new game is created, edited with every P0 editor and played in the web runner, from the VS Code host and from the PWA.
+1. A new game is created with every retained Epic 12 editor and played in the web runner from VS Code and PWA. Item graphics/placement are edited through existing providers; required non-graphical item behavior is explicit authored fixture data. Full T-55 authoring acceptance transfers to 29.7/29.6.
 2. The board editor covers all object modes, tools, undo and the coordinate-system aware snapping of T-20 to T-35 that P0 names.
-3. Each editor reads and writes its legacy format so unchanged data round-trips.
+3. Each retained editor reads and writes its supported legacy format so unchanged data round-trips. Shared item graphics must preserve all non-graphical item data even before the T-55 editor is delivered.
 4. Packaging produces a single-file game that loads in the web runner.
 
 ## Boundaries
 
-P0 tools of editor-features section 11 only. P1 tools (epic editor-p1) and P2 tools (epic editor-p2) are excluded.
+Retained P0 tools of editor-features section 11. Item behavior T-55 is owned by 29.7; its shared graphics T-52 remain founded on 12.4. P1/P2 tools and Epic 29 experience work are separate. No moved requirement is dropped from the capability spine.
 
 ## References
 
@@ -54,7 +56,7 @@ P0 tools of editor-features section 11 only. P1 tools (epic editor-p1) and P2 to
 - Source conflict: §11 puts undo/clipboard in P1 but T-28 and this envelope require board undo for P0. Basic multi-level undo/redo of P0 board edits is in 12.10–12.11; expanded clipboard operations and select-all belong to Epic 13. P1 also owns shading/lighting modes, autotile, image export and coordinate/legacy upgrade; P0 retains bitmap cell shading (T-62), ordinary ambient properties and the remaining board modes.
 - Source conflict: Done when 1 names only VS Code and PWA, whereas CAP-15 says each editor host. The closing suite proves both named hosts here; the separate Epic 15 desktop host must run the same conformance and applicable creator proof once its adapters exist, not be misrepresented as already validated.
 - Source conflict: Done when 3 cannot be assumed from a reader/writer existing; AD-18 requires same-version preservation and residue, so each editing story checks its actual supported formats and versions and blocks on a docs-first format/provider fix instead of silently upgrading or dropping data.
-- T-ID mapping (CAP-15): 12.1 T-21/T-23/AD-29 tracer; 12.2 T-02/T-24; 12.3 T-27/T-29; 12.4 T-52; 12.5 T-50/T-51/T-53/T-54; 12.6 T-55; 12.7 T-60/T-61; 12.8 T-62; 12.9 T-70/T-71/T-74; 12.10 T-20–T-24/T-28/T-33; 12.11 T-23/T-26/T-28/T-34/T-35; 12.12 connected visits, T-05/T-07; 12.13 cleanup; 12.14 CAP-15 integrated success.
+- T-ID mapping (CAP-15): 12.1 T-21/T-23/AD-29 tracer; 12.2 T-02/T-24; 12.3 T-27/T-29; 12.4 T-52; 12.5 T-50/T-51/T-53/T-54; 29.7 T-55 (moved from retired 12.6, #1722); 12.7 T-60/T-61; 12.8 T-62; 12.9 T-70/T-71/T-74; 12.10 T-20–T-24/T-28/T-33; 12.11 T-23/T-26/T-28/T-34/T-35; 12.12 connected visits, T-05/T-07; 12.13 cleanup; 12.14 retained P0 integration; 29.7/29.6 complete the moved T-55 coverage.
 - Packaging is a TPK-compatible ZIP and separate install descriptor, not an EXE; 9.7 provides the existing package path, not the editor workflow. Setup ZIP is Epic 14; choosing an export path cannot imply a host has native installation or signing. Test-only fixtures/helpers must be excluded by an explicit auditable policy.
 - Contract dependencies: 11.1 owns multi-file wizard recovery and package exclusion/destination decisions; the board and actor APIs retain version and residue, so representative edited round trips and compositor use are implementation checks, not generic owner-decision blockers.
 - Connected authoring means one model per URI and synchronized authored views, not hot reload of a running game; local placement and shared definition remain distinct, unavailable uniqueness and untraceable dynamic references are disclosed.
