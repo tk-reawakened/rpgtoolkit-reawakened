@@ -34,6 +34,9 @@ function activate(context) {
   };
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.getDesignInfo", getDesignInfo));
   context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(publishDesignInfo));
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+    if (event.affectsConfiguration("workbench.colorTheme")) publishDesignInfo();
+  }));
   const publishRunHandle = (handle) => {
     lastRunHandle = handle;
     if (runHandlePanel === undefined) {

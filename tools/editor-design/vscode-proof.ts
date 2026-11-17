@@ -143,6 +143,7 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
     if (!lightSelection.available) throw new Error(`The actual VS Code host does not expose the required native theme ${themes[0].pickerLabel}`);
     const darkSelection = await selectTheme(page, expect, themes[1]);
     if (!darkSelection.available) throw new Error(`The actual VS Code host does not expose the required native theme ${themes[1].pickerLabel}`);
+    await waitForTheme(page, expect, themes[1].settingName, themes[1].kind);
     const nativeStartup = await readNativeThemeInfo(page, expect);
     manifest.initialTheme.name = nativeStartup.initialThemeName;
     manifest.initialTheme.kind = nativeStartup.initialThemeKind;
@@ -234,12 +235,19 @@ export async function runVscodeDesignProof(page: Page, expect: Expect, options: 
   }
 }
 
-async function readNativeThemeInfo(page: Page, expect: Expect) {
+async function nativeThemeMetadata(page: Page): Promise<string | null> {
   const status = page.locator(".statusbar-item").filter({ hasText: /^TKR design ·/ }).first();
-  await expect.poll(async () => await status.getAttribute("title").catch(() => null), { timeout: 20_000, intervals: [100, 250, 500, 1_000] }).not.toBeNull();
-  const title = await status.getAttribute("title");
-  if (title === null) throw new Error("The native VS Code design information status item has no theme metadata");
-  const info = JSON.parse(title) as { vscodeVersion: string; themeName: string; themeKind: string; initialThemeName: string; initialThemeKind: string };
+  const label = await status.getAttribute("aria-label", { timeout: 1_000 }).catch(() => null);
+  if (label === null) return null;
+  const start = label.indexOf('{"vscodeVersion":');
+  return start < 0 ? null : label.slice(start);
+}
+
+async function readNativeThemeInfo(page: Page, expect: Expect) {
+  await expect.poll(() => nativeThemeMetadata(page), { timeout: 20_000, intervals: [100, 250, 500, 1_000] }).not.toBeNull();
+  const metadata = await nativeThemeMetadata(page);
+  if (metadata === null) throw new Error("The native VS Code design status item has no accessible theme metadata");
+  const info = JSON.parse(metadata) as { vscodeVersion: string; themeName: string; themeKind: string; initialThemeName: string; initialThemeKind: string };
   if (typeof info.vscodeVersion !== "string" || typeof info.themeName !== "string" || typeof info.themeKind !== "string" || typeof info.initialThemeName !== "string" || typeof info.initialThemeKind !== "string") {
     throw new Error("The native VS Code theme probe did not report its startup theme, active theme, kind, and version");
   }
@@ -294,20 +302,19 @@ async function selectThemeBySetting(page: Page, expect: Expect, settingName: str
 }
 
 async function waitForTheme(page: Page, expect: Expect, themeName: string, themeKind: string) {
-  const status = page.locator(".statusbar-item").filter({ hasText: /^TKR design ·/ }).first();
   await expect.poll(async () => {
-    const title = await status.getAttribute("title").catch(() => null);
-    if (title === null) return null;
+    const metadata = await nativeThemeMetadata(page);
+    if (metadata === null) return null;
     try {
-      const info = JSON.parse(title) as { themeName?: string; themeKind?: string };
+      const info = JSON.parse(metadata) as { themeName?: string; themeKind?: string };
       return info.themeName === themeName && info.themeKind === themeKind ? `${info.themeName}|${info.themeKind}` : null;
     } catch {
       return null;
     }
   }, { timeout: 20_000, intervals: [100, 250, 500, 1_000] }).toBe(`${themeName}|${themeKind}`);
-  const title = await status.getAttribute("title");
-  if (title === null) throw new Error("The native VS Code design information status item has no theme metadata");
-  return JSON.parse(title) as { vscodeVersion: string; themeName: string; themeKind: string; initialThemeName?: string; initialThemeKind?: string };
+  const metadata = await nativeThemeMetadata(page);
+  if (metadata === null) throw new Error("The native VS Code design status item has no accessible theme metadata");
+  return JSON.parse(metadata) as { vscodeVersion: string; themeName: string; themeKind: string; initialThemeName?: string; initialThemeKind?: string };
 }
 
 
