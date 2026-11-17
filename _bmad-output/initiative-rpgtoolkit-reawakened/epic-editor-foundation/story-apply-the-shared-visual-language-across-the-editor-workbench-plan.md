@@ -3,7 +3,7 @@ title: "Apply the shared visual language across the editor workbench and control
 type: feature
 ticket: 23
 created: 2026-11-17
-status: in-review
+status: done
 baseline_revision: 4ff4ed3dee07c66119867f5a859a797797a4b798
 route: full
 route_source: pinned
@@ -135,3 +135,4 @@ Use existing CSS/native layout, not a new component framework. A natural wrappin
 - Independently review final source and evidence with pinned thorough workflow; fix/recheck before publishing. Merge only exact reviewed-head green gates, reconcile metadata and clean/preserve each worktree. No engine/golden changes are expected.
 - CI attempt 2 exposed #3152: the filesystem event test's isolated VS Code fake lacked the theme/configuration APIs newly read on probe activation. Extend that fake without changing its created/changed and persisted-byte assertions. The complete 13-test proof prerequisite passed locally (zero skips; affected case 12 ms). The exact macOS desktop lane also passed locally, including all five launch cases, input, authored board, and inventory; the original remote macOS job had no assigned runner (#3149).
 - The next CI run exposed stale generated What's New help (#3158) and missing pending-open fieldsets in shell lifecycle fixtures (#3156). Regenerated help from its canonical sources; the toolchain check passed locally. Both complete lifecycle files passed locally (5/5, no skips) after targeting the visible B view and asserting its own document becomes dirty and then saved. The fixture deliberately allows synthetic competing opens to retain the race coverage that the real disabled controls normally prevent. Slow-test reports in those shards were warnings, not their exit cause (#3157).
+- PR #3147 merged as `edbacf6bfe42d5c7d69beb2c90b59588ee1e96b9` after required gate passed on reviewed head `e96d21c00ffa59e470ca717ebf12fabc637e9ca5` in CI run `44171370359`. The separately tracked pre-existing validation overlap #3146 is not claimed fixed.
