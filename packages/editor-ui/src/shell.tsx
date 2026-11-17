@@ -1,13 +1,15 @@
 import type { AnyDocument, CommandRegistry, DocumentWorkspace, Launcher, LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
-import type { FileSystemService } from "@tk-reawakened/platform-services";
+import type { FileSystemService, RunHandle } from "@tk-reawakened/platform-services";
 import { useEffect, useRef } from "preact/hooks";
 import type { ViewHandle } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 import { FilesView, type PackageActionOutcome } from "./files-view.tsx";
 import { GameView } from "./game-view.tsx";
 import { TabStrip } from "./tab-strip.tsx";
-import { RunView } from "./run-view.tsx";
+import { RunControl, type RunSetupMemory } from "./run-control.tsx";
+import type { RunSetupStore } from "./run-view.tsx";
 import type { CreatorTestsController } from "./creator-tests-controller.ts";
+import { TestsView } from "./tests-view.tsx";
 import { TilesetBrowser, type TilesetBrowserContext } from "./tileset-browser.tsx";
 import { WorkbenchCommandBar } from "./command-palette.tsx";
 import { DocumentHistoryView } from "./document-history-view.tsx";
@@ -51,9 +53,18 @@ export interface ShellProps {
   readonly browser?: TilesetBrowserContext;
   /** Changes when the project's files may have, so the Game panel reads them again. */
   readonly version?: unknown;
-  /** Starts runs through the host's `run` service; with it the shell has a Run panel (T-07, T-41). */
+  /** Starts runs through the host's `run` service; with it the header has a Run button (T-07, T-41; ADR 0022 D8.7). */
   readonly launcher?: Launcher;
+  /** Saved TOOL-5 tests (ADR 0022 D9); with it the left sidebar has a Tests section. */
   readonly creatorTests?: CreatorTestsController;
+  /** The main file of the game open in the editor, which a saved setup without its own runs. */
+  readonly main?: string;
+  /** Where saved run setups are read and written (`.tkr/launch.json`). */
+  readonly runSetups?: RunSetupStore;
+  /** Which setup the Run button runs, remembered per user. */
+  readonly runMemory?: RunSetupMemory;
+  /** Told about each run the Run button starts. */
+  readonly onRun?: (handle: RunHandle) => void;
 }
 
 /** The editor slot: an element the host mounts the active editor into, and the shell never draws into. */
@@ -67,7 +78,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, creatorTests }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -78,6 +89,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
       layout={layout}
       tabs={<TabStrip tabs={tabs} />}
       headerBar={
+        <>
         <WorkbenchCommandBar
           layout={layout}
           tabs={tabs}
@@ -90,12 +102,26 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
           {...(onOpenPreferences === undefined ? {} : { onOpenPreferences })}
           version={[version, tabsSnapshot.tabs.length]}
         />
+        {launcher === undefined ? null : (
+          <RunControl
+            launcher={launcher}
+            fs={fs}
+            layout={projectLayout}
+            active={active}
+            version={[version, tabsSnapshot.tabs.length]}
+            {...(main === undefined ? {} : { main })}
+            {...(runSetups === undefined ? {} : { store: runSetups })}
+            {...(runMemory === undefined ? {} : { memory: runMemory })}
+            {...(onRun === undefined ? {} : { onRun })}
+          />
+        )}
+        </>
       }
       panels={{
         files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewAnimation === undefined ? {} : { onNewAnimation })} {...(onRecovery === undefined ? {} : { onRecovery })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
-        ...(launcher === undefined ? {} : { run: <RunView launcher={launcher} fs={fs} layout={projectLayout} active={active} version={[version, tabsSnapshot.tabs.length]} {...(creatorTests === undefined ? {} : { creatorTests })} /> }),
+        ...(creatorTests === undefined ? {} : { tests: <TestsView controller={creatorTests} /> }),
         ...(workspace === undefined || historyPanel === undefined ? {} : { history: <DocumentHistoryView workspace={workspace} files={historyPanel.files} activePath={active} {...(historyPanel.mountPreview === undefined ? {} : { mountPreview: historyPanel.mountPreview })} {...(historyPanel.offer === undefined ? {} : { offerIgnore: historyPanel.offer.isEnabled, onNeverOfferIgnore: historyPanel.offer.onNever })} /> }),
       }}
     >

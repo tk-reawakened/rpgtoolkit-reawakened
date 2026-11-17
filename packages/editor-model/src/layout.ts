@@ -32,15 +32,17 @@ export const PANEL_SIZE_STEP = 16;
 
 /**
  * Default panel definitions for the shared IDE workbench (#2703):
- * - Left dock: stacked `Files` explorer and `Game` accordion
+ * - Left dock: stacked `Files` explorer, `Game` accordion and `Tests` (saved tests, folded until opened)
  * - Right dock: `Tileset` inspector browser
- * - Bottom dock: `Run` & diagnostics panel
+ * - Bottom dock: `History` (hidden until opened)
+ *
+ * Running is a header button, not a dock (ADR 0022 D8.7): a run shows in its own editor tab.
  */
 export const DEFAULT_WORKBENCH_PANELS: readonly PanelDefinition[] = [
   { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
   { id: "game", title: "Game", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
+  { id: "tests", title: "Tests", side: "left", visible: true, size: 240, minSize: 128, maxSize: 480 },
   { id: "tileset", title: "Tileset", side: "right", visible: true, size: 288, minSize: 192, maxSize: 480 },
-  { id: "run", title: "Run", side: "bottom", visible: true, size: 208, minSize: 128, maxSize: 480 },
   { id: "history", title: "History", side: "bottom", visible: false, size: 320, minSize: 160, maxSize: 640 },
 ];
 

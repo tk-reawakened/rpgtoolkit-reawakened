@@ -8,7 +8,7 @@ import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
-import { createWebRunService } from "./run.ts";
+import { createWebRunService, type RunPresenter } from "./run.ts";
 import { historyPolicyFrom, type HistoryPolicy } from "@tk-reawakened/editor-model";
 
 /**
@@ -26,6 +26,8 @@ export interface WebProject {
   readonly browserSession: BrowserSession;
   /** The code editor program views use (Monaco on the editor page); a plain text area when the page gives none. */
   readonly codeEditor: TextSurfaceFactory | null;
+  /** Where this project's runs show their player; a workbench sets its own tab, and `null` floats the player over the page. */
+  setRunPresenter(presenter: RunPresenter | null): void;
   /** Retire this project from its host session; accepted operations remain bound to their original project. */
   deactivate(): void;
 }
@@ -148,6 +150,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     capabilities.add("languageServer");
     written = language.notifyWritten;
   }
+  let runPresenter: RunPresenter | null = null;
   const dialogs = options.dialogs ?? pageDialogs();
   // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
   // file tree says so instead of pretending (T-03).
@@ -179,10 +182,10 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     document: workspace.document,
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
-    ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl) }),
+    ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl, () => runPresenter) }),
     ...(language === undefined ? {} : { language }),
   };
-  const made = { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, deactivate: () => { active = false; workspace.dispose(); } };
+  const made = { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, setRunPresenter: (presenter: RunPresenter | null) => { runPresenter = presenter; }, deactivate: () => { active = false; workspace.dispose(); } };
   projectPreferenceModels.set(made, preferences);
   return made;
 }
@@ -248,7 +251,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
   };
-  const made = { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, deactivate: () => { active = false; workspace.dispose(); } };
+  const made = { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, setRunPresenter: () => {}, deactivate: () => { active = false; workspace.dispose(); } };
   projectPreferenceModels.set(made, preferences);
   return made;
 }
@@ -472,6 +475,7 @@ export function mountEditor(project: WebProject, document: AnyDocument, element:
 export const mountGameSettings = mountEditor;
 
 export { createPageDialogs } from "./dialogs.ts";
+export type { RunPresenter } from "./run.ts";
 export { createWorkbench, type Workbench, type WorkbenchOptions } from "./workbench.ts";
 export { newWebProject, type NewWebProjectOptions, type NewWebProjectResult } from "./new-project.ts";
 export { createWebFileSystem } from "./filesystem.ts";

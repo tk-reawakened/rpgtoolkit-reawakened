@@ -1,25 +1,28 @@
-// The Run panel (T-07, T-41; ADR 0022 D8) over the real launcher, workspace and the in-memory host, under the same DOM
-// shim as the other view tests. It reaches the host only through platform-services: the launches stay distinct, a launch
-// the host cannot do is disabled with the host's reason, unsaved work is saved first, a failed save is named, and the
-// run's snapshot and status are shown.
+// The run setup form, the run status view and the header Run control (T-07, T-41; ADR 0022 D8, D8.7) over the real
+// launcher, workspace and the in-memory host, under the same DOM shim as the other view tests. They reach the host only
+// through platform-services: the launches stay distinct, a launch the host cannot do is disabled with the host's reason,
+// unsaved work is saved first, a failed save is named, the run's snapshot and status are shown, and setups are saved in
+// and run from `.tkr/launch.json`.
 import { createHash } from "node:crypto";
 import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentWorkspace, createLauncher, type AnyDocument, type Launcher } from "@tk-reawakened/editor-model";
-import type { Capability } from "@tk-reawakened/platform-services";
+import { createDocumentWorkspace, createLauncher, LAUNCH_SETUPS_PATH, type AnyDocument, type Launcher } from "@tk-reawakened/editor-model";
+import type { Capability, RunHandle } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import type { ViewHandle } from "@tk-reawakened/editor-ui";
+import type { RunSetupOutcome, ViewHandle } from "@tk-reawakened/editor-ui";
 import { exampleBoard, exampleMain } from "./fixtures.ts";
 
 type Index = typeof import("../src/index.ts");
 let mountRun: Index["mountRun"];
+let mountRunStatus: Index["mountRunStatus"];
+let mountRunControl: Index["mountRunControl"];
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
 
 before(async () => {
   GlobalRegistrator.register();
   ({ act } = await import("preact/test-utils"));
-  ({ mountRun } = await import("@tk-reawakened/editor-ui"));
+  ({ mountRun, mountRunStatus, mountRunControl } = await import("@tk-reawakened/editor-ui"));
 });
 
 after(() => GlobalRegistrator.unregister());
@@ -43,9 +46,11 @@ interface Setup {
   readonly finishLaunch: () => Promise<unknown>;
   readonly launcher: Launcher;
   readonly view: ViewHandle;
+  /** What the form said it did, latest last. */
+  readonly outcomes: RunSetupOutcome[];
 }
 
-async function setup(capabilities: readonly Capability[], active: string | null = null, mainPath = MAIN): Promise<Setup> {
+async function setup(capabilities: readonly Capability[], active: string | null = null, mainPath = MAIN, withStore = false): Promise<Setup> {
   document.body.replaceChildren();
   const files = { ...Object.fromEntries(Object.entries(FILES).filter(([path]) => path !== MAIN)), [mainPath]: exampleMain(9) };
   const host = createMemoryPlatformServices({ files, capabilities: ["folderWrite", ...capabilities], runRefusal: "its player boots only from the main file's start-up." });
@@ -63,7 +68,22 @@ async function setup(capabilities: readonly Capability[], active: string | null 
     return result;
   };
   let view: ViewHandle | undefined;
-  await act(() => { view = mountRun(el, { launcher, fs: host.fs, layout: { projectFolder: "" }, active }); });
+  const outcomes: RunSetupOutcome[] = [];
+  const { saveLaunchSetup, deleteLaunchSetup } = await import("@tk-reawakened/editor-model");
+  await act(() => {
+    view = mountRun(el, {
+      launcher,
+      fs: host.fs,
+      layout: { projectFolder: "" },
+      active,
+      onDone: (outcome) => outcomes.push(outcome),
+      ...(withStore ? {
+        store: { fs: host.fs, readOnly: null },
+        onSave: async (saved, replacing) => { const result = await saveLaunchSetup(host.fs, saved, replacing ?? undefined); return result.ok ? null : result.message; },
+        onDelete: async (name) => { const result = await deleteLaunchSetup(host.fs, name); return result.ok ? null : result.message; },
+      } : {}),
+    });
+  });
   // The panel lists the project asynchronously; every section renders the Board choice once that listing lands.
   const listed = (): boolean => [...el.querySelectorAll("option")].some((option) => option.value === "Boards/village.brd");
   if (!listed()) {
@@ -76,7 +96,25 @@ async function setup(capabilities: readonly Capability[], active: string | null 
       observer.observe(el, { childList: true, subtree: true });
     });
   }
-  return { host, el, main: opened.document, finishLaunch: () => pending, launcher, view: view! };
+  return { host, el, main: opened.document, finishLaunch: () => pending, launcher, view: view!, outcomes };
+}
+
+/** Let pending promises settle inside act until `done` holds, so every render they cause is flushed by act. */
+async function until(done: () => boolean): Promise<void> {
+  await act(async () => {
+    for (let turn = 0; turn < 200 && !done(); turn += 1) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+  ok(done(), "the awaited state was never reached");
+}
+
+/** Show a run in the status view, as the host's Running game tab does. */
+async function statusOf(run: RunHandle): Promise<HTMLElement> {
+  const el = document.createElement("div");
+  document.body.append(el);
+  await act(() => { mountRunStatus(el, run); });
+  const current = el.querySelector<HTMLElement>('[aria-label="Current run"]');
+  ok(current);
+  return current;
 }
 
 function launchButton(el: HTMLElement, name: string): HTMLButtonElement {
@@ -137,14 +175,13 @@ test("the three launches are distinct, and one the host cannot do is disabled wi
   equal(host.runs.length, 0);
 });
 
-test("Run game saves unsaved work first and shows the run's snapshot and status", async () => {
+test("Run game saves unsaved work first; the status view shows the run's snapshot and status", async () => {
   const { el, host, main, finishLaunch } = await setup(["runGame"]);
   ok(main.apply({ type: "set-game-title", title: "Run from the panel" }).ok);
   await click(launchButton(el, "Run game"), finishLaunch);
   equal(host.runs.length, 1);
   equal(main.getSnapshot().dirty, false, "saved before the run");
-  const current = el.querySelector('[aria-label="Current run"]');
-  ok(current);
+  const current = await statusOf(host.runs[0]!.handle);
   equal(current.querySelector(".tkr-run-state")?.textContent, "Running (tick 0)");
   const snapshot = current.querySelector('[aria-label="Run snapshot"]')!;
   equal(snapshot.querySelector("dd")?.textContent, "Game from its start-up");
@@ -161,18 +198,10 @@ test("Run game saves unsaved work first and shows the run's snapshot and status"
   equal(current.querySelector(".tkr-run-state")?.textContent, "Ended: The run was stopped. (tick 13, on Boards/village.brd)");
 });
 
-test("hiding the Run panel keeps the run, a reopened panel shows it with Stop, and a new run stops the one before", async () => {
-  const { el, host, launcher, view, finishLaunch } = await setup(["runGame"]);
+test("the form tells its opener about the run it started, and a new run stops the one before", async () => {
+  const { el, host, launcher, outcomes, finishLaunch } = await setup(["runGame"]);
   await click(launchButton(el, "Run game"), finishLaunch);
-  await act(() => { view.dispose(); });
-  ok(!host.runs[0]!.stopped(), "hiding the panel does not stop the game");
-  const reopened = document.createElement("div");
-  document.body.append(reopened);
-  await act(() => { mountRun(reopened, { launcher, fs: host.fs, layout: { projectFolder: "" } }); });
-  const current = reopened.querySelector('[aria-label="Current run"]');
-  ok(current, "the reopened panel shows the run the launcher owns");
-  equal(current.querySelector(".tkr-run-state")?.textContent, "Running (tick 0)");
-  ok([...current.querySelectorAll("button")].some((button) => button.textContent === "Stop"));
+  deepEqual(outcomes, [{ kind: "launched", handle: host.runs[0]!.handle, setup: null }]);
   await act(async () => { await launcher.launch({ kind: "game", main: MAIN, projectFolder: "" }); });
   ok(host.runs[0]!.stopped(), "the earlier run is stopped, not orphaned");
   ok(!host.runs[1]!.stopped());
@@ -214,7 +243,7 @@ test("Test board requires a party and preserves selection order with the first m
   equal(runButton.disabled, false);
   await click(runButton, finishLaunch);
   deepEqual(host.runs[0]!.launch, { kind: "board", main: MAIN, projectFolder: "", start: { board: "Boards/village.brd", x: 4, y: 7, layer: 1 }, party: ["Chrs/second.tem", "Chrs/hero.tem"] });
-  equal(el.querySelector('[aria-label="Run snapshot"] dd')?.textContent, "Board test at Boards/village.brd (4, 7, layer 1)");
+  equal((await statusOf(host.runs[0]!.handle)).querySelector('[aria-label="Run snapshot"] dd')?.textContent, "Board test at Boards/village.brd (4, 7, layer 1)");
 });
 
 test("Test program runs one program under the fixture the panel names", async () => {
@@ -231,7 +260,85 @@ test("Test program runs one program under the fixture the panel names", async ()
     main: MAIN,
     projectFolder: "",
     program: "Prg/hello.prg",
-    fixture: { id: "Run panel test settings", party: [], font: "Arial", fontSize: 14, windowGraphic: "Bitmap/window.png", start: { board: "Boards/caves.brd", x: 1, y: 1, layer: 2 } },
+    fixture: { id: "Unsaved test settings", party: [], font: "Arial", fontSize: 14, windowGraphic: "Bitmap/window.png", start: { board: "Boards/caves.brd", x: 1, y: 1, layer: 2 } },
   });
-  equal(el.querySelector('[aria-label="Run snapshot"] dd')?.textContent, 'Program test of Prg/hello.prg with fixture "Run panel test settings" at Boards/caves.brd (1, 1, layer 2)');
+  equal((await statusOf(host.runs[0]!.handle)).querySelector('[aria-label="Run snapshot"] dd')?.textContent, 'Program test of Prg/hello.prg with fixture "Unsaved test settings" at Boards/caves.brd (1, 1, layer 2)');
+});
+
+test("a named setup is saved in .tkr/launch.json and Save and run runs it with its name as the fixture id", async () => {
+  const { el, host, outcomes, finishLaunch } = await setup(["runProgram"], "Prg/hello.prg", MAIN, true);
+  await act(() => { [...el.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((tab) => tab.textContent === "Test program")!.click(); });
+  const save = [...el.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save")!;
+  equal(save.disabled, true, "a setup needs a name");
+  equal(el.querySelector(".tkr-run-save .tkr-run-unavailable")?.textContent, "Give the setup a name to save it.");
+  await type(labelled<HTMLInputElement>(el, "Setup name", "input"), "Shop test");
+  await choose(labelled<HTMLSelectElement>(fieldset(el, "Test program"), "Start board", "select"), "Boards/caves.brd");
+  const saveAndRun = [...el.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save and run")!;
+  await act(() => { saveAndRun.click(); });
+  await until(() => outcomes.length === 1);
+  await act(async () => { await finishLaunch(); });
+  deepEqual(JSON.parse(new TextDecoder().decode(host.bytesOf(LAUNCH_SETUPS_PATH)!)), {
+    version: 1,
+    configurations: [{ name: "Shop test", kind: "program", program: "Prg/hello.prg", fixture: { party: [], start: { board: "Boards/caves.brd", x: 1, y: 1, layer: 1 } } }],
+  });
+  equal(host.runs.length, 1);
+  equal(host.runs[0]!.launch.kind === "program" ? host.runs[0]!.launch.fixture.id : null, "Shop test");
+  deepEqual(outcomes.map((outcome) => outcome.kind === "launched" ? outcome.setup : outcome.kind), ["Shop test"]);
+});
+
+test("the Run control runs the game by default, lists saved setups, marks a bad one unavailable and runs the chosen setup", async () => {
+  document.body.replaceChildren();
+  const host = createMemoryPlatformServices({
+    files: {
+      ...FILES,
+      [LAUNCH_SETUPS_PATH]: new TextEncoder().encode(JSON.stringify({
+        version: 1,
+        configurations: [
+          { name: "Village", kind: "board", start: { board: "Boards/village.brd", x: 2, y: 3, layer: 1 }, party: ["Chrs/hero.tem"], seed: 5 },
+          { name: "Broken", kind: "nope" },
+        ],
+      })),
+    },
+    capabilities: ["folderWrite", "runGame", "runBoard"],
+  });
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  const launcher = createLauncher({ services: host, workspace });
+  const remembered: (string | null)[] = [];
+  const shown: RunHandle[] = [];
+  const el = document.createElement("div");
+  document.body.append(el);
+  let control: ViewHandle | undefined;
+  await act(() => {
+    control = mountRunControl(el, {
+      launcher,
+      fs: host.fs,
+      layout: { projectFolder: "" },
+      main: MAIN,
+      store: { fs: host.fs, readOnly: null },
+      memory: { get: async () => null, set: (name) => { remembered.push(name); } },
+      onRun: (handle) => shown.push(handle),
+    });
+  });
+  const chooser = el.querySelector<HTMLSelectElement>('select[aria-label="Run setup"]')!;
+  await until(() => chooser.options.length === 4);
+  deepEqual([...chooser.options].map((option) => [option.textContent, option.disabled]), [
+    ["Game start-up", false],
+    ["Village", false],
+    ['Broken (unavailable: kind must be "game", "board" or "program".)', true],
+    ["Add setup…", false],
+  ]);
+  const run = el.querySelector<HTMLButtonElement>('button[aria-label="Run"]')!;
+  await act(() => { run.click(); });
+  await until(() => shown.length === 1);
+  deepEqual(host.runs[0]!.launch, { kind: "game", main: MAIN, projectFolder: "" });
+  ok([...el.querySelectorAll("button")].some((button) => button.textContent === "Stop"), "Stop shows while the game runs");
+  await choose(chooser, "Village");
+  deepEqual(remembered, ["Village"], "the choice is remembered per user");
+  await act(() => { run.click(); });
+  await until(() => shown.length === 2);
+  deepEqual(host.runs[1]!.launch, { kind: "board", main: MAIN, projectFolder: "", seed: 5, start: { board: "Boards/village.brd", x: 2, y: 3, layer: 1 }, party: ["Chrs/hero.tem"] });
+  ok(host.runs[0]!.stopped(), "the earlier run is stopped");
+  deepEqual(shown, [host.runs[0]!.handle, host.runs[1]!.handle], "each run is handed to the host to show");
+  // Unmount inside act so no effect is left scheduled after the DOM shim is removed.
+  await act(() => { control!.dispose(); });
 });

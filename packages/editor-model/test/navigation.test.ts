@@ -217,6 +217,31 @@ test("tabs hold one tab per document, wrap with next and previous, reorder, and 
   tabs.dispose();
 });
 
+test("a view tab sits beside document tabs, asks nothing on close and tells its view once", async () => {
+  const { tree, workspace } = setup();
+  const tabs = createTabs(workspace);
+  await tree.refresh();
+  const a = await tree.open("Boards/village.brd");
+  ok(a.ok && a.via === "document");
+  tabs.open(a.document);
+  let closed = 0;
+  tabs.openView({ key: "run:1", title: "Running game", kind: "run", close: () => { closed += 1; } });
+  deepEqual(tabs.getSnapshot().tabs.map((tab) => [tab.path, tab.view ?? false]), [["Boards/village.brd", false], ["Running game", true]]);
+  equal(tabs.getSnapshot().active, "run:1", "a view tab opens in front");
+  tabs.openView({ key: "run:1", title: "Running game", kind: "run", close: () => { closed += 100; } });
+  equal(tabs.getSnapshot().tabs.length, 2, "the same view key is one tab");
+  tabs.previous();
+  equal(tabs.getSnapshot().active, a.document.identity.key);
+  deepEqual(await tabs.close("run:1"), { closed: true });
+  equal(closed, 1, "closing the tab tells the first view once");
+  equal(tabs.getSnapshot().active, a.document.identity.key);
+  deepEqual(await tabs.close("run:1"), { closed: true }, "closing it again is a no-op");
+  equal(closed, 1);
+  tabs.openView({ key: "run:2", title: "Running game", kind: "run", close: () => { closed += 1; } });
+  tabs.dispose();
+  equal(closed, 2, "disposing the tabs closes the views they still show");
+});
+
 test("the layout shows, hides, resizes within limits, docks, and round-trips by identifiers only", () => {
   const layout = createLayoutModel([
     { id: "files", title: "Files", side: "left", visible: true, size: 240, minSize: 120, maxSize: 480 },
