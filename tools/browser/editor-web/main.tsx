@@ -15,6 +15,7 @@ const playerOptions = {
   ...(codeEditor === undefined ? {} : { codeEditor }),
 };
 const status = document.querySelector<HTMLElement>("#host-status")!;
+const openingControls = document.querySelector<HTMLFieldSetElement>("#project-open-controls")!;
 const settings = document.querySelector<HTMLElement>("#settings")!;
 const folderButton = document.querySelector<HTMLButtonElement>("#open-project")!;
 const newProjectButton = document.querySelector<HTMLButtonElement>("#new-project")!;
@@ -145,8 +146,22 @@ async function serializeCommit(commit: () => Promise<void>): Promise<void> {
   }
 }
 
-folderButton.addEventListener("click", () => {
+function beginProjectOpen(message: string): number {
   const request = ++openRequest;
+  openingControls.disabled = true;
+  openingControls.ariaBusy = "true";
+  status.textContent = message;
+  return request;
+}
+
+function finishProjectOpen(request: number): void {
+  if (request !== openRequest) return;
+  openingControls.disabled = false;
+  openingControls.ariaBusy = "false";
+}
+
+folderButton.addEventListener("click", () => {
+  const request = beginProjectOpen("Opening project folder…");
   void (async () => {
     const project = await openWebProject(playerOptions);
     if (request !== openRequest) {
@@ -158,10 +173,11 @@ folderButton.addEventListener("click", () => {
       return;
     }
     await openProjectGame(project, request);
-  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
+  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); })
+    .finally(() => finishProjectOpen(request));
 });
 newProjectButton.addEventListener("click", () => {
-  const request = ++openRequest;
+  const request = beginProjectOpen("Opening new-project setup…");
   void (async () => {
     const result = await newWebProject({ ...playerOptions, element: document.querySelector("main")! });
     if (request !== openRequest) {
@@ -173,10 +189,11 @@ newProjectButton.addEventListener("click", () => {
       return;
     }
     await openCreatedProject(result.project, result.mainPath, request);
-  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
+  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); })
+    .finally(() => finishProjectOpen(request));
 });
 reopenButton.addEventListener("click", () => {
-  const request = ++openRequest;
+  const request = beginProjectOpen("Reopening project…");
   void (async () => {
     const project = await reopenWebProject(recentSelect.value, playerOptions);
     if (request !== openRequest) {
@@ -188,7 +205,8 @@ reopenButton.addEventListener("click", () => {
       return;
     }
     await openProjectGame(project, request);
-  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
+  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); })
+    .finally(() => finishProjectOpen(request));
 });
 
 void refreshRecentProjects().catch(showFailure);
@@ -197,9 +215,10 @@ openSelectedGame.addEventListener("click", () => {
   const project = projectWithChoices;
   const path = gameSelect.value;
   if (!project || !path) return;
-  const request = ++openRequest;
+  const request = beginProjectOpen(`Opening ${path}…`);
   void show(project, path, request).then(() => { if (request === openRequest) hideProjectChoices(); })
-    .catch((error: unknown) => { if (request === openRequest) showFailure(error); });
+    .catch((error: unknown) => { if (request === openRequest) showFailure(error); })
+    .finally(() => finishProjectOpen(request));
 });
 async function refreshRecentProjects(): Promise<void> {
   const projects = await listRecentWebProjects();
@@ -269,15 +288,16 @@ async function openProjectGame(project: WebProject, request: number): Promise<vo
 
 
 fileInput.addEventListener("change", () => {
-  const request = ++openRequest;
+  const file = fileInput.files?.[0];
+  if (!file) return;
+  const request = beginProjectOpen(`Opening ${file.name}…`);
   void (async () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (request !== openRequest) return;
     hideProjectChoices();
     await show(createSessionCopy(file.name, bytes, playerOptions), file.name, request);
-  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); });
+  })().catch((error: unknown) => { if (request === openRequest) showFailure(error); })
+    .finally(() => finishProjectOpen(request));
 });
 
 async function projectGames(project: WebProject): Promise<string[]> {
@@ -689,5 +709,6 @@ function showFailure(error: unknown): void {
 
 window.addEventListener("pagehide", () => {
   openRequest += 1;
+  finishProjectOpen(openRequest);
   replaceShown(null);
 }, { once: true });

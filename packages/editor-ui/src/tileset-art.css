@@ -6,36 +6,41 @@
   color-scheme: light dark;
 
   /* Surface hierarchy: bridges VS Code theme variables with light-dark() browser defaults */
-  --tkr-bg-app: var(--vscode-sideBar-background, light-dark(#f1f5f9, #18181b));
-  --tkr-bg-panel: var(--vscode-editorWidget-background, light-dark(#f8fafc, #1f1f24));
-  --tkr-bg-surface: var(--vscode-editor-background, light-dark(#ffffff, #141417));
-  --tkr-bg-elevated: var(--vscode-QuickInput-background, light-dark(#ffffff, #27272d));
-  --tkr-bg-stage: var(--vscode-editor-background, light-dark(#cbd5e1, #0d0d10));
-  --tkr-bg-control: var(--vscode-input-background, light-dark(#ffffff, #26262c));
-  --tkr-bg-control-hover: var(--vscode-list-hoverBackground, light-dark(#e2e8f0, #32323a));
+  --tkr-bg-app: var(--vscode-sideBar-background, light-dark(#f3f5f8, #0d121d));
+  --tkr-bg-panel: var(--vscode-editorWidget-background, light-dark(#ffffff, #151e31));
+  --tkr-bg-surface: var(--vscode-editor-background, light-dark(#ffffff, #101722));
+  --tkr-bg-elevated: var(--vscode-quickInput-background, light-dark(#ffffff, #202b40));
+  --tkr-bg-stage: light-dark(#e8e8e8, #242424);
+  --tkr-bg-control: var(--vscode-input-background, light-dark(#ffffff, #151e31));
+  --tkr-bg-control-hover: var(--vscode-list-hoverBackground, light-dark(#f5e8c5, #202b40));
 
   /* Typography & ink */
-  --tkr-fg-primary: var(--vscode-foreground, light-dark(#0f172a, #e4e4e7));
-  --tkr-fg-muted: var(--vscode-descriptionForeground, light-dark(#475569, #a1a1aa));
-  --tkr-fg-disabled: var(--vscode-disabledForeground, light-dark(#94a3b8, #63636e));
+  --tkr-fg-primary: var(--vscode-foreground, light-dark(#202938, #f2eee4));
+  --tkr-fg-muted: var(--vscode-descriptionForeground, light-dark(#4c5a6d, #b4bed0));
+  --tkr-fg-disabled: var(--vscode-disabledForeground, light-dark(#59677a, #9ba6b9));
 
   /* Borders & dividers */
-  --tkr-border-subtle: var(--vscode-panel-border, light-dark(#cbd5e1, #2e2e36));
-  --tkr-border-strong: var(--vscode-input-border, light-dark(#94a3b8, #43434f));
+  --tkr-border-subtle: var(--vscode-panel-border, light-dark(#68778b, #596984));
+  /* Native description ink gives controls a neutral, visible boundary even in
+     themes whose decorative input.border is deliberately very faint. */
+  --tkr-border-strong: var(--vscode-contrastBorder, var(--vscode-descriptionForeground, light-dark(#46566c, #8291aa)));
 
-  /* Semantic accents & states */
-  --tkr-accent: var(--vscode-focusBorder, light-dark(#2563eb, #3b82f6));
-  --tkr-accent-fg: var(--vscode-button-foreground, #ffffff);
-  --tkr-accent-subtle: var(--vscode-list-activeSelectionBackground, light-dark(rgba(37, 99, 235, 0.14), rgba(59, 130, 246, 0.22)));
-  --tkr-focus-ring: var(--vscode-focusBorder, light-dark(#2563eb, #60a5fa));
+  /* Keep both sides of native button/selection pairs together. */
+  --tkr-accent: var(--vscode-button-background, light-dark(#805900, #f4c85b));
+  --tkr-accent-fg: var(--vscode-button-foreground, light-dark(#ffffff, #28200d));
+  --tkr-accent-subtle: var(--vscode-list-activeSelectionBackground, light-dark(#f5e8c5, #493c20));
+  --tkr-accent-subtle-fg: var(--vscode-list-activeSelectionForeground, var(--tkr-fg-primary));
+  --tkr-focus-ring: var(--vscode-focusBorder, light-dark(#005fcc, #f4c85b));
 
-  --tkr-dirty: var(--vscode-gitDecoration-modifiedResourceForeground, light-dark(#d97706, #f59e0b));
-  --tkr-dirty-subtle: light-dark(rgba(217, 119, 6, 0.14), rgba(245, 158, 11, 0.18));
-
-  --tkr-danger: var(--vscode-errorForeground, light-dark(#dc2626, #f87171));
-  --tkr-danger-subtle: light-dark(rgba(220, 38, 38, 0.1), rgba(248, 113, 113, 0.16));
-
-  --tkr-success: light-dark(#15803d, #4ade80);
+  --tkr-dirty: var(--vscode-gitDecoration-modifiedResourceForeground, light-dark(#805900, #f4c85b));
+  --tkr-dirty-subtle: light-dark(#f5e8c5, #493c20);
+  --tkr-danger: var(--vscode-errorForeground, light-dark(#a30c2a, #ff8b95));
+  --tkr-danger-subtle: light-dark(#fff0f3, #381d29);
+  --tkr-warning: var(--vscode-list-warningForeground, light-dark(#654200, #ffd17a));
+  --tkr-info: var(--vscode-textLink-foreground, light-dark(#005d83, #83c9e8));
+  --tkr-saving: var(--tkr-info);
+  --tkr-success: var(--vscode-foreground, light-dark(#17632d, #84c99b));
+  --tkr-saved: var(--tkr-success);
 
   /* Typography scale */
   --tkr-font-sans: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif);
@@ -46,11 +51,45 @@
   --tkr-text-md: 0.875rem;
   --tkr-text-lg: 0.9375rem;
 
+  --tkr-space-1: 0.25rem;
+  --tkr-space-2: 0.5rem;
+  --tkr-space-3: 0.75rem;
+  --tkr-space-4: 1rem;
+
   /* Geometry & elevation */
   --tkr-radius-sm: 4px;
   --tkr-radius-md: 6px;
   --tkr-shadow-stage: 0 2px 10px rgba(0, 0, 0, 0.28), 0 0 0 1px var(--tkr-border-strong);
   --tkr-shadow-menu: 0 8px 24px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--tkr-border-strong);
+}
+
+@media (forced-colors: active) {
+  :root {
+    --tkr-bg-app: Canvas;
+    --tkr-bg-panel: Canvas;
+    --tkr-bg-surface: Canvas;
+    --tkr-bg-elevated: Canvas;
+    --tkr-bg-stage: Canvas;
+    --tkr-bg-control: ButtonFace;
+    --tkr-bg-control-hover: ButtonFace;
+    --tkr-fg-primary: CanvasText;
+    --tkr-fg-muted: CanvasText;
+    --tkr-fg-disabled: GrayText;
+    --tkr-border-subtle: CanvasText;
+    --tkr-border-strong: ButtonText;
+    --tkr-accent: Highlight;
+    --tkr-accent-fg: HighlightText;
+    --tkr-accent-subtle: Highlight;
+    --tkr-accent-subtle-fg: HighlightText;
+    --tkr-focus-ring: CanvasText;
+    --tkr-dirty: CanvasText;
+    --tkr-dirty-subtle: Canvas;
+    --tkr-danger: CanvasText;
+    --tkr-danger-subtle: Canvas;
+    --tkr-warning: CanvasText;
+    --tkr-info: CanvasText;
+    --tkr-success: CanvasText;
+  }
 }
 
 /* Tileset Artwork Editor (.tkr-tileset-art) */

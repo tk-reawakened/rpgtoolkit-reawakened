@@ -1,0 +1,38 @@
+{
+  "story": "11.23 / #2988",
+  "guard": "Real selected-game pending feedback and native disabled controls, followed by real read failure and retry",
+  "node": "24.21.0",
+  "platform": "darwin arm64",
+  "test": "tools/browser/tests/editor-web-host.spec.ts:131",
+  "reproductionCommand": "PLAYWRIGHT_PORT=4197 pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts --grep 'selected game opening reports pending' --workers=1 --reporter=list",
+  "testSourceSha256": "86121d4130945cb71b2948ab33c872c267b18998d6b30492de29001b37480edd",
+  "restoredImplementationSha256": "7e1a263dcade9a8e88de1871fd0955b595b4ff0a4e6e42bed525d115ad9b0851",
+  "commitClaim": "Product changes were uncommitted. These exact source hashes, not a falsely claimed tested commit, identify the experiments.",
+  "counterfactuals": [
+    {
+      "mutation": "beginProjectOpen leaves the native fieldset enabled",
+      "sourceSha256": "6bdd862c1297f786b9577476de854759dbe10d5646a7dc11f47fdb4b4e7274a2",
+      "exitCode": 1,
+      "assertion": "expect(locator('#open-project')).toBeDisabled()",
+      "actual": "enabled",
+      "caseSeconds": 6.2
+    },
+    {
+      "mutation": "Remove the opening-status assignment, retain native disabling",
+      "sourceSha256": "ec5dc6eca2156860f2073f958ae0ebda5c3f479ba1c1d3ca20cd456f7214e8c6",
+      "exitCode": 1,
+      "assertion": "expect(locator('#host-status')).toContainText('Opening First.gam')",
+      "actualContained": "2 games found",
+      "caseSeconds": 6.3
+    }
+  ],
+  "restoredPositive": {
+    "sourceHashRestoredExactly": true,
+    "passed": 1,
+    "failed": 0,
+    "caseSeconds": 1.3,
+    "runnerSeconds": 4.7
+  },
+  "realIO": "Passthrough gate holds FileSystemFileHandle.getFile; removing the owned OPFS entry causes a native read failure. Restore actual bytes and retry to the real game form, then independently compare backing bytes. No fake successful provider outcome.",
+  "limits": "This proves the new opening guards, not full styling or native VS Code acceptance."
+}
