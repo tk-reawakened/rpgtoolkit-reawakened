@@ -591,21 +591,28 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
           }
           return cues;
         };
+        const savedClass = element.getAttribute("class");
+        const pressed = element.getAttribute("aria-pressed");
+        const selected = element.getAttribute("aria-selected");
+        const settle = () => {
+          getComputedStyle(element).backgroundColor;
+          for (const animation of element.getAnimations()) if (animation instanceof CSSTransition) animation.finish();
+        };
+        settle();
         const actual = sample(element, true);
-        const clone = element.cloneNode(true) as HTMLElement;
-        clone.hidden = true;
-        clone.setAttribute("aria-hidden", "true");
-        clone.setAttribute("inert", "");
-        if (clone.getAttribute("aria-pressed") === "true") clone.setAttribute("aria-pressed", "false");
-        if (clone.getAttribute("aria-selected") === "true") clone.setAttribute("aria-selected", "false");
-        for (const name of [...clone.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) clone.classList.remove(name);
-        element.after(clone);
         try {
-          const neutral = sample(clone, false);
+          if (pressed === "true") element.setAttribute("aria-pressed", "false");
+          if (selected === "true") element.setAttribute("aria-selected", "false");
+          for (const name of [...element.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) element.classList.remove(name);
+          settle();
+          const neutral = sample(element, true);
           const changed = Object.entries(actual).filter(([key, cue]) => JSON.stringify(cue.color) !== JSON.stringify(neutral[key]?.color));
           return { changed: changed.length > 0, cues: changed.map(([key, cue]) => ({ key, contrast: contrast(cue.color, cue.behind) })) };
         } finally {
-          clone.remove();
+          if (savedClass === null) element.removeAttribute("class"); else element.setAttribute("class", savedClass);
+          if (pressed === null) element.removeAttribute("aria-pressed"); else element.setAttribute("aria-pressed", pressed);
+          if (selected === null) element.removeAttribute("aria-selected"); else element.setAttribute("aria-selected", selected);
+          settle();
         }
       };
       const active = document.activeElement as HTMLElement | null;
