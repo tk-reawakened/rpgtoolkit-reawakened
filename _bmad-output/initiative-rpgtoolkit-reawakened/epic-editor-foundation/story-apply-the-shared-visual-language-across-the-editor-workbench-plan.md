@@ -4,7 +4,7 @@ type: feature
 ticket: 23
 created: 2026-11-17
 status: in-progress
-baseline_revision: 9b0e39e341ccb76740e04f53294b866f7a63bb63
+baseline_revision: 4ff4ed3dee07c66119867f5a859a797797a4b798
 route: full
 route_source: pinned
 risk: medium
@@ -84,6 +84,8 @@ context:
 - Existing model/DOM behavior coverage passed 85/85 across program, settings, game-settings form and Preferences in 4.74s; every case was below one second. Removed the obsolete CSS-source-spelling test (#3092), rather than re-pinning the accent implementation. Actual rendered native/browser evidence owns appearance verification.
 - The complete local AFTER matrix exposed doubled-text header shrinkage (#3095), clipped native-file-input geometry in the reachability probe (#3096), unpainted closed-disclosure controls being sampled (#3097), a partial character-provider root (#3098), residual native focus (#3099), and duplicate icon/help rules using action fill as focus ink (#3100). Repairs retain the assertions rather than lowering thresholds. Actual opened board properties are now a separate native case; the complete native matrix contains 81 frames.
 - Local architecture, provenance and canonical store checks passed: two allowed core dependencies, 1,692 files scanned with zero provenance violations, and 551 tracker IDs / 440 plans / 35 folders validated. Scoped lint and affected TypeScript checks also passed after the initial measurement repairs; final capture additions receive their own check.
+- Fresh main advanced ten commits, including retained P0 board-object authoring. Both implementation and unchanged-product capture branches now integrate pinned `4ff4ed3dee07c66119867f5a859a797797a4b798`; the reviewed runner resolution preserves both native design and board-object proof routes.
+- The opened-property case exposed stale referenced workspace `dist` in the isolated baseline (#3107), not a missing source disclosure: the exact summary exists in `board-properties-view.tsx:145–146`, but the retained actual failure image contains no properties panel. Prior captures remain historical observations, not accepted source-coherent BEFORE evidence. Rebuild referenced host/UI packages from source before bundling and launching either host; use fresh matched receipts for acceptance. The disclosure's availability check is now bounded (#3106).
 
 ## Plan Change Log
 

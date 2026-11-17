@@ -71,10 +71,10 @@
 :is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) :where(button)[aria-pressed="true"]:where(:not(.monaco-editor *)),
 .tkr-board-tool-active {
   background: var(--tkr-accent-subtle);
-  border-color: var(--tkr-accent);
+  border-color: var(--tkr-selection-border);
   color: var(--tkr-accent-subtle-fg);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px var(--tkr-accent);
+  box-shadow: inset 0 0 0 1px var(--tkr-selection-border);
 }
 
 /* Primary Save Actions */
@@ -87,7 +87,7 @@
 .tkr-run-start:not(:disabled),
 .tkr-new-board-create:not(:disabled) {
   background: var(--tkr-accent);
-  border-color: var(--tkr-accent);
+  border-color: var(--tkr-border-strong);
   color: var(--tkr-accent-fg);
   font-weight: 600;
 }
@@ -294,7 +294,7 @@ fieldset.tkr-web-project-controls {
   inline-size: 100%;
   min-block-size: 2rem !important;
   background: var(--tkr-accent) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-border-strong) !important;
   color: var(--tkr-accent-fg) !important;
   font-weight: 600 !important;
 }
@@ -674,7 +674,7 @@ fieldset.tkr-web-project-controls {
 .tkr-command-palette-option-active,
 .tkr-command-palette-option:hover {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
   color: var(--tkr-accent-subtle-fg) !important;
 }
 
@@ -954,7 +954,7 @@ fieldset.tkr-web-project-controls {
 
 .tkr-run-tab[aria-selected="true"] {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
   color: var(--tkr-accent-subtle-fg) !important;
   font-weight: 600 !important;
 }
@@ -983,7 +983,7 @@ fieldset.tkr-web-project-controls {
 
 .tkr-separator:hover,
 .tkr-separator:focus-visible {
-  background: var(--tkr-accent);
+  background: var(--tkr-focus-ring);
 }
 
 /* 4. Document Tab Strip & Shell (.tkr-tabs, .tkr-editor-shell) ------------- */
@@ -1052,7 +1052,7 @@ fieldset.tkr-web-project-controls {
   inset-inline: 0;
   inset-block-start: 0;
   block-size: 2px;
-  background: var(--tkr-accent);
+  background: var(--tkr-selection-border);
   pointer-events: none;
 }
 
@@ -1408,7 +1408,7 @@ fieldset.tkr-web-project-controls {
 
 .tkr-files-row-selected {
   background: var(--tkr-accent-subtle);
-  border-color: var(--tkr-accent);
+  border-color: var(--tkr-selection-border);
   color: var(--tkr-accent-subtle-fg);
   font-weight: 600;
 }
@@ -1475,7 +1475,7 @@ fieldset.tkr-web-project-controls {
 
 .tkr-tree-selected {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
   color: var(--tkr-accent-subtle-fg) !important;
   font-weight: 600 !important;
 }
@@ -1595,7 +1595,7 @@ fieldset.tkr-web-project-controls {
 
 .tkr-game-file[tabindex="0"]:not([aria-disabled="true"]) {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
   color: var(--tkr-accent-subtle-fg) !important;
   font-weight: 600 !important;
 }
@@ -1859,7 +1859,8 @@ fieldset.tkr-web-project-controls {
 .tkr-board-cell-selected,
 .tkr-board-grid [role="gridcell"][aria-selected="true"] > .tkr-board-cell {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
   font-weight: 700 !important;
 }
 
@@ -1969,7 +1970,8 @@ fieldset.tkr-web-project-controls {
 
 .tkr-tileset-browser-source-selected {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
 }
 
 .tkr-tileset-browser-preview {
@@ -2140,7 +2142,8 @@ fieldset.tkr-web-project-controls {
 
 .tkr-bitmap-cell-selected {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
 }
 
 .tkr-bitmap-cell-shaded {
@@ -2761,23 +2764,38 @@ fieldset.tkr-web-project-controls {
 
 /* 12. High-Contrast / Forced-Colors Mode (@media (forced-colors: active)) -- */
 @media (forced-colors: active) {
-  .tkr-web-shell button[aria-pressed="true"],
-  .tkr-workbench button[aria-pressed="true"],
-  [class^="tkr-"] button[aria-pressed="true"],
+  :is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) button[aria-pressed="true"]:not(:disabled, [aria-disabled="true"]):where(:not(.monaco-editor *)),
   .tkr-board-tool-active,
   .tkr-tree-selected,
+  .tkr-files-row-selected,
+  .tkr-game-file[tabindex="0"]:not([aria-disabled="true"]),
+  .tkr-command-palette-option-active,
+  .tkr-command-palette-option:hover,
+  .tkr-run-tab[aria-selected="true"],
   .tkr-board-cell-selected,
+  .tkr-board-grid [role="gridcell"][aria-selected="true"] > .tkr-board-cell,
   .tkr-bitmap-cell-selected,
-  .tkr-tileset-browser-source-selected {
+  .tkr-tileset-browser-source-selected,
+  .tkr-board-save:not(:disabled),
+  .tkr-bitmap-save:not(:disabled),
+  .tkr-tileset-art-save:not(:disabled),
+  .tkr-sprite-save:not(:disabled),
+  .tkr-character-save:not(:disabled),
+  .tkr-settings > button:first-of-type:not(:disabled),
+  .tkr-run-start:not(:disabled),
+  .tkr-new-board-create:not(:disabled),
+  .tkr-web-primary-open:not(:disabled),
+  #reopen-project:not(:disabled),
+  #open-selected-game:not(:disabled) {
     /* Keep the user's system pair together, without UA text backplates. */
     forced-color-adjust: none;
     background-color: Highlight !important;
     color: HighlightText !important;
-    border-color: HighlightText !important;
+    border-color: var(--tkr-selection-border) !important;
   }
 
   .tkr-tab-active::after {
-    background-color: Highlight;
+    background-color: var(--tkr-selection-border);
   }
 }
 .tkr-help-document {
@@ -2839,7 +2857,7 @@ fieldset.tkr-web-project-controls {
 }
 
 .tkr-help-document-body a {
-  color: var(--tkr-accent);
+  color: var(--tkr-info);
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }

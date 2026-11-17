@@ -12,7 +12,7 @@
   --tkr-bg-elevated: var(--vscode-quickInput-background, light-dark(#ffffff, #202b40));
   --tkr-bg-stage: light-dark(#e8e8e8, #242424);
   --tkr-bg-control: var(--vscode-input-background, light-dark(#ffffff, #151e31));
-  --tkr-bg-control-hover: var(--vscode-list-hoverBackground, light-dark(#f5e8c5, #202b40));
+  --tkr-bg-control-hover: var(--vscode-list-hoverBackground, var(--vscode-editor-background, light-dark(#f5e8c5, #202b40)));
 
   /* Typography & ink */
   --tkr-fg-primary: var(--vscode-foreground, light-dark(#202938, #f2eee4));
@@ -28,8 +28,9 @@
   /* Keep both sides of native button/selection pairs together. */
   --tkr-accent: var(--vscode-button-background, light-dark(#805900, #f4c85b));
   --tkr-accent-fg: var(--vscode-button-foreground, light-dark(#ffffff, #28200d));
-  --tkr-accent-subtle: var(--vscode-list-activeSelectionBackground, light-dark(#f5e8c5, #493c20));
+  --tkr-accent-subtle: var(--vscode-list-activeSelectionBackground, var(--vscode-editor-background, light-dark(#f5e8c5, #493c20)));
   --tkr-accent-subtle-fg: var(--vscode-list-activeSelectionForeground, var(--tkr-fg-primary));
+  --tkr-selection-border: var(--vscode-contrastActiveBorder, var(--vscode-focusBorder, var(--tkr-accent)));
   --tkr-focus-ring: var(--vscode-focusBorder, light-dark(#005fcc, #f4c85b));
 
   --tkr-dirty: var(--vscode-gitDecoration-modifiedResourceForeground, light-dark(#805900, #f4c85b));
@@ -81,6 +82,7 @@
     --tkr-accent-fg: HighlightText;
     --tkr-accent-subtle: Highlight;
     --tkr-accent-subtle-fg: HighlightText;
+    --tkr-selection-border: CanvasText;
     --tkr-focus-ring: CanvasText;
     --tkr-dirty: CanvasText;
     --tkr-dirty-subtle: Canvas;
