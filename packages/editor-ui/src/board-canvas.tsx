@@ -125,6 +125,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
       class="tkr-board-canvas"
       role="img"
       aria-label="The board as the engine draws it"
+      aria-busy={state.busy}
       // Focusable by pointer, not a tab stop: the cell grid is the keyboard way in. Clicking the canvas puts the focus in
       // the board, so tool shortcuts, Undo, Redo and Escape reach it instead of the page body.
       tabIndex={-1}

@@ -1700,6 +1700,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     await expect(state).toHaveText("Unsaved changes");
     const drawn = await tile2.count();
     expect(drawn, `${entry.label}: the drag drew a line of cells`).toBeGreaterThanOrEqual(5);
+    await expect(canvas).toHaveAttribute("aria-busy", "false");
     // The pointer left the focus on the canvas, so the keys below are pressed on the board, not on the page body.
     await expect(canvas).toBeFocused();
     await expect.poll(pixel, { message: `${entry.label}: the rendered canvas shows the drawn tile` }).not.toBe(emptyPixel);
@@ -1747,6 +1748,8 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     await expect(state).toHaveText("Unsaved changes");
     const edge = await tile2.count();
     expect(edge, `${entry.label}: the rectangle added cells`).toBeGreaterThan(base);
+    // Visible cells can precede the async edit acknowledgement; do not start the next gesture while busy.
+    await expect(canvas).toHaveAttribute("aria-busy", "false");
     await page.mouse.move(cornerA.x, cornerA.y);
     await page.keyboard.down("Control");
     await page.mouse.down();
@@ -1754,6 +1757,7 @@ async function runBoardCanvasScenario(page: Page, expect: Expect, host: ProofHos
     await page.mouse.up();
     await page.keyboard.up("Control");
     await expect.poll(() => tile2.count()).toBeGreaterThan(edge);
+    await expect(canvas).toHaveAttribute("aria-busy", "false");
     await page.keyboard.press("ControlOrMeta+z");
     await expect.poll(() => tile2.count()).toBe(edge);
     await page.keyboard.press("ControlOrMeta+z");
