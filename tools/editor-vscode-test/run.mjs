@@ -324,8 +324,8 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
     if (creatorTestsProof) {
       const { runCreatorSpecs } = await import(pathToFileURL(resolve(root, "packages/script-spec/dist/browser.js")).href);
       await runVscodeCreatorTestsProof(page, expect, workbenchUrl, runCreatorSpecs, {
-        readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
-        pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave,
+        readBacking, writeBacking, withBackingWriteRefused, readWriteEvents: persistentFs.writeEvents,
+        pauseWrite: persistentFs.pauseWrite, resumeWrite: persistentFs.resumeWrite,
       });
       console.log("VS Code saved creator-test command, actual frame, source link, snapshot hashes and headless parity proof passed");
     } else if (animationProof) {

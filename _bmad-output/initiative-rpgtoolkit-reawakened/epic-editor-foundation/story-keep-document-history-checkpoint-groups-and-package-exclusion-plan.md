@@ -2,7 +2,10 @@
 type: feature
 title: "Keep document history, checkpoint groups and package exclusion"
 ticket: 14
-status: built
+status: in-review
+review: quick
+review_source: pinned
+lenses_ran: [quick]
 ---
 
 ## Scope
@@ -46,3 +49,5 @@ Implementation is built; merge/closure still awaits independent exact-head revie
 - #2911 is fixed: `tkr.gameSettings` now receives exactly `main`, `character` (`.tem`), and `item` (`.itm`) changes, while every other custom-editor provider remains kind-isolated. Focused routing test, root TypeScript build, and proof-test typecheck passed. After rebuilding both `packages/host-vscode` and `extensions/editor`, the default no-environment VS Code proof reached `vscode.dev sprite save/reopen proof passed`, including native Save All and persisted-byte verification.
 - #2912/#2913 harden the real-workbench lifecycle oracle: it correlates the requested GAM’s `open-uri` and resolved full URI, and scopes palette selection to the live widget’s focused exact command. With the CI-canonical flattened `Game/Example` fixture plus `Main/example.gam` and external `TKR_VSCODE_TEST_DATA_DIR`, the unflagged default `pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace "$workspace" --game Main/example.gam` exited 0 (`proc://canonical-default-history-proof-enter`): 13/13 harness tests passed, and sprite Save All/reopen, package preflight, settings, Board, art, Bitmap, history, refusal, conflict, and orderly reload all completed.
 - Final review found #2915: the requested game path was raw text while `open-uri` was URI-encoded. Correlation now compares the decoded URI pathname and retains the original full URI for the resolve check. The focused regression covers spaces, `#`, `%`, `?`, non-ASCII names, literal percent sequences and unrelated/stale events; it passed by itself in 1.26 ms. Proof-test typecheck and scoped lint passed. The canonical default browser receipt above precedes this URI-only oracle repair; final exact-head CI remains required.
+
+Integrated creator proof regression #2916: CI43984757689 completed the default editor proof, then the creator race assertion failed. Its pause waited for the diagnostic save trace, which is now intentionally fire-and-forget and cannot block the real save. The proof now pauses the existing physical-write gate for `/Main/example.gam`, waits for its actual `write-request`, edits native text while that write remains held, and releases in `finally`; unchanged assertions require save-race refusal and no test-case execution. No production save behavior changed. The focused actual VS Code Web creator proof passed locally (`proc://creator-physical-save-race`, exit0, harness13/13), including the original write-refusal and changed-during-save assertions, real frame/source-link/hash parity; proof typecheck, scoped lint and runner syntax also passed. Independent rereview and exact new-head CI remain required.

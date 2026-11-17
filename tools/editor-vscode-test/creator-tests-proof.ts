@@ -27,9 +27,9 @@ type CreatorProofHost = {
   readonly readBacking: (path: string) => Promise<Uint8Array>;
   readonly writeBacking: (path: string, bytes: Uint8Array) => Promise<void>;
   readonly withBackingWriteRefused: (path: string, check: () => Promise<void>) => Promise<void>;
-  readonly readHostEvents: () => readonly { readonly kind: string; readonly value: string }[];
-  readonly pauseSave: () => void;
-  readonly resumeSave: () => void;
+  readonly readWriteEvents: () => readonly { readonly kind: string; readonly path: string }[];
+  readonly pauseWrite: (path: string) => void;
+  readonly resumeWrite: () => void;
 };
 export async function runVscodeCreatorTestsProof(
   page: Page,
@@ -225,12 +225,12 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
   expect(await host.readBacking(gamePath)).toEqual(original);
   await expect(tests.getByRole("heading", { name: /Pass:|Fail:/ })).toHaveCount(0);
 
-  const eventStart = host.readHostEvents().length;
-  host.pauseSave();
+  const eventStart = host.readWriteEvents().length;
+  host.pauseWrite(`/${gamePath}`);
   try {
     await tests.getByRole("button", { name: "Run saved tests" }).click();
-    await expect.poll(() => host.readHostEvents().slice(eventStart), { timeout: 30_000 })
-      .toContainEqual({ kind: "save", value: `/${gamePath}` });
+    await expect.poll(() => host.readWriteEvents().slice(eventStart), { timeout: 30_000 })
+      .toContainEqual({ kind: "write-request", path: `/${gamePath}` });
     await openNativeQuickOpenFile(page, expect, "CreatorRaceNote.txt");
     await expect(page.getByRole("tab", { name: /CreatorRaceNote\.txt/ })).toBeVisible();
     const textEditor = page.locator(".monaco-editor").filter({ has: page.locator(".view-lines") }).last();
@@ -240,7 +240,7 @@ async function verifySaveBarriers(page: Page, expect: Expect, tests: Frame, host
     await expect(textEditor.locator(".view-lines")).toContainText("changed during save");
     await creatorTestsTab.click();
   } finally {
-    host.resumeSave();
+    host.resumeWrite();
   }
   await expect(tests.getByRole("status")).toHaveText("Saved tests could not complete.");
   await expect(tests.getByRole("alert").first()).toContainText(/changed while/i);
