@@ -4,7 +4,8 @@ type: feature
 ticket: 13
 created: 2026-11-16
 status: in-progress
-baseline_revision: 684f4e01b5e9aa13cbba61a969820d717c2377f1
+baseline_revision: 2eaf991b966cbf528ab47514f20742e70ed40171
+review_base_revision: 684f4e01b5e9aa13cbba61a969820d717c2377f1
 route: oneshot
 route_source: auto
 risk: high
@@ -44,7 +45,7 @@ Oneshot: approximately 120 lines of orchestration, fixture isolation and existin
 
 - Local verification found two orchestration setup defects before CI: the PWA lane collided with another development server (#2989), and the focused native program lane needs a separate full authored `Main/` + `Game/Example/` copy rather than the flattened editor fixture (#2990). Allocate independent service ports by default, respect explicit existing overrides, and clean both owned fixture layouts without stopping or reusing someone else's server.
 - The same run exposed an existing unlogged fast-test exception (#2991): the graph repair case takes 1.43 seconds for five real CLI invocations. Keep every assertion and public-process phase; log a permanent exception beside the case with a maximum 5-second budget, as required by `docs/guardrails.md#exceptions`.
-- Refreshed and integrated remote main `684f4e01b5e9aa13cbba61a969820d717c2377f1` before final local acceptance and independent review, preserving its merged compact controls, focused commands and saving-Help changes. The original task baseline was `2eaf991b966cbf528ab47514f20742e70ed40171`; the review diff excludes those independently merged changes.
+- Refreshed and integrated remote main `684f4e01b5e9aa13cbba61a969820d717c2377f1` before final local acceptance and independent review, preserving its merged compact controls, focused commands and saving-Help changes. Preserve the original task `baseline_revision` (`2eaf991b966cbf528ab47514f20742e70ed40171`); `review_base_revision` separately pins current main. Retain the complete task diff, and also give reviewers the scoped current-main delta so unrelated merged changes remain context rather than our claimed work.
 
 ## Review Triage Log
 
@@ -62,3 +63,4 @@ Oneshot: approximately 120 lines of orchestration, fixture isolation and existin
 - With `pnpm` absent from the child PATH, preparation failed with `spawnSync pnpm ENOENT` and exit status 1 before launching any host proof.
 - The strengthened #2216 case passed its applicable VS Code desktop watcher path in 133 ms. Temporarily allowing the real recovery producer to drop pending recovery and reconcile matching disk bytes made the case fail at `matching disk does not silently resolve pending recovery` (107 ms). Restoring the producer restored the pass (138 ms). Browser/Web rows retain their capability-based early returns; this is not a physical desktop-app UI claim.
 - Scoped ESLint passed for the four changed tool/test sources. Before the remote-base refresh, provenance scanned 1,672 files with zero violations and canonical store validation passed for 534 tracker IDs, 432 plans and 33 folders.
+- Full post-fix acceptance on the refreshed main base passed all nine sections in 298.15 seconds on Node 24.21.0 (runtime-code revision `e810c4fe3fd00e514d317f86ec9a416232fbb15d`): 16 graph-control tests, 81 adapter/settings tests, 28 PWA tests, actual native language/debugger scenarios, 13 native filesystem/workspace guards, complete native cancel/keep plus sprite/New Project/History, saved program fixture execution, and saved creator-test/headless parity. Reported test skips: zero. Poisoned inherited focus/skip selectors did not narrow the native proof; committed language and authored-game fixture directories, file paths and bytes were unchanged.
