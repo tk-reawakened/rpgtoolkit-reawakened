@@ -179,7 +179,7 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   // Open the owning actual document, edit through Monaco, and let the run's ordinary save barrier persist it.
   await tests.getByRole("button", { name: CREATOR_TEST_SPEC_PATH, exact: true }).click();
   const input = page.getByRole("textbox", { name: /^Program text/ });
-  await expect(page.locator("#settings .monaco-editor .view-lines")).toBeVisible();
+  await expect(page.locator("#settings .monaco-editor:visible .view-lines")).toBeVisible();
   // Pause one real OPFS read after Save All and type into the real Monaco surface before releasing it.
   await page.evaluate(() => {
     const state = window as Window & { creatorReadGate?: { reached: boolean; release: () => void } };
@@ -213,7 +213,7 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   const failedSource = new TextDecoder().decode(failedSpec.bytes);
   await input.focus();
   await page.keyboard.press("Backspace");
-  const wallAssertion = page.locator("#settings .monaco-editor .view-line").filter({ hasText: 'expect(specValue("player.tileX"))' });
+  const wallAssertion = page.locator("#settings .monaco-editor:visible .view-line").filter({ hasText: 'expect(specValue("player.tileX"))' });
   await wallAssertion.click();
   await page.keyboard.press("End");
   await page.keyboard.press("ArrowLeft");
@@ -240,14 +240,14 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   const location = await source.getAttribute("title");
   const line = failedSource.split("\n").findIndex((text) => text.includes('expect(specValue("player.tileX"))')) + 1;
   expect(location).toMatch(new RegExp(`:${line}:\\d+$`));
-  await page.locator("#settings .monaco-editor .view-line").first().click();
+  await page.locator("#settings .monaco-editor:visible .view-line").first().click();
   await page.keyboard.press("Home");
   await source.click();
-  const assertion = page.locator("#settings .monaco-editor .view-line").filter({ hasText: 'expect(specValue("player.tileX"))' });
+  const assertion = page.locator("#settings .monaco-editor:visible .view-line").filter({ hasText: 'expect(specValue("player.tileX"))' });
   await expect(assertion).toBeVisible();
   await expect.poll(async () => {
     const lineTop = await assertion.evaluate((element) => element.getBoundingClientRect().top);
-    const caretTop = await page.locator("#settings .monaco-editor .cursors-layer .cursor").first().evaluate((element) => element.getBoundingClientRect().top);
+    const caretTop = await page.locator("#settings .monaco-editor:visible .cursors-layer .cursor").first().evaluate((element) => element.getBoundingClientRect().top);
     return Math.abs(lineTop - caretTop);
   }, { intervals: [100, 200, 400], message: "The actual Monaco caret must land on the owning wall assertion, not merely echo a requested line." }).toBeLessThan(2);
   await testInfo.attach("saved-tests-real-engine-frame", { body: await tests.getByLabel("Last real fixture engine frame").screenshot(), contentType: "image/png" });
@@ -280,11 +280,11 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   const included = tests.locator('tr[data-outcome="fail"]').getByRole("button");
   await expect(included).toHaveAttribute("title", new RegExp(`^${helperPath.replaceAll(".", "\\.")}:3:\\d+$`));
   await included.click();
-  const helperLine = page.locator("#settings .monaco-editor .view-line").filter({ hasText: "expect(1).toBe(2)" });
+  const helperLine = page.locator("#settings .monaco-editor:visible .view-line").filter({ hasText: "expect(1).toBe(2)" });
   await expect(helperLine).toBeVisible();
   await expect.poll(async () => {
     const lineTop = await helperLine.evaluate((element) => element.getBoundingClientRect().top);
-    const caretTop = await page.locator("#settings .monaco-editor .cursors-layer .cursor").first().evaluate((element) => element.getBoundingClientRect().top);
+    const caretTop = await page.locator("#settings .monaco-editor:visible .cursors-layer .cursor").first().evaluate((element) => element.getBoundingClientRect().top);
     return Math.abs(lineTop - caretTop);
   }, { intervals: [100, 200, 400], message: "The caret must navigate into the included helper at its assertion." }).toBeLessThan(2);
   expect(csp).toEqual([]);

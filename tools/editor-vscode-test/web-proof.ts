@@ -1,4 +1,5 @@
 import { ANIMATION_PROOF_PATH, runAnimationAuthoringProof } from "./animation-proof.ts";
+import { PROPERTIES_BOARD, runBoardPropertiesProof } from "./board-properties-proof.ts";
 import { createHash } from "node:crypto";
 import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
@@ -2586,5 +2587,78 @@ export async function runVscodeAnimationProof(page: Page, expect: Expect, workbe
     read,
     refuseAnimationWrite: (check) => host.withBackingWriteRefused(ANIMATION_PROOF_PATH, check),
     settle: () => page.waitForTimeout(60),
+  }, expect);
+}
+
+/** Story 12.3 through the packaged custom editor, native program tabs and real persistent filesystem. */
+export async function runVscodeBoardPropertiesProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>): Promise<void> {
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
+  await openProjectFile(page, "Main/example.gam", expect, ".tkr-settings");
+  const board = async (): Promise<Locator> => {
+    let found: Frame | undefined;
+    await expect.poll(async () => {
+      for (const frame of page.frames()) {
+        // A retained native webview can be visible inside its own iframe while another editor covers it.
+        if (await frame.locator(".tkr-board:visible").count().catch(() => 0) > 0
+          && await frame.evaluate(() => document.hasFocus()).catch(() => false)) {
+          found = frame;
+          return true;
+        }
+      }
+      return false;
+    }, { timeout: 30_000 }).toBe(true);
+    if (found === undefined) throw new Error("The active board custom editor was not found");
+    return found.locator(".tkr-board");
+  };
+  const open = async (path: string): Promise<Locator> => {
+    await focusWorkbench(page);
+    await openNativeQuickOpenFile(page, expect, path);
+    await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+    await page.waitForTimeout(100);
+    return board();
+  };
+  await runBoardPropertiesProof({
+    main: "Main/example.gam",
+    read: readBacking,
+    openBoard: open,
+    reopenBoard: async (path) => {
+      await runCommand(page, expect, "View: Close Editor");
+      await expect(page.getByRole("tab").filter({ hasText: path.split("/").at(-1)! })).toHaveCount(0);
+      await page.waitForTimeout(150);
+      return open(path);
+    },
+    closeBoard: async (path) => {
+      await page.getByRole("tab").filter({ hasText: path.split("/").at(-1)! }).first().click({ button: "middle" });
+      await expect(page.getByRole("tab").filter({ hasText: path.split("/").at(-1)! })).toHaveCount(0);
+      await page.waitForTimeout(150);
+    },
+    save: async (editor) => { await editor.getByRole("button", { name: "Save", exact: true }).click(); },
+    expectBoard: async (path) => {
+      await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+      await board();
+    },
+    expectProgram: async (path, text) => {
+      await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+      await expect(page.locator(".editor-instance .monaco-editor").last()).toContainText(text);
+    },
+    returnToBoard: async () => {
+      await runCommand(page, expect, "TK Reawakened: Return to board");
+      await page.waitForTimeout(150);
+      return board();
+    },
+    setInitial: async (editor, accept) => {
+      await editor.getByRole("button", { name: "Set as initial board", exact: true }).click();
+      const dialog = editor.getByRole("dialog");
+      await expect(dialog).toContainText("properties-origin.brd");
+      await dialog.getByRole("button", { name: accept ? "Set initial board" : "Cancel", exact: true }).click();
+      await page.waitForTimeout(100);
+    },
+    saveMain: async () => {
+      const frame = await openProjectFile(page, "Main/example.gam", expect, ".tkr-settings");
+      await frame.getByRole("button", { name: "Save", exact: true }).click();
+      await open(PROPERTIES_BOARD);
+    },
+    settle: () => page.waitForTimeout(80),
   }, expect);
 }

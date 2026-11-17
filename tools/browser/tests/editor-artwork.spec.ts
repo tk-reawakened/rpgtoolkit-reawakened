@@ -119,7 +119,6 @@ async function beginStroke(page: Page, canvas: Locator, x: number, y: number, en
 }
 
 async function openFile(page: Page, path: string): Promise<void> {
-  const old = (await surface(primary(page)).elementHandles())[0];
   const parts = path.split("/");
   for (const folder of parts.slice(0, -1)) {
     const row = page.getByRole("treeitem", { name: new RegExp(`^${folder}, folder, (?:closed|open)$`) });
@@ -128,10 +127,9 @@ async function openFile(page: Page, path: string): Promise<void> {
   }
   const item = page.getByRole("treeitem", { name: new RegExp(`^${parts.at(-1)}(?:,|$)`) });
   await item.dblclick();
-  if (old !== undefined) {
-    await expect.poll(() => old.evaluate((element) => !element.isConnected)).toBe(true);
-    await old.dispose();
-  }
+  await expect(page.getByRole("tab", { name: path, exact: true }).or(
+    page.getByRole("tab", { name: `${path}, unsaved changes`, exact: true }),
+  )).toHaveAttribute("aria-selected", "true");
 }
 
 async function setup(page: Page): Promise<string> {

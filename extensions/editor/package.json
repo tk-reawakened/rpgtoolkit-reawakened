@@ -19,6 +19,7 @@
     "onStartupFinished",
     "onCommand:tkr.newProject",
     "onCommand:tkr.packageGame",
+    "onCommand:tkr.returnFromBoard",
     "onCommand:tkr.newProgram",
     "onCommand:tkr.insertProgramHeader",
     "onCommand:tkr.insertProgramCommand",
@@ -83,6 +84,10 @@
       {
         "command": "tkr.packageGame",
         "title": "RPG Toolkit: Package game"
+      },
+      {
+        "command": "tkr.returnFromBoard",
+        "title": "TK Reawakened: Return to board"
       },
       {
         "command": "tkr.newProgram",

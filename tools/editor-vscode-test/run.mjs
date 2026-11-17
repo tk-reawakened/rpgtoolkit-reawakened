@@ -5,9 +5,10 @@ import { createServer } from "node:net";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader } from "@tk-reawakened/core";
+import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader, projectFolder, readMainFile } from "@tk-reawakened/core";
 import { buildNewBoard } from "@tk-reawakened/editor-model";
-import { runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
+import { runVscodeBoardPropertiesProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -38,6 +39,7 @@ if (gameFiles.length !== 1 || resolve(workspace, game) !== gameFiles[0]) {
   throw new Error(`The VS Code web proof workspace must contain exactly one .gam file, matching --game; found ${gameFiles.length}`);
 }
 await access(gameFiles[0]);
+const assetWorkspace = await proofAssetDirectory(workspace, gameFiles[0]);
 const spritePath = "Chrs/__tkr_sprite_proof.tem";
 const spriteFile = resolve(root, "docs/spec/examples/versions/character/character_minor8.tem");
 const spritePreviewGifFile = resolve(root, "packages/core/test/fixtures/authored/gif-anim89a.gif");
@@ -58,6 +60,7 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
 ]);
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const animationProof = process.env.TKR_VSCODE_ANIMATION_PROOF === "1";
+const boardPropertiesProof = process.env.TKR_VSCODE_BOARD_PROPERTIES_PROOF === "1";
 const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
 const boardProof = process.env.TKR_VSCODE_BOARD_PROOF === "1";
 const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
@@ -69,9 +72,9 @@ const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
 const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
-if ((animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
-  const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, workspace);
+if ((boardPropertiesProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of boardPropertiesProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+  const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
     const target = resolve(proofWorkspace, file.path);
     await mkdir(dirname(target), { recursive: true });
@@ -321,7 +324,19 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
       });
       console.log("vscode.dev real New project picker, creation and automatic-open proof passed");
     };
-    if (creatorTestsProof) {
+    const proveBoardProperties = async () => {
+      // Add this story's project-folder fixtures only when its proof begins: adding Game/Example
+      // earlier would change the older root-folder scenarios' effective asset layout.
+      for (const file of boardPropertiesProofFiles()) {
+        await mkdir(dirname(resolve(proofWorkspace, file.path)), { recursive: true });
+        await writeBacking(file.path, file.bytes);
+      }
+      await runVscodeBoardPropertiesProof(page, expect, workbenchUrl, readBacking);
+      console.log("vscode.dev board properties, linked native programs, return and startup ownership proof passed");
+    };
+    if (boardPropertiesProof) {
+      await proveBoardProperties();
+    } else if (creatorTestsProof) {
       const { runCreatorSpecs } = await import(pathToFileURL(resolve(root, "packages/script-spec/dist/browser.js")).href);
       await runVscodeCreatorTestsProof(page, expect, workbenchUrl, runCreatorSpecs, {
         readBacking, writeBacking, withBackingWriteRefused, readWriteEvents: persistentFs.writeEvents,
@@ -375,6 +390,7 @@ for (const choice of animationProof || historyProof || skipSpriteProof || autosa
       });
       console.log(`vscode.dev settings, board, art and bitmap proof passed (${choice})`);
       if (choice === "cancel") await proveNewProject();
+      if (choice === "cancel") await proveBoardProperties();
     }
   } catch (error) {
     failure = error;
@@ -417,6 +433,21 @@ async function createWebAdapterBytes(file, gamePath, title) {
   const reopened = await model.openMainDocument(project.services.fs, identity);
   if (!reopened.ok || reopened.document.getSnapshot().gameTitle !== title) throw new Error("The web adapter failed to reopen the saved proof title");
   return bytes.value;
+}
+
+/** These authoring/package scenarios use the loose-folder form, not the surrounding legacy Toolkit tree. */
+async function proofAssetDirectory(directory, mainFile) {
+  const parsed = readMainFile(new BinaryReader(new Uint8Array(await readFile(mainFile)), mainFile));
+  if (!parsed.ok) throw parsed.error;
+  const path = projectFolder("", parsed.value);
+  if (path.split("/").includes("..")) throw new Error("The proof game's project folder must stay inside its workspace");
+  const candidate = resolve(directory, path);
+  try {
+    return (await stat(candidate)).isDirectory() ? candidate : directory;
+  } catch (error) {
+    if (error?.code === "ENOENT") return directory;
+    throw error;
+  }
 }
 
 async function findGameFiles(directory) {

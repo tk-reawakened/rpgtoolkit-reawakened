@@ -1,6 +1,6 @@
 import type { AnyDocument, CommandRegistry, DocumentWorkspace, Launcher, LayoutModel, PackageArtifact, ProjectLayout, ProjectTree, Tabs, TreeOpenResult, TreeRow } from "@tk-reawakened/editor-model";
 import type { FileSystemService, RunHandle } from "@tk-reawakened/platform-services";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { ViewHandle } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 import { FilesView, type PackageActionOutcome } from "./files-view.tsx";
@@ -63,6 +63,8 @@ export interface ShellProps {
   readonly runSetups?: RunSetupStore;
   /** Which setup the Run button runs, remembered per user. */
   readonly runMemory?: RunSetupMemory;
+  /** Return to the origin board from a linked document. */
+  readonly onReturnFromVisit?: () => Promise<string | null>;
   /** Told about each run the Run button starts. */
   readonly onRun?: (handle: RunHandle) => void;
 }
@@ -78,11 +80,12 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
   const activeDocHasEmbeddedBrowser = active !== null && /\.(brd|tbm)$/i.test(active);
+  const [returnMessage, setReturnMessage] = useState<string | null>(null);
   const historyPanel = (workspace as ShellWorkspace | undefined)?.historyPanel;
   return (
     <Workbench
@@ -115,6 +118,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
             {...(onRun === undefined ? {} : { onRun })}
           />
         )}
+        {onReturnFromVisit === undefined ? null : <button class="tkr-return-to-board" type="button" aria-label="Return to board" onClick={() => { void onReturnFromVisit().then(setReturnMessage); }}>Return to board</button>}
         </>
       }
       panels={{
@@ -125,6 +129,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
         ...(workspace === undefined || historyPanel === undefined ? {} : { history: <DocumentHistoryView workspace={workspace} files={historyPanel.files} activePath={active} {...(historyPanel.mountPreview === undefined ? {} : { mountPreview: historyPanel.mountPreview })} {...(historyPanel.offer === undefined ? {} : { offerIgnore: historyPanel.offer.isEnabled, onNeverOfferIgnore: historyPanel.offer.onNever })} /> }),
       }}
     >
+      {returnMessage === null ? null : <p class="tkr-visit-message" role="status">{returnMessage}</p>}
       <EditorSlot onElement={onEditorElement} />
     </Workbench>
   );

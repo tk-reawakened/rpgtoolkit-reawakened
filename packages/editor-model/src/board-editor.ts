@@ -58,11 +58,12 @@ export type Brush =
 export interface EditorPreferences {
   /** After a flood fill, switch back to Draw (`board.revertToDrawAfterFlood`). */
   readonly revertToDrawAfterFlood: boolean;
-  /** A flood fill also continues to the same cell on every other layer (`board.recursiveFlood`). */
   readonly recursiveFlood: boolean;
+  /** Show the player-start cross on the initial board only, or on every board. */
+  readonly startLocationDisplay: "initial" | "every";
 }
 
-export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = { revertToDrawAfterFlood: true, recursiveFlood: false };
+export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = { revertToDrawAfterFlood: true, recursiveFlood: false, startLocationDisplay: "initial" };
 
 /** The board-editor preferences in force in a preferences snapshot (T-33); a value the catalogue does not have is the default. */
 export function editorPreferencesFrom(snapshot: PreferencesSnapshot): EditorPreferences {
@@ -70,9 +71,11 @@ export function editorPreferencesFrom(snapshot: PreferencesSnapshot): EditorPref
     const effective = snapshot.rows.find((row) => row.entry.id === id)?.effective;
     return typeof effective === "boolean" ? effective : fallback;
   };
+  const display = snapshot.rows.find((row) => row.entry.id === "board.startLocationDisplay")?.effective;
   return {
     revertToDrawAfterFlood: value("board.revertToDrawAfterFlood", DEFAULT_EDITOR_PREFERENCES.revertToDrawAfterFlood),
     recursiveFlood: value("board.recursiveFlood", DEFAULT_EDITOR_PREFERENCES.recursiveFlood),
+    startLocationDisplay: display === "every" ? "every" : "initial",
   };
 }
 

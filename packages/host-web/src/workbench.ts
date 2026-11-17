@@ -1,6 +1,7 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import {
   createAnimationFile, createCheckpointGroups,
+  asMainDocument,
   asksBeforeCreating,
   createAssetPicker,
   createBoardFile,
@@ -16,6 +17,9 @@ import {
   createVisits,
   DEFAULT_WORKBENCH_PANELS,
   listCandidates,
+  linkFor,
+  kindForPath,
+  referencePath,
   newBoardSettingsFrom,
   prepareGamePackage,
   programPreferencesFrom,
@@ -165,6 +169,41 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           slot.append(container);
           entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource, {
             pickAsset: (request) => workbench.pickAsset(request),
+            open: async (path) => {
+              const kind = kindForPath(path)?.id;
+              if (kind !== "board" && kind !== "program") return "This value is inline code or is not a board or program file. Its text has not been changed.";
+              const target = referencePath(projectLayout, kind === "board" ? "boards" : "programs", path);
+              const visited = await visits.visit(document, target);
+              if (!visited.ok) return "message" in visited.error ? visited.error.message : visited.error.error.message;
+              show(visited.document);
+              return null;
+            },
+            returnFromVisit: async () => {
+              const returned = await visits.returnFromVisit();
+              if (!returned.ok) return returned.message;
+              show(returned.document);
+              return returned.message;
+            },
+            setInitialBoard: async (boardPath) => {
+              if (main === null) return "No main game file is selected, so this board cannot be made the initial board.";
+              const link = linkFor(projectLayout, "boards", boardPath);
+              if (!link.inside) return "This board is outside the owning game's Boards folder. The initial board has not changed.";
+              const opened = await workspace.open(main);
+              if (!opened.ok) return "message" in opened.error ? opened.error.message : opened.error.error.message;
+              if (opened.document.kind !== "main") return `${main} is not a main game document.`;
+              const result = asMainDocument(opened.document).apply({ type: "apply-settings", changes: { initBoard: link.reference } });
+              if (!result.ok) return result.rejection.message;
+              const edit = opened.document.getSnapshot().edits.find((entry) => entry.editId === result.editId);
+              services.document.edited({ document: opened.document.identity.key, editId: result.editId, label: edit?.label ?? "Set initial board" });
+              return "Initial board changed in the main game file. Save that file separately.";
+            },
+            ...(main === null ? {} : {
+              get initialBoardPath() {
+                const owner = workspace.documents().find((candidate) => candidate.identity.path === main && candidate.kind === "main");
+                const reference = owner === undefined ? "" : asMainDocument(owner).getSnapshot().settings.initBoard;
+                return reference === "" ? "" : referencePath(projectLayout, "boards", reference);
+              },
+            }),
           }, main), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
@@ -173,11 +212,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           slot.append(container);
           entry.view.show(container);
           entry.shownIn = container;
+        } else {
+          entry.shownIn.hidden = false;
         }
       } else if (entry !== undefined && entry.shownIn !== null) {
-        entry.view.hide();
-        entry.shownIn.remove();
-        entry.shownIn = null;
+        // Retain the document's mounted view so a linked visit returns to its cursor, selection and draft.
+        entry.shownIn.hidden = true;
       }
     }
     for (const pane of [...slot.children]) if (pane.childNodes.length === 0) pane.remove();
@@ -404,6 +444,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       set: (name) => { void services.settings.set("user", RUN_SETUP_SETTING, name); },
     },
     browser: { session: project.browserSession, fs: services.fs, layout: projectLayout, openSource },
+    onReturnFromVisit: async () => {
+      const returned = await visits.returnFromVisit();
+      if (!returned.ok) return returned.message;
+      show(returned.document);
+      return returned.message;
+    },
     version,
     onOpened: (result) => {
       if (result.via === "document") show(result.document);

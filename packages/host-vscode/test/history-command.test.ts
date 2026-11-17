@@ -42,7 +42,7 @@ test("the History command lists the active document's saved versions, previews a
   workspace.dispose();
 });
 
-test("read-only history previews settle animation-authoring requests with an explicit refusal", async () => {
+test("read-only history previews settle animation and initial-board requests with explicit refusals", async () => {
   const replies: unknown[] = [];
   const preview = {
     model: {} as never,
@@ -60,6 +60,15 @@ test("read-only history previews settle animation-authoring requests with an exp
   equal(reply.requestId, "history-action-1");
   equal(reply.result.ok, false);
   equal(reply.result.error?.code, "permission-denied");
+  replies.length = 0;
+  await handleHistoryPreviewRequest(preview, { type: "set-initial-board", requestId: "history-initial-board-1", path: "Boards/start.brd" }, (message) => { replies.push(message); });
+  equal(replies.length, 1);
+  const initialBoardReply = replies[0] as { readonly type: string; readonly requestId: string; readonly outcome: { readonly ok: boolean; readonly message: string } };
+  equal(initialBoardReply.type, "initial-board-result");
+  equal(initialBoardReply.requestId, "history-initial-board-1");
+  equal(initialBoardReply.outcome.ok, false);
+  match(initialBoardReply.outcome.message, /read-only/);
+
 });
 
 test("with nothing in history the command says where history would be kept and changes nothing", async () => {

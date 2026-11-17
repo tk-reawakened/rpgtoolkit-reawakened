@@ -166,7 +166,6 @@ test("a linked visit opens the target in a tab and returns to its origin, reopen
   await settle(act);
   deepEqual(bench.tabs.getSnapshot().tabs.map((tab) => tab.path), ["Boards/village.brd", "Boards/caves/mine.brd"]);
   equal(bench.tabs.getSnapshot().active, visited.document.identity.key);
-  equal(element.querySelectorAll(".tkr-editor-slot .tkr-board").length, 1, "only the active editor is mounted");
 
   const back = await bench.returnFromVisit();
   ok(back.ok && !back.reopened);

@@ -32,6 +32,43 @@ test("a board opens with its grid, layers and tiles", async () => {
   equal(boardTileAt(snapshot, 1, 3, 2), "");
   equal(boardTileAt(snapshot, 2, 0, 0), null, "a layer the board does not have");
 });
+test("board-owned settings, links, threads, constants, titles and player start save without changing geometry or objects", async () => {
+  const { host, doc } = await open();
+  const before = modelOf(doc);
+  const properties = { ...before.properties, start: { x: 96, y: 128, layer: 2 }, ambient: { r: -12, g: 20, b: 30 } };
+  const links = { ...before.links, north: "Boards/caves/mine.brd", east: "Prg/edge.prg" };
+  ok(doc.apply({
+    type: "set-board-fields",
+    fields: { links, threads: ["Prg/ambient.prg"], constants: ["answer=42"], layerTitles: ["", "Ground", "Upper"], properties },
+  }).ok);
+  const snapshot = doc.getSnapshot();
+  deepEqual(snapshot.links, links);
+  deepEqual(snapshot.threads, ["Prg/ambient.prg"]);
+  deepEqual(snapshot.constants, ["answer=42"]);
+  deepEqual(snapshot.properties.start, { x: 96, y: 128, layer: 2 });
+  equal(snapshot.sizeX, before.sizeX);
+  equal(snapshot.sizeY, before.sizeY);
+  ok((await doc.save()).ok);
+  const reopened = await openBoardDocument(host.fs, identity);
+  ok(reopened.ok);
+  const after = modelOf(reopened.document);
+  deepEqual(after.links, links);
+  deepEqual(after.threads, ["Prg/ambient.prg"]);
+  deepEqual(after.constants, ["answer=42"]);
+  deepEqual(after.layerTitles, ["", "Ground", "Upper"]);
+  deepEqual(after.properties, properties);
+  deepEqual(after.vectors, before.vectors);
+  deepEqual(after.programs, before.programs);
+  deepEqual(after.sprites, before.sprites);
+});
+
+test("board settings reject an unrepresentable stored value without changing the document", async () => {
+  const { doc } = await open();
+  const properties = { ...doc.getSnapshot().properties, battleSkill: 100_000 };
+  const rejected = doc.apply({ type: "set-board-fields", fields: { properties } });
+  equal(rejected.ok, false);
+  deepEqual(doc.getSnapshot().properties, modelOf(doc).properties);
+});
 
 test("one tile changes, saves and reopens; the other cells, the table's old entries and the unmodelled data are kept", async () => {
   const { host, doc } = await open();

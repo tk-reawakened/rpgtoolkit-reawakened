@@ -11,11 +11,10 @@ import { registerRunDebugger } from "./run-debug.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
-import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES, kindForPath, type DocumentWorkspace } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
 import { runHistoryCommand } from "./history-command.ts";
-import { createProjectWizardHistory, createWizardHistory, historyPolicyFrom, previewBoard, previewTileBitmap, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
 import { handleHistoryPreviewRequest } from "./document-bridge.ts";
 /** One custom editor per registered document kind (ADR 0026 decision 7): each view type is bound to its files by the manifest. */
 const VIEW_TYPES = ["tkr.gameSettings", "tkr.board", "tkr.tileset", "tkr.tileBitmap", "tkr.animation"] as const;
@@ -154,6 +153,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       return {
         revertToDrawAfterFlood: settings.get<boolean>("board.revertToDrawAfterFlood", DEFAULT_EDITOR_PREFERENCES.revertToDrawAfterFlood),
         recursiveFlood: settings.get<boolean>("board.recursiveFlood", DEFAULT_EDITOR_PREFERENCES.recursiveFlood),
+        startLocationDisplay: settings.get<"initial" | "every">("board.startLocationDisplay", DEFAULT_EDITOR_PREFERENCES.startLocationDisplay),
       };
     },
     watchBoardPreferences: (folder, listener) => vscode.workspace.onDidChangeConfiguration((event) => {
@@ -165,6 +165,16 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     generation += 1;
     changes.fire(event);
   });
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.returnFromBoard", async () => {
+    const uri = vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri();
+    if (uri === undefined) {
+      await vscode.window.showInformationMessage("Open a linked program or board in the editor before returning to its origin.");
+      return;
+    }
+    const outcome = await core.returnFromLinkedVisit(uri);
+    if (!outcome.ok) await vscode.window.showInformationMessage(outcome.message);
+    else if (outcome.message !== null) await vscode.window.showInformationMessage(outcome.message);
+  }));
   context.subscriptions.push(vscode.workspace.onWillSaveTextDocument((event) => {
     const document = event.document;
     if (!document.isDirty) return;

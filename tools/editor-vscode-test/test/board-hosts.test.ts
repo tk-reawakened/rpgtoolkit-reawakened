@@ -155,7 +155,7 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       // Select the cell at column 2, row 2 and put the other tile on it, as a person does.
       await act(() => { cell(first, 2, 2).click(); });
       await settle(act);
-      const field = first.element.querySelector<HTMLInputElement>('input[type="text"]');
+      const field = first.element.querySelector<HTMLInputElement>('.tkr-board-cell-row input[type="text"]');
       ok(field !== null && field.value === "village.tst1");
       await act(() => {
         field.value = "village.tst2";
