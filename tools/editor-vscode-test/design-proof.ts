@@ -44,6 +44,11 @@ const themes = [
 /** Capture the existing vscode-test-web workbench without injecting candidate or replacement CSS. */
 export async function runVscodeDesignProof(page: Page, expect: Expect, options: DesignOptions): Promise<void> {
   if (!isAbsolute(options.output)) throw new Error("The native design evidence destination must be absolute");
+  for (const file of ["tileset-browser.css", "tileset-art.css", "board-objects.css"]) {
+    const source = await readFile(resolve(options.root, "packages/editor-ui/src", file));
+    const built = await readFile(resolve(options.extension, "dist", file));
+    if (!source.equals(built)) throw new Error(`Native design proof has stale ${file}; rebuild packages/host-vscode and extensions/editor before capture`);
+  }
   const selectedCases = selectFilter(options.caseFilter, cases.map((item) => item.id), "case");
   const selectedThemes = selectFilter(options.themeFilter, themes.map((theme) => theme.id), "theme");
   const selectedPanes = selectFilter(options.paneFilter, ["normal", "640px"] as const, "pane");
@@ -555,31 +560,52 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
         const secondLuminance = luminance(second);
         return (Math.max(firstLuminance, secondLuminance) + 0.05) / (Math.min(firstLuminance, secondLuminance) + 0.05);
       };
-      const selectionPaintDiffers = (element: HTMLElement) => {
-        const savedClass = element.getAttribute("class");
-        const savedStyle = element.getAttribute("style");
-        const pressed = element.getAttribute("aria-pressed");
-        const selected = element.getAttribute("aria-selected");
-        const paint = () => {
-          const signature = (style: CSSStyleDeclaration) => [style.backgroundColor, style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor, style.borderTopStyle, style.borderRightStyle, style.borderBottomStyle, style.borderLeftStyle, style.boxShadow];
-          const pseudo = (name: string) => {
-            const style = getComputedStyle(element, name);
-            return style.content === "none" || style.content === "normal" || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ? null : signature(style);
+      const selectionPaint = (element: HTMLElement) => {
+        type Cue = { color: RGBA; behind: RGBA };
+        const sample = (target: HTMLElement, requireArea: boolean) => {
+          const own = colorAt(target);
+          const adjacent = colorAt(parentElement(target) ?? target);
+          const cues: Record<string, Cue> = {};
+          const add = (key: string, ink: RGBA, behind: RGBA) => {
+            if (ink[3] > 0) cues[key] = { color: colorAt(target, ink), behind };
           };
-          return JSON.stringify([signature(getComputedStyle(element)), pseudo("::before"), pseudo("::after")]);
+          const style = getComputedStyle(target);
+          if (parseColor(style.backgroundColor)[3] > 0) cues.fill = { color: own, behind: adjacent };
+          for (const side of ["top", "right", "bottom", "left"]) {
+            if (Number.parseFloat(style.getPropertyValue(`border-${side}-width`)) > 0 && !["none", "hidden"].includes(style.getPropertyValue(`border-${side}-style`))) add(`border-${side}`, parseColor(style.getPropertyValue(`border-${side}-color`)), adjacent);
+          }
+          for (const name of ["::before", "::after"]) {
+            const pseudo = getComputedStyle(target, name);
+            if (pseudo.content === "none" || pseudo.content === "normal" || pseudo.display === "none" || pseudo.visibility === "hidden" || Number(pseudo.opacity) <= 0) continue;
+            if (requireArea && (Number.parseFloat(pseudo.width) <= 0 || Number.parseFloat(pseudo.height) <= 0)) continue;
+            const fill = parseColor(pseudo.backgroundColor);
+            fill[3] *= Number(pseudo.opacity);
+            add(`${name}-fill`, fill, own);
+            for (const side of ["top", "right", "bottom", "left"]) {
+              if (Number.parseFloat(pseudo.getPropertyValue(`border-${side}-width`)) > 0 && !["none", "hidden"].includes(pseudo.getPropertyValue(`border-${side}-style`))) {
+                const ink = parseColor(pseudo.getPropertyValue(`border-${side}-color`));
+                ink[3] *= Number(pseudo.opacity);
+                add(`${name}-border-${side}`, ink, own);
+              }
+            }
+          }
+          return cues;
         };
+        const actual = sample(element, true);
+        const clone = element.cloneNode(true) as HTMLElement;
+        clone.hidden = true;
+        clone.setAttribute("aria-hidden", "true");
+        clone.setAttribute("inert", "");
+        if (clone.getAttribute("aria-pressed") === "true") clone.setAttribute("aria-pressed", "false");
+        if (clone.getAttribute("aria-selected") === "true") clone.setAttribute("aria-selected", "false");
+        for (const name of [...clone.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) clone.classList.remove(name);
+        element.after(clone);
         try {
-          element.style.setProperty("transition", "none", "important");
-          const selectedPaint = paint();
-          if (pressed === "true") element.setAttribute("aria-pressed", "false");
-          if (selected === "true") element.setAttribute("aria-selected", "false");
-          for (const name of [...element.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) element.classList.remove(name);
-          return selectedPaint !== paint();
+          const neutral = sample(clone, false);
+          const changed = Object.entries(actual).filter(([key, cue]) => JSON.stringify(cue.color) !== JSON.stringify(neutral[key]?.color));
+          return { changed: changed.length > 0, cues: changed.map(([key, cue]) => ({ key, contrast: contrast(cue.color, cue.behind) })) };
         } finally {
-          if (savedClass === null) element.removeAttribute("class"); else element.setAttribute("class", savedClass);
-          if (savedStyle === null) element.removeAttribute("style"); else element.setAttribute("style", savedStyle);
-          if (pressed === null) element.removeAttribute("aria-pressed"); else element.setAttribute("aria-pressed", pressed);
-          if (selected === null) element.removeAttribute("aria-selected"); else element.setAttribute("aria-selected", selected);
+          clone.remove();
         }
       };
       const active = document.activeElement as HTMLElement | null;
@@ -618,7 +644,7 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
             disabled: html.matches(":disabled,[aria-disabled=true]"),
             readOnly: html instanceof HTMLInputElement || html instanceof HTMLTextAreaElement ? html.readOnly : false,
             selected: html.matches('[aria-selected="true"],[aria-pressed="true"],.selected'),
-            selectedPaintDiffers: html.matches('[aria-selected="true"],[aria-pressed="true"],.selected') ? selectionPaintDiffers(html) : null,
+            selectionPaint: html.matches('[aria-selected="true"],[aria-pressed="true"],.selected') ? selectionPaint(html) : null,
             foreground: style.color,
             effectiveForeground: foreground.slice(0, 3),
             background: style.backgroundColor,
@@ -746,8 +772,9 @@ async function measureDocument(page: Page, expect: Expect, item: DesignCase, fra
   if (item.kind === "custom-webview" && controls.length === 0) violations.push("no visible common controls were sampled");
   for (const control of controls) {
     if (control.disabled === true) continue;
-    if (control.selected === true && control.selectedPaintDiffers !== true) {
-      violations.push(`selected control has no distinct persistent paint (${control.name || control.tag})`);
+    const selection = control.selectionPaint as { changed: boolean; cues: { contrast: number }[] } | null;
+    if (control.selected === true && (selection === null || !selection.changed || !selection.cues.some((cue) => cue.contrast >= 3))) {
+      violations.push(`selected control has no distinct, contrasting persistent paint (${control.name || control.tag})`);
     }
     if (control.textRequired === true && typeof control.textContrast === "number" && control.textContrast < 4.5) {
       violations.push(`sampled control text contrast below 4.5:1 (${control.name || control.tag}, ${control.textContrast.toFixed(2)}:1)`);

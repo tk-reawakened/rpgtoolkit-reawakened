@@ -167,6 +167,7 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
     const startWorkbench = async () => {
       const child = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
         "--host=localhost", "--browser=none",
+        ...(designProof ? ["--commit=863bc0ba9e89df07ecf700ce40f2fa35b2a3b123"] : []),
         `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
         `--extensionPath=${resolve(root, "extensions/rpgcode")}`,
         `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
@@ -238,6 +239,7 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
     };
     await registerContextRoutes();
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
+    const styleCspViolations = [];
     let historyPreviewTraceSequence = 0;
     const recordHistoryPreviewTrace = (message) => {
       const clean = message.replaceAll(persistentFs.token, "[redacted]");
@@ -250,6 +252,7 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
       const page = await browser.newPage();
       page.on("console", (message) => {
         const text = message.text();
+        if (designProof && /(?:violates|violating).*Content Security Policy.*style-src/i.test(text)) styleCspViolations.push(text.replaceAll(persistentFs.token, "[redacted]"));
         if (text.includes("[history-preview-trace]") || text.includes("[editor-preview-trace]")) {
           recordHistoryPreviewTrace(`[console] ${text}`);
         }
@@ -381,6 +384,7 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
         themeFilter: designThemeFilter,
         paneFilter: designPaneFilter,
       });
+      if (styleCspViolations.length > 0) throw new Error(`Design proof violated style CSP:\n${styleCspViolations.join("\n")}`);
       console.log(`VS Code native editor design ${designPhase} evidence captured at ${designOutput}`);
     } else if (boardObjectsProof) {
       await proveBoardObjects();

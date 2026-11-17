@@ -168,31 +168,51 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
       return front.slice(0, 3);
     };
     const label = (element) => element.getAttribute("aria-label") || Array.from(element.labels ?? []).map((item) => item.textContent.trim()).join(" ") || element.textContent.trim();
-    const selectionPaintDiffers = (element) => {
-      const savedClass = element.getAttribute("class");
-      const savedStyle = element.getAttribute("style");
-      const pressed = element.getAttribute("aria-pressed");
-      const selected = element.getAttribute("aria-selected");
-      const paint = () => {
-        const signature = (style) => [style.backgroundColor, style.borderTopColor, style.borderRightColor, style.borderBottomColor, style.borderLeftColor, style.borderTopStyle, style.borderRightStyle, style.borderBottomStyle, style.borderLeftStyle, style.boxShadow];
-        const pseudo = (name) => {
-          const style = getComputedStyle(element, name);
-          return style.content === "none" || style.content === "normal" || style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0 ? null : signature(style);
+    const selectionPaint = (element) => {
+      const sample = (target, requireArea) => {
+        const own = background(target);
+        const adjacent = background(parent(target));
+        const cues = {};
+        const add = (key, ink, behind) => {
+          if (ink[3] > 0) cues[key] = { color: background(target, ink), behind };
         };
-        return JSON.stringify([signature(getComputedStyle(element)), pseudo("::before"), pseudo("::after")]);
+        const style = getComputedStyle(target);
+        if (rgba(style.backgroundColor)[3] > 0) cues.fill = { color: own, behind: adjacent };
+        for (const side of ["Top", "Right", "Bottom", "Left"]) {
+          if (Number.parseFloat(style[`border${side}Width`]) > 0 && !["none", "hidden"].includes(style[`border${side}Style`])) add(`border${side}`, rgba(style[`border${side}Color`]), adjacent);
+        }
+        for (const name of ["::before", "::after"]) {
+          const pseudo = getComputedStyle(target, name);
+          if (pseudo.content === "none" || pseudo.content === "normal" || pseudo.display === "none" || pseudo.visibility === "hidden" || Number(pseudo.opacity) <= 0) continue;
+          if (requireArea && (Number.parseFloat(pseudo.width) <= 0 || Number.parseFloat(pseudo.height) <= 0)) continue;
+          const fill = rgba(pseudo.backgroundColor);
+          fill[3] *= Number(pseudo.opacity);
+          add(`${name}-fill`, fill, own);
+          for (const side of ["Top", "Right", "Bottom", "Left"]) {
+            if (Number.parseFloat(pseudo[`border${side}Width`]) > 0 && !["none", "hidden"].includes(pseudo[`border${side}Style`])) {
+              const ink = rgba(pseudo[`border${side}Color`]);
+              ink[3] *= Number(pseudo.opacity);
+              add(`${name}-border${side}`, ink, own);
+            }
+          }
+        }
+        return cues;
       };
+      const actual = sample(element, true);
+      const clone = element.cloneNode(true);
+      clone.hidden = true;
+      clone.setAttribute("aria-hidden", "true");
+      clone.setAttribute("inert", "");
+      if (clone.getAttribute("aria-pressed") === "true") clone.setAttribute("aria-pressed", "false");
+      if (clone.getAttribute("aria-selected") === "true") clone.setAttribute("aria-selected", "false");
+      for (const name of [...clone.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) clone.classList.remove(name);
+      element.after(clone);
       try {
-        element.style.setProperty("transition", "none", "important");
-        const selectedPaint = paint();
-        if (pressed === "true") element.setAttribute("aria-pressed", "false");
-        if (selected === "true") element.setAttribute("aria-selected", "false");
-        for (const name of [...element.classList]) if (name === "selected" || /-(?:active|selected)$/.test(name)) element.classList.remove(name);
-        return selectedPaint !== paint();
+        const neutral = sample(clone, false);
+        const changed = Object.entries(actual).filter(([key, cue]) => JSON.stringify(cue.color) !== JSON.stringify(neutral[key]?.color));
+        return { changed: changed.length > 0, cues: changed.map(([key, cue]) => ({ key, ...cue })) };
       } finally {
-        if (savedClass === null) element.removeAttribute("class"); else element.setAttribute("class", savedClass);
-        if (savedStyle === null) element.removeAttribute("style"); else element.setAttribute("style", savedStyle);
-        if (pressed === null) element.removeAttribute("aria-pressed"); else element.setAttribute("aria-pressed", pressed);
-        if (selected === null) element.removeAttribute("aria-selected"); else element.setAttribute("aria-selected", selected);
+        clone.remove();
       }
     };
     const controls = elements.filter((element) => {
@@ -279,7 +299,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         label: label(element), tag: element.tagName, type: element.getAttribute("type") ?? null,
         foreground: background(element, ink), background: back, adjacentBackground: background(parent(element)),
         borderEdges, outline, pseudoIndicators, boundaryRequired, textRequired,
-        selected, selectedIndicatorRequired, selectedPaintDiffers: selected ? selectionPaintDiffers(element) : null, stateIndicatorRequired: selectedIndicatorRequired || customCheckedIndicator,
+        selected, selectedIndicatorRequired, selectionPaint: selected ? selectionPaint(element) : null, stateIndicatorRequired: selectedIndicatorRequired || customCheckedIndicator,
         pressed, checked, indeterminate: "indeterminate" in element ? element.indeterminate : null,
         value: element.tagName === "INPUT" && ["color", "range"].includes(element.type) ? element.value : null,
         appearance: nativeType ? style.appearance : null, accentColor: nativeType ? style.accentColor : null,
@@ -364,7 +384,9 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
       const boundaryRatio = Math.max(indicatorRatio, ...(outline.visible ? [outline.contrastRatio] : []));
       return {
         ...control, borderEdges, outline, pseudoIndicators, fillRatio, indicatorRatio,
-        selectedIndicatorVisible: indicatorRatio >= 3 && (!control.selected || control.selectedPaintDiffers === true),
+        selectedIndicatorVisible: control.selected
+          ? control.selectionPaint?.changed === true && control.selectionPaint.cues.some((cue) => contrastRatio(hex(cue.color), hex(cue.behind)) >= 3)
+          : indicatorRatio >= 3,
         boundaryRatio: control.boundaryAssessment === "native-UA-appearance-not-measurable-from-CSS"
           ? null : boundaryRatio,
         textRatio: contrastRatio(hex(control.foreground), hex(control.background)),
