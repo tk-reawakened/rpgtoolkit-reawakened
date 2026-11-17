@@ -824,10 +824,13 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
       await host.settle();
       await host.writeOutside(GAME, retitled(fixture, "User edit after recovery"));
       await host.settle();
+      check(editor.hostDirty() && editor.model.getSnapshot().dirty, "matching disk does not silently resolve pending recovery");
       await editor.undo();
       same(editor.title(), "Local backup", "workbench undo returns to the recovered title");
+      check(editor.hostDirty() && editor.model.getSnapshot().dirty, "undo retains unsaved recovered work in the host and model");
       await editor.redo();
       same(editor.title(), "User edit after recovery", "workbench redo restores the user edit");
+      check(editor.hostDirty() && editor.model.getSnapshot().dirty, "redo does not silently accept the external version");
       sameBytes(await host.disk(GAME), retitled(fixture, "User edit after recovery"), "undo and redo do not write to disk");
     },
   },
