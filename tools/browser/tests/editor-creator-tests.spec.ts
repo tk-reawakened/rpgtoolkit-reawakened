@@ -168,9 +168,22 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   await verifyVisible(tests, passExpected);
 
   // Report ownership is the project, not the mounted Tests section: hiding the sidebar unmounts it.
-  await page.getByRole("button", { name: "Collapse left sidebar", exact: true }).click();
+  const shelfToggle = page.getByRole("button", { name: "Collapse left sidebar", exact: true });
+  await expect(shelfToggle).toHaveAttribute("aria-pressed", "true");
+  const expandedMarker = await shelfToggle.evaluate((element) => {
+    const marker = getComputedStyle(element, "::after");
+    return { content: marker.content, display: marker.display, color: marker.backgroundColor, height: marker.height };
+  });
+  expect(expandedMarker.content).not.toBe("none");
+  expect(expandedMarker.display).not.toBe("none");
+  expect(expandedMarker.color).not.toBe("rgba(0, 0, 0, 0)");
+  expect(parseFloat(expandedMarker.height)).toBeGreaterThan(0);
+  await shelfToggle.click();
   await expect(tests).toHaveCount(0);
-  await page.getByRole("button", { name: "Expand left sidebar", exact: true }).click();
+  const collapsedToggle = page.getByRole("button", { name: "Expand left sidebar", exact: true });
+  await expect(collapsedToggle).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(() => collapsedToggle.evaluate((element) => getComputedStyle(element, "::after").content)).toBe("none");
+  await collapsedToggle.click();
   await testsToggle.click();
   await verifyVisible(tests, passExpected);
   await tests.getByRole("spinbutton", { name: "Seed", exact: true }).fill(String(SEED));

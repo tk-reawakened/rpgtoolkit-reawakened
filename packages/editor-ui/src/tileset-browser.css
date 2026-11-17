@@ -757,10 +757,20 @@ fieldset.tkr-web-project-controls {
   block-size: 1.375rem !important;
   min-block-size: 1.375rem !important;
   padding: 0 !important;
+  position: relative;
   background: transparent !important;
   border: 1px solid transparent !important;
   border-radius: var(--tkr-radius-sm) !important;
   color: var(--tkr-fg-muted) !important;
+}
+
+.tkr-dock-collapse-btn[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0.2rem;
+  inset-block-end: 0;
+  block-size: 2px;
+  background: var(--tkr-selection-border);
 }
 
 .tkr-dock-collapse-btn:hover,
@@ -2401,7 +2411,7 @@ fieldset.tkr-web-project-controls {
 .tkr-settings > h2,
 .tkr-preferences > h2,
 .tkr-run > h2,
-.tkr-new-board > h3 {
+.tkr-new-board > h2 {
   margin: 0;
   font-size: var(--tkr-text-lg);
   font-weight: 600;
@@ -2710,7 +2720,8 @@ fieldset.tkr-web-project-controls {
   backdrop-filter: blur(2px);
 }
 
-.tkr-picker {
+.tkr-picker,
+.tkr-picker-overlay > .tkr-new-board {
   display: flex;
   flex-direction: column;
   gap: 0.625rem;

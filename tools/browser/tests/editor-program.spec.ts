@@ -187,6 +187,22 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   await installProject(page, [{ path: "Main/example.gam", bytes: main }, { path: PROGRAM, bytes: programBytes }]);
   await openProgram(page);
 
+  // The selected view must have its own paint, not merely a focus outline.
+  const bookmarksToggle = page.getByRole("button", { name: "Bookmarks", exact: true });
+  await expect(bookmarksToggle).toHaveAttribute("aria-pressed", "true");
+  await bookmarksToggle.focus();
+  const togglePaint = () => bookmarksToggle.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, foreground: style.color, border: style.borderColor, borderWidth: style.borderWidth };
+  });
+  const selectedPaint = await togglePaint();
+  await bookmarksToggle.press("Space");
+  await expect(bookmarksToggle).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(togglePaint).not.toEqual(selectedPaint);
+  await bookmarksToggle.press("Space");
+  await expect(bookmarksToggle).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(togglePaint).toEqual(selectedPaint);
+
   // The page's policy is the one ADR 0029 accepted: strict scripts, inline styles and own fonts for Monaco, nothing else.
   const policy = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute("content");
   expect(policy).toContain("script-src 'self'");

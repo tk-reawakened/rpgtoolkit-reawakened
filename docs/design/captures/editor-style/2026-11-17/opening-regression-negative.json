@@ -5,6 +5,7 @@
   "platform": "darwin arm64",
   "test": "tools/browser/tests/editor-web-host.spec.ts:131",
   "reproductionCommand": "PLAYWRIGHT_PORT=4197 pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts --grep 'selected game opening reports pending' --workers=1 --reporter=list",
+  "implementationSource": "tools/browser/editor-web/main.tsx",
   "testSourceSha256": "86121d4130945cb71b2948ab33c872c267b18998d6b30492de29001b37480edd",
   "restoredImplementationSha256": "7e1a263dcade9a8e88de1871fd0955b595b4ff0a4e6e42bed525d115ad9b0851",
   "commitClaim": "Product changes were uncommitted. These exact source hashes, not a falsely claimed tested commit, identify the experiments.",

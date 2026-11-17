@@ -38,8 +38,9 @@ const surfaceFilter = args.find((arg) => arg.startsWith("--surface="))?.slice(10
 const themeFilter = args.find((arg) => arg.startsWith("--theme="))?.slice(8);
 if (themeFilter !== undefined && !Object.hasOwn(themes, themeFilter)) throw new Error(`Unknown theme: ${themeFilter}`);
 const statesOnly = args.includes("--states-only");
-if (statesOnly && (surfaceFilter !== undefined || themeFilter !== undefined || paneFilter !== undefined)) throw new Error("--states-only cannot be combined with surface/theme/pane filters");
+if (statesOnly && (surfaceFilter !== undefined || paneFilter !== undefined)) throw new Error("--states-only cannot be combined with surface/pane filters");
 const includeStates = statesOnly || (!shipping && surfaceFilter === undefined && themeFilter === undefined && paneFilter === undefined);
+const stateTheme = themeFilter ?? "dark";
 const paletteReport = shipping ? [] : assertPalettesReadable();
 const output = resolve(args.find((arg) => arg.startsWith("--out="))?.slice(6) ?? join(root, shipping ? "docs/design/captures/editor-style" : "docs/design/captures/editor-design", runId));
 const fixtureFiles = (await collectFiles(fixtureRoot)).flatMap((file) => {
@@ -201,7 +202,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
       }
       const rect = element.getBoundingClientRect();
       const selected = element.matches('[aria-pressed="true"], [aria-selected="true"]');
-      const selectedIndicatorRequired = element.matches('[aria-selected="true"]');
+      const selectedIndicatorRequired = selected;
       const pressed = element.getAttribute("aria-pressed");
       const borderEdges = ["top", "right", "bottom", "left"].map((side) => {
         const name = `${side[0].toUpperCase()}${side.slice(1)}`;
@@ -243,7 +244,7 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
       const nativeType = element.tagName === "INPUT" && ["checkbox", "radio", "range", "color"].includes(element.type);
       const nativeUaUnmeasured = shippingMode && nativeType && style.appearance !== "none";
       const textRequired = !shippingMode || !(element.tagName === "INPUT" && ["color", "checkbox", "radio", "range"].includes(element.type));
-      const textOnlyButton = element.tagName === "BUTTON" && !borderEdges.some((edge) => edge.visible) && rgba(style.backgroundColor)[3] === 0 && !selectedIndicatorRequired;
+      const textOnlyButton = element.tagName === "BUTTON" && !borderEdges.some((edge) => edge.visible) && rgba(style.backgroundColor)[3] === 0;
       const boundaryRequired = shippingMode ? !textOnlyButton && !nativeUaUnmeasured : true;
       const checked = "checked" in element ? element.checked : null;
       const customCheckedIndicator = element.matches('input[type="checkbox"], input[type="radio"]') && checked === true && style.appearance === "none";
@@ -261,12 +262,12 @@ async function renderedMetrics(page, scope = page.locator(".tkr-editor-pane:visi
         readOnly: element.matches("[readonly]"),
       };
     });
-    const helperSelector = "label, .tkr-program-bookmark-kind, .tkr-program-bookmark-line, .tkr-program-reference-hint, .tkr-program-state, .tkr-program-message, .tkr-program-language-note, .tkr-program-readonly, .tkr-program-host-note, .tkr-pref-help, .tkr-pref-source, .tkr-pref-error, .tkr-pref-problems, .tkr-preferences > p";
+    const helperSelector = "label, h1, h2, h3, h4, h5, h6, legend, summary, [role='status'], [role='alert'], .tkr-settings-state, .tkr-settings-error, .tkr-board-preview-state, .tkr-board-warnings, .tkr-program-bookmark-kind, .tkr-program-bookmark-line, .tkr-program-reference-hint, .tkr-program-state, .tkr-program-message, .tkr-program-language-note, .tkr-program-readonly, .tkr-program-host-note, .tkr-pref-help, .tkr-pref-source, .tkr-pref-error, .tkr-pref-problems, .tkr-preferences > p";
     const helperTexts = shippingMode ? [...document.querySelectorAll(helperSelector)].filter((element) => {
       const rect = element.getBoundingClientRect();
       let opacity = 1;
       for (let node = element; node !== null; node = parent(node)) opacity *= Number(getComputedStyle(node).opacity);
-      return rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 && rect.left < innerWidth && rect.top < innerHeight
+      return element.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true }) && rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.bottom > 0 && rect.left < innerWidth && rect.top < innerHeight
         && opacity > 0 && getComputedStyle(element).visibility === "visible" && element.textContent.trim().length > 0 && !element.closest(".monaco-editor");
     }).map((element) => {
       const style = getComputedStyle(element);
@@ -403,11 +404,11 @@ function controlViolations(metrics) {
   ));
   failures.push(...metrics.controls.filter((control) => !control.disabled && control.stateIndicatorRequired && !control.selectedIndicatorVisible)
     .map((control) => ({ kind: "selected-state-indicator", label: control.label, selected: control.selected, checked: control.checked, indicatorRatio: control.indicatorRatio, borderEdges: control.borderEdges, outline: control.outline, pseudoIndicators: control.pseudoIndicators })));
+  failures.push(...metrics.helperTexts.filter((helper) => !helper.disabled && helper.textRatio < 4.5).map((helper) => ({ kind: "helper-text-contrast", ...helper })));
   return failures;
 }
 function renderedViolations(metrics) {
   const failures = controlViolations(metrics);
-  failures.push(...metrics.helperTexts.filter((helper) => !helper.disabled && helper.textRatio < 4.5).map((helper) => ({ kind: "helper-text-contrast", ...helper })));
   if (metrics.focus === null || metrics.focus.indicatorVisible === false || metrics.focus.outlineStyle === "none" || metrics.focus.outlineStyle === "hidden" || metrics.focus.outlineWidth < 2 || metrics.focus.ratio < 3) failures.push({ kind: "keyboard-focus", focus: metrics.focus });
   return failures;
 }
@@ -416,7 +417,7 @@ function assertRendered(metrics, context) {
   const failures = renderedViolations(metrics);
   if (failures.length) throw new Error(`Rendered contrast failure (${context}): ${JSON.stringify(failures)}`);
 }
-async function captureShippingLanding(page, output, phase) {
+async function captureShippingLanding(page, output, phase, theme) {
   await mkdir(output, { recursive: true });
   const sessionInput = page.locator("#open-session");
   await expect(sessionInput).toBeVisible();
@@ -437,7 +438,7 @@ async function captureShippingLanding(page, output, phase) {
   await page.screenshot({ path: join(output, screenshot) });
   const focusCapture = {
     file: screenshot, phase, surface: "initial empty-project landing page",
-    viewport: layout.viewport, theme: "dark", keyboardPath, focusedControl: keyboardPath.at(-1),
+    viewport: layout.viewport, theme, keyboardPath, focusedControl: keyboardPath.at(-1),
     layout, metrics, violations: renderedViolations(metrics),
     layoutViolations: [
       ...layout.overlaps.map((overlap) => ({ kind: "overlap", ...overlap })),
@@ -498,7 +499,7 @@ async function captureShippingLanding(page, output, phase) {
     focusCapture,
     {
       file: rootScreenshot, phase, surface: "initial empty-project landing page at 200% root text",
-      viewport: rootLayout.viewport, theme: "dark", scaling: "200% root text size; not browser zoom",
+      viewport: rootLayout.viewport, theme, scaling: "200% root text size; not browser zoom",
       rootFontSizeBefore: rootStyleBefore.computed, rootFontSizeAfterRestoration: rootStyleAfter.computed,
       rootStyleRestoredExactly: true, layout: rootLayout, controlReachability: rootReachability, metrics: rootMetrics,
       violations: rootViolations, layoutViolations: rootLayoutViolations,
@@ -506,7 +507,7 @@ async function captureShippingLanding(page, output, phase) {
     },
   ];
 }
-async function captureShippingReadonlyMovement(page, output, phase) {
+async function captureShippingReadonlyMovement(page, output, phase, theme) {
   await page.getByRole("tab", { name: "Main/example.gam", exact: true }).click();
   const movementKey = page.locator(".tkr-editor-pane:visible .tkr-settings-keys input[readonly]").first();
   await expect(movementKey).toBeVisible();
@@ -537,7 +538,7 @@ async function captureShippingReadonlyMovement(page, output, phase) {
   if (!reachability.reachable) violations.push({ kind: "readonly-control-unreachable", label: state.label, reachability });
   return {
     file: screenshot, phase, surface: "actual enabled readonly movement-key input",
-    viewport: layout.viewport, theme: "dark", state: {
+    viewport: layout.viewport, theme, state: {
       ...state, textContrastRatio: observed.textRatio, boundaryContrastRatio: observed.boundaryRatio,
       computedForeground: observed.foreground, computedBackground: observed.background, computedBoundary: observed.boundary,
       boundaryRequired: observed.boundaryRequired, focus: metrics.focus,
@@ -760,8 +761,21 @@ try {
   page = await context.newPage();
   await page.goto(`http://127.0.0.1:${port}/tools/browser/editor-web/index.html`);
   await page.waitForFunction(() => Reflect.get(window, "__tkrDesignFolder") !== undefined);
-  const landingCaptures = shipping && statesOnly ? await captureShippingLanding(page, output, phase) : [];
-  const states = includeStates ? await captureOpeningStates(page, output) : [];
+  if (shipping && statesOnly) await page.emulateMedia({ colorScheme: stateTheme === "light" ? "light" : "dark", forcedColors: stateTheme === "highContrast" ? "active" : "none" });
+  const observeState = async (details) => {
+    const metrics = await renderedMetrics(page, page, shipping);
+    const layout = await layoutMetrics(page);
+    return {
+      theme: stateTheme, metrics, layout, violations: controlViolations(metrics),
+      layoutViolations: shipping ? [
+        ...layout.overlaps.map((overlap) => ({ kind: "overlap", ...overlap })),
+        ...layout.outsideViewport.map((control) => ({ kind: "outside-viewport", ...control })),
+      ] : [],
+      presentation: shipping ? details.presentation.replace(/^(?:candidate dark common roles|current shipping dark styles)/, `actual linked shipping ${stateTheme} roles; no candidate stylesheet`) : details.presentation,
+    };
+  };
+  const landingCaptures = shipping && statesOnly ? await captureShippingLanding(page, output, phase, stateTheme) : [];
+  const states = includeStates ? await captureOpeningStates(page, output, observeState) : [];
   if (!includeStates) {
     await page.getByRole("button", { name: "Open project folder" }).click();
     await page.getByLabel("Game in project").selectOption("Main/example.gam");
@@ -1050,13 +1064,9 @@ try {
   await expect(page.getByRole("status", { includeHidden: true }).filter({ hasText: /^Unsaved changes$/ })).toHaveCount(0);
   if (includeStates) {
     if (shipping) {
-      const documentStates = await captureDocumentStates(page, output, fixtureFiles.find((file) => file.path === "Main/example.gam").bytes);
-      for (const record of documentStates) {
-        record.presentation = record.presentation.replace(/^candidate dark common roles/, "actual linked shipping CSS; no candidate stylesheet");
-        await writeFile(join(output, `state-${record.state}.json`), `${JSON.stringify(record, null, 2)}\n`);
-      }
+      const documentStates = await captureDocumentStates(page, output, fixtureFiles.find((file) => file.path === "Main/example.gam").bytes, observeState);
       states.push(...documentStates);
-      captures.push(await captureShippingReadonlyMovement(page, output, phase));
+      captures.push(await captureShippingReadonlyMovement(page, output, phase, stateTheme));
     } else {
       await page.emulateMedia({ colorScheme: "dark", forcedColors: "none" });
       await page.locator("html").evaluate((element, values) => {
@@ -1065,7 +1075,7 @@ try {
         element.dataset.designTheme = "dark";
       }, themes.dark);
       await candidateSheet.evaluate((element) => { element.sheet.disabled = false; });
-      states.push(...await captureDocumentStates(page, output, fixtureFiles.find((file) => file.path === "Main/design-sparse.gam").bytes));
+      states.push(...await captureDocumentStates(page, output, fixtureFiles.find((file) => file.path === "Main/design-sparse.gam").bytes, observeState));
     }
   }
   if (shipping && !statesOnly && surfaceFilter === undefined) {
@@ -1099,19 +1109,20 @@ try {
     }
   }
   await expect(page.getByRole("status", { includeHidden: true }).filter({ hasText: /^Unsaved changes$/ })).toHaveCount(0);
+  const measuredCaptures = shipping ? [...captures, ...states] : captures;
   const manifest = {
     story: shipping ? "11.23 / #2988" : "11.22 / #2987", ...(shipping ? { phase } : {}), capturedAt: new Date().toISOString(), revision, branch,
     host: { name: "Chromium", version: browser.version(), node: process.version, platform: process.platform, architecture: process.arch, url: `http://127.0.0.1:${port}/tools/browser/editor-web/index.html` },
     ...(shipping ? { linkedStylesheets: await page.evaluate(() => [...document.styleSheets].map((sheet) => sheet.href).filter((href) => href !== null)) } : {}),
     provenance: fixtureFiles.map(({ path, source, bytes }) => ({ path: source, projectPath: path, sha256: sha256(bytes), bytes: bytes.length })),
     captures, states, selection: {
-      surface: surfaceFilter ?? "all", theme: themeFilter ?? "all", pane: paneFilter ?? "all", statesOnly,
+      surface: surfaceFilter ?? "all", theme: statesOnly ? stateTheme : (themeFilter ?? "all"), pane: paneFilter ?? "all", statesOnly,
       editorPreferences: shipping && !statesOnly && surfaceFilter === undefined,
       commandPalette: shipping && !statesOnly && surfaceFilter === undefined && paneFilter !== "normal" && (themeFilter === undefined || themeFilter === "dark"),
     },
     contrast: paletteReport,
     ...(shipping ? {
-      result: captures.some((capture) => capture.violations?.length || capture.layoutViolations?.length) ? "fail" : "pass",
+      result: measuredCaptures.some((capture) => capture.violations?.length || capture.layoutViolations?.length) ? "fail" : "pass",
       ownership: "Actual linked shipping CSS, original browser theme and actual forced-colors media; no candidate stylesheet injected or enabled.",
       invariants: {
         presentationOnlyProbesPreservedSeededOpfsBytes: !statesOnly,
@@ -1129,16 +1140,16 @@ try {
         authoredFixturesRechecked: true,
       },
       actualControlStateCounts: {
-        focusCaptures: captures.filter((capture) => capture.metrics?.focus !== null && capture.metrics?.focus !== undefined).length,
-        selectedControls: captures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.selected).length ?? 0), 0),
-        disabledControls: captures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.disabled).length ?? 0), 0),
-        readOnlyControls: captures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.readOnly).length ?? 0), 0),
-        pressedControls: captures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.pressed !== null).length ?? 0), 0),
-        nativeAppearanceControls: captures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.appearance !== null).length ?? 0), 0),
-        nativeBoundaryUnmeasuredControls: captures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.boundaryAssessment === "native-UA-appearance-not-measurable-from-CSS").length ?? 0), 0),
+        focusCaptures: measuredCaptures.filter((capture) => capture.metrics?.focus !== null && capture.metrics?.focus !== undefined).length,
+        selectedControls: measuredCaptures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.selected).length ?? 0), 0),
+        disabledControls: measuredCaptures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.disabled).length ?? 0), 0),
+        readOnlyControls: measuredCaptures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.readOnly).length ?? 0), 0),
+        pressedControls: measuredCaptures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.pressed !== null).length ?? 0), 0),
+        nativeAppearanceControls: measuredCaptures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.appearance !== null).length ?? 0), 0),
+        nativeBoundaryUnmeasuredControls: measuredCaptures.reduce((count, capture) => count + (capture.metrics?.controls.filter((control) => control.boundaryAssessment === "native-UA-appearance-not-measurable-from-CSS").length ?? 0), 0),
       },
       stateProof: statesOnly
-        ? "Existing real native-I/O opening and document state helpers completed using actual linked shipping CSS; each state snapshot records the unmodified shipping presentation."
+        ? "Real native-I/O opening/document states include state-time control, semantic-feedback and layout measurements. Locked opening legitimately need not retain keyboard focus; landing/readonly focus is checked separately."
         : "Keyboard focus, selected/disabled/read-only controls are recorded when visible in the actual surface matrix. Run --shipping --phase=before|after --states-only for the existing native-I/O opening/save/read-only/validation outcomes.",
       limitations: ["Enemy authoring has no provider and is not represented by a fake control or capture.", "Native checkbox/radio/range/color UA appearances and checked/value states are recorded; if CSS does not expose a drawn boundary, no numeric CSS boundary ratio is claimed.", "200% root text size is an explicit root-font-size probe, not browser zoom.", "Long-name layout uses the real game-title field and a shipping-only byte-identical long-path alias of the authored program fixture.", "This is the actual browser host, not an installed PWA or native VS Code host.", "Layout records include measured horizontal containment and vertical scroll reachability for selected topbar/program panels; they are not a full viewport-wide reachability audit."],
     } : {
