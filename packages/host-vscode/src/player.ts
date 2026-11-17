@@ -6,6 +6,8 @@ import { createVscodeFileSystem } from "./filesystem.ts";
 
 
 import { saveBeforeRun, type RunGeneration } from "./saved-run.ts";
+import { createLaunchPrompts, pickWorkspace, projectFolderChoices, relativeToWorkspace, workspaceRoots } from "./launch-prompts.ts";
+import { resolveLaunch } from "./run-configuration.ts";
 
 
 function playerStatus(value: unknown): RunStatus | undefined {
@@ -37,26 +39,6 @@ async function bundledFiles(extensionUri: vscode.Uri): Promise<Array<[string, Ui
   return await Promise.all(paths.map(async (path: string): Promise<[string, Uint8Array]> =>
     [path, await vscode.workspace.fs.readFile(vscode.Uri.joinPath(extensionUri, "dist", "player-assets", ...path.split("/")))]));
 }
-
-function relativeToWorkspace(root: vscode.Uri, uri: vscode.Uri): string | undefined {
-  if (uri.scheme !== root.scheme || uri.authority !== root.authority) return undefined;
-  const base = root.path === "/" ? "" : root.path.replace(/\/+$/, "");
-  const relative = uri.path === root.path ? "" : uri.path.startsWith(`${base}/`) ? uri.path.slice(base.length + 1) : undefined;
-  return relative === undefined || relative.split("/").some((part) => part === "." || part === "..") ? undefined : relative;
-}
-
-async function projectFolderChoices(root: vscode.Uri): Promise<Array<{ label: string; folder: string }>> {
-  const choices = [{ label: "Workspace root (package layout)", folder: "" }];
-  try {
-    for (const [name, type] of await vscode.workspace.fs.readDirectory(vscode.Uri.joinPath(root, "Game"))) {
-      if ((type & vscode.FileType.Directory) !== 0) choices.push({ label: `Game/${name}`, folder: `Game/${name}` });
-    }
-  } catch (error) {
-    if (!(error instanceof vscode.FileSystemError) || error.code !== "FileNotFound") throw error;
-  }
-  return choices;
-}
-
 
 function playerHtml(webview: vscode.Webview, playerUri: vscode.Uri): string {
   const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
@@ -249,127 +231,16 @@ interface PromptedProgramLaunch {
   readonly launch: ProgramLaunch;
 }
 
+/** The Test Program command's questions: the same prompts a `tkr` program configuration falls back to (ADR 0037 item 8). */
 async function promptProgramLaunch(): Promise<PromptedProgramLaunch | undefined> {
-  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
-  if (workspaceFolders.length === 0) {
-    void vscode.window.showErrorMessage("Open a workspace folder before testing a program.");
+  const workspace = await pickWorkspace("Choose the program's project");
+  if (workspace === undefined) return undefined;
+  const resolved = await resolveLaunch({ launch: "program" }, workspaceRoots(workspace.uri), createLaunchPrompts(workspace.uri));
+  if (!resolved.ok) {
+    if (!resolved.cancelled) void vscode.window.showErrorMessage(resolved.message);
     return undefined;
   }
-  const selectedWorkspace = workspaceFolders.length === 1
-    ? workspaceFolders[0]
-    : await vscode.window.showQuickPick(workspaceFolders.map((workspace) => ({
-      label: workspace.name,
-      description: workspace.uri.toString(),
-      workspace,
-    })), { title: "Choose the program's project", ignoreFocusOut: true }).then((selection) => selection?.workspace);
-  if (selectedWorkspace === undefined) return undefined;
-  const mainSelection = await pickOne(selectedWorkspace.uri, "Choose the game's .gam main file", { "RPG Toolkit game": ["gam"] });
-  if (mainSelection === undefined) return undefined;
-  const main = relativeToWorkspace(selectedWorkspace.uri, mainSelection);
-  if (main === undefined || !main.toLowerCase().endsWith(".gam")) {
-    void vscode.window.showErrorMessage("Choose a .gam main file inside the selected workspace.");
-    return undefined;
-  }
-  const pickedFolder = await vscode.window.showQuickPick(await projectFolderChoices(selectedWorkspace.uri), {
-    title: "Choose the game's asset folder", placeHolder: "Workspace root or Game/<game>", ignoreFocusOut: true,
-  });
-  if (pickedFolder === undefined) return undefined;
-  const projectRoot = pickedFolder.folder === "" ? selectedWorkspace.uri : vscode.Uri.joinPath(selectedWorkspace.uri, ...pickedFolder.folder.split("/"));
-  const programSelection = await pickOne(projectRoot, "Choose the RPGCode program to test", { "RPGCode program": ["prg"] });
-  if (programSelection === undefined) return undefined;
-  const program = relativeToWorkspace(selectedWorkspace.uri, programSelection);
-  if (program === undefined) {
-    void vscode.window.showErrorMessage("Choose a program file inside the selected workspace.");
-    return undefined;
-  }
-  const boardSelection = await pickOne(projectRoot, "Choose the fixture board", { "RPG Toolkit boards": ["brd"] });
-  if (boardSelection === undefined) return undefined;
-  const board = relativeToWorkspace(selectedWorkspace.uri, boardSelection);
-  if (board === undefined) {
-    void vscode.window.showErrorMessage("Choose a board file inside the selected workspace.");
-    return undefined;
-  }
-  const x = await askPositiveInteger("Fixture start X (tile)", 1);
-  if (x === undefined) return undefined;
-  const y = await askPositiveInteger("Fixture start Y (tile)", 1);
-  if (y === undefined) return undefined;
-  const layer = await askPositiveInteger("Fixture start layer", 1);
-  if (layer === undefined) return undefined;
-  const partyAction = await vscode.window.showQuickPick([
-    { label: "Choose fixture party members", id: "choose" },
-    { label: "No party members", id: "none" },
-  ], { title: "Fixture party", ignoreFocusOut: true });
-  if (partyAction === undefined) return undefined;
-  let party: string[] = [];
-  if (partyAction.id === "choose") {
-    const partySelections = await vscode.window.showOpenDialog({
-      title: "Choose fixture party members",
-      canSelectMany: true, canSelectFiles: true, canSelectFolders: false,
-      defaultUri: vscode.Uri.joinPath(projectRoot, "Chrs"), filters: { "Character files": ["tem"] },
-    });
-    if (partySelections === undefined || partySelections.length === 0) return undefined;
-    const selectedParty = partySelections.map((uri) => relativeToWorkspace(selectedWorkspace.uri, uri));
-    if (selectedParty.some((path) => path === undefined)) {
-      void vscode.window.showErrorMessage("Choose party member files inside the selected workspace.");
-      return undefined;
-    }
-    party = selectedParty as string[];
-  }
-  const font = await vscode.window.showInputBox({ prompt: "Fixture font name (leave blank for the game's default)", ignoreFocusOut: true });
-  if (font === undefined) return undefined;
-  const fontSizeText = await vscode.window.showInputBox({
-    prompt: "Fixture font size (leave blank for the game's default)",
-    validateInput: (value) => value === "" || (Number.isFinite(Number(value)) && Number(value) > 0) ? undefined : "Enter a positive finite font size, or leave this blank.",
-    ignoreFocusOut: true,
-  });
-  if (fontSizeText === undefined) return undefined;
-  const graphicAction = await vscode.window.showQuickPick([
-    { label: "Choose a message-window graphic", id: "choose" },
-    { label: "No message-window graphic", id: "none" },
-  ], { title: "Fixture message-window graphic", ignoreFocusOut: true });
-  if (graphicAction === undefined) return undefined;
-  let windowGraphic: string | undefined;
-  if (graphicAction.id === "choose") {
-    const graphicSelection = await pickOne(projectRoot, "Choose the message-window graphic", {});
-    if (graphicSelection === undefined) return undefined;
-    windowGraphic = relativeToWorkspace(selectedWorkspace.uri, graphicSelection);
-    if (windowGraphic === undefined) {
-      void vscode.window.showErrorMessage("Choose a message-window graphic inside the selected workspace.");
-      return undefined;
-    }
-  }
-  return {
-    workspace: selectedWorkspace,
-    launch: {
-      kind: "program",
-      main,
-      projectFolder: pickedFolder.folder,
-      program,
-      fixture: {
-        id: program,
-        party: party as string[],
-        ...(font === "" ? {} : { font }),
-        ...(fontSizeText === "" ? {} : { fontSize: Number(fontSizeText) }),
-        ...(windowGraphic === undefined ? {} : { windowGraphic }),
-        start: { board, x, y, layer },
-      },
-    },
-  };
-
-  async function pickOne(root: vscode.Uri, title: string, filters: Record<string, string[]>): Promise<vscode.Uri | undefined> {
-    const selected = await vscode.window.showOpenDialog({
-      title, canSelectMany: false, canSelectFiles: true, canSelectFolders: false, defaultUri: root, filters,
-    });
-    return selected?.[0];
-  }
-
-  async function askPositiveInteger(prompt: string, initial: number): Promise<number | undefined> {
-    const text = await vscode.window.showInputBox({
-      prompt, value: String(initial), ignoreFocusOut: true,
-      validateInput: (value) => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? undefined : "Enter a positive whole number.",
-    });
-    return text === undefined ? undefined : Number(text);
-  }
+  return resolved.launch.kind === "program" ? { workspace, launch: resolved.launch } : undefined;
 }
 
 /** Register native run commands for the game, board-test and program-test launch surfaces. */
