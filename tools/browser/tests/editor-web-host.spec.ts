@@ -417,6 +417,10 @@ test("a saved folder game launches in the live player from the editor", async ({
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   const frame = page.frameLocator('iframe[title="Running game"]');
   await expect(frame.getByLabel("Game screen")).toBeVisible();
+  // The workbench fills the viewport and clips its overflow, so the player must be shown on screen, not merely attached:
+  // it opens in front, in its own "Running game" tab.
+  await expect(page.getByRole("tab", { name: "Running game", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('iframe[title="Running game"]')).toBeInViewport({ ratio: 1 });
   const live = async () => frame.locator("#screen").evaluate(() => Reflect.get(window, "__live") as { tick: number; board: string | null; player: unknown; stateHash: string } | undefined);
   await expect.poll(async () => (await live())?.tick ?? 0, { timeout: 30000 }).toBeGreaterThan(30);
   await frame.locator("#screen").press("Enter");
@@ -580,6 +584,8 @@ test("an edit before the player handshake prevents a stale game from starting", 
   });
   await page.getByRole("button", { name: "Run game", exact: true }).click();
   await requested;
+  // The player opens in its own tab; the game settings are one tab back.
+  await page.getByRole("tab", { name: "Main/example.gam", exact: true }).click();
   await page.getByLabel("Game title").fill("Changed during player setup");
   await page.getByRole("button", { name: "Apply changes" }).click();
   release();

@@ -9,8 +9,29 @@ function isDiagnostic(value: unknown): value is RunDiagnostic {
     && "message" in value && typeof value.message === "string";
 }
 
-/** Launch saved project bytes in the same-origin live player. The frame is host chrome; it owns no editor state. */
-export function createWebRunService(fs: FileSystemService, projectId: string, playerUrl: string): RunService {
+/**
+ * Where a host puts a running game's player frame. `show` receives the frame and the run's `stop`, and returns the
+ * function that takes the frame away again. The frame must stay attached while it is shown: moving an iframe in the
+ * page reloads it, which would restart the game.
+ */
+export interface RunPresenter {
+  show(frame: HTMLIFrameElement, stop: () => void): () => void;
+}
+
+/** With no workbench to show it in, the frame floats over the page so it is still seen. */
+const floatingPresenter: RunPresenter = {
+  show(frame) {
+    frame.classList.add("tkr-run-frame-floating");
+    document.body.append(frame);
+    return () => frame.remove();
+  },
+};
+
+/**
+ * Launch saved project bytes in the same-origin live player. The frame is host chrome; it owns no editor state.
+ * `presenter` is asked at each launch, so a workbench mounted later can show runs in its own tab.
+ */
+export function createWebRunService(fs: FileSystemService, projectId: string, playerUrl: string, presenter: () => RunPresenter | null = () => null): RunService {
   const start = async (launch: Launch, guard?: RunStartGuard) => {
       const prepared = await prepareRun(fs, launch, { projectId, runner: "runner-web", startUnit: boardStartUnit });
       if (!prepared.ok) return prepared;
@@ -25,15 +46,20 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
       if (allowed !== undefined && !allowed.ok) return allowed;
       const frame = document.createElement("iframe");
       frame.title = "Running game";
-      frame.width = "800";
-      frame.height = "600";
+      frame.className = "tkr-run-frame";
       frame.src = url.href;
       const channel = new MessageChannel();
+      let hide: (() => void) | null = null;
+      const remove = (): void => {
+        const hiding = hide;
+        hide = null;
+        hiding?.();
+      };
       const { handle, report } = createRunHandle(prepared.value.snapshot, () => {
         channel.port1.postMessage("stop");
         channel.port1.close();
         window.removeEventListener("message", onReady);
-        frame.remove();
+        remove();
       });
       const onReady = (event: MessageEvent<unknown>): void => {
         if (event.origin !== url.origin || event.source !== frame.contentWindow) return;
@@ -42,7 +68,7 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
           report({ state: "failed", message: event.data.message });
           window.removeEventListener("message", onReady);
           channel.port1.close();
-          frame.remove();
+          remove();
           return;
         }
         if (event.data !== "tkr-player-ready") return;
@@ -51,7 +77,7 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
         if (stillAllowed !== undefined && !stillAllowed.ok) {
           report({ state: "failed", message: stillAllowed.error.message });
           channel.port1.close();
-          frame.remove();
+          remove();
           return;
         }
         frame.contentWindow?.postMessage("tkr-editor-connect", url.origin, [channel.port2]);
@@ -74,11 +100,11 @@ export function createWebRunService(fs: FileSystemService, projectId: string, pl
         report(next);
         if (state === "ended" || state === "failed") {
           channel.port1.close();
-          frame.remove();
+          remove();
         }
       };
       window.addEventListener("message", onReady);
-      document.body.append(frame);
+      hide = (presenter() ?? floatingPresenter).show(frame, () => handle.stop());
       return platformOk<RunHandle>(handle);
     };
   return {

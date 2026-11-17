@@ -406,7 +406,7 @@ export {
   type WorkbenchCommand,
   type WorkbenchCommandSourceOptions,
 } from "./commands.ts";
-export { createTabs, type TabsSnapshot, type TabState, type Tabs } from "./tabs.ts";
+export { createTabs, type TabsSnapshot, type TabState, type TabView, type Tabs } from "./tabs.ts";
 export {
   prepareGamePackage,
   type PackageArtifact,

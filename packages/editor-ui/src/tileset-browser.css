@@ -1108,6 +1108,33 @@
   min-block-size: 0;
 }
 
+/* A running game fills its "Running game" tab; the player page scales the game screen to fit. */
+.tkr-run-pane {
+  background: #000;
+}
+
+.tkr-run-frame {
+  flex: 1 1 auto;
+  display: block;
+  inline-size: 100%;
+  min-block-size: 0;
+  border: 0;
+}
+
+/* Without a workbench tab to show it in, the player floats over the page rather than sitting below a clipped shell. */
+.tkr-run-frame-floating {
+  position: fixed;
+  inset-block-end: 16px;
+  inset-inline-end: 16px;
+  z-index: 1000;
+  inline-size: min(800px, calc(100vw - 32px));
+  block-size: auto;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  border-radius: var(--tkr-radius-lg);
+  box-shadow: var(--tkr-shadow-overlay);
+}
+
 .tkr-tab-empty,
 .tkr-editor-empty {
   margin: auto;

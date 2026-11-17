@@ -116,6 +116,9 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   let disposed = false;
   let openPrefs: (() => void) | null = null;
   let openNewBoard: (() => void) | null = null;
+  /** Each run's pane, by its tab key. A pane is hidden, never detached, while another tab is in front: moving the player's frame would reload it. */
+  const runPanes = new Map<string, HTMLElement>();
+  let runs = 0;
 
   // Restore the saved layout without waiting for it: the defaults show until it arrives.
   void services.settings.get("user", LAYOUT_SETTING).then((saved) => {
@@ -144,6 +147,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     }
     if (slot === null) return;
     for (const tab of snapshot.tabs) {
+      const pane = runPanes.get(tab.key);
+      if (pane !== undefined) {
+        if (pane.parentElement !== slot) slot.append(pane);
+        pane.hidden = tab.key !== snapshot.active;
+        continue;
+      }
       const document = workspace.documents().find((candidate) => candidate.identity.key === tab.key);
       if (document === undefined) continue;
       let entry = views.get(tab.key);
@@ -325,6 +334,29 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     },
   });
 
+
+  // A run shows its player in a "Running game" tab: closing the tab stops the run, and a run that ends closes its tab.
+  project.setRunPresenter({
+    show(frame, stop) {
+      runs += 1;
+      const key = `run:${runs}`;
+      const pane = element.ownerDocument.createElement("div");
+      pane.className = "tkr-editor-pane tkr-run-pane";
+      pane.append(frame);
+      runPanes.set(key, pane);
+      tabs.openView({
+        key,
+        title: "Running game",
+        kind: "run",
+        close: () => {
+          runPanes.delete(key);
+          pane.remove();
+          stop();
+        },
+      });
+      return () => { void tabs.close(key); };
+    },
+  });
   const launcher = createLauncher({ services, workspace });
   const shellWorkspace = {
     ...workspace,
@@ -461,6 +493,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       openPrefs?.();
       openNewBoard?.();
       disposed = true;
+      project.setRunPresenter(null);
       launcher.dispose();
       creatorTests.dispose();
       unsubscribeTabs();
