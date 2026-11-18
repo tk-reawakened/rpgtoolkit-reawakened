@@ -7,6 +7,9 @@ import { readDocument, type DocumentInput, type StampReport } from "./document.t
 import { compareText, foldId } from "./fold.ts";
 import { classifyExtension, extensionOf, lookupExtension, REGISTRY, validateRegistry, type Registry } from "./registry.ts";
 import type { PluginBlockProblemKind } from "./plugin-data.ts";
+import { readTileset, type TilesetReadResult } from "./tileset.ts";
+import { readAssetPack, type AssetPackReadResult } from "./asset-pack.ts";
+import { sceneArtReferences } from "./art-references.ts";
 
 export type CheckConfig = {
   /** Extensions that mark a native document; absent means the shipped registry. */
@@ -45,12 +48,22 @@ export type ExtensionContractMismatchReport = {
   readonly stamp: string;
 };
 
+/** A contract-specific field or local reference problem in an art document. */
+export type NativeArtReport = {
+  readonly class: "native-art";
+  readonly path: string;
+  readonly field: string;
+  readonly message: string;
+  readonly line: number | null;
+};
+
 export type CheckReport =
   | StampReport
   | DuplicateIdReport
   | FoldCollisionReport
   | PluginBlockReport
-  | ExtensionContractMismatchReport;
+  | ExtensionContractMismatchReport
+  | NativeArtReport;
 
 export type ReportClass = CheckReport["class"];
 
@@ -60,10 +73,13 @@ export const REPORT_CLASSES: readonly ReportClass[] = [
   "fold-collision",
   "plugin-block",
   "extension-contract-mismatch",
+  "native-art",
 ];
 
 const RESERVED_KEYS: Readonly<Record<string, readonly string[]>> = {
   "animation-clip": ["canvas", "delay", "colourKey", "frames"],
+  tileset: ["name", "projection", "cellSize", "sources", "tiles", "isoBlocks", "autotiles", "outputBinding"],
+  "asset-pack": ["name", "projection", "grid", "sources", "assets"],
 };
 
 /**
@@ -134,6 +150,55 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
     for (const problem of doc.read.pluginProblems) {
       reports.push({ class: "plugin-block", path: doc.path, ...problem });
     }
+    if ("text" in doc.input) {
+      const contract = lookupExtension(extensionOf(doc.path) ?? "", registry)?.contract;
+      const result = contract === "tileset" ? readTileset(doc.input.text)
+        : contract === "asset-pack" ? readAssetPack(doc.input.text) : null;
+      if (result !== null && !result.ok) {
+        for (const problem of result.problems) {
+          if (problem.kind === "shape") {
+            reports.push({ class: "native-art", path: doc.path, field: problem.path, message: problem.message, line: problem.line });
+          }
+        }
+      }
+    }
+  }
+
+  // Scene art references name a native document plus a local ID. Check both
+  // parts after collecting all documents so moved files can be resolved.
+  const artTargets = group(reads, (doc) => foldId(doc.id));
+  const artModels = new Map<string, TilesetReadResult | AssetPackReadResult>();
+  for (const doc of reads) {
+    if (!("text" in doc.input)) continue;
+    const scan = sceneArtReferences(doc.input.text);
+    for (const message of scan.problems) {
+      reports.push({ class: "native-art", path: doc.path, field: "reference", message, line: null });
+    }
+    for (const reference of scan.references) {
+      const id = foldId(documentId(reference.path.value));
+      const targets = artTargets.get(id) ?? [];
+      const target = targets.length === 1 ? targets[0] : undefined;
+      const expected = reference.kind === "tileset" ? "tileset" : "asset-pack";
+      const contract = target === undefined ? undefined : lookupExtension(extensionOf(target.path) ?? "", registry)?.contract;
+      let exists = false;
+      if (target !== undefined && contract === expected && "text" in target.input) {
+        if (reference.kind === "tileset") {
+          const result = artModels.get(target.path) ?? readTileset(target.input.text);
+          artModels.set(target.path, result);
+          exists = result.ok && "tileset" in result && result.tileset.tiles.some((tile) => tile.id === reference.localId);
+        } else {
+          const result = artModels.get(target.path) ?? readAssetPack(target.input.text);
+          artModels.set(target.path, result);
+          exists = result.ok && "assetPack" in result && result.assetPack.assets.some((asset) => asset.id === reference.localId);
+        }
+      }
+      if (!exists) {
+        reports.push({
+          class: "native-art", path: doc.path, field: reference.kind,
+          message: `cannot resolve ${reference.kind} ${reference.path.value} and local ID ${reference.localId}`, line: null,
+        });
+      }
+    }
   }
 
   const byId = group(reads, (doc) => doc.id);
@@ -169,6 +234,7 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
       case "stamp":
       case "plugin-block":
       case "extension-contract-mismatch":
+      case "native-art":
         return report.path;
       case "duplicate-id":
       case "fold-collision":

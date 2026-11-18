@@ -78,7 +78,7 @@ void test("plugin block reports carry all structured fields and format readably"
 
 void test("document identity, report ordering, config validation and legacy exclusion remain", () => {
   equal(documentId("./clips//walk.tkranm"), "clips/walk.tkranm");
-  deepEqual(REPORT_CLASSES, ["stamp", "duplicate-id", "fold-collision", "plugin-block", "extension-contract-mismatch"]);
+  deepEqual(REPORT_CLASSES, ["stamp", "duplicate-id", "fold-collision", "plugin-block", "extension-contract-mismatch", "native-art"]);
   throws(() => validateConfig({ documentExtensions: [] }), RangeError);
   throws(() => validateConfig({ documentExtensions: [""] }), RangeError);
   throws(() => validateConfig({ registry: [{ extension: ".anm", contract: "animation" }] }), RangeError);
