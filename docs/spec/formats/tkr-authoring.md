@@ -4,13 +4,7 @@ This specification defines the normative structure of TK Reawakened's native YAM
 
 These files are created and maintained in the authoring workspace (`editor-model` / `editor-ui`) and **compile/lower** deterministically into legacy runtime targets (`.brd`, `.tst`, `.iso`, `.tbm`, `.tan`) so the `@tk-reawakened/core` runtime engine can play them without requiring immediate changes to its runtime format decoders.
 
-> **Status: draft, pre-release (amendment of 2026-11-11, [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)).** These three formats follow [native-contracts.md](native-contracts.md). Section 3 is developed in the proposed [tileset contract](native-tileset.md), pending owner approval. Brought into line here: the stamp (`contract` and `version` as the first two keys, in place of `schema: tkr-<kind>/1.0`) and the pre-release version. **Not yet in line, and to be settled when each becomes a contract page (story 27.8 for the scene):**
->
-> * The contract names `scene`, `tileset` and `asset-pack` are placeholders.
-> * The examples carry a document-level `id`, and a scene refers to a pack as `<pack id>:<asset id>`. Under native-contracts a document's identity is its path and references use it.
-> * The top level is not yet stated as closed, and `pluginData` is not shown.
-> * The scene and asset-pack extensions are not in [the registry](native-contracts.md#the-registry) until their contract pages are written; the tileset registry entry accompanies its proposed page.
-> * Which fields a `.brd` cannot hold, and so what the scene editor shows as unavailable on a `.brd` ([ADR 0019](../../adr/0019-tkr-authoring-formats.md), amendment).
+> **Status: draft, pre-release** (amendment of 2026-11-11, [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)). These formats follow [native-contracts.md](native-contracts.md). The separate [scene](native-scene.md), [tileset](native-tileset.md), and [asset-pack](native-asset-pack.md) contract pages supersede the corresponding historical sketches below where they differ. The scene and tileset pages are proposed; the asset-pack page was reviewed and merged by Jensen. All three extensions are registered. The examples below retain historical document IDs and other spellings for context and are not contract definitions.
 
 ---
 
@@ -32,6 +26,8 @@ These files are created and maintained in the authoring workspace (`editor-model
 ## 2. Scene Document (`.tkrscn`)
 
 A `.tkrscn` file is the source of truth for one board/scene. When saved, the editor builds the paired `.brd` file (plus auxiliary stamps/tiles if needed). A `.brd` that has no scene is still opened and saved directly; making a scene from it is an explicit conversion ([ADR 0019](../../adr/0019-tkr-authoring-formats.md), amendment of 2026-11-11).
+
+> **Not normative.** The authoritative, proposed definition of the scene document is [native-scene.md](native-scene.md), pending owner approval. The example below is the earlier draft, kept for context only: its document-level `id`, its `<pack id>:<asset id>` references and its field names are superseded by the scene contract, where a document is identified by its path and a tile or pack is referenced by path plus local ID. Where the two differ, the scene contract governs.
 
 ```yaml
 contract: scene
@@ -283,7 +279,7 @@ assets:
 When the editor saves a `.tkrscn` or builds for test-running:
 1. **Tiles & LUT Generation:** Referenced tiles and generated autotile variants compile into local `.tst` / `.iso` files or into the `.brd` tile LUT ([docs/spec/formats/board.md](board.md#dimensions-and-tiles)).
 2. **Placed Pack Expansion (`PlaceSceneAsset`):**
-   - Each placed stamp or prop in `placedPacks` expands its `visuals` into either `WorldImage` entries in the board's image array or `WorldTile` cells on the corresponding layer.
-   - Its relative `vectors` are translated by `(x, y)` and inserted into the board's vector array.
+   - Each placed stamp, prop or backdrop in `placedPacks` expands its `visuals` into either board image entries or tile cells. Each visual's `layerOffset` applies to its draw layer.
+   - The asset's anchor-relative `solid` and `under` vectors are translated to the placement and inserted into the board's vector array. See the [asset-pack contract](native-asset-pack.md#fields).
 3. **Boundary Synthesis:** If `boundarySources` is active, the contour tracer executes and emits simplified `WorldVector` solid polylines (open outer loops, closed obstacle holes) and under polygons.
 4. **Target Persistence:** The compiled output is saved as a legacy binary `.brd` (minor 4 vector layout) that runtime runners read without modification.

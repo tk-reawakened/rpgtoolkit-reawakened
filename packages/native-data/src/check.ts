@@ -80,6 +80,7 @@ const RESERVED_KEYS: Readonly<Record<string, readonly string[]>> = {
   "animation-clip": ["canvas", "delay", "colourKey", "frames"],
   tileset: ["name", "projection", "cellSize", "sources", "tiles", "isoBlocks", "autotiles", "outputBinding"],
   "asset-pack": ["name", "projection", "grid", "sources", "assets"],
+  scene: ["name", "projection", "pixelCoordinates", "size", "floors", "tilePalette", "shading", "lights", "vectors", "triggers", "items", "images", "placedPacks", "atmosphere", "start", "links", "enterProgram", "battle", "savingDisabled", "threads", "constants", "legacy"],
 };
 
 /**

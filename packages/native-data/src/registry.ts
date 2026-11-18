@@ -29,6 +29,7 @@ export const REGISTRY: Registry = [
   { extension: ".tkranm", contract: "animation-clip" },
   { extension: ".tkrtile", contract: "tileset" },
   { extension: ".tkrpack", contract: "asset-pack" },
+  { extension: ".tkrscn", contract: "scene" },
 ];
 
 /** The form of every registered extension: `.tkr` and three or more lowercase ASCII letters. */

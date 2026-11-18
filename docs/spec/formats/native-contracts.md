@@ -116,8 +116,9 @@ An extension that is registered below (each one starts with `tkr`) marks a nativ
 | `.tkranm` | `animation-clip` | [native-animation-clip.md](native-animation-clip.md) |
 | `.tkrtile` | `tileset` | [native-tileset.md](native-tileset.md) |
 | `.tkrpack` | `asset-pack` | [native-asset-pack.md](native-asset-pack.md) |
+| `.tkrscn` | `scene` | [native-scene.md](native-scene.md) |
 
-The tileset and asset-pack contracts are drafted pending owner approval; the animation clip is also registered. The registry grows with each new contract: when a contract is written, its extension is chosen by rule 1 and its row is added here and in `packages/native-data` in the same change. No extension is held for a contract that does not exist yet. A test fails when the code's registry and this table differ.
+The tileset and scene contracts are drafted pending owner approval; Jensen reviewed and merged the asset-pack contract. The animation clip is also registered. The registry grows with each new contract: when a contract is written, its extension is chosen by rule 1 and its row is added here and in `packages/native-data` in the same change. No extension is held for a contract that does not exist yet. A test fails when the code's registry and this table differ.
 
 A plugin block is not a document and has no extension, so a plugin that attaches data to a native document needs no row here. Only a contract that is a document of its own does ([block or document](#block-or-document)).
 
@@ -382,7 +383,7 @@ This page does not choose the layout contract (how a document is laid out on lin
 - Whether plugin ids are allocated by an enforced rule or only by convention ([PKG-2](../engine/rpgcode-modules-and-objects.md#pkg-2)), and whether a plugin id must avoid the core fields of every contract or, as written, only those of the contract of the document that holds the block.
 - ID folding for non-ASCII names beyond "compare as written".
 - Which other spellings of one path count as one ID: this page drops empty and `.` parts only; it does not resolve `..` parts, and a `\` is an ordinary character.
-- The registry rows of the kinds whose contracts are not written yet (actor, scene, item, enemy, tileset and so on); each is added with its contract.
+- The registry rows of the kinds whose contracts are not written yet (actor, item, enemy and so on); each is added with its contract.
 - Whether the checker should report a file whose extension starts with `tkr` but is not registered. It is ignored now, so a misspelt extension leaves that document unchecked.
 - A VS Code extension and a new-project template that ship the editor association, the modeline and the `.gitattributes` above (future work).
 - What a loader does with a document whose version is newer than it knows within the same MAJOR. For a plugin block this is decided ([tolerance](#tolerance-absence-and-newer-data)); for a contract it is not.

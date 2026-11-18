@@ -54,6 +54,11 @@ void test("reserved top-level and clip fields cannot be plugin ids", () => {
   deepEqual(checkDocuments([{ path: "clip.tkranm", text }], shipped).filter((report) => report.class === "plugin-block").map((report) => report.kind), ["id"]);
 });
 
+void test("scene core fields cannot be used as plugin ids", () => {
+  const text = "contract: scene\nversion: 1.0.0\npluginData:\n  size: {version: 1.0.0, data: {}}\n";
+  deepEqual(checkDocuments([{ path: "map.tkrscn", text }], shipped).filter((report) => report.class === "plugin-block").map((report) => report.kind), ["id"]);
+});
+
 void test("the shared validator accepts the clip-consumable AST and line-counter interface", () => {
   const text = "pluginData: {com.example.weather: {version: 1.0.0, data: {unknown: true}}}\n";
   const lines = new LineCounter();
