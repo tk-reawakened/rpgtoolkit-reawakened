@@ -6,9 +6,10 @@
  * folder could not be read.
  */
 
-import { statSync } from "node:fs";
-import { resolve } from "node:path";
-import { checkDocuments, formatReport, REGISTRY, validateConfig, type CheckConfig, type CheckReport } from "@tk-reawakened/native-data";
+import { readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { checkDocuments, checkProjectArtAssets, formatReport, REGISTRY, validateConfig, type CheckConfig, type CheckReport } from "@tk-reawakened/native-data";
+import { decodeTexture } from "@tk-reawakened/core";
 import { collectDocuments } from "./walk.ts";
 
 export const RESULT_SCHEMA = "tkr-native-check/1";
@@ -83,6 +84,18 @@ function describe(reports: readonly CheckReport[], documents: number): string {
   return `${documents} document${documents === 1 ? "" : "s"} checked, ${reports.length} problem${reports.length === 1 ? "" : "s"} found`;
 }
 
+/** The pixel size of a project-relative source image, or null when it is missing, unreadable or not a supported image. */
+function imageSize(root: string, path: string): { readonly width: number; readonly height: number } | null {
+  let bytes: Uint8Array;
+  try {
+    bytes = readFileSync(join(root, path));
+  } catch {
+    return null;
+  }
+  const decoded = decodeTexture(bytes, path);
+  return decoded.ok ? { width: decoded.value.w, height: decoded.value.h } : null;
+}
+
 export function runCli(argv: readonly string[]): CliResult {
   const parsed = parse(argv);
   if (!parsed.ok) {
@@ -101,7 +114,7 @@ export function runCli(argv: readonly string[]): CliResult {
   } catch (error) {
     return { exitCode: 3, stdout: "", stderr: `tkr-native-check: cannot read ${parsed.folder}: ${error instanceof Error ? error.message : String(error)}\n` };
   }
-  const reports = checkDocuments(documents, parsed.config);
+  const reports = [...checkDocuments(documents, parsed.config), ...checkProjectArtAssets(documents, (path) => imageSize(root, path))];
   const exitCode = reports.length === 0 ? 0 : 1;
   if (parsed.json) {
     const result = { schema: RESULT_SCHEMA, documents: documents.length, problems: reports.length, reports };

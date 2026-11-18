@@ -17,6 +17,7 @@
     }
   },
   "dependencies": {
+    "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/native-data": "workspace:*"
   },
   "devDependencies": {

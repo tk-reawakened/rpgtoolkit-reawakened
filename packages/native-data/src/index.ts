@@ -70,6 +70,7 @@ export {
   ASSET_PACK_CONTRACT, ASSET_PACK_VERSION,
   type AssetPack, type AssetPackProblem, type AssetPackReadResult,
 } from "./asset-pack.ts";
+export { checkProjectArtAssets } from "./project-art-assets.ts";
 export {
   applyPlanToDocuments,
   planRename,
