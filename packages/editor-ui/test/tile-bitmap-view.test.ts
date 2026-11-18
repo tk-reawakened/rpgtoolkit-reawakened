@@ -78,7 +78,7 @@ async function setup(bytes: Uint8Array = bytesOf(START), extra: Readonly<Record<
     },
     save: () => doc.save(),
     resolveConflict: (choice) => doc.resolveConflict(choice),
-    preview: () => previewTileBitmap(host.fs, "memory-project", doc.serialize()),
+    preview: () => previewTileBitmap(host.fs, "memory-project", doc.serialize(), doc.identity.path),
   };
   const session = createBrowserSession();
   const el = document.createElement("div");

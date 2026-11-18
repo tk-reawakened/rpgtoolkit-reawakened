@@ -168,13 +168,19 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container, projectLayout, openSource, {
+          entry = { document, view: mountDocumentView(project, document, container, projectLayout, async (path) => {
+            const result = await visits.visit(document, path);
+            if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
+            show(result.document);
+            return null;
+          }, {
             pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
             open: async (path) => {
               const kind = kindForPath(path)?.id;
-              if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
-              const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : "bitmaps";
-              const target = referencePath(projectLayout, folder, path);
+              const layout = document.kind === "main" ? projectLayout : projectLayoutForDocumentPath(document.identity.path);
+              if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap" && kind !== "animation") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : "animations";
+              const target = kind === "animation" ? path : referencePath(layout, folder, path);
               const visited = await visits.visit(document, target);
               if (!visited.ok) return "message" in visited.error ? visited.error.message : visited.error.error.message;
               show(visited.document);
@@ -214,8 +220,9 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           slot.append(container);
           entry.view.show(container);
           entry.shownIn = container;
-        } else {
+        } else if (entry.shownIn.hidden) {
           entry.shownIn.hidden = false;
+          entry.view.refreshAssets?.();
         }
       } else if (entry !== undefined && entry.shownIn !== null) {
         // Retain the document's mounted view so a linked visit returns to its cursor, selection and draft.

@@ -277,7 +277,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
   /** The picture of a board or a tile bitmap, composed here from the project's files by the one compositor of its kind (AD-29); a webview reads no files. A board's request narrows it to the layers and background shown. */
   async preview(request?: BoardPreviewRequest): Promise<BoardPicture> {
-    if (this.model.kind === "tile-bitmap") return previewTileBitmap(this.#fs, this.model.identity.projectId, this.model.serialize());
+    if (this.model.kind === "tile-bitmap") return previewTileBitmap(this.#fs, this.model.identity.projectId, this.model.serialize(), this.model.identity.path);
     if (this.model.kind !== "board") return { ok: false, message: `A ${this.model.kind} document has no picture.` };
     const preview = await previewBoard(this.#fs, this.model.identity.projectId, this.model.serialize(), { ...request, root: this.#previewRoot });
     return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings, objectBounds: preview.objectBounds } : preview;

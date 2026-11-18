@@ -43,9 +43,9 @@ function replaceApply(doc: SpriteDocument, apply: (command: SpriteCommand) => Pr
   delayedDocument.apply = apply;
 }
 
-async function show(s: Setup): Promise<ViewHandle> {
+async function show(s: Setup, navigation?: ViewContext["navigation"]): Promise<ViewHandle> {
   let handle: ViewHandle | undefined;
-  await act(() => { handle = mount(s.el, { document: s.doc, services: s.host }); });
+  await act(() => { handle = mount(s.el, { document: s.doc, services: s.host, ...(navigation === undefined ? {} : { navigation }) }); });
   if (handle === undefined) throw new Error("mount returned nothing");
   return handle;
 }
@@ -946,6 +946,37 @@ test("a rejected polygon edit is removed before a later queued edit is applied",
   release();
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   deepEqual(s.doc.getSnapshot().vectorBases?.[1]?.points[0], { x: original.x, y: 7 }, "the second edit rebases on confirmed state instead of inheriting rejected X");
+  handle.dispose();
+  s.el.remove();
+});
+
+test("a confirmed graphics choice changes only the selected walking link", async () => {
+  const path = "Game/CaseGame/Item/chest.itm";
+  const s = await setup("item", path, exampleItem());
+  const otherDirections = s.doc.getSnapshot().movementAnimations.slice(1);
+  let finishPick!: (outcome: { readonly chosen: true; readonly reference: string } | { readonly chosen: false }) => void;
+  const handle = await show(s, { pickAsset: () => new Promise((resolve) => { finishPick = resolve; }) });
+  const choose = s.el.querySelector<HTMLButtonElement>('button[aria-label="Choose South walking animation"]');
+  ok(choose !== null);
+  await act(() => { choose.click(); });
+  await act(async () => { finishPick({ chosen: true, reference: "hero/walk.anm" }); await Promise.resolve(); await Promise.resolve(); });
+  equal(s.doc.getSnapshot().movementAnimations[0], "hero/walk.anm");
+  deepEqual(s.doc.getSnapshot().movementAnimations.slice(1), otherDirections);
+  handle.dispose();
+  s.el.remove();
+});
+
+test("cancelling the shared graphics asset chooser preserves its nonempty link and history", async () => {
+  const path = "Game/CaseGame/Item/chest.itm";
+  const s = await setup("item", path, exampleItem());
+  ok(s.doc.apply({ type: "set-sprite-animation", group: "walk", index: 0, file: "before.anm" }).ok);
+  const before = s.doc.getSnapshot();
+  const handle = await show(s, { pickAsset: async () => ({ chosen: false }) });
+  const choose = s.el.querySelector<HTMLButtonElement>('button[aria-label="Choose South walking animation"]');
+  ok(choose !== null);
+  await act(async () => { choose.click(); await Promise.resolve(); });
+  equal(s.doc.getSnapshot().movementAnimations[0], "before.anm");
+  deepEqual(s.doc.getSnapshot().edits, before.edits);
   handle.dispose();
   s.el.remove();
 });

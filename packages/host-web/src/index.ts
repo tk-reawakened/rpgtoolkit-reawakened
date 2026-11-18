@@ -1,5 +1,5 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
-import { createAnimationAuthoring, asAnimationDocument, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
+import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -318,7 +318,7 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
       apply: (command) => bitmap.apply(command),
       save: () => bitmap.save(),
       resolveConflict: (choice) => bitmap.resolveConflict(choice),
-      preview: () => previewTileBitmap(project.services.fs, project.project.id, document.serialize()),
+      preview: () => previewTileBitmap(project.services.fs, project.project.id, document.serialize(), document.identity.path),
     };
     return view;
   }
@@ -414,6 +414,8 @@ export function mountDocumentView(
   main: string | null = null,
 ): DocumentView {
   const viewDocument = viewDocumentFor(project, document);
+  const documentLayout = projectLayoutForDocumentPath(document.identity.path);
+  const browserLayout = documentLayout.projectFolder === "" ? projectLayout : documentLayout;
   let mounted: ViewHandle | null = null;
   let notice: HTMLElement | null = null;
   let disposed = false;
@@ -434,7 +436,7 @@ export function mountDocumentView(
     mounted = mount(container, {
       document: viewDocument,
       services: project.services,
-      browser: { session: project.browserSession, fs: project.services.fs, layout: projectLayout, ...(openSource === undefined ? {} : { openSource }) },
+      browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
       ...(document.kind !== "animation" ? {} : { animationAuthoring: createAnimationAuthoring(webCheckpointEnvironment(project, document.identity.key), asAnimationDocument(document), async () => {
         const saved = await document.save();
@@ -462,14 +464,14 @@ export function mountDocumentView(
     }
   };
   show(element);
-  return { hide, show, ...(document.kind === "program" ? { revealSource } : {}), dispose: () => { hide(); disposed = true; } };
+  return { hide, show, refreshAssets: () => mounted?.refreshAssets?.(), ...(document.kind === "program" ? { revealSource } : {}), dispose: () => { hide(); disposed = true; } };
 }
 
 /** Make a view owner over a document the project already has open. */
 export function mountEditor(project: WebProject, document: AnyDocument, element: HTMLElement): EditorView {
   const lease = project.workspace.attachView(document);
   const view = mountDocumentView(project, document, element);
-  return { close: () => lease.close(), hide: view.hide, show: view.show, ...(view.revealSource === undefined ? {} : { revealSource: view.revealSource }), dispose: () => { view.dispose(); lease.dispose(); } };
+  return { close: () => lease.close(), hide: view.hide, show: view.show, ...(view.refreshAssets === undefined ? {} : { refreshAssets: view.refreshAssets }), ...(view.revealSource === undefined ? {} : { revealSource: view.revealSource }), dispose: () => { view.dispose(); lease.dispose(); } };
 }
 
 /** @deprecated The name of the first editor; it mounts a document of any registered kind. */

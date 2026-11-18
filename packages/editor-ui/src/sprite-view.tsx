@@ -1,6 +1,7 @@
-import { createEditTracker, kindForPath, classifyImageReference, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, type ActorBase, type ActorPoint, type ApplyResult, type PendingEdits, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
+import { createEditTracker, kindForPath, classifyImageReference, projectLayoutForDocumentPath, referencePath, reservedFolder, spriteAnimationCanvasPreview, spriteAnimationPreview, spriteBasesFromFile, spriteGifPreview, spritePicturePreview, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, type ActorBase, type ActorPoint, type ApplyResult, type AssetKind, type PendingEdits, type PickOutcome, type SaveResult, type SpriteCommand, type SpriteDocumentSnapshot, type SpritePreviewFrame } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { AssetRefreshContext } from "./asset-refresh.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 
 const DIRECTIONS = ["South", "North", "East", "West", "North-west", "North-east", "South-west", "South-east"] as const;
@@ -23,6 +24,8 @@ export interface SpriteViewProps {
   readonly fs: Pick<FileSystemService, "readProject">;
   readonly capabilities: Capabilities;
   readonly onEdited: (event: DocumentEdited) => void;
+  readonly pickAsset?: (request: { readonly kind: AssetKind; readonly extensions: readonly string[]; readonly field: string }) => Promise<PickOutcome>;
+  readonly open?: (path: string) => Promise<string | null>;
   /** Where this view reports edits it has accepted but not yet handed to the document, so the host's save, close and revert wait for them (#2613). */
   readonly pendingEdits?: PendingEdits;
 }
@@ -53,9 +56,6 @@ function pathPoints(points: readonly ActorPoint[]): string {
   return points.map((point) => `${point.x},${point.y}`).join(" ");
 }
 
-function imagePath(projectPath: string, reference: string): string {
-  return spriteProjectAssetPath(projectPath, reference);
-}
 
 function tileAnimationPath(reference: string): boolean {
   return reference.toLowerCase().endsWith(".tan");
@@ -79,7 +79,8 @@ function spritePoint(svg: SVGSVGElement, clientX: number, clientY: number): Acto
 }
 
 /** T-52 animation previews decode through editor-model and place the origin crosshair at bottom centre. */
-function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; readonly fs: Pick<FileSystemService, "readProject">; readonly projectId: string; readonly id: string }) {
+function AnimationPreview({ file, fs, projectId, id, layout }: { readonly file: string; readonly fs: Pick<FileSystemService, "readProject">; readonly projectId: string; readonly id: string; readonly layout: { readonly projectFolder: string } }) {
+  const assetRevision = useContext(AssetRefreshContext);
   const [frames, setFrames] = useState<readonly SpritePreviewFrame[]>([]);
   const [frame, setFrame] = useState(0);
   const [message, setMessage] = useState("Choose an .anm or animated GIF to preview it.");
@@ -93,7 +94,7 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
       setMessage("Choose an .anm or animated GIF to preview it.");
       return () => { active = false; };
     }
-    const selectedPath = imagePath("Misc", file.trim());
+    const selectedPath = referencePath(layout, "animations", file.trim());
     void fs.readProject(projectId, selectedPath).then(async (read) => {
       if (!active) return;
       if (!read.ok) {
@@ -118,21 +119,22 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
       }
       setDelay(animation.delay);
       const loaded: SpritePreviewFrame[] = [];
+      const loadAsset = (path: string): Promise<Uint8Array | null> => readProjectAsset(fs, projectId, path.startsWith("Tiles/") ? `${reservedFolder(layout, "tiles")}/${path.slice(6)}` : path);
       for (const frame of animation.frames) {
         const reference = classifyImageReference(frame.image);
         let source: SpritePreviewFrame | null = null;
         let isPicture = false;
         if (reference.kind === "tile" || reference.kind === "singleTile" || tileAnimationPath(frame.image)) {
-          source = await spriteTileFrameFromReference(frame.image, (path) => readProjectAsset(fs, projectId, path));
+          source = await spriteTileFrameFromReference(frame.image, loadAsset);
         } else if (reference.kind === "tileBitmap") {
-          const bitmapPath = imagePath("Bitmap", reference.path);
+          const bitmapPath = referencePath(layout, "bitmaps", reference.path);
           const bitmap = await fs.readProject(projectId, bitmapPath);
           if (bitmap.ok) {
-            source = await spriteTileBitmapPreviewFromAssets(bitmap.value, bitmapPath, (path) => readProjectAsset(fs, projectId, path));
+            source = await spriteTileBitmapPreviewFromAssets(bitmap.value, bitmapPath, loadAsset);
             isPicture = true;
           }
         } else if (reference.kind === "picture") {
-          const imageFile = imagePath("Bitmap", reference.path);
+          const imageFile = referencePath(layout, "bitmaps", reference.path);
           const picture = await fs.readProject(projectId, imageFile);
           if (picture.ok) source = spritePicturePreview(picture.value, imageFile);
           isPicture = true;
@@ -153,7 +155,7 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
       if (active) setMessage(`Preview unavailable: ${error instanceof Error ? error.message : "project file could not be read"}`);
     });
     return () => { active = false; };
-  }, [file, fs, projectId]);
+  }, [file, fs, projectId, layout, assetRevision]);
 
   useEffect(() => {
     if (frames.length < 2) return;
@@ -185,7 +187,7 @@ function AnimationPreview({ file, fs, projectId, id }: { readonly file: string; 
 }
 
 
-export function SpriteView({ doc, fs, capabilities, onEdited, pendingEdits }: SpriteViewProps) {
+export function SpriteView({ doc, fs, capabilities, onEdited, pendingEdits, pickAsset, open }: SpriteViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   // Counts every edit from the moment it is accepted until the document answers, queued ones included (#2613).
   const submitted = useRef(createEditTracker());
@@ -319,6 +321,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited, pendingEdits }: Sp
   const pendingBaseCommands = useRef(0);
   const queuedBaseEdits = useRef<BaseEdit[]>([]);
   const baseQueue = useRef<Promise<void>>(Promise.resolve());
+  const layout = useMemo(() => projectLayoutForDocumentPath(snapshot.identity.path), [snapshot.identity.path]);
   const readOnly = snapshot.readOnly !== null;
   const disabled = readOnly || snapshot.conflict !== null || snapshot.saving;
   const bases = snapshot.vectorBases ?? [];
@@ -439,14 +442,32 @@ export function SpriteView({ doc, fs, capabilities, onEdited, pendingEdits }: Sp
   const field = (key: string, current: string, label: string, group: "walk" | "idle" | "battle" | "custom", index: number, supports: boolean) => {
     const value = drafts[key] ?? current;
     const inputId = `${formId}-${key}-input`;
+    const groupLabel = `${label} ${group === "walk" ? "walking" : group === "idle" ? "idle" : group === "battle" ? "battle" : "custom"} animation`;
+    const choose = async (): Promise<void> => {
+      const origin = snapshot.identity.path;
+      const result = await pickAsset?.({ kind: "animations", extensions: [".anm", ".gif"], field: `Choose ${groupLabel}` });
+      if (result?.chosen !== true || doc.identity.path !== origin) return;
+      const success = await submit({ type: "set-sprite-animation", group, index, file: result.reference });
+      if (success) clearDraft(key, value);
+    };
+    const openSource = async (): Promise<void> => {
+      const reference = value.trim();
+      if (reference === "" || open === undefined) return;
+      const origin = snapshot.identity.path;
+      const target = referencePath(layout, "animations", reference);
+      const message = await open(target);
+      if (doc.identity.path === origin && message !== null) setFeedback(message);
+    };
     return <div class="tkr-sprite-file" key={key}>
       <label for={inputId}>{label}
-        <input id={inputId} type="text" value={value} placeholder="Misc/hero_walk_s.anm or hero.gif" aria-label={`${label} animation file`} disabled={disabled || !supports} onInput={(event) => setDrafts((current) => ({ ...current, [key]: event.currentTarget.value }))} onBlur={() => {
+        <input id={inputId} type="text" value={value} placeholder="hero_walk_s.anm or hero.gif" aria-label={`${label} animation file`} disabled={disabled || !supports} onInput={(event) => setDrafts((current) => ({ ...current, [key]: event.currentTarget.value }))} onBlur={() => {
           if (value !== current && supports && !disabled) void submit({ type: "set-sprite-animation", group, index, file: value.trim() }).then((success) => { if (success) clearDraft(key, value); });
         }} />
       </label>
       <small>Project-relative animation file (.anm or animated .gif).</small>
-      {value.trim() !== "" && <AnimationPreview file={value} fs={fs} projectId={snapshot.identity.projectId} id={`${formId}-${key}`} />}
+      {supports && pickAsset !== undefined && <button type="button" disabled={disabled} aria-label={`Choose ${groupLabel}`} onClick={() => void choose()}>Choose</button>}
+      {supports && open !== undefined && /\.anm$/i.test(value.trim()) && <button type="button" disabled={disabled} aria-label={`Open ${groupLabel}`} onClick={() => void openSource()}>Open</button>}
+      {value.trim() !== "" && <AnimationPreview file={value} fs={fs} projectId={snapshot.identity.projectId} id={`${formId}-${key}`} layout={layout} />}
     </div>;
   };
   const setPoint = (pointIndex: number, axis: "x" | "y", value: number): void => {
@@ -545,7 +566,7 @@ export function SpriteView({ doc, fs, capabilities, onEdited, pendingEdits }: Sp
   };
 
   return <section class="tkr-sprite-graphics" aria-label={`${snapshot.actorType} sprite graphics`}>
-    <header><h2>Sprite graphics</h2><p>{snapshot.actorName || `Untitled ${snapshot.actorType}`} · {snapshot.actorType} file minor {snapshot.minor}</p></header>
+    <header><h2>Sprite graphics</h2><p>{snapshot.actorName || `Untitled ${snapshot.actorType}`} · {snapshot.actorType} file minor {snapshot.minor}. Shared graphics definition; other uses are unknown.</p></header>
     {readOnly && <p role="status">Read-only: {snapshot.readOnly?.message}</p>}
     <fieldset disabled={disabled}>
       <legend>Directional walk animations</legend>
