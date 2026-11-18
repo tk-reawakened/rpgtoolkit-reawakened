@@ -3,7 +3,7 @@ title: 'Open and edit a native animation clip'
 type: 'feature'
 ticket: 6
 created: '2026-11-18'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '9688dc7ae390194cf225e4930d4d02549e88441d'
 route: 'full'
 route_source: 'auto'
@@ -89,6 +89,7 @@ The model exports `NativeClipCommand` as `{ type: "set-native-clip-property"; pa
 - Real Chromium: authored clip edit, exact bytes, reopen, unapplied-draft warning and disk-conflict reload passed. Packaged `@vscode/test-web`: native text ↔ visual changes, native Undo/Redo, invalid-source recovery, exact bytes and reopen passed. Screenshots were inspected.
 - Both host-proof TypeScript projects passed. Headless golden passed; closing matched 8/8 baselines (2 clean boots, 6 expected failures).
 - After the fixture fix, the default VS Code run passed the native clip, animation, sprite, board and settings/art lanes; its later connected-authoring lane timed out (#3192). The focused connected-authoring proof had passed separately on the same integration candidate.
+- Delivered in PR #3182, merged as `16821f6528e914334e72def1442bafae34c4ea5c`; required CI checks passed. Issue #1807 and fixed defects #3190 and #3191 are closed. The separate local full-suite timeout remains tracked as #3192.
 
 - Focused model/UI/host tests and configured TypeScript checks; inspect individual new test durations (<1 s each).
 - Real browser and packaged VS Code creator journeys; assert actual persisted bytes and reopened values.
