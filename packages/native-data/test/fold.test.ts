@@ -4,7 +4,7 @@ import test from "node:test";
 import { checkDocuments, foldId, type CheckConfig, type DocumentInput } from "../src/index.ts";
 
 /** `.tkract` is not in the shipped registry; naming it here makes these actor documents readable without a contract to agree with. */
-const config: CheckConfig = { documentExtensions: [".tkract"], ownerField: "owner", pluginsField: "plugins" };
+const config: CheckConfig = { documentExtensions: [".tkract"] };
 
 void test("folding changes only the letters A to Z", () => {
   equal(foldId("Actors/Guard"), "actors/guard");

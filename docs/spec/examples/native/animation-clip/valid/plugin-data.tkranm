@@ -1,0 +1,10 @@
+contract: animation-clip
+version: 1.0.0-pre.1
+canvas: {width: 32, height: 32}
+delay: 0.15
+frames:
+  - image: bitmap/plugin.png
+pluginData: # keep comments, spacing and key order exactly
+  com.example.weather: # plugin-owned block
+    version: 1.0.0
+    data: {wind: 1.10, futureKnob: "keep: exact"} # unknown keys are opaque

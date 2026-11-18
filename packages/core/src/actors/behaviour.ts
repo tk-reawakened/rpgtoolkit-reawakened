@@ -51,7 +51,7 @@ function diagnostic(diagnostics: Diagnostic[] | undefined, code: string, message
 export function registerPackageBehaviours(registry: BehaviourRegistry, plugins: readonly ResolvedPlugin[]): void {
   try {
     for (const plugin of plugins) {
-      const namespace = plugin.namespace ?? plugin.definition.id;
+      const namespace = plugin.namespace ?? plugin.definition.id.slice(plugin.definition.id.lastIndexOf(".") + 1);
       const register = (name: string, hooks: ActorHooks): boolean => registry.registerForNamespace(namespace, name, hooks);
       plugin.definition.behaviourStartup?.(register);
     }

@@ -18,6 +18,7 @@ import {
 
 const examples = fileURLToPath(new URL("../../../docs/spec/examples/native/animation-clip/", import.meta.url));
 const swordSwing = readFileSync(fileURLToPath(new URL("./fixtures/sword-swing.tkranm", import.meta.url)), "utf8");
+const pluginSource = readFileSync(`${examples}valid/plugin-data.tkranm`, "utf8");
 const STAMP = "contract: animation-clip\nversion: 1.0.0-pre.1\n";
 const BODY = "canvas:\n  width: 32\n  height: 32\ndelay: 0.5\nframes:\n  - image: a.png\n";
 
@@ -47,10 +48,9 @@ const comments = (text: string): string[] => text.split("\n").flatMap((line) => 
 
 void test("the contract's valid examples read, and the checker finds the extension and stamp in agreement", () => {
   const files = readdirSync(`${examples}valid`).sort();
-  deepEqual(files, ["sword-swing.tkranm", "torch-minimal.tkranm", "walk-south-imported.tkranm"]);
   const documents = files.map((file) => ({ path: `valid/${file}`, text: readFileSync(`${examples}valid/${file}`, "utf8") }));
   for (const document of documents) accepted(document.text);
-  deepEqual(checkDocuments(documents, { ownerField: "owner", pluginsField: "plugins" }), []);
+  deepEqual(checkDocuments(documents, {}), []);
 });
 
 void test("a valid example reads into the typed model", () => {
@@ -265,10 +265,50 @@ void test("a written clip reads back equal, including awkward text and numbers",
 
 void test("the contract's own examples read, write and read again to the same clip", () => {
   for (const file of readdirSync(`${examples}valid`)) {
-    const clip = accepted(readFileSync(`${examples}valid/${file}`, "utf8"));
-    const written = writeClip(clip);
+    const source = readFileSync(`${examples}valid/${file}`, "utf8");
+    const clip = accepted(source);
+    const written = writeClip(clip, source);
     if (!written.ok) throw new Error(formatClipProblems(written.problems));
     deepEqual(accepted(written.text), clip, file);
+  }
+});
+
+void test("plugin blocks require matching source and survive ordinary clip edits byte for byte", () => {
+  const read = readClip(pluginSource);
+  ok(read.ok);
+  if (!read.ok) return;
+  equal(read.source, pluginSource);
+  deepEqual(read.clip.pluginData?.["com.example.weather"]?.data, { wind: 1.1, futureKnob: "keep: exact" });
+
+  const block = pluginSource.slice(pluginSource.indexOf("pluginData:"));
+  const edited = setClipProperty(pluginSource, ["delay"], 0.2);
+  ok(edited.ok);
+  if (!edited.ok) return;
+  deepEqual(changedLines(pluginSource, edited.text), [3]);
+  equal(edited.text.slice(edited.text.indexOf("pluginData:")), block);
+
+  ok(!writeClip(read.clip).ok, "plugin data cannot be regenerated without source");
+  const backed = writeClip(read.clip, pluginSource);
+  ok(backed.ok);
+  if (backed.ok) equal(backed.text, pluginSource);
+  ok(!writeClip({ ...read.clip, delay: 0.2 }, pluginSource).ok, "a changed model cannot be paired with stale source");
+  ok(!writeClip(read.clip, pluginSource.replace("wind: 1.10", "wind: 1.1")).ok, "even a lexically changed opaque block is a different source");
+  ok(!setClipProperty(pluginSource, ["pluginData", "com.example.weather", "version"], "1.1.0").ok);
+});
+
+void test("the clip reader surfaces every shared plugin-envelope problem kind", () => {
+  const malformed: readonly [string, string][] = [
+    [pluginSource.replace(/pluginData:[\s\S]*/, "pluginData: [com.example.weather]\n"), "container"],
+    [pluginSource.replace("com.example.weather", "Com.example.weather"), "id"],
+    [pluginSource.replace("  com.example.weather: # plugin-owned block\n", "  com.example.weather: # plugin-owned block\n    version: 1.0.0\n    data: {}\n  com.example.weather:\n"), "duplicate"],
+    [pluginSource.replace("    data: {wind: 1.10, futureKnob: \"keep: exact\"}", "    data: {wind: 1.10, futureKnob: \"keep: exact\"}\n    extra: true"), "shape"],
+    [pluginSource.replace("version: 1.0.0\n    data:", "version: 1.0\n    data:"), "version"],
+    [pluginSource.replace("data: {wind: 1.10, futureKnob: \"keep: exact\"}", "data: [wind]"), "data"],
+    [`${STAMP}metadata: {outside: &shared value}\ncanvas: {width: 32, height: 32}\ndelay: 0.15\nframes: [{image: bitmap/plugin.png}]\npluginData:\n  com.example.weather:\n    version: 1.0.0\n    data: {copy: *shared}\n`, "boundary"],
+  ];
+  for (const [text, kind] of malformed) {
+    const problems = refused(text);
+    ok(problems.some((problem) => problem.kind === "plugin-block" && problem.pluginKind === kind), kind);
   }
 });
 

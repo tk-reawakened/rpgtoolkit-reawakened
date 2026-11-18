@@ -26,7 +26,7 @@ import {
 } from "../script/index.ts";
 import { withOwner } from "../script/program.ts";
 import type { PackageCatalogueEntry } from "../script/plugin.ts";
-import { foldNamespace } from "../script/manifest.ts";
+import { foldNamespace, packageNamespace } from "../script/manifest.ts";
 import type { PostEffect } from "./effects.ts";
 
 /** The canonical key prefix of `kind`'s folder under `root` (docs/spec/formats/README.md#paths-inside-files). */
@@ -242,7 +242,7 @@ export function resolveManifestPlugins(
       });
       continue;
     }
-    const namespace = entry.namespace ?? packageName;
+    const namespace = packageNamespace(entry);
     const startup = packageEntry.startup === undefined ? undefined : withOwner(packageEntry.startup, packageName);
     plugins.push({
       definition: packageEntry.definition,

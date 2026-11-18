@@ -1,14 +1,12 @@
 /**
- * Reading one native document's top level: the stamp keys and the named link
- * fields. This is all the checker needs from YAML; the YAML profile rules are
- * not decided (docs/spec/formats/native-contracts.md#not-decided-here), so nothing
- * here validates anything else in the document.
+ * Read a native document's top-level stamp and fields, and validate its plugin
+ * envelopes without interpreting plugin-owned data.
  *
- * The `yaml` package is pure JavaScript text parsing: it touches no file, no
- * timer and no host API, so this module does no I/O (G2).
+ * YAML parsing is pure JavaScript and this module performs no I/O (G2).
  */
 
-import { isMap, isScalar, isSeq, LineCounter, parseAllDocuments, type Node, type Pair } from "yaml";
+import { isMap, isScalar, isSeq, LineCounter, parseAllDocuments, type Document, type Node, type Pair } from "yaml";
+import { validatePluginData, type PluginBlockProblem } from "./plugin-data.ts";
 import { parseVersion } from "./version.ts";
 
 export type DocumentInput =
@@ -47,6 +45,7 @@ export type ReadDocument = {
   /** False when the document could not be read as one YAML mapping. */
   readonly readable: boolean;
   readonly stampReports: readonly StampReport[];
+  readonly pluginProblems: readonly PluginBlockProblem[];
   /** Every occurrence, in order, of each requested top-level field name. */
   readonly fields: ReadonlyMap<string, readonly FieldValue[]>;
 };
@@ -97,6 +96,7 @@ function unreadable(path: string, reason: string, line: number | null, found: st
     path,
     readable: false,
     stampReports: [{ class: "stamp", path, key: null, problem: "unreadable", found: found === "" ? [] : [found], reason, line }],
+    pluginProblems: [],
     fields: new Map(),
   };
 }
@@ -105,7 +105,7 @@ function unreadable(path: string, reason: string, line: number | null, found: st
  * Read the stamp and the requested top-level fields of one document. A stamp
  * problem is reported, never repaired and never guessed around.
  */
-export function readDocument(input: DocumentInput, fieldNames: readonly string[]): ReadDocument {
+export function readDocument(input: DocumentInput, fieldNames: readonly string[], reservedKeys: readonly string[] = []): ReadDocument {
   const { path } = input;
   if ("unreadable" in input) return unreadable(path, input.unreadable, null, "");
   const { text } = input;
@@ -214,5 +214,8 @@ export function readDocument(input: DocumentInput, fieldNames: readonly string[]
     const values = pairs.flatMap((pair, index) => (names[index] === name ? [readValue(text, pair.value as Node | null)] : []));
     fields.set(name, values);
   }
-  return { path, readable: true, stampReports, fields };
+  const pluginProblems = document === undefined || contents === null
+    ? []
+    : validatePluginData(document as Document.Parsed, text, lines, reservedKeys);
+  return { path, readable: true, stampReports, pluginProblems, fields };
 }

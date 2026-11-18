@@ -172,3 +172,13 @@ test("a folder that cannot be a package is reported by name before boot", () => 
   if (built.ok) throw new Error("unreachable");
   ok(built.problems.some((problem) => problem.includes("appears twice")), built.problems.join("; "));
 });
+
+test("qualified package manifests retain a qualified id in the catalogue", () => {
+  const built = buildPackageCatalogue([{
+    label: "weather/manifest.json",
+    manifestText: JSON.stringify({ name: "com.example.weather", version: "1", requests: [], program: "startup.prg" }),
+    programSource: "end()\n",
+  }]);
+  ok(built.ok, built.ok ? "" : built.problems.join("; "));
+  if (built.ok) equal(built.entries[0]?.name, "com.example.weather");
+});

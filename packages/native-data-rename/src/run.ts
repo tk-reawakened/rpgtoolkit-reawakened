@@ -24,49 +24,39 @@ export type CliResult = {
 
 const REGISTERED = REGISTRY.map((entry) => entry.extension).join(", ");
 
-export const HELP = `tkr-native-rename: rename or move native documents without breaking a link
+export const HELP = `tkr-native-rename: rename or move native documents without breaking references
 
 In plain words: a native document is named by where it lives, so moving or renaming
-one changes its name, and every document that mentions the old name has to change
-with it. This command does both in one step. It moves the file, rewrites each
-mention of the old name in your other native documents (a plugin document's owner,
-an owner's list of plugin documents, and any other field you name), and does it all
-or not at all: if anything cannot be done, no file in the project has changed.
-Edits touch only the line that holds the old name; comments and every other line
-stay exactly as they were. It refuses, with the reason, a new name that is not a
-valid ID, a new extension that names another kind of document, a name that already
-belongs to a document, and a project that the checker (tkr-native-check) does not
-find clean to begin with: run the checker and fix what it reports first.
+one changes its ID, and every document that mentions the old ID has to change with
+it. This command does both in one step. It moves the file and rewrites each mention
+of the old ID in configured reference fields, all or nothing: if anything cannot be
+done, no file in the project has changed. Plugin blocks move with their document and
+are never traversed or rewritten. Edits touch only the line that holds the old ID;
+comments and every other line stay exactly as they were.
 
-Exactly: reads the native documents under FOLDER (files whose names end in a native
+Exactly: reads native documents under FOLDER (files whose names end in a native
 document extension: ${REGISTERED}) as UTF-8 YAML. Each OLD=NEW pair gives the ID of a
-document (its path below FOLDER with the extension, "/" between parts, compared
-with only A to Z folded) and its new ID, which is also its new path. Several pairs
-are one transaction, judged on the project as it would be after all of them, so an
-owner and its plugin documents can move together and two documents can swap names.
-A document that holds the old ID in a link field or a --ref-field has that one scalar
-replaced in place (a quoted value keeps its quotes). Plugin documents do not move
-with their owner: name them in the same command. A new name that differs only in case
-(Guard.tkract to guard.tkract) works on a case-insensitive file system. Other files,
-legacy files included, are never read or touched.
+document (its path below FOLDER with "/" between parts, compared with only A to Z
+folded) and its new ID, which is also its new path. Several pairs are one transaction,
+judged on the final project, so documents can move together and two can swap names.
+A document that holds the old ID in a --ref-field has that scalar replaced in place.
+A new ID that differs only in case works on a case-insensitive file system. Other
+files, legacy files included, are never read or touched.
 
 The change is written to temporary names next to the targets and renamed into place;
 if any step fails the steps already done are undone. A power cut in the middle of the
-renames cannot be ruled out on every file system; originals are then left beside their
-places as .NAME.tkr-rename-TOKEN-N.bak. Folders left empty by a move are left in place.
+renames cannot be ruled out on every file system; originals are then left beside
+their places as .NAME.tkr-rename-TOKEN-N.bak. Folders left empty by a move are left
+in place.
 
 Usage:
-  tkr-native-rename --owner-field NAME --plugins-field NAME [options] FOLDER OLD=NEW [OLD=NEW ...]
-
-Required (the spec leaves the link field names open, so they are not assumed):
-  --owner-field NAME    top-level field of a plugin document naming its owner's ID
-  --plugins-field NAME  top-level field of an owner listing its plugin documents' IDs
+  tkr-native-rename [options] FOLDER OLD=NEW [OLD=NEW ...]
 
 Options:
-  --ref-field NAME      another top-level field holding an ID or a list of IDs to keep
-                        up to date; repeat for several
-  --ext .EXT            read files with this extension as documents instead; repeat for
-                        several (default: ${REGISTERED})
+  --ref-field NAME      top-level field holding an ID or list of IDs to keep up to
+                        date; repeat for several
+  --ext .EXT            read files with this extension as documents instead; repeat
+                        for several (default: ${REGISTERED})
   --dry-run             print what would change and write nothing
   --json                print one JSON result instead of lines of text
   --help                print this text
@@ -87,11 +77,9 @@ type Parsed =
     }
   | { readonly ok: false; readonly help: boolean; readonly message: string };
 
-const VALUE_OPTIONS: readonly string[] = ["--owner-field", "--plugins-field", "--ref-field", "--ext"];
+const VALUE_OPTIONS: readonly string[] = ["--ref-field", "--ext"];
 
 function parse(argv: readonly string[]): Parsed {
-  let ownerField: string | undefined;
-  let pluginsField: string | undefined;
   const referenceFields: string[] = [];
   const extensions: string[] = [];
   let dryRun = false;
@@ -106,15 +94,10 @@ function parse(argv: readonly string[]): Parsed {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("--")) return { ok: false, help: false, message: `${argument} needs a value` };
       index += 1;
-      if (argument === "--owner-field") ownerField = value;
-      else if (argument === "--plugins-field") pluginsField = value;
-      else if (argument === "--ref-field") referenceFields.push(value);
+      if (argument === "--ref-field") referenceFields.push(value);
       else extensions.push(value);
     } else if (argument.startsWith("-")) return { ok: false, help: false, message: `unknown option ${argument}` };
     else positional.push(argument);
-  }
-  if (ownerField === undefined || pluginsField === undefined) {
-    return { ok: false, help: false, message: "--owner-field and --plugins-field are required: the link field names are not decided by the spec" };
   }
   const [folder, ...renames] = positional;
   if (folder === undefined) return { ok: false, help: false, message: "give the folder to rename in" };
@@ -126,8 +109,6 @@ function parse(argv: readonly string[]): Parsed {
     pairs.push({ from: rename.slice(0, at), to: rename.slice(at + 1) });
   }
   const config: RenameConfig = {
-    ownerField,
-    pluginsField,
     ...(extensions.length === 0 ? {} : { documentExtensions: extensions }),
     ...(referenceFields.length === 0 ? {} : { referenceFields }),
   };

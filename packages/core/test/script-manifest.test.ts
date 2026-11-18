@@ -141,15 +141,37 @@ test("a package entry parses with name, version, default namespace and declared 
   equal(isPackageManifestEntry(result.manifest![0]!), false);
 });
 
-test("reserved lower-case package IDs remain valid manifest names", () => {
+test("qualified package ids default to their final dot-free namespace segment", () => {
   const result = parsePluginManifest([
     { id: "core" },
-    { id: "constructor", version: "1" },
-    { id: "core-tools", version: "1" },
-    { id: "stock_battle", version: "1", namespace: "stock_battle" },
+    { id: "com.example.weather", version: "1" },
+    { id: "com.example.tool-kit", version: "1" },
+    { id: "com.other.weather", version: "1", namespace: "other-weather" },
   ]);
   deepEqual(result.diagnostics, []);
-  deepEqual(result.manifest?.map((entry) => entry.id), ["core", "constructor", "core-tools", "stock_battle"]);
+  deepEqual(listPackageDeclarations(result.manifest!).map(({ name, namespace }) => [name, namespace]), [
+    ["com.example.weather", "weather"],
+    ["com.example.tool-kit", "tool-kit"],
+    ["com.other.weather", "other-weather"],
+  ]);
+});
+
+test("reserved native-document keys are rejected as package ids", () => {
+  for (const id of ["contract", "version", "tags", "metadata", "pluginData"]) {
+    const result = parsePluginManifest([{ id: "core" }, { id, version: "1" }]);
+    equal(result.manifest, null, id);
+    deepEqual(result.diagnostics.map((item) => item.code), ["manifest.package-name"], id);
+  }
+});
+
+test("qualified packages collide on their default final-segment namespace", () => {
+  const result = parsePluginManifest([
+    { id: "core" },
+    { id: "com.a.weather", version: "1" },
+    { id: "com.b.weather", version: "1" },
+  ]);
+  equal(result.manifest, null);
+  deepEqual(result.diagnostics.map((item) => [item.code, item.index]), [["manifest.duplicate-namespace", 2]]);
 });
 
 test("package fields are validated with located diagnostics", () => {

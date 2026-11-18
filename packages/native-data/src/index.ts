@@ -8,12 +8,8 @@ export {
   type CheckReport,
   type DuplicateIdReport,
   type ExtensionContractMismatchReport,
-  type FixSide,
   type FoldCollisionReport,
-  type LinkEnd,
-  type MismatchedLinkReport,
-  type OwnerNoBackLinkReport,
-  type PluginNoOwnerReport,
+  type PluginBlockReport,
   type ReportClass,
 } from "./check.ts";
 export {
@@ -25,6 +21,11 @@ export {
   type StampProblemKind,
   type StampReport,
 } from "./document.ts";
+export {
+  validatePluginData,
+  type PluginBlockProblem,
+  type PluginBlockProblemKind,
+} from "./plugin-data.ts";
 export { foldId } from "./fold.ts";
 export {
   classifyExtension,

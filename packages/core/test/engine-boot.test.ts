@@ -2153,6 +2153,22 @@ test("manifest package lookup folds ASCII package identity and keeps the catalog
   equal(weather?.startup?.owner, "weather");
 });
 
+test("qualified package resolution defaults its runtime namespace to the final id segment", () => {
+  const id = "com.example.weather";
+  const catalogue: readonly PackageCatalogueEntry[] = [{
+    name: id,
+    version: "1.0",
+    requests: [],
+    definition: { id, version: "1.0", commands: [] },
+  }];
+  const resolved = resolveManifestPlugins([
+    ...ENGINE_DEFAULT_MANIFEST,
+    { id, version: "1.0" },
+  ], "main.gam", catalogue);
+  deepEqual(resolved.diagnostics, []);
+  equal(resolved.plugins.find((plugin) => plugin.package?.name === id)?.package?.namespace, "weather");
+});
+
 test("a project folder's RPGCode package layers an engine command and is rebuilt by reset", () => {
   const game = authorGame({
     ...SCRIPTED,

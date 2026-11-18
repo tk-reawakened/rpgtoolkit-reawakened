@@ -147,11 +147,13 @@ export function isPlainData(value: unknown, seen: Set<object> = new Set()): valu
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
- * The package-identity grammar (PKG-2): lower-case ASCII letters and digits with
- * `-` or `_` separators, used for a package id and its namespace. A host that
- * reads package folders validates with this one pattern rather than a copy.
+ * PKG-2 uses one grammar for a namespace segment and a dot-joined grammar for
+ * package ids. Hosts that read package folders use these same expressions.
  */
-export const PACKAGE_IDENTIFIER = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/;
+export const PACKAGE_NAMESPACE_IDENTIFIER = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/;
+export const PACKAGE_IDENTIFIER = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*(?:\.[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*)*$/;
+
+const RESERVED_PACKAGE_IDS = new Set(["contract", "version", "tags", "metadata", "pluginData"]);
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
   const allowed = new Set(keys);
@@ -196,16 +198,16 @@ function parseEntry(
     if (typeof record.version !== "string" || record.version.length === 0) {
       return { entry: null, diagnostic: diagnostic("manifest.version", path, index, "package version must be a non-empty string") };
     }
-    if (!PACKAGE_IDENTIFIER.test(record.id)) {
+    if (!PACKAGE_IDENTIFIER.test(record.id) || RESERVED_PACKAGE_IDS.has(record.id)) {
       return {
         entry: null,
-        diagnostic: diagnostic("manifest.package-name", path, index, `package name "${record.id}" must be a lower-case ASCII identifier`),
+        diagnostic: diagnostic("manifest.package-name", path, index, `package name "${record.id}" must be a lower-case ASCII qualified identifier and not a reserved document key`),
       };
     }
     entry.version = record.version;
     if (record.namespace !== undefined) {
-      if (typeof record.namespace !== "string" || !PACKAGE_IDENTIFIER.test(record.namespace)) {
-        return { entry: null, diagnostic: diagnostic("manifest.namespace", path, index, "package namespace must be an ASCII identifier") };
+      if (typeof record.namespace !== "string" || !PACKAGE_NAMESPACE_IDENTIFIER.test(record.namespace)) {
+        return { entry: null, diagnostic: diagnostic("manifest.namespace", path, index, "package namespace must be a dot-free ASCII identifier") };
       }
       entry.namespace = record.namespace;
     }
@@ -237,9 +239,9 @@ export function isPackageManifestEntry(entry: PluginManifestEntry): boolean {
   return entry.version !== undefined;
 }
 
-/** A package's namespace: the declared one, else its name (the folded id). */
+/** A package's namespace: the declared one, else the final segment of its id. */
 export function packageNamespace(entry: PluginManifestEntry): string {
-  return entry.namespace ?? entry.id;
+  return entry.namespace ?? entry.id.slice(entry.id.lastIndexOf(".") + 1);
 }
 
 /** The comparison key of a namespace: ASCII-only case fold, never a locale fold (PKG-4). */

@@ -15,9 +15,8 @@ import {
 } from "../src/index.ts";
 
 /**
- * The shipped registry holds only `.tkranm`. The link rules need an owner kind and two plugin
- * kinds, so these tests register placeholder kinds of their own, as the checker's tests do.
- * Nothing here is a real kind.
+ * The shipped registry holds only `.tkranm`. Tests register placeholder kinds of their own,
+ * as the checker's tests do. Nothing here is a real kind.
  */
 const TEST_REGISTRY: Registry = [
   { extension: ".tkranm", contract: "animation-clip" },
@@ -26,11 +25,11 @@ const TEST_REGISTRY: Registry = [
   { extension: ".tkrrai", contract: "actor-rain" },
   { extension: ".tkrscn", contract: "scene" },
 ];
-const config: RenameConfig = { registry: TEST_REGISTRY, ownerField: "owner", pluginsField: "plugins" };
+const config: RenameConfig = { registry: TEST_REGISTRY, referenceFields: ["owner", "plugins"] };
 
 const doc = (path: string, ...lines: string[]): DocumentInput => ({ path, text: `${lines.join("\n")}\n` });
 
-/** The fixture project: a clip, an owner, and two plugin documents linked both ways. Comments and odd spacing are deliberate. */
+/** The fixture project has generic configured references; comments and odd spacing are deliberate. */
 const CLIP = doc("clips/walk.tkranm", "contract: animation-clip", "version: 1.0.0-pre.1", "canvas: {width: 32, height: 32}", "delay: 0.15", "frames:", "  - image: tiles/village.tst14");
 const OWNER = doc(
   "actors/guard.tkract",
@@ -74,7 +73,7 @@ void test("the fixture project is checker-clean before any rename", () => {
   clean(PROJECT);
 });
 
-void test("renaming an owner moves it and rewrites only the lines that name it, in the plugin documents", () => {
+void test("renaming a document moves it and rewrites only configured references to it", () => {
   const result = plan(PROJECT, [{ from: "actors/guard.tkract", to: "actors/knight.tkract" }]);
   deepEqual(result.moves, [{ from: "actors/guard.tkract", to: "actors/knight.tkract" }]);
   deepEqual(
@@ -96,7 +95,7 @@ void test("renaming an owner moves it and rewrites only the lines that name it, 
   clean(applyPlanToDocuments(PROJECT, result));
 });
 
-void test("renaming a plugin document rewrites the owner's plugins-list entry and keeps the list's comments", () => {
+void test("renaming a referenced document updates a configured list field in place", () => {
   const result = plan(PROJECT, [{ from: "actors/guard.tkrwth", to: "actors/weather/guard.tkrwth" }]);
   deepEqual(result.moves, [{ from: "actors/guard.tkrwth", to: "actors/weather/guard.tkrwth" }]);
   deepEqual(result.edits.map((edit) => edit.path), ["actors/guard.tkract"]);
@@ -136,7 +135,7 @@ void test("a flow list changes one entry and keeps the rest of its line; two ent
   clean(applyPlanToDocuments([owner, weather, rain], both));
 });
 
-void test("an owner and its plugin documents renamed in one transaction leave a clean project", () => {
+void test("multiple referenced documents can be renamed in one transaction", () => {
   const pairs: RenamePair[] = [
     { from: "actors/guard.tkract", to: "knights/guard.tkract" },
     { from: "actors/guard.tkrwth", to: "knights/guard.tkrwth" },
@@ -171,7 +170,7 @@ void test("two documents can swap names in one transaction: each reference follo
   const after = applyPlanToDocuments(project, result);
   clean(after);
   const byPath = new Map(after.map((input) => [input.path, text(input)]));
-  // The document that was guard is now at knight's path, and the plugin document that named it names its new path.
+  // References follow each document's new path within the transaction.
   equal(byPath.get("actors/knight.tkract"), text(guard));
   equal(byPath.get("actors/guard.tkrwth"), text(guardWeather).replace("owner: actors/guard.tkract", "owner: actors/knight.tkract"));
   equal(byPath.get("actors/knight.tkrwth"), text(knightWeather).replace("owner: actors/knight.tkract", "owner: actors/guard.tkract"));
@@ -240,6 +239,27 @@ void test("further reference fields, named by the caller, are rewritten too: an 
   // `other` is not named as a reference field, so it is not one.
   ok(edit.after.includes("other: actors/guard.tkract\n"));
 });
+void test("a rename never traverses or rewrites opaque pluginData", () => {
+  const clip = doc(
+    "clips/walk.tkranm",
+    "contract: animation-clip",
+    "version: 1.0.0-pre.1",
+    "canvas: {width: 32, height: 32}",
+    "delay: 0.15",
+    "frames:",
+    "  - image: tiles/village.tst14",
+    "pluginData:",
+    "  com.example.weather:",
+    "    version: 1.0.0",
+    "    data: { target: actors/guard.tkract, future: 1.10 } # opaque",
+  );
+  const project = [clip, OWNER, WEATHER, RAIN];
+  const result = plan(project, [{ from: "actors/guard.tkract", to: "actors/knight.tkract" }]);
+  deepEqual(result.edits.map((edit) => edit.path), ["actors/guard.tkrrai", "actors/guard.tkrwth"]);
+  equal(result.edits.some((edit) => edit.path === "clips/walk.tkranm"), false);
+  equal(text(clip).includes("target: actors/guard.tkract, future: 1.10 } # opaque"), true);
+});
+
 
 void test("a reference that needs no change leaves its document out of the plan", () => {
   const result = plan(PROJECT, [{ from: "clips/walk.tkranm", to: "clips/stride.tkranm" }]);
@@ -381,19 +401,17 @@ void test("refusal: a project that is not checker-clean, with each problem named
   ];
   deepEqual(message(broken, [{ from: "actors/guard.tkract", to: "actors/knight.tkract" }]), [
     "the project is not clean before the rename: actors/bad.tkract: stamp key `version` is missing",
-    "the project is not clean before the rename: actors/ghost.tkrwth: plugin document `actors/ghost.tkrwth` names the owner `actors/nobody.tkract`, but no document has this ID.",
   ]);
-  // A link field the checker cannot read as an ID, or as a list of IDs, is one of those problems.
-  const unreadable = [OWNER, doc("actors/guard.tkrwth", "contract: actor-weather", "version: 1.0.0", "owner: [a, b]"), RAIN];
+  // A configured reference that cannot be read as an ID or list of IDs cannot be safely rewritten.
+  const unreadable = [OWNER, doc("actors/guard.tkrwth", "contract: actor-weather", "version: 1.0.0", "owner: {name: guard}"), RAIN];
   deepEqual(message(unreadable, [{ from: "actors/guard.tkract", to: "actors/knight.tkract" }]), [
-    "the project is not clean before the rename: actors/guard.tkrwth: plugin document `actors/guard.tkrwth` names the owner `[a, b]`, but `owner` must be one ID. Fix the plugin document.",
+    "actors/guard.tkrwth: the field `owner` is not an ID or a list of IDs (it must be an ID or a list of IDs; found {name: guard}), so the rename cannot tell which documents it names",
   ]);
   // Every problem of the pairs themselves is named along with it.
   deepEqual(message(broken, [{ from: "actors/ghost.tkract", to: "knight" }]), [
     "the new ID `knight` is not a valid ID: it has no extension, and an ID is a file name with its extension, such as `clips/walk.tkranm`",
     "no document has the ID `actors/ghost.tkract`, so there is nothing to rename",
     "the project is not clean before the rename: actors/bad.tkract: stamp key `version` is missing",
-    "the project is not clean before the rename: actors/ghost.tkrwth: plugin document `actors/ghost.tkrwth` names the owner `actors/nobody.tkract`, but no document has this ID.",
   ]);
 });
 
@@ -421,20 +439,15 @@ void test("refusal: a reference field that cannot be read as an ID or a list of 
   ]);
 });
 
-void test("a plan the checker would not find clean is refused, not offered: verifyPlan sees the missing back-link", () => {
-  // A hand-made plan that moves the owner but forgets the back-links.
+void test("verifyPlan checks the resulting document set without link-specific semantics", () => {
   const incomplete: RenamePlan = { moves: [{ from: "actors/guard.tkract", to: "actors/knight.tkract" }], edits: [] };
-  const reports = verifyPlan(PROJECT, incomplete, config);
-  deepEqual(reports.map((report) => report.class), ["plugin-no-owner", "plugin-no-owner"]);
-  deepEqual(reports.map((report) => "path" in report && report.path), ["actors/guard.tkrrai", "actors/guard.tkrwth"]);
+  deepEqual(verifyPlan(PROJECT, incomplete, config), []);
   deepEqual(verifyPlan(PROJECT, { moves: [], edits: [] }, config), []);
 });
 
-void test("a bad configuration is a RangeError, as in the checker, and the reference fields are checked", () => {
-  throws(() => validateRenameConfig({ ...config, ownerField: "" }), RangeError);
+void test("a bad configuration is a RangeError and reference fields are checked", () => {
   throws(() => validateRenameConfig({ ...config, referenceFields: [""] }), /must not be empty/);
-  throws(() => validateRenameConfig({ ...config, referenceFields: ["version"] }), /stamp key/);
-  throws(() => validateRenameConfig({ ...config, referenceFields: ["owner"] }), /link field already/);
-  throws(() => validateRenameConfig({ ...config, referenceFields: ["a", "a"] }), /named twice/);
-  throws(() => planRename(PROJECT, [{ from: "a", to: "b" }], { ...config, referenceFields: ["plugins"] }), RangeError);
+  throws(() => validateRenameConfig({ ...config, referenceFields: ["version"] }), /not a reference field/);
+  throws(() => validateRenameConfig({ ...config, referenceFields: ["pluginData"] }), /not a reference field/);
+  throws(() => validateRenameConfig({ ...config, referenceFields: ["owner", "owner"] }), /named twice/);
 });

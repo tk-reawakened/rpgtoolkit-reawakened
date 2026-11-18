@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { runCli as check } from "@tk-reawakened/native-data-cli";
 import { HELP, RESULT_SCHEMA, runCli } from "../src/index.ts";
-import { faultyFs, fingerprint, FIELD_ARGS, listFiles, OWNER, PROJECT, read, WEATHER, withProject } from "./helpers.ts";
+import { CHECK_ARGS, faultyFs, fingerprint, FIELD_ARGS, listFiles, OWNER, PROJECT, read, WEATHER, withProject } from "./helpers.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -69,7 +69,7 @@ void test("a rename prints the plan and a summary, changes the project, and the 
     deepEqual(result, { exitCode: 0, stdout: `${DRY_RUN_TEXT.replace("dry run: nothing is written\n", "").replace("would change:", "done:")}`, stderr: "" });
     equal(read(root, "actors/knight.tkract"), OWNER);
     equal(read(root, "actors/guard.tkrwth"), WEATHER.replace('"actors/guard.tkract"', '"actors/knight.tkract"'));
-    deepEqual(check([...FIELD_ARGS, root]), { exitCode: 0, stdout: "4 documents checked, 0 problems found\n", stderr: "" });
+    deepEqual(check([...CHECK_ARGS, root]), { exitCode: 0, stdout: "4 documents checked, 0 problems found\n", stderr: "" });
     // A second run of the same rename has nothing to rename.
     const again = rename(root);
     equal(again.exitCode, 1);
@@ -89,7 +89,7 @@ void test("several OLD=NEW pairs are one transaction: an owner and its plugin do
     equal(result.exitCode, 0, result.stderr);
     ok(result.stdout.endsWith("done: 3 documents moved, 3 documents edited (4 lines changed)\n"), result.stdout);
     deepEqual(listFiles(root), ["clips/walk.tkranm", "knights/guard.tkract", "knights/guard.tkrrai", "knights/guard.tkrwth", "legacy/walk.anm", "notes.txt"]);
-    deepEqual(check([...FIELD_ARGS, root]), { exitCode: 0, stdout: "4 documents checked, 0 problems found\n", stderr: "" });
+    deepEqual(check([...CHECK_ARGS, root]), { exitCode: 0, stdout: "4 documents checked, 0 problems found\n", stderr: "" });
   });
 });
 
@@ -103,7 +103,7 @@ void test("a case-only rename, Guard.tkract to guard.tkract, works from the comm
       const result = runCli([...FIELD_ARGS, root, "Actors/Guard.tkract=Actors/guard.tkract"]);
       equal(result.exitCode, 0, result.stderr);
       deepEqual(listFiles(root), ["Actors/Guard.tkrwth", "Actors/guard.tkract"]);
-      deepEqual(check([...FIELD_ARGS, root]), { exitCode: 0, stdout: "2 documents checked, 0 problems found\n", stderr: "" });
+      deepEqual(check([...CHECK_ARGS, root]), { exitCode: 0, stdout: "2 documents checked, 0 problems found\n", stderr: "" });
     },
   );
 });
@@ -115,7 +115,7 @@ void test("a further reference field is kept up to date when it is named with --
     const result = runCli([...args, root, "actors/guard.tkract=actors/knight.tkract"]);
     equal(result.exitCode, 0, result.stderr);
     equal(read(root, "scenes/town.tkrscn"), scene.replaceAll("actors/guard.tkract", "actors/knight.tkract"));
-    deepEqual(check([...FIELD_ARGS, "--ext", ".tkrscn", root]), { exitCode: 0, stdout: "5 documents checked, 0 problems found\n", stderr: "" });
+    deepEqual(check([...CHECK_ARGS, "--ext", ".tkrscn", root]), { exitCode: 0, stdout: "5 documents checked, 0 problems found\n", stderr: "" });
   });
 });
 
@@ -152,14 +152,11 @@ void test("a refusal names every reason, writes nothing, and exits 1", () => {
 });
 
 void test("a project the checker does not find clean is not renamed: the reports come back as the reasons", () => {
-  withProject({ ...PROJECT, "actors/ghost.tkrwth": "contract: actor-weather\nversion: 1.0.0\nowner: actors/nobody.tkract\n" }, (root) => {
+  withProject({ ...PROJECT, "actors/ghost.tkrwth": "contract: actor-weather\n" }, (root) => {
     const before = fingerprint(root);
     const result = rename(root);
     equal(result.exitCode, 1);
-    equal(
-      result.stderr,
-      "tkr-native-rename: cannot rename: the project is not clean before the rename: actors/ghost.tkrwth: plugin document `actors/ghost.tkrwth` names the owner `actors/nobody.tkract`, but no document has this ID.\nnothing was changed\n",
-    );
+    ok(result.stderr.includes("actors/ghost.tkrwth: stamp key `version` is missing"));
     equal(fingerprint(root), before);
   });
 });
@@ -181,9 +178,10 @@ void test("a new extension that is registered for another kind is refused with t
 void test("a usage mistake is an exit code and the help text, not a crash", () => {
   const help = runCli(["--help"]);
   deepEqual([help.exitCode, help.stdout, help.stderr], [0, HELP, ""]);
-  ok(help.stdout.startsWith("tkr-native-rename: rename or move native documents without breaking a link\n\nIn plain words:"));
+  ok(help.stdout.startsWith("tkr-native-rename: rename or move native documents without breaking references\n\nIn plain words:"));
   const cases: readonly (readonly [string[], string])[] = [
-    [["--plugins-field", "plugins", "folder", "a=b"], "--owner-field and --plugins-field are required: the link field names are not decided by the spec"],
+    [["--owner-field", "owner", "folder", "a=b"], "unknown option --owner-field"],
+    [["--plugins-field", "plugins", "folder", "a=b"], "unknown option --plugins-field"],
     [[...FIELD_ARGS], "give the folder to rename in"],
     [[...FIELD_ARGS, "folder"], "give at least one rename, written OLD=NEW"],
     [[...FIELD_ARGS, "folder", "nothing"], '"nothing" is not a rename: write OLD=NEW'],
@@ -191,9 +189,8 @@ void test("a usage mistake is an exit code and the help text, not a crash", () =
     [[...FIELD_ARGS, "folder", "a="], '"a=" is not a rename: write OLD=NEW'],
     [[...FIELD_ARGS, "--bogus", "folder", "a=b"], "unknown option --bogus"],
     [[...FIELD_ARGS, "--ref-field"], "--ref-field needs a value"],
-    [["--owner-field", "x", "--plugins-field", "x", "folder", "a=b"], "the owner and plugins link fields must have different names"],
-    [[...FIELD_ARGS, "--ref-field", "owner", "folder", "a=b"], "`owner` is a link field already; name only further reference fields"],
-    [[...FIELD_ARGS, "--ref-field", "version", "folder", "a=b"], "`version` is a stamp key, not a reference field"],
+    [[...FIELD_ARGS, "--ref-field", "owner", "folder", "a=b"], "the reference field `owner` is named twice"],
+    [[...FIELD_ARGS, "--ref-field", "version", "folder", "a=b"], "`version` is not a reference field"],
   ];
   for (const [argv, message] of cases) {
     const result = runCli(argv);

@@ -3,7 +3,7 @@ title: 'Preserve and check native plugin blocks'
 type: 'feature'
 ticket: 10
 created: '2026-11-18'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '81e49bf28bdda76a0c2a7724a73341a1c72dd0c8'
 route: 'full'
 route_source: 'auto'
@@ -54,11 +54,11 @@ context: []
 
 **Execution:**
 - [x] Record the delegated flat-shape selection in ADR/spec as a docs-first commit without representing it as direct approval.
-- [ ] Implement and test shared AST envelope validation, the checker report union and readable reporting; remove retired link classes/config.
-- [ ] Migrate rename and both CLIs and all callers/tests to the new checker contract; preserve opaque block bytes.
-- [ ] Implement source-preserving clip read/edit/write and importer integration; update authored valid/invalid examples and model/editor consumers.
-- [ ] Implement qualified package IDs and dot-free namespace behavior across core and catalogue; update their consumers and tests.
-- [ ] Prove each error kind and round trip with authored fixtures, including perturbation controls that fail for a regenerating writer; locally typecheck, lint, test, run the editor proof and applicable goldens before PR.
+- [x] Implement and test shared AST envelope validation, the checker report union and readable reporting; remove retired link classes/config.
+- [x] Migrate rename and both CLIs and all callers/tests to the new checker contract; preserve opaque block bytes.
+- [x] Implement source-preserving clip read/edit/write and importer integration; update authored valid/invalid examples and model/editor consumers.
+- [x] Implement qualified package IDs and dot-free namespace behavior across core and catalogue; update their consumers and tests.
+- [x] Prove each error kind and round trip with authored fixtures, including perturbation controls that fail for a regenerating writer; locally typecheck, lint, test, run the editor proof and applicable goldens before PR.
 - [ ] Independently review practical blockers, log edge cases, push and merge only after required checks.
 
 **Acceptance Criteria:**
@@ -67,12 +67,18 @@ context: []
 - Given a qualified package ID, when loaded without an explicit namespace, its last segment is used and namespace collisions are still reported.
 
 ## Implementation Notes
+- Plugin-bearing clips retain an exact source token and whole-document writes require matching original text; ordinary editor changes use in-place splices. Plugin-owned values are never regenerated.
 
 ## Plan Change Log
 
 ## Review Triage Log
+- Independent review found the runtime still used the full qualified package ID as its default namespace (#3197). Fixed the resolver to use the shared final-segment rule; a runtime regression catches the former behavior. Review also requested an actual filesystem move of a plugin-bearing clip; that proof now verifies unchanged bytes and a clean checker.
+- A first rename-review report described the wrong checkout and was withdrawn after re-review of this worktree. The clip review found no substantiated blocker; its observation that the source token can include trailing core text is an implementation detail, not a demonstrated preservation defect.
 
 ## Verification
+- Affected native-data, importer, CLIs, core manifest, catalogue and editor tests: 158 passed; new tests individually report under one second. Project build and affected test typechecks, lint, dependency graph, provenance and generated editor help passed.
+- Real Chromium proof edited, saved and reopened a clip carrying a plugin block; exact saved bytes were checked, including comments and `1.10`. Screenshot inspected. Both AST reprinting and value regeneration differed from the preservation fixture.
+- After the review fixes, 200 engine-boot and rename-executor tests passed, including the two new cases. The preservation test failed against both an AST-reprinting writer and a value-regenerating writer, then passed after restoration. Before the runtime namespace fix, headless golden passed and closing matched all 8 baselines (2 clean boots and 6 expected failures).
 
 - Run the affected native-data, importer, CLI, rename, core manifest, catalogue and editor tests individually and together; inspect new unit durations.
 - Typecheck affected projects, lint, dependency graph, provenance, docs/schema checks, and locally exercise native clip authoring before pushing. Run headless goldens if the core manifest change affects them.

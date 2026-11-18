@@ -4,11 +4,11 @@ import { join } from "node:path";
 import test from "node:test";
 import { runCli as check } from "@tk-reawakened/native-data-cli";
 import { applyPlan, checkApplicable } from "../src/index.ts";
-import { CLIP, CONFIG, faultyFs, fingerprint, FIELD_ARGS, listFiles, OWNER, planOf, PROJECT, RAIN, read, WEATHER, withProject } from "./helpers.ts";
+import { CHECK_ARGS, CLIP, CONFIG, faultyFs, fingerprint, FIELD_ARGS, listFiles, OWNER, planOf, PROJECT, RAIN, read, WEATHER, withProject } from "./helpers.ts";
 
 /** The real checker over a folder: clean means exit 0 and no problem. */
 function checkerSays(root: string, documents: number): void {
-  const result = check([...FIELD_ARGS, root]);
+  const result = check([...CHECK_ARGS, root]);
   deepEqual([result.exitCode, result.stdout], [0, `${documents} documents checked, 0 problems found\n`]);
 }
 
@@ -16,7 +16,7 @@ const OWNER_TO_KNIGHT = [{ from: "actors/guard.tkract", to: "actors/knight.tkrac
 const weatherAfter = WEATHER.replace('owner: "actors/guard.tkract"', 'owner: "actors/knight.tkract"');
 const rainAfter = RAIN.replace("owner: actors/guard.tkract", "owner: actors/knight.tkract");
 
-void test("a rename lands on disk: the owner moves as the same file, each plugin document changes by one line, and the checker reports nothing", () => {
+void test("a rename lands on disk: the file moves as itself and configured references are spliced in place", () => {
   withProject(PROJECT, (root) => {
     const ownerStat = statSync(join(root, "actors/guard.tkract"));
     const { documents, plan } = planOf(root, OWNER_TO_KNIGHT);
@@ -42,8 +42,27 @@ void test("a rename lands on disk: the owner moves as the same file, each plugin
     checkerSays(root, 4);
   });
 });
+void test("moving a plugin-bearing document preserves its block bytes and leaves the project checker-clean", () => {
+  const block = [
+    "pluginData: # keep this header comment",
+    "  com.example.weather:",
+    "    version: 1.0.0",
+    "    data: {future: 1.10} # keep flow style, number spelling and comment",
+    "",
+  ].join("\n");
+  const clip = `${CLIP}${block}`;
+  const files = { ...PROJECT, "clips/walk.tkranm": clip };
+  withProject(files, (root) => {
+    const { documents, plan } = planOf(root, [{ from: "clips/walk.tkranm", to: "clips/stride.tkranm" }]);
+    deepEqual(applyPlan(root, documents, plan), { status: "applied", moved: 1, edited: 0, leftovers: [] });
+    equal(read(root, "clips/stride.tkranm"), clip);
+    ok(read(root, "clips/stride.tkranm").endsWith(block));
+    checkerSays(root, 4);
+  });
+});
 
-void test("an owner and its plugin documents move together into new folders in one transaction, and the checker reports nothing", () => {
+
+void test("multiple documents move together in one transaction and the checker reports nothing", () => {
   withProject(PROJECT, (root) => {
     const { documents, plan } = planOf(root, [
       { from: "actors/guard.tkract", to: "knights/guard.tkract" },
