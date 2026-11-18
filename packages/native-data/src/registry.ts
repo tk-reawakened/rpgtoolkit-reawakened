@@ -25,7 +25,10 @@ export type Registry = readonly RegistryEntry[];
  * Every registered native extension. A kind is added here, and to the spec's table, in the
  * same change that writes its contract (docs/spec/formats/native-contracts.md#file-names).
  */
-export const REGISTRY: Registry = [{ extension: ".tkranm", contract: "animation-clip" }];
+export const REGISTRY: Registry = [
+  { extension: ".tkranm", contract: "animation-clip" },
+  { extension: ".tkrtile", contract: "tileset" },
+];
 
 /** The form of every registered extension: `.tkr` and three or more lowercase ASCII letters. */
 const EXTENSION_FORM = /^\.tkr[a-z]{3,}$/;

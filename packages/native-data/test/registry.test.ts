@@ -6,8 +6,11 @@ import { classifyExtension, extensionOf, lookupExtension, REGISTRY, validateRegi
 
 const spec = fileURLToPath(new URL("../../../docs/spec/formats/native-contracts.md", import.meta.url));
 
-void test("the shipped registry holds only the animation clip, and passes its own rules", () => {
-  deepEqual(REGISTRY, [{ extension: ".tkranm", contract: "animation-clip" }]);
+void test("the shipped registry holds the documented native contracts, and passes its own rules", () => {
+  deepEqual(REGISTRY, [
+    { extension: ".tkranm", contract: "animation-clip" },
+    { extension: ".tkrtile", contract: "tileset" },
+  ]);
   validateRegistry(REGISTRY);
 });
 
