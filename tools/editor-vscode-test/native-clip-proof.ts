@@ -118,4 +118,6 @@ export async function runVscodeNativeClipProof(page: Page, expect: Expect, workb
   await expect(invalidBytes.getByText(/contains invalid UTF-8 bytes/)).toBeVisible();
   await expect(invalidBytes.getByLabel("Delay (seconds)")).toHaveCount(0);
   await expect.poll(() => readBacking("Misc/invalid-utf8.tkranm")).toEqual(new Uint8Array([...original, 10, 35, 32, 255, 10]));
+  await command("View: Close Editor");
+  await expect(page.getByRole("tab").filter({ hasText: "invalid-utf8.tkranm" })).toHaveCount(0);
 }

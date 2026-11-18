@@ -110,7 +110,6 @@ for (const choice of nativeClipProof || designProof || boardPropertiesProof || b
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
   const nativeClipBytes = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/native/animation-clip/valid/sword-swing.tkranm")));
   await writeFile(resolve(proofWorkspace, NATIVE_CLIP_PROOF_PATH), nativeClipBytes);
-  if (nativeClipProof) await writeFile(resolve(proofWorkspace, "Misc/invalid-utf8.tkranm"), Buffer.concat([nativeClipBytes, Buffer.from([10, 35, 32, 255, 10])]));
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
   const artPath = "Tiles/art.tst";
@@ -398,9 +397,14 @@ for (const choice of nativeClipProof || designProof || boardPropertiesProof || b
       await runVscodeConnectedAuthoringProof(page, expect, workbenchUrl, readBacking);
       console.log("vscode.dev connected authoring, saved-source identity and immutable run-snapshot proof passed");
     };
-    if (nativeClipProof) {
+    const proveNativeClip = async () => {
+      await writeBacking("Misc/invalid-utf8.tkranm", Buffer.concat([nativeClipBytes, Buffer.from([10, 35, 32, 255, 10])]));
       await runVscodeNativeClipProof(page, expect, workbenchUrl, readBacking, nativeClipBytes);
+      await rm(resolve(proofWorkspace, "Misc/invalid-utf8.tkranm"));
       console.log("vscode.dev native clip edit, one-line save and reopen proof passed");
+    };
+    if (nativeClipProof) {
+      await proveNativeClip();
     } else if (designProof) {
       await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
       await expect(page.locator(".monaco-workbench")).toBeVisible();
@@ -462,8 +466,7 @@ for (const choice of nativeClipProof || designProof || boardPropertiesProof || b
       console.log("vscode.dev autosave command palette proof passed");
     } else {
       if (choice === "cancel" && !skipSpriteProof) {
-        await runVscodeNativeClipProof(page, expect, workbenchUrl, readBacking, nativeClipBytes);
-        console.log("vscode.dev native clip edit, one-line save and reopen proof passed");
+        await proveNativeClip();
       }
       if (choice === "cancel" && !skipSpriteProof) {
         await runVscodeAnimationProof(page, expect, workbenchUrl, { readBacking, withBackingWriteRefused });

@@ -81,12 +81,14 @@ The model exports `NativeClipCommand` as `{ type: "set-native-clip-property"; pa
 
 - Independent host/data review: fixed UTF-8 corruption risk (#3179) by checking backing bytes before enabling visual edits, and fixed delayed Apply erasing newer scalar/colour drafts (#3180). The packaged proof now saves the visual edit itself, verifies exact bytes and refuses a file with an invalid byte in a comment; the delayed-acknowledgment test covers both draft types.
 - Kept host-level draft close/revert and shortcut handling in #3172 and the unverified uncommon flow-comment hypothesis in #3181. Neither is represented as fixed.
+- Fixed the CI-discovered Node ESM test bundle failure (#3190) and default native-clip proof's missing invalid-UTF-8 fixture (#3191). The focused connected-authoring proof passed, but its later run in the full sequential VS Code suite timed out at the sprite inspector; recorded separately as #3192 rather than treating that run as green.
 
 ## Verification
 
 - Local affected suite: 904 passed; `pnpm exec tsc -b`, model test types, lint, generated-help/bundle check, dependency graph and provenance scan passed.
 - Real Chromium: authored clip edit, exact bytes, reopen, unapplied-draft warning and disk-conflict reload passed. Packaged `@vscode/test-web`: native text ↔ visual changes, native Undo/Redo, invalid-source recovery, exact bytes and reopen passed. Screenshots were inspected.
 - Both host-proof TypeScript projects passed. Headless golden passed; closing matched 8/8 baselines (2 clean boots, 6 expected failures).
+- After the fixture fix, the default VS Code run passed the native clip, animation, sprite, board and settings/art lanes; its later connected-authoring lane timed out (#3192). The focused connected-authoring proof had passed separately on the same integration candidate.
 
 - Focused model/UI/host tests and configured TypeScript checks; inspect individual new test durations (<1 s each).
 - Real browser and packaged VS Code creator journeys; assert actual persisted bytes and reopened values.
