@@ -38,23 +38,13 @@
 }
 
 /* Base Interactive Controls (Buttons, Inputs, Selects, Textareas) */
-.tkr-web-shell button,
-.tkr-workbench button,
-[class^="tkr-"] button,
-.tkr-web-shell input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
-.tkr-workbench input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
-[class^="tkr-"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
-.tkr-web-shell select,
-.tkr-workbench select,
-[class^="tkr-"] select,
-.tkr-web-shell textarea,
-.tkr-workbench textarea,
-[class^="tkr-"] textarea {
+:is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"])
+  :where(button, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), select, textarea):where(:not(.monaco-editor *)) {
   font-family: inherit;
   font-size: var(--tkr-text-sm);
   line-height: 1.25;
-  min-block-size: 1.75rem;
-  padding: 0.25rem 0.5rem;
+  min-block-size: 1.5rem;
+  padding: var(--tkr-space-1) var(--tkr-space-2);
   color: var(--tkr-fg-primary);
   background: var(--tkr-bg-control);
   border: 1px solid var(--tkr-border-strong);
@@ -62,9 +52,7 @@
   transition: background-color 100ms ease, border-color 100ms ease, box-shadow 100ms ease;
 }
 
-.tkr-web-shell button,
-.tkr-workbench button,
-[class^="tkr-"] button {
+:is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) :where(button):where(:not(.monaco-editor *)) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -72,25 +60,21 @@
   font-weight: 500;
   cursor: pointer;
   user-select: none;
-  white-space: nowrap;
+  white-space: normal;
 }
 
-.tkr-web-shell button:hover:not(:disabled):not([aria-disabled="true"]),
-.tkr-workbench button:hover:not(:disabled):not([aria-disabled="true"]),
-[class^="tkr-"] button:hover:not(:disabled):not([aria-disabled="true"]) {
+:is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) :where(button):hover:where(:not(:disabled, [aria-disabled="true"], .monaco-editor *)) {
   background: var(--tkr-bg-control-hover);
   border-color: var(--tkr-fg-muted);
 }
 
-.tkr-web-shell button[aria-pressed="true"],
-.tkr-workbench button[aria-pressed="true"],
-[class^="tkr-"] button[aria-pressed="true"],
+:is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) :where(button)[aria-pressed="true"]:where(:not(.monaco-editor *)),
 .tkr-board-tool-active {
   background: var(--tkr-accent-subtle);
-  border-color: var(--tkr-accent);
-  color: var(--tkr-fg-primary);
+  border-color: var(--tkr-selection-border);
+  color: var(--tkr-accent-subtle-fg);
   font-weight: 600;
-  box-shadow: inset 0 0 0 1px var(--tkr-accent);
+  box-shadow: inset 0 0 0 1px var(--tkr-selection-border);
 }
 
 /* Primary Save Actions */
@@ -103,32 +87,27 @@
 .tkr-run-start:not(:disabled),
 .tkr-new-board-create:not(:disabled) {
   background: var(--tkr-accent);
-  border-color: var(--tkr-accent);
+  border-color: var(--tkr-border-strong);
   color: var(--tkr-accent-fg);
   font-weight: 600;
 }
 
-.tkr-web-shell button:disabled,
-.tkr-workbench button:disabled,
-[class^="tkr-"] button:disabled,
-.tkr-web-shell button[aria-disabled="true"],
-.tkr-workbench button[aria-disabled="true"],
-[class^="tkr-"] button[aria-disabled="true"],
-.tkr-web-shell input:disabled,
-.tkr-workbench input:disabled,
-[class^="tkr-"] input:disabled,
-.tkr-web-shell select:disabled,
-.tkr-workbench select:disabled,
-[class^="tkr-"] select:disabled,
-[class^="tkr-"] input[readonly] {
-  opacity: 0.48;
+:is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"])
+  :where(button:disabled, button[aria-disabled="true"], input:disabled, select:disabled, textarea:disabled):where(:not(.monaco-editor *)) {
+  opacity: 0.65;
   cursor: not-allowed;
 }
 
+:is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"])
+  :where(input[readonly], textarea[readonly]):not(:disabled):where(:not(.monaco-editor *)) {
+  opacity: 1;
+  color: var(--tkr-fg-primary);
+  cursor: text;
+  border-style: dashed;
+}
+
 /* Keyboard Focus Ring */
-.tkr-web-shell :focus-visible,
-.tkr-workbench :focus-visible,
-[class^="tkr-"] :focus-visible {
+:is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) :focus-visible:where(:not(.monaco-editor *)) {
   outline: 2px solid var(--tkr-focus-ring);
   outline-offset: 2px;
 }
@@ -180,8 +159,9 @@
 }
 
 .tkr-web-topbar {
+  flex: 0 0 auto;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.375rem 0.75rem;
   padding: 0.25rem 0.625rem;
@@ -190,21 +170,6 @@
   border-block-end: 1px solid var(--tkr-border-subtle);
 }
 
-/* When a project is open in the workbench, merge .tkr-web-topbar into the single 38px workbench bar */
-.tkr-web-shell:has(#settings > section:not([hidden])) > .tkr-web-topbar {
-  position: absolute;
-  inset-block-start: 0;
-  inset-inline: 0;
-  block-size: 2.375rem;
-  background: transparent;
-  border-block-end: 0;
-  pointer-events: none;
-  z-index: 25;
-}
-
-.tkr-web-shell:has(#settings > section:not([hidden])) > .tkr-web-topbar .tkr-web-brand {
-  margin-inline-start: 2.25rem;
-}
 
 /* Document actions (Undo, Redo, Save all, Save as, Revert, Close, Second view) live inside the ☰ Hamburger Menu */
 .tkr-web-doc-actions {
@@ -238,24 +203,23 @@
   font-size: var(--tkr-text-sm);
   font-weight: 700;
   letter-spacing: -0.01em;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .tkr-web-status {
   margin: 0;
-  margin-inline-start: auto;
+  flex: 1 1 20rem;
+  min-inline-size: 0;
   padding: 0.125rem 0.625rem;
   font-family: var(--tkr-font-mono);
   font-size: var(--tkr-text-xs);
   color: var(--tkr-fg-muted);
   background: var(--tkr-bg-surface);
   border: 1px solid var(--tkr-border-subtle);
-  border-radius: 999px;
-  max-inline-size: var(--tkr-web-status-max, min(24rem, 36vw));
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  pointer-events: auto;
+  border-radius: var(--tkr-radius-sm);
+  max-inline-size: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* Empty State vs Active Workbench State for .tkr-web-workspace & .tkr-web-project-bar */
@@ -279,6 +243,8 @@
   align-items: stretch;
   gap: 0.75rem;
   padding: 0.75rem 0.875rem;
+  min-block-size: 0;
+  overflow: auto;
   background: var(--tkr-bg-panel);
   border-inline-end: 1px solid var(--tkr-border-subtle);
 }
@@ -310,11 +276,16 @@
   color: var(--tkr-fg-muted);
 }
 
-.tkr-web-project-controls {
+fieldset.tkr-web-project-controls {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0.625rem;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .tkr-web-workspace:not(:has(> #settings > section:not([hidden]))) .tkr-web-primary-open,
@@ -323,7 +294,7 @@
   inline-size: 100%;
   min-block-size: 2rem !important;
   background: var(--tkr-accent) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-border-strong) !important;
   color: var(--tkr-accent-fg) !important;
   font-weight: 600 !important;
 }
@@ -358,6 +329,11 @@
 
 .tkr-web-session-open label:hover {
   background: var(--tkr-bg-control-hover);
+}
+
+.tkr-web-session-open:has(input:focus-visible) label {
+  outline: 2px solid var(--tkr-focus-ring);
+  outline-offset: 2px;
 }
 
 .tkr-web-session-open input[type="file"] {
@@ -441,9 +417,9 @@
   gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: var(--tkr-bg-elevated);
-  border: 1px solid var(--tkr-border-default);
-  border-radius: var(--tkr-radius-lg);
-  box-shadow: var(--tkr-shadow-overlay);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-md);
+  box-shadow: var(--tkr-shadow-menu);
 }
 
 .tkr-web-workspace:has(> #settings > section:not([hidden])) > #settings {
@@ -494,7 +470,7 @@
 .tkr-panel-toggles {
   flex: 0 0 auto;
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
   gap: 0.5rem;
@@ -504,15 +480,6 @@
   border-block-end: 1px solid var(--tkr-border-subtle);
 }
 
-/* The page's status badge is drawn over the end of the workbench bar; the search trigger stops short of it. */
-.tkr-web-shell:has(#settings > section:not([hidden])) {
-  --tkr-web-status-max: min(20rem, 28vw);
-}
-
-.tkr-web-shell:has(#settings > section:not([hidden])) .tkr-command-palette-trigger {
-  margin-inline-start: auto;
-  margin-inline-end: calc(var(--tkr-web-status-max) + 1.25rem);
-}
 
 /* Application Menu (☰) & Command Palette Bar (.tkr-command-bar) */
 .tkr-command-bar {
@@ -531,7 +498,7 @@
   min-inline-size: 1.875rem !important;
   padding: 0.125rem 0.375rem !important;
   background: var(--tkr-bg-control) !important;
-  border: 1px solid var(--tkr-border-subtle) !important;
+  border: 1px solid var(--tkr-border-strong) !important;
   border-radius: var(--tkr-radius-sm) !important;
 }
 
@@ -587,12 +554,17 @@
 .tkr-app-menu-category:hover,
 .tkr-app-menu-item:hover:not(:disabled) {
   background: var(--tkr-accent-subtle) !important;
-  color: var(--tkr-fg-primary) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
 }
 
 .tkr-app-menu-chevron {
   font-size: 1rem;
   color: var(--tkr-fg-muted);
+}
+
+.tkr-app-menu-category-active .tkr-app-menu-chevron,
+.tkr-app-menu-category:hover .tkr-app-menu-chevron {
+  color: inherit;
 }
 
 .tkr-command-palette-trigger {
@@ -606,8 +578,8 @@
   gap: 0.75rem;
   min-block-size: 1.6875rem !important;
   padding: 0.125rem 0.625rem !important;
-  background: var(--tkr-bg-input) !important;
-  border: 1px solid var(--tkr-border-subtle) !important;
+  background: var(--tkr-bg-control) !important;
+  border: 1px solid var(--tkr-border-strong) !important;
   border-radius: var(--tkr-radius-md) !important;
   color: var(--tkr-fg-muted) !important;
   font-size: var(--tkr-text-xs) !important;
@@ -629,7 +601,7 @@
   align-items: center;
   padding: 0.0625rem 0.3125rem;
   font-family: var(--tkr-font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--tkr-text-xs);
   color: var(--tkr-fg-muted);
   background: var(--tkr-bg-surface);
   border: 1px solid var(--tkr-border-subtle);
@@ -655,8 +627,8 @@
   flex-direction: column;
   background: var(--tkr-bg-elevated);
   border: 1px solid var(--tkr-border-strong);
-  border-radius: var(--tkr-radius-lg);
-  box-shadow: var(--tkr-shadow-modal);
+  border-radius: var(--tkr-radius-md);
+  box-shadow: var(--tkr-shadow-menu);
   overflow: hidden;
 }
 
@@ -670,7 +642,7 @@
   min-block-size: 2rem !important;
   padding: 0.25rem 0.625rem !important;
   font-size: var(--tkr-text-sm) !important;
-  background: var(--tkr-bg-input) !important;
+  background: var(--tkr-bg-control) !important;
 }
 
 .tkr-command-palette-list {
@@ -702,16 +674,22 @@
 .tkr-command-palette-option-active,
 .tkr-command-palette-option:hover {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
 }
 
 .tkr-command-palette-category {
-  font-size: 0.6875rem;
+  font-size: var(--tkr-text-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--tkr-fg-muted);
   min-inline-size: 4.5rem;
+}
+
+.tkr-command-palette-option-active .tkr-command-palette-category,
+.tkr-command-palette-option:hover .tkr-command-palette-category {
+  color: inherit;
 }
 
 .tkr-command-palette-label {
@@ -779,17 +757,27 @@
   block-size: 1.375rem !important;
   min-block-size: 1.375rem !important;
   padding: 0 !important;
+  position: relative;
   background: transparent !important;
   border: 1px solid transparent !important;
   border-radius: var(--tkr-radius-sm) !important;
   color: var(--tkr-fg-muted) !important;
 }
 
+.tkr-dock-collapse-btn[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0.2rem;
+  inset-block-end: 0;
+  block-size: 2px;
+  background: var(--tkr-selection-border);
+}
+
 .tkr-dock-collapse-btn:hover,
 .tkr-dock-collapse-btn:focus-visible {
   background: var(--tkr-bg-control-hover) !important;
   color: var(--tkr-fg-primary) !important;
-  border-color: var(--tkr-border-subtle) !important;
+  border-color: var(--tkr-border-strong) !important;
 }
 
 .tkr-dock-icon {
@@ -976,8 +964,8 @@
 
 .tkr-run-tab[aria-selected="true"] {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
-  color: var(--tkr-fg-primary) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
   font-weight: 600 !important;
 }
 
@@ -1005,7 +993,7 @@
 
 .tkr-separator:hover,
 .tkr-separator:focus-visible {
-  background: var(--tkr-accent);
+  background: var(--tkr-focus-ring);
 }
 
 /* 4. Document Tab Strip & Shell (.tkr-tabs, .tkr-editor-shell) ------------- */
@@ -1074,7 +1062,7 @@
   inset-inline: 0;
   inset-block-start: 0;
   block-size: 2px;
-  background: var(--tkr-accent);
+  background: var(--tkr-selection-border);
   pointer-events: none;
 }
 
@@ -1129,12 +1117,8 @@
   min-block-size: 0;
 }
 
-/* The header Run control (ADR 0022 D8.7): what runs, ▶ Run, edit, and Stop while a game runs. It sits after the
-   application menu; in the browser page it clears the page's brand, which is drawn over the start of this bar. */
-.tkr-web-shell:has(#settings > section:not([hidden])) .tkr-run-control {
-  margin-inline-start: 10.5rem;
-}
 
+/* Header Run control (ADR 0022 D8.7), in normal flow beside shared commands. */
 .tkr-run-control {
   order: 2;
   display: inline-flex;
@@ -1182,8 +1166,8 @@
   max-block-size: 100%;
   background: var(--tkr-bg-elevated);
   border: 1px solid var(--tkr-border-strong);
-  border-radius: var(--tkr-radius-lg);
-  box-shadow: var(--tkr-shadow-overlay);
+  border-radius: var(--tkr-radius-md);
+  box-shadow: var(--tkr-shadow-menu);
 }
 
 .tkr-run-dialog .tkr-run-launch {
@@ -1288,8 +1272,8 @@
   block-size: auto;
   aspect-ratio: 4 / 3;
   background: #000;
-  border-radius: var(--tkr-radius-lg);
-  box-shadow: var(--tkr-shadow-overlay);
+  border-radius: var(--tkr-radius-md);
+  box-shadow: var(--tkr-shadow-menu);
 }
 
 .tkr-tab-empty,
@@ -1389,8 +1373,7 @@
   font-size: var(--tkr-text-xs);
   min-block-size: 1.5rem;
   padding: 0.125rem 0.375rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  border-color: var(--tkr-border-strong);
 }
 
 .tkr-files-tree {
@@ -1435,7 +1418,8 @@
 
 .tkr-files-row-selected {
   background: var(--tkr-accent-subtle);
-  border-color: var(--tkr-accent);
+  border-color: var(--tkr-selection-border);
+  color: var(--tkr-accent-subtle-fg);
   font-weight: 600;
 }
 
@@ -1501,7 +1485,8 @@
 
 .tkr-tree-selected {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
   font-weight: 600 !important;
 }
 
@@ -1620,7 +1605,8 @@
 
 .tkr-game-file[tabindex="0"]:not([aria-disabled="true"]) {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
   font-weight: 600 !important;
 }
 
@@ -1816,6 +1802,21 @@
   overflow: auto;
 }
 
+.tkr-board-preview-state,
+.tkr-board-warnings {
+  align-self: stretch;
+  min-inline-size: 0;
+  margin: 0;
+  padding: var(--tkr-space-2) var(--tkr-space-3);
+  color: var(--tkr-fg-primary);
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-xs);
+  overflow-wrap: anywhere;
+}
+.tkr-board-warnings { padding-inline-start: calc(var(--tkr-space-3) + 1em); }
+
 .tkr-board-canvas {
   display: block;
   max-inline-size: 100%;
@@ -1883,10 +1884,9 @@
 .tkr-board-cell-selected,
 .tkr-board-grid [role="gridcell"][aria-selected="true"] > .tkr-board-cell {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
   font-weight: 700 !important;
-  outline: 2px solid var(--tkr-accent);
-  outline-offset: -2px;
 }
 
 .tkr-board-cell-off {
@@ -1995,7 +1995,8 @@
 
 .tkr-tileset-browser-source-selected {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
 }
 
 .tkr-tileset-browser-preview {
@@ -2166,9 +2167,8 @@
 
 .tkr-bitmap-cell-selected {
   background: var(--tkr-accent-subtle) !important;
-  border-color: var(--tkr-accent) !important;
-  outline: 2px solid var(--tkr-accent);
-  outline-offset: -2px;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
 }
 
 .tkr-bitmap-cell-shaded {
@@ -2384,7 +2384,8 @@
 }
 
 .tkr-sprite-error,
-.tkr-character-error {
+.tkr-character-error,
+.tkr-new-board-error {
   grid-column: 1 / -1;
   margin: 0;
   padding: 0.375rem 0.625rem;
@@ -2411,7 +2412,7 @@
 .tkr-settings > h2,
 .tkr-preferences > h2,
 .tkr-run > h2,
-.tkr-new-board > h3 {
+.tkr-new-board > h2 {
   margin: 0;
   font-size: var(--tkr-text-lg);
   font-weight: 600;
@@ -2459,7 +2460,7 @@
 .tkr-settings-form,
 .tkr-preferences {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
   gap: 0.75rem;
   align-items: start;
 }
@@ -2492,9 +2493,48 @@
 }
 
 .tkr-preferences > h2,
+.tkr-preferences > label,
+.tkr-preferences > input,
 .tkr-preferences > p,
+.tkr-preferences > ul,
 .tkr-preferences > div {
   grid-column: 1 / -1;
+}
+
+.tkr-pref-group {
+  display: grid;
+  gap: var(--tkr-space-3);
+  min-inline-size: 0;
+}
+
+.tkr-pref {
+  display: grid;
+  gap: var(--tkr-space-1);
+  min-inline-size: 0;
+}
+
+.tkr-pref-label {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.tkr-pref-help,
+.tkr-pref-source,
+.tkr-pref-error {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.tkr-pref > input:not([type="checkbox"]),
+.tkr-pref > select,
+.tkr-pref > textarea {
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+
+.tkr-pref > button,
+.tkr-pref > input[type="checkbox"] {
+  justify-self: start;
 }
 
 .tkr-settings-group {
@@ -2681,7 +2721,8 @@
   backdrop-filter: blur(2px);
 }
 
-.tkr-picker {
+.tkr-picker,
+.tkr-picker-overlay > .tkr-new-board {
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
@@ -2750,23 +2791,38 @@
 
 /* 12. High-Contrast / Forced-Colors Mode (@media (forced-colors: active)) -- */
 @media (forced-colors: active) {
-  .tkr-web-shell button[aria-pressed="true"],
-  .tkr-workbench button[aria-pressed="true"],
-  [class^="tkr-"] button[aria-pressed="true"],
+  :is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) button[aria-pressed="true"]:not(:disabled, [aria-disabled="true"]):where(:not(.monaco-editor *)),
   .tkr-board-tool-active,
   .tkr-tree-selected,
+  .tkr-files-row-selected,
+  .tkr-game-file[tabindex="0"]:not([aria-disabled="true"]),
+  .tkr-command-palette-option-active,
+  .tkr-command-palette-option:hover,
+  .tkr-run-tab[aria-selected="true"],
   .tkr-board-cell-selected,
+  .tkr-board-grid [role="gridcell"][aria-selected="true"] > .tkr-board-cell,
   .tkr-bitmap-cell-selected,
-  .tkr-tileset-browser-source-selected {
+  .tkr-tileset-browser-source-selected,
+  .tkr-board-save:not(:disabled),
+  .tkr-bitmap-save:not(:disabled),
+  .tkr-tileset-art-save:not(:disabled),
+  .tkr-sprite-save:not(:disabled),
+  .tkr-character-save:not(:disabled),
+  .tkr-settings > button:first-of-type:not(:disabled),
+  .tkr-run-start:not(:disabled),
+  .tkr-new-board-create:not(:disabled),
+  .tkr-web-primary-open:not(:disabled),
+  #reopen-project:not(:disabled),
+  #open-selected-game:not(:disabled) {
+    /* Keep the user's system pair together, without UA text backplates. */
     forced-color-adjust: none;
     background-color: Highlight !important;
     color: HighlightText !important;
-    border-color: HighlightText !important;
-    outline: 2px solid HighlightText;
+    border-color: var(--tkr-selection-border) !important;
   }
 
   .tkr-tab-active::after {
-    background-color: Highlight;
+    background-color: var(--tkr-selection-border);
   }
 }
 .tkr-help-document {
@@ -2776,8 +2832,8 @@
   color: var(--tkr-fg-primary);
   background: var(--tkr-bg-elevated);
   border: 1px solid var(--tkr-border-strong);
-  border-radius: var(--tkr-radius-lg);
-  box-shadow: var(--tkr-shadow-modal);
+  border-radius: var(--tkr-radius-md);
+  box-shadow: var(--tkr-shadow-menu);
 }
 
 .tkr-help-document::backdrop {
@@ -2828,7 +2884,7 @@
 }
 
 .tkr-help-document-body a {
-  color: var(--tkr-accent);
+  color: var(--tkr-info);
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
@@ -2841,10 +2897,6 @@
   border-radius: var(--tkr-radius-sm);
 }
 
-.tkr-help-document :focus-visible {
-  outline: 2px solid var(--tkr-accent);
-  outline-offset: 2px;
-}
 
 .tkr-creator-tests {
   min-inline-size: 0;
@@ -2931,7 +2983,6 @@
   border-color: transparent;
   background: transparent;
 }
-.tkr-icon-action > button:focus-visible { outline: 2px solid var(--tkr-accent); outline-offset: 2px; }
 .tkr-icon-action > button[aria-pressed="true"] { box-shadow: inset 0 -3px 0 currentColor; }
 .tkr-icon-action svg { pointer-events: none; flex-shrink: 0; }
 .tkr-action-tooltip {
@@ -2958,7 +3009,6 @@
 /* Standalone mounts keep their local Save; the workbench offers one consistent action. */
 .tkr-workbench [data-editor-save] { display: none; }
 .tkr-command-bar > .tkr-icon-action { order: 2; z-index: 30; }
-.tkr-web-shell:has(#settings > section:not([hidden])) > .tkr-web-topbar .tkr-web-brand { margin-inline-start: 4.75rem; }
 .tkr-board-selection-disclosure > summary { cursor: pointer; font-size: var(--tkr-text-sm); padding: 0.25rem; }
 
 /* Board facts and layer visibility share one quiet row below the tool strip. */
@@ -2974,7 +3024,7 @@
   display: grid;
   gap: 0.5rem;
   padding-block: 0.375rem;
-  border-block-end: 1px solid var(--tkr-border);
+  border-block-end: 1px solid var(--tkr-border-subtle);
 }
 .tkr-board-properties > summary { cursor: pointer; font-weight: 600; }
 .tkr-board-properties fieldset { display: flex; flex-wrap: wrap; align-items: end; gap: 0.5rem; min-inline-size: 0; }
@@ -2990,3 +3040,7 @@
 .tkr-board-properties dialog h2 { font-size: var(--tkr-text-lg); }
 .tkr-return-to-board { order: 2; align-self: center; flex: 0 0 auto; white-space: nowrap; }
 .tkr-visit-message { flex: 0 0 auto; margin: 0; padding: 0.375rem 0.875rem; font-size: var(--tkr-text-sm); }
+
+@media (forced-colors: active) {
+  :is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) :disabled { opacity: 1; }
+}

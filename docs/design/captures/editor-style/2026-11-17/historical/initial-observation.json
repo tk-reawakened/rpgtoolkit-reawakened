@@ -1,0 +1,22 @@
+{
+  "schema": "tkr-editor-style-historical-observation-v1",
+  "acceptedComparison": false,
+  "reason": "Superseded by source-rebuilt matched proof; source hashes alone did not establish bundled-JavaScript coherence (#3107).",
+  "revision": "d29a33c0345ebe3d1d2576366d040802fd571ca6",
+  "capturedAt": "2026-11-17T12:22:50.203Z",
+  "originalCaptureCount": 93,
+  "originalManifestSha256": "a57e40047e3993782bd9baa18621bd002afacec1f351f13be5cac13bc7591d77",
+  "retainedFrames": [
+    {
+      "file": "program-640px-dark.png",
+      "sha256": "5e84ebbf64415092d00a301141bf8ac25efc6c63a80b8f816a1eb354f9421168",
+      "bytes": 159468
+    },
+    {
+      "file": "program-640px-dark-reference-closed.png",
+      "sha256": "20800bfa5ac1383f6e9e65ac6e3cdaf5240f2dfff196437aecc8596ddff11397",
+      "bytes": 118590
+    }
+  ],
+  "replacement": "../index.json"
+}

@@ -1,0 +1,135 @@
+{
+  "schema": "tkr-editor-style-negative-proof-v1",
+  "restoredProductionCssSha256": "3abcab7c5acb2345ab2c581ea148c2ea56379aa65021284565ed061b93ddb5c5",
+  "restoredProductionCommit": "dc793d5c9b8026994fa66553fa8eae7708a1b9b7",
+  "mutations": [
+    "Remove the system-color paint exception so UA backplates obscure selected text",
+    "Remove the session-file label focus outline",
+    "Remove the native board focus outline",
+    "Remove the opaque board preview feedback panel"
+  ],
+  "scopeNote": "The three final paint runs share disjoint surface-scoped mutations. The earlier helper-text run independently makes program helper foreground/background white. Measurements and known limitations are not rewritten.",
+  "runs": [
+    {
+      "name": "session-focus",
+      "rawManifestSha256": "41ec5db418564e125f23e521826edc302dca88e5ce2b308861e30da00f67b000",
+      "portableManifestSha256": "7f1a340d3e256f641bbb16992a8328e95fb7d20251bae90204ec5165ff73ef69",
+      "gzipSha256": "1306328a97fb12102fb690fbe808fd1be5575c561200faab4b9e2694bf429d4f",
+      "manifest": "negative/session-focus/manifest.json.gz",
+      "captures": [
+        {
+          "file": "landing-session-input-keyboard-focus.png",
+          "bytes": 49331,
+          "sha256": "7561247ee56a53ac9f94baab96fd6037211a2423c07379b7be01768326781157"
+        },
+        {
+          "file": "landing-root-text-200-control-reachability.png",
+          "bytes": 110751,
+          "sha256": "e04e8a32d89ebc10f7906e66ae5117e099cc5ca5abdbf1f8b35a1cbb3db5600e"
+        },
+        {
+          "file": "game-settings-enabled-readonly-movement-key.png",
+          "bytes": 200209,
+          "sha256": "7fb9b87e8790c49ca5a0ca74cbc114173ca522fbc218d4dd659a136cbe533839"
+        },
+        {
+          "file": "state-empty-project.png",
+          "bytes": 49331,
+          "sha256": "7561247ee56a53ac9f94baab96fd6037211a2423c07379b7be01768326781157"
+        },
+        {
+          "file": "state-loading-project.png",
+          "bytes": 63906,
+          "sha256": "845b5f0eda6383e1eb6ccc0d1d300257e48454b7d0f8697e81722f9182edab6e"
+        },
+        {
+          "file": "state-dirty.png",
+          "bytes": 194508,
+          "sha256": "676c91221db38c9ee021356cc56259eda7d348672a97613a3ada7c1d2ccb0dd3"
+        },
+        {
+          "file": "state-saving.png",
+          "bytes": 197399,
+          "sha256": "07761b51fd98700ff9d9071c683b1d161e1a93603fe939caf337846ec54ebb40"
+        },
+        {
+          "file": "state-saved.png",
+          "bytes": 198326,
+          "sha256": "15b503a41fad26c722fb1274cdc070a6621cc795bb4ac415c89d68d8fed2e203"
+        },
+        {
+          "file": "state-write-failed.png",
+          "bytes": 193871,
+          "sha256": "72f385af74484b0e5e76877a65e2a4ae905f9c2e63ef13ae2ee626ef52009753"
+        },
+        {
+          "file": "state-save-refused.png",
+          "bytes": 182535,
+          "sha256": "d684b1e7b3f1cb5cfdd64ea6986aebaa42cd44a0e55a494c90c3c074458e01a4"
+        },
+        {
+          "file": "state-read-only-preview.png",
+          "bytes": 183845,
+          "sha256": "bca31a338699a6b43b931784d84d96fb8bae856fa26b49fbd59284a54643a97a"
+        },
+        {
+          "file": "state-validation.png",
+          "bytes": 233667,
+          "sha256": "fc6a51acce0b5f10c502e02bedb2ca8b2397a72ba7c358883b2a404c29ecb90c"
+        }
+      ]
+    },
+    {
+      "name": "selected-label-raster",
+      "rawManifestSha256": "461796cf6b2bec555c826deb4af72dd80df65728ea0697a60dd34961fa47c307",
+      "portableManifestSha256": "f47124553de97f0a302f9ef96198f0336f91351e37ff5c1e3a251325b3215317",
+      "gzipSha256": "333da8babe38ddc1a60079dc38f430a57026f08e41681025e84710695c4b0850",
+      "manifest": "negative/selected-label-raster/manifest.json.gz",
+      "captures": [
+        {
+          "file": "program-normal-highContrast.png",
+          "bytes": 133354,
+          "sha256": "6de4d09183deca262898a7979db39dd2a4dcd744f0c7bee5201fe9aa5a37614c"
+        },
+        {
+          "file": "long-resource-identity-open-tab-header.png",
+          "bytes": 148474,
+          "sha256": "8ebab136c34e77fd23741bac3d9d145201f83d7caf15539ea96314f8bc8de0fb"
+        }
+      ]
+    },
+    {
+      "name": "native-focus-and-feedback",
+      "rawManifestSha256": "8a151d06ff24d54f1ba6dc74cb64fd6372db508a946054ad082df1925cfb60b1",
+      "portableManifestSha256": "4433c2ba87a5cf18c7bc0a6f42325f668d17725c91065c9f090e64e95f02c901",
+      "gzipSha256": "64e778e46cc45ed701b90a42d9c70239d2952ea314e80e56ce0289749ad64125",
+      "manifest": "negative/native-focus-and-feedback/manifest.json.gz",
+      "captures": [
+        {
+          "file": "board-normal-high-contrast-dark.png",
+          "bytes": 206264,
+          "sha256": "0be3aad7a5e9df369fe4edb1d75c4c7411272a7a5977845af6a8cd4de9582903"
+        }
+      ]
+    },
+    {
+      "name": "helper-text",
+      "rawManifestSha256": "e2fac1eca965491fe286e5070e91f6496d5fc3a0303f02b674a04060e4bb4cc8",
+      "portableManifestSha256": "22f085015c6b48aaf119a042b6e678cade2886a9ee8b3f2c6785175293cfd9c0",
+      "gzipSha256": "11a9836554a3abb5640032ad30f47ae40a48baa70b64ed1e681dbfd7c8449237",
+      "manifest": "negative/helper-text/manifest.json.gz",
+      "captures": [
+        {
+          "file": "program-normal-dark.png",
+          "bytes": 153485,
+          "sha256": "afc1ed39604e12a26d4526f5d2d0ac6b5d72762e6f233516a207551962bc1096"
+        },
+        {
+          "file": "long-resource-identity-open-tab-header.png",
+          "bytes": 174629,
+          "sha256": "3492d1b94c709a8ec09be4c31c71650a1e55ffdf7e5a4a2d26b4891f1e4d2a56"
+        }
+      ]
+    }
+  ]
+}

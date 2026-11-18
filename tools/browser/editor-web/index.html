@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <!-- ADR 0029: a standalone page that hosts Monaco allows inline styles and its own font; scripts stay strict, with no eval and no blob: workers (a classic same-origin worker is `worker-src 'self'`). -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; worker-src 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; connect-src 'self'; frame-src 'self'; img-src 'self' data:; manifest-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; worker-src 'self'">
+    <link rel="manifest" href="./manifest.webmanifest">
     <link rel="icon" href="./dist/favicon.ico" sizes="16x16 32x32 48x48">
     <link rel="icon" type="image/png" sizes="32x32" href="./dist/tkr-32.png">
     <link rel="stylesheet" href="./dist/tileset-browser.css">
@@ -37,7 +38,7 @@
             <span class="tkr-web-empty-explorer-section">▾ No Game Opened</span>
             <p class="tkr-web-subtitle">Looks like you don't have a game open yet. Open a project folder for direct writes and package publication, create a new project in a folder you choose, or open one game as a session copy.</p>
           </div>
-          <div class="tkr-web-project-controls">
+          <fieldset id="project-open-controls" class="tkr-web-project-controls" aria-label="Open a project">
             <button id="open-project" type="button" class="tkr-web-primary-open">Open project folder</button>
             <button id="new-project" type="button">New project…</button>
             <div class="tkr-web-session-open">
@@ -54,7 +55,7 @@
               <select id="project-game" hidden></select>
               <button id="open-selected-game" type="button" hidden>Open selected game</button>
             </div>
-          </div>
+          </fieldset>
         </aside>
         <section id="settings" aria-label="Editor workbench"></section>
         <section id="mirror" aria-label="Second document view" hidden></section>

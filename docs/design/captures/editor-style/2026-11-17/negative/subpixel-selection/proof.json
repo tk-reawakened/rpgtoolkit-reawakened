@@ -1,0 +1,18 @@
+{
+  "purpose": "A subpixel-only selected marker must not count as a visible selection cue merely because its color contrasts.",
+  "method": "Temporarily reset selected background and border to ordinary control paint and add a contrasting 0.1 CSS-pixel pseudo-element; reduce the shelf marker to the same thickness. Rebuild the native extension from the perturbed source.",
+  "browser": {
+    "result": "failed selected-state-indicator for Bookmarks and the shelf controls",
+    "screenshot": "browser-program-normal-dark.png",
+    "screenshotSha256": "80aeb4964f65181f3b5d1546e655b730f8000d7670ec271cbedcfb8b59061d58",
+    "receipt": "browser.json.gz",
+    "portableReceiptSha256": "8577d90f149de4220a4552dff3a065bc6fc08513ae45b4998cf9f1cf384c01df"
+  },
+  "vscodeWeb": {
+    "result": "failed selected-control contrast for Tiles (1)",
+    "screenshot": "native-board-normal-dark.png",
+    "screenshotSha256": "283c6bef4ebf93c4dcb27a3b6890097fa0ed3972b82603d0fdf0cc0643014871",
+    "receipt": "native.json.gz",
+    "portableReceiptSha256": "9f85e32132d81ad3906df273141f7870ba801089c4b6bfcfaf2b9b562039fcb7"
+  }
+}

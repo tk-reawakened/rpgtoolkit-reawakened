@@ -540,11 +540,14 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       overlay.setAttribute("role", "dialog");
       overlay.setAttribute("aria-modal", "true");
       overlay.setAttribute("aria-label", "Editor preferences");
+      const panel = doc.createElement("div");
+      panel.className = "tkr-picker";
       const body = doc.createElement("div");
       const close = doc.createElement("button");
       close.type = "button";
       close.textContent = "Close";
-      overlay.append(close, body);
+      panel.append(close, body);
+      overlay.append(panel);
       element.append(overlay);
       const preferences = programPreferencesModelFor(project);
       const handle = mountPreferences(body, { preferences });

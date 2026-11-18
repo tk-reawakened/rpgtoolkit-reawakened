@@ -672,6 +672,16 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: xvfb-run -a pnpm browser:test
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - name: Installed editor PWA authoring proof
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        shell: bash
+        run: |
+          sleep 2
+          node tools/browser/serve.mjs --port 4173 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          curl --fail --silent --retry 10 --retry-delay 1 --retry-connrefused http://127.0.0.1:4173/health >/dev/null
+          xvfb-run -a pnpm editor:pwa:proof
       # Entry 9.14: one command plays every closing-plan game in Node, in Chromium and in the Electron player, loads the
       # packaged demo in both page hosts, and fails unless every host matches the committed baseline.
       - name: Closing suite across hosts

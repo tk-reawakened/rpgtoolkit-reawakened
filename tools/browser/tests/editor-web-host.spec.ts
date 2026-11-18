@@ -128,6 +128,77 @@ test("a newer browser open wins over a slow folder document read", async ({ page
   await expect(page.locator("#host-status")).toContainText("main_minor4.gam");
 });
 
+test("selected game opening reports pending work, blocks competing opens, and recovers after a native read failure", async ({ page }) => {
+  await installFolderPicker(page, [
+    { path: "First.gam", bytes: validMain },
+    { path: "Other.gam", bytes: validMain },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  const game = page.locator("#project-game");
+  const open = page.getByRole("button", { name: "Open selected game", exact: true });
+  await expect(open).toBeVisible();
+  await game.selectOption("First.gam");
+
+  // Hold the real native read, then remove the owned fixture entry so that the
+  // eventual read fails natively rather than returning an invented error.
+  await page.evaluate(() => {
+    const original = FileSystemFileHandle.prototype.getFile;
+    let held = false;
+    const gate = new Promise<void>((release) => { (window as ProofWindow).__tkrReleaseSlowRead = release; });
+    FileSystemFileHandle.prototype.getFile = async function () {
+      if (!held && this.name === "First.gam") {
+        held = true;
+        (window as ProofWindow).__tkrSlowReadStarted = true;
+        await gate;
+        FileSystemFileHandle.prototype.getFile = original;
+      }
+      return original.call(this);
+    };
+  });
+  await open.click();
+  await page.waitForFunction(() => (window as ProofWindow).__tkrSlowReadStarted === true);
+  try {
+    await expect(page.locator("#host-status")).toContainText("Opening First.gam");
+    for (const selector of ["#open-project", "#new-project", "#open-session", "#recent-project", "#reopen-project", "#project-game", "#open-selected-game"]) {
+      await expect(page.locator(selector)).toBeDisabled();
+    }
+    await expect(game).toHaveValue("First.gam");
+    await page.evaluate(async () => {
+      const root = (window as ProofWindow).__tkrTestFolder;
+      if (!root) throw new Error("The owned browser folder is missing.");
+      await root.removeEntry("First.gam");
+    });
+  } finally {
+    await page.evaluate(() => (window as ProofWindow).__tkrReleaseSlowRead?.());
+  }
+  await expect(open).toBeEnabled();
+  await expect(game).toHaveValue("First.gam");
+  await expect(page.locator("#host-status")).not.toContainText("Opening");
+  await expect(page.locator("#host-status")).toContainText(/First\.gam|not found|could not be found/i);
+  await expect(page.getByLabel("Game title")).toHaveCount(0);
+
+  await page.evaluate(async (bytes) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const writable = await (await root.getFileHandle("First.gam", { create: true })).createWritable();
+    await writable.write(new Uint8Array(bytes));
+    await writable.close();
+  }, validMain);
+  await open.click();
+  await expect(page.getByLabel("Game title")).toHaveValue("Example Game");
+  await expect(page.locator("#host-status")).toContainText("First.gam");
+  await expect(page.getByRole("button", { name: "Open project folder" })).toBeEnabled();
+  const disk = await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const file = await (await root.getFileHandle("First.gam")).getFile();
+    return [...new Uint8Array(await file.arrayBuffer())];
+  });
+  expect(disk).toEqual(validMain);
+});
+
 test("browser workbench opens registered assets and packages a project through the reviewed UI", async ({ page }) => {
   await installFolderPicker(page, sampleProjectFiles());
   await page.goto("/tools/browser/editor-web/index.html");

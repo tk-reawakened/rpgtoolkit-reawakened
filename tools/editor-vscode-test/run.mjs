@@ -11,6 +11,7 @@ import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
 import { boardObjectsProofFiles } from "./board-objects-proof.ts";
 import { connectedAuthoringProofFiles } from "./connected-authoring-proof.ts";
 import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeConnectedAuthoringProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { runVscodeDesignProof } from "./design-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -60,6 +61,16 @@ const [expectedBytes, recoveredBytes, autosaveBytes, externalBytes, sentinelByte
   createWebAdapterBytes(gameFiles[0], game, externalTitle),
   createWebAdapterBytes(gameFiles[0], "__tkr_sentinel.gam", sentinelTitle),
 ]);
+const designProof = process.env.TKR_VSCODE_DESIGN_PROOF === "1";
+const designPhase = process.env.TKR_EDITOR_DESIGN_PHASE;
+const designOutput = process.env.TKR_EDITOR_DESIGN_OUT;
+const designCaseFilter = process.env.TKR_EDITOR_DESIGN_CASES;
+const designThemeFilter = process.env.TKR_EDITOR_DESIGN_THEMES;
+const designPaneFilter = process.env.TKR_EDITOR_DESIGN_PANES;
+if (designProof && (designPhase !== "before" && designPhase !== "after")) throw new Error("TKR_EDITOR_DESIGN_PHASE must be before or after when TKR_VSCODE_DESIGN_PROOF=1");
+if (designProof && (designOutput === undefined || !designOutput.startsWith("/") || resolve(designOutput) === root || resolve(designOutput).startsWith(`${root}/`))) {
+  throw new Error("TKR_EDITOR_DESIGN_OUT must be an absolute destination outside the repository root");
+}
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const animationProof = process.env.TKR_VSCODE_ANIMATION_PROOF === "1";
 const boardPropertiesProof = process.env.TKR_VSCODE_BOARD_PROPERTIES_PROOF === "1";
@@ -75,10 +86,13 @@ const historyProof = process.env.TKR_VSCODE_HISTORY_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
 const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
+if (designProof && (connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof)) {
+  throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
+}
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
-if ((boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+if ((designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
 const fullProofChoices = game === "Main/example.gam" && workspace === resolve(root, "docs/spec/examples/game") ? ["cancel", "keep", "connected"] : ["cancel", "keep"];
-for (const choice of boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
+for (const choice of designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
   const connectedPass = connectedAuthoringProof || choice === "connected";
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
@@ -142,6 +156,16 @@ for (const choice of boardPropertiesProof || boardObjectsProof || connectedAutho
   const probeDiagnostics = [];
   const historyPreviewTraceDiagnostics = [];
   try {
+    if (designProof) {
+      await copyFile(resolve(root, "docs/spec/examples/game/Main/example.gam"), resolve(proofWorkspace, game));
+      const sourceFixture = resolve(root, "docs/spec/examples/game/Game/Example");
+      await cp(sourceFixture, resolve(proofWorkspace, "Game/Example"), { recursive: true, force: true });
+      const authoredGame = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/game/Main/example.gam")));
+      const providedGame = new Uint8Array(await readFile(resolve(proofWorkspace, game)));
+      if (authoredGame.length !== providedGame.length || !authoredGame.every((byte, index) => byte === providedGame[index])) {
+        throw new Error("Design proof requires the authored docs/spec/examples/game/Main/example.gam fixture");
+      }
+    }
     if (launchProof || boardProof || programProof || guardProof || historyProof) {
       await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
       if (programProof || guardProof) await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(proofWorkspace, "Game/Example/Bitmap/window.png"));
@@ -160,6 +184,7 @@ for (const choice of boardPropertiesProof || boardObjectsProof || connectedAutho
     const startWorkbench = async () => {
       const child = spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
         "--host=localhost", "--browser=none",
+        ...(designProof ? ["--commit=863bc0ba9e89df07ecf700ce40f2fa35b2a3b123"] : []),
         `--extensionDevelopmentPath=${extension}`, `--extensionPath=${resolve(harness, "probe-extension")}`,
         `--extensionPath=${resolve(root, "extensions/rpgcode")}`,
         `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
@@ -233,6 +258,7 @@ for (const choice of boardPropertiesProof || boardObjectsProof || connectedAutho
     };
     await registerContextRoutes();
     const recordBrowserDiagnostic = (message) => { if (browserDiagnostics.length < 100) browserDiagnostics.push(message.replaceAll(persistentFs.token, "[redacted]")); };
+    const styleCspViolations = [];
     let historyPreviewTraceSequence = 0;
     const recordHistoryPreviewTrace = (message) => {
       const clean = message.replaceAll(persistentFs.token, "[redacted]");
@@ -245,6 +271,7 @@ for (const choice of boardPropertiesProof || boardObjectsProof || connectedAutho
       const page = await browser.newPage();
       page.on("console", (message) => {
         const text = message.text();
+        if (designProof && /(?:violates|violating).*Content Security Policy.*style-src/i.test(text)) styleCspViolations.push(text.replaceAll(persistentFs.token, "[redacted]"));
         if (text.includes("[history-preview-trace]") || text.includes("[editor-preview-trace]")) {
           recordHistoryPreviewTrace(`[console] ${text}`);
         }
@@ -366,7 +393,23 @@ for (const choice of boardPropertiesProof || boardObjectsProof || connectedAutho
       await runVscodeConnectedAuthoringProof(page, expect, workbenchUrl, readBacking);
       console.log("vscode.dev connected authoring, saved-source identity and immutable run-snapshot proof passed");
     };
-    if (connectedPass) {
+    if (designProof) {
+      await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+      await expect(page.locator(".monaco-workbench")).toBeVisible();
+      await runVscodeDesignProof(page, expect, {
+        root,
+        extension,
+        workspace: proofWorkspace,
+        game,
+        phase: designPhase,
+        output: designOutput,
+        caseFilter: designCaseFilter,
+        themeFilter: designThemeFilter,
+        paneFilter: designPaneFilter,
+      });
+      if (styleCspViolations.length > 0) throw new Error(`Design proof violated style CSP:\n${styleCspViolations.join("\n")}`);
+      console.log(`VS Code native editor design ${designPhase} evidence captured at ${designOutput}`);
+    } else if (connectedPass) {
       await proveConnectedAuthoring();
     } else if (boardObjectsProof) {
       await proveBoardObjects();
@@ -431,6 +474,17 @@ for (const choice of boardPropertiesProof || boardObjectsProof || connectedAutho
     }
   } catch (error) {
     failure = error;
+    if (designProof && browser !== undefined) {
+      const failedPage = browser.pages().at(-1);
+      if (failedPage !== undefined) {
+        try {
+          await mkdir(designOutput, { recursive: true });
+          await failedPage.screenshot({ path: resolve(designOutput, "failure.png"), fullPage: true, timeout: 5_000 });
+          const themeStatusHtml = await failedPage.locator(".statusbar-item").filter({ hasText: /^TKR design ·/ }).evaluateAll((items) => items.map((item) => item.outerHTML));
+          await writeFile(resolve(designOutput, "failure-theme-status.json"), JSON.stringify({ failed: true, themeStatusHtml }, null, 2) + "\n");
+        } catch (diagnosticError) { cleanupErrors.push(diagnosticError); }
+      }
+    }
   } finally {
     if (browser !== undefined) {
       try { await browser.unrouteAll({ behavior: "wait" }); } catch (error) { cleanupErrors.push(error); }
