@@ -8,13 +8,13 @@ import type { FileInfo, RenameFs } from "../src/index.ts";
 import { nodeFs } from "../src/index.ts";
 
 /**
- * The shipped registry holds only `.tkranm`, so the placeholder owner and plugin kinds are
- * read through the document-extension override, exactly as `--ext` does on the command line.
- * The clip keeps its registered contract. Nothing here is a real kind.
+ * The shipped registry holds only `.tkranm`; the placeholder extensions are read through the
+ * document-extension override. The configured fields exercise generic document references.
  */
 export const EXTENSIONS = [".tkranm", ".tkract", ".tkrwth", ".tkrrai"] as const;
-export const CONFIG: RenameConfig = { documentExtensions: EXTENSIONS, ownerField: "owner", pluginsField: "plugins" };
-export const FIELD_ARGS = ["--owner-field", "owner", "--plugins-field", "plugins", ...EXTENSIONS.flatMap((extension) => ["--ext", extension])];
+export const CONFIG: RenameConfig = { documentExtensions: EXTENSIONS, referenceFields: ["owner", "plugins"] };
+export const CHECK_ARGS = EXTENSIONS.flatMap((extension) => ["--ext", extension]);
+export const FIELD_ARGS = ["--ref-field", "owner", "--ref-field", "plugins", ...CHECK_ARGS];
 
 export const CLIP = [
   "contract: animation-clip",
@@ -26,7 +26,7 @@ export const CLIP = [
   "",
 ].join("\n");
 
-/** An owner with comments, an unrelated line that holds the old ID as plain text, and two plugin documents. */
+/** A document with generic configured references, an unrelated line, and deliberate comments. */
 export const OWNER = [
   "# The guard. Keep this comment.",
   "contract: actor",

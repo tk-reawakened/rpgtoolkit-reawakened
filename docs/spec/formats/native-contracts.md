@@ -1,6 +1,6 @@
 # Native data contracts: stamp, versions, identity and plugin blocks
 
-**Status: proposed, pending owner approval** ([ADR 0023](../../adr/0023-native-data-contracts-versioning-identity-and-sidecars.md), [ADR 0024](../../adr/0024-plugin-data-contributions.md), ticket 27.1). This is a **Reawakened rule**: it describes TK Reawakened's own native documents, not any Toolkit 3.1 behaviour. Legacy files keep the binary headers described in [the format conventions](README.md#header-and-version); they reach the native documents only through an importer ([ADR 0009](../../adr/0009-compatibility-layer-not-the-model.md)). **One part awaits the owner's choice:** a contract's own fields stay at the top level beside the stamp, as written on this page, and are not wrapped in a `core:` section of their own; [ADR 0023](../../adr/0023-native-data-contracts-versioning-identity-and-sidecars.md#alternatives-considered) records the wrapper and why it is not adopted here.
+**Status: proposed, pending owner approval** ([ADR 0023](../../adr/0023-native-data-contracts-versioning-identity-and-sidecars.md), [ADR 0024](../../adr/0024-plugin-data-contributions.md), ticket 27.1). This is a **Reawakened rule**: it describes TK Reawakened's own native documents, not any Toolkit 3.1 behaviour. Legacy files keep the binary headers described in [the format conventions](README.md#header-and-version); they reach the native documents only through an importer ([ADR 0009](../../adr/0009-compatibility-layer-not-the-model.md)). **Flat shape selected under delegated implementation direction:** a contract's own fields stay at the top level beside the stamp, as written on this page, and are not wrapped in a `core:` section of their own; [ADR 0023](../../adr/0023-native-data-contracts-versioning-identity-and-sidecars.md#alternatives-considered) records the wrapper and why it is not adopted here.
 
 ## In plain words
 
@@ -389,4 +389,3 @@ This page does not choose the layout contract (how a document is laid out on lin
 - The size bound of the [block or document](#block-or-document) test. None is set.
 - Whether a nested object, such as a scene placement, may carry a door of its own: story 27.8.
 - Whether a host shows an unknown key inside `data` as a hint. None is specified.
-- Whether a contract's own fields stay at the top level, as written here, or move under a `core:` wrapper. The owner is weighing the two ([ADR 0023](../../adr/0023-native-data-contracts-versioning-identity-and-sidecars.md#alternatives-considered)).

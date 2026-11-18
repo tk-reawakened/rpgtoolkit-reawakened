@@ -9,20 +9,20 @@
  *
  * What it rewrites:
  *  - the document's own location (a move);
- *  - every reference to the old ID in any native document, in the link fields and in the
- *    optional extra reference fields the caller names;
- *  - both ends of each sidecar link: an owner's plugins-list entry that names the document, and
- *    a plugin document's owner field that names it. These are the two link fields, so they are
- *    references like any other.
+ *  - every reference to the old ID in configured reference fields.
  *
- * Every edit is a splice into the original text (see `splice.ts`): only the reference scalar
- * changes, so comments, spacing and unrelated lines stay byte for byte, and a reference changes
- * by exactly the line that holds it. A document is never regenerated from a parsed tree.
+ * Plugin data is opaque: the planner never traverses `pluginData`, even if a caller names that
+ * key as a reference field. It also never regenerates documents; every reference edit is a splice.
  *
  * What it refuses, with the reason (nothing is planned then): a new ID that is not a valid ID; an
  * extension that marks no native document; an extension whose registered contract is not the
  * document's; a new ID that is, or folds to, another document's ID; an old ID no document has; a
  * project that is not checker-clean before the rename; a reference field that cannot be read.
+ *
+ * Every edit is a splice into the original text (see `splice.ts`): only the reference scalar
+ * changes, so comments, spacing and unrelated lines stay byte for byte, and a reference changes
+ * by exactly the line that holds it. A document is never regenerated from a parsed tree.
+ *
  */
 
 import { isMap, isScalar, isSeq, parseDocument, type Node, type Pair, type Scalar } from "yaml";
@@ -35,9 +35,8 @@ import { applySplices, rangeOf, scalarText, type Splice } from "./splice.ts";
 
 export type RenameConfig = CheckConfig & {
   /**
-   * Further top-level fields, besides the two link fields, that hold the ID of a document or a
-   * list of IDs (a scene naming its actors, for example). The spec leaves their names to the
-   * contracts that define them, so they are configuration, as the link field names are.
+   * Further top-level fields that hold the ID of a document or a list of IDs (a scene naming its
+   * actors, for example). The spec leaves their names to the contracts that define them.
    */
   readonly referenceFields?: readonly string[];
 };
@@ -94,9 +93,8 @@ export function validateRenameConfig(config: RenameConfig): void {
   const seen = new Set<string>();
   for (const name of config.referenceFields ?? []) {
     if (name === "") throw new RangeError("a reference field name must not be empty");
-    if (name === "contract" || name === "version") throw new RangeError(`\`${name}\` is a stamp key, not a reference field`);
-    if (name === config.ownerField || name === config.pluginsField) {
-      throw new RangeError(`\`${name}\` is a link field already; name only further reference fields`);
+    if (name === "contract" || name === "version" || name === "tags" || name === "metadata" || name === "pluginData") {
+      throw new RangeError(`\`${name}\` is not a reference field`);
     }
     if (seen.has(name)) throw new RangeError(`the reference field \`${name}\` is named twice`);
     seen.add(name);
@@ -221,10 +219,10 @@ function documentExtensions(config: RenameConfig): readonly string[] {
 
 /**
  * Plan a rename of one or more documents in one transaction. `documents` are the project's
- * native documents with paths relative to the project folder; `pairs` give the old ID and the new
+ * native documents with paths relative to the project folder; `pairs` give the old ID and new
  * ID of each rename. A project is all one transaction: several pairs are judged together, on the
- * project as it would be after all of them, so an owner and its plugin document can move
- * together, and two documents can swap names.
+ * project as it would be after all of them, so documents can move together, and two documents can
+ * swap names.
  *
  * Returns every reason for refusing, in a stable order: the problems of each new ID and old ID
  * in the order the pairs were given, then the project's own problems, then (only when those
@@ -237,13 +235,9 @@ export function planRename(documents: readonly DocumentInput[], pairs: readonly 
   if (pairs.length === 0) {
     return { ok: false, refusals: [{ code: "no-rename", message: "nothing to rename: give at least one old ID and new ID" }] };
   }
-  const { ownerField, pluginsField } = config;
   const referenceFields = config.referenceFields ?? [];
-  const fields: readonly Field[] = [
-    { name: ownerField, shape: "text" },
-    { name: pluginsField, shape: "list" },
-    ...referenceFields.map((name): Field => ({ name, shape: "either" })),
-  ];
+  const fields: readonly Field[] = referenceFields
+    .map((name): Field => ({ name, shape: "either" }));
 
   const docs: Doc[] = documents
     .filter((input) => isDocumentPath(input.path, config))

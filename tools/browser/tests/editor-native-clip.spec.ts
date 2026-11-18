@@ -7,7 +7,7 @@ test.use({ actionTimeout: 10_000 });
 
 test("native clip editing preserves comments and changes only the selected property line", async ({ page }, testInfo) => {
   test.setTimeout(120_000);
-  const original = readFileSync(new URL("../../../docs/spec/examples/native/animation-clip/valid/sword-swing.tkranm", import.meta.url), "utf8");
+  const original = `${readFileSync(new URL("../../../docs/spec/examples/native/animation-clip/valid/sword-swing.tkranm", import.meta.url), "utf8")}pluginData: # preserve plugin-owned text\n  com.example.weather:\n    version: 1.0.0\n    data: {wind: 1.10, future: "leave: exact"} # opaque\n`;
   const main = [...readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url))];
   await page.addInitScript(async ({ name, mainBytes, clip }) => {
     const root = await (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create: true });

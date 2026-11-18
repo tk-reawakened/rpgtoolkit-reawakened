@@ -23,30 +23,22 @@ const REGISTERED = REGISTRY.map((entry) => entry.extension).join(", ");
 
 export const HELP = `tkr-native-check: find broken documents in a folder of native game data
 
-In plain words: it reads every native document in a folder and tells you what does
-not line up: a missing or malformed contract/version stamp at the top, a file name
-extension that names a different kind of document than the stamp does, two
-documents with the same ID, two paths that differ only in A to Z case, a plugin
-document whose owner does not exist, and links between an owner and its plugin
-documents that are missing on one side or disagree. It only reports. It never
-changes a file. Classic legacy files (.anm, .brd, .tem, .itm, .ene, .tst and the
-rest) are not native documents: it does not read or report them, so a legacy
-file and a native document with the same name can sit in one folder.
+In plain words: it reads every native document in a folder and reports missing or
+malformed stamps, duplicate IDs, paths that fold to one ID, extension/contract
+mismatches, and malformed plugin-data blocks. Plugin data is preserved and only its
+envelope is checked. It only reports and never changes a file. Classic legacy files
+(.anm, .brd, .tem, .itm, .ene, .tst and the rest) are not native documents: it does
+not read or report them, so a legacy file and a native document with the same name
+can sit in one folder.
 
-Exactly: reads files under the folder whose names end in a native document
-extension (${REGISTERED}), as UTF-8 YAML, and writes nothing. A file with any
-other extension is skipped unread, an unregistered tkr extension included. A
-document's ID is its path below the folder, separated by "/", with the extension
-kept: "clips/walk.tkranm". IDs are compared with only the letters A to Z folded
-to a to z, so "Guard" and "guard" are one ID, and this holds on a case-sensitive
-file system too.
+Exactly: reads files under the folder whose names end in a native document extension
+(${REGISTERED}), as UTF-8 YAML, and writes nothing. A file with any other extension
+is skipped unread, an unregistered tkr extension included. A document's ID is its
+path below the folder, separated by "/", with the extension kept:
+"clips/walk.tkranm". IDs are compared with only the letters A to Z folded to a to z.
 
 Usage:
-  tkr-native-check --owner-field NAME --plugins-field NAME [options] FOLDER
-
-Required (the spec leaves the link field names open, so they are not assumed):
-  --owner-field NAME    top-level field of a plugin document naming its owner's ID
-  --plugins-field NAME  top-level field of an owner listing its plugin documents' IDs
+  tkr-native-check [options] FOLDER
 
 Options:
   --ext .EXT            read files with this extension as documents instead; repeat for
@@ -62,8 +54,6 @@ type Parsed =
   | { readonly ok: false; readonly help: boolean; readonly message: string };
 
 function parse(argv: readonly string[]): Parsed {
-  let ownerField: string | undefined;
-  let pluginsField: string | undefined;
   const extensions: string[] = [];
   let json = false;
   const positional: string[] = [];
@@ -71,22 +61,16 @@ function parse(argv: readonly string[]): Parsed {
     const argument = argv[index]!;
     if (argument === "--help" || argument === "-h") return { ok: false, help: true, message: "" };
     if (argument === "--json") json = true;
-    else if (argument === "--owner-field" || argument === "--plugins-field" || argument === "--ext") {
+    else if (argument === "--ext") {
       const value = argv[index + 1];
       if (value === undefined || value.startsWith("--")) return { ok: false, help: false, message: `${argument} needs a value` };
       index += 1;
-      if (argument === "--owner-field") ownerField = value;
-      else if (argument === "--plugins-field") pluginsField = value;
-      else extensions.push(value);
+      extensions.push(value);
     } else if (argument.startsWith("-")) return { ok: false, help: false, message: `unknown option ${argument}` };
     else positional.push(argument);
   }
   if (positional.length !== 1) return { ok: false, help: false, message: "give exactly one folder to check" };
-  if (ownerField === undefined || pluginsField === undefined) {
-    return { ok: false, help: false, message: "--owner-field and --plugins-field are required: the link field names are not decided by the spec" };
-  }
-  const config: CheckConfig =
-    extensions.length === 0 ? { ownerField, pluginsField } : { documentExtensions: extensions, ownerField, pluginsField };
+  const config: CheckConfig = extensions.length === 0 ? {} : { documentExtensions: extensions };
   try {
     validateConfig(config);
   } catch (error) {

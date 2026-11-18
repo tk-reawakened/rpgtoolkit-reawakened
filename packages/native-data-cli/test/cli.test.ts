@@ -10,13 +10,9 @@ import { runCli } from "../src/index.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string): string => join(here, "fixtures", name);
-const FIELDS = ["--owner-field", "owner", "--plugins-field", "plugins"];
-/**
- * Documents with an extension the registry does not hold, and with contracts it does not know
- * (placeholder actors and plugin documents), are read through the `--ext` override. The
- * registry holds only `.tkranm`.
- */
-const PLACEHOLDER = [...FIELDS, "--ext", ".yaml"];
+const FIELDS: string[] = [];
+/** Placeholder extensions are read through the `--ext` override; the registry holds `.tkranm`. */
+const PLACEHOLDER = ["--ext", ".yaml"];
 
 /** Run the checker over a fixture folder; the JSON result is the contract, the text is its rendering. */
 function check(
@@ -104,76 +100,6 @@ void test("an extension that names a different contract than the stamp is report
   );
 });
 
-void test("a plugin document with no owner is reported with the document and the owner ID it names", () => {
-  const result = check("no-owner", PLACEHOLDER);
-  equal(result.exitCode, 1);
-  deepEqual(result.reports, [
-    {
-      class: "plugin-no-owner",
-      path: "actors/guard.weather.yaml",
-      id: "actors/guard.weather.yaml",
-      owner: "actors/ghost.yaml",
-      reason: "no document has this ID",
-      fix: null,
-    },
-  ]);
-  equal(
-    result.text,
-    "actors/guard.weather.yaml: plugin document `actors/guard.weather.yaml` names the owner `actors/ghost.yaml`, but no document has this ID.\n2 documents checked, 1 problem found\n",
-  );
-});
-
-void test("an owner link with no back-link is reported with the owner and the plugin document it names", () => {
-  const result = check("no-back-link", PLACEHOLDER);
-  equal(result.exitCode, 1);
-  deepEqual(result.reports, [
-    {
-      class: "owner-no-back-link",
-      owner: { path: "actors/guard.yaml", id: "actors/guard.yaml" },
-      plugin: { named: "actors/guard.weather.yaml", path: "actors/guard.weather.yaml" },
-      reason: "`actors/guard.weather.yaml` names no owner",
-      fix: "plugin",
-    },
-  ]);
-  equal(
-    result.text,
-    "actors/guard.yaml: owner `actors/guard.yaml` names the plugin document `actors/guard.weather.yaml` (`actors/guard.weather.yaml`), but `actors/guard.weather.yaml` names no owner. Fix the plugin document.\n2 documents checked, 1 problem found\n",
-  );
-});
-
-void test("a mismatched link is reported with both ends and what each names", () => {
-  const result = check("mismatched-link", PLACEHOLDER);
-  equal(result.exitCode, 1);
-  deepEqual(result.reports, [
-    {
-      class: "mismatched-link",
-      ends: [
-        { role: "plugin", path: "actors/guard.rain.yaml", id: "actors/guard.rain.yaml", names: ["actors/guard.yaml"] },
-        { role: "owner", path: "actors/guard.yaml", id: "actors/guard.yaml", names: ["actors/guard.weather.yaml"] },
-      ],
-      reason: "`actors/guard.rain.yaml` names the owner `actors/guard.yaml`, which names other plugin documents but not this one",
-      fix: "plugin",
-    },
-    {
-      class: "mismatched-link",
-      ends: [
-        { role: "owner", path: "actors/knight.yaml", id: "actors/knight.yaml", names: ["actors/knight.weather.yaml"] },
-        { role: "plugin", path: "actors/knight.weather.yaml", id: "actors/knight.weather.yaml", names: ["actors/squire.yaml"] },
-      ],
-      reason: "`actors/knight.yaml` names `actors/knight.weather.yaml`, which names `actors/squire.yaml` as its owner instead",
-      fix: null,
-    },
-  ]);
-  equal(
-    result.text,
-    [
-      "mismatched link: plugin `actors/guard.rain.yaml` (actors/guard.rain.yaml) names `actors/guard.yaml`; owner `actors/guard.yaml` (actors/guard.yaml) names `actors/guard.weather.yaml`: `actors/guard.rain.yaml` names the owner `actors/guard.yaml`, which names other plugin documents but not this one. Fix the plugin document.",
-      "mismatched link: owner `actors/knight.yaml` (actors/knight.yaml) names `actors/knight.weather.yaml`; plugin `actors/knight.weather.yaml` (actors/knight.weather.yaml) names `actors/squire.yaml`: `actors/knight.yaml` names `actors/knight.weather.yaml`, which names `actors/squire.yaml` as its owner instead.",
-      "6 documents checked, 2 problems found",
-      "",
-    ].join("\n"),
-  );
-});
 
 void test("the checker writes nothing: every fixture folder is byte, mode and time identical after a run", () => {
   const before = fingerprint(join(here, "fixtures"));
@@ -229,14 +155,12 @@ void test("a legacy file beside a native document is skipped unread: only the na
   }
 });
 
-void test("a usage mistake or an unreadable folder is an exit code, not a crash", () => {
+void test("retired link flags are rejected explicitly and an unreadable folder is an exit code, not a crash", () => {
   const help = runCli(["--help"]);
   equal(help.exitCode, 0);
-  ok(help.stdout.includes("It only reports. It never"));
-  const noFields = runCli([fixture("clean")]);
-  equal(noFields.exitCode, 2);
-  ok(noFields.stderr.includes("--owner-field and --plugins-field are required"));
-  equal(runCli([...FIELDS, "--owner-field", "plugins", "--plugins-field", "plugins", fixture("clean")]).exitCode, 2);
+  ok(help.stdout.includes("only reports and never changes a file"));
+  equal(runCli(["--owner-field", "owner", fixture("clean")]).exitCode, 2);
+  equal(runCli(["--plugins-field", "plugins", fixture("clean")]).exitCode, 2);
   equal(runCli([...FIELDS, "--bogus", fixture("clean")]).exitCode, 2);
   equal(runCli([...FIELDS]).exitCode, 2);
   equal(runCli([...FIELDS, join(here, "fixtures", "does-not-exist")]).exitCode, 3);

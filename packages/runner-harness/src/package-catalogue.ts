@@ -7,7 +7,7 @@
 // one start-up `ProgramRef`. Reading a folder from disk is the caller's job, which keeps this module
 // free of I/O and usable from a runner, an editor, or a test alike.
 
-import { HOST_REQUEST_KINDS, IR_VERSION, PACKAGE_IDENTIFIER, type HostRequestKind, type PackageCatalogueEntry } from "@tk-reawakened/core";
+import { HOST_REQUEST_KINDS, IR_VERSION, PACKAGE_IDENTIFIER, PACKAGE_NAMESPACE_IDENTIFIER, type HostRequestKind, type PackageCatalogueEntry } from "@tk-reawakened/core";
 
 /** What a package folder's `manifest.json` must declare (docs/spec/engine/rpgcode-package-loader.md). */
 export type PackageManifest = {
@@ -28,8 +28,8 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Parse one package folder's manifest text. The name grammar is the package-identity rule: a
- * hyphenated or capitalised name is refused here, before boot, with the manifest named.
+ * Parse one package folder's manifest text. Package ids use PKG-2's qualified grammar,
+ * while namespaces are restricted to a single dot-free segment.
  */
 export function parsePackageManifest(text: string, label = "manifest.json"): PackageManifestResult {
   let parsed: unknown;
@@ -40,16 +40,16 @@ export function parsePackageManifest(text: string, label = "manifest.json"): Pac
   }
   if (!record(parsed)) return { ok: false, message: `${label}: the manifest must be a JSON object` };
   const name = parsed["name"];
-  if (typeof name !== "string" || !PACKAGE_IDENTIFIER.test(name)) {
-    return { ok: false, message: `${label}: "name" must match the package identifier ${PACKAGE_IDENTIFIER.source}` };
+  if (typeof name !== "string" || !PACKAGE_IDENTIFIER.test(name) || ["contract", "version", "tags", "metadata", "pluginData"].includes(name)) {
+    return { ok: false, message: `${label}: "name" must match the package identifier ${PACKAGE_IDENTIFIER.source} and not be a reserved document key` };
   }
   const version = parsed["version"];
   if (typeof version !== "string" || version === "") {
     return { ok: false, message: `${label}: "version" must be a non-empty string` };
   }
   const namespace = parsed["namespace"];
-  if (namespace !== undefined && (typeof namespace !== "string" || !PACKAGE_IDENTIFIER.test(namespace))) {
-    return { ok: false, message: `${label}: "namespace" must match ${PACKAGE_IDENTIFIER.source} when present` };
+  if (namespace !== undefined && (typeof namespace !== "string" || !PACKAGE_NAMESPACE_IDENTIFIER.test(namespace))) {
+    return { ok: false, message: `${label}: "namespace" must match ${PACKAGE_NAMESPACE_IDENTIFIER.source} when present` };
   }
   const requests = parsed["requests"];
   if (!Array.isArray(requests)) {

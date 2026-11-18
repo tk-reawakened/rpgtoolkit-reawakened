@@ -31,6 +31,34 @@ test("native clip edits one authored line, preserves comments, and undo/redo/sav
   deepEqual(reopened.document.serialize(), utf8Encode(edited));
 });
 
+test("native clip editor saves and reopens edits without changing opaque plugin source", async () => {
+  const source = [
+    "contract: animation-clip",
+    "version: 1.0.0-pre.1",
+    "canvas: {width: 32, height: 32}",
+    "delay: 0.15 # timing",
+    "frames:",
+    "  - image: bitmap/walk.png",
+    "pluginData: # preserve this region",
+    "  com.example.weather:",
+    "    version: 1.0.0",
+    "    data: {wind: 1.10, futureKnob: \"leave: exact\"} # opaque",
+    "",
+  ].join("\n");
+  const host = createMemoryPlatformServices({ files: { [PATH]: utf8Encode(source) } });
+  const opened = await openNativeClipDocument(host.fs, IDENTITY);
+  ok(opened.ok);
+  const expected = source.replace("delay: 0.15", "delay: 0.2");
+  const applied = opened.document.apply({ type: "set-native-clip-property", path: ["delay"], value: 0.2 });
+  ok(applied.ok);
+  deepEqual(opened.document.serialize(), utf8Encode(expected));
+  ok((await opened.document.save()).ok);
+  deepEqual(host.bytesOf(PATH), utf8Encode(expected));
+  const reopened = await openNativeClipDocument(host.fs, IDENTITY);
+  ok(reopened.ok);
+  deepEqual(reopened.document.serialize(), utf8Encode(expected));
+});
+
 test("flow-mapping property removal preserves the preceding comment through undo and redo", async () => {
   const source = `${SOURCE.replace("  - image: bitmap/walk.png # frame\n", "  - {image: bitmap/walk.png, # front view\n    sound: media/step.wav}\n")}`;
   const host = createMemoryPlatformServices({ files: { [PATH]: utf8Encode(source) } });

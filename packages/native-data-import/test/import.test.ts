@@ -74,7 +74,9 @@ void test("the import of the example game's south walk is the contract page's ow
 
 void test("importing twice gives the same clip and the same text, with nothing that changes per run", () => {
   for (const file of corpus().slice(0, 5)) {
-    const first = writeClip(imported(file.animation, file.name));
+    const firstClip = imported(file.animation, file.name);
+    equal(Object.hasOwn(firstClip, "pluginData"), false, "imports do not invent optional plugin data");
+    const first = writeClip(firstClip);
     const second = writeClip(imported(file.animation, file.name));
     deepEqual(first, second);
     if (first.ok) ok(!/\d{4}-\d{2}-\d{2}|T\d\d:\d\d/.test(first.text.replace(/delay: .*/, "")), "no date or time in the text");

@@ -28,6 +28,7 @@ import {
 import { readDocument } from "./document.ts";
 import { applySplices, rangeOf, scalarText, type Splice } from "./splice.ts";
 import { parseVersion } from "./version.ts";
+import { validatePluginData, type PluginBlockProblem } from "./plugin-data.ts";
 
 export const CLIP_CONTRACT = "animation-clip";
 export const CLIP_VERSION = "1.0.0-pre.1";
@@ -58,12 +59,23 @@ export type Clip = {
   readonly delay: number;
   readonly colourKey?: ClipColour;
   readonly frames: readonly ClipFrame[];
+  /** Exact source from `pluginData` onward, used only to verify opaque block preservation. */
+  readonly pluginSource?: string;
+  /** Opaque plugin envelopes; never regenerated from these parsed values. */
+  readonly pluginData?: {
+    readonly [pluginId: string]: {
+      readonly version: string;
+      readonly data: { readonly [key: string]: ClipJson };
+    };
+  };
 };
 
 /** Why a document, model or edit is refused. */
 export type ClipProblem = {
-  /** `stamp`: the document's stamp; `shape`: the rest of the contract; `edit`: an edit that cannot be made. */
-  readonly kind: "stamp" | "shape" | "edit";
+  /** `stamp`: the document's stamp; `shape`: the contract; `plugin-block`: an opaque plugin envelope; `edit`: an edit that cannot be made. */
+  readonly kind: "stamp" | "shape" | "plugin-block" | "edit";
+  /** Specific shared-validator kind when `kind` is `plugin-block`. */
+  readonly pluginKind?: PluginBlockProblem["kind"];
   /** Where, for example `frames[1].image`; `(document)` for the whole document. */
   readonly path: string;
   /** What is wrong, in words. */
@@ -73,7 +85,7 @@ export type ClipProblem = {
 };
 
 export type ClipReadResult =
-  | { readonly ok: true; readonly clip: Clip }
+  | { readonly ok: true; readonly clip: Clip; readonly source: string }
   | { readonly ok: false; readonly problems: readonly ClipProblem[] };
 
 export type ClipWriteResult =
@@ -100,7 +112,7 @@ type Raw = { readonly path: ClipPath; readonly message: string };
 /** The schema's reference pattern: one non-empty line with no space at either end. */
 const REFERENCE = /^\S(?:[^\r\n]*\S)?$/;
 
-const ROOT_KEYS = ["contract", "version", "tags", "metadata", "canvas", "delay", "colourKey", "frames"] as const;
+const ROOT_KEYS = ["contract", "version", "tags", "metadata", "canvas", "delay", "colourKey", "frames", "pluginData"] as const;
 const FRAME_KEYS = ["image", "sound", "colourKey"] as const;
 const CANVAS_KEYS = ["width", "height"] as const;
 const COLOUR_KEYS = ["r", "g", "b"] as const;
@@ -231,6 +243,9 @@ function validateValue(value: unknown): Raw[] {
     else if (frames.length === 0) out.push({ path: ["frames"], message: "must list at least one frame" });
     else frames.forEach((frame: unknown, index) => checkFrame(frame, ["frames", index], out));
   }
+  if (Object.hasOwn(value, "pluginData") && !isObject(value.pluginData)) {
+    wrongType(["pluginData"], "a mapping of plugin ids to opaque plugin blocks", value.pluginData, out);
+  }
   return out;
 }
 
@@ -240,7 +255,10 @@ function toProblems(raw: readonly Raw[], lineOf: (path: ClipPath) => number | nu
 
 /** Check a clip model, for example one an importer made, against every rule of the contract; nothing is written. */
 export function checkClip(clip: unknown): readonly ClipProblem[] {
-  return toProblems(validateValue(clip), () => null);
+  if (!isObject(clip) || !Object.hasOwn(clip, "pluginSource")) return toProblems(validateValue(clip), () => null);
+  const contract = { ...clip };
+  delete contract.pluginSource;
+  return toProblems(validateValue(contract), () => null);
 }
 
 // ---------------------------------------------------------------- reading
@@ -268,10 +286,10 @@ function lineLocator(document: Document.Parsed, lines: LineCounter): (path: Clip
 }
 
 /**
- * Read a clip document. A missing, repeated, malformed or not-first stamp is
- * refused first, by the stamp rules of `readDocument`, and nothing else in the
- * document is judged until the stamp is good; then every rule of the contract
- * page is checked and every problem found is reported.
+ * Read a clip document and retain its original source. A missing, repeated,
+ * malformed or not-first stamp is refused first, by the stamp rules of
+ * `readDocument`; then every rule of the contract is checked. Plugin-bearing
+ * clips also carry an exact source token so a writer can refuse stale source.
  */
 export function readClip(text: string): ClipReadResult {
   const stamp = readDocument({ path: "(clip)", text }, []);
@@ -289,21 +307,42 @@ export function readClip(text: string): ClipReadResult {
 
   const lines = new LineCounter();
   const document = parseDocument(text, { version: "1.2", schema: "core", lineCounter: lines });
-  if (document.errors.length > 0) {
+  const pluginProblems = validatePluginData(document, text, lines, ROOT_KEYS);
+  const yamlProblems: ClipProblem[] = document.errors.map((error) => ({
+    kind: "shape",
+    path: "(document)",
+    message: `YAML error: ${error.message.split("\n")[0]!.replace(/:$/, "")}`,
+    line: error.linePos?.[0]?.line ?? null,
+  }));
+  if (yamlProblems.length > 0 || pluginProblems.length > 0) {
     return {
       ok: false,
-      problems: document.errors.map((error) => ({
-        kind: "shape",
-        path: "(document)",
-        message: `YAML error: ${error.message.split("\n")[0]!.replace(/:$/, "")}`,
-        line: error.linePos?.[0]?.line ?? null,
-      })),
+      problems: [
+        ...pluginProblems.map((problem) => ({
+          kind: "plugin-block" as const,
+          pluginKind: problem.kind,
+          path: problem.pluginId === null ? "pluginData" : `pluginData.${problem.pluginId}`,
+          message: `${problem.kind}: ${problem.reason} (found ${JSON.stringify(problem.found)})`,
+          line: problem.line,
+        })),
+        ...yamlProblems,
+      ],
     };
   }
   const value: unknown = document.toJS();
   const raw = validateValue(value);
   if (raw.length > 0) return { ok: false, problems: toProblems(raw, lineLocator(document, lines)) };
-  return { ok: true, clip: value as Clip };
+  const clip = value as Clip;
+  const pluginEntry = isMap(document.contents)
+    ? document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === "pluginData")
+    : undefined;
+  const pluginKey = pluginEntry?.key as Node | null | undefined;
+  const pluginStart = pluginKey?.range?.[0];
+  return {
+    ok: true,
+    clip: pluginStart === undefined ? clip : { ...clip, pluginSource: text.slice(pluginStart) },
+    source: text,
+  };
 }
 
 // ---------------------------------------------------------------- writing
@@ -328,15 +367,46 @@ function ordered(clip: Clip): Record<string, unknown> {
 
 const colourOf = (colour: ClipColour): ClipColour => ({ r: colour.r, g: colour.g, b: colour.b });
 
+function sameValue(left: unknown, right: unknown, seen = new WeakMap<object, WeakSet<object>>()): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    if (seen.get(left)?.has(right)) return true;
+    const peers = seen.get(left) ?? new WeakSet<object>();
+    peers.add(right);
+    seen.set(left, peers);
+    return left.every((item, index) => sameValue(item, right[index], seen));
+  }
+  if (!isObject(left) || !isObject(right)) return false;
+  if (seen.get(left)?.has(right)) return true;
+  const peers = seen.get(left) ?? new WeakSet<object>();
+  peers.add(right);
+  seen.set(left, peers);
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.hasOwn(right, key) && sameValue(left[key], right[key], seen));
+}
+
 /**
- * Write a clip as YAML text, the same text for the same clip. The model is
- * checked first with the reader's own rules, so a clip that comes back `ok` is
- * one `readClip` accepts; a model the contract refuses is returned as problems
- * and no text is made.
+ * Write a clip as YAML text. Plugin-bearing documents are returned only from
+ * their matching source; parsed plugin values are never printed or normalized.
  */
-export function writeClip(clip: Clip): ClipWriteResult {
+export function writeClip(clip: Clip, source?: string): ClipWriteResult {
   const problems = checkClip(clip);
   if (problems.length > 0) return { ok: false, problems };
+
+  if ((clip.pluginData !== undefined || clip.pluginSource !== undefined) && source === undefined) {
+    return { ok: false, problems: [{ kind: "edit", path: "pluginData", message: "cannot write plugin blocks without their original source document", line: null }] };
+  }
+  if (source !== undefined) {
+    const parsed = readClip(source);
+    if (!parsed.ok) return { ok: false, problems: parsed.problems };
+    if (!sameValue(parsed.clip, clip)) {
+      return { ok: false, problems: [{ kind: "edit", path: "(document)", message: "the original source document does not match the requested clip", line: null }] };
+    }
+    return { ok: true, text: source };
+  }
 
   const document = new Document(ordered(clip), { version: "1.2", schema: "core" });
   const root = document.contents as YAMLMap;
@@ -504,6 +574,9 @@ function planRemove(context: Context, path: ClipPath): Splice[] | EditError {
 }
 
 function applyEdit(text: string, plan: (context: Context) => Splice[] | EditError, path: ClipPath): ClipEditResult {
+  if (path[0] === "pluginData") {
+    return { ok: false, problems: [{ kind: "edit", path: formatClipPath(path), message: "plugin blocks are opaque and cannot be edited by the clip writer", line: null }] };
+  }
   const before = readClip(text);
   if (!before.ok) return before;
   const lines = new LineCounter();

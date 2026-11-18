@@ -230,7 +230,7 @@ Open a native `.tkranm` clip to inspect and edit its own canvas, timing and fram
 
 * **Keep the author's text.** Apply a property change, then save: the existing in-place clip edits preserve unrelated lines and comments. Undo and Redo use the host's document history; in VS Code the text editor and visual editor share the same native text buffer and undo stack.
 * **Keep absence meaningful.** Missing optional sound or colour keys remain absent until explicitly added. A refused edit or unreadable file is reported rather than silently repaired.
-* **Show only supported work.** The current clip reader refuses plugin blocks, and its editing path does not add, remove or reorder frames or tags. The editor does not present those operations as working; native clip runtime loading and asset preview are separate work.
+* **Keep plugin data.** Clips with valid plugin blocks open normally. Property edits preserve those blocks, including comments and formatting, without interpreting their contents. The editing path does not add, remove or reorder frames or tags; native clip runtime loading and asset preview are separate work.
 
 References: [native animation clip](spec/formats/native-animation-clip.md#reference-reader-writer-and-importer), [shared editor document rules](adr/0022-shared-editor-authoring-contracts.md).
 

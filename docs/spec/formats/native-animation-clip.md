@@ -51,7 +51,7 @@ pluginData:
     data: {bloom: 0.4}
 ```
 
-The examples folder does not yet hold a document with `pluginData`, because the [reference reader](#reference-reader-writer-and-importer) still refuses one.
+The examples include plugin-bearing clips and invalid envelopes so the reader and checker can be tested against the same contract.
 
 ## Fields
 
@@ -226,7 +226,7 @@ Story 27.4 ([#1805](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issue
 - **How the importer spells keys** ([open item 9](#open-items)): when every kept frame has the same colour it writes one clip-level `colourKey` and none on the frames; when they differ it writes no clip-level key and a `colourKey` on every frame. It reports, and does not keep, a dropped slot that held a sound. `tags` is `[imported]` and `metadata` is `source: <legacy file name>` as the caller gives it, with case kept; nothing else is recorded, so importing the same file twice gives the same text.
 - **What the importer refuses**, with the contract's rule named, rather than repairing: no frame with an image, a size under 1, a negative or non-finite delay, and a name with a space or line break at either end.
 - **The oracle.** The tests' oracle is the decoder's model slot for slot (51 slots, with image, colour and sound, the delay, the size, the header and the residue), and the four-point equality of the section above is a test utility that names the point that fails. Across the 51 decoded `.anm` files of `docs/spec/examples` (9) and the fetched legacy sample games (42) every import, written and read back, equals its oracle, 18 of them with a delay of 0.
-- **`pluginData` is not yet read or written by this code.** The reader still refuses it as an unknown key, and `writeClip` cannot carry a block, because the code was written before the 2026-11-09 plugin-block rulings. Story 27.10 ([#1822](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1822)) makes the reader accept it, the editing paths leave every block byte for byte, and the writer and importer carry blocks as verbatim text ([preservation](native-contracts.md#preservation)). The examples folder is test data that `packages/native-data/test/clip.test.ts` reads, so it gains its plugin-bearing cases in that same story.
+- **Preserving plugin data.** The reader accepts valid blocks and the editing paths leave them byte for byte. When writing a model that contains blocks, `writeClip` takes its original source text, verifies that the source still describes that model, and returns it unchanged; without matching source it refuses rather than regenerate opaque data. Edits to existing properties go through the in-place editing paths. A fresh imported clip without blocks can still be written normally. These choices implement the [preservation rules](native-contracts.md#preservation).
 
 ## Open items
 

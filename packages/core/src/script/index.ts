@@ -210,6 +210,7 @@ export {
   HOST_REQUEST_KINDS,
   isPackageManifestEntry,
   PACKAGE_IDENTIFIER,
+  PACKAGE_NAMESPACE_IDENTIFIER,
   isPluginManifestEntryEnabled,
   listPackageDeclarations,
   packageNamespace,

@@ -4,7 +4,7 @@ Authored examples of the native animation clip at contract version `1.0.0-pre.1`
 
 **What they are not.** They are not legacy files: the dump tool does not read this folder (`native` is in the `ignore` list of [golden/spec-examples.json](../../../../../golden/spec-examples.json)). They do not decide the layout of a document on lines or any YAML profile rule; they show one plausible authored layout. The asset paths (`bitmap/...`, `media/...`, `tiles/...`) are illustrative, because the project folder names are still open ([open items](../../../formats/native-animation-clip.md#open-items)). No file here names a real asset.
 
-**Plugin blocks.** The contract admits one optional key, `pluginData` ([plugin blocks](../../../formats/native-contracts.md#plugin-blocks)), and none of the files below uses it. These files are test data that `packages/native-data/test/clip.test.ts` reads through the reference reader, which still refuses `pluginData` as an unknown key, so a document with a block is added here by story 27.10 ([#1822](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1822)) in the same change as the reader. The worked examples in [native-contracts.md](../../../formats/native-contracts.md#a-worked-example) and [native-animation-clip.md](../../../formats/native-animation-clip.md#a-clip-at-a-glance) were checked against the schema.
+**Plugin blocks.** The contract admits one optional key, `pluginData` ([plugin blocks](../../../formats/native-contracts.md#plugin-blocks)). The valid [`plugin-data.tkranm`](valid/plugin-data.tkranm) example includes comments, flow formatting, unknown plugin-owned keys and a version spelling (`1.10`) that must stay byte for byte. `packages/native-data/test/clip.test.ts` verifies that the reader accepts it, edits outside the block preserve every block byte, and the writer refuses to regenerate it without the matching original source.
 
 ## Valid
 
@@ -12,6 +12,7 @@ Authored examples of the native animation clip at contract version `1.0.0-pre.1`
 |---|---|
 | [valid/walk-south-imported.tkranm](valid/walk-south-imported.tkranm) | The example game's two-frame south walk ([the legacy listing](../../listings/hero_walk_s.anm.txt)) as a native clip: tile-reference frames, one clip-level colour key, the `imported` tag and a `source` in `metadata`. The 49 empty legacy slots are not listed. |
 | [valid/sword-swing.tkranm](valid/sword-swing.tkranm) | An authored clip with image files, a sound on one frame, and one frame that gives its own colour key. Comments are part of the document. |
+| [valid/plugin-data.tkranm](valid/plugin-data.tkranm) | An opaque qualified plugin block with comments, unknown values and YAML formatting that an ordinary clip edit must preserve. |
 | [valid/torch-minimal.tkranm](valid/torch-minimal.tkranm) | The smallest clip: the stamp, the canvas, the delay and one frame. No tags, no metadata, no colour key and no sound. |
 
 ## Invalid
