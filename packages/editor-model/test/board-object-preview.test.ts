@@ -2,7 +2,7 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { BinaryReader, TILE_BITMAP_MAGIC, readAnimation, readBoard, readItem, writeAnimation, writeBoard, writeItem, writeTileBitmap, type Board, type BoardImage, type BoardSprite } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { buildNewBoard, previewBoard, type BoardPreview } from "../src/index.ts";
+import { buildNewBoard, previewBoard, previewTileBitmap, type BoardPreview } from "../src/index.ts";
 import { exampleAnimation, exampleItem, exampleTileset } from "./fixtures.ts";
 
 const MAGENTA = { r: 255, g: 0, b: 255 };
@@ -131,4 +131,19 @@ test("tile-bitmap board images stay hydrated art rather than being refused as un
   deepEqual(picture.objectBounds, [{ kind: "images", index: 0, left: 10, top: 12, width: 32, height: 32, placeholder: false }]);
   deepEqual(picture.warnings, []);
   ok(picture.rgba.some((value, index) => index % 4 !== 3 && value !== 0), "the tile bitmap contributes visible colour to the board");
+});
+test("tile-bitmap document previews resolve nested tiles under their exact owning game root", async () => {
+  const empty = { tile: "", r: 0, g: 0, b: 0 };
+  const written = writeTileBitmap({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 1, height: 1, cells: [{ ...empty, tile: "art.tst1" }, empty, empty, empty], residue: new Uint8Array() });
+  ok(written.ok);
+  const host = createMemoryPlatformServices({
+    files: {
+      "Game/Proof/Bitmap/stamp.tbm": written.value,
+      "Game/Proof/Tiles/art.tst": exampleTileset(1),
+    },
+  });
+  const picture = await previewTileBitmap(host.fs, "memory-project", written.value, "Game/Proof/Bitmap/stamp.tbm");
+  ok(picture.ok, picture.ok ? "" : picture.message);
+  deepEqual(picture.warnings, []);
+  ok(picture.rgba.some((value, index) => index % 4 !== 3 && value !== 0));
 });

@@ -1,6 +1,7 @@
 import { ANIMATION_PROOF_PATH, runAnimationAuthoringProof } from "./animation-proof.ts";
 import { PROPERTIES_BOARD, runBoardPropertiesProof } from "./board-properties-proof.ts";
 import { OBJECTS_BOARD, runBoardObjectsProof } from "./board-objects-proof.ts";
+import { CONNECTED_BOARD, CONNECTED_ITEM, runConnectedAuthoringProof } from "./connected-authoring-proof.ts";
 import { createHash } from "node:crypto";
 import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
@@ -2739,3 +2740,183 @@ export async function runVscodeBoardObjectsProof(page: Page, expect: Expect, wor
     settle: () => page.waitForTimeout(80),
   }, expect);
 }
+
+/** Story 12.12 through the real packaged VS Code workbench, source visits and live player snapshots. */
+export async function runVscodeConnectedAuthoringProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>): Promise<void> {
+  const wasmErrors: string[] = [];
+  page.on("pageerror", (error) => {
+    if (/WebAssembly|Content Security Policy/i.test(error.message)) wasmErrors.push(error.message);
+  });
+  await page.addInitScript(() => {
+    const usage = { instantiate: 0 };
+    Reflect.set(window, "__tkrConnectedWasmUsage", usage);
+    const instantiate = WebAssembly.instantiate.bind(WebAssembly);
+    WebAssembly.instantiate = ((...args: Parameters<typeof WebAssembly.instantiate>) => {
+      usage.instantiate += 1;
+      return instantiate(...args);
+    }) as typeof WebAssembly.instantiate;
+  });
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
+  const board = async (): Promise<Locator> => {
+    let found: Frame | undefined;
+    await expect.poll(async () => {
+      for (const frame of page.frames()) {
+        if (await frame.locator(".tkr-board:visible").count().catch(() => 0) > 0
+          && await frame.evaluate(() => document.hasFocus()).catch(() => false)) {
+          found = frame;
+          return true;
+        }
+      }
+      return false;
+    }, { timeout: 30_000 }).toBe(true);
+    if (found === undefined) throw new Error("The active connected-authoring board editor was not found");
+    return found.locator(".tkr-board");
+  };
+  const sourceEditor = async (selector: string, label: string): Promise<Locator> => {
+    let found: Frame | undefined;
+    await expect.poll(async () => {
+      for (const frame of page.frames()) {
+        if (await frame.locator(`${selector}:visible`).count().catch(() => 0) > 0
+          && await frame.evaluate(() => document.hasFocus()).catch(() => false)) {
+          found = frame;
+          return true;
+        }
+      }
+      return false;
+    }, { timeout: 30_000 }).toBe(true);
+    if (found === undefined) throw new Error(`The active ${label} source editor was not found`);
+    return found.locator(selector);
+  };
+  const open = async (path: string): Promise<Locator> => {
+    await focusWorkbench(page);
+    await openNativeQuickOpenFile(page, expect, path);
+    await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+    return board();
+  };
+  const settings = async (): Promise<Frame> => openProjectFile(page, "Main/example.gam", expect, ".tkr-settings");
+  const player = async (): Promise<Frame> => {
+    let found: Frame | undefined;
+    await expect.poll(async () => {
+      for (const frame of page.frames()) {
+        if (await frame.locator("#screen").count().catch(() => 0) > 0
+          && await frame.evaluate(() => Reflect.get(window, "__session") !== undefined).catch(() => false)) {
+          found = frame;
+          return true;
+        }
+      }
+      return false;
+    }, { timeout: 30_000 }).toBe(true);
+    if (found === undefined) throw new Error("Connected-authoring player frame was not found");
+    return found;
+  };
+  const launchSaved = async (name: string): Promise<Frame> => {
+    await runCommand(page, expect, "Debug: Select and Start Debugging", "Type the name of a launch configuration to run.");
+    const picker = page.locator(".quick-input-widget");
+    await expect(picker).toBeVisible();
+    await picker.getByRole("option", { name: new RegExp(name) }).click();
+    await page.waitForTimeout(150);
+    const active = await player();
+    expect(await active.evaluate(() => (Reflect.get(window, "__tkrConnectedWasmUsage") as { readonly instantiate: number } | undefined)?.instantiate)).toBe(0);
+    return active;
+  };
+  // Establish this game's owning main before relative visits; the harness also keeps a separate sentinel main.
+  await settings();
+  await runConnectedAuthoringProof({
+    page,
+    launchSetupPath: ".vscode/launch.json",
+    read: readBacking,
+    openBoard: open,
+    save: async () => {
+      await runCommand(page, expect, "File: Save");
+      await expect(page.getByRole("tab", { selected: true }).last()).not.toHaveClass(/dirty/);
+    },
+    cancelAssetPicker: async () => {
+      const picker = page.locator(".quick-input-widget");
+      await expect(picker).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(picker).toBeHidden();
+    },
+    chooseAsset: async (reference) => {
+      const picker = page.locator(".quick-input-widget");
+      await expect(picker).toBeVisible();
+      const query = picker.locator("input:visible");
+      await query.fill(reference);
+      await expect(picker.getByRole("option", { name: reference, exact: true })).toBeVisible();
+      await query.press("Enter");
+      await expect(picker).toBeHidden();
+      const confirm = page.getByRole("button", { name: "Use it", exact: true });
+      await confirm.click();
+      await expect(confirm).toBeHidden();
+    },
+    spriteEditor: () => sourceEditor('.tkr-sprite-graphics[aria-label="item sprite graphics"]', "item"),
+    animationEditor: () => sourceEditor(".tkr-animation-editor", "animation"),
+    bitmapEditor: () => sourceEditor(".tkr-bitmap", "tile bitmap"),
+    expectSingleSharedItemDocument: async () => {
+      await expect(page.getByRole("tab").filter({ hasText: CONNECTED_ITEM.split("/").at(-1)! })).toHaveCount(1);
+    },
+    openDocument: async (path) => {
+      await focusWorkbench(page);
+      await openNativeQuickOpenFile(page, expect, path);
+    },
+    revealRun: async () => {
+      await page.getByRole("tab").filter({ hasText: /Testing Board test|Running Game/ }).last().click();
+      await page.waitForTimeout(150);
+    },
+    returnToAnimation: async () => {
+      await runCommand(page, expect, "TK Reawakened: Return to board");
+      return sourceEditor(".tkr-animation-editor", "animation");
+    },
+    returnToBoard: async () => {
+      for (let hop = 0; hop < 3; hop += 1) {
+        await runCommand(page, expect, "TK Reawakened: Return to board");
+        await page.waitForTimeout(150);
+        if (await page.getByRole("tab", { selected: true }).filter({ hasText: CONNECTED_BOARD.split("/").at(-1)! }).count() > 0) return board();
+      }
+      throw new Error("The three-source visit chain did not return to its original native board");
+    },
+    expectProgram: async (path, text) => {
+      await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
+      await expect(page.locator(".editor-instance .monaco-editor").last()).toContainText(text);
+    },
+    writeProgram: async (path, text, before) => {
+      await focusWorkbench(page);
+      await openNativeQuickOpenFile(page, expect, path);
+      const editor = page.locator(".editor-instance .monaco-editor").last();
+      await expect(editor.locator(".view-lines")).toBeVisible();
+      await editor.click();
+      await page.keyboard.press("ControlOrMeta+A");
+      // Native Monaco needs a real paste transaction so VS Code, not raw CDP insertion, owns undo.
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(workbenchUrl).origin });
+      await page.evaluate((value) => navigator.clipboard.writeText(value), text);
+      await page.keyboard.press("ControlOrMeta+V");
+      await expect(editor).toContainText(text.split("\n")[0]!);
+      await runCommand(page, expect, "Undo");
+      await expect(editor).toContainText(before.split("\n")[0]!);
+      await runCommand(page, expect, "Redo");
+      await expect(editor).toContainText(text.split("\n")[0]!);
+      await runCommand(page, expect, "File: Save");
+      await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).not.toHaveClass(/dirty/);
+    },
+    runSavedBoardSetup: () => launchSaved("Connected board test"),
+    runGame: () => launchSaved("Connected game start-up"),
+    readRunSnapshot: async (frame) => {
+      const text = await frame.locator("#run-snapshot pre").textContent();
+      if (text === null) throw new Error("The native player did not expose its captured run snapshot");
+      return JSON.parse(text) as { readonly kind: string; readonly manifest: string; readonly start: { readonly board: string } | null };
+    },
+    stopRun: async () => {
+      await runCommand(page, expect, "Debug: Stop");
+      await expect.poll(async () => {
+        for (const candidate of page.frames()) if (await candidate.locator("#screen").count().catch(() => 0) > 0) return true;
+        return false;
+      }, { timeout: 30_000 }).not.toBe(true);
+    },
+    settle: () => page.waitForTimeout(80),
+  }, expect);
+  expect(wasmErrors, "Native player and extension browser bundles respect the existing strict CSP").toEqual([]);
+  await open(CONNECTED_BOARD);
+  const screenshot = process.env.TKR_VSCODE_PROOF_SCREENSHOT;
+  if (screenshot !== undefined) await page.screenshot({ path: screenshot });
+}
+

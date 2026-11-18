@@ -279,7 +279,7 @@ test("the preview is the core compositor's picture of the cells over the project
   const withMissing = bitmap(2, 1, (x) => (x === 0 ? cell("village.tst1") : cell("gone.tst1", 10, -20, 30)));
   const host = createMemoryPlatformServices({ files: { "Tiles/village.tst": tileset } });
 
-  const picture = await previewTileBitmap(host.fs, "memory-project", bytesOf(model));
+  const picture = await previewTileBitmap(host.fs, "memory-project", bytesOf(model), "Bitmap/preview.tbm");
   ok(picture.ok, picture.ok ? "" : picture.message);
   equal(picture.width, 64);
   equal(picture.height, 32);
@@ -301,7 +301,7 @@ test("the preview is the core compositor's picture of the cells over the project
   ok(expected.ok);
   deepEqual(picture.rgba, expected.value.rgba);
 
-  const missing = await previewTileBitmap(host.fs, "memory-project", bytesOf(withMissing));
+  const missing = await previewTileBitmap(host.fs, "memory-project", bytesOf(withMissing), "Bitmap/preview.tbm");
   ok(missing.ok);
   equal(missing.warnings.length, 1);
   match(missing.warnings[0]!, /gone\.tst1/);
@@ -311,7 +311,7 @@ test("the preview is the core compositor's picture of the cells over the project
     ok(missing.rgba.subarray(left + 32 * 4, left + 64 * 4).every((value, at) => at % 4 !== 3 || value === 0), "the cell with no tile is transparent");
   }
 
-  const none = await previewTileBitmap(host.fs, "memory-project", bytesOf({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: -1, height: -1, cells: [], residue: new Uint8Array() }));
+  const none = await previewTileBitmap(host.fs, "memory-project", bytesOf({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: -1, height: -1, cells: [], residue: new Uint8Array() }), "Bitmap/preview.tbm");
   ok(!none.ok);
   match(none.message, /no drawn cells/);
 });
@@ -319,7 +319,7 @@ test("the preview is the core compositor's picture of the cells over the project
 test("the stored extra row and column are never drawn, so a tile they name is not reported missing", async () => {
   const host = createMemoryPlatformServices({ files: { "Tiles/village.tst": tileset } });
   const model = bitmap(2, 1, () => cell("village.tst1"), cell("pad.gph", 1, 2, 3));
-  const picture = await previewTileBitmap(host.fs, "memory-project", bytesOf(model));
+  const picture = await previewTileBitmap(host.fs, "memory-project", bytesOf(model), "Bitmap/preview.tbm");
   ok(picture.ok);
   deepEqual(picture.warnings, []);
 });

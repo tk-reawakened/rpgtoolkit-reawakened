@@ -27,6 +27,7 @@ import {
 import type { PlatformResult, PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
+import { AssetRefreshContext } from "./asset-refresh.ts";
 import { EmptyExplorerView, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
 import { Shell, type ShellProps } from "./shell.tsx";
 import { RunStatusView, RunView, type RunViewProps } from "./run-view.tsx";
@@ -132,6 +133,8 @@ export interface ViewHandle {
   dispose(): void;
   /** Present only for a program view. Queue a one-based location without changing its document or undo stack. */
   revealSource?(line: number, column: number): void;
+  /** Document views re-read saved linked artwork without resetting selection, drafts or history. */
+  refreshAssets?(): void;
 }
 
 function isBoardView(document: ViewContext["document"]): document is BoardViewDocument {
@@ -196,7 +199,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     });
   } else if (isSpriteView(document)) {
     view = createElement(Fragment, null,
-      createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits }),
+      createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation }),
       document.kind === "character"
         ? createElement(CharacterAuthoringView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation })
         : null);
@@ -235,9 +238,17 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }
   const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings" };
-  render(createElement("div", { class: "tkr-editor-surface", "data-tkr-editor": titles[document.kind] ?? document.kind }, view), el);
+  let assetRevision = 0;
+  const display = (): void => render(createElement(AssetRefreshContext.Provider, { value: assetRevision },
+    createElement("div", { class: "tkr-editor-surface", "data-tkr-editor": titles[document.kind] ?? document.kind }, view)), el);
+  display();
   return {
     ...(isProgramView(document) ? { revealSource } : {}),
+    refreshAssets() {
+      if (disposed) return;
+      assetRevision++;
+      display();
+    },
     dispose() {
       if (disposed) return;
       disposed = true;

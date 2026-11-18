@@ -80,6 +80,9 @@ try {
   nativeEnv.TKR_VSCODE_PROGRAM_PROOF = "1";
   part("actual VS Code web: saved fixture program execution", nativeCommand, nativeArgs(programWorkspace), nativeEnv);
   delete nativeEnv.TKR_VSCODE_PROGRAM_PROOF;
+  nativeEnv.TKR_VSCODE_CONNECTED_AUTHORING_PROOF = "1";
+  part("actual VS Code web: connected authoring and immutable saved runs", nativeCommand, nativeArgs(programWorkspace), nativeEnv);
+  delete nativeEnv.TKR_VSCODE_CONNECTED_AUTHORING_PROOF;
   nativeEnv.TKR_VSCODE_CREATOR_TESTS_PROOF = "1";
   part("actual VS Code web: saved creator tests and headless parity", nativeCommand, nativeArgs(workspace), nativeEnv);
 

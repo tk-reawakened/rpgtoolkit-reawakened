@@ -2,7 +2,7 @@
 type: feature
 title: "Board vectors programs sprites and image objects"
 ticket: 11
-status: built
+status: done
 created: 2026-11-17
 baseline_revision: 9b0e39e341ccb76740e04f53294b866f7a63bb63
 review: thorough
@@ -127,3 +127,9 @@ Repair checkpoint `d8423512719cc0b5dec7e1aec84e4c7adf2564de` was independently r
 - **B10/false — missing command registration.** `editor-commands.ts:40-84` collects the focused surface's accessible buttons/selects, preserves disabled state and invokes their existing handlers; `command-palette.tsx:275` connects it. New modes/object actions participate automatically. Adding another registration convention would duplicate the existing one.
 - **I4/false — runtime execution proof required here.** `docs/editor-features.md#p0-board-objects` explicitly defines authoring-only behavior; program/condition storage is not a claim that the preview executes those programs.
 - **I5/false — unrestricted losslessness claimed.** The story retains the existing same-version codec/read-back/refusal boundary, not arbitrary unsupported formats. Authored raw-slot/residue and exact Undo assertions support that bounded claim; unsupported values remain refused/read-only.
+
+## Merged delivery
+
+- PR [#3085](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3085) merged on 2026-11-17 as `4ff4ed3dee07c66119867f5a859a797797a4b798`, retaining verified candidate `942a47026c52ba96bdeca0d713a80a9f8e1058e5`.
+- All 20 repository checks completed successfully before merge. The issue and all 19 linked fixed-defect issues are closed; their existing Project items are Done. The local proof and independent review receipts above remain the acceptance evidence.
+- #3040 continues immediately in 12.12/#1723; rare #3067 remains backlog. Neither is claimed fixed by this delivery.

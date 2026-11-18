@@ -296,6 +296,8 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     }
   }
   const initialGeometry = displayGeometry;
+  // Scene programs use only the bytes held at launch, never the asset cache filled by later requests.
+  const sceneProgramFiles = "scene" in options && options.scene !== undefined ? new Map(files) : null;
   const initialFeatures: HostFeatures = hostFeatures ?? { touch: false, pointer: "none", keyboard: false, gamepad: false, haptics: false, orientation: null };
   const engine = createEngine({
     stateHashInReports: "on-request",
@@ -305,6 +307,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     ...("scene" in options && options.scene !== undefined ? {
       initialBoard: options.scene.board,
       program: options.scene.program,
+      programLoader: { index, root: assetRoot, read: (key) => sceneProgramFiles?.get(key) },
     } : {
       mainFile,
       gameIdentity,

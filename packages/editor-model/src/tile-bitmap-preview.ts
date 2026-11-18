@@ -1,6 +1,6 @@
 import { BinaryReader, readTileBitmap } from "@tk-reawakened/core";
 import type { BoardPicture, PreviewStorage } from "./board-preview.ts";
-import { listCandidates } from "./reserved-folders.ts";
+import { listCandidates, projectLayoutForDocumentPath } from "./reserved-folders.ts";
 import { createTileSourcePreviewer } from "./tile-source-preview.ts";
 
 /**
@@ -22,7 +22,7 @@ const MAX_PREVIEW_PIXELS = 4_000_000;
  * of the project `projectId`. A cell whose tile the project does not hold or cannot decode is drawn empty and named in
  * `warnings`; it is never an error, so one missing tileset does not hide the rest of the picture.
  */
-export async function previewTileBitmap(storage: PreviewStorage, projectId: string, bytes: Uint8Array): Promise<TileBitmapPicture> {
+export async function previewTileBitmap(storage: PreviewStorage, projectId: string, bytes: Uint8Array, documentPath: string): Promise<TileBitmapPicture> {
   const read = readTileBitmap(new BinaryReader(bytes, "preview.tbm"));
   if (!read.ok) return { ok: false, message: `The tile bitmap cannot be previewed: ${read.error.message}` };
   const bitmap = read.value;
@@ -30,7 +30,8 @@ export async function previewTileBitmap(storage: PreviewStorage, projectId: stri
   if (bitmap.width * bitmap.height * 32 * 32 > MAX_PREVIEW_PIXELS) {
     return { ok: false, message: `This tile bitmap is larger than the ${MAX_PREVIEW_PIXELS / 1_000_000} million pixels the preview draws.` };
   }
-  const listed = await listCandidates(storage, { projectFolder: "" }, "tiles", TILE_EXTENSIONS);
+  const layout = projectLayoutForDocumentPath(documentPath);
+  const listed = await listCandidates(storage, layout, "tiles", TILE_EXTENSIONS);
   const previewer = createTileSourcePreviewer(listed.candidates, async (path) => {
     const file = await storage.readProject(projectId, path);
     return file.ok ? file.value : null;

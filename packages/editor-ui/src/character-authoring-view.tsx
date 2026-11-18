@@ -1,8 +1,10 @@
 import {
   classifyImageReference,
+  projectLayoutForDocumentPath,
+  reservedFolder,
   createEditTracker,
   spritePicturePreview,
-  spriteProjectAssetPath,
+  referencePath,
   spriteTileBitmapPreviewFromAssets,
   spriteTileFrameFromReference,
   type AssetKind,
@@ -14,7 +16,8 @@ import {
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
 import type { JSX } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { AssetRefreshContext } from "./asset-refresh.ts";
 import type { SpriteViewDocument } from "./sprite-view.tsx";
 import { useDocumentSnapshot } from "./use-document.ts";
 
@@ -78,12 +81,14 @@ function paintFrame(canvas: HTMLCanvasElement | null, frame: SpritePreviewFrame 
 }
 
 function ProfilePicturePreview({
-  reference, fs, projectId,
+  reference, fs, projectId, documentPath,
 }: {
   readonly reference: string;
   readonly fs: Pick<FileSystemService, "readProject">;
   readonly projectId: string;
+  readonly documentPath: string;
 }) {
+  const assetRevision = useContext(AssetRefreshContext);
   const [frame, setFrame] = useState<SpritePreviewFrame | null>(null);
   const [message, setMessage] = useState("Enter a picture or tile reference to preview it.");
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -96,13 +101,15 @@ function ProfilePicturePreview({
     }
     const value = reference.trim();
     const kind = classifyImageReference(value);
+    const layout = projectLayoutForDocumentPath(documentPath);
     const load = async (path: string): Promise<Uint8Array | null> => {
-      const result = await fs.readProject(projectId, path);
+      const rooted = path.startsWith("Tiles/") ? `${reservedFolder(layout, "tiles")}/${path.slice(6)}` : path;
+      const result = await fs.readProject(projectId, rooted);
       return result.ok ? result.value : null;
     };
     const readFrame = async (): Promise<SpritePreviewFrame | null> => {
       if (kind.kind === "picture") {
-        const path = spriteProjectAssetPath("Bitmap", kind.path);
+        const path = referencePath(layout, "bitmaps", kind.path);
         const bytes = await load(path);
         return bytes === null ? null : spritePicturePreview(bytes, path);
       }
@@ -110,7 +117,7 @@ function ProfilePicturePreview({
         return spriteTileFrameFromReference(value, load);
       }
       if (kind.kind === "tileBitmap") {
-        const path = spriteProjectAssetPath("Bitmap", kind.path);
+        const path = referencePath(layout, "bitmaps", kind.path);
         const bytes = await load(path);
         return bytes === null ? null : spriteTileBitmapPreviewFromAssets(bytes, path, load);
       }
@@ -124,7 +131,7 @@ function ProfilePicturePreview({
       if (active) setMessage(`Preview unavailable: ${error instanceof Error ? error.message : "project file could not be read"}`);
     });
     return () => { active = false; };
-  }, [reference, fs, projectId]);
+  }, [reference, fs, projectId, documentPath, assetRevision]);
   useEffect(() => paintFrame(canvas.current, frame), [frame]);
   return <div class="tkr-character-picture-preview">
     {frame === null ? <p role="status">{message}</p> : <canvas ref={canvas} role="img" aria-label={`Profile picture: ${message}`} />}
@@ -343,7 +350,7 @@ export function CharacterAuthoringView({ doc, fs, capabilities: _capabilities, o
         <button type="button" aria-label="Choose profile tile…" disabled={disabled || pickAsset === undefined} onClick={() => { void pickProfileReference("tiles"); }}>Choose profile tile…</button>
       </div>
       {pickAsset === undefined && <p>Asset picker unavailable here; enter a project reference above.</p>}
-      <ProfilePicturePreview reference={text("profilePicture", character.profilePicture)} fs={fs} projectId={projectId} />
+      <ProfilePicturePreview reference={text("profilePicture", character.profilePicture)} fs={fs} projectId={projectId} documentPath={doc.identity.path} />
     </fieldset>
 
     <fieldset disabled={disabled}>

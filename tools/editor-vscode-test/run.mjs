@@ -9,7 +9,8 @@ import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap
 import { buildNewBoard } from "@tk-reawakened/editor-model";
 import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
 import { boardObjectsProofFiles } from "./board-objects-proof.ts";
-import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
+import { connectedAuthoringProofFiles } from "./connected-authoring-proof.ts";
+import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeConnectedAuthoringProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { runVscodeDesignProof } from "./design-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
@@ -74,6 +75,7 @@ await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const animationProof = process.env.TKR_VSCODE_ANIMATION_PROOF === "1";
 const boardPropertiesProof = process.env.TKR_VSCODE_BOARD_PROPERTIES_PROOF === "1";
 const boardObjectsProof = process.env.TKR_VSCODE_BOARD_OBJECTS_PROOF === "1";
+const connectedAuthoringProof = process.env.TKR_VSCODE_CONNECTED_AUTHORING_PROOF === "1";
 const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
 const boardProof = process.env.TKR_VSCODE_BOARD_PROOF === "1";
 const programProof = process.env.TKR_VSCODE_PROGRAM_PROOF === "1";
@@ -84,11 +86,14 @@ const historyProof = process.env.TKR_VSCODE_HISTORY_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
 const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
-if (designProof && (animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof)) {
+if (designProof && (connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof)) {
   throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
 }
-if ((designProof || boardPropertiesProof || boardObjectsProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of designProof || boardPropertiesProof || boardObjectsProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
+if ((designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+const fullProofChoices = game === "Main/example.gam" && workspace === resolve(root, "docs/spec/examples/game") ? ["cancel", "keep", "connected"] : ["cancel", "keep"];
+for (const choice of designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
+  const connectedPass = connectedAuthoringProof || choice === "connected";
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
     const target = resolve(proofWorkspace, file.path);
@@ -129,6 +134,18 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
     writeFile(resolve(proofWorkspace, bitmapPath), createBitmapBytes(false)),
     writeFile(resolve(proofWorkspace, otherBitmapPath), createOtherBitmapBytes()),
   ]);
+  if (connectedPass) {
+    // The linked-provider regression is a wrong project root. Remove the loose-folder assets the
+    // generic harness seeds, so only the real Game/Example ownership can satisfy this proof.
+    await Promise.all(["Bitmap", "Bkrounds", "Boards", "Chrs", "Enemy", "Item", "Misc", "Prg", "SpcMove", "StatusE", "Tiles"]
+      .map((folder) => rm(resolve(proofWorkspace, folder), { recursive: true, force: true })));
+    await cp(resolve(workspace, "Game"), resolve(proofWorkspace, "Game"), { recursive: true });
+    for (const file of connectedAuthoringProofFiles()) {
+      const target = resolve(proofWorkspace, file.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, file.bytes);
+    }
+  }
   let persistentFs;
   let browser;
   let trackedProcess;
@@ -172,6 +189,8 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
         `--extensionPath=${resolve(root, "extensions/rpgcode")}`,
         `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
         `--testRunnerDataDir=${process.env.TKR_VSCODE_TEST_DATA_DIR ?? resolve(root, ".vscode-test-web")}`,
+        // An explicit cached SDK build avoids an unrelated latest-build lookup during local/offline proofs.
+        ...(process.env.TKR_VSCODE_TEST_COMMIT === undefined ? [] : [`--commit=${process.env.TKR_VSCODE_TEST_COMMIT}`]),
       ], {
         cwd: root,
         stdio: "inherit",
@@ -370,6 +389,10 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
       await runVscodeBoardObjectsProof(page, expect, workbenchUrl, readBacking);
       console.log("vscode.dev board objects, definition visits, native confirmation and saved-record proof passed");
     };
+    const proveConnectedAuthoring = async () => {
+      await runVscodeConnectedAuthoringProof(page, expect, workbenchUrl, readBacking);
+      console.log("vscode.dev connected authoring, saved-source identity and immutable run-snapshot proof passed");
+    };
     if (designProof) {
       await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
       await expect(page.locator(".monaco-workbench")).toBeVisible();
@@ -386,6 +409,8 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
       });
       if (styleCspViolations.length > 0) throw new Error(`Design proof violated style CSP:\n${styleCspViolations.join("\n")}`);
       console.log(`VS Code native editor design ${designPhase} evidence captured at ${designOutput}`);
+    } else if (connectedPass) {
+      await proveConnectedAuthoring();
     } else if (boardObjectsProof) {
       await proveBoardObjects();
     } else if (boardPropertiesProof) {

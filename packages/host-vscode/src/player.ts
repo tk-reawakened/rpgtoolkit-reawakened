@@ -100,7 +100,7 @@ export function createVscodeRunService(context: vscode.ExtensionContext, root: v
     }
     const launchLabel = launch.kind === "program" ? "Program test" : launch.kind === "board" ? "Board test" : "Game";
     const panel = vscode.window.createWebviewPanel("tkr.player", launch.kind === "game" ? "Running Game" : `Testing ${launchLabel}`, vscode.ViewColumn.Beside, {
-      enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
+      enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")],
     });
     const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
     status.text = `$(play) Starting ${launchLabel.toLowerCase()}`;

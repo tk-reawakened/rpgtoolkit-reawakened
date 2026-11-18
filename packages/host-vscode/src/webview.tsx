@@ -1,13 +1,21 @@
-import { mount, type SpriteViewDocument, type ViewContext } from "@tk-reawakened/editor-ui";
+import { projectLayoutForDocumentPath } from "@tk-reawakened/editor-model";
+import { mount, type SpriteViewDocument, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { RemoteDocument, isSpriteSnapshot, type BridgeMessage, type VscodeApi } from "./document-bridge.js";
 declare function acquireVsCodeApi(): VscodeApi;
+type ViewMessage = BridgeMessage | { readonly type: "activate" };
 
 // A hidden webview retains this page; if VS Code recreates a disposed page, the document and its history stay in the extension host,
 // and `ready` fetches them back (ADR 0022 D3.7).
 const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
-window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
+let mountedView: ViewHandle | undefined;
+window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
+  if (event.data.type === "activate") {
+    mountedView?.refreshAssets?.();
+    return;
+  }
   if (event.data.type === "initialize") {
+    mountedView?.dispose();
     const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath);
     remoteDocument = remote;
     const fs = {
@@ -17,16 +25,22 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
     if (event.data.kind === "character" || event.data.kind === "item") {
       const doc = spriteViewDocument(remote);
       if (doc === null) throw new Error(`The ${event.data.kind} editor received an invalid sprite snapshot.`);
-      mount(documentRoot(), {
+      mountedView = mount(documentRoot(), {
         document: doc,
         services,
         // The extension host's `settle` request waits for the edits these views have accepted but not yet sent (#2613).
         pendingEdits: remote.pendingEdits,
-        // Sprite authoring does not offer linked-document navigation in this view.
-        navigation: { pickAsset: (request) => remote.pickAsset(request) },
+        // Linked ANM visits open through the same document/history identity as the project browser.
+        navigation: {
+          pickAsset: (request) => remote.pickAsset(request),
+          open: async (path) => {
+            const outcome = await remote.visit(path);
+            return outcome.ok ? null : outcome.message;
+          },
+        },
       });
     } else {
-      mount(documentRoot(), {
+      mountedView = mount(documentRoot(), {
         // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
         document: remote as unknown as ViewContext["document"],
         services,
@@ -34,7 +48,7 @@ window.addEventListener("message", (event: MessageEvent<BridgeMessage>) => {
         browser: {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
-          layout: { projectFolder: "" },
+          layout: projectLayoutForDocumentPath(remote.identity.path),
           // A linked visit: the extension host opens the file in its own editor and remembers the way back.
           openSource: async (path) => {
             const outcome = await remote.visit(path);

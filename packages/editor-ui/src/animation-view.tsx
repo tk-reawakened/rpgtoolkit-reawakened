@@ -1,8 +1,9 @@
 import { createEditTracker, animationTileBitmapBytes, type PendingEdits, type AnimationFrame, type AnimationAuthoring } from "@tk-reawakened/editor-model";
 import { CheckpointView } from "./checkpoint-view.tsx";
-import { ANIMATION_FRAME_LIMIT, listCandidates, reservedFolder, spriteAnimationCanvasPreview, spriteGifPreview, spritePicturePreview, spriteProjectAssetPath, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, unusableName, type AnimationCommand, type AnimationDocumentSnapshot, type AssetCandidate } from "@tk-reawakened/editor-model";
+import { ANIMATION_FRAME_LIMIT, listCandidates, projectLayoutForDocumentPath, referencePath, reservedFolder, spriteAnimationCanvasPreview, spriteGifPreview, spritePicturePreview, spriteTileBitmapPreviewFromAssets, spriteTileFrameFromReference, unusableName, type AnimationCommand, type AnimationDocumentSnapshot, type AssetCandidate } from "@tk-reawakened/editor-model";
 import type { DocumentEdited, FileSystemService } from "@tk-reawakened/platform-services";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { AssetRefreshContext } from "./asset-refresh.ts";
 import type { BrowserSelection } from "./brush.ts";
 import type { ViewDocument } from "./mount.ts";
 import { TilesetBrowser, type TilesetBrowserContext } from "./tileset-browser.tsx";
@@ -37,6 +38,7 @@ function topLeftKey(picture: { readonly rgba: Uint8Array }): { readonly r: numbe
 /** Story 12.7: author a binary animation in the shared view, with staged image and 4×4 TBM wizards. */
 export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEdits }: AnimationViewProps) {
   const snapshot = useDocumentSnapshot(doc);
+  const assetRevision = useContext(AssetRefreshContext);
   const submitted = useRef(createEditTracker());
   const queue = useRef(Promise.resolve());
   // Cancelling or replacing preparation invalidates its outstanding asset reads (#2817).
@@ -68,7 +70,8 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
   const current = snapshot.frames[currentIndex] ?? EMPTY_FRAME;
   const readOnly = snapshot.readOnly !== null;
   const identity = doc.identity;
-  const folder = browser === undefined ? "Bitmap" : reservedFolder(browser.layout, "bitmaps");
+  const layout = projectLayoutForDocumentPath(identity.path);
+  const folder = reservedFolder(layout, "bitmaps");
 
   useEffect(() => browser?.session.subscribe(() => setBrush(browser.session.getSnapshot().selection)) ?? undefined, [browser]);
   useEffect(() => {
@@ -87,13 +90,14 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
     const reference = current.image.trim();
     if (reference === "") { setPreview(null); return () => { active = false; }; }
     const load = async (path: string): Promise<Uint8Array | null> => {
-      const read = await fs.readProject(identity.projectId, path);
+      const rooted = path.startsWith("Tiles/") ? `${reservedFolder(layout, "tiles")}/${path.slice(6)}` : path;
+      const read = await fs.readProject(identity.projectId, rooted);
       return read.ok ? read.value : null;
     };
     void (async () => {
       let source: { readonly width: number; readonly height: number; readonly rgba: Uint8Array } | null = null;
       if (BITMAP.test(reference)) {
-        const path = spriteProjectAssetPath(folder, reference);
+        const path = referencePath(layout, "bitmaps", reference);
         const bytes = await load(path);
         if (bytes !== null && reference.toLowerCase().endsWith(".tbm")) source = await spriteTileBitmapPreviewFromAssets(bytes, path, load);
         else if (bytes !== null && GIF.test(reference)) source = spriteGifPreview(bytes, path)?.frames[0] ?? null;
@@ -102,7 +106,7 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
       if (active) setPreview(source === null ? null : spriteAnimationCanvasPreview(source, snapshot.width, snapshot.height, current.transparent, BITMAP.test(reference)));
     })().catch((error: unknown) => { if (active) setMessage(`Frame preview unavailable: ${errorMessage(error)}`); });
     return () => { active = false; };
-  }, [current.image, current.transparent, folder, fs, identity.projectId, snapshot.width, snapshot.height]);
+  }, [current.image, current.transparent, fs, identity.path, identity.projectId, snapshot.width, snapshot.height, assetRevision]);
 
   useEffect(() => {
     const target = canvas.current;
@@ -268,6 +272,11 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
     </section>
     <section class="tkr-animation-frame-editor" aria-label={`Frame ${currentIndex + 1} properties`}>
       <label>Image reference <input value={typeValue("image")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, image: value })); void updateFrame("image", value); }} /></label>
+      {/\.tbm$/i.test(current.image.trim()) && browser?.openSource !== undefined && <button type="button" aria-label="Open frame image" onClick={() => {
+        const origin = identity.path;
+        const path = referencePath(layout, "bitmaps", current.image.trim());
+        void browser.openSource?.(path).then((message) => { if (doc.identity.path === origin && message !== null) setMessage(message); });
+      }}>Open frame image</button>}
       <label>Sound reference <input value={typeValue("sound")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, sound: value })); void updateFrame("sound", value); }} /></label>
       <fieldset><legend>Transparency key (RGB)</legend>
         {(["red", "green", "blue"] as const).map((channel) => <label key={channel}>{channel} <input type="number" min="0" max="255" value={typeValue(channel)} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, [channel]: value })); void updateFrame(channel, value); }} /></label>)}
