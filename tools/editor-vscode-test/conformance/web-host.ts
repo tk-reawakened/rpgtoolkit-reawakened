@@ -241,7 +241,7 @@ export function createWebBoardProofHost(gam: Uint8Array, files: Readonly<Record<
         element,
         workbenchDirty: () => model.getSnapshot().dirty,
         picture: async () => {
-          if (model.kind === "tile-bitmap") return previewTileBitmap(project.services.fs, project.project.id, model.serialize());
+          if (model.kind === "tile-bitmap") return previewTileBitmap(project.services.fs, project.project.id, model.serialize(), model.identity.path);
           const preview = await previewBoard(project.services.fs, project.project.id, model.serialize());
           return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings, objectBounds: preview.objectBounds } : preview;
         },

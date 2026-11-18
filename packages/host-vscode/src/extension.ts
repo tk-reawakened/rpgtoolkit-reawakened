@@ -301,7 +301,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
               console.error("[history-preview-trace] composer-resolved", { path, projectId, ok: picture.ok, elapsedMs: Date.now() - started, ...(picture.ok ? { width: picture.width, height: picture.height } : {}) });
               return picture.ok ? { ok: true as const, width: picture.width, height: picture.height, rgba: picture.rgba, warnings: picture.warnings, objectBounds: picture.objectBounds } : picture;
             }
-            if (preview.document.kind === "tile-bitmap") return previewTileBitmap(readOnlyFs, projectId, preview.document.serialize());
+            if (preview.document.kind === "tile-bitmap") return previewTileBitmap(readOnlyFs, projectId, preview.document.serialize(), preview.document.identity.path);
             return { ok: false as const, message: `A ${preview.document.kind} history version has no picture.` };
           },
         };
@@ -333,6 +333,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
         onDidReceiveMessage: (listener) => panel.webview.onDidReceiveMessage(listener),
         onDidDispose: (listener) => panel.onDidDispose(listener),
       });
+      const activation = panel.onDidChangeViewState(({ webviewPanel }) => {
+        if (webviewPanel.active) void webviewPanel.webview.postMessage({ type: "activate" });
+      });
+      panel.onDidDispose(() => activation.dispose());
       panel.webview.html = html(panel.webview, context);
     },
   };

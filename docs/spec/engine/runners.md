@@ -515,6 +515,10 @@ stub whose readiness resolves and whose `decode` refuses, and SF3 cannot be play
 ([issue #1325](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1325)). The lane proves it by instrumenting
 `WebAssembly` before any page script runs. SF3 playback on other runners is not established by the desktop result.
 
+The VS Code editor's visual player uses the same strict browser boundary in both the desktop and web extension hosts:
+its nonced webview policy does not allow WebAssembly, its browser bundles exclude the eager Vorbis decoder, and it
+supports uncompressed SF2 rather than SF3. This does not change the standalone desktop player's SF3 capability.
+
 The AudioWorklet module is loaded by `audioWorklet.addModule` from a **same-origin** URL — `/apps/browser/audio-worklet.js` in
 the browser, `/apps/mobile/audio-worklet.js` on mobile (including Capacitor's HTTPS origin), and
 `app://player/apps/desktop/audio-worklet.js` under the desktop scheme. That fetch is governed by `script-src`, not

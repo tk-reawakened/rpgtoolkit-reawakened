@@ -29,6 +29,7 @@
     },
     "./animation-proof": "./animation-proof.ts",
     "./board-properties-proof": "./board-properties-proof.ts",
-    "./board-objects-proof": "./board-objects-proof.ts"
+    "./board-objects-proof": "./board-objects-proof.ts",
+    "./connected-authoring-proof": "./connected-authoring-proof.ts"
   }
 }

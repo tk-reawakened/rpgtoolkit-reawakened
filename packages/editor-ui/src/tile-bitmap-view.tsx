@@ -16,7 +16,8 @@ import {
   type TileShade,
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { AssetRefreshContext } from "./asset-refresh.ts";
 import type { BrowserSelection } from "./brush.ts";
 import type { TileBitmapViewDocument } from "./mount.ts";
 import { TilesetBrowser, type TilesetBrowserContext } from "./tileset-browser.tsx";
@@ -56,6 +57,7 @@ function shadeText(shade: TileShade): string {
  */
 export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBitmapViewProps) {
   const snapshot = useDocumentSnapshot(doc);
+  const assetRevision = useContext(AssetRefreshContext);
   const [ids] = useState(() => {
     viewsMade += 1;
     return `tkr-bitmap-${viewsMade}`;
@@ -125,9 +127,10 @@ export function TileBitmapView({ doc, capabilities, onEdited, browser }: TileBit
       (error: unknown) => { if (live) setPicture({ ok: false, message: error instanceof Error ? error.message : String(error) }); },
     );
     return () => { live = false; };
-  }, [doc, snapshot.cells, snapshot.width, snapshot.height, redraws]);
+  }, [doc, snapshot.cells, snapshot.width, snapshot.height, redraws, assetRevision]);
 
-  useEffect(() => {
+  // The picture conditionally mounts its canvas; paint only after that DOM/ref commit.
+  useLayoutEffect(() => {
     const target = canvas.current;
     if (picture === null || !picture.ok || target === null || typeof ImageData === "undefined") return;
     const context = target.getContext("2d");

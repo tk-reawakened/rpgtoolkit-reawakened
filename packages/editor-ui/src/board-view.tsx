@@ -25,7 +25,8 @@ import {
     type Stamp
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
 import { BoardObjectsView, type BoardObjectsNavigation } from "./board-objects-view.tsx";
 import { BoardPropertiesView, type BoardPropertiesNavigation } from "./board-properties-view.tsx";
@@ -94,6 +95,7 @@ function brushFor(selection: BrowserSelection | null, stamp: { readonly path: st
  */
 export function BoardView({ doc, capabilities, onEdited, browser, preferences, navigation, pendingEdits }: BoardViewProps) {
   const snapshot = useDocumentSnapshot(doc);
+  const assetRevision = useContext(AssetRefreshContext);
   const [ids] = useState(() => {
     viewsMade += 1;
     return `tkr-board-${viewsMade}`;
@@ -270,7 +272,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     );
     return () => { current = false; };
   // Object art and visual board data affect composition; region-only edits need no asset work.
-  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey]);
+  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey, assetRevision]);
 
   useEffect(() => {
     if (!focusCell.current) return;
