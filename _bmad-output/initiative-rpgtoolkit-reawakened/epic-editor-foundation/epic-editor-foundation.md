@@ -112,3 +112,19 @@ Follow-on 11.22/#2987 is delivered by [PR #3039](https://github.com/tk-reawakene
 
 11.23/#2988 is now in progress in the current sprint after 11.22; this parent stays open until its shared-style implementation is delivered. Their original backlog allocation above is historical. Standalone Git #1829 remains outside the baseline closing path and is not claimed delivered.
 
+
+## Project-shared organization and friendly names follow-up, 2026-11-17
+
+Jensen requested optional creator-defined groups within each Game-drawer asset category (each asset in at most one group; ungrouped assets stay under the category) and optional project-shared friendly names with short descriptions for assets, including programs. [docs/design/editor-project-metadata.md](../../../docs/design/editor-project-metadata.md) records this first-pass direction; it is not an implementation-ready contract. Board placements, regions and interactions are specified by the board epic (Epic 30 #2985), which consumes the shared contract and component here.
+
+| Capability / consumer | Owner | Delivery |
+| --- | --- | --- |
+| CAP-15/CAP-18 metadata contract | 11.25, after 11.4 and 11.22 | Docs-first owner rulings on storage, identity, move/rename/delete/external change, fallback precedence and group questions. No code. |
+| CAP-15/CAP-18 shared persistence | 11.26, after 11.25 and 11.3 | Implement only the approved contract through platform-services in both hosts, with no user interface. |
+| T-02 Game-drawer groups | 11.27, after 11.4, 11.23 and 11.26 | Optional per-category one-home groups; view organization only, files never move. |
+| T-01/T-02 names and descriptions | 11.28, after 11.4, 11.23 and 11.26 | Friendly names with filename fallback, a place to edit them and descriptions discoverable by hover, keyboard focus, screen reader and touch. Reusable by the board epic. |
+| T-02/T-05 safe file rename | 11.29, after 11.4, 11.26 and 11.28 | Separate friendly-name and file-rename actions, with an investigation of reference-safe rename before behaviour is built. |
+
+These follow-on foundation stories are published as 11.25–11.29 (#3183–#3187). They do not reopen delivered 11.13, 11.22 or the in-progress 11.23, and do not enlarge the original baseline proof.
+
+Still open, to be ruled by 11.25 and not decided here: whether existing metadata can carry this or a new project file is justified; how assets and contained elements keep stable identity across moves, renames, deletion and external change, so an ambiguous match never silently attaches an annotation to the wrong object; the exact name fallback precedence; group nesting; and the effect of deleting a group. 11.26 to 11.29 wait for those rulings and invent none. Cross-category labels remain a possible later secondary view, not committed work. Long-form design notes are outside the short descriptions here.

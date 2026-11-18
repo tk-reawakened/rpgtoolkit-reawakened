@@ -300,3 +300,74 @@ references = ["Epic 11 #1357 done-when 1", "Acceptance gap #3148", "docs/design/
 after = [13]
 hitl = false
 risk = "high"
+
+# Project-shared organization and friendly names (owner request 2026-11-17; docs/design/editor-project-metadata.md).
+# 11.25 is docs-first: it rules the open storage and identity questions. 11.26-11.29 implement only what it approves.
+
+[[entry]]
+id = 25
+tracker_id = "#3183"
+type = "story"
+title = "Rule the project-shared editor metadata contract"
+description = "Obtain an owner-approved, docs-first contract for optional project-shared editor metadata before any code: what the metadata is, whether existing project data can carry it or a new file is justified, how an annotated asset or contained element is identified, how annotations survive supported moves and renames and behave on deletion or external change, the exact fallback precedence for a displayed name, and the open group questions (nesting, what deleting a group does). Investigate existing metadata and the legacy formats first. Contained-element identity is ruled here only as the shared requirement; board placements, regions and interactions are specified by the board epic, which consumes this contract."
+verify = "A person approves published text that states the storage choice with the existing-metadata investigation behind it; identity for assets and for contained elements, including what happens when identity is ambiguous so no annotation is silently attached to the wrong object; move, rename, deletion and external-change behaviour; fallback precedence; ownership by the shared project rather than one user's preferences; the group nesting and deletion rulings; and the constraints that game data stays authoritative for behaviour and references, legacy asset files gain no editor-only fields, and a project without metadata opens and runs. Anything the owner has not ruled is listed as open, and no implementation entry starts before the approval."
+covers = ["CAP-15", "CAP-18"]
+references = ["docs/design/editor-project-metadata.md (first-pass owner direction, not a settled contract)", "Epic 11 #1357 and Epic 30 #2985 (owner comments of 2026-11-17)", "Decision: ADR 0022 D1 (document identity) and ADR 0005 amendment 2026-11-09 (legacy formats stay first-class editable)"]
+after = [4, 22]
+hitl = true
+risk = "high"
+plan_checkpoint = true
+done_checkpoint = true
+
+[[entry]]
+id = 26
+tracker_id = "#3184"
+type = "story"
+title = "Persist project-shared editor metadata through platform-services"
+description = "Implement the storage and identity rules approved by 11.25 once, in shared editor code, with no user interface: read and write the shared metadata through platform-services in both hosts, resolve annotations to their assets or elements, and apply the approved handling of move, rename, deletion, external change and unresolvable identity. Authored game data and legacy asset files are never changed to carry metadata."
+verify = "In both hosts over real project bytes: a project with no metadata, and one with unreadable or stale metadata, still opens and reports the problem without losing or rewriting authored data; saved metadata reopens identically in both hosts; the approved move, rename, deletion and external-change cases each behave as ruled, and an ambiguous identity case attaches nothing and says so; the same shared contract tests run against both adapters; asset files are byte-identical before and after a metadata-only change."
+covers = ["CAP-15", "CAP-18", "T-01"]
+references = ["Spec: the 11.25 approved contract (this entry waits for it and does not choose the storage or identity design)", "Decision: ADR 0022 D1 and D3 (document identity and failed-save behaviour)", "Constraint: no editor-only fields in legacy asset files"]
+after = [25, 3]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 27
+tracker_id = "#3185"
+type = "story"
+title = "Organize Game drawer assets in optional per-category groups"
+description = "Let creators group assets within each Game-drawer category, each asset in at most one group of its category, with ungrouped assets still shown directly under the category. Grouping organizes the view only: it never moves, renames or rewrites a file or a reference. Group nesting and the effect of deleting a group follow the 11.25 rulings and are not decided here."
+verify = "In both hosts a creator creates, renames and removes a group, assigns an asset to it and returns it to ungrouped; no asset ever shows in two groups of its category and ungrouped assets stay visible; the same group state reopens in both hosts from the shared metadata; the project's files, folders and game references are byte-identical afterwards; a project with no grouping looks and behaves as before; group creation, assignment, expansion and removal work by keyboard with the structure announced to a screen reader and a visible touch alternative; group deletion and nesting behave exactly as 11.25 ruled."
+covers = ["CAP-15", "CAP-18", "T-02"]
+references = ["docs/design/editor-project-metadata.md", "docs/design/editor-design-language.md (shared navigation roles and component states)", "Decision: 11.25 rulings on group nesting and group deletion (not yet made)"]
+after = [4, 23, 26]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 28
+tracker_id = "#3186"
+type = "story"
+title = "Show and edit friendly names and short descriptions with accessible discovery"
+description = "Display an optional friendly name for assets, including programs, in the shared navigation, with the underlying filename available when useful and the approved fallback to existing asset information or the filename when none is set. Provide a place to edit the name and a short description, and make the description discoverable on hover or keyboard focus on the name with equivalent screen-reader and touch access. A friendly name never renames a file and never changes game behaviour. The shared component takes the displayed object, so the board epic can reuse it for placements, regions and interactions without this story specifying those identities."
+verify = "In both hosts a creator sets, changes and clears a name and a short description on an asset and on a program, and they reopen from the shared metadata; with no name set the approved fallback shows and nothing is written; the description appears on hover and on keyboard focus without a pointer, is exposed to a screen reader as the name's description, and has a touch path, all checked by automated accessibility assertions plus a keyboard-only run; focus returns to the originating control after editing; long text wraps without clipping in the shared design-language states and themes; the underlying filename is visible where the approved design shows it; the file on disk and every game reference are unchanged by a name edit."
+covers = ["CAP-15", "CAP-18", "T-01", "T-02"]
+references = ["docs/design/editor-project-metadata.md", "docs/design/editor-design-language.md", "Epic 30 #2985 (board elements consume the shared component; their identity is not specified here)"]
+after = [4, 23, 26]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 29
+tracker_id = "#3187"
+type = "story"
+title = "Distinguish editing a friendly name from renaming a file safely"
+description = "Give assets separate contextual actions for editing the friendly name and for renaming the file, so neither is mistaken for the other. Investigate how the editor can rename a file without silently breaking references to it, then deliver the approved behaviour: update the references it can prove, and name the ones it cannot instead of leaving them broken. Existing project data stays authoritative for references; metadata is never used as a second copy of them."
+verify = "In both hosts the two actions are separately labelled in the context menu and by keyboard and announce differently to a screen reader; editing a friendly name leaves the file and every reference unchanged; renaming a file with references the editor can resolve updates them and the project still loads in the runner, while any it cannot resolve are listed and the creator can cancel with nothing changed; a failed rename leaves the project as it was; the metadata still resolves to the renamed asset as 11.25 ruled; a written investigation records which reference kinds were found and what the rename can and cannot prove."
+covers = ["CAP-15", "CAP-18", "T-02", "T-05"]
+references = ["docs/design/editor-project-metadata.md", "Decision: ADR 0022 (file operations and document identity; the reference-update design is decided by this story's investigation and owner review, not assumed)", "Decision: 11.25 rulings on move and rename survival (not yet made)"]
+after = [4, 26, 28]
+hitl = true
+risk = "high"
+plan_checkpoint = true

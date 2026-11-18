@@ -7,7 +7,7 @@ after: ["epic-editor-assets-p0", "epic-editor-p1"]
 assignee: ""
 risk: high
 stepsCompleted: ["input-selection", "requirements", "ownership-map", "story-breakdown"]
-inputDocuments: ["spec-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened.md", "architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md", "research-editor-ux-for-beginners/decisions.md", "research-editor-ux-for-beginners/flows/01-board-editor.md", "ux-connected-editors/DESIGN.md", "ux-connected-editors/connected-authoring-and-tests.md", "../../../docs/design/board-authoring.md", "../../../docs/adr/0022-shared-editor-authoring-contracts.md"]
+inputDocuments: ["spec-rpgtoolkit-reawakened/spec-rpgtoolkit-reawakened.md", "architecture-rpgtoolkit-reawakened/architecture-rpgtoolkit-reawakened.md", "research-editor-ux-for-beginners/decisions.md", "research-editor-ux-for-beginners/flows/01-board-editor.md", "ux-connected-editors/DESIGN.md", "ux-connected-editors/connected-authoring-and-tests.md", "../../../docs/design/board-authoring.md", "../../../docs/design/editor-project-metadata.md", "../../../docs/adr/0022-shared-editor-authoring-contracts.md"]
 tracker_id: "#2985"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2985"
 ---
@@ -43,6 +43,7 @@ Each scoped outcome has one primary story; 30.7 verifies the combined journey. C
 | T-26/T-35; board/program format contracts | Understandable interaction inspector and explicit exit/arrival visit | 30.5 |
 | T-26/T-27/T-29; Epic 13 lighting provider | Board settings, images and atmosphere in context | 30.6 |
 | CAP-15/CAP-16/CAP-18; ADR 0022 D8 | Cross-host creator walkthrough, lifecycle/focus regressions and real saved-snapshot board test | 30.7 |
+| Owner direction, shared editor metadata (first pass); CAP-15/CAP-18; ADR 0022 D2/D4 | Follow-on: optional friendly names and short descriptions for board placements, regions and interactions via the shared project metadata provider, gated on provider, stable identity and lifecycle investigation | 30.8 |
 
 Cross-cutting nonfunctional requirements: single document authority and host-owned lifecycle; no accidental cross-board/project edits; supported format/residue preservation; theme and keyboard accessibility; useful narrow/relocated views; browser-native editor capabilities; shared compositor; no speculative runtime changes; fast unit checks and paced host proofs. These apply to each owner above and are integrated in 30.7.
 
@@ -57,8 +58,11 @@ Cross-cutting nonfunctional requirements: single document authority and host-own
 5. **30.5 (#2982) — Edit interactions and board exits through the selection inspector.** Preserve advanced data and custom source; make supported common interactions and destination visits clear.
 6. **30.6 (#2983) — Edit board settings images and atmosphere with the canvas in view.** Group relevant controls around the scene and consume the existing lighting provider.
 7. **30.7 (#2984) — Prove the connected board-authoring journey across editor hosts.** Deliver recorded creator evidence and regression checks with the real runner.
+8. **30.8 — Name and describe board elements through shared project metadata.** Follow-on to this sequence, added after the original seven; it does not reopen or alter the 30.7 proof. Starts with an investigation and identity/lifecycle gate, then connects names and descriptions to the outline, canvas, inspector and visits with accessible discovery. The GitHub issue is not yet published.
 
 30.1 consumes the shared design-language and styling work in 11.22/11.23; board-specific focus/selection behavior remains here. Research can proceed before those deliver, but implementation reuses their shared components. 30.2–30.4 follow 30.1; 30.4 also waits for the actual item/NPC and enemy definition editors in 29.7/29.8. 30.5 follows 30.2/30.4; 30.6 follows 30.1/30.4; 30.7 follows 30.2–30.6. The store carries those exact prerequisites. Stories start in the backlog (Project status draft, no sprint); implementation is not started by this planning change.
+
+30.8 follows 30.2, 30.4, 30.5 and 30.7 and carries the Epic 12 and 13 acceptance gates (12.14, 13.19) explicitly. It also waits for the shared project metadata work in Epic 11: the owner-approved storage, identity and lifecycle contract (11.25), shared persistence (11.26), the shared friendly-name and description component (11.28) and safe file rename versus name editing (11.29). Those stories own the open storage and identity questions; 30.8 must not build a board-local metadata store or decide them, and it is blocked until they land. The original seven stories' outcomes and 30.7's acceptance are unchanged by it.
 
 ## Existing work and boundaries
 
@@ -76,6 +80,7 @@ Cross-cutting nonfunctional requirements: single document authority and host-own
 | Epic 29 #2968, planning PR #2970 | Character, NPC, item and enemy definition internals. 30.4 opens those editors; no duplicate definition UI work. Shared design language/styles remain in 11.22/11.23. |
 | #2609/#2652 | Known linked-provider and pending-edit lifecycle issues; recheck at implementation and link fixes/unmet acceptance rather than suppressing failures. |
 | #2961 | Known publisher area-classification bug; publish this epic with an explicit editor-ui map override, as Epic 29 did. No tool fix is included here. |
+| [Shared project organization and friendly names](../../../docs/design/editor-project-metadata.md) / Epic 11 stories 11.25–11.29 | First-pass owner direction, not an approved contract. Storage (including whether a new project metadata file is needed), identity, precedence of names and move/rename/delete/external-change behavior are open and are ruled by 11.25 and implemented by 11.26/11.28/11.29, not assumed here. 30.8 applies the result to board elements and records only the board-specific identity investigation. Asset organization (groups, the Game drawer; 11.27) and a possible cross-category label view are not part of this epic. Epic comments #1357 and #2985 carry the owner request. |
 
 The owner's full Epic 12/13 completion gates apply before implementation. Additional dependencies remain capability-specific, including shared language/styles in 11.22/11.23 and actual definition providers from Epic 29. At implementation inception, pin the current revision and reconcile provider status and overlap before editing shared components. Missing providers retain their existing owning issue; the integration story cannot call a disabled control a completed journey. Broader event builders, new encounter/runtime mechanics, arbitrary code interpretation, new formats, a universal database and wholesale shell replacement are out of scope.
 
@@ -87,6 +92,7 @@ The owner's full Epic 12/13 completion gates apply before implementation. Additi
 - Keyboard and numeric alternatives, normal/narrow panes, light/dark/high-contrast and relocatable/hidden inspector behavior have real evidence with revision, fixture and host version.
 - Test Board uses ADR 0022 D8's existing save-first, explicit-party/start and fixed-snapshot semantics. A save failure prevents launch. Later edits do not hot-reload the run.
 - Every story has its focused proof; 30.7 records the combined result and all discovered defects have issues. This planning PR closes none of the implementation tickets.
+- Follow-on 30.8, once the shared metadata provider and stable identity exist, lets a creator name and describe placements, regions and interactions without renaming files, altering references or game behavior; projects without metadata behave as before, and ambiguous identity never attaches an annotation to the wrong object. This is not a condition of the outcomes above and no completed work is reopened.
 
 ## Source map
 
