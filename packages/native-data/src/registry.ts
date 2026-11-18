@@ -28,6 +28,7 @@ export type Registry = readonly RegistryEntry[];
 export const REGISTRY: Registry = [
   { extension: ".tkranm", contract: "animation-clip" },
   { extension: ".tkrtile", contract: "tileset" },
+  { extension: ".tkrpack", contract: "asset-pack" },
 ];
 
 /** The form of every registered extension: `.tkr` and three or more lowercase ASCII letters. */
