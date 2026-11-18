@@ -11,6 +11,7 @@ void test("the shipped registry holds the documented native contracts, and passe
     { extension: ".tkranm", contract: "animation-clip" },
     { extension: ".tkrtile", contract: "tileset" },
     { extension: ".tkrpack", contract: "asset-pack" },
+    { extension: ".tkrscn", contract: "scene" },
   ]);
   validateRegistry(REGISTRY);
 });
