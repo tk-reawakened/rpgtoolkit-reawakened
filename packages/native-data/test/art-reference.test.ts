@@ -2,9 +2,8 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import test from "node:test";
 import { checkDocuments } from "../src/check.ts";
 import { applyPlanToDocuments, planRename } from "../src/rename.ts";
-import { REGISTRY } from "../src/registry.ts";
 
-const config = { registry: [...REGISTRY, { extension: ".tkrscn", contract: "scene" }] };
+const config = {};
 const tiles = `contract: tileset
 version: 1.0.0-pre.1
 name: Village
