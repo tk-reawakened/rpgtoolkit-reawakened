@@ -117,7 +117,7 @@ All pixel and grid values are exact integers. Coordinates and cell indices are z
 
 A tileset document's identity is its path, extension included, under the shared native identity rules (ASCII-only case folding and path normalization). The path is stable until an explicit rename updates references. No document-level `id` is present.
 
-A reference to a tile is written as `<tileset-document-id>#<tile-id>`, for example `Tiles/village.tkrtile#grass-main`. The document part must resolve to a registered `.tkrtile` whose stamp says `tileset`; the fragment must name exactly one tile `id` in that document. A rename of the document updates the path portion; renaming a local tile id updates fragments. Source ids and isometric/autotile ids are local to their recipe and are not cross-document references. The `#` fragment convention is the proposal for cross-document tile references, not an extension of shared native identity.
+A reference to a tile is a mapping with a `tileset` document path and a `tile` local ID, for example `{tileset: tiles/village.tkrtile, tile: grass-main}`. The document path must resolve to a registered `.tkrtile` whose stamp says `tileset`; the local ID must name exactly one tile in that document. A document rename updates the path field; renaming a tile updates its local-ID references. Source IDs and isometric/autotile IDs are local to their recipe and are not cross-document references. This two-field recommendation matches the proposed asset-pack reference and avoids introducing fragment parsing and escaping rules.
 
 ## Plugin data
 
@@ -145,7 +145,7 @@ Every key shown in draft section 3 has a disposition here. Keys that remain have
 | source `grid` | Retained; cell dimensions, margins and gaps defined above. |
 | `transparent` | Retained; exactly alpha or RGB color-key mode. |
 | `tiles` | Retained as ordered list; local IDs unique and references scoped to this document. |
-| tile `id` | Retained as local stable fragment target. |
+| tile `id` | Retained as a stable local reference target. |
 | tile `name` | Retained as display name. |
 | tile `source` | Retained as local source-id reference. |
 | tile `cell` | Retained as zero-based `[column, row]`. |
@@ -177,7 +177,7 @@ Add this row to [the native contract registry](native-contracts.md#the-registry)
 
 This draft makes concrete recommendations so it can be reviewed end to end. These are the decisions that remain genuinely ambiguous in the source materials and need Jensen's explicit review before the contract is treated as approved:
 
-1. **Tile-reference spelling:** adopt `<document path>#<local tile id>`; the shared identity policy requires path identity but does not prescribe fragment syntax.
+1. **Tile-reference spelling:** use separate `tileset` path and `tile` local-ID fields, consistent with the asset-pack draft. A path fragment would be shorter but needs fragment parsing and escaping rules that shared native identity does not define.
 2. **Collision output geometry:** use each tile/block footprint as the default solid boundary on lowering. ADR 0019 requires collision stored with the art, but neither the draft nor the ADR defines the exact legacy vector geometry, especially for isometric faces. Confirm or replace before implementation.
 3. **`wallCapUnder` geometry:** emit an under region for the block footprint, independently of solid collision. The draft marks the intent but not the generated region's precise shape or depth; confirm this conservative footprint interpretation.
 4. **Legacy output representability:** report unrepresentable recipes/metadata rather than silently drop them; this follows the general authoring contract but exact `.tst`/`.iso` build mapping remains a later reader/writer implementation concern.
