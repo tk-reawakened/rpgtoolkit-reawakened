@@ -52,13 +52,13 @@ Creators and tools need to read, validate and edit native tilesets and asset pac
 - [x] Implement asset-pack reader, writer, checker and in-place field edit with focused authored tests.
 - [x] Integrate both contracts into package exports, project checking and rename, including references in consumer documents.
 - [x] Given authored valid fixtures, read/write retains bytes and a collision edit changes only its authored value; unknown core keys fail while plugin payload survives.
-- [ ] Given bad fixtures, checker names stamp, identity and reference errors, including missing source images and invalid crop/cell bounds (#3202); renaming a referenced pack or tileset keeps the checker clean and does not edit plugin blocks.
+- [x] Given bad fixtures, checker names stamp, identity and reference errors, including missing source images and invalid crop/cell bounds (#3202); renaming a referenced pack or tileset keeps the checker clean and does not edit plugin blocks.
 - [ ] Complete independent review and address practical blockers before publishing.
 
 ## Implementation Notes
 
-Implemented source-preserving tileset and pack documents and nested scene art reference checking/rename. The source image bounds and file-existence checks need project asset data and remain under review for integration; do not claim those checks are implemented.
-- Review: fixed the plugin-block edit boundary, normalized and safely quoted nested rename paths, and rejected incomplete native art references (#3201). Project source-image existence and bounds need a host asset inventory (#3202); this is not yet claimed complete.
+Implemented source-preserving tileset and pack documents and nested scene art reference checking/rename. The host now supplies decoded source-image sizes to the project-level checker, which reports missing images and out-of-bounds cells and crops (#3202).
+- Review: fixed the plugin-block edit boundary, normalized and safely quoted nested rename paths, and rejected incomplete native art references (#3201).
 
 ## Plan Change Log
 
@@ -66,6 +66,6 @@ Implemented source-preserving tileset and pack documents and nested scene art re
 
 ## Verification
 
-Native-data suite: 171 passed, no skips; test typecheck, targeted lint and provenance passed (1,736 files, zero violations). All new tests reported under one second. The two art-reference scenarios proved a missing asset is reported and simultaneous document renames preserve plugin payload bytes.
+Native-data and checker CLI suites: 193 passed, no skips; affected package builds and test typechecks, targeted lint, provenance (1,738 files, zero violations), and ticket-store validation passed. All new tests reported under one second. The tests prove missing images and out-of-bounds regions are reported, and simultaneous document renames preserve plugin payload bytes.
 
 Run the affected native-data tests, package test typecheck, repository lint and provenance. Inspect per-test durations and verify a reprinting writer would fail the byte-preservation proof. Record the contract approval status separately from implementation verification.
