@@ -209,14 +209,14 @@ outputBinding: {target: Tiles/village.tst, detail: 1}
 
 type ArtRunReport = { readonly class: string; readonly path: string; readonly field: string };
 
-/** Run the checker over a temporary project holding the tileset above and, when given, its source image. */
-function checkArtProject(image: Buffer | null): { readonly exitCode: number; readonly reports: ArtRunReport[] } {
+/** Run the checker over a temporary project holding the tileset above and, when given, its source image at `imagePath`. */
+function checkArtProject(image: Buffer | null, imagePath = "Bitmap/sheet.bmp"): { readonly exitCode: number; readonly reports: ArtRunReport[] } {
   const folder = mkdtempSync(join(tmpdir(), "tkr-native-check-"));
   try {
     writeFileSync(join(folder, "village.tkrtile"), ART_TILESET);
     if (image !== null) {
-      mkdirSync(join(folder, "Bitmap"));
-      writeFileSync(join(folder, "Bitmap", "sheet.bmp"), image);
+      mkdirSync(join(folder, dirname(imagePath)), { recursive: true });
+      writeFileSync(join(folder, imagePath), image);
     }
     const result = runCli(["--json", folder]);
     const parsed = JSON.parse(result.stdout) as { reports: ArtRunReport[] };
@@ -243,4 +243,26 @@ void test("a tileset cell outside its source image fails", () => {
   const { exitCode, reports } = checkArtProject(bmp(32, 32));
   equal(exitCode, 1);
   ok(reports.length > 0 && reports.every((report) => report.class === "native-art" && report.path === "village.tkrtile"));
+});
+
+void test("a source image is found whatever the casing of its authored path, as project paths compare", () => {
+  const { exitCode, reports } = checkArtProject(bmp(64, 32), "bitmap/SHEET.BMP");
+  deepEqual([exitCode, reports], [0, []]);
+});
+
+void test("a source path that climbs out of the project is not satisfied by a real image beside it", () => {
+  const parent = mkdtempSync(join(tmpdir(), "tkr-native-check-"));
+  try {
+    const project = join(parent, "project");
+    mkdirSync(project);
+    mkdirSync(join(parent, "outside"));
+    writeFileSync(join(parent, "outside", "sheet.bmp"), bmp(64, 32));
+    writeFileSync(join(project, "village.tkrtile"), ART_TILESET.replace("Bitmap/sheet.bmp", "../outside/sheet.bmp"));
+    const result = runCli(["--json", project]);
+    const parsed = JSON.parse(result.stdout) as { reports: ArtRunReport[] };
+    equal(result.exitCode, 1);
+    ok(parsed.reports.some((report) => report.class === "native-art" && report.field === "sources[0].file"));
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });

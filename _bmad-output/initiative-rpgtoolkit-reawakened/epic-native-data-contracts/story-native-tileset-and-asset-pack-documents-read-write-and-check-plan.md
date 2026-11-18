@@ -53,7 +53,7 @@ Creators and tools need to read, validate and edit native tilesets and asset pac
 - [x] Integrate both contracts into package exports, project checking and rename, including references in consumer documents.
 - [x] Given authored valid fixtures, read/write retains bytes and a collision edit changes only its authored value; unknown core keys fail while plugin payload survives.
 - [x] Given bad fixtures, checker names stamp, identity and reference errors, including missing source images and invalid crop/cell bounds (#3202); renaming a referenced pack or tileset keeps the checker clean and does not edit plugin blocks.
-- [ ] Complete independent review and address practical blockers before publishing.
+- [x] Complete independent review and address practical blockers before publishing.
 
 ## Implementation Notes
 
@@ -63,9 +63,12 @@ Implemented source-preserving tileset and pack documents and nested scene art re
 ## Plan Change Log
 
 ## Review Triage Log
+- Review of image checking found host-case-dependent paths and references escaping the project. Component-wise ASCII-folded lookup now resolves real project files without scanning the whole tree, and refuses parent traversal (#3202).
+- The proposed scene contract intentionally omits the earlier `things[].fromAsset` sketch; its supported pack references are `placedPacks[].pack`. No current scene contract requires the omitted location.
 
 ## Verification
 
 Native-data and checker CLI suites: 193 passed, no skips; affected package builds and test typechecks, targeted lint, provenance (1,738 files, zero violations), and ticket-store validation passed. All new tests reported under one second. The tests prove missing images and out-of-bounds regions are reported, and simultaneous document renames preserve plugin payload bytes.
+- After the lookup review fixes, 20 targeted CLI and project-art tests passed, including mixed-case filenames and an external sibling image; the CLI build, test typecheck and targeted lint passed.
 
 Run the affected native-data tests, package test typecheck, repository lint and provenance. Inspect per-test durations and verify a reprinting writer would fail the byte-preservation proof. Record the contract approval status separately from implementation verification.
