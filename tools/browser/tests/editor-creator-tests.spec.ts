@@ -230,6 +230,7 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   await expect.poll(() => page.evaluate(() => (window as Window & { creatorReadGate?: { reached: boolean } }).creatorReadGate?.reached)).toBe(true);
   await input.focus();
   await page.keyboard.insertText(" ");
+  await expect(page.getByRole("tab", { name: `${CREATOR_TEST_SPEC_PATH}, unsaved changes`, exact: true })).toBeVisible();
   await page.evaluate(() => {
     if ("creatorReadGate" in window && typeof window.creatorReadGate === "object" && window.creatorReadGate !== null && "release" in window.creatorReadGate && typeof window.creatorReadGate.release === "function") window.creatorReadGate.release();
   });

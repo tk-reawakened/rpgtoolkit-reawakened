@@ -74,11 +74,13 @@ context: []
 ## Review Triage Log
 - Independent review found the runtime still used the full qualified package ID as its default namespace (#3197). Fixed the resolver to use the shared final-segment rule; a runtime regression catches the former behavior. Review also requested an actual filesystem move of a plugin-bearing clip; that proof now verifies unchanged bytes and a clean checker.
 - A first rename-review report described the wrong checkout and was withdrawn after re-review of this worktree. The clip review found no substantiated blocker; its observation that the source token can include trailing core text is an implementation detail, not a demonstrated preservation defect.
+- Browser CI failed the unrelated creator-test race proof (#3199): its held read was released immediately after typing. The proof now waits until the real tab reports unsaved changes before releasing it; the full creator-test scenario passed locally. CI did not establish the precise scheduling cause.
 
 ## Verification
 - Affected native-data, importer, CLIs, core manifest, catalogue and editor tests: 158 passed; new tests individually report under one second. Project build and affected test typechecks, lint, dependency graph, provenance and generated editor help passed.
 - Real Chromium proof edited, saved and reopened a clip carrying a plugin block; exact saved bytes were checked, including comments and `1.10`. Screenshot inspected. Both AST reprinting and value regeneration differed from the preservation fixture.
 - After the review fixes, 200 engine-boot and rename-executor tests passed, including the two new cases. The preservation test failed against both an AST-reprinting writer and a value-regenerating writer, then passed after restoration. Before the runtime namespace fix, headless golden passed and closing matched all 8 baselines (2 clean boots and 6 expected failures).
+- Full local typecheck passed, as did 5,189 workspace tests with no skips. The repaired creator-test browser scenario and its targeted lint passed locally.
 
 - Run the affected native-data, importer, CLI, rename, core manifest, catalogue and editor tests individually and together; inspect new unit durations.
 - Typecheck affected projects, lint, dependency graph, provenance, docs/schema checks, and locally exercise native clip authoring before pushing. Run headless goldens if the core manifest change affects them.
