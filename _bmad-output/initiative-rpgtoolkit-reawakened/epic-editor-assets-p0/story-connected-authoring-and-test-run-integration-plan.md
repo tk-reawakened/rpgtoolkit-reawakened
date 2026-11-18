@@ -2,7 +2,7 @@
 type: feature
 title: "Connected authoring and test run integration"
 ticket: 12
-status: in-progress
+status: done
 ---
 
 # Connected authoring and test run integration
@@ -45,7 +45,7 @@ Binding editor outcomes are recorded first in `docs/editor-features.md#p0-connec
 - [x] Complete Choose/Open for both board-owned placement-program references with clear local/shared labels.
 - [x] Prove actual artwork and script edits, Return, selection/history, explicit Save, cancellation and save/reopen in the browser and packaged native editor.
 - [x] Prove the actual player's saved revision, immutable running instance, selected-board test and normal startup using the authored fixture and existing run services.
-- [ ] Run affected local checks first, independently review the resulting diff, triage ordinary blockers versus backlog edges, then push and merge the passing PR.
+- [x] Run affected local checks first, independently review the resulting diff, triage ordinary blockers versus backlog edges, then push and merge the passing PR.
 
 ## Verification and delivery receipts
 
@@ -67,3 +67,7 @@ The first frozen diff was independently reviewed through blind, edge, intent and
 * Rejected an OPFS-leak claim: standard Playwright test contexts discard isolated origin storage. Rejected treating the fixed 168-KiB test fixture's serialization as a production-loader defect. Rejected an exact source-workspace-path restriction because the valid acceptance suite uses owned temporary fixture copies.
 
 The independent final runtime review returned no findings. The final host review found the ordinary Bitmap → Animation browser Return omission (#3165), fixed by recording the calling document as the source-visit origin and verified in both actual journeys. Two additional observed native blockers were fixed: hidden player contexts no longer discard a running instance (#3129), and strict-CSP browser bundles exclude the eager Vorbis decoder without weakening policy (#3130; docs-first `e4cd9cac642ecaca12852b625239ae55517e575d`). Standalone desktop SF3 is unchanged.
+
+## Merged receipt
+
+PR [#3166](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3166) merged on 2026-11-18 as `da18e5956839d96740f8f1ebe2cf6c9eaf67ed6f`, after the independently reviewed two-parent candidate `3e924da628f8fcf18c91f86da23e571ee53b75e1` passed the browser and VS Code journeys, type checks, lint and help checks again against current main. All 20 repository checks, including the required gate, passed. Issue #1723 and its fixed bugs are closed; #3115 and #3119 remain open backlog.
