@@ -2,6 +2,7 @@ import { registerAnimationCommands } from "./animation-commands.ts";
 import * as vscode from "vscode";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { vscodeCapabilities } from "./capabilities.ts";
+import { createNativeClipTextEditorProvider } from "./native-clip-text-editor.ts";
 import { createGameEditorProvider, DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
@@ -348,6 +349,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     };
     context.subscriptions.push(vscode.window.registerCustomEditorProvider(viewType, viewTypeProvider, { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true }));
   }
+  context.subscriptions.push(vscode.window.registerCustomEditorProvider(
+    "tkr.nativeClip",
+    createNativeClipTextEditorProvider(context, html, vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop)),
+    { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true },
+  ));
   return () => generation;
 }
 

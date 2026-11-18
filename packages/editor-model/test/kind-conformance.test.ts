@@ -3,7 +3,7 @@
 // authored fixture for its kind and no engine (the owner's test-speed rule).
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { ANIMATION_MAGIC, TILE_BITMAP_MAGIC, writeAnimation, writeTileBitmap } from "@tk-reawakened/core";
+import { ANIMATION_MAGIC, TILE_BITMAP_MAGIC, writeAnimation, writeTileBitmap, utf8Encode } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { createDocumentIdentity, DOCUMENT_KINDS, kindForPath, type AnyCommand, type AnyDocument } from "../src/index.ts";
 import { exampleBoard, exampleCharacter, exampleItem, exampleMain, exampleTileset } from "./fixtures.ts";
@@ -106,6 +106,13 @@ const CASES: readonly KindCase[] = [
     bytes: exampleTileset(1),
     accepted: { type: "paint-tileset-pixels", tile: 0, changes: [{ x: 0, y: 0, rgba: [230, 17, 99, 255] }] },
     rejected: { type: "paint-tileset-pixels", tile: 0, changes: [{ x: 0, y: 0, rgba: [230, 17, 99, 127] }] },
+  },
+  {
+    kind: "native-clip",
+    path: "Misc/walk.tkranm",
+    bytes: utf8Encode("contract: animation-clip\nversion: 1.0.0-pre.1\ncanvas: {width: 32, height: 32}\ndelay: 0.15 # timing\nframes:\n  - image: bitmap/walk.png # frame\n"),
+    accepted: { type: "set-native-clip-property", path: ["delay"], value: 0.2 },
+    rejected: { type: "set-native-clip-property", path: ["delay"], value: -1 },
   },
 ];
 

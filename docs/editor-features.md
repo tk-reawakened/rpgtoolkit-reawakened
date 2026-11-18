@@ -223,6 +223,17 @@ Follow a placed item's graphics and local programs to their source editors, then
 
 **T-60 Animation editor.** Frame strip navigation (previous, next, append, insert, delete) and playback. Per-frame image (picture, tile or tile bitmap), **per-frame transparent colour** picked from the frame, per-frame sound. Global frame delay (text field and slider). Size from presets, manual entry, or the image's own size.
 
+<a id="native-clip-editor"></a>
+### Native animation clips
+
+Open a native `.tkranm` clip to inspect and edit its own canvas, timing and frame properties. A native clip is a separate document from a legacy `.anm`, with only the frames it actually lists and no legacy slot limit.
+
+* **Keep the author's text.** Apply a property change, then save: the existing in-place clip edits preserve unrelated lines and comments. Undo and Redo use the host's document history; in VS Code the text editor and visual editor share the same native text buffer and undo stack.
+* **Keep absence meaningful.** Missing optional sound or colour keys remain absent until explicitly added. A refused edit or unreadable file is reported rather than silently repaired.
+* **Show only supported work.** The current clip reader refuses plugin blocks, and its editing path does not add, remove or reorder frames or tags. The editor does not present those operations as working; native clip runtime loading and asset preview are separate work.
+
+References: [native animation clip](spec/formats/native-animation-clip.md#reference-reader-writer-and-importer), [shared editor document rules](adr/0022-shared-editor-authoring-contracts.md).
+
 **T-61 Animation wizard.** (a) From image files: multi-select, alphabetical order, insert at a position. (b) From tiles: set the frame count, then compose each frame on a 4×4 tile grid from the tileset browser. Multi-tile frames generate `.tbm` files from a name template. After the wizard, the animation size is set from frame 1 and the transparency from frame 1's top-left pixel.
 
 <a id="t-62-tile-bitmap-editor"></a>

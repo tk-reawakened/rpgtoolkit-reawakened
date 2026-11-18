@@ -15,6 +15,7 @@
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
     "onCustomEditor:tkr.animation",
+    "onCustomEditor:tkr.nativeClip",
     "onView:tkr.game",
     "onStartupFinished",
     "onCommand:tkr.newProject",
@@ -196,6 +197,16 @@
         "selector": [
           {
             "filenamePattern": "*.anm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.nativeClip",
+        "displayName": "RPG Toolkit Native Animation Clip",
+        "selector": [
+          {
+            "filenamePattern": "*.tkranm"
           }
         ],
         "priority": "default"

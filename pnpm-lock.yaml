@@ -284,6 +284,9 @@ importers:
       '@tk-reawakened/core':
         specifier: workspace:*
         version: link:../core
+      '@tk-reawakened/native-data':
+        specifier: workspace:*
+        version: link:../native-data
       '@tk-reawakened/platform-services':
         specifier: workspace:*
         version: link:../platform-services

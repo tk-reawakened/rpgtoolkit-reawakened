@@ -193,6 +193,16 @@ export {
   type AnimationOpenResult,
 } from "./animation-document.ts";
 export {
+  createNativeClipDocument,
+  nativeClipCodec,
+  openNativeClipDocument,
+  type NativeClipCommand,
+  type NativeClipDocument,
+  type NativeClipModel,
+  type NativeClipOpenResult,
+  type NativeClipSnapshot,
+} from "./native-clip-document.ts";
+export {
   colourOfShade,
   createTileBitmapDocument,
   lightnessOfShade,
@@ -217,7 +227,7 @@ export {
 } from "./tile-bitmap-document.ts";
 export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
-export { asAnimationDocument, asBoardDocument, asMainDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asAnimationDocument, asBoardDocument, asMainDocument, asNativeClipDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export {
   createProgramDocument,
   openProgramDocument,

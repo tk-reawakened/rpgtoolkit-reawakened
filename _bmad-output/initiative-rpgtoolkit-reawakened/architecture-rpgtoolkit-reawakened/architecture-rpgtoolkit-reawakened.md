@@ -90,6 +90,7 @@ graph LR
   platformservices --> hostdesktop
   plugintk2compat --> runnerharness
   nativedata[native-data] --> nativedatacli[native-data-cli]
+  nativedata --> editormodel
   core --> nativedataimport[native-data-import]
   nativedata --> nativedataimport
   nativedata --> nativedatarename[native-data-rename]

@@ -271,7 +271,11 @@ export function DocumentHistoryView({ workspace, files, activePath, mountPreview
   const rows = tab === "checkpoints" ? groups : entries;
   const groupCount = groups.filter((entry) => "files" in entry).length;
   // A line diff is offered only for a registered text kind; a binary board or tileset is compared as pictures (D12.10 item 13).
-  const textKinds = shown !== null && other !== null && kindForPath(shown.path)?.storage === "program-text" && kindForPath(other.path)?.storage === "program-text";
+  const isText = (path: string): boolean => {
+    const storage = kindForPath(path)?.storage;
+    return storage === "program-text" || storage === "native-text";
+  };
+  const textKinds = shown !== null && other !== null && isText(shown.path) && isText(other.path);
   const sameText = textKinds ? [textOf(shown!.bytes), textOf(other!.bytes)] as const : null;
   const diff = sameText !== null && sameText[0] !== null && sameText[1] !== null ? diffLines(sameText[0], sameText[1]) : null;
   const lineDiff = diff;

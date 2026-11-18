@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "lib": ["ES2022"], "types": [], "rootDir": "src", "outDir": "dist" },
   "include": ["src"],
-  "references": [{ "path": "../core" }, { "path": "../platform-services" }]
+  "references": [{ "path": "../core" }, { "path": "../native-data" }, { "path": "../platform-services" }]
 }

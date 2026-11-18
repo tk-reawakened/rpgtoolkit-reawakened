@@ -433,6 +433,13 @@ function planInsert(context: Context, parent: YAMLMap, parentPath: ClipPath, key
 }
 
 function planSet(context: Context, path: ClipPath, value: ClipEditValue): Splice[] | EditError {
+  const frameProperty = path.length === 3
+    && path[0] === "frames"
+    && typeof path[1] === "number"
+    && (path[2] === "image" || path[2] === "sound");
+  if (frameProperty && typeof value === "string") {
+    value = value.replace(/[A-Z]/g, (letter) => String.fromCharCode(letter.charCodeAt(0) + 32));
+  }
   const parentPath = path.slice(0, -1);
   const last = path.at(-1);
   if (last === undefined) return { error: "an edit names a place in the document" };
@@ -475,7 +482,18 @@ function planRemove(context: Context, path: ClipPath): Splice[] | EditError {
   if (parent.flow === true) {
     const previous = parent.items[index - 1];
     const next = parent.items[index + 1];
-    if (previous !== undefined) return [{ start: pairEnd(previous), end, text: "" }];
+    if (previous !== undefined) {
+      const previousEnd = pairEnd(previous);
+      const comment = text.slice(previousEnd, keyStart).indexOf("#");
+      if (comment >= 0) {
+        const comma = text.indexOf(",", previousEnd);
+        return [
+          { start: comma, end: comma + 1, text: "" },
+          { start: keyStart, end, text: "" },
+        ];
+      }
+      return [{ start: previousEnd, end, text: "" }];
+    }
     if (next !== undefined) return [{ start: keyStart, end: rangeOf(next.key as Node)[0], text: "" }];
     return [{ start: keyStart, end, text: "" }];
   }

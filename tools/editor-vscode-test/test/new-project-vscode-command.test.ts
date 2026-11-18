@@ -121,6 +121,8 @@ before(async () => {
       write: false,
       platform: "node",
       format: "esm",
+      // The real extension now includes CommonJS YAML, which needs Node's built-in require in this ESM fixture.
+      banner: { js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
       jsx: "automatic",
       jsxImportSource: "preact",
       alias: { vscode: fakePath },
