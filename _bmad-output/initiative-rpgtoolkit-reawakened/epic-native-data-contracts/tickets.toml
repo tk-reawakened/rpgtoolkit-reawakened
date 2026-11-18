@@ -153,6 +153,7 @@ references = ["Decision: ADR 0019 amendment of 2026-11-11, points 3 and 5", "Dec
 after = [1, 4]
 hitl = true
 risk = "medium"
+notes = ["Jensen reviewed and merged #3194; section 4 key dispositions, registry parity (7/7), provenance and links were checked. #1847 closed; contract remains pre-release."]
 
 [[entry]]
 id = 13

@@ -1,6 +1,6 @@
 # Native asset-pack contract (`.tkrpack`)
 
-**Status: draft, pre-release; Jensen's approval is pending.** This page proposes the normative shape of a native pack of reusable scene assets. It preserves each asset's art, placement anchor, collision (`solid`) and walk-behind (`under`) data together. The contract is written from section 4 of [`tkr-authoring.md`](tkr-authoring.md#4-scene-asset--stamp-pack-document-tkrpack), under the common rules in [`native-contracts.md`](native-contracts.md). It does not claim owner review or approval.
+**Status: reviewed pre-release contract.** Jensen reviewed and merged this page in [#3194](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3194). It defines a native pack of reusable scene assets, preserving each asset's art, placement anchor, collision (`solid`) and walk-behind (`under`) data together. The contract is written from section 4 of [`tkr-authoring.md`](tkr-authoring.md#4-scene-asset--stamp-pack-document-tkrpack), under the common rules in [`native-contracts.md`](native-contracts.md).
 
 ## In plain words
 
@@ -111,6 +111,7 @@ things:
       pack: packs/medieval-iso-kit.tkrpack
       asset: wooden-chest
 ```
+The proposed [scene contract](native-scene.md#disposition-of-the-draft-section-2-keys) does not carry the draft's `things` records in its first cut. Its pack placements use `pack` and `asset` directly; the example above records the earlier draft's provenance spelling, not a requirement to add `things` to that scene proposal.
 
 
 ## Plugin blocks
@@ -159,15 +160,15 @@ This table accounts for every key in the section 4 example, its nested mappings 
 | scene `things[].fromAsset` | Replace the colon-delimited scalar with a mapping containing `pack` path and pack-local `asset` ID. |
 | scene `floor`, `x`, `y` | Keep as scene placement fields; not fields of the pack document. |
 
-## Owner review still required
+## Review and pre-release status
 
-These are recommendations for a draft, not recorded owner decisions. Jensen's review and approval is an explicit acceptance criterion and remains pending.
+Jensen reviewed and merged [#3194](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3194). The following records the choices and alternatives presented for that review; the contract remains pre-release.
 
-1. **Anchor and vector coordinate frame.** Recommend integer pixels with the placed anchor at the scene position and vector points offset from it. Alternative: vectors use a visual/source origin, which makes collision art less intuitive to position but may simplify crop editing. Confirm the recommended anchor-relative model and anchor `snap` vocabulary.
-2. **Multiple visuals.** Recommend that crops share one visual origin and `layerOffset` affects board-layer ordering only. Alternative: add per-visual offsets or a distinct coordinate space, which is more expressive but adds authoring rules missing from the draft. Confirm whether aligned overlays suffice.
-3. **Open outlines and under masks.** Recommend open or closed `solid` line geometry and closed `under` polygons, with `attributes` retaining the documented 1/2/4 mask. Alternative: require every solid outline to be closed or allow open under paths; either changes which legacy vector shapes can be represented. Confirm these bounds and whether the current mask bits are the intended semantics.
-4. **Reference spelling.** Recommend separate `pack` path and `asset` local-ID fields. Alternative: a path fragment such as `packs/name.tkrpack#asset-id` is compact but introduces fragment escaping and parsing rules absent from the native identity contract. Confirm the separate-field shape before any scene reader is implemented.
-5. **Shared wrapper and YAML-profile choices.** The flat shape was selected for implementation under the owner's delegation to use recommended answers ([native contracts](native-contracts.md)); this does not claim direct approval of the whole ADR. The shared YAML profile remains open. This draft follows the authoring draft's YAML restrictions pending review.
+1. **Anchor and vector coordinate frame.** The contract uses integer pixels with the placed anchor at the scene position and vector points offset from it. The alternative was a visual/source origin.
+2. **Multiple visuals.** Crops share one visual origin and `layerOffset` affects board-layer ordering only. Per-visual offsets were considered as a more expressive alternative.
+3. **Open outlines and under masks.** Solid line geometry may be open or closed; under polygons are closed, with the documented 1/2/4 mask.
+4. **Reference spelling.** Separate `pack` path and `asset` local-ID fields avoid fragment escaping and parsing rules absent from the native identity contract.
+5. **Shared wrapper and YAML profile.** The flat shape was selected under delegated implementation direction ([native contracts](native-contracts.md)); this does not claim direct approval of the whole ADR. The shared YAML profile remains open. This page follows the authoring draft's YAML restrictions.
 
 ## Registry
 
@@ -177,7 +178,7 @@ The shared native registry is in [`native-contracts.md`](native-contracts.md#the
 |---|---|---|
 | `.tkrpack` | `asset-pack` | [native-asset-pack.md](native-asset-pack.md) |
 
-The native registry test reads that table and compares it with the package registry. This row is a proposed contract registration, not evidence of owner approval.
+The native registry test reads that table and compares it with the package registry. The contract remains pre-release.
 
 ## References
 

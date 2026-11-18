@@ -3,7 +3,7 @@ title: 'The asset-pack contract stores collision and walk-behind with each asset
 type: 'feature'
 ticket: '12'
 created: '2026-11-17'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'ea5933275515e884003424e1623d74e17d45795b'
 route: 'full'
 route_source: 'auto'
@@ -72,3 +72,4 @@ Use path-valued `pack` plus pack-local `asset` as the reference instead of inven
 - Compare the disposition matrix against each scalar, mapping key, and nested field in `tkr-authoring.md` §4.
 - Inspect links and extension/contract parity; the parent runs the registry, docs, and link checks after integration.
 - Registry test: 7/7 passed; provenance: 1,712 files, zero violations; draft page relative links and anchors passed. Owner review remains pending.
+- Jensen confirmed reviewing and merging #3194. The merged contract accounts for section 4 keys and registers `.tkrpack`; the 7/7 registry run, provenance and link checks above passed before merge. Issue #1847 was closed after that confirmation. The contract remains pre-release; earlier pending-review notes in this historical plan describe its original draft state.
