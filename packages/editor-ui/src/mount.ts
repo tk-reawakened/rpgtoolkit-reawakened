@@ -24,6 +24,7 @@ import {
   type TilesetArtCommand,
   type TilesetArtSnapshot,
 } from "@tk-reawakened/editor-model";
+import { NativeClipView, type NativeClipViewDocument } from "./native-clip-view.tsx";
 import type { PlatformResult, PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
@@ -104,7 +105,7 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -156,6 +157,9 @@ function isSpriteView(document: ViewContext["document"]): document is SpriteView
 
 function isAnimationView(document: ViewContext["document"]): document is AnimationViewDocument {
   return document.kind === "animation";
+}
+function isNativeClipView(document: ViewContext["document"]): document is NativeClipViewDocument {
+  return document.kind === "native-clip";
 }
 
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
@@ -229,6 +233,8 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.animationAuthoring === undefined ? {} : { authoring: ctx.animationAuthoring }),
       ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
     });
+  } else if (isNativeClipView(document)) {
+    view = createElement(NativeClipView, { doc: document, pendingEdits, capabilities, onEdited });
   } else if (document.kind === "main") {
     view = createElement(SettingsView, { doc: document, capabilities, onEdited });
   } else {

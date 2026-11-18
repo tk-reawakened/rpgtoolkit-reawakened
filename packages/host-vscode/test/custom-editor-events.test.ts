@@ -25,6 +25,8 @@ test("custom editor change notifications reach each registered view type without
     .map((kind) => ({ document: { model: { kind } }, label: `${kind} edit` }));
 
   for (const edit of edits) for (const listener of sourceListeners) listener(edit);
+  // Native clips use VS Code's TextDocument, not this binary custom-document event stream.
+  for (const listener of sourceListeners) listener({ document: { model: { kind: "native-clip" } }, label: "native clip edit" });
 
   equal(sourceListeners.length, registrations.length, "each registered view type subscribes to the shared provider event");
   for (const [viewType, kinds] of registrations) {

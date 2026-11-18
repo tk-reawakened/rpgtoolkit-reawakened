@@ -177,6 +177,17 @@ void test("what the contract allows is read: delay 0, free tags and metadata, nu
   deepEqual(clip.metadata, { anything: [1, { x: null }], n: 0 });
   equal(clip.frames[0]!.image, "Bitmap/My Pic.PNG");
 });
+void test("edited frame image and sound IDs ASCII-fold to lowercase without rewriting untouched values", () => {
+  const text = `${STAMP}${BODY.replace("a.png", "Keep/Existing.PNG")}`;
+  const image = setClipProperty(text, ["frames", 0, "image"], "Bitmap/New.PNG");
+  if (!image.ok) throw new Error(formatClipProblems(image.problems));
+  equal(image.text, text.replace("Keep/Existing.PNG", "bitmap/new.png"));
+  const withSound = `${STAMP}${BODY.replace("a.png", "Keep/Existing.PNG")}    sound: Existing/Sound.WAV\n`;
+  const sound = setClipProperty(withSound, ["frames", 0, "sound"], "Media/Step.WAV");
+  if (!sound.ok) throw new Error(formatClipProblems(sound.problems));
+  equal(sound.text, withSound.replace("Existing/Sound.WAV", "media/step.wav"));
+  ok(sound.text.includes("Keep/Existing.PNG"));
+});
 
 void test("a problem names its line", () => {
   const problems = refused(`${STAMP}${BODY.replace("delay: 0.5", "delay: -1")}`);
@@ -375,6 +386,15 @@ void test("removing an optional property removes its line, comment included, and
   const colour = removeClipProperty(swordSwing, ["colourKey"]);
   if (!colour.ok) throw new Error(formatClipProblems(colour.problems));
   deepEqual(colour.text.split("\n"), [...lines.slice(0, 7), ...lines.slice(8)]);
+});
+
+void test("removing a flow-mapping field preserves a comment on the preceding entry", () => {
+  const text = `${STAMP}canvas: {width: 32, height: 32}\ndelay: 0.5\nframes:\n  - {image: bitmap/walk.png, # front view\n    sound: media/step.wav}\n`;
+  const result = removeClipProperty(text, ["frames", 0, "sound"]);
+  if (!result.ok) throw new Error(formatClipProblems(result.problems));
+  const expected = `${STAMP}canvas: {width: 32, height: 32}\ndelay: 0.5\nframes:\n  - {image: bitmap/walk.png # front view\n    }\n`;
+  equal(result.text, expected);
+  equal(readClip(result.text).ok, true);
 });
 
 void test("an edit the contract refuses is not made, and a document the reader refuses is not edited", () => {

@@ -11,6 +11,7 @@ import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
 import { boardObjectsProofFiles } from "./board-objects-proof.ts";
 import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeAnimationProof, requestNativeReload, runVscodeAutosaveCommandProof, runVscodeBoardProof, runVscodeCreatorTestsProof, runVscodeGuardProof, runVscodeLaunchProof, runVscodeNewProjectProof, runVscodeProgramProof, runVscodeRunAndDebugProof, runVscodeSpriteWebProof, runVscodeWebProof } from "./web-proof.ts";
 import { runVscodeDesignProof } from "./design-proof.ts";
+import { NATIVE_CLIP_PROOF_PATH, runVscodeNativeClipProof } from "./native-clip-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -72,6 +73,7 @@ if (designProof && (designOutput === undefined || !designOutput.startsWith("/") 
 }
 await access(resolve(harness, "node_modules/.bin/vscode-test-web"));
 const animationProof = process.env.TKR_VSCODE_ANIMATION_PROOF === "1";
+const nativeClipProof = process.env.TKR_VSCODE_NATIVE_CLIP_PROOF === "1";
 const boardPropertiesProof = process.env.TKR_VSCODE_BOARD_PROPERTIES_PROOF === "1";
 const boardObjectsProof = process.env.TKR_VSCODE_BOARD_OBJECTS_PROOF === "1";
 const launchProof = process.env.TKR_VSCODE_LAUNCH_PROOF === "1";
@@ -84,11 +86,11 @@ const historyProof = process.env.TKR_VSCODE_HISTORY_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
 const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
-if (designProof && (animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof)) {
+if (designProof && (nativeClipProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof)) {
   throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
 }
-if ((designProof || boardPropertiesProof || boardObjectsProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
-for (const choice of designProof || boardPropertiesProof || boardObjectsProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
+if ((nativeClipProof || designProof || boardPropertiesProof || boardObjectsProof || animationProof || launchProof || boardProof || programProof || guardProof || historyProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+for (const choice of nativeClipProof || designProof || boardPropertiesProof || boardObjectsProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : ["cancel", "keep"]) {
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
     const target = resolve(proofWorkspace, file.path);
@@ -101,6 +103,9 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
   if (historyProof) await copyFile(spriteFile, resolve(proofWorkspace, "Chrs/ada.tem"));
   await mkdir(resolve(proofWorkspace, "Misc"), { recursive: true });
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
+  const nativeClipBytes = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/native/animation-clip/valid/sword-swing.tkranm")));
+  await writeFile(resolve(proofWorkspace, NATIVE_CLIP_PROOF_PATH), nativeClipBytes);
+  if (nativeClipProof) await writeFile(resolve(proofWorkspace, "Misc/invalid-utf8.tkranm"), Buffer.concat([nativeClipBytes, Buffer.from([10, 35, 32, 255, 10])]));
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
   const artPath = "Tiles/art.tst";
@@ -172,6 +177,7 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
         `--extensionPath=${resolve(root, "extensions/rpgcode")}`,
         `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
         `--testRunnerDataDir=${process.env.TKR_VSCODE_TEST_DATA_DIR ?? resolve(root, ".vscode-test-web")}`,
+        ...(process.env.TKR_VSCODE_TEST_COMMIT === undefined ? [] : [`--commit=${process.env.TKR_VSCODE_TEST_COMMIT}`]),
       ], {
         cwd: root,
         stdio: "inherit",
@@ -370,7 +376,10 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
       await runVscodeBoardObjectsProof(page, expect, workbenchUrl, readBacking);
       console.log("vscode.dev board objects, definition visits, native confirmation and saved-record proof passed");
     };
-    if (designProof) {
+    if (nativeClipProof) {
+      await runVscodeNativeClipProof(page, expect, workbenchUrl, readBacking, nativeClipBytes);
+      console.log("vscode.dev native clip edit, one-line save and reopen proof passed");
+    } else if (designProof) {
       await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
       await expect(page.locator(".monaco-workbench")).toBeVisible();
       await runVscodeDesignProof(page, expect, {
@@ -428,6 +437,10 @@ for (const choice of designProof || boardPropertiesProof || boardObjectsProof ||
       });
       console.log("vscode.dev autosave command palette proof passed");
     } else {
+      if (choice === "cancel" && !skipSpriteProof) {
+        await runVscodeNativeClipProof(page, expect, workbenchUrl, readBacking, nativeClipBytes);
+        console.log("vscode.dev native clip edit, one-line save and reopen proof passed");
+      }
       if (choice === "cancel" && !skipSpriteProof) {
         await runVscodeAnimationProof(page, expect, workbenchUrl, { readBacking, withBackingWriteRefused });
         console.log("vscode.dev animation creation, partial-write retry and persistent recovery proof passed");

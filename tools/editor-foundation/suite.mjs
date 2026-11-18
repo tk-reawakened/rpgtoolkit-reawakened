@@ -51,7 +51,7 @@ try {
   ]);
   part("PWA: workspace, pickers, new project, History, program language and fixture execution", pnpm, [
     "browser:test", "tools/browser/tests/editor-web-host.spec.ts", "tools/browser/tests/editor-history.spec.ts",
-    "tools/browser/tests/editor-program.spec.ts", "tools/browser/tests/editor-creator-tests.spec.ts", "--workers=1",
+    "tools/browser/tests/editor-program.spec.ts", "tools/browser/tests/editor-creator-tests.spec.ts", "tools/browser/tests/editor-native-clip.spec.ts", "--workers=1",
   ], { ...process.env, PLAYWRIGHT_PORT: process.env.PLAYWRIGHT_PORT ?? String(await freePort()) });
   part("actual VS Code web: native program language and debugger", pnpm, ["vscode-web:test"], {
     ...process.env, VSCODE_WEB_PORT: process.env.VSCODE_WEB_PORT ?? String(await freePort()),

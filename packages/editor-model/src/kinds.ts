@@ -8,6 +8,7 @@ import { createTilesetArtDocument, openTilesetArtDocument, tilesetArtCodec, type
 import { animationCodec, createAnimationDocument, openAnimationDocument, type AnimationCommand, type AnimationDocument } from "./animation-document.ts";
 import { createProgramDocument, openProgramDocument, programCodec, type ProgramCommand, type ProgramDocument } from "./program-document.ts";
 import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type TileBitmapCommand, type TileBitmapDocument } from "./tile-bitmap-document.ts";
+import { createNativeClipDocument, nativeClipCodec, openNativeClipDocument, type NativeClipCommand, type NativeClipDocument } from "./native-clip-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -18,12 +19,12 @@ import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand | NativeClipCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
 /** What Toolkit 3 file the kind stands for, and which row of ADR 0022 D2 it follows. */
-export type StorageClass = "legacy-binary" | "program-text";
+export type StorageClass = "legacy-binary" | "program-text" | "native-text";
 
 export interface DocumentKind {
   /** The kind identifier, also `EditorDocument.kind`. */
@@ -141,6 +142,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     isCommand: programCodec.isCommand,
     recoveryMarker: () => null,
   },
+  {
+    id: "native-clip",
+    label: "Native animation clip",
+    description: "A native animation clip with comment-preserving property edits.",
+    extensions: [".tkranm"],
+    storage: "native-text",
+    open: openNativeClipDocument,
+    create: createNativeClipDocument,
+    summarise: (bytes, path) => {
+      const parsed = nativeClipCodec.read(bytes, path);
+      return parsed.ok ? nativeClipCodec.summary(parsed.value) : null;
+    },
+    isCommand: nativeClipCodec.isCommand,
+    recoveryMarker: () => null,
+  },
   ...(["character", "item"] as const).map((id) => ({
     id,
     label: id === "character" ? "Character" : "Item",
@@ -201,6 +217,11 @@ export function asTileBitmapDocument(document: AnyDocument): TileBitmapDocument 
 export function asAnimationDocument(document: AnyDocument): AnimationDocument {
   if (document.kind !== "animation") throw new Error(`${document.identity.path} is a ${document.kind} document, not an animation.`);
   return document as unknown as AnimationDocument;
+}
+/** The document as a native clip document (see `asMainDocument`). */
+export function asNativeClipDocument(document: AnyDocument): NativeClipDocument {
+  if (document.kind !== "native-clip") throw new Error(`Expected native-clip document, got ${document.kind}.`);
+  return document as NativeClipDocument;
 }
 
 /** The document as a program document (see `asMainDocument`). */

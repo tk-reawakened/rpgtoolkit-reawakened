@@ -184,6 +184,25 @@ test("a binary kind whose bytes happen to be valid UTF-8 still gets no line comp
   equal(fixture.el.querySelector("[aria-label='Line comparison']"), null, "a binary kind is never compared line by line, even when its bytes are text-like");
 });
 
+test("native clip history compares saved UTF-8 versions line by line", async () => {
+  const fixture = await setUp();
+  const path = "Misc/walk.tkranm";
+  const before = "contract: animation-clip\nversion: 1.0.0-pre.1\ncanvas: {width: 32, height: 32}\ndelay: 0.15 # timing\nframes:\n  - image: bitmap/walk.png\n";
+  const after = before.replace("delay: 0.15", "delay: 0.25");
+  ok((await fixture.host.fs.write(path, new TextEncoder().encode(after))).ok);
+  await fixture.workspace.history.recordSave(path, new TextEncoder().encode(before), "manual");
+  show({ ...fixture, activePath: path });
+  await settleUntil(() => fixture.el.querySelectorAll("ol[aria-label='History entries'] button").length === 1, "the clip history entry");
+  await clickRow(fixture.el, "saved");
+  await settleUntil(() => fixture.el.querySelector("select[aria-label='Compare with']") !== null, "the clip comparison choices");
+  const select = fixture.el.querySelector<HTMLSelectElement>("select[aria-label='Compare with']")!;
+  await act(() => { select.value = "current"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  await settleUntil(() => fixture.el.querySelector("[aria-label='Line comparison']") !== null, "the clip line comparison");
+  const comparison = fixture.el.querySelector("[aria-label='Line comparison']")!;
+  match(comparison.textContent ?? "", /delay: 0\.15/);
+  match(comparison.textContent ?? "", /delay: 0\.25/);
+});
+
 test("the ignore offer asks before writing .gitignore and records nothing when declined", async () => {
   const fixture = await setUp();
   await fixture.host.fs.createFolder(".git");

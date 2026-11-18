@@ -8,6 +8,7 @@ export type { NewBoardViewProps } from "./new-board-view.tsx";
 export type { NewProjectViewProps } from "./new-project-view.tsx";
 export { SpriteView, type SpriteViewDocument, type SpriteViewProps } from "./sprite-view.tsx";
 export { AnimationView, type AnimationViewDocument, type AnimationViewProps } from "./animation-view.tsx";
+export { NativeClipView, type NativeClipViewDocument, type NativeClipViewProps } from "./native-clip-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
 export type { RunSetupOutcome, RunSetupStore, RunViewProps } from "./run-view.tsx";
 export type { RunControlProps, RunSetupMemory } from "./run-control.tsx";
