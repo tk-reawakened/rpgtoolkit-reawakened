@@ -3,7 +3,7 @@ title: 'Preserve and check native plugin blocks'
 type: 'feature'
 ticket: 10
 created: '2026-11-18'
-status: 'in-review'
+status: 'done'
 baseline_revision: '81e49bf28bdda76a0c2a7724a73341a1c72dd0c8'
 route: 'full'
 route_source: 'auto'
@@ -59,7 +59,7 @@ context: []
 - [x] Implement source-preserving clip read/edit/write and importer integration; update authored valid/invalid examples and model/editor consumers.
 - [x] Implement qualified package IDs and dot-free namespace behavior across core and catalogue; update their consumers and tests.
 - [x] Prove each error kind and round trip with authored fixtures, including perturbation controls that fail for a regenerating writer; locally typecheck, lint, test, run the editor proof and applicable goldens before PR.
-- [ ] Independently review practical blockers, log edge cases, push and merge only after required checks.
+- [x] Independently review practical blockers, log edge cases, push and merge only after required checks.
 
 **Acceptance Criteria:**
 - Given a plugin-bearing fixture project, when checked and renamed, the checker reports only real envelope faults and every plugin block remains byte-for-byte unchanged.
@@ -81,6 +81,7 @@ context: []
 - Real Chromium proof edited, saved and reopened a clip carrying a plugin block; exact saved bytes were checked, including comments and `1.10`. Screenshot inspected. Both AST reprinting and value regeneration differed from the preservation fixture.
 - After the review fixes, 200 engine-boot and rename-executor tests passed, including the two new cases. The preservation test failed against both an AST-reprinting writer and a value-regenerating writer, then passed after restoration. Before the runtime namespace fix, headless golden passed and closing matched all 8 baselines (2 clean boots and 6 expected failures).
 - Full local typecheck passed, as did 5,189 workspace tests with no skips. The repaired creator-test browser scenario and its targeted lint passed locally.
+- Delivered in PR #3198, merged as `8248f4467bad8d32f70508dd2219196313a2e9a3` after required CI checks passed. Issues #1822, #3197 and #3199 are closed.
 
 - Run the affected native-data, importer, CLI, rename, core manifest, catalogue and editor tests individually and together; inspect new unit durations.
 - Typecheck affected projects, lint, dependency graph, provenance, docs/schema checks, and locally exercise native clip authoring before pushing. Run headless goldens if the core manifest change affects them.
