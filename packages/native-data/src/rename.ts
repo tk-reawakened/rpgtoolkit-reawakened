@@ -26,6 +26,7 @@
  */
 
 import { isMap, isScalar, isSeq, parseDocument, type Node, type Pair, type Scalar } from "yaml";
+import { sceneArtReferences } from "./art-references.ts";
 import { checkDocuments, documentId, isDocumentPath, validateConfig, type CheckConfig, type CheckReport } from "./check.ts";
 import { readDocument, type DocumentInput } from "./document.ts";
 import { compareText, foldId } from "./fold.ts";
@@ -251,7 +252,10 @@ export function planRename(documents: readonly DocumentInput[], pairs: readonly 
     byId.set(doc.id, [...(byId.get(doc.id) ?? []), doc]);
     byFold.set(foldId(doc.id), [...(byFold.get(foldId(doc.id)) ?? []), doc]);
   }
-  const resolve = (written: string): readonly Doc[] => byId.get(written) ?? byFold.get(foldId(written)) ?? [];
+  const resolve = (written: string): readonly Doc[] => {
+    const id = documentId(written);
+    return byId.get(id) ?? byFold.get(foldId(id)) ?? [];
+  };
 
   const refusals: RenameRefusal[] = [];
   const refuse = (refusalCode: RefusalCode, message: string): void => {
@@ -338,6 +342,9 @@ export function planRename(documents: readonly DocumentInput[], pairs: readonly 
     if (!("text" in doc.input)) continue;
     const { text } = doc.input;
     const { occurrences, problems } = scanReferences(text, fields);
+    for (const reference of sceneArtReferences(text).references) {
+      occurrences.push({ field: `native-art:${reference.kind}`, written: reference.path.value, node: reference.path });
+    }
     for (const problem of problems) {
       refuse(
         "unreadable-reference",
@@ -358,7 +365,7 @@ export function planRename(documents: readonly DocumentInput[], pairs: readonly 
         continue;
       }
       const splices = spliced.get(doc)?.splices ?? [];
-      splices.push({ start, end, text: scalarText(newId, occurrence.node) });
+      splices.push({ start, end, text: occurrence.field.startsWith("native-art:") ? JSON.stringify(newId) : scalarText(newId, occurrence.node) });
       spliced.set(doc, { text, splices });
     }
   }

@@ -9,6 +9,7 @@ export {
   type DuplicateIdReport,
   type ExtensionContractMismatchReport,
   type FoldCollisionReport,
+  type NativeArtReport,
   type PluginBlockReport,
   type ReportClass,
 } from "./check.ts";
@@ -59,6 +60,17 @@ export {
   type ClipReadResult,
   type ClipWriteResult,
 } from "./clip.ts";
+export {
+  readTileset, writeTileset, checkTileset, setTilesetProperty,
+  TILESET_CONTRACT, TILESET_VERSION,
+  type Tileset, type TilesetProblem, type TilesetReadResult,
+} from "./tileset.ts";
+export {
+  readAssetPack, writeAssetPack, checkAssetPack, setAssetPackProperty,
+  ASSET_PACK_CONTRACT, ASSET_PACK_VERSION,
+  type AssetPack, type AssetPackProblem, type AssetPackReadResult,
+} from "./asset-pack.ts";
+export { checkProjectArtAssets } from "./project-art-assets.ts";
 export {
   applyPlanToDocuments,
   planRename,

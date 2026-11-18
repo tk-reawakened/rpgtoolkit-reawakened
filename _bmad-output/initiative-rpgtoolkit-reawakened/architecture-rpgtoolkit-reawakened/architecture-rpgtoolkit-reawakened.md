@@ -68,6 +68,7 @@ graph LR
   runnerharness --> scriptspec
   core --> dap
   core --> editorui
+  core --> nativedatacli[native-data-cli]
   runnerharness --> dap
   runnerweb --> runnerdesktop
   runnerweb --> runnermobile[runner-mobile]
@@ -89,7 +90,7 @@ graph LR
   platformservices --> hostweb
   platformservices --> hostdesktop
   plugintk2compat --> runnerharness
-  nativedata[native-data] --> nativedatacli[native-data-cli]
+  nativedata[native-data] --> nativedatacli
   nativedata --> editormodel
   core --> nativedataimport[native-data-import]
   nativedata --> nativedataimport

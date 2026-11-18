@@ -1,0 +1,97 @@
+import { deepEqual, equal, ok } from "node:assert/strict";
+import test from "node:test";
+import { checkDocuments } from "../src/check.ts";
+import { applyPlanToDocuments, planRename } from "../src/rename.ts";
+import { REGISTRY } from "../src/registry.ts";
+
+const config = { registry: [...REGISTRY, { extension: ".tkrscn", contract: "scene" }] };
+const tiles = `contract: tileset
+version: 1.0.0-pre.1
+name: Village
+projection: 2d
+cellSize: [32, 32]
+sources:
+  - id: sheet
+    file: Bitmap/sheet.png
+    grid: {width: 32, height: 32, marginX: 0, marginY: 0, gapX: 0, gapY: 0}
+    transparent: {mode: alpha}
+tiles:
+  - {id: grass, name: Grass, source: sheet, cell: [0, 0], role: floor, collision: walkable}
+outputBinding: {target: Tiles/village.tst, detail: 1}
+`;
+const pack = `contract: asset-pack
+version: 1.0.0-pre.1
+name: Props
+projection: 2d
+grid: {tileWidth: 32, tileHeight: 32}
+sources:
+  - {id: sheet, file: Bitmap/sheet.png}
+assets:
+  - id: rock
+    name: Rock
+    kind: prop
+    anchor: {x: 0, y: 0, snap: bottom-center}
+    visuals: [{source: sheet, rect: [0, 0, 8, 8]}]
+`;
+const scene = `contract: scene
+version: 1.0.0-pre.1
+tilePalette:
+  - {tileset: tiles/village.tkrtile, tile: grass} # retain
+floors:
+  - boundarySources:
+      walkableTiles:
+        - {tileset: tiles/village.tkrtile, tile: grass}
+placedPacks:
+  - {pack: packs/props.tkrpack, asset: rock}
+pluginData:
+  com.example.notes:
+    version: 1.0.0
+    data: {pack: packs/props.tkrpack} # plugin-owned
+`;
+const inputs = [
+  { path: "tiles/village.tkrtile", text: tiles },
+  { path: "packs/props.tkrpack", text: pack },
+  { path: "scenes/village.tkrscn", text: scene },
+];
+
+void test("checker resolves art references and reports an absent local asset", () => {
+  deepEqual(checkDocuments(inputs, config), []);
+  const broken = inputs.map((input) => input.path.endsWith(".tkrscn") ? { ...input, text: input.text.replace("asset: rock", "asset: absent") } : input);
+  const reports = checkDocuments(broken, config);
+  ok(reports.some((report) => report.class === "native-art" && report.path === "scenes/village.tkrscn" && report.message.includes("absent")));
+});
+
+void test("rename updates nested art references without touching plugin payload", () => {
+  const result = planRename(inputs, [
+    { from: "tiles/village.tkrtile", to: "tiles/new.tkrtile" },
+    { from: "packs/props.tkrpack", to: "packs/new.tkrpack" },
+  ], config);
+  ok(result.ok, result.ok ? "" : JSON.stringify(result.refusals));
+  const after = applyPlanToDocuments(inputs, result.plan);
+  deepEqual(checkDocuments(after, config), []);
+  const changed = after.find((input) => input.path === "scenes/village.tkrscn");
+  ok(changed && "text" in changed);
+  equal(changed.text, scene.replaceAll("tiles/village.tkrtile", '"tiles/new.tkrtile"').replace("pack: packs/props.tkrpack, asset:", 'pack: "packs/new.tkrpack", asset:'));
+});
+
+void test("rename resolves normalized references and quotes flow-map punctuation", () => {
+  const original = inputs.map((input) => input.path.endsWith(".tkrscn")
+    ? { ...input, text: input.text.replaceAll("tiles/village.tkrtile", "./tiles//village.tkrtile") }
+    : input);
+  const result = planRename(original, [{ from: "tiles/village.tkrtile", to: "tiles/winter, snow.tkrtile" }], config);
+  ok(result.ok, result.ok ? "" : JSON.stringify(result.refusals));
+  const after = applyPlanToDocuments(original, result.plan);
+  deepEqual(checkDocuments(after, config), []);
+  const changed = after.find((input) => input.path.endsWith(".tkrscn"));
+  ok(changed && "text" in changed);
+  ok(changed.text.includes('"tiles/winter, snow.tkrtile"'));
+});
+
+void test("checker rejects an incomplete native pack reference before rename", () => {
+  const broken = inputs.map((input) => input.path.endsWith(".tkrscn")
+    ? { ...input, text: input.text.replace("asset: rock", "assset: rock") }
+    : input);
+  ok(checkDocuments(broken, config).some((report) => report.class === "native-art" && report.message.includes("local ID")));
+  const result = planRename(broken, [{ from: "packs/props.tkrpack", to: "packs/new.tkrpack" }], config);
+  equal(result.ok, false);
+});

@@ -277,7 +277,7 @@ A top-level `bloom: 0.4` is not a `plugin-block` problem. It is the closed-contr
 
 ## Checker
 
-A checker reads a folder of native documents and reports problems. It **reports and never repairs**. It reads only native documents, the files whose extension the [registry](#the-registry) holds: a file with any other extension, a legacy file such as `walk.anm` among them, is neither read nor reported, whatever bytes it holds. It reports every class below, each with the content shown.
+A checker reads a folder of native documents and reports problems. It **reports and never repairs**. It treats only files whose extension the [registry](#the-registry) holds as native documents; other files, including legacy files, are not checked as native documents. Project-level art checks also read the source images named by tilesets and asset packs to verify their existence and dimensions. The checker reports every class below, each with the content shown.
 
 | Class | Report names | Meaning |
 |---|---|---|
@@ -286,6 +286,7 @@ A checker reads a folder of native documents and reports problems. It **reports 
 | Two paths fold to one ID | both paths and the folded ID | The [identity rule](#identity), item 4 failed. |
 | Plugin block (`plugin-block`) | the document path, the problem kind, the plugin id where there is one, and the text found | A block's [envelope](#the-envelope) failed. The problem kinds are in the next table. |
 | Extension and contract disagree (**proposed, needs the owner's confirmation**) | the path, the extension, the registered contract, and the contract the stamp names | The [file name rule](#file-names), item 4 failed: the extension is registered for one contract and the stamp names another. |
+| Native art (`native-art`) | the document path, field and explanation, with the line when available | A tileset or asset-pack field or local source reference is invalid, a referenced image is missing or unreadable, a source cell or crop lies outside its image, or a scene's native art reference cannot resolve its document and local ID. |
 
 The first four rows are the classes the owner ruled. The `plugin-block` class replaces the three link classes the 2026-11-08 ruling had (a plugin document with no owner, an owner link with no back-link, a mismatched link): they are **retired** (owner ruling of 2026-11-09), because plugin data has no document of its own to link. The fifth is an addition made with the file name rule and is not yet confirmed. It is judged only for a document whose extension is registered and whose stamp names one contract as text; any other stamp is already a stamp report.
 

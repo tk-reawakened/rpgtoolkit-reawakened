@@ -6,9 +6,10 @@
  * folder could not be read.
  */
 
-import { statSync } from "node:fs";
-import { resolve } from "node:path";
-import { checkDocuments, formatReport, REGISTRY, validateConfig, type CheckConfig, type CheckReport } from "@tk-reawakened/native-data";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { checkDocuments, checkProjectArtAssets, foldId, formatReport, REGISTRY, validateConfig, type CheckConfig, type CheckReport } from "@tk-reawakened/native-data";
+import { decodeTexture } from "@tk-reawakened/core";
 import { collectDocuments } from "./walk.ts";
 
 export const RESULT_SCHEMA = "tkr-native-check/1";
@@ -83,6 +84,72 @@ function describe(reports: readonly CheckReport[], documents: number): string {
   return `${documents} document${documents === 1 ? "" : "s"} checked, ${reports.length} problem${reports.length === 1 ? "" : "s"} found`;
 }
 
+type ImageSize = { readonly width: number; readonly height: number };
+type FolderEntry = { readonly name: string; readonly directory: boolean };
+
+/**
+ * The size lookup for source images. A project-relative `/` path is resolved one component at a
+ * time under the project folder, each component matched with only A to Z folded whatever the
+ * host's own casing rule (an exact-case name wins when two fold alike). `.` segments are harmless
+ * and skipped; an absolute path or one with `..` is not project-relative and never resolves. A
+ * missing, unreadable or unsupported image is `null`. Folder listings and results are cached.
+ */
+function projectImageLookup(root: string): (path: string) => ImageSize | null {
+  const listings = new Map<string, Map<string, FolderEntry[]>>();
+  const results = new Map<string, ImageSize | null>();
+  const list = (folder: string): Map<string, FolderEntry[]> => {
+    let listing = listings.get(folder);
+    if (listing === undefined) {
+      listing = new Map();
+      try {
+        for (const entry of readdirSync(folder, { withFileTypes: true })) {
+          if (!entry.isDirectory() && !entry.isFile()) continue;
+          const key = foldId(entry.name);
+          const bucket = listing.get(key);
+          const item = { name: entry.name, directory: entry.isDirectory() };
+          if (bucket === undefined) listing.set(key, [item]);
+          else bucket.push(item);
+        }
+      } catch {
+        listing = new Map();
+      }
+      listings.set(folder, listing);
+    }
+    return listing;
+  };
+  const resolveFile = (segments: readonly string[]): string | null => {
+    let folder = root;
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index]!;
+      const last = index === segments.length - 1;
+      const matches = (list(folder).get(foldId(segment)) ?? []).filter((entry) => entry.directory !== last);
+      const match = matches.find((entry) => entry.name === segment) ?? matches.sort((left, right) => (left.name < right.name ? -1 : 1))[0];
+      if (match === undefined) return null;
+      folder = join(folder, match.name);
+    }
+    return folder;
+  };
+  return (path) => {
+    if (path.startsWith("/") || path.includes("\\") || /^[A-Za-z]:/.test(path)) return null;
+    const segments = path.split("/").filter((segment) => segment !== "" && segment !== ".");
+    if (segments.length === 0 || segments.includes("..")) return null;
+    const key = foldId(segments.join("/"));
+    if (results.has(key)) return results.get(key)!;
+    let size: ImageSize | null = null;
+    const file = resolveFile(segments);
+    if (file !== null) {
+      try {
+        const decoded = decodeTexture(readFileSync(file), path);
+        if (decoded.ok) size = { width: decoded.value.w, height: decoded.value.h };
+      } catch {
+        size = null;
+      }
+    }
+    results.set(key, size);
+    return size;
+  };
+}
+
 export function runCli(argv: readonly string[]): CliResult {
   const parsed = parse(argv);
   if (!parsed.ok) {
@@ -101,7 +168,7 @@ export function runCli(argv: readonly string[]): CliResult {
   } catch (error) {
     return { exitCode: 3, stdout: "", stderr: `tkr-native-check: cannot read ${parsed.folder}: ${error instanceof Error ? error.message : String(error)}\n` };
   }
-  const reports = checkDocuments(documents, parsed.config);
+  const reports = [...checkDocuments(documents, parsed.config), ...checkProjectArtAssets(documents, projectImageLookup(root))];
   const exitCode = reports.length === 0 ? 0 : 1;
   if (parsed.json) {
     const result = { schema: RESULT_SCHEMA, documents: documents.length, problems: reports.length, reports };

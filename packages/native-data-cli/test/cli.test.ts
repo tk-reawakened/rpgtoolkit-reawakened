@@ -1,7 +1,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -173,4 +173,96 @@ void test("the command-line entry point exits 0 on a clean folder and 1 on a bro
   const broken = run("extension-mismatch");
   equal(broken.status, 1);
   ok(broken.stdout.startsWith("clips/walk.tkranm: the extension `.tkranm` is registered for the contract `animation-clip`"));
+});
+
+/** An uncompressed 24-bit bitmap of `width` by `height`, all black: the smallest image the core decoder reads. */
+function bmp(width: number, height: number): Buffer {
+  const stride = Math.ceil((width * 3) / 4) * 4;
+  const bytes = Buffer.alloc(54 + stride * height);
+  bytes.write("BM", 0, "latin1");
+  bytes.writeUInt32LE(bytes.length, 2);
+  bytes.writeUInt32LE(54, 10);
+  bytes.writeUInt32LE(40, 14);
+  bytes.writeInt32LE(width, 18);
+  bytes.writeInt32LE(height, 22);
+  bytes.writeUInt16LE(1, 26);
+  bytes.writeUInt16LE(24, 28);
+  bytes.writeUInt32LE(stride * height, 34);
+  return bytes;
+}
+
+const ART_TILESET = `contract: tileset
+version: 1.0.0-pre.1
+name: Village
+projection: 2d
+cellSize: [32, 32]
+sources:
+  - id: sheet
+    file: Bitmap/sheet.bmp
+    grid: {width: 32, height: 32, marginX: 0, marginY: 0, gapX: 0, gapY: 0}
+    transparent: {mode: alpha}
+tiles:
+  - {id: grass, name: Grass, source: sheet, cell: [0, 0], role: floor, collision: walkable}
+  - {id: wall, name: Wall, source: sheet, cell: [1, 0], role: wall, collision: solid}
+outputBinding: {target: Tiles/village.tst, detail: 1}
+`;
+
+type ArtRunReport = { readonly class: string; readonly path: string; readonly field: string };
+
+/** Run the checker over a temporary project holding the tileset above and, when given, its source image at `imagePath`. */
+function checkArtProject(image: Buffer | null, imagePath = "Bitmap/sheet.bmp"): { readonly exitCode: number; readonly reports: ArtRunReport[] } {
+  const folder = mkdtempSync(join(tmpdir(), "tkr-native-check-"));
+  try {
+    writeFileSync(join(folder, "village.tkrtile"), ART_TILESET);
+    if (image !== null) {
+      mkdirSync(join(folder, dirname(imagePath)), { recursive: true });
+      writeFileSync(join(folder, imagePath), image);
+    }
+    const result = runCli(["--json", folder]);
+    const parsed = JSON.parse(result.stdout) as { reports: ArtRunReport[] };
+    return { exitCode: result.exitCode, reports: parsed.reports };
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+}
+
+void test("a tileset whose source image exists and holds every cell is clean", () => {
+  const { exitCode, reports } = checkArtProject(bmp(64, 32));
+  deepEqual([exitCode, reports], [0, []]);
+});
+
+void test("a tileset whose source image is missing or not a readable image fails", () => {
+  for (const image of [null, Buffer.from("not an image")]) {
+    const { exitCode, reports } = checkArtProject(image);
+    equal(exitCode, 1);
+    ok(reports.some((report) => report.class === "native-art" && report.path === "village.tkrtile" && report.field === "sources[0].file"));
+  }
+});
+
+void test("a tileset cell outside its source image fails", () => {
+  const { exitCode, reports } = checkArtProject(bmp(32, 32));
+  equal(exitCode, 1);
+  ok(reports.length > 0 && reports.every((report) => report.class === "native-art" && report.path === "village.tkrtile"));
+});
+
+void test("a source image is found whatever the casing of its authored path, as project paths compare", () => {
+  const { exitCode, reports } = checkArtProject(bmp(64, 32), "bitmap/SHEET.BMP");
+  deepEqual([exitCode, reports], [0, []]);
+});
+
+void test("a source path that climbs out of the project is not satisfied by a real image beside it", () => {
+  const parent = mkdtempSync(join(tmpdir(), "tkr-native-check-"));
+  try {
+    const project = join(parent, "project");
+    mkdirSync(project);
+    mkdirSync(join(parent, "outside"));
+    writeFileSync(join(parent, "outside", "sheet.bmp"), bmp(64, 32));
+    writeFileSync(join(project, "village.tkrtile"), ART_TILESET.replace("Bitmap/sheet.bmp", "../outside/sheet.bmp"));
+    const result = runCli(["--json", project]);
+    const parsed = JSON.parse(result.stdout) as { reports: ArtRunReport[] };
+    equal(result.exitCode, 1);
+    ok(parsed.reports.some((report) => report.class === "native-art" && report.field === "sources[0].file"));
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
