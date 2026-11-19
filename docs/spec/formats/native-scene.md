@@ -269,6 +269,10 @@ A **run-once** program is not a separate flag. The editor stores it as one uniqu
 
 The pack's `projection` must equal the scene's `projection` ([validation](#validation)). `layerOffset` belongs to each **visual**, not to the asset: a visual's `layerOffset` (board layer steps, default 0) is added to the floor's layer for that visual's generated image or tile cells and changes drawing order only; the asset's vectors sit on the placement's floor.
 
+**Generated pack images.** A build writes one PNG for each visual crop and appends its normal board image after scene-owned images, in placement then visual order. The image starts at the placement position minus the asset anchor; the crop selects source pixels and does not move that origin. Its layer is the placement floor plus `layerOffset`; an offset outside the board's layers is reported rather than silently producing an invisible image. The generated path is `Bitmap/.tkr-generated/<scene-key>/<instanceId>-<visual-index>.png`, where `scene-key` is the lowercase SHA-256 of the UTF-8 project-relative scene path and `visual-index` is zero-based. The board stores that path relative to `Bitmap/`. Generated paths are checked for collisions and are build outputs subject to the ownership rule below.
+
+The crop preserves decoded straight RGBA; an omitted source transparency setting uses that alpha, and a color-key setting makes matching source RGB transparent. A board image also needs a transparent RGB key: use the first RGB value, in ascending numeric order, not used by a visible pixel; give transparent pixels that key. If there is no such key, report that the crop cannot be represented. PNG encoding follows the [image storage policy](images.md#storage-policy). A whole JPEG can be referenced as-is when no crop or transparency conversion is needed; otherwise a JPEG crop is reported as unavailable rather than violating the rule that JPEG is not re-encoded losslessly.
+
 ## Atmosphere
 
 `atmosphere` has three optional keys:
