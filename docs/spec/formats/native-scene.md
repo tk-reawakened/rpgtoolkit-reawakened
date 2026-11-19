@@ -145,7 +145,13 @@ A floor's cells are written as **runs** `[count, index]`: `count` consecutive ce
 
 ### Boundary sources
 
-`boundarySources` records what a floor's walls were traced from, so they can be traced again. It has two optional keys: `walkableTiles`, a non-empty list of **tile references** (native or legacy form, never `{}`), and `autoWallCaps`, a boolean (absent means false). It is a scene-only feature: a `.brd` has nowhere to store it. When it is present, the build's contour tracer emits generated vectors for that floor ([tkr-authoring.md section 5](tkr-authoring.md#5-lowering--build-contract)); the generated vectors follow the scene's own ([order](#order-and-indices)). What `autoWallCaps` makes the tracer do is the tracer's definition, not this page's, and is flagged in [not decided here](#not-decided-here).
+`boundarySources` records what a floor's walls were traced from, so they can be traced again. It has two optional keys: `walkableTiles`, a non-empty list of **tile references** (native or legacy form, never `{}`), and `autoWallCaps`, a boolean (absent means false). It is a scene-only feature: a `.brd` has nowhere to store it.
+
+When `autoWallCaps` is false or absent, the build traces the union of the footprints of the floor's cells whose palette references match `walkableTiles`. An absent list matches no cells. Native references match by case-insensitive document identity and exact tile ID; legacy references match by case-insensitive text. Every native reference must resolve even when no cell uses it. Duplicate matching palette slots and references do not change the result. Empty slots, empty cells and excess cells never match.
+
+Each selected cell contributes the same rectangle or diamond as a generated solid footprint below. Shared, oppositely directed edges cancel. The remaining edges form directed contours with selected cells on their right. At a vertex where contours touch, take the sharpest right turn, keeping corner-touching regions separate. Remove intermediate collinear points. Order contours by their topmost, then leftmost vertex; at a tie order by the direction of their first edge clockwise from east. Start each contour at that vertex and use its directed edge order. Outer contours are open solid polylines with the first point repeated at the end; hole contours are closed solid polygons without a repeated endpoint. All have empty handles and zero attributes. They are on the source floor and follow the scene-owned vector slots; exceeding board vector or point limits is a build error.
+
+`autoWallCaps: true` is not specified sufficiently to infer under-region geometry. A build must report it as unsupported rather than invent or silently omit caps. No under polygons are generated for the false case.
 
 ## The tile palette
 
@@ -770,7 +776,7 @@ A scene reader takes text and returns, like the clip, tileset and asset-pack rea
 
 - **Scene rename and links.** A link and a script name a board by its `.brd` name. Renaming `a.tkrscn` renames the build target and so breaks every link by name; the rename tool ([#1806](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1806)) does not know these names. Whether a link may name a scene by path is open.
 - **Rename and the scene's references.** The locations are fixed on this page ([where references are](#where-references-are)); what is open is how the rename tool is taught nested paths, an implementation matter for #1806 and #1822.
-- **What `autoWallCaps` and the boundary tracer emit.** Solid native tile footprints are defined above; tracing a floor's boundary sources is separate.
+- **Automatic wall caps.** `autoWallCaps: true` remains unsupported because the scene contract does not define under-region geometry; with the value false or absent, the boundary tracing rules above apply.
 - **Walk-behind from a tileset.** `wallCapUnder` is stored only on `isoBlocks`, which a reference cannot name; whether a scene can reference an iso block, and so receive its walk-behind, is the tileset contract's to decide. Until it does, a scene gets walk-behind only from `under` vectors and pack assets.
 - **A native animated tile** and a native reference for a tile of a legacy `.tst`.
 - **What a board outside `Boards/` should do.** The contract only warns ([V21](#validation)); whether the editor refuses to create one is the editor's.
