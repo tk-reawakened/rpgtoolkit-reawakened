@@ -95,7 +95,9 @@ All pixel and grid values are exact integers. Coordinates and cell indices are z
 
 ### Tiles
 
-`tiles` is a non-empty ordered list. Each tile has a unique local `id`, non-empty `name`, `source` id naming one source in this document, `cell` pair, and `role` (`floor`, `wall`, `wall-cap`, or `decorative`). Optional `kitbash` is an ordered list of supported transformations; each operation has a closed shape defined by its operation name. Unknown operations or parameters are errors. The current draft illustrates `cutCorner` with `diagonal` (`north-west`, `north-east`, `south-east`, `south-west`) and `clearHalf` boolean; this contract does not imply additional operations.
+`tiles` is a non-empty ordered list. Each tile has a unique local `id`, non-empty `name`, `source` id naming one source in this document, `cell` pair, and `role` (`floor`, `wall`, `wall-cap`, or `decorative`). Optional `kitbash` is an ordered list of supported transformations; each operation has a closed shape defined by its operation name. Unknown operations or parameters are errors. `cutCorner` takes `diagonal` (`north-west`, `north-east`, `south-east`, `south-west`) and `clearHalf` boolean, with pixel behavior defined below.
+
+**Reawakened `cutCorner` rule (product choice, not a legacy-ordering claim).** Operations are applied in list order to the cropped cell before legacy pixel encoding. `clearHalf: false` leaves the cell unchanged. With `clearHalf: true`, clear the triangular half at the named corner to transparent; keep pixels whose centers lie exactly on the diagonal. For a cell of width `w` and height `h`, at zero-based pixel `(x, y)`, let `u = 2x + 1` and `v = 2y + 1`. Clear north-west when `u*h + v*w < 2*w*h`, north-east when `(2*w - u)*h + v*w < 2*w*h`, south-east when `(2*w - u)*h + (2*h - v)*w < 2*w*h`, and south-west when `u*h + (2*h - v)*w < 2*w*h`. Other pixels retain their source color and transparency. Multiple cuts therefore accumulate; no operation restores cleared pixels. This rule defines native recipe behavior, not a claim about a historical tool.
 
 `collision` is required on each tile and is either `walkable` or `solid`. It describes the generated tile's default placement behavior: walkable tiles contribute no solid collision; solid tiles contribute the tile-footprint solid boundary when lowered into a scene/legacy board. It is authoring metadata and does not override scene-local vector edits. `wall-cap` role does not itself imply under/walk-behind behavior; only `wallCapUnder` says that explicitly.
 
@@ -151,7 +153,7 @@ Every key shown in draft section 3 has a disposition here. Keys that remain have
 | tile `cell` | Retained as zero-based `[column, row]`. |
 | tile `role` | Retained with closed four-value vocabulary. |
 | tile `collision` | Retained, required; `walkable` or `solid`; lowered as default collision intent. |
-| tile `kitbash` | Retained as ordered, closed operation list; only the illustrated `cutCorner` shape is presently specified. |
+| tile `kitbash` | Retained as ordered, closed operation list; `cutCorner` geometry is defined above. |
 | `isoBlocks` | Retained optional; ordered list of block recipes. |
 | block `id`, `name`, `heightPixels`, `faces` | Retained; exact required members and bounds defined above. |
 | face `source`, `cell`, `tint` | Retained; source-cell reference and optional bounded channel offsets. |
