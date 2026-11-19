@@ -757,7 +757,7 @@ Jensen reviewed and approved this pre-release contract. These notes record the c
 
 ## Reader result shape
 
-**Proposed, for a future reference reader; this story writes none.** A scene reader takes text and returns, like the clip, tileset and asset-pack readers, either `{ok: true, scene, source}` (the parsed model and the original text, which in-place edits splice) or `{ok: false, problems}`. Each problem has `kind`, `path` (the location inside the document, for example `floors[0].tiles`), `message` and `line` (1-based). A reader reports every problem it finds, not the first, and never repairs. The [validation](#validation) rows with *reader* in the last column are the problems it reports; *project* and *build* rows need the project's files and are reported by the host, not by the reader.
+A scene reader takes text and returns, like the clip, tileset and asset-pack readers, either `{ok: true, scene, source}` (the parsed model and the original text, which in-place edits splice) or `{ok: false, problems}`. Each problem has `kind`, `path` (the location inside the document, for example `floors[0].tiles`), `message` and `line` (1-based). A reader reports every problem it finds, not the first, and never repairs. The [validation](#validation) rows with *reader* in the last column are the problems it reports; *project* and *build* rows need the project's files and are reported by the host, not by the reader.
 
 ## Not decided here
 

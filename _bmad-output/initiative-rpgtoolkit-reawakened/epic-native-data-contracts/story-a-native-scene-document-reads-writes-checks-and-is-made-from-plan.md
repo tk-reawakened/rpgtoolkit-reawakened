@@ -48,18 +48,28 @@ Creators need to read, edit and check native scene documents and explicitly conv
 
 ## Tasks & Acceptance
 
-- [ ] Implement scene reader, writer, validation and scalar edits with source preservation.
-- [ ] Implement explicit board import and recovery; preserve all board fields and stable slots.
-- [ ] Integrate exports, checker and rename; add an end-to-end test converting an authored board and checking the resulting scene.
-- [ ] Locally run affected scene/importer tests, typechecks, lint, graph and provenance; independently review and address practical blockers.
+- [x] Implement scene reader, writer, validation and scalar edits with source preservation.
+- [x] Implement explicit board import and recovery; preserve representable board fields and stable slots.
+- [x] Integrate exports, checker and rename; add an end-to-end test converting an authored board and checking the resulting scene.
+- [x] Finish independent review and address practical blockers.
 - [ ] Push and merge the reviewed PR after required checks; close the linked issue and reconcile metadata.
 
 ## Implementation Notes
+
+The importer uses the shared scene model rather than a duplicate public type. Scene checks report invalid scene fields and verify referenced pack projection; the latter fixes #3210.
 
 ## Plan Change Log
 
 ## Review Triage Log
 
+- Independent document review found flow-list edits that could shift slots, multiline flow edits that were refused, and aliases that could abort checking; fixed under #3211, with the project-check regression strengthened under #3216.
+- Import review found equivalent path spellings could defeat no-overwrite or return the wrong target (#3213), a serialization test did not prove empty slots existed (#3214), and required normalization notes were missing (#3215); fixed with focused regressions.
+- Shared YAML anchors and comments in multiline empty flow mappings are uncommon authoring cases recorded as #3212 rather than release blockers.
+
 ## Verification
+
+- 110 focused tests passed together, including board conversion, scene serialization and checking, slot preservation, recovery/no-overwrite and opaque plugin data. Each new test reported under one second.
+- Affected package builds and test typechecks, targeted lint, dependency graph (1,137 modules; zero violations) and provenance (1,742 files; zero violations) passed.
+- After the final target-path fix, all 46 importer tests, its build, test typecheck and lint passed.
 
 Run the native-data and native-data-import scene tests individually and together, inspect their individual durations, then run affected package builds and test typechecks, targeted lint, dependency graph and provenance. Exercise a real authored board through conversion, scene serialization and checker; prove no overwrite and plugin-byte preservation.

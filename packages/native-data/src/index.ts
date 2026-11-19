@@ -10,6 +10,7 @@ export {
   type ExtensionContractMismatchReport,
   type FoldCollisionReport,
   type NativeArtReport,
+  type NativeSceneReport,
   type PluginBlockReport,
   type ReportClass,
 } from "./check.ts";
@@ -71,6 +72,13 @@ export {
   type AssetPack, type AssetPackProblem, type AssetPackReadResult,
 } from "./asset-pack.ts";
 export { checkProjectArtAssets } from "./project-art-assets.ts";
+export {
+  SCENE_CONTRACT, SCENE_VERSION,
+  readScene, writeScene, checkScene, setSceneProperty, sceneFindings,
+  sceneNativeReferences, sceneCellCount, formatScenePath, formatSceneProblems,
+  type Scene, type SceneProblem, type SceneReadResult, type SceneWriteResult,
+  type SceneEditResult, type SceneEditValue, type ScenePath,
+} from "./scene.ts";
 export {
   applyPlanToDocuments,
   planRename,

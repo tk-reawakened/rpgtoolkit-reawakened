@@ -34,14 +34,18 @@ assets:
 `;
 const scene = `contract: scene
 version: 1.0.0-pre.1
+projection: 2d
+size: {width: 1, height: 1}
 tilePalette:
+  - {}
   - {tileset: tiles/village.tkrtile, tile: grass} # retain
 floors:
-  - boundarySources:
+  - id: ground
+    boundarySources:
       walkableTiles:
         - {tileset: tiles/village.tkrtile, tile: grass}
 placedPacks:
-  - {pack: packs/props.tkrpack, asset: rock}
+  - {instanceId: rock-1, pack: packs/props.tkrpack, asset: rock, floor: ground, x: 0, y: 0}
 pluginData:
   com.example.notes:
     version: 1.0.0
@@ -58,6 +62,13 @@ void test("checker resolves art references and reports an absent local asset", (
   const broken = inputs.map((input) => input.path.endsWith(".tkrscn") ? { ...input, text: input.text.replace("asset: rock", "asset: absent") } : input);
   const reports = checkDocuments(broken, config);
   ok(reports.some((report) => report.class === "native-art" && report.path === "scenes/village.tkrscn" && report.message.includes("absent")));
+});
+
+void test("checker reports a pack whose projection differs from the scene", () => {
+  const broken = inputs.map((input) => input.path.endsWith(".tkrpack")
+    ? { ...input, text: input.text.replace("projection: 2d", "projection: iso-rotated") }
+    : input);
+  ok(checkDocuments(broken, config).some((report) => report.class === "native-scene" && report.message.includes("projection")));
 });
 
 void test("rename updates nested art references without touching plugin payload", () => {
