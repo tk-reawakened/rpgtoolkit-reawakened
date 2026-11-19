@@ -51,10 +51,10 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `docs/design/native-graphics-authoring.md` — define and illustrate ownership, terrain painting, animated sheets, tile identities and tool boundaries.
-- [ ] `docs/spec/formats/native-scene.md` and `docs/spec/formats/native-tileset.md` — propose precise amendments and clean cutover from existing contracts, without claiming unimplemented code already supports them.
-- [ ] `docs/adr/` and `docs/spec/formats/` — specify extension, version, references, validation, preservation and compatibility for individual tiles and tools, plus changes to the tileset registry.
-- [ ] Existing story plans and issue records — map work to existing owners and record any needed cutover without duplicating stories.
+- [x] `docs/design/terrain-scene-formats.md` — record the owner-approved design direction and the clean pre-release cutover.
+- [x] `docs/design/terrain-scene-contract-proposal.md` and `docs/design/tile-tool-contract-proposal.md` — propose the wire shapes, ownership, preservation and build refusal rules with worked examples.
+- [x] Existing issues #1846, #2320, #1733 and #2326 — link the design to its owners; track the animated playback defect in #3244.
+- [ ] `docs/adr/` and `docs/spec/formats/` — adopt the proposal through the format owners after resolving the recorded proof gates; update live specifications, schemas and registry together in the cutover.
 
 **Acceptance Criteria:**
 - Given an animated sheet and a painted pond with a manual bank, when the proposed build is applied, then the source, shape, animation and override remain independently editable and the runtime output is reproducible.
@@ -63,6 +63,8 @@ context: []
 - Given native formats and plugin rules, when the proposal is reviewed, then its conflicts, unresolved choices and required implementation cutover are visible.
 
 ## Implementation Notes
+
+The owner reviewed the draft contracts and agreed to continue from them. This approves the design baseline, not a runtime or reader conformance claim. A Bun probe using the repository's 5 fps `water.tan` showed that composing the same hydrated board at ticks 0, 11, 12, 24 and 36 always drew tile 2; rehydrating at each tick selected 2, 2, 3, 4 and 2. Issue #3244 owns the runtime proof and fix. Managed artwork binding, output-slot stability and isometric lowering remain with the linked format owners.
 
 ## Plan Change Log
 

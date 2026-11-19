@@ -1,6 +1,6 @@
 # Painting a world: scene, tile, tileset and tool formats
 
-**Status: design proposal, not an implemented or approved wire contract.** A creator paints a scene with reusable tools and tiles. The scene retains what was painted, including manual details; a build produces the board and graphics the game plays. This proposal records the owner's direction and the decisions needed before changing the pre-release contracts and their readers. It does not select an artwork codec or promise compatibility with other editors' formats.
+**Status: owner-approved design direction; proposed wire contracts.** A creator paints a scene with reusable tools and tiles. The scene retains what was painted, including manual details; a build produces the board and graphics the game plays. The owner reviewed this design and agreed to continue from it. The current pre-release specifications and readers still apply until the coordinated cutover. This design does not select an artwork codec or promise compatibility with other editors' formats.
 
 ## Four connected documents
 
@@ -12,6 +12,8 @@
 | Tool | `.tkrtol` | A reusable tool definition and its declared configuration | Executable plugin code or the scene's authored content |
 
 The extensions for tiles and tools are owner direction, not registered formats yet. The existing `.tkrtile` registry and implementation mean a tileset. Replace that pre-release name with `.tkrtst` in a coordinated cutover of the specification, registry, readers, writers, checks, references, packaging and repository fixtures. Do not retain an alias or build a migration tool for the old definition. This is not evidence that all private projects have been inventoried. Do not alter private files without an explicit operation.
+
+The [scene proposal](terrain-scene-contract-proposal.md) describes saved coverage, overrides and cell precedence. The [tile, tileset and tool proposal](tile-tool-contract-proposal.md) describes tile references, terrain rules and declarative tools. These are the baseline for the cutover, not reader conformance claims. Exact managed artwork references, stable output slots, isometric behavior and animated playback still require their own evidence.
 
 A tile need not imply an image file per tile: several `.tkrtle` definitions may refer to regions in one source sheet. Conversely, one tile may have its own artwork source. An editable artwork source owns layers, frames and pixels; a generated image is not another editable authority. The detailed source contract and interchange rules remain with [story 13.21](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2320).
 
@@ -59,6 +61,8 @@ Tool identity, capability and version compatibility, the schema for tool definit
 A build resolves scene, terrain recipes, tile definitions, artwork and declared rule versions. It reports the exact input state and output freshness, and does not overwrite authored sources. The current accepted contract derives a paired `.brd` from a scene; opening a legacy board without a scene remains supported and conversion remains explicit. A save and a build are separate outcomes, and a multi-file write is not assumed atomic.
 
 The design needs worked tests for: a pond with inner and outer corners; reshaping while preserving an override; connected animated water and independent animation; missing patterns and missing tools; a tile moved in its sheet; deterministic variations; a failed build and unchanged source; and exact legacy output mapping. Include isometric and compatibility cases rather than promising that the pond example proves them.
+
+The [animated board playback check (#3244)](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3244) confirmed the gap at the hydration-to-render boundary: with the authored 5 fps water fixture, composing one hydrated board at ticks 0, 11, 12, 24 and 36 always drew tile 2. Hydrating again at each tick selected tiles 2, 2, 3, 4 and 2. A `.tan` that parses and names the right frames is not evidence that those frames advance on an already-loaded board. The proposal still requires a full playback test before enabling animated lowering.
 
 ## References
 
