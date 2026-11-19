@@ -172,6 +172,74 @@ source/output relationship discoverable rather than infer it from matching filen
    cautious conflict handling to other generated files as a recommendation, not a
    claim that their watch protocol already exists.
 
+## Layered artwork codec investigation — 2026-11-19
+
+**Recommendation, not a selected format or admitted dependency:** retain
+[`aseprite-io` 0.1.0](https://registry.npmjs.org/aseprite-io/0.1.0) as an
+editor-side `.aseprite` codec candidate, but **do not ship it for editing or untrusted
+input until the defects below are fixed and verified**. Creators could continue to use
+external tools while the shared editor supplies game-specific context. The package
+does not decide how recipes, stable regions, tile semantics, runtime output or
+recovery are represented. Story [13.21 / #2320](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2320)
+still owns that contract and its approval; [13.22 / #2321](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2321)
+still owns the implementation. This investigation does not register an extension
+or change the existing image policy.
+
+The exact published package declares MIT and records its Rust predecessor and MIT
+attribution; its installed runtime dependency `fflate@0.8.3` declares MIT. A fresh
+`npm install --save-exact aseprite-io@0.1.0` resolved those two packages, and
+`npm audit signatures` verified two registry signatures. An `npm audit --omit=dev`
+found no advisories at the time of the check. This is evidence, not a complete
+provenance or security clearance; admission still requires the G6 production
+inventory and shipped notices.
+
+Further adversarial checks found three blockers in 0.1.0:
+
+- **Indexed palette edits can disappear:** changing a palette entry in the
+  `4f-index-4x4.aseprite` fixture and saving/reopening returned its original
+  colour. Tracked in [aseprite-io #9](https://github.com/aljopro/aseprite-io/issues/9).
+- **Unbounded decompression for zero-sized cels:** a compressed stream of 8,164
+  bytes expanded to 8 MiB despite declared zero dimensions. Other declared
+  dimensions can also drive large allocations. Tracked in
+  [aseprite-io #10](https://github.com/aljopro/aseprite-io/issues/10).
+  Input size alone is not a sufficient decoded-memory limit.
+- **Pixel edits can disappear on checksum collisions:** editing a one-pixel RGBA cel
+  from `[10,10,10,10]` to `[11,8,11,10]` was lost after saving because both byte
+  sequences share an Adler-32 checksum and the writer reused the original stream.
+  Tracked in [aseprite-io #11](https://github.com/aljopro/aseprite-io/issues/11).
+
+Registry signatures establish signed package metadata, not a verified build
+attestation. A registry attestation lookup was unsuccessful; do not assume build
+provenance from the publish configuration. Assess the exact replacement release
+and its notices again after fixes.
+
+In isolated tests of the published package, 19 source-repository sample files
+round-tripped byte-for-byte without edits. A layered, 12-frame sample was then edited:
+one layer was renamed, the first duration set to 237 ms and one pixel changed;
+another cel and the existing animation tags survived. A synthetic unknown chunk
+also survived adding a layer. These examples do not prove every feature or all
+possible edited files are lossless.
+
+The edited sample opened in Aseprite 1.3.18.6 trial; its command-line listing returned
+the renamed layer, two other layers and all three animation tags, and its exported
+metadata showed 12 frames and the edited duration. The trial cannot save. Separately,
+LibreSprite 1.3 opened and saved the sample, and the package read back the renamed
+layer, duration and frame count. This is not an Aseprite save-round-trip proof.
+
+A disposable adapter used the real shared `BinaryDocument` with the project's
+in-memory platform service and the published package to open a sample, rename a
+layer, undo, redo, save and reopen it. It stored encoded bytes as the model and
+reparsed for each edit; it is not an implementation or a performance design. No
+actual editor view, web host, VS Code host, external-change handling or failed-write
+path was exercised by that experiment. A separate headless Edge package-only probe
+created and reopened a two-frame document with a linked cel, layer, tag and pixel;
+it did not mount the Reawakened editor.
+
+Before production use, define safe refusal/preservation for unsupported content,
+bound resource use for untrusted files, verify actual shared-host history, conflict
+and recovery behavior, and test representative edits in an external editor. Keep
+authored sources intact and do not silently flatten layers or alter animation.
+
 ## Decisions and proof needed before cutover
 
 1. **Native tile IDs versus clip frames.** Scenes use a path plus local tile ID, while
