@@ -125,7 +125,7 @@ tracker_id = "#1357"
 slug = "epic-editor-foundation"
 title = "Editor foundation: editor-ui, platform-services and two hosts"
 covers = ["CAP-15", "CAP-18"]
-after = [{ epic = 2, needs = "format readers" }, { epic = 9, needs = "runner-web for preview and test-run" }, { epic = 10, needs = "the program editor's language tooling" }, { epic = 21, needs = "existing authored game-file audio settings, including default SoundFont (21.2)" }]
+after = [{ epic = 2, needs = "format readers" }, { epic = 9, needs = "runner-web for preview and test-run" }, { epic = 10, needs = "the program editor's language tooling" }, { epic = 21, needs = "existing authored game-file audio settings, including default SoundFont (21.2)" }, { epic = 27, needs = "project and native presentation contract 27.16 for the late metadata follow-up 11.25 only; early foundation work remains independent" }]
 
 [[epic]]
 id = 27
@@ -133,7 +133,7 @@ tracker_id = "#1802"
 slug = "epic-native-data-contracts"
 title = "Native data contracts: versioned, text-first documents, proved on the animation clip"
 covers = ["CAP-20"]
-after = [{ epic = 2, needs = "the legacy readers and format registry that the 1:1 importer oracle uses, for 27.4, and the board reader and writer (2.5), for 27.14" }, { epic = 11, needs = "shared editor documents and platform-services, for 27.6 only; the earlier stories are independent" }]
+after = [{ epic = 2, needs = "the legacy readers and format registry that the 1:1 importer oracle uses, for 27.4, and the board reader and writer (2.5), for 27.14" }, { epic = 11, needs = "shared documents and platform-services for 27.6; metadata lifecycle, persistence, grouping, presentation and rename 11.26–11.29 for the later connected proof 27.17" }, { epic = 12, needs = "scene lowering, dual save/import and tile/pack collision providers 12.15–12.17 for the late connected project proof 27.17 only" }]
 
 [[epic]]
 id = 12

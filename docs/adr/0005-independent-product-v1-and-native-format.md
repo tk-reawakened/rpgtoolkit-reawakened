@@ -56,3 +56,11 @@ Owner direction of 2026-11-11 ([#1839](https://github.com/tk-reawakened/rpgtoolk
 1. Point 1 of the first amendment is unchanged: the TK3 formats stay first-class editable. A `.brd` is opened and saved directly.
 2. Point 2 gains one exception. The three authoring formats of [ADR 0019](0019-tkr-authoring-formats.md) (`.tkrscn`, `.tkrtile`, `.tkrpack`) are **in scope for the first release**, for the scene editor. Every other native contract of epic 27 stays deferred.
 3. This is decision 3 applied: a native format where the legacy format limits a feature. A board cannot store an object's identity, what a placed asset was, or collision that belongs to a tile or an asset.
+
+## Direction (2026-11-18): design a connected native authoring project
+
+The owner confirmed that compatibility knowledge should support Reawakened's own authoring formats, with explicit import and generated runtime assets, and asked for the formats to be designed together starting with the game/project root. The [connected format design](../design/native-authoring-format-set.md) records that direction and separates it from its recommended field shapes.
+
+Native documents are to own their friendly names and short descriptions; contained scene elements own theirs in the scene. Project organization belongs to the project. Programs and standalone media can carry their presentation information in the project rather than changing their source formats. Plugin contributions remain in the document they describe.
+
+This authorizes design of the broader family; it does **not** change the first-release allocation in the two amendments above or retire direct legacy editing. Each new contract still needs its field accounting, schema, import/build mapping and proof before a cutover. `.tkrproj` is the recommended project extension, not a registered format yet. [27.15 / #3233](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3233), [27.16 / #3234](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3234) and [27.17 / #3235](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3235) own the design, contract and connected proof respectively.

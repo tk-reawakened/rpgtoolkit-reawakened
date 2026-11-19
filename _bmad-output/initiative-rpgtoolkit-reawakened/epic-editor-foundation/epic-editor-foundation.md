@@ -119,7 +119,7 @@ Jensen requested optional creator-defined groups within each Game-drawer asset c
 
 | Capability / consumer | Owner | Delivery |
 | --- | --- | --- |
-| CAP-15/CAP-18 metadata contract | 11.25, after 11.4 and 11.22 | Docs-first owner rulings on storage, identity, move/rename/delete/external change, fallback precedence and group questions. No code. |
+| CAP-15/CAP-18 metadata contract | 11.25, after 11.4, 11.22 and 27.16 | Consume native project/presentation ownership; rule identity, move/rename/delete/external change, fallback precedence and group questions. No code. |
 | CAP-15/CAP-18 shared persistence | 11.26, after 11.25 and 11.3 | Implement only the approved contract through platform-services in both hosts, with no user interface. |
 | T-02 Game-drawer groups | 11.27, after 11.4, 11.23 and 11.26 | Optional per-category one-home groups; view organization only, files never move. |
 | T-01/T-02 names and descriptions | 11.28, after 11.4, 11.23 and 11.26 | Friendly names with filename fallback, a place to edit them and descriptions discoverable by hover, keyboard focus, screen reader and touch. Reusable by the board epic. |
@@ -127,4 +127,4 @@ Jensen requested optional creator-defined groups within each Game-drawer asset c
 
 These follow-on foundation stories are published as 11.25–11.29 (#3183–#3187). They do not reopen delivered 11.13, 11.22 or the in-progress 11.23, and do not enlarge the original baseline proof.
 
-Still open, to be ruled by 11.25 and not decided here: whether existing metadata can carry this or a new project file is justified; how assets and contained elements keep stable identity across moves, renames, deletion and external change, so an ambiguous match never silently attaches an annotation to the wrong object; the exact name fallback precedence; group nesting; and the effect of deleting a group. 11.26 to 11.29 wait for those rulings and invent none. Cross-category labels remain a possible later secondary view, not committed work. Long-form design notes are outside the short descriptions here.
+Direction amended 2026-11-18: [the native format set](../../../docs/design/native-authoring-format-set.md) puts presentation in its owning native document, with scene-local elements in the scene and project-owned grouping plus external program/media presentation. 27.16/#3234 specifies the project and presentation fields; 11.25 consumes that contract and rules lifecycle, exact fallback and group behavior. Native presentation edits may change their owning YAML, never gameplay names/references; legacy/program/media files gain no editor-only fields. No permanent duplicate sidecar is built. 11.26–11.29 wait for these rules. Cross-category labels remain a possible later secondary view, and long-form design notes remain outside short descriptions.
