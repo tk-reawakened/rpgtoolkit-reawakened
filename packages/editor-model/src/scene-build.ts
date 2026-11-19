@@ -1,11 +1,14 @@
 import { writeBoard, type Board } from "@tk-reawakened/core";
-import { checkScene, documentId, sceneCellCount, type AssetPack, type Scene, type SceneTileReference, type Tileset } from "@tk-reawakened/native-data";
+import { checkScene, documentId, sceneCellCount, type AssetPack, type Scene, type Tileset } from "@tk-reawakened/native-data";
 import { traceSceneBoundaries } from "./scene-boundary-tracing.ts";
 import { lowerSceneBoard } from "./scene-board-lowering.ts";
 import { lowerScenePackImages } from "./scene-pack-images.ts";
 import { lowerScenePackVectors } from "./scene-pack-vectors.ts";
 import { generateSceneTileCollision, type SceneTileCollisionFlag } from "./scene-tile-collision.ts";
 import { lowerSceneTileset, type SceneTilesetBuildResult } from "./scene-tileset-build.ts";
+
+/** One entry of a floor's boundary sources; the package does not export the name. */
+type SceneTileReference = NonNullable<NonNullable<Scene["floors"][number]["boundarySources"]>["walkableTiles"]>[number];
 
 function boundaryPaletteSlots(scene: Scene, floorIndex: number, builtTilesets: ReadonlyMap<string, SceneTilesetBuildResult>): readonly number[] {
   const sources = scene.floors[floorIndex]?.boundarySources?.walkableTiles ?? [];
@@ -125,6 +128,7 @@ export async function buildScene(inputs: SceneBuildInputs): Promise<SceneBuildRe
       else if (!built.tiles.some((tile) => tile.id === reference.tile)) problems.push({ path: `floors[${floorIndex}].boundarySources.walkableTiles[${sourceIndex}].tile`, message: `Cannot resolve tile ${reference.tile}.` });
     }
   }
+  if (problems.length > 0) return { ok: false, problems };
   const lower = lowerSceneBoard(scene, palette);
   if (!lower.ok) return lower;
   const packs = new Map<string, AssetPack>();

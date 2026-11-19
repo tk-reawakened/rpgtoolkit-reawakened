@@ -71,12 +71,40 @@ test("crops using source margins and grid gaps and applies color-key transparenc
   deepEqual(rgbaAt(expanded.value, 1, 0), [0, 1, 2, 0]);
 });
 
-test("reports unsupported recipe representations and out-of-bounds cells", async () => {
+test("applies cutCorner masks to cropped pixels before encoding", async () => {
   const png = sheet(32, 32, () => [20, 30, 40, 255]);
-  const unsupported = document({ tiles: [{ id: "first", name: "First", source: "sheet", cell: [0, 0], role: "floor", collision: "walkable", kitbash: [{ op: "cutCorner", diagonal: "north-west", clearHalf: true }] }] });
-  const recipe = await lowerSceneTileset(unsupported, async () => png);
-  ok(!recipe.ok);
-  ok(recipe.problems.some(({ path, message }) => path === "tiles[0].kitbash" && message.includes("not specified")));
+  const diagonals = ["north-west", "north-east", "south-east", "south-west"] as const;
+  const tiles = diagonals.map((diagonal, index) => ({
+    id: `corner-${index}`, name: `Corner ${index}`, source: "sheet", cell: [0, 0] as const,
+    role: "decorative" as const, collision: "walkable" as const,
+    kitbash: [{ op: "cutCorner" as const, diagonal, clearHalf: true }],
+  }));
+  const result = await lowerSceneTileset(document({ tiles }), async () => png);
+  ok(result.ok, result.ok ? "" : result.problems.map((problem) => problem.message).join("; "));
+  const parsed = readTileset(result.bytes);
+  ok(parsed.ok);
+  const images = parsed.value.tiles.map((_, index) => expandTileToRgba(parsed.value, index));
+  const points = [
+    [[0, 0], [31, 31]],
+    [[31, 0], [0, 31]],
+    [[31, 31], [0, 0]],
+    [[0, 31], [31, 0]],
+  ] as const;
+  for (const [index, [[cutX, cutY], [keepX, keepY]]] of points.entries()) {
+    const image = images[index]!;
+    ok(image.ok);
+    deepEqual(rgbaAt(image.value, cutX, cutY), [0, 1, 2, 0]);
+    deepEqual(rgbaAt(image.value, keepX, keepY), [20, 30, 40, 255]);
+    const [diagonalX, diagonalY] = index % 2 === 0 ? [15, 16] : [15, 15];
+    deepEqual(rgbaAt(image.value, diagonalX!, diagonalY!), [20, 30, 40, 255]);
+  }
+  const nw = images[0]!;
+  ok(nw.ok);
+  deepEqual(rgbaAt(nw.value, 15, 15), [0, 1, 2, 0]);
+});
+
+test("reports unsupported block recipes and out-of-bounds cells", async () => {
+  const png = sheet(32, 32, () => [20, 30, 40, 255]);
   const outside = document({ tiles: [{ id: "first", name: "First", source: "sheet", cell: [1, 0], role: "floor", collision: "walkable" }] });
   const bounds = await lowerSceneTileset(outside, async () => png);
   ok(!bounds.ok);

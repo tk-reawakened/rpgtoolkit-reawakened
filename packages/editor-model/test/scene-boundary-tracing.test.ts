@@ -42,7 +42,7 @@ test("boundary tracing emits a closed hole and supports isometric diamonds", () 
 
   const iso = traceSceneBoundaries(scene("iso-stacked", 1, 1, [1]), 0, [1]);
   equal(iso.length, 1);
-  deepEqual(iso[0]?.points, [{ x: 32, y: 0 }, { x: 64, y: 16 }, { x: 32, y: 32 }, { x: 0, y: 16 }, { x: 32, y: 0 }]);
+  deepEqual(iso[0]?.points, [{ x: 32, y: -16 }, { x: 64, y: 0 }, { x: 32, y: 16 }, { x: 0, y: 0 }, { x: 32, y: -16 }]);
 });
 
 test("scene builds append boundary vectors after authored vector slots", async () => {

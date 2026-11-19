@@ -6,6 +6,33 @@ export type SceneTilesetBuildResult =
   | { readonly ok: true; readonly target: string; readonly name: string; readonly bytes: Uint8Array; readonly tiles: readonly { readonly id: string; readonly name: string; readonly index: number; readonly role: Tileset["tiles"][number]["role"]; readonly collision: Tileset["tiles"][number]["collision"] }[]; readonly notes: readonly { readonly path: string; readonly message: string }[] }
   | { readonly ok: false; readonly problems: readonly { readonly path: string; readonly message: string }[] };
 
+/**
+ * Whether a cropped-cell pixel falls in a half cleared by the tile's ordered `cutCorner` operations.
+ * Geometry is the linear half-plane test from docs/spec/formats/native-tileset.md; pixels whose
+ * centers sit on the diagonal are kept.
+ */
+function isClearedByKitbash(tile: Tileset["tiles"][number], x: number, y: number, width: number, height: number): boolean {
+  const u = 2 * x + 1, v = 2 * y + 1, limit = 2 * width * height;
+  for (const operation of tile.kitbash ?? []) {
+    if (!operation.clearHalf) continue;
+    switch (operation.diagonal) {
+      case "north-west":
+        if (u * height + v * width < limit) return true;
+        break;
+      case "north-east":
+        if ((2 * width - u) * height + v * width < limit) return true;
+        break;
+      case "south-east":
+        if ((2 * width - u) * height + (2 * height - v) * width < limit) return true;
+        break;
+      case "south-west":
+        if (u * height + (2 * height - v) * width < limit) return true;
+        break;
+    }
+  }
+  return false;
+}
+
 /** Build the image portion of a native tileset; placement metadata is returned for scene lowering. */
 export async function lowerSceneTileset(
   document: Tileset,
@@ -19,9 +46,6 @@ export async function lowerSceneTileset(
   if (document.pluginData !== undefined) notes.push({ path: "pluginData", message: "Opaque plugin data remains in the native tileset source; it is not encoded in legacy .tst." });
   if (document.isoBlocks !== undefined && document.isoBlocks.length > 0) problems.push({ path: "isoBlocks", message: "Isometric block composition and output mapping are not specified." });
   if (document.autotiles !== undefined && document.autotiles.length > 0) problems.push({ path: "autotiles", message: "Autotile composition and canonical output mapping are not specified." });
-  document.tiles.forEach((tile, i) => {
-    if (tile.kitbash !== undefined && tile.kitbash.length > 0) problems.push({ path: `tiles[${i}].kitbash`, message: "Kitbash transformation geometry is not specified." });
-  });
   const detail = tilesetDetail(document.outputBinding.detail);
   if (detail === undefined) problems.push({ path: "outputBinding.detail", message: `Unsupported tileset detail ${document.outputBinding.detail}.` });
   else if (detail.isometric) problems.push({ path: "outputBinding.detail", message: "Isometric detail 150 cannot be lowered to the specified .tst output." });
@@ -86,7 +110,8 @@ export async function lowerSceneTileset(
       const to = (row * size.width + col) * 4;
       const r = image.rgba[from]!, g = image.rgba[from + 1]!, b = image.rgba[from + 2]!;
       const key = source.transparent.mode === "colorKey" && source.transparent.color[0] === r && source.transparent.color[1] === g && source.transparent.color[2] === b;
-      const alpha = key ? 0 : image.rgba[from + 3]!;
+      const cleared = isClearedByKitbash(tile, col, row, size.width, size.height);
+      const alpha = key || cleared ? 0 : image.rgba[from + 3]!;
       if (alpha === 0) {
         pixels[to] = 0; pixels[to + 1] = detail.bytesPerPixel === 3 ? 1 : 0; pixels[to + 2] = detail.bytesPerPixel === 3 ? 2 : 0;
       } else {
