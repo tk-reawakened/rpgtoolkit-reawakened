@@ -109,13 +109,13 @@ void test("a case-only rename, Guard.tkract to guard.tkract, works from the comm
 });
 
 void test("a further reference field is kept up to date when it is named with --ref-field", () => {
-  const scene = "contract: scene\nversion: 1.0.0\nboss: actors/guard.tkract # the boss\ncast:\n  - actors/guard.tkract\n";
-  withProject({ ...PROJECT, "scenes/town.tkrscn": scene }, (root) => {
-    const args = [...FIELD_ARGS, "--ext", ".tkrscn", "--ref-field", "boss", "--ref-field", "cast"];
+  const document = "contract: actor-weather\nversion: 1.0.0\nboss: actors/guard.tkract # the boss\ncast:\n  - actors/guard.tkract\n";
+  withProject({ ...PROJECT, "scenes/town.tkrwth": document }, (root) => {
+    const args = [...FIELD_ARGS, "--ref-field", "boss", "--ref-field", "cast"];
     const result = runCli([...args, root, "actors/guard.tkract=actors/knight.tkract"]);
     equal(result.exitCode, 0, result.stderr);
-    equal(read(root, "scenes/town.tkrscn"), scene.replaceAll("actors/guard.tkract", "actors/knight.tkract"));
-    deepEqual(check([...CHECK_ARGS, "--ext", ".tkrscn", root]), { exitCode: 0, stdout: "5 documents checked, 0 problems found\n", stderr: "" });
+    equal(read(root, "scenes/town.tkrwth"), document.replaceAll("actors/guard.tkract", "actors/knight.tkract"));
+    deepEqual(check([...CHECK_ARGS, root]), { exitCode: 0, stdout: "5 documents checked, 0 problems found\n", stderr: "" });
   });
 });
 
