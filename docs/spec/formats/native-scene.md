@@ -1,6 +1,6 @@
 # Native scene contract (`.tkrscn`)
 
-**Status: proposed, pending owner review.** This is a **Reawakened rule**: it describes TK Reawakened's own native scene document, not any Toolkit 3.1 behaviour. It is the scene contract of story 27.8 ([#1809](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1809)), written from section 2 of the draft [tkr-authoring.md](tkr-authoring.md#2-scene-document-tkrscn) so that there is one scene contract ([ADR 0019](../../adr/0019-tkr-authoring-formats.md), amendment of 2026-11-11, point 3), under the common rules of [native-contracts.md](native-contracts.md). **Jensen's approval of this page is the acceptance criterion of #1809 and has not been given.** Every choice below is a recommendation made so the page can be reviewed end to end; none is a recorded owner decision, and the choices that need his explicit answer are collected in [owner review](#owner-review-consequential-choices). The contract is **pre-release** (`1.0.0-pre.N`): it is free to change, and nothing here is a 1.0 promise ([versions](native-contracts.md#versions)).
+**Status: approved pre-release contract.** Jensen confirmed review and approval of this page after merging [#3205](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3205). This is a **Reawakened rule** for the native scene document, not a Toolkit 3.1 behaviour. It is the scene contract of story 27.8 ([#1809](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1809)), written from section 2 of [tkr-authoring.md](tkr-authoring.md#2-scene-document-tkrscn) under the common rules of [native-contracts.md](native-contracts.md) and the amendment to [ADR 0019](../../adr/0019-tkr-authoring-formats.md). The contract remains **pre-release** (`1.0.0-pre.N`), not a 1.0 promise.
 
 ## In plain words
 
@@ -380,9 +380,9 @@ These are the scene features a `.brd` has no field for. On a `.brd` with no scen
 
 ## Plugin data and placements
 
-**Proposed decision (the contract's answer to the question [native-contracts.md](native-contracts.md#limits-of-this-version) and [ADR 0024](../../adr/0024-plugin-data-contributions.md) leave to this story).**
+This is the scene contract's answer to the question left to this story by [native-contracts.md](native-contracts.md#limits-of-this-version) and [ADR 0024](../../adr/0024-plugin-data-contributions.md).
 
-1. **No placement carries a nested `pluginData` door in the first cut.** A scene has exactly one door, the top-level `pluginData`; a `pluginData` key inside a floor, a record or a placement is an unknown key and an error. This is the proposal because the shared contract's blocks are self-contained and sit at one place, and because a door on every record would give the core thousands of places to check and preserve. It keeps the first contract small and can be widened by a MINOR revision before 1.0.0 without breaking a document.
+1. **No placement carries a nested `pluginData` door in the first cut.** A scene has exactly one door, the top-level `pluginData`; a `pluginData` key inside a floor, a record or a placement is an unknown key and an error. Shared blocks are self-contained and stay in one place. A future pre-release revision may widen this without breaking an existing document.
 2. **A plugin that needs data for one placement or record** keeps it in its own top-level block, keyed by the record's local `id` (or `instanceId`), so it does not depend on a slot index that an edit can shift. That is why every record has an optional `id`. The sample shows `com.example.weather` doing it. Which `id`s a plugin may use, and what happens to its data when the record is renamed, are the plugin's and the rename tool's concern ([open items](#not-decided-here)).
 3. **Which plugin ids own which blocks.** The scene contract **reserves no plugin id** and no block is owned by the core. A block belongs to the plugin whose id is its key, judged by the schema for that (plugin id, `scene`) pair ([which contract a block is for](native-contracts.md#which-contract-a-block-is-for)), preserved byte for byte when the plugin is absent. A first-party plugin follows the same rule as a third-party one. A plugin id is never one of the scene's core field names or reserved keys: a plugin id of `size` or `floors` would be read as a field, not a block, and is refused by the shared id rule.
 4. **An import writes no block**, because a `.brd` has none. A build does not carry blocks into the board ([U9](#what-a-brd-cannot-hold)).
@@ -742,9 +742,9 @@ The draft example of [tkr-authoring.md section 2](tkr-authoring.md#2-scene-docum
 
 ## Owner review: consequential choices
 
-These are recommendations, not decisions. **Jensen's explicit answer is needed before this page is treated as approved**, and until then #1809 is not done.
+Jensen reviewed and approved this pre-release contract. These notes record the choices and alternatives presented for that review; the remaining items under [Not decided here](#not-decided-here) are not settled by that approval.
 
-1. **Placements refer to legacy item files in the first cut** (the [#1809 note](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1809) asks him to confirm this when he approves the page). The actor reference is added as a pre-release revision when 27.7 is approved.
+1. **Placements refer to legacy item files in the first cut** ([#1809 note](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1809)). The actor reference is added as a pre-release revision when 27.7 is approved.
 2. **One board-wide list per record kind, with a `floor` key, not lists nested under each floor.** Recommended because slot order, which scripts see, crosses floors. Alternative: nest under floors as the draft did and add a global order key, which duplicates what list order already says.
 3. **The tile palette keeps the board's LUT slot for slot, and cells name a palette index.** Recommended because it keeps legacy indices stable and the cells compact. Alternative: cells carry the tile reference inline (the draft's `runs: [[count, "ref"]]`), which is easier to read and loses the stable indices unless a second table keeps them.
 4. **`legacy` is a closed core field**, not `metadata` or a plugin block ([legacy-only data](#legacy-only-data)). Alternative: put the reserved values in `metadata`, which no code reads, and accept that a build cannot restore them.
@@ -757,7 +757,7 @@ These are recommendations, not decisions. **Jensen's explicit answer is needed b
 
 ## Reader result shape
 
-**Proposed, for a future reference reader; this story writes none.** A scene reader takes text and returns, like the clip, tileset and asset-pack readers, either `{ok: true, scene, source}` (the parsed model and the original text, which in-place edits splice) or `{ok: false, problems}`. Each problem has `kind`, `path` (the location inside the document, for example `floors[0].tiles`), `message` and `line` (1-based). A reader reports every problem it finds, not the first, and never repairs. The [validation](#validation) rows with *reader* in the last column are the problems it reports; *project* and *build* rows need the project's files and are reported by the host, not by the reader.
+A scene reader takes text and returns, like the clip, tileset and asset-pack readers, either `{ok: true, scene, source}` (the parsed model and the original text, which in-place edits splice) or `{ok: false, problems}`. Each problem has `kind`, `path` (the location inside the document, for example `floors[0].tiles`), `message` and `line` (1-based). A reader reports every problem it finds, not the first, and never repairs. The [validation](#validation) rows with *reader* in the last column are the problems it reports; *project* and *build* rows need the project's files and are reported by the host, not by the reader.
 
 ## Not decided here
 

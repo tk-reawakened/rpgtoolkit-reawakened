@@ -3,7 +3,7 @@ title: 'Specify native scenes and preserve legacy board data'
 type: 'feature'
 ticket: 8
 created: '2026-11-18'
-status: 'in-review'
+status: 'done'
 baseline_revision: '65611327311a59aa5cb9da0c52231319b51134cc'
 route: 'full'
 route_source: 'auto'
@@ -62,4 +62,5 @@ The proposed specification accounts for all 75 numbered board fields, including 
 
 
 - Scene registry and checker tests: 17 passed; targeted lint passed. Provenance scanned 1,730 files with zero violations. Ticket-store validation passed. All 75 numbered board rows are present, local links resolve, and the corrected sample parses as YAML.
+- Jensen confirmed review and approval after merging #3205. Issue #1809 was closed on that evidence; earlier pending-review notes describe the original draft.
 Run the native registry test, provenance scan and ticket-store validator. Check every board field number 1–75 is accounted for and resolve all relative links. Review the draft against ADR 0019 and the current scene/pack/tileset proposals.

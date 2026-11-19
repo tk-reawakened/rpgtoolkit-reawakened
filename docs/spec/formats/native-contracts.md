@@ -118,7 +118,7 @@ An extension that is registered below (each one starts with `tkr`) marks a nativ
 | `.tkrpack` | `asset-pack` | [native-asset-pack.md](native-asset-pack.md) |
 | `.tkrscn` | `scene` | [native-scene.md](native-scene.md) |
 
-The tileset and scene contracts are drafted pending owner approval; Jensen reviewed and merged the asset-pack contract. The animation clip is also registered. The registry grows with each new contract: when a contract is written, its extension is chosen by rule 1 and its row is added here and in `packages/native-data` in the same change. No extension is held for a contract that does not exist yet. A test fails when the code's registry and this table differ.
+The tileset contract is drafted pending owner approval; Jensen reviewed and merged the asset-pack and scene contracts. The animation clip is also registered. The registry grows with each new contract: when a contract is written, its extension is chosen by rule 1 and its row is added here and in `packages/native-data` in the same change. No extension is held for a contract that does not exist yet. A test fails when the code's registry and this table differ.
 
 A plugin block is not a document and has no extension, so a plugin that attaches data to a native document needs no row here. Only a contract that is a document of its own does ([block or document](#block-or-document)).
 
@@ -288,6 +288,7 @@ A checker reads a folder of native documents and reports problems. It **reports 
 | Plugin block (`plugin-block`) | the document path, the problem kind, the plugin id where there is one, and the text found | A block's [envelope](#the-envelope) failed. The problem kinds are in the next table. |
 | Extension and contract disagree (**proposed, needs the owner's confirmation**) | the path, the extension, the registered contract, and the contract the stamp names | The [file name rule](#file-names), item 4 failed: the extension is registered for one contract and the stamp names another. |
 | Native art (`native-art`) | the document path, field and explanation, with the line when available | A tileset or asset-pack field or local source reference is invalid, a referenced image is missing or unreadable, a source cell or crop lies outside its image, or a scene's native art reference cannot resolve its document and local ID. |
+| Native scene (`native-scene`) | the document path, field and explanation, with the line when available | A scene field violates the closed scene contract or a scene-local reference is invalid. |
 
 The first four rows are the classes the owner ruled. The `plugin-block` class replaces the three link classes the 2026-11-08 ruling had (a plugin document with no owner, an owner link with no back-link, a mismatched link): they are **retired** (owner ruling of 2026-11-09), because plugin data has no document of its own to link. The fifth is an addition made with the file name rule and is not yet confirmed. It is judged only for a document whose extension is registered and whose stamp names one contract as text; any other stamp is already a stamp report.
 

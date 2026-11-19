@@ -3,7 +3,7 @@ title: 'Native tileset and asset-pack documents read, write and check'
 type: 'feature'
 ticket: 13
 created: '2026-11-18'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '65611327311a59aa5cb9da0c52231319b51134cc'
 route: 'full'
 route_source: 'auto'
@@ -70,5 +70,6 @@ Implemented source-preserving tileset and pack documents and nested scene art re
 
 Native-data and checker CLI suites: 193 passed, no skips; affected package builds and test typechecks, targeted lint, provenance (1,738 files, zero violations), and ticket-store validation passed. All new tests reported under one second. The tests prove missing images and out-of-bounds regions are reported, and simultaneous document renames preserve plugin payload bytes.
 - After the lookup review fixes, 20 targeted CLI and project-art tests passed, including mixed-case filenames and an external sibling image; the CLI build, test typecheck and targeted lint passed.
+- #3204 was approved and merged; #1848 was closed after mapping the acceptance criteria to the tests above and the passing CI gates.
 
 Run the affected native-data tests, package test typecheck, repository lint and provenance. Inspect per-test durations and verify a reprinting writer would fail the byte-preservation proof. Record the contract approval status separately from implementation verification.

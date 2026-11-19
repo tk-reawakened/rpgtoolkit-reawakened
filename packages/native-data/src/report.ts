@@ -40,7 +40,8 @@ export function formatReport(report: CheckReport): string {
     }
     case "extension-contract-mismatch":
       return `${report.path}: the extension ${code(report.extension)} is registered for the contract ${code(report.registered)}, but the stamp names ${code(report.stamp)}. Either the extension or the stamp is wrong; the checker cannot tell which.`;
-    case "native-art": {
+    case "native-art":
+    case "native-scene": {
       const where = report.line === null ? report.path : `${report.path}:${report.line}`;
       return `${where}: ${report.field}: ${report.message}`;
     }

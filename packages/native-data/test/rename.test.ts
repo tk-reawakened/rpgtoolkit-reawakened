@@ -23,7 +23,7 @@ const TEST_REGISTRY: Registry = [
   { extension: ".tkract", contract: "actor" },
   { extension: ".tkrwth", contract: "actor-weather" },
   { extension: ".tkrrai", contract: "actor-rain" },
-  { extension: ".tkrscn", contract: "scene" },
+  { extension: ".tkrscn", contract: "test-scene" },
 ];
 const config: RenameConfig = { registry: TEST_REGISTRY, referenceFields: ["owner", "plugins"] };
 
@@ -219,7 +219,7 @@ void test("references match as the checker does: exact casing first, then folded
 void test("further reference fields, named by the caller, are rewritten too: an ID, or a list of IDs", () => {
   const scene = doc(
     "scenes/town.tkrscn",
-    "contract: scene",
+    "contract: test-scene",
     "version: 1.0.0",
     "boss: actors/guard.tkract # the boss",
     "cast:",
@@ -417,7 +417,7 @@ void test("refusal: a project that is not checker-clean, with each problem named
 
 void test("refusal: a reference field that cannot be read as an ID or a list of IDs, and one that cannot be edited in place", () => {
   const withFields: RenameConfig = { ...config, referenceFields: ["boss", "cast"] };
-  const scene = (...lines: string[]): DocumentInput => doc("scenes/town.tkrscn", "contract: scene", "version: 1.0.0", ...lines);
+  const scene = (...lines: string[]): DocumentInput => doc("scenes/town.tkrscn", "contract: test-scene", "version: 1.0.0", ...lines);
   const pair = [{ from: "actors/guard.tkract", to: "actors/knight.tkract" }];
   deepEqual(message([...PROJECT, scene("boss: {name: guard}")], pair, withFields), [
     "scenes/town.tkrscn: the field `boss` is not an ID or a list of IDs (it must be an ID or a list of IDs; found {name: guard}), so the rename cannot tell which documents it names",

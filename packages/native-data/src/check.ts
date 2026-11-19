@@ -10,6 +10,7 @@ import type { PluginBlockProblemKind } from "./plugin-data.ts";
 import { readTileset, type TilesetReadResult } from "./tileset.ts";
 import { readAssetPack, type AssetPackReadResult } from "./asset-pack.ts";
 import { sceneArtReferences } from "./art-references.ts";
+import { readScene, type SceneReadResult } from "./scene.ts";
 
 export type CheckConfig = {
   /** Extensions that mark a native document; absent means the shipped registry. */
@@ -57,13 +58,23 @@ export type NativeArtReport = {
   readonly line: number | null;
 };
 
+/** A field or local reference problem in a native scene. */
+export type NativeSceneReport = {
+  readonly class: "native-scene";
+  readonly path: string;
+  readonly field: string;
+  readonly message: string;
+  readonly line: number | null;
+};
+
 export type CheckReport =
   | StampReport
   | DuplicateIdReport
   | FoldCollisionReport
   | PluginBlockReport
   | ExtensionContractMismatchReport
-  | NativeArtReport;
+  | NativeArtReport
+  | NativeSceneReport;
 
 export type ReportClass = CheckReport["class"];
 
@@ -74,6 +85,7 @@ export const REPORT_CLASSES: readonly ReportClass[] = [
   "plugin-block",
   "extension-contract-mismatch",
   "native-art",
+  "native-scene",
 ];
 
 const RESERVED_KEYS: Readonly<Record<string, readonly string[]>> = {
@@ -146,6 +158,7 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
     return { ...doc, read };
   });
   const reports: CheckReport[] = [];
+  const sceneModels = new Map<string, SceneReadResult>();
   for (const doc of reads) {
     reports.push(...doc.read.stampReports);
     for (const problem of doc.read.pluginProblems) {
@@ -159,6 +172,17 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
         for (const problem of result.problems) {
           if (problem.kind === "shape") {
             reports.push({ class: "native-art", path: doc.path, field: problem.path, message: problem.message, line: problem.line });
+          }
+        }
+      }
+    }
+    if ("text" in doc.input && lookupExtension(extensionOf(doc.path) ?? "", registry)?.contract === "scene") {
+      const result = readScene(doc.input.text);
+      sceneModels.set(doc.path, result);
+      if (!result.ok) {
+        for (const problem of result.problems) {
+          if (problem.kind === "shape") {
+            reports.push({ class: "native-scene", path: doc.path, field: problem.path, message: problem.message, line: problem.line });
           }
         }
       }
@@ -191,6 +215,10 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
           const result = artModels.get(target.path) ?? readAssetPack(target.input.text);
           artModels.set(target.path, result);
           exists = result.ok && "assetPack" in result && result.assetPack.assets.some((asset) => asset.id === reference.localId);
+          const scene = sceneModels.get(doc.path);
+          if (exists && result.ok && "assetPack" in result && scene?.ok && result.assetPack.projection !== scene.scene.projection) {
+            reports.push({ class: "native-scene", path: doc.path, field: "placedPacks", message: `pack ${reference.path.value} projection does not match the scene`, line: null });
+          }
         }
       }
       if (!exists) {
@@ -236,6 +264,7 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
       case "plugin-block":
       case "extension-contract-mismatch":
       case "native-art":
+      case "native-scene":
         return report.path;
       case "duplicate-id":
       case "fold-collision":

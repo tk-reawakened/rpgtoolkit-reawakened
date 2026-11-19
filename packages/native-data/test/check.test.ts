@@ -59,6 +59,21 @@ void test("scene core fields cannot be used as plugin ids", () => {
   deepEqual(checkDocuments([{ path: "map.tkrscn", text }], shipped).filter((report) => report.class === "plugin-block").map((report) => report.kind), ["id"]);
 });
 
+void test("scene checker reports invalid core fields", () => {
+  const text = "contract: scene\nversion: 1.0.0-pre.1\nprojection: 2d\nsize: {width: 0, height: 1}\nfloors: [{id: ground}]\n";
+  const reports = checkDocuments([{ path: "map.tkrscn", text }], shipped);
+  equal(reports.some((report) => report.class === "native-scene" && report.field === "size.width"), true);
+});
+
+void test("an unresolved scene alias does not prevent checking other scenes", () => {
+  const reports = checkDocuments([
+    { path: "bad.tkrscn", text: "contract: scene\nversion: 1.0.0-pre.1\nprojection: 2d\nsize: {width: 1, height: 1}\nfloors: [{id: ground}]\ntitle: *missing\n" },
+    { path: "other.tkrscn", text: "contract: scene\nversion: 1.0.0-pre.1\nprojection: 2d\nsize: {width: -1, height: 1}\nfloors: [{id: ground}]\n" },
+  ], shipped);
+  equal(reports.some((report) => report.class === "native-scene" && report.path === "bad.tkrscn" && report.message.includes("alias") && report.line === 6), true);
+  equal(reports.some((report) => report.class === "native-scene" && report.path === "other.tkrscn" && report.field === "size.width"), true);
+});
+
 void test("the shared validator accepts the clip-consumable AST and line-counter interface", () => {
   const text = "pluginData: {com.example.weather: {version: 1.0.0, data: {unknown: true}}}\n";
   const lines = new LineCounter();
@@ -83,7 +98,7 @@ void test("plugin block reports carry all structured fields and format readably"
 
 void test("document identity, report ordering, config validation and legacy exclusion remain", () => {
   equal(documentId("./clips//walk.tkranm"), "clips/walk.tkranm");
-  deepEqual(REPORT_CLASSES, ["stamp", "duplicate-id", "fold-collision", "plugin-block", "extension-contract-mismatch", "native-art"]);
+  deepEqual(REPORT_CLASSES, ["stamp", "duplicate-id", "fold-collision", "plugin-block", "extension-contract-mismatch", "native-art", "native-scene"]);
   throws(() => validateConfig({ documentExtensions: [] }), RangeError);
   throws(() => validateConfig({ documentExtensions: [""] }), RangeError);
   throws(() => validateConfig({ registry: [{ extension: ".anm", contract: "animation" }] }), RangeError);
