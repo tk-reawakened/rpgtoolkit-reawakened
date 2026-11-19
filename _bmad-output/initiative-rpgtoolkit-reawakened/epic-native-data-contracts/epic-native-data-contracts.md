@@ -31,6 +31,7 @@ Each line maps to CAP-20, the draft capability added on 2026-11-08 for this epic
 - E5: A rename keeps every reference to a moved document valid; plugin data is inside documents, so there is no link to rewrite and a rename never edits a block (ticket 27.1, Notes).
 - E6: The actor family and the board's placement-versus-definition split are specified as contracts, not copied from legacy file boundaries (`docs/findings/native-data-boundaries/README.md`).
 - E7: The scene, tileset and asset-pack contracts are specified from the ADR 0019 draft and have readers and writers, so the scene editor of the first release can store what a board cannot: identities, placed packs, and collision and walk-behind kept with the art (ADR 0005, second amendment of 2026-11-11; ADR 0019, amendment of 2026-11-11).
+- E8: The connected native authoring family has a project-root design and specified project/presentation contracts, followed by an explicit import/edit/build/run proof using existing scene and graphics providers (owner direction 2026-11-18; docs/design/native-authoring-format-set.md; 27.15–27.17).
 
 ## Done when
 
@@ -41,10 +42,13 @@ Each line maps to CAP-20, the draft capability added on 2026-11-08 for this epic
 5. The editor opens a native clip and saves a one-property change as a one-line diff.
 6. The actor-family and scene contracts exist as approved pre-release specs, not published as 1.0.
 7. The tileset and asset-pack contracts exist as approved pre-release specs with their registry rows; scene, tileset and asset-pack documents read, write and check; and a legacy board converts to a scene only when asked.
+8. The project and document-presentation contracts have field ledgers, schemas and import/build rules; the connected proof imports an authored game without overwriting originals, edits it in both hosts and runs/packages the built output while preserving reference identity and reporting unsupported behavior.
 
 ## Boundaries
 
 This is the data-contract and document-tooling boundary. It does not include building editors for the actor family or scenes (the scene editor's save path, the build of a board from a scene and the collision controls are 12.15 to 12.17), runtime loading of those contracts, or migrating whole legacy games. It does not choose the layout contract, the schema technology or the YAML profile; #1799 leaves those open and they are decided inside the stories that need them. It makes no promise of a lossless migration of every legacy game, or that every game runs.
+
+The 2026-11-18 extension adds the project/presentation contract and one connected project proof (27.15–27.17). That proof crosses into shared editor integration deliberately; it does not replace the actor, board or art workspaces, migrate every legacy game, or retire existing legacy paths. Its project-owned output layout must explicitly reconcile the current scene-save contract before implementation.
 
 ## References
 
@@ -76,3 +80,4 @@ This is the data-contract and document-tooling boundary. It does not include bui
 - Changed by that decision: the 2026-11-08 note that the scene editor waits for 27.7 and 27.8 now reads "waits for 27.8"; 27.8 no longer waits for 27.7 (its entry says what that costs); and the 2026-11-08 decision that epics 12 to 14 gain no prerequisite on 27.6 is lifted for 12.16 only.
 - Still parked: runtime loading of any native contract, and importer output and editor support for the actor family.
 - Decision: Jensen, 2026-11-11: a kind code is three or more letters (#1839, #1845), so `.tkrtile` and `.tkrpack` are valid extensions.
+- Direction: Jensen, 2026-11-18: design the native formats as a connected project, with native-document-owned friendly names/descriptions, project-owned organization and presentation for external programs/media, and plugin data in the document it describes. `.tkrproj` and common field spellings are recommendations to specify, not newly registered contracts. See docs/design/native-authoring-format-set.md and 27.15–27.17.
