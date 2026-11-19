@@ -1,10 +1,28 @@
 import { writeBoard, type Board } from "@tk-reawakened/core";
-import { checkScene, documentId, type AssetPack, type Scene, type Tileset } from "@tk-reawakened/native-data";
+import { checkScene, documentId, sceneCellCount, type AssetPack, type Scene, type SceneTileReference, type Tileset } from "@tk-reawakened/native-data";
+import { traceSceneBoundaries } from "./scene-boundary-tracing.ts";
 import { lowerSceneBoard } from "./scene-board-lowering.ts";
 import { lowerScenePackImages } from "./scene-pack-images.ts";
 import { lowerScenePackVectors } from "./scene-pack-vectors.ts";
 import { generateSceneTileCollision, type SceneTileCollisionFlag } from "./scene-tile-collision.ts";
-import { lowerSceneTileset } from "./scene-tileset-build.ts";
+import { lowerSceneTileset, type SceneTilesetBuildResult } from "./scene-tileset-build.ts";
+
+function boundaryPaletteSlots(scene: Scene, floorIndex: number, builtTilesets: ReadonlyMap<string, SceneTilesetBuildResult>): readonly number[] {
+  const sources = scene.floors[floorIndex]?.boundarySources?.walkableTiles ?? [];
+  const matches = (entry: SceneTileReference): string => entry.tileset === undefined
+    ? `legacy:${entry.legacy.toLowerCase()}`
+    : `native:${fold(entry.tileset)}#${entry.tile}`;
+  const wanted = new Set(sources.map(matches));
+  return (scene.tilePalette ?? []).flatMap((entry, index) => {
+    if (entry.tileset === undefined && entry.legacy === undefined) return [];
+    if (!wanted.has(matches(entry as SceneTileReference))) return [];
+    if (entry.tileset !== undefined) {
+      const built = builtTilesets.get(fold(entry.tileset));
+      if (built?.ok !== true || !built.tiles.some((tile) => tile.id === entry.tile)) return [];
+    }
+    return [index];
+  });
+}
 
 export interface SceneBuildInputs {
   readonly scenePath: string;
@@ -27,7 +45,7 @@ export async function buildScene(inputs: SceneBuildInputs): Promise<SceneBuildRe
   const problems: SceneBuildProblem[] = [...checkScene(scene)];
   if (!scenePath.toLowerCase().endsWith(".tkrscn")) problems.push({ path: "scenePath", message: "The source must have a .tkrscn extension." });
   for (const [index, floor] of scene.floors.entries()) {
-    if (floor.boundarySources !== undefined) problems.push({ path: `floors[${index}].boundarySources`, message: "Boundary-source tracing is not specified by the scene contract." });
+    if (floor.boundarySources?.autoWallCaps === true) problems.push({ path: `floors[${index}].boundarySources.autoWallCaps`, message: "Automatic wall caps are unsupported; omit autoWallCaps or set it to false." });
   }
   if (problems.length > 0) return { ok: false, problems };
   const notes: SceneBuildProblem[] = [];
@@ -52,7 +70,7 @@ export async function buildScene(inputs: SceneBuildInputs): Promise<SceneBuildRe
 
   const outputs: SceneBuildOutput[] = [];
   const sources = new Set<string>([fold(scenePath)]);
-  const tilesets = new Map<string, Awaited<ReturnType<typeof lowerSceneTileset>>>();
+  const tilesets = new Map<string, SceneTilesetBuildResult>();
   const palette: string[] | null = scene.tilePalette === undefined ? null : [];
   const flags: SceneTileCollisionFlag[] = [];
   for (const [index, entry] of (scene.tilePalette ?? []).entries()) {
@@ -83,8 +101,30 @@ export async function buildScene(inputs: SceneBuildInputs): Promise<SceneBuildRe
     palette!.push(`${built.target.replaceAll("/", "\\")}${tile.index}`);
     flags.push(tile.collision);
   }
-  if (problems.length > 0) return { ok: false, problems };
-
+  for (const [floorIndex, floor] of scene.floors.entries()) {
+    for (const [sourceIndex, reference] of (floor.boundarySources?.walkableTiles ?? []).entries()) {
+      if (reference.tileset === undefined) continue;
+      const key = fold(reference.tileset);
+      let built = tilesets.get(key);
+      if (built === undefined) {
+        const tileset = await inputs.resolveTileset(reference.tileset);
+        const path = `floors[${floorIndex}].boundarySources.walkableTiles[${sourceIndex}].tileset`;
+        if (tileset === null) { problems.push({ path, message: `Cannot resolve ${reference.tileset}.` }); continue; }
+        sources.add(key);
+        for (const source of tileset.sources) sources.add(fold(source.file));
+        if (tileset.projection !== scene.projection) { problems.push({ path, message: "Tileset projection differs from the scene." }); continue; }
+        built = await lowerSceneTileset(tileset, inputs.readSource);
+        tilesets.set(key, built);
+        if (built.ok) {
+          if (!/^Tiles\//i.test(built.target)) problems.push({ path, message: "Generated tileset must be under Tiles/." });
+          else outputs.push({ path: built.target, bytes: built.bytes });
+          notes.push(...built.notes);
+        }
+      }
+      if (built?.ok !== true) problems.push(...(built?.problems ?? []));
+      else if (!built.tiles.some((tile) => tile.id === reference.tile)) problems.push({ path: `floors[${floorIndex}].boundarySources.walkableTiles[${sourceIndex}].tile`, message: `Cannot resolve tile ${reference.tile}.` });
+    }
+  }
   const lower = lowerSceneBoard(scene, palette);
   if (!lower.ok) return lower;
   const packs = new Map<string, AssetPack>();
@@ -107,7 +147,13 @@ export async function buildScene(inputs: SceneBuildInputs): Promise<SceneBuildRe
   catch (error) { return { ok: false, problems: [{ path: "tilePalette", message: String(error) }] }; }
   const packVectors = lowerScenePackVectors(scene, (path, id) => packs.get(fold(path))?.assets.find((asset) => asset.id === id) ?? null, lower.board.vectors.length + tileVectors.length);
   if (!packVectors.ok) return packVectors;
-  const board: Board = { ...lower.board, images: [...lower.board.images, ...images.images], vectors: [...lower.board.vectors, ...tileVectors, ...packVectors.vectors] };
+  const boundaryVectors = scene.floors.flatMap((floor, floorIndex) => floor.boundarySources === undefined
+    ? []
+    : traceSceneBoundaries(scene, floorIndex, boundaryPaletteSlots(scene, floorIndex, tilesets)));
+  const vectorCount = lower.board.vectors.length + tileVectors.length + packVectors.vectors.length + boundaryVectors.length;
+  if (vectorCount > 32768) return { ok: false, problems: [{ path: "vectors", message: "vector table exceeds 32768 entries" }] };
+  const board: Board = { ...lower.board, images: [...lower.board.images, ...images.images], vectors: [...lower.board.vectors, ...tileVectors, ...packVectors.vectors, ...boundaryVectors] };
+
   const encoded = writeBoard(board);
   if (!encoded.ok) return { ok: false, problems: [{ path: "board", message: encoded.error.message }] };
   outputs.push(...images.outputs, { path: `${scenePath.slice(0, -7)}.brd`, bytes: encoded.value });
