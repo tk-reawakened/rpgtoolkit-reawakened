@@ -2,6 +2,8 @@
 
 **Status: first-pass design, 2026-11-18.** The owner has chosen the direction: Reawakened owns its authoring formats, imports legacy games explicitly, and can build the runtime assets we already support. This page recommends the shape of that system; it does not register new extensions, approve every field, or claim the import/build path is implemented. Baseline: `56ffdf084a4d61fd1d3b2429ca36c2643f350293`.
 
+**Later owner direction:** [Painting a world](terrain-scene-formats.md) proposes `.tkrtst` for tilesets, `.tkrtle` for individual tiles and `.tkrtol` for tools, and extends scenes with retained terrain painting. The current `.tkrtile` tileset spelling remains in the table below to describe the existing pre-release contract until the coordinated cutover; it is not a promise of a compatibility alias.
+
 The [connected editor mockup](connected-editor/README.md) is the starting experience: open a project, follow a scene's connection to an interaction, its program and its artwork, and edit the thing that owns the data. The mock program editor is not a language/editor specification.
 
 ## The format family
