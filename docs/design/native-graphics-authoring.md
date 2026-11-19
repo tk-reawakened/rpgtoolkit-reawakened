@@ -193,25 +193,41 @@ found no advisories at the time of the check. This is evidence, not a complete
 provenance or security clearance; admission still requires the G6 production
 inventory and shipped notices.
 
-Further adversarial checks found three blockers in 0.1.0:
+Further adversarial checks found four blockers in 0.1.0:
 
 - **Indexed palette edits can disappear:** changing a palette entry in the
   `4f-index-4x4.aseprite` fixture and saving/reopening returned its original
-  colour. Tracked in [aseprite-io #9](https://github.com/aljopro/aseprite-io/issues/9).
+  colour. Tracked in [aseprite-io #9](https://github.com/aljopro/aseprite-io/issues/9);
+  fix [PR #12](https://github.com/aljopro/aseprite-io/pull/12) merged. A local
+  fixed-build check read the edited colour back, but no release containing it is
+  published yet.
 - **Unbounded decompression for zero-sized cels:** a compressed stream of 8,164
   bytes expanded to 8 MiB despite declared zero dimensions. Other declared
   dimensions can also drive large allocations. Tracked in
   [aseprite-io #10](https://github.com/aljopro/aseprite-io/issues/10).
-  Input size alone is not a sufficient decoded-memory limit.
+  Input size alone is not a sufficient decoded-memory limit. An open repair is under
+  independent review; the published 0.1.0 remains affected.
 - **Pixel edits can disappear on checksum collisions:** editing a one-pixel RGBA cel
   from `[10,10,10,10]` to `[11,8,11,10]` was lost after saving because both byte
   sequences share an Adler-32 checksum and the writer reused the original stream.
-  Tracked in [aseprite-io #11](https://github.com/aljopro/aseprite-io/issues/11).
+  Tracked in [aseprite-io #11](https://github.com/aljopro/aseprite-io/issues/11);
+  published 0.1.0 remains affected.
+- **Narrow tilemap entries are misread:** an authored 2×2 16-bit tilemap containing
+  `[1,2,3,4]` decoded as two 32-bit values, and its masks were not honoured. The
+  format documents 8-, 16- and 32-bit tiles. Tracked in
+  [aseprite-io #16](https://github.com/aljopro/aseprite-io/issues/16); a wider fix
+  is open, and 0.1.0 must not be used to edit narrow-width tilemaps.
 
 Registry signatures establish signed package metadata, not a verified build
 attestation. A registry attestation lookup was unsuccessful; do not assume build
 provenance from the publish configuration. Assess the exact replacement release
 and its notices again after fixes.
+
+A local warm-cache comparison (Node 26.13, five runs) of an authored 100-frame,
+four-layer 64×64 RGBA sprite rose from 17.6 ms to 48.0 ms per read and 5.7 ms to
+63.1 ms per unchanged write with the open exact-replay repair. Correctness wins over
+that regression, but the cost needs a measured, safer design before editor use;
+tracked in [aseprite-io #15](https://github.com/aljopro/aseprite-io/issues/15).
 
 In isolated tests of the published package, 19 source-repository sample files
 round-tripped byte-for-byte without edits. A layered, 12-frame sample was then edited:
