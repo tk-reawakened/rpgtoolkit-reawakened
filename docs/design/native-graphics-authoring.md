@@ -198,8 +198,9 @@ Further adversarial checks found four blockers in 0.1.0:
 - **Indexed palette edits can disappear:** changing a palette entry in the
   `4f-index-4x4.aseprite` fixture and saving/reopening returned its original
   colour. Tracked in [aseprite-io #9](https://github.com/aljopro/aseprite-io/issues/9);
-  fix [PR #12](https://github.com/aljopro/aseprite-io/pull/12) merged. A local
-  fixed-build check read the edited colour back, but no release containing it is
+  fix [PR #12](https://github.com/aljopro/aseprite-io/pull/12) merged. A fixed build
+  read the edited colour back, and the file survived an independent LibreSprite 1.3
+  open and save with the new entry intact. No release containing the fix is
   published yet.
 - **Unbounded decompression for zero-sized cels:** a compressed stream of 8,164
   bytes expanded to 8 MiB despite declared zero dimensions. Other declared
