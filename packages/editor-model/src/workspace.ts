@@ -209,7 +209,8 @@ interface HostHistory {
 /** Where this workspace keeps history and under which rules (ADR 0022 D12.10 item 8). */
 function historyOptions(options: WorkspaceOptions): DocumentHistoryOptions {
   const { fs, capabilities } = options.services;
-  const base = { project: fs, policy: options.historyPolicy ?? (() => DEFAULT_HISTORY_POLICY), coveredType: (path: string) => kindForPath(path) !== null };
+  const base = { project: fs, policy: options.historyPolicy ?? (() => DEFAULT_HISTORY_POLICY), coveredType: (path: string) =>
+    kindForPath(path) !== null || (path.toLowerCase().startsWith("bitmap/.tkr-generated/") && path.toLowerCase().endsWith(".png")) };
   if (options.historyStorage !== undefined) return { ...base, storage: options.historyStorage.fs, location: { kind: "host-storage", description: options.historyStorage.description } };
   if (capabilities.has("folderWrite")) return { ...base, storage: fs, location: { kind: "project-folder", description: "Kept in the project's .tkr-history folder, so it travels with the project." } };
   return { ...base, storage: createMemoryHistoryStorage(), location: { kind: "session-memory", description: "History for this session copy is kept only in this page and is lost when the page closes or the browser clears it." } };
