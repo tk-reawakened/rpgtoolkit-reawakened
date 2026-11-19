@@ -176,8 +176,9 @@ source/output relationship discoverable rather than infer it from matching filen
 
 **Recommendation, not a selected format or admitted dependency:** retain
 [`aseprite-io` 0.1.0](https://registry.npmjs.org/aseprite-io/0.1.0) as an
-editor-side `.aseprite` codec candidate, but **do not ship it for editing or untrusted
-input until the defects below are fixed and verified**. Creators could continue to use
+editor-side `.aseprite` codec candidate, but **do not ship the published 0.1.0 for
+editing or untrusted input**. Its known defects have merged repairs that are not in a
+published release; a future release must be re-verified before admission. Creators could continue to use
 external tools while the shared editor supplies game-specific context. The package
 does not decide how recipes, stable regions, tile semantics, runtime output or
 recovery are represented. Story [13.21 / #2320](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2320)
@@ -193,7 +194,8 @@ found no advisories at the time of the check. This is evidence, not a complete
 provenance or security clearance; admission still requires the G6 production
 inventory and shipped notices.
 
-Further adversarial checks found four blockers in 0.1.0:
+Further adversarial checks found four blockers in the published 0.1.0, and all
+four have merged repairs that are **not yet in a published release**:
 
 - **Indexed palette edits can disappear:** changing a palette entry in the
   `4f-index-4x4.aseprite` fixture and saving/reopening returned its original
@@ -206,18 +208,22 @@ Further adversarial checks found four blockers in 0.1.0:
   bytes expanded to 8 MiB despite declared zero dimensions. Other declared
   dimensions can also drive large allocations. Tracked in
   [aseprite-io #10](https://github.com/aljopro/aseprite-io/issues/10).
-  Input size alone is not a sufficient decoded-memory limit. An open repair is under
-  independent review; the published 0.1.0 remains affected.
+  Input size alone is not a sufficient decoded-memory limit. The merged repair adds
+  bounded streaming decode, exact-size/checksum validation, aggregate and canvas
+  limits, and a valid level-0 writer; 0.1.0 remains affected.
 - **Pixel edits can disappear on checksum collisions:** editing a one-pixel RGBA cel
   from `[10,10,10,10]` to `[11,8,11,10]` was lost after saving because both byte
   sequences share an Adler-32 checksum and the writer reused the original stream.
   Tracked in [aseprite-io #11](https://github.com/aljopro/aseprite-io/issues/11);
-  published 0.1.0 remains affected.
+  the merged repair verifies exact decoded bytes before reuse; 0.1.0 remains
+  affected.
 - **Narrow tilemap entries are misread:** an authored 2×2 16-bit tilemap containing
   `[1,2,3,4]` decoded as two 32-bit values, and its masks were not honoured. The
-  format documents 8-, 16- and 32-bit tiles. Tracked in
-  [aseprite-io #16](https://github.com/aljopro/aseprite-io/issues/16); a wider fix
-  is open, and 0.1.0 must not be used to edit narrow-width tilemaps.
+  Published format text defines 8-, 16- and 32-bit tile values while current
+  Aseprite writes 32-bit entries. Tracked in
+  [aseprite-io #16](https://github.com/aljopro/aseprite-io/issues/16); the merged
+  repair decodes and writes all three widths with width-appropriate masks, and
+  0.1.0 must not be used to edit narrow-width tilemaps.
 
 Registry signatures establish signed package metadata, not a verified build
 attestation. A registry attestation lookup was unsuccessful; do not assume build
@@ -226,7 +232,7 @@ and its notices again after fixes.
 
 A local warm-cache comparison (Node 26.13, five runs) of an authored 100-frame,
 four-layer 64×64 RGBA sprite rose from 17.6 ms to 48.0 ms per read and 5.7 ms to
-63.1 ms per unchanged write with the open exact-replay repair. Correctness wins over
+63.1 ms per unchanged write with the merged exact-replay repair. Correctness wins over
 that regression, but the cost needs a measured, safer design before editor use;
 tracked in [aseprite-io #15](https://github.com/aljopro/aseprite-io/issues/15).
 
