@@ -573,9 +573,13 @@ jobs:
       - name: Debug adapter in VS Code for the Web
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         run: pnpm vscode-web:test
-  # The browser lane (ADR 0015, D-9): one headless Chromium project. Playwright and its browser binaries are dev-only,
-  # never shipped; the lane boots a sample game to the committed tick-120 hashes and replays the raster vectors.
+  # Independent browser proofs share setup, but each matrix cell has its own runner and workspace.
   browser:
+    name: browser (${{ matrix.lane }})
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [player, editor-web, editor-vscode, editor-vscode-creator, closing]
     needs: [changes]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
@@ -589,7 +593,7 @@ jobs:
       - name: CI classifier decision
         shell: bash
         env:
-          JOB: browser
+          JOB: browser/${{ matrix.lane }}
           CHANGES: ${{ needs.changes.result }}
           FULL: ${{ needs.changes.outputs.full }}
           REASON: ${{ needs.changes.outputs.reason }}
@@ -617,7 +621,7 @@ jobs:
       - run: pnpm build
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - name: Build VS Code web editor and proof harness
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'editor-vscode' || matrix.lane == 'editor-vscode-creator')
         run: |
           pnpm --dir extensions/editor build
           npm --prefix extensions/rpgcode ci --ignore-scripts --no-audit --no-fund
@@ -640,7 +644,7 @@ jobs:
           $SUDO apt-get update -qq
           $SUDO apt-get install -y -qq --no-install-recommends xvfb
       - name: VS Code web editor acceptance proof
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'editor-vscode' || matrix.lane == 'editor-vscode-creator')
         run: |
           workspace="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-web.XXXXXX")"
           cp -R docs/spec/examples/game/Game/Example/. "$workspace/"
@@ -660,20 +664,17 @@ jobs:
             --extension extensions/editor \
             --workspace "$workspace" \
             --game Main/example.gam
-          # Run the creator-specific native host proof separately; it selects a focused scenario
-          # and must not replace the default editor acceptance and permission-refusal proof above.
-          TKR_VSCODE_CREATOR_TESTS_PROOF=1 "$@" xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
-            --extension extensions/editor \
-            --workspace "$workspace" \
-            --game Main/example.gam
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
+          TKR_VSCODE_CREATOR_TESTS_PROOF: ${{ matrix.lane == 'editor-vscode-creator' && '1' || '0' }}
       - run: pnpm fixtures:fetch
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'player' || matrix.lane == 'closing')
       - run: xvfb-run -a pnpm browser:test
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'player' || matrix.lane == 'editor-web')
+        env:
+          TKR_BROWSER_SUITE: ${{ matrix.lane }}
       - name: Installed editor PWA authoring proof
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && matrix.lane == 'editor-web'
         shell: bash
         run: |
           sleep 2
@@ -686,13 +687,13 @@ jobs:
       # packaged demo in both page hosts, and fails unless every host matches the committed baseline.
       - name: Closing suite across hosts
         run: xvfb-run -a pnpm closing:suite
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && matrix.lane == 'closing'
       # Playwright writes `error-context.md` (a page snapshot) per failed test. The runner is discarded afterwards, so
       # keep it, or an intermittent browser failure cannot be diagnosed from the log alone.
       - uses: actions/upload-artifact@v6
         if: ${{ failure() && (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') }}
         with:
-          name: browser-test-results
+          name: browser-${{ matrix.lane }}-test-results
           path: test-results/
           if-no-files-found: ignore
           retention-days: 14
