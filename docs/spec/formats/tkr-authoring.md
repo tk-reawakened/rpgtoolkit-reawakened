@@ -4,7 +4,7 @@ This specification defines the normative structure of TK Reawakened's native YAM
 
 These files are created and maintained in the authoring workspace (`editor-model` / `editor-ui`) and **compile/lower** deterministically into legacy runtime targets (`.brd`, `.tst`, `.iso`, `.tbm`, `.tan`) so the `@tk-reawakened/core` runtime engine can play them without requiring immediate changes to its runtime format decoders.
 
-> **Status: draft, pre-release** (amendment of 2026-11-11, [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)). These formats follow [native-contracts.md](native-contracts.md). The separate [scene](native-scene.md), [tileset](native-tileset.md), and [asset-pack](native-asset-pack.md) contract pages supersede the corresponding historical sketches below where they differ. The scene and tileset pages are proposed; the asset-pack page was reviewed and merged by Jensen. All three extensions are registered. The examples below retain historical document IDs and other spellings for context and are not contract definitions.
+> **Status: draft, pre-release** (amendment of 2026-11-11, [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)). These formats follow [native-contracts.md](native-contracts.md). The separate [scene](native-scene.md), [tileset](native-tileset.md), and [asset-pack](native-asset-pack.md) contract pages supersede the corresponding historical sketches below where they differ. Jensen reviewed and merged the scene and asset-pack pages; the tileset page remains proposed. All three extensions are registered. The examples below retain historical document IDs and other spellings for context and are not contract definitions.
 
 ---
 
@@ -27,7 +27,7 @@ These files are created and maintained in the authoring workspace (`editor-model
 
 A `.tkrscn` file is the source of truth for one board/scene. When saved, the editor builds the paired `.brd` file (plus auxiliary stamps/tiles if needed). A `.brd` that has no scene is still opened and saved directly; making a scene from it is an explicit conversion ([ADR 0019](../../adr/0019-tkr-authoring-formats.md), amendment of 2026-11-11).
 
-> **Not normative.** The authoritative, proposed definition of the scene document is [native-scene.md](native-scene.md), pending owner approval. The example below is the earlier draft, kept for context only: its document-level `id`, its `<pack id>:<asset id>` references and its field names are superseded by the scene contract, where a document is identified by its path and a tile or pack is referenced by path plus local ID. Where the two differ, the scene contract governs.
+> **Not normative.** The authoritative scene definition is [native-scene.md](native-scene.md). The example below is the earlier draft, kept for context only: its document-level `id`, its `<pack id>:<asset id>` references and its field names are superseded by the scene contract, where a document is identified by its path and a tile or pack is referenced by path plus local ID. Where the two differ, the scene contract governs.
 
 ```yaml
 contract: scene
