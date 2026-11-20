@@ -1,5 +1,5 @@
 ---
-id: 9
+id: 10
 type: spike
 title: "Define transaction boundaries for refused linked-edge arrivals"
 parent: none

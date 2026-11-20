@@ -1,5 +1,5 @@
 ---
-id: 7
+id: 8
 type: bug
 title: "Tile movement checks each advance instead of the destination"
 parent: none

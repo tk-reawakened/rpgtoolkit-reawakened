@@ -1,5 +1,5 @@
 ---
-id: 11
+id: 12
 type: bug
 title: "Final Destiny title screen is missing its button images"
 parent: none

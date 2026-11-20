@@ -1,5 +1,5 @@
 ---
-id: 8
+id: 9
 type: spike
 title: "Clarify queued movement intent after a blocked tile step"
 parent: none
