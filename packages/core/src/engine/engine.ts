@@ -1057,7 +1057,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       if (!resolved.ok) return false;
       if (resolved.value.kind !== "empty" && !addBoardDependency(resolved.value.asset)) return false;
       if (tile.animation !== null) {
-        for (const frame of tile.animation.frames) if (!fingerprintTile(frame)) return false;
+        for (const frame of tile.animation.frames) if (frame !== null && !fingerprintTile(frame)) return false;
       }
       return true;
     };
@@ -3464,7 +3464,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       if (!resolved.ok) return recoveryFailure("recovery.asset-missing", `saved board tile "${tile.asset}" is not in the asset index`);
       if (resolved.value.kind !== "empty") required.add(resolved.value.asset);
       if (tile.animation !== null) {
-        for (const frame of tile.animation.frames) if (!collectTile(frame)) return false;
+        for (const frame of tile.animation.frames) if (frame !== null && !collectTile(frame)) return false;
       }
       return true;
     };

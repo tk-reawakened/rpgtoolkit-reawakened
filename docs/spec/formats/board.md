@@ -201,7 +201,7 @@ A conditional program or item runs only when global variable `initialVar` equals
 
 ### Animated tiles
 
-When a LUT entry is a `.tan` file, the engine expands it at load time: each frame's tile gets its own LUT slot and the cells show frame 0, then cycle at the animation's rate.
+When a LUT entry is a `.tan` file, the engine expands it at load time into an ordered frame sequence for that cell; each frame's tile is prepared as a board dependency before loading completes. The visible frame is selected from the board's fixed tick using the `.tan` frame delay. Empty frame strings remain empty positions in that sequence and draw nothing while selected. Adjacent cells share the same tick phase and therefore stay synchronized without reloading the board.
 
 ## Older versions
 

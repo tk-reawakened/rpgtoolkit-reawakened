@@ -104,3 +104,24 @@ These are single-run advisory observations, not evidence of a speedup.
 The compositor performs constant-work key selection for each visible sprite: omitted keys inherit, while
 explicit `null` disables keying. It scans no pixels and copies no state. The legacy picture fallback now reuses
 one immutable white-key value rather than allocating that value for every default-key picture sprite.
+
+## Animated board tile selection (#5)
+
+Darwin arm64, Node 26.13.0, default GPU, the same demo package (SHA-256
+`fd806539d1c3ed65adb53b1019f95c404e207aed2e9bbb7867c25adec636838b`) and the same `pnpm perf:player` command
+(`--package demo --seconds 8`) in a temporary checkout of baseline `d0d1bcec78a59d11ae8a0831e861328c33a0ad8c`
+and the implementation worktree. Both runs reached `boards/start.brd`. Single-run observations; not evidence of a
+speedup.
+
+| Measurement | Baseline `d0d1bce` | Animated tile selection |
+|---|---:|---:|
+| Frame rate | 42.3 fps | 42.0 fps |
+| Frame p50 / p90 / p99 | 16.7 / 33.4 / 33.4 ms | 16.7 / 33.4 / 33.4 ms |
+| Long tasks | 0 | 0 |
+| Ticks per second | 61.0 | 60.9 |
+| Measured duration | 8.511 s | 8.472 s |
+| `currentDrawList` self time in sampled profile | 15 ms | 9 ms |
+
+The sampled profiles were 8.642 s (baseline) and 8.601 s (implementation). The added per-tick work is one null
+selection check per rendered board tile (no new per-tick allocation or frame-list traversal); static tile selection
+still returns immediately. Rasterization and surface encoding remain the dominant measured work.
