@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Script-emitted `dialogue.completed` events with no target now reach the stock RPG `talked` bridge with a null target, without changing positive target IDs or native event details (#2026; [event details](docs/spec/engine/rpgcode-modules-and-objects.md#emit-13)).
 - Animated board tiles now retain their ordered, preloaded `.tan` frames and select them from the fixed game tick, so adjacent cells stay synchronized without a board reload. Empty animation slots draw nothing, and loading requests later-frame assets before board activation (#5; [board animation](docs/spec/formats/board.md#animated-tiles)).
 - Native document checking now validates plugin-block envelopes, and the clip editor preserves plugin-owned data byte for byte while editing properties (#1822; [plugin blocks](docs/spec/formats/native-contracts.md#plugin-blocks)). Qualified package IDs use their final segment as the default namespace. The checker and rename tools no longer require retired owner/plugin link fields.
 - Open native `.tkranm` animation clips in the browser editor or VS Code and edit their canvas, delay and frame properties (#1807; [native clip editor](docs/editor-features.md#native-clip-editor)). Saving a property preserves the rest of the author's text and comments; Undo and Redo use the host's document history, including VS Code's native text history. Frame-list editing and artwork preview are not yet available.

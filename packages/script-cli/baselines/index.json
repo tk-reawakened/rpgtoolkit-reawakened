@@ -122894,6 +122894,18 @@
                 "written": "it"
               },
               {
+                "arity": 2,
+                "file": null,
+                "name": "it",
+                "pos": {
+                  "col": 1,
+                  "endCol": 2,
+                  "file": "<inline>",
+                  "line": 27
+                },
+                "written": "it"
+              },
+              {
                 "arity": 1,
                 "file": null,
                 "name": "executeprogram",
@@ -122913,7 +122925,7 @@
                   "col": 5,
                   "endCol": 8,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "written": "game"
               },
@@ -122925,7 +122937,7 @@
                   "col": 5,
                   "endCol": 13,
                   "file": "<inline>",
-                  "line": 8
+                  "line": 10
                 },
                 "written": "specActor"
               },
@@ -122937,7 +122949,7 @@
                   "col": 5,
                   "endCol": 8,
                   "file": "<inline>",
-                  "line": 12
+                  "line": 16
                 },
                 "written": "game"
               },
@@ -122949,7 +122961,7 @@
                   "col": 17,
                   "endCol": 27,
                   "file": "<inline>",
-                  "line": 13
+                  "line": 17
                 },
                 "written": "getthreadid"
               },
@@ -122961,7 +122973,7 @@
                   "col": 5,
                   "endCol": 15,
                   "file": "<inline>",
-                  "line": 13
+                  "line": 17
                 },
                 "written": "threadsleep"
               },
@@ -122973,7 +122985,7 @@
                   "col": 5,
                   "endCol": 10,
                   "file": "<inline>",
-                  "line": 14
+                  "line": 18
                 },
                 "written": "expect"
               },
@@ -122985,7 +122997,7 @@
                   "col": 22,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 14
+                  "line": 18
                 },
                 "written": "toBe"
               },
@@ -122997,7 +123009,7 @@
                   "col": 5,
                   "endCol": 10,
                   "file": "<inline>",
-                  "line": 15
+                  "line": 19
                 },
                 "written": "expect"
               },
@@ -123009,7 +123021,7 @@
                   "col": 27,
                   "endCol": 30,
                   "file": "<inline>",
-                  "line": 15
+                  "line": 19
                 },
                 "written": "toBe"
               },
@@ -123021,7 +123033,7 @@
                   "col": 5,
                   "endCol": 10,
                   "file": "<inline>",
-                  "line": 16
+                  "line": 20
                 },
                 "written": "expect"
               },
@@ -123033,7 +123045,7 @@
                   "col": 28,
                   "endCol": 31,
                   "file": "<inline>",
-                  "line": 16
+                  "line": 20
                 },
                 "written": "toBe"
               },
@@ -123045,7 +123057,7 @@
                   "col": 5,
                   "endCol": 10,
                   "file": "<inline>",
-                  "line": 17
+                  "line": 21
                 },
                 "written": "expect"
               },
@@ -123057,7 +123069,7 @@
                   "col": 26,
                   "endCol": 29,
                   "file": "<inline>",
-                  "line": 17
+                  "line": 21
                 },
                 "written": "toBe"
               },
@@ -123069,7 +123081,7 @@
                   "col": 5,
                   "endCol": 10,
                   "file": "<inline>",
-                  "line": 18
+                  "line": 22
                 },
                 "written": "expect"
               },
@@ -123081,7 +123093,7 @@
                   "col": 23,
                   "endCol": 26,
                   "file": "<inline>",
-                  "line": 18
+                  "line": 22
                 },
                 "written": "toBe"
               },
@@ -123093,7 +123105,55 @@
                   "col": 5,
                   "endCol": 10,
                   "file": "<inline>",
-                  "line": 19
+                  "line": 23
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 23,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 23
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 24
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 24,
+                  "endCol": 27,
+                  "file": "<inline>",
+                  "line": 24
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 25
                 },
                 "written": "expect"
               },
@@ -123105,7 +123165,151 @@
                   "col": 22,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 19
+                  "line": 25
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 2,
+                "file": "specactor",
+                "name": "on",
+                "pos": {
+                  "col": 5,
+                  "endCol": 13,
+                  "file": "<inline>",
+                  "line": 32
+                },
+                "written": "specActor"
+              },
+              {
+                "arity": 2,
+                "file": "game",
+                "name": "emit",
+                "pos": {
+                  "col": 5,
+                  "endCol": 8,
+                  "file": "<inline>",
+                  "line": 38
+                },
+                "written": "game"
+              },
+              {
+                "arity": 0,
+                "file": null,
+                "name": "getthreadid",
+                "pos": {
+                  "col": 17,
+                  "endCol": 27,
+                  "file": "<inline>",
+                  "line": 39
+                },
+                "written": "getthreadid"
+              },
+              {
+                "arity": 2,
+                "file": null,
+                "name": "threadsleep",
+                "pos": {
+                  "col": 5,
+                  "endCol": 15,
+                  "file": "<inline>",
+                  "line": 39
+                },
+                "written": "threadsleep"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 40
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 23,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 40
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 41
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 23,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 41
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 42
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 24,
+                  "endCol": 27,
+                  "file": "<inline>",
+                  "line": 42
+                },
+                "written": "toBe"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "expect",
+                "pos": {
+                  "col": 5,
+                  "endCol": 10,
+                  "file": "<inline>",
+                  "line": 43
+                },
+                "written": "expect"
+              },
+              {
+                "arity": 1,
+                "file": null,
+                "name": "tobe",
+                "pos": {
+                  "col": 22,
+                  "endCol": 25,
+                  "file": "<inline>",
+                  "line": 43
                 },
                 "written": "toBe"
               }
@@ -123122,7 +123326,7 @@
                 "endCol": 8,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 7,
+                "line": 9,
                 "path": "game.prg"
               },
               {
@@ -123130,7 +123334,7 @@
                 "endCol": 13,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 8,
+                "line": 10,
                 "path": "specactor.prg"
               },
               {
@@ -123138,7 +123342,23 @@
                 "endCol": 8,
                 "file": "<inline>",
                 "implicit": true,
-                "line": 12,
+                "line": 16,
+                "path": "game.prg"
+              },
+              {
+                "col": 5,
+                "endCol": 13,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 32,
+                "path": "specactor.prg"
+              },
+              {
+                "col": 5,
+                "endCol": 8,
+                "file": "<inline>",
+                "implicit": true,
+                "line": 38,
                 "path": "game.prg"
               }
             ],
@@ -123174,12 +123394,60 @@
               },
               {
                 "kind": "read",
+                "name": "seenactor",
+                "pos": {
+                  "col": 5,
+                  "endCol": 13,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "scope": null,
+                "written": "seenActor"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 15,
+                  "endCol": 15,
+                  "file": "<inline>",
+                  "line": 5
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seentarget",
+                "pos": {
+                  "col": 5,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "scope": null,
+                "written": "seenTarget"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 16,
+                  "endCol": 16,
+                  "file": "<inline>",
+                  "line": 6
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
                 "name": "seentext",
                 "pos": {
                   "col": 5,
                   "endCol": 12,
                   "file": "<inline>",
-                  "line": 5
+                  "line": 7
                 },
                 "scope": null,
                 "written": "seenText"
@@ -123191,7 +123459,7 @@
                   "col": 14,
                   "endCol": 14,
                   "file": "<inline>",
-                  "line": 5
+                  "line": 7
                 },
                 "scope": null,
                 "written": null
@@ -123203,7 +123471,7 @@
                   "col": 5,
                   "endCol": 12,
                   "file": "<inline>",
-                  "line": 6
+                  "line": 8
                 },
                 "scope": null,
                 "written": "gameSeen"
@@ -123215,7 +123483,7 @@
                   "col": 14,
                   "endCol": 14,
                   "file": "<inline>",
-                  "line": 6
+                  "line": 8
                 },
                 "scope": null,
                 "written": null
@@ -123227,7 +123495,7 @@
                   "col": 48,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 12
+                  "line": 16
                 },
                 "scope": null,
                 "written": "specActorId"
@@ -123239,7 +123507,7 @@
                   "col": 71,
                   "endCol": 81,
                   "file": "<inline>",
-                  "line": 12
+                  "line": 16
                 },
                 "scope": null,
                 "written": "specActorId"
@@ -123251,7 +123519,7 @@
                   "col": 12,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 14
+                  "line": 18
                 },
                 "scope": null,
                 "written": "gameSeen"
@@ -123263,7 +123531,7 @@
                   "col": 12,
                   "endCol": 24,
                   "file": "<inline>",
-                  "line": 15
+                  "line": 19
                 },
                 "scope": null,
                 "written": "receivedActor"
@@ -123275,7 +123543,7 @@
                   "col": 32,
                   "endCol": 42,
                   "file": "<inline>",
-                  "line": 15
+                  "line": 19
                 },
                 "scope": null,
                 "written": "specActorId"
@@ -123287,7 +123555,7 @@
                   "col": 12,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 16
+                  "line": 20
                 },
                 "scope": null,
                 "written": "receivedTarget"
@@ -123299,7 +123567,7 @@
                   "col": 33,
                   "endCol": 43,
                   "file": "<inline>",
-                  "line": 16
+                  "line": 20
                 },
                 "scope": null,
                 "written": "specActorId"
@@ -123311,7 +123579,7 @@
                   "col": 12,
                   "endCol": 23,
                   "file": "<inline>",
-                  "line": 17
+                  "line": 21
                 },
                 "scope": null,
                 "written": "receivedText"
@@ -123323,10 +123591,58 @@
                   "col": 12,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 18
+                  "line": 22
                 },
                 "scope": null,
                 "written": "seenCount"
+              },
+              {
+                "kind": "read",
+                "name": "seenactor",
+                "pos": {
+                  "col": 12,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 23
+                },
+                "scope": null,
+                "written": "seenActor"
+              },
+              {
+                "kind": "read",
+                "name": "specactorid",
+                "pos": {
+                  "col": 28,
+                  "endCol": 38,
+                  "file": "<inline>",
+                  "line": 23
+                },
+                "scope": null,
+                "written": "specActorId"
+              },
+              {
+                "kind": "read",
+                "name": "seentarget",
+                "pos": {
+                  "col": 12,
+                  "endCol": 21,
+                  "file": "<inline>",
+                  "line": 24
+                },
+                "scope": null,
+                "written": "seenTarget"
+              },
+              {
+                "kind": "read",
+                "name": "specactorid",
+                "pos": {
+                  "col": 29,
+                  "endCol": 39,
+                  "file": "<inline>",
+                  "line": 24
+                },
+                "scope": null,
+                "written": "specActorId"
               },
               {
                 "kind": "read",
@@ -123335,7 +123651,175 @@
                   "col": 12,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 19
+                  "line": 25
+                },
+                "scope": null,
+                "written": "seenText"
+              },
+              {
+                "kind": "read",
+                "name": "seencount",
+                "pos": {
+                  "col": 5,
+                  "endCol": 13,
+                  "file": "<inline>",
+                  "line": 28
+                },
+                "scope": null,
+                "written": "seenCount"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 15,
+                  "endCol": 15,
+                  "file": "<inline>",
+                  "line": 28
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seenactor",
+                "pos": {
+                  "col": 5,
+                  "endCol": 13,
+                  "file": "<inline>",
+                  "line": 29
+                },
+                "scope": null,
+                "written": "seenActor"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 15,
+                  "endCol": 15,
+                  "file": "<inline>",
+                  "line": 29
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seentarget",
+                "pos": {
+                  "col": 5,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 30
+                },
+                "scope": null,
+                "written": "seenTarget"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 16,
+                  "endCol": 16,
+                  "file": "<inline>",
+                  "line": 30
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seentext",
+                "pos": {
+                  "col": 5,
+                  "endCol": 12,
+                  "file": "<inline>",
+                  "line": 31
+                },
+                "scope": null,
+                "written": "seenText"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 14,
+                  "endCol": 14,
+                  "file": "<inline>",
+                  "line": 31
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "specactorid",
+                "pos": {
+                  "col": 48,
+                  "endCol": 58,
+                  "file": "<inline>",
+                  "line": 38
+                },
+                "scope": null,
+                "written": "specActorId"
+              },
+              {
+                "kind": "read",
+                "name": "seencount",
+                "pos": {
+                  "col": 12,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 40
+                },
+                "scope": null,
+                "written": "seenCount"
+              },
+              {
+                "kind": "read",
+                "name": "seenactor",
+                "pos": {
+                  "col": 12,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 41
+                },
+                "scope": null,
+                "written": "seenActor"
+              },
+              {
+                "kind": "read",
+                "name": "specactorid",
+                "pos": {
+                  "col": 28,
+                  "endCol": 38,
+                  "file": "<inline>",
+                  "line": 41
+                },
+                "scope": null,
+                "written": "specActorId"
+              },
+              {
+                "kind": "read",
+                "name": "seentarget",
+                "pos": {
+                  "col": 12,
+                  "endCol": 21,
+                  "file": "<inline>",
+                  "line": 42
+                },
+                "scope": null,
+                "written": "seenTarget"
+              },
+              {
+                "kind": "read",
+                "name": "seentext",
+                "pos": {
+                  "col": 12,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 43
                 },
                 "scope": null,
                 "written": "seenText"
@@ -123347,7 +123831,7 @@
                   "col": 48,
                   "endCol": 48,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": "global",
                 "written": ":"
@@ -123359,7 +123843,7 @@
                   "col": 60,
                   "endCol": 60,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": "global",
                 "written": ":"
@@ -123371,7 +123855,7 @@
                   "col": 58,
                   "endCol": 58,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": null
@@ -123383,7 +123867,7 @@
                   "col": 75,
                   "endCol": 75,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": "global",
                 "written": ":"
@@ -123395,7 +123879,7 @@
                   "col": 92,
                   "endCol": 96,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "event"
@@ -123407,7 +123891,7 @@
                   "col": 98,
                   "endCol": 103,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "detail"
@@ -123419,7 +123903,7 @@
                   "col": 105,
                   "endCol": 111,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "actorId"
@@ -123431,7 +123915,7 @@
                   "col": 90,
                   "endCol": 90,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": null
@@ -123443,7 +123927,7 @@
                   "col": 114,
                   "endCol": 114,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": "global",
                 "written": ":"
@@ -123455,7 +123939,7 @@
                   "col": 132,
                   "endCol": 136,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "event"
@@ -123467,7 +123951,7 @@
                   "col": 138,
                   "endCol": 143,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "detail"
@@ -123479,7 +123963,7 @@
                   "col": 145,
                   "endCol": 152,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "targetId"
@@ -123491,7 +123975,7 @@
                   "col": 130,
                   "endCol": 130,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": null
@@ -123503,7 +123987,7 @@
                   "col": 155,
                   "endCol": 155,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": "global",
                 "written": ":"
@@ -123515,7 +123999,7 @@
                   "col": 171,
                   "endCol": 175,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "event"
@@ -123527,7 +124011,7 @@
                   "col": 177,
                   "endCol": 182,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "detail"
@@ -123539,7 +124023,7 @@
                   "col": 184,
                   "endCol": 187,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": "text"
@@ -123551,7 +124035,7 @@
                   "col": 169,
                   "endCol": 169,
                   "file": "<inline>",
-                  "line": 7
+                  "line": 9
                 },
                 "scope": null,
                 "written": null
@@ -123563,7 +124047,7 @@
                   "col": 9,
                   "endCol": 9,
                   "file": "<inline>",
-                  "line": 9
+                  "line": 11
                 },
                 "scope": "global",
                 "written": ":"
@@ -123575,7 +124059,7 @@
                   "col": 22,
                   "endCol": 22,
                   "file": "<inline>",
-                  "line": 9
+                  "line": 11
                 },
                 "scope": "global",
                 "written": ":"
@@ -123587,7 +124071,103 @@
                   "col": 20,
                   "endCol": 20,
                   "file": "<inline>",
-                  "line": 9
+                  "line": 11
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seenactor",
+                "pos": {
+                  "col": 9,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 22,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 28,
+                  "endCol": 33,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 20,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 12
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seentarget",
+                "pos": {
+                  "col": 9,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 23,
+                  "endCol": 27,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 29,
+                  "endCol": 34,
+                  "file": "<inline>",
+                  "line": 13
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 21,
+                  "endCol": 21,
+                  "file": "<inline>",
+                  "line": 13
                 },
                 "scope": null,
                 "written": null
@@ -123599,7 +124179,7 @@
                   "col": 9,
                   "endCol": 9,
                   "file": "<inline>",
-                  "line": 10
+                  "line": 14
                 },
                 "scope": "global",
                 "written": ":"
@@ -123611,7 +124191,7 @@
                   "col": 21,
                   "endCol": 25,
                   "file": "<inline>",
-                  "line": 10
+                  "line": 14
                 },
                 "scope": null,
                 "written": "event"
@@ -123623,7 +124203,7 @@
                   "col": 27,
                   "endCol": 32,
                   "file": "<inline>",
-                  "line": 10
+                  "line": 14
                 },
                 "scope": null,
                 "written": "detail"
@@ -123635,7 +124215,7 @@
                   "col": 34,
                   "endCol": 37,
                   "file": "<inline>",
-                  "line": 10
+                  "line": 14
                 },
                 "scope": null,
                 "written": "text"
@@ -123647,7 +124227,187 @@
                   "col": 19,
                   "endCol": 19,
                   "file": "<inline>",
-                  "line": 10
+                  "line": 14
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seencount",
+                "pos": {
+                  "col": 9,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 33
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "seencount",
+                "pos": {
+                  "col": 22,
+                  "endCol": 22,
+                  "file": "<inline>",
+                  "line": 33
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 20,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 33
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seenactor",
+                "pos": {
+                  "col": 9,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 34
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 22,
+                  "endCol": 26,
+                  "file": "<inline>",
+                  "line": 34
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 28,
+                  "endCol": 33,
+                  "file": "<inline>",
+                  "line": 34
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 20,
+                  "endCol": 20,
+                  "file": "<inline>",
+                  "line": 34
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seentarget",
+                "pos": {
+                  "col": 9,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 35
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 23,
+                  "endCol": 27,
+                  "file": "<inline>",
+                  "line": 35
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 29,
+                  "endCol": 34,
+                  "file": "<inline>",
+                  "line": 35
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 21,
+                  "endCol": 21,
+                  "file": "<inline>",
+                  "line": 35
+                },
+                "scope": null,
+                "written": null
+              },
+              {
+                "kind": "read",
+                "name": "seentext",
+                "pos": {
+                  "col": 9,
+                  "endCol": 9,
+                  "file": "<inline>",
+                  "line": 36
+                },
+                "scope": "global",
+                "written": ":"
+              },
+              {
+                "kind": "read",
+                "name": "event",
+                "pos": {
+                  "col": 21,
+                  "endCol": 25,
+                  "file": "<inline>",
+                  "line": 36
+                },
+                "scope": null,
+                "written": "event"
+              },
+              {
+                "kind": "member",
+                "name": "detail",
+                "pos": {
+                  "col": 27,
+                  "endCol": 32,
+                  "file": "<inline>",
+                  "line": 36
+                },
+                "scope": null,
+                "written": "detail"
+              },
+              {
+                "kind": "store",
+                "name": null,
+                "pos": {
+                  "col": 19,
+                  "endCol": 19,
+                  "file": "<inline>",
+                  "line": 36
                 },
                 "scope": null,
                 "written": null
