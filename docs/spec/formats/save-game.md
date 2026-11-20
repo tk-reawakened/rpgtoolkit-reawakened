@@ -287,14 +287,25 @@ the thread. If any thread has a shared old item key in its `source` or `target`
 without the matching placement link, loading refuses before replacing live
 state. Nested frame return pairs with a shared old key are also ambiguous and
 refuse the save, even when the outer item thread is linked.
+Typed actor waits are not thread-ownership references. If a saved `movement`
+wait contains a shared old key in `moves[*].sprite`, or a `sprite.movement` or
+`sprite.stance` wait names a shared old key in `actor`, normal Load refuses with
+`restore.item-identity`, even when the thread has a linked item placement. The
+thread link cannot prove which actor an arbitrary wait targets.
 Other saved values are not rewritten based on filename alone: ordinary script
 strings may be application data, and their intent cannot be recovered from a
 filename. Fresh placement identities must not collide with another board
-item's literal asset identity.
+item's literal asset identity. Before committing, replacement IDs must also be
+unique against other replacements and unique saved IDs that the migration
+preserves. A collision refuses normal Load with `restore.item-identity`.
 
-This migration applies to normal Save/Load and interruption restoration. New
-saves retain each placement identity and its thread link as ordinary
-continuation state; they do not infer ownership from array order.
+This migration applies to normal Save/Load and interruption restoration. Both
+preserve unique saved item IDs and rebind repeated aliases from `sourceSlot`.
+Normal Save/Load remaps only linked thread roots and targets; a shared actor key
+in a saved wait is refused because the thread link does not prove the wait's
+target. Interruption recovery rebuilds item programs from the ledger rather
+than restoring VM wait continuations. A slot replacement that collides with a
+unique saved item ID refuses recovery before it replaces live state.
 Multiple saved items claiming the same `sourceSlot` are invalid and are refused
 with `restore.item-identity` at the later `sprites.items[i].sourceSlot`, before
 normal or interruption restoration replaces live state.
