@@ -16,7 +16,7 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 14,
+                  "line": 18,
                   "sourcePath": "bridge.spec.prg"
                 },
                 {
@@ -25,7 +25,7 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 15,
+                  "line": 19,
                   "sourcePath": "bridge.spec.prg"
                 },
                 {
@@ -34,7 +34,7 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 16,
+                  "line": 20,
                   "sourcePath": "bridge.spec.prg"
                 },
                 {
@@ -43,7 +43,7 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 17,
+                  "line": 21,
                   "sourcePath": "bridge.spec.prg"
                 },
                 {
@@ -52,7 +52,25 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 18,
+                  "line": 22,
+                  "sourcePath": "bridge.spec.prg"
+                },
+                {
+                  "actual": "",
+                  "column": 23,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "forwards completed dialogue to the speaking actor/toBe",
+                  "line": 23,
+                  "sourcePath": "bridge.spec.prg"
+                },
+                {
+                  "actual": "",
+                  "column": 24,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "forwards completed dialogue to the speaking actor/toBe",
+                  "line": 24,
                   "sourcePath": "bridge.spec.prg"
                 },
                 {
@@ -61,11 +79,55 @@
                   "expected": "",
                   "kind": "pass",
                   "label": "forwards completed dialogue to the speaking actor/toBe",
-                  "line": 19,
+                  "line": 25,
                   "sourcePath": "bridge.spec.prg"
                 }
               ],
-              "stateHash": "8ff2fc6ffa67c6ba"
+              "stateHash": "51cd8ddb50fd0001"
+            },
+            {
+              "groups": [],
+              "name": "forwards completed dialogue without a target",
+              "ok": true,
+              "outcomes": [
+                {
+                  "actual": "",
+                  "column": 23,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "forwards completed dialogue without a target/toBe",
+                  "line": 40,
+                  "sourcePath": "bridge.spec.prg"
+                },
+                {
+                  "actual": "",
+                  "column": 23,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "forwards completed dialogue without a target/toBe",
+                  "line": 41,
+                  "sourcePath": "bridge.spec.prg"
+                },
+                {
+                  "actual": "",
+                  "column": 24,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "forwards completed dialogue without a target/toBe",
+                  "line": 42,
+                  "sourcePath": "bridge.spec.prg"
+                },
+                {
+                  "actual": "",
+                  "column": 22,
+                  "expected": "",
+                  "kind": "pass",
+                  "label": "forwards completed dialogue without a target/toBe",
+                  "line": 43,
+                  "sourcePath": "bridge.spec.prg"
+                }
+              ],
+              "stateHash": "bcd2602db02060cb"
             }
           ],
           "failures": [],
@@ -88,7 +150,7 @@
       },
       "failed": 0,
       "files": 1,
-      "passed": 1,
+      "passed": 2,
       "skipped": 0
     },
     "tool": "tkr"
