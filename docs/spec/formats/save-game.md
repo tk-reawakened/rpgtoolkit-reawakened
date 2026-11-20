@@ -269,6 +269,30 @@ per live definition, about 14.6 MB of canonical text, and every save wrote all o
 it. Rejected alternatives: keeping the per-definition copies, and an adapter that
 interns an older save's owners, which would be code kept only for saves that do not
 exist.
+<a id="duplicate-item-placement-identity"></a>
+**Repeated item placements.** Board item sprite identity belongs to a placement,
+not its asset filename. A save from a build that used the asset filename for
+multiple placements is migrated by matching each saved item to its authored
+board slot (`sourceSlot`), then assigning the identity produced for that slot
+from the current board. This keeps placement state independent and leaves asset
+`source` unchanged.
+
+An item thread is attributable to a placement only when that placement's saved
+`multitaskThread` identifies the thread. During migration, only that thread's
+`source` and `target` item keys are updated to the placement's new key. If a
+thread has an item key shared by multiple old placements and no unique saved
+thread link identifies its owner, loading refuses the save before replacing
+live state. Nested frame return pairs that carry the same shared key are also
+ambiguous and refuse the save, even when the outer item thread is linked.
+Other saved values are not rewritten based on filename alone: ordinary script
+strings may be application data, and their intent cannot be recovered from a
+filename. Fresh placement identities must not collide with another board
+item's literal asset identity.
+
+This migration applies to normal Save/Load and interruption restoration. New
+saves retain each placement identity and its thread link as ordinary
+continuation state; they do not infer ownership from array order.
+
 
 The world section is version 3. A version-2 save's `world.board.runtime.tileEdits`
 indices use the old per-layer `sizeX × sizeY` stride even on iso-rotated boards.
