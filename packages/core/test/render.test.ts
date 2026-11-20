@@ -94,7 +94,7 @@ test("composeBoard omits empty animation frames without restarting the sequence"
     if (source === null) equal(list.commands.length, 1, `tick ${tick} is blank`);
     else {
       const blit = list.commands[1];
-      if (blit?.kind !== "blit") throw new Error(`expected tile at tick ${tick}`);
+      if (blit?.kind !== "blit" || !("asset" in blit.source)) throw new Error(`expected asset tile at tick ${tick}`);
       equal(blit.source.asset, source);
     }
   }
