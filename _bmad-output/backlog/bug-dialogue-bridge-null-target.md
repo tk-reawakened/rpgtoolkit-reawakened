@@ -1,5 +1,5 @@
 ---
-id: 6
+id: 13
 type: bug
 title: "Stock RPG dialogue bridge drops script-emitted events with no target"
 parent: none

@@ -1,7 +1,7 @@
 ---
 title: 'Stock RPG dialogue bridge drops script-emitted events with no target'
 type: 'bugfix'
-ticket: '6'
+ticket: '13'
 created: '2026-11-19'
 status: 'built'
 baseline_revision: '4340727b09c0596b68325f721e12182421780124'
