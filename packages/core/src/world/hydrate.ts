@@ -149,6 +149,43 @@ function tileInfo(
   };
 }
 
+function resolveAnimationFrame(
+  reference: string,
+  index: AssetIndex,
+  root: AssetRoot,
+  assets: ReadonlyMap<AssetKey, Uint8Array>,
+  dependencies: AssetKey[],
+  depSet: Set<AssetKey>,
+  metadata: Map<AssetKey, WorldTileset>,
+): { readonly tile: WorldTile | null; readonly error: HydrationError | null; readonly missing: AssetKey | null } {
+  if (reference === "") return { tile: null, error: null, missing: null };
+  const selected = resolveTileReference(index, root, reference);
+  if (!selected.ok) return { tile: null, error: formatError(selected.error, reference), missing: null };
+  if (selected.value.kind === "empty") return { tile: null, error: null, missing: null };
+  const asset = selected.value.asset;
+  const tile = selected.value.kind === "tileset" || selected.value.kind === "isometric" ? selected.value.tile : 1;
+  addDependency(asset, dependencies, depSet);
+  const bytes = assets.get(asset);
+  if (bytes === undefined) return { tile: null, error: null, missing: asset };
+  const info = tileInfo(asset, bytes);
+  if (info.error !== null) return { tile: null, error: info.error, missing: null };
+  if (info.metadata !== null) metadata.set(asset, info.metadata);
+  return {
+    tile: {
+      asset,
+      tile,
+      ...(info.metadata === null ? {} : {
+        nativeWidth: info.metadata.nativeWidth,
+        nativeHeight: info.metadata.nativeHeight,
+        width: info.metadata.width,
+        height: info.metadata.height,
+      }),
+    },
+    error: null,
+    missing: null,
+  };
+}
+
 function worldBoard(
   key: AssetKey,
   board: Board,
@@ -249,44 +286,47 @@ export function hydrateBoard(
       resolved.push(null);
       continue;
     }
-    let asset = result.value.asset;
-    let tile = result.value.kind === "tileset" || result.value.kind === "isometric" ? result.value.tile : 1;
+    const asset = result.value.asset;
+    const tile = result.value.kind === "tileset" || result.value.kind === "isometric" ? result.value.tile : 1;
     addDependency(asset, dependencies, depSet);
     if (result.value.kind === "animatedTile") {
       const animationBytes = assets.get(asset);
       if (animationBytes === undefined) return { value: null, error: null, missing: asset };
       const animation = readTileAnimation(new BinaryReader(animationBytes, asset));
       if (!animation.ok) return { value: null, error: formatError(animation.error, asset), missing: null };
-      const frameIndex = frameAt(0, tick, ticksPerFrame(animation.value.speed), animation.value.frames.length, true);
-      const frame = frameIndex < 0 ? "" : animation.value.frames[frameIndex] ?? "";
-      if (frame === "") {
+      const frames: (WorldTile | null)[] = [];
+      let firstFrame: WorldTile | null = null;
+      for (const frameReference of animation.value.frames) {
+        const resolvedFrame = resolveAnimationFrame(frameReference, index, root, assets, dependencies, depSet, metadata);
+        if (resolvedFrame.error !== null) return { value: null, error: resolvedFrame.error, missing: null };
+        if (resolvedFrame.missing !== null) return { value: null, error: null, missing: resolvedFrame.missing };
+        const frame = resolvedFrame.tile;
+        if (firstFrame === null && frame !== null) firstFrame = frame;
+        frames.push(frame);
+      }
+      if (firstFrame === null) {
         resolved.push(null);
         continue;
       }
-      const selected = resolveTileReference(index, root, frame);
-      if (!selected.ok) return { value: null, error: formatError(selected.error, frame), missing: null };
-      if (selected.value.kind === "empty") {
-        resolved.push(null);
-        continue;
-      }
-      asset = selected.value.asset;
-      tile = selected.value.kind === "tileset" || selected.value.kind === "isometric" ? selected.value.tile : 1;
-      addDependency(asset, dependencies, depSet);
+      resolved.push({
+        ...firstFrame,
+        animation: { ticksPerFrame: ticksPerFrame(animation.value.speed), frames },
+      });
+      continue;
     }
     const tileBytes = assets.get(asset);
     if (tileBytes === undefined) return { value: null, error: null, missing: asset };
     const info = tileInfo(asset, tileBytes);
     if (info.error !== null) return { value: null, error: info.error, missing: null };
     if (info.metadata !== null) metadata.set(asset, info.metadata);
-    const dimensions = info.metadata;
     resolved.push({
       asset,
       tile,
-      ...(dimensions === null ? {} : {
-        nativeWidth: dimensions.nativeWidth,
-        nativeHeight: dimensions.nativeHeight,
-        width: dimensions.width,
-        height: dimensions.height,
+      ...(info.metadata === null ? {} : {
+        nativeWidth: info.metadata.nativeWidth,
+        nativeHeight: info.metadata.nativeHeight,
+        width: info.metadata.width,
+        height: info.metadata.height,
       }),
     });
   }

@@ -14,7 +14,7 @@ export type WorldPoint = DataRecord & { readonly x: number; readonly y: number }
 
 export type WorldAnimatedTile = DataRecord & {
   readonly ticksPerFrame: number;
-  readonly frames: WorldTile[];
+  readonly frames: (WorldTile | null)[];
 };
 export type WorldTile = DataRecord & {
   readonly asset: AssetKey;

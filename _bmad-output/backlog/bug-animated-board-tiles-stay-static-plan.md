@@ -3,14 +3,14 @@ title: 'Keep animated board tiles playing after load'
 type: 'bugfix'
 ticket: 5
 created: '2026-11-19'
-status: 'draft'
+status: 'built'
 baseline_revision: 'd0d1bcec78a59d11ae8a0831e861328c33a0ad8c'
 route: 'full'
 route_source: 'auto'
 risk: 'medium'
-review: ''
-review_source: ''
-lenses_ran: []
+review: 'quick'
+review_source: 'pinned'
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -52,11 +52,11 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `packages/core/test/world.test.ts` — capture a failing held-board reproduction and the blank/missing-frame cases before the change.
-- [ ] `packages/core/src/world/hydrate.ts`, `packages/core/src/world/model.ts`, `packages/core/src/render/compose.ts` — retain frame dependencies and animation, resolve blank frames correctly, and preserve static behavior.
-- [ ] `packages/core/src/save/ledger.ts` and existing save tests — support any changed animation frame representation and check restore against uninterrupted draws. Use existing save paths; change persistence code only if required.
-- [ ] `packages/runner-headless/test/animated-board-playback.test.ts` — boot authored bytes through the headless runner and verify real tick-driven frames. Reuse fixture authoring and host request/reply helpers where applicable.
-- [ ] `docs/spec/formats/board.md` — retain legacy facts; record Reawakened's tick behavior if needed for the changed behavior, and describe any deliberate golden changes in the PR. If changing the compose hot path, record before/after player performance and work per tick in `tools/perf/README.md`.
+- [x] `packages/core/test/world.test.ts` — capture a failing held-board reproduction and the blank/missing-frame cases before the change.
+- [x] `packages/core/src/world/hydrate.ts`, `packages/core/src/world/model.ts`, `packages/core/src/render/compose.ts` — retain frame dependencies and animation, resolve blank frames correctly, and preserve static behavior.
+- [x] `packages/core/src/save/ledger.ts` and existing save tests — support any changed animation frame representation and check restore against uninterrupted draws. Use existing save paths; change persistence code only if required.
+- [x] `packages/runner-headless/test/animated-board-playback.test.ts` — boot authored bytes through the headless runner and verify real tick-driven frames. Reuse fixture authoring and host request/reply helpers where applicable.
+- [x] `docs/spec/formats/board.md` — retain legacy facts; record Reawakened's tick behavior if needed for the changed behavior, and describe any deliberate golden changes in the PR. If changing the compose hot path, record before/after player performance and work per tick in `tools/perf/README.md`.
 
 **Acceptance Criteria:**
 - Given the authored game package, when the real runner advances across frame boundaries on one board, then the visible tiles animate in sync without board reload.
@@ -68,7 +68,12 @@ context: []
 
 ## Review Triage Log
 
+Quick review: no findings (0 high, 0 medium, 0 low, 0 false, 0 maybe-false). Nothing deferred.
+
 ## Verification
 
-- Run the focused core and headless test files; inspect the runtime test durations, exact boundary draws and save continuation output. Run affected package typechecks.
-- Run the relevant headless golden and, for a hot-path change, the before/after `pnpm perf:player` proof. Required CI remains the merge gate.
+- `pnpm exec tsc -b packages/core packages/runner-headless` and `pnpm --filter @tk-reawakened/runner-headless typecheck:tests` passed.
+- `node --test packages/core/test/world.test.ts packages/core/test/render.test.ts packages/runner-headless/test/animated-board-playback.test.ts` passed 12/12 (465 ms); the runner proof checks synchronized boundary draws, later-asset requests, and actual `saveBlob`/`loadBlob` continuation at the restored tick and following boundaries.
+- `pnpm golden` passed: 20 vector rows/24 ticks; batch 1/3/S and 24 comparisons; 27 program snapshot/restore cases; scene and audio goldens exact.
+- The same `pnpm perf:player` command on Darwin arm64, Node 26.13.0, default GPU and identical demo package SHA was run on clean baseline `d0d1bcec78a59d11ae8a0831e861328c33a0ad8c` and implementation; results are recorded in `tools/perf/README.md`.
+- Re-ran the authored runner proof against the clean baseline build in a temporary checkout: both tests failed as expected (blank tick 12 drew the first tile, and the later frame asset was never requested); the temporary checkout was removed.

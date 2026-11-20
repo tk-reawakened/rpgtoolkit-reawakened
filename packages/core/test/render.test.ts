@@ -71,6 +71,35 @@ test("composeBoard selects animated tile frames from the fixed tick", () => {
   deepEqual(atSeven.commands[1].source, { asset: second, tile: 2 });
 });
 
+test("composeBoard omits empty animation frames without restarting the sequence", () => {
+  const first = assetKey("tiles/first.tst");
+  const second = assetKey("tiles/second.tst");
+  const animated: WorldBoard = {
+    ...board,
+    sizeX: 1,
+    width: 32,
+    layers: [{
+      tiles: [{
+        asset: first,
+        tile: 1,
+        animation: {
+          ticksPerFrame: 12,
+          frames: [{ asset: first, tile: 1 }, null, { asset: second, tile: 2 }],
+        },
+      }],
+    }],
+  };
+  for (const [tick, source] of [[0, first], [11, first], [12, null], [24, second], [36, first]] as const) {
+    const list = composeBoard({ board: animated, tick, camera: { x: 0, y: 0 }, viewport: { width: 32, height: 32 }, alpha: 0, include: { shading: false, images: false, sprites: false } });
+    if (source === null) equal(list.commands.length, 1, `tick ${tick} is blank`);
+    else {
+      const blit = list.commands[1];
+      if (blit?.kind !== "blit") throw new Error(`expected tile at tick ${tick}`);
+      equal(blit.source.asset, source);
+    }
+  }
+});
+
 test("composeBoard accepts the AD-29 board/assets/view form", () => {
   const list = composeBoard(board, new Map(), {
     tick: 0,

@@ -36,7 +36,7 @@ function copyTile(value: WorldTile | null): WorldTile | null {
     ...value,
     ...(value.tint === undefined ? {} : { tint: { ...value.tint } }),
     ...(value.animation === undefined ? {} : {
-      animation: { ...value.animation, frames: value.animation.frames.map((frame) => copyTile(frame)!) },
+      animation: { ...value.animation, frames: value.animation.frames.map(copyTile) },
     }),
   };
 }
