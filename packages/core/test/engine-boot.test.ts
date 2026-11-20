@@ -3707,6 +3707,29 @@ test("missing or changed required board and entry assets fail without partial st
   }
 });
 
+test("recovery refuses duplicate saved item source slots", () => {
+  const { candidate, state } = recoveryCandidateWithDurableState();
+  const saved = JSON.parse(new TextDecoder().decode(candidate)) as {
+    sprites: { items: Array<Record<string, unknown>>; nextItemHandle: number };
+  };
+  const first = saved.sprites.items[0];
+  ok(first !== undefined);
+  saved.sprites.items.push({
+    ...first,
+    id: "items/token.itm#duplicate-slot",
+    index: 1,
+    handle: 8,
+    multitaskProgram: "second-item.prg",
+  });
+  saved.sprites.nextItemHandle = 9;
+  throws(() => restoreRecoveryCandidate(JSON.stringify(saved), state.audio), (error: unknown) =>
+    error instanceof Error
+    && "code" in error
+    && error.code === "restore.item-identity"
+    && error.message.includes("sprites.items[1].sourceSlot"),
+  );
+});
+
 test("pre-manifest checkpoints are refused without changing normal save bytes", () => {
   const { engine, state } = recoveryFixture();
   const ordinary = snapshotGameSave(state);
@@ -4049,10 +4072,57 @@ test("successful recovery installs the saved sprites into the external runtime",
   deepEqual(run(engine, game.files, 30).diagnostics, []);
   equal(engine.recoveryStatus(), "paused");
   deepEqual(runtime.getPlayerPosition(), { x: 123, y: 231 });
+  equal(runtime.section.items[0]?.id, "items/token.itm");
   equal(runtime.section.items[0]?.multitaskThread, null);
   equal(engine.resumeRecovery(), true);
   ok(runtime.section.items[0]?.multitaskThread != null);
   equal(run(engine, game.files, 3).diagnostics.length, 0);
+});
+
+test("recovery assigns authored slot identities to repeated saved item aliases", () => {
+  const { game, candidate } = recoveryCandidateWithDurableState(PAUSED_RECOVERY_GAME, [], (state) => {
+    const board = state.world.board;
+    const item = state.sprites.items[0];
+    const placement = board?.items?.[0];
+    if (board == null || board.items === undefined || board.rawItems === undefined || item === undefined || placement === undefined) {
+      throw new Error("recovery fixture has no first item placement");
+    }
+    const secondPlacement = { ...placement, slot: 1, x: 40 };
+    board.items.push(secondPlacement);
+    board.rawItems.push(secondPlacement);
+    state.sprites.items.push({ ...item, index: 1, handle: 8, sourceSlot: 1, x: 40 });
+    state.sprites.nextItemHandle = 9;
+  });
+  const runtime = createSpriteRuntime();
+  const engine = bootEngine(game, makeDoubles(), undefined, undefined, candidate, runtime);
+  deepEqual(run(engine, game.files, 30).diagnostics, []);
+  equal(engine.recoveryStatus(), "paused");
+  deepEqual(runtime.section.items.map((item) => item.id), ["token.itm", "token.itm#board-slot:1"]);
+});
+
+test("recovery refuses a replacement identity colliding with a unique saved item ID", () => {
+  const { game, candidate } = recoveryCandidateWithDurableState(PAUSED_RECOVERY_GAME, [], (state) => {
+    const board = state.world.board;
+    const item = state.sprites.items[0];
+    const placement = board?.items?.[0];
+    if (board == null || board.items === undefined || board.rawItems === undefined || item === undefined || placement === undefined) {
+      throw new Error("recovery fixture has no first item placement");
+    }
+    const secondPlacement = { ...placement, slot: 1, x: 40 };
+    const thirdPlacement = { ...placement, slot: 2, itemFile: "other.itm", x: 60 };
+    board.items.push(secondPlacement, thirdPlacement);
+    board.rawItems.push(secondPlacement, thirdPlacement);
+    state.sprites.items = [
+      { ...item, index: 0, handle: 7, sourceSlot: 0 },
+      { ...item, index: 1, handle: 8, sourceSlot: 1, x: 40 },
+      { ...item, id: "token.itm#board-slot:1", index: 2, handle: 9, source: "other.itm", sourceSlot: 2, x: 60 },
+    ];
+    state.sprites.nextItemHandle = 10;
+  });
+  const engine = bootEngine(game, makeDoubles(), undefined, undefined, candidate);
+  const result = run(engine, game.files, 30);
+  equal(engine.recoveryStatus(), "failed");
+  ok(result.diagnostics.some(({ message }) => message.includes("collides with another saved item ID")));
 });
 
 test("smoke: promote, select, pause and explicitly resume a recovery candidate", () => {

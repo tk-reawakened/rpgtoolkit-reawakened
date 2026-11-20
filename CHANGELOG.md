@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Repeated placements of one item now keep independent sprite and item-thread identities. Older duplicate-ID saves restore items by authored slot; ambiguous item-thread ownership or nested item references are refused without replacing live state (#1324; [save migration](docs/spec/formats/save-game.md#duplicate-item-placement-identity)).
 - Script-emitted `dialogue.completed` events with no target now reach the stock RPG `talked` bridge with a null target, without changing positive target IDs or native event details (#2026; [event details](docs/spec/engine/rpgcode-modules-and-objects.md#emit-13)).
 - Animated board tiles now retain their ordered, preloaded `.tan` frames and select them from the fixed game tick, so adjacent cells stay synchronized without a board reload. Empty animation slots draw nothing, and loading requests later-frame assets before board activation (#5; [board animation](docs/spec/formats/board.md#animated-tiles)).
 - Native document checking now validates plugin-block envelopes, and the clip editor preserves plugin-owned data byte for byte while editing properties (#1822; [plugin blocks](docs/spec/formats/native-contracts.md#plugin-blocks)). Qualified package IDs use their final segment as the default namespace. The checker and rename tools no longer require retired owner/plugin link fields.
