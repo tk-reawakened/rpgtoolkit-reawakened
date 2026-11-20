@@ -79,6 +79,7 @@ import { applyInputEffect, applySpriteEffect } from "../script/packs/world.ts";
 import type { CameraPoint, CameraTarget } from "../ports/camera.ts";
 import type { SpriteActor, SpritePoint, Facing } from "../sprites/model.ts";
 import { placeSelectedPlayer, selectActor as selectPartyActor, removeActorSprite, spriteDraws, createInitialPlayer, hydrateSprites, itemKey, setItemVisible, type SpriteRuntime, type SpriteThreadResolver } from "../sprites/runtime.ts";
+import { reconcileItemPlacementIdentities } from "./item-placement-identity.ts";
 import { battleInProgress, itemBattleHandlerRunning } from "../script/packs/battle.ts";
 import { runAnimationPhase as runActorAnimationPhase } from "../sprites/animation.ts";
 import { boardCollisionAt } from "../sprites/movement.ts";
@@ -1418,6 +1419,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     savedMessage?: UiMessageWindow,
   ): void {
     const losslessResume = projection === null;
+
     const previousCache = new Map(cache);
     const previousDeferredDecode = new Set(deferredRestoreDecode);
     const savedKeys = candidate.engine.cacheKeys;
@@ -1459,6 +1461,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       failed = previousFailed;
 
       rebaseModalTimeline(candidate, modalIdFloor);
+      reconcileItemPlacementIdentities(candidate);
       Object.assign(state, candidate);
       attachEffectObserver();
 

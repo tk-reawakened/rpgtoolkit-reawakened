@@ -344,7 +344,7 @@ function restoreSprite(base: SpriteActor, sprite: LedgerSprite): SpriteActor {
   return {
     ...withoutActorId,
     ...actorLink,
-    id: sprite.id,
+    id: base.id,
     kind: sprite.kind,
     index: sprite.index,
     handle: sprite.handle,
@@ -404,14 +404,14 @@ export function installRecoveryBoard(state: GameState, authored: WorldBoard, led
     variables: variablesFromGlobals(state.vm.globals),
   }, fresh);
   const freshPlayers = new Map(fresh.players.map((player) => [player.id, player]));
-  const freshItems = new Map(fresh.items.map((item) => [item.id, item]));
+  const freshItems = new Map(fresh.items.map((item) => [item.sourceSlot, item]));
   state.sprites = fresh;
   state.sprites.players = ledger.sprites.players.map((sprite, index) => {
     const base = freshPlayers.get(sprite.id) ?? actorFromSource(spriteSource(sprite, board), board, index, null);
     return restoreSprite(base, sprite);
   });
   state.sprites.items = ledger.sprites.items.map((sprite, index) => {
-    const base = freshItems.get(sprite.id) ?? actorFromSource(spriteSource(sprite, board), board, index, sprite.handle);
+    const base = freshItems.get(sprite.sourceSlot) ?? actorFromSource(spriteSource(sprite, board), board, index, sprite.handle);
     return restoreSprite(base, sprite);
   });
   state.sprites.selectedPlayer = ledger.sprites.selectedPlayer;
