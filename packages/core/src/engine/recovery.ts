@@ -254,7 +254,7 @@ function restoreWorldTile(tile: LedgerTile): WorldTile {
     ...(tile.animation === null ? {} : {
       animation: {
         ticksPerFrame: tile.animation.ticksPerFrame,
-        frames: tile.animation.frames.map(restoreWorldTile),
+        frames: tile.animation.frames.map((frame) => frame === null ? null : restoreWorldTile(frame)),
       },
     }),
   };
