@@ -4,6 +4,8 @@
 
 Every key, rule, check and diagnostic on this page that the approved scene contract does not already state is marked **[Proposed]**. Where this page says "existing", it means the approved scene contract, unchanged and not restated here. Where it says "the tile proposal", it means [tile-tool-contract-proposal.md](tile-tool-contract-proposal.md), which is equally non-normative; this page depends on it and does not restate it.
 
+**Owner decision since this draft:** the [tile proposal](tile-tool-contract-proposal.md) records explicit tile-owned walk-behind geometry, independent of solid collision. For the revised lowering, place both authored outlines with the resolved tile; do not require the creator to trace them again on each scene. References below to undecided walk-behind or `wallCapUnder` predate this decision. Existing scene readers and runtime behavior are unchanged.
+
 ## In plain words
 
 A creator paints a pond on a scene floor. The scene remembers **which cells are pond** (a *terrain region*), not which tile goes in each cell. At build time the pond is turned into the right edge, corner and fill tiles for the board the game plays. If the creator then hand-places a special bank tile on one pond cell, the scene remembers that too, separately, as a *manual override*. The override always wins at its cell. Erasing pond cells never deletes the hand-placed tile, and rebuilding never rewrites the scene.
