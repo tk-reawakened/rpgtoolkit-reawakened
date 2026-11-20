@@ -1214,6 +1214,14 @@ function validateSurfacesShape(value: unknown): void {
 function validateSpritesShape(value: unknown): void {
   const sprites = asSpritesSection(value);
   if (sprites === null || sprites.version !== SPRITES_SCHEMA_VERSION) shapeError("the snapshot's `sprites` section has an invalid schema");
+  const itemSlots = new Set<number>();
+  for (const [index, item] of sprites.items.entries()) {
+    if (item.sourceSlot === null) continue;
+    if (itemSlots.has(item.sourceSlot)) {
+      throw new ScriptError("restore.item-identity", `sprites.items[${index}].sourceSlot claims authored slot ${item.sourceSlot} more than once`);
+    }
+    itemSlots.add(item.sourceSlot);
+  }
 }
 
 function validateActorsShape(value: unknown): void {

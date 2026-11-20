@@ -299,7 +299,7 @@ type PreparedRecovery = {
   readonly board: WorldBoard;
   readonly boardPrograms: ProgramRef[];
   readonly entryProgram: ProgramRef | null;
-  readonly itemPrograms: Map<string, ProgramRef>;
+  readonly itemPrograms: Map<string | number, ProgramRef>;
 };
 type SourceLocation = { file: string; line: number };
 type Paused = { thread: number; frame: number; line: number };
@@ -3576,12 +3576,13 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     }
     const entryProgram = entryName === "" ? null : resolveProgram(entryName);
     if (entryName !== "" && entryProgram === null) return false;
-    const itemPrograms = new Map<string, ProgramRef>();
+    const itemPrograms = new Map<string | number, ProgramRef>();
     for (const sprite of ledger.sprites.items) {
       if (!sprite.visible || sprite.multitaskProgram === null) continue;
       const ref = resolveProgram(sprite.multitaskProgram, true);
       if (ref === null) return false;
-      itemPrograms.set(sprite.id, ref);
+      // Recovery can canonicalize static-item ids; sourceSlot stays stable through the restore.
+      itemPrograms.set(sprite.sourceSlot ?? sprite.id, ref);
     }
     preparedRecovery = { board, boardPrograms, entryProgram, itemPrograms };
     return true;
@@ -3683,7 +3684,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     try {
       items = state.sprites.items.map((item) => {
         if (!item.visible || item.multitaskProgram === null) return item;
-        const ref = prepared.itemPrograms.get(item.id);
+        const ref = prepared.itemPrograms.get(item.sourceSlot ?? item.id);
         if (ref === undefined) throw new Error(`item program "${item.multitaskProgram}" was not prepared`);
         const source = itemKey(item);
         const thread = startThread(stagedVm, { ref, kind: "item", owner: "world", source, target: source });

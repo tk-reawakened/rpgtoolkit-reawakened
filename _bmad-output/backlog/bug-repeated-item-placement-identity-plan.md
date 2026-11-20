@@ -3,7 +3,7 @@ title: 'Restore independent identity for repeated item placements'
 type: 'bugfix'
 ticket: '6'
 created: '2026-11-19'
-status: built
+status: in-review
 baseline_revision: '4340727b09c0596b68325f721e12182421780124'
 route: 'full'
 route_source: 'auto'
@@ -69,10 +69,21 @@ context: ['docs/guardrails.md']
 
 ## Implementation Notes
 Implemented deterministic per-slot IDs, including collisions against all authored item filenames. Ordinary load now reconciles old actor IDs and uniquely linked item-thread roots/targets before state replacement; it refuses ambiguous unlinked or nested references. Recovery keeps the ID from the hydrated source slot. Regression coverage serializes/restores old duplicated IDs and checks independent instance movement/hide cleanup, linked thread migration, refusal atomicity, and literal-name collision.
+
+CI on PR #3251 exposed a recovery identity mismatch: prepared item programs used the saved item ID, while recovery installs the canonical authored ID. Recovery now indexes them by stable `sourceSlot`, falling back to ID for slotless items.
+Snapshot validation also rejects duplicate item source-slot claims before either normal save restoration or interruption recovery can replace state.
+
 ## Plan Change Log
+
+2026-11-20: Fixed the recovery program lookup exposed by the PR unit shard; static placements use stable source slots across canonical ID restoration.
+2026-11-20: Reject duplicate saved item source slots at the restore boundary; document the contract and add a recovery-candidate regression.
+
 
 
 ## Review Triage Log
+
+- Quick review found that duplicate saved `sourceSlot` claims were accepted and recovery would use the last prepared program for both restored sprites. The save boundary now rejects the later claim with `restore.item-identity` and its field path; the regression uses distinct IDs, handles and program names.
+- Perturbation proved the regression is guarded: removing the validation made the focused test fail with “Missing expected exception”; restoring the guard made it pass.
 
 
 ## Design Notes
@@ -81,7 +92,9 @@ The current first placement keeps the historical asset-name identity when it is 
 
 ## Verification
 
-- `pnpm exec tsc -p packages/core/tsconfig.test.json` -- passed.
+- `pnpm exec tsc -p packages/core/tsconfig.test.json` -- passed after the recovery map key type update.
 - `pnpm exec node --test --test-reporter=tap packages/core/test/item-placement-identity.test.ts` -- passed; all five cases individually under 7 ms.
 - `pnpm exec node --test --test-reporter=tap packages/core/test/board-item-hydration.test.ts` -- passed; seven tests.
 - `pnpm exec node --test --test-reporter=tap packages/core/test/save-load.test.ts` -- passed; 25 tests.
+- Seven recovery-resume tests in `packages/core/test/engine-boot.test.ts` -- individually filtered; all passed, each test body under 500 ms.
+- Duplicate-slot recovery-candidate test -- passed (96 ms); with the guard removed it failed (69 ms) with “Missing expected exception”.
