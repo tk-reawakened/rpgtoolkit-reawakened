@@ -4,13 +4,13 @@ type: 'bugfix'
 ticket: '6'
 created: '2026-11-19'
 status: in-review
-baseline_revision: '4340727b09c0596b68325f721e12182421780124'
+baseline_revision: '80fbd186621c3ff0e12bea7e0d0cfed7a2e1fd50'
 route: 'full'
 route_source: 'auto'
 risk: 'high'
 review: 'quick'
 review_source: 'pinned'
-lenses_ran: []
+lenses_ran: ['quick']
 review_loop_iteration: 0
 context: ['docs/guardrails.md']
 ---
@@ -77,13 +77,20 @@ Snapshot validation also rejects duplicate item source-slot claims before either
 
 2026-11-20: Fixed the recovery program lookup exposed by the PR unit shard; static placements use stable source slots across canonical ID restoration.
 2026-11-20: Reject duplicate saved item source slots at the restore boundary; document the contract and add a recovery-candidate regression.
+2026-11-20: Rebased review baseline to current `origin/main` (`80fbd186621c3ff0e12bea7e0d0cfed7a2e1fd50`) after main advanced; the review diff now isolates issue-owned changes.
+2026-11-20: Rebased prior review findings against the current tip: unique saved IDs remain stable, ambiguous typed waits refuse migration, and replacement IDs cannot collide with retained IDs. The pinned quick review at this base found no actionable gaps.
+2026-11-20: Regenerated editor help after the changelog update; `pnpm editor-ui-toolchain:check` passes.
+
 
 
 
 ## Review Triage Log
 
 - Quick review found that duplicate saved `sourceSlot` claims were accepted and recovery would use the last prepared program for both restored sprites. The save boundary now rejects the later claim with `restore.item-identity` and its field path; the regression uses distinct IDs, handles and program names.
-- Perturbation proved the regression is guarded: removing the validation made the focused test fail with “Missing expected exception”; restoring the guard made it pass.
+- Perturbation proof on the current tip: disabling duplicate-slot validation made the focused test fail with “Missing expected exception” (63.2 ms); restoring the guard made it pass (59.7 ms).
+- Prior P2: recovery discarded a unique saved ID. Verdict `false` at the current tip: recovery preserves `sprite.id` unless shared aliases require rekeying (`recovery.ts:413-432`); `successful recovery installs the saved sprites into the external runtime` asserts `items/token.itm` survives.
+- Prior P2: typed movement/sprite waits could resolve through an ambiguous alias. Verdict `false` at the current tip: migration rejects shared keys in movement, sprite-movement, and sprite-stance waits before applying updates (`item-placement-identity.ts:102-112`); `ambiguous typed waits refuse legacy item identity migration` covers all three.
+- Prior P2: a generated replacement could collide with a retained unique ID. Verdict `false` at the current tip: `occupiedIds` is seeded from all non-rekeyed IDs before replacements are assigned (`item-placement-identity.ts:48-60`); `replacement identities cannot collide with unique saved item IDs` verifies refusal without mutation.
 
 
 ## Design Notes
@@ -98,3 +105,6 @@ The current first placement keeps the historical asset-name identity when it is 
 - `pnpm exec node --test --test-reporter=tap packages/core/test/save-load.test.ts` -- passed; 25 tests.
 - Seven recovery-resume tests in `packages/core/test/engine-boot.test.ts` -- individually filtered; all passed, each test body under 500 ms.
 - Duplicate-slot recovery-candidate test -- passed (96 ms); with the guard removed it failed (69 ms) with “Missing expected exception”.
+- Current focused verification on this branch: `pnpm exec tsc -p packages/core/tsconfig.test.json` passed; `item-placement-identity.test.ts` passed all 10 cases (max 5.20 ms); the filtered `engine-boot.test.ts` subset passed all 10 cases (max 300.06 ms).
+- `pnpm help-content:generate && pnpm editor-ui-toolchain:check` passed after regenerating the changelog-derived help artifact.
+- `resolve_issue.py '#1324' --check-stock` and `resolve_issue.py --validate-store` passed at `origin/main` 80fbd186621c3ff0e12bea7e0d0cfed7a2e1fd50.
