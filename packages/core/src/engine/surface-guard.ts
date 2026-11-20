@@ -1,14 +1,16 @@
 /**
- * Keep batched surface drawing invisible to code the engine does not own.
+ * Keep batched drawing and deferred presentation pixels invisible to external code.
  *
  * While a thread runs, script drawing can sit in working buffers whose canonical snapshots
- * (`state.surfaces.entries[id].bitmap.b64`) are stale. The engine's own packs read pixels through the
- * surface API, which sees the buffers; a package or host plugin is handed `view.state` and can read the
- * snapshots, hash or serialise the state directly. Every entry point that runs such code
- * (a command handler, a listener's command, a host-object member hook, an emitter key) therefore
- * flushes first, and flushes again whenever control comes back from a lower layer it called through
- * `next`, because that layer may have drawn. First-party packs are returned untouched so built-in
- * drawing never flushes.
+ * (`state.surfaces.entries[id].bitmap.b64`) are stale; a newly presented screen frame can likewise
+ * retain current decoded pixels while its canonical bytes are deferred. The engine's own packs read
+ * pixels through the surface API, which sees the current buffers; a package or host plugin is handed
+ * `view.state` and can read snapshots, hash or serialise the state directly. Every entry point that runs
+ * such code (a command handler, a listener's command, a host-object member hook, an emitter key) therefore
+ * flushes first, and flushes again whenever control returns through a lower layer it called through
+ * `next`, because that layer may have drawn. External commands' `refreshScreen` port is wrapped too, so
+ * a new frame is canonical before that callback resumes. First-party packs are returned untouched so
+ * built-in drawing never flushes.
  *
  * External code may keep the `view` or a host-object `record` it was handed and read through it later,
  * from a callback the engine invokes at an arbitrary point in a thread. `emitterKey` is such a
@@ -21,12 +23,41 @@
 import type { HostObjectType } from "../script/host.ts";
 import type { ObjectRecord } from "../script/state.ts";
 import type { BuiltinSpec } from "../script/builtins.ts";
-import type { CommandHandler, PluginDefinition, ResolvedPlugin } from "../script/plugin.ts";
+import type { CommandHandler, CommandView, PluginDefinition, ResolvedPlugin } from "../script/plugin.ts";
+
+function viewWithGuardedRefreshScreen(view: CommandView, refreshScreen: () => void, flush: () => void): CommandView {
+  const descriptors: PropertyDescriptorMap = Object.getOwnPropertyDescriptors(view) as PropertyDescriptorMap;
+  const original = descriptors.refreshScreen;
+  const guardedRefreshScreen = () => {
+    try {
+      refreshScreen();
+    } finally {
+      flush();
+    }
+  };
+  if (original === undefined) {
+    descriptors.refreshScreen = { configurable: true, enumerable: true, writable: true, value: guardedRefreshScreen };
+  } else if ("get" in original || "set" in original) {
+    descriptors.refreshScreen = {
+      configurable: original.configurable ?? false,
+      enumerable: original.enumerable ?? false,
+      get: () => guardedRefreshScreen,
+      ...(original.set === undefined ? {} : { set: original.set.bind(view) }),
+    };
+  } else {
+    descriptors.refreshScreen = { ...original, value: guardedRefreshScreen };
+  }
+  const guarded = Object.create(Object.getPrototypeOf(view), descriptors) as CommandView;
+  if (!Object.isExtensible(view)) Object.preventExtensions(guarded);
+  return guarded;
+}
 
 function guardHandler(call: CommandHandler, flush: () => void): CommandHandler {
   return (view, args, next) => {
     flush();
-    return call(view, args, (nextView, nextArgs, nextNext) => {
+    const refreshScreen = view.refreshScreen;
+    const guardedView = refreshScreen === undefined ? view : viewWithGuardedRefreshScreen(view, refreshScreen, flush);
+    return call(guardedView, args, (nextView, nextArgs, nextNext) => {
       try {
         return next(nextView, nextArgs, nextNext);
       } finally {

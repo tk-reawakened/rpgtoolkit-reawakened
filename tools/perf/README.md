@@ -86,6 +86,34 @@ scans after a cache lane is learned. The proposed 64 KiB warm re-hash work budge
 The game still misses display rate: `encodeSurfaceBytes` accounts for 31.4% of sampled self CPU in the candidate.
 The remaining surface/rendering performance is tracked separately in #2795; this integration does not claim to fix it.
 
+## Surface presentation encoding follow-up (#2795, 2026-11-19)
+
+Apple M1 Pro, 16 GiB RAM, Darwin 27.2.0 arm64, Node 26.13.0, headed Playwright Chromium with default GPU, eight-second
+requested runs. Both profiles reached `boards/start.brd`; the baseline is current main `4340727b0` after #2796, and the
+candidate defers canonical screen-surface encoding until a whole-state snapshot or an external state-observation boundary.
+These are single-run advisory observations, not CI thresholds.
+
+| Measurement | Current main | Deferred screen encoding |
+|---|---:|---:|
+| Frame rate | 110.2 fps | 120.5 fps (display cap) |
+| Frame p50 / p90 / p99 | 8.4 / 10.3 / 17.6 ms | 8.3 / 9.7 / 10.3 ms |
+| Maximum frame | 116.8 ms | 82.2 ms |
+| Long tasks | 0 | 0 |
+| Ticks per second | 60.9 | 60.7 |
+| Measured duration | 8.182 s | 8.116 s |
+| `encodeSurfaceBytes` self CPU | 27.2% (2263 ms) | not among sampled self-CPU rows |
+
+The current-main trace is `.perf/issue-2795-before-pnpm/demo.cpuprofile`; the final candidate trace is
+`.perf/issue-2795-release/demo.cpuprofile`. `refreshFrame` now hands the rasterizer-owned frame to surface 0 without
+encoding a full-screen base64 snapshot per frame. Whole-state snapshots, saves and scene checkpoints materialize the
+derived surface; external phase/reset registrations, script observers and plugin/host-object state access flush and
+materialize before callbacks, and external plugin `refreshScreen` calls materialize after refreshing. When mutable state
+has escaped, completed-tick observers run after new presentation pixels are canonical, and `advance` returns with retained
+references canonical. Trusted core-owned phase and reset registrations that do not inspect surface pixels use the deferred path.
+Presentation does constant metadata work without scanning or copying pixels. Deterministic regressions cover the player
+registration wiring's zero-byte changed-frame budget (and a single fresh-screen encoding on reset), canonical external
+callback, edit, reset, plugin, save and checkpoint boundaries.
+
 ## Sprite colour-key correction (#3029)
 
 Apple M1 Pro, 16 GiB RAM, Darwin arm64, Node 24.21.0, headless Playwright Chromium with default GPU.

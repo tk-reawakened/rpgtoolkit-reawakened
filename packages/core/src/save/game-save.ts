@@ -1,5 +1,6 @@
 import { canon, reviveNonFinite, tagNonFinite } from "../canon/index.ts";
 import { audioSaveProjection, type AudioSaveProjection } from "../audio/save.ts";
+import { materializePresentedSurfaces } from "../raster/surfaces.ts";
 import { AUDIO_SCHEMA_VERSION, createAudioSection, createTrack, type AudioStateV2 } from "../audio/model.ts";
 import { ScriptError } from "../script/errors.ts";
 import { isRecord } from "../script/cells.ts";
@@ -186,6 +187,7 @@ export function restoreRecoveryCandidate(json: string, currentAudio: AudioStateV
 
 /** Build the same projection for normal saves and recovery candidates. */
 function gameSaveRoot(state: GameState): Record<string, unknown> {
+  materializePresentedSurfaces(state.surfaces);
   const root = tagNonFinite(state) as Record<string, unknown>;
   const input = { ...(root.input as Record<string, unknown>) };
   delete input.registeredActions;

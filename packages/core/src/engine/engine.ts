@@ -124,6 +124,7 @@ import {
   type ProgramLoader,
   type ProgramRef,
   type ResolvedPlugin,
+  type ScriptObservers,
   type ScriptServices,
   createVmState,
 } from "../script/index.ts";
@@ -133,10 +134,12 @@ import type { PackageCatalogueEntry, PluginDefinition } from "../script/plugin.t
 import { DEFAULT_FONT_ASSET, textInk } from "../raster/text.ts";
 import type { WaitView } from "../ports/wait.ts";
 import { runTimePhase } from "../time/time.ts";
-import { blitTexture, drawSurfaceLine, rasterize, readSurfacePixels, replaceSurface, surfaceTextures, createSurfacesSection, ensureScriptScreen, scriptScreen, resetScriptScreen, copyPresentedFrameToScriptScreen, SCRIPT_SCREEN, renderNowCanvas, renderNowEnabled, type RasterAsset, type SurfacePixelCache, decodeSurfaceBytes } from "../raster/index.ts";
+import { blitTexture, drawSurfaceLine, rasterize, readSurfacePixels, surfaceTextures, createSurfacesSection, ensureScriptScreen, scriptScreen, resetScriptScreen, copyPresentedFrameToScriptScreen, SCRIPT_SCREEN, renderNowCanvas, renderNowEnabled, type RasterAsset, type SurfacePixelCache, decodeSurfaceBytes } from "../raster/index.ts";
 import { rasterizeAuthorMargin } from "../raster/raster.ts";
-import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch, killSurface, editSurfaceWithBounds, surfaceRectBounds } from "../raster/surfaces.ts";
+import { beginSurfaceBatch, endSurfaceBatch, flushSurfaceBatch, killSurface, editSurfaceWithBounds, surfaceRectBounds, presentSurfaceFrame, materializePresentedSurfaces } from "../raster/surfaces.ts";
 import { guardExternalPlugins } from "./surface-guard.ts";
+import { isInternalPhaseRegistration } from "./internal-phase-registration.ts";
+import { isInternalResetRegistration } from "./internal-reset-registration.ts";
 import { type ScenePresentation, restoreSceneCheckpoint, snapshotSceneCheckpoint } from "./checkpoint.ts";
 
 const MENU_HAND_ASSET = assetKey("media/cursors/tkr-menu-hand.png");
@@ -843,13 +846,19 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     audio.register(bus);
     // Keep the host's explicit section override last, just as in scene mode.
     for (const registration of init.effectAppliers ?? []) {
-      if (registration.section === "audio") bus.register("audio", registration.applier);
+      if (registration.section === "audio") bus.register("audio", (effect) => {
+        exposeExternalState();
+        try { registration.applier(effect); } finally { finishExternalStateObservation(); }
+      });
     }
   }
   // Boot mode registers after the main file supplies the game's audio settings; scene mode has none.
   if (init.mainFile === undefined) registerAudio();
   for (const registration of init.effectAppliers ?? []) {
-    if (registration.section !== "audio") bus.register(registration.section, registration.applier);
+    if (registration.section !== "audio") bus.register(registration.section, (effect) => {
+      exposeExternalState();
+      try { registration.applier(effect); } finally { finishExternalStateObservation(); }
+    });
   }
   let nextRequestId = 1;
   let failed = false;
@@ -1205,9 +1214,18 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   let pluginLayers = createPluginLayers();
   const packageStartupLifecycle = { active: false, packageName: undefined as string | undefined };
   let startupServicesReady = false;
-  /** Make batched surface drawing visible in the state tree; a no-op outside a thread phase or when nothing is dirty. */
+  /** Make batched edits and deferred presentation pixels visible before external code reads state. */
   function flushSurfaces(): void {
     flushSurfaceBatch(state.surfaces);
+    materializePresentedSurfaces(state.surfaces);
+  }
+  let externalStateExposed = false;
+  function exposeExternalState(): void {
+    externalStateExposed = true;
+    flushSurfaces();
+  }
+  function finishExternalStateObservation(): void {
+    flushSurfaces();
   }
   /** Recover request order from the recorded VM effect; independent threads share this monotonic sequence. */
   function scriptRequestEffectSeq(reqId: number): number {
@@ -1247,9 +1265,16 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   ): ScriptServices {
     const listenersBeforeStartup = [...state.events.listeners];
     audioDecoders = assembleAudioDecoders(plugins.map((plugin) => plugin.definition), decoderLogger);
+    const observers = init.scriptObservers;
+    const safeObservers: ScriptObservers | undefined = observers === undefined ? undefined : {
+      ...(observers.postStep === undefined ? {} : { postStep: (op, thread) => { exposeExternalState(); try { observers.postStep?.(op, thread); } finally { finishExternalStateObservation(); } } }),
+      ...(observers.postCall === undefined ? {} : { postCall: (call, thread) => { exposeExternalState(); try { observers.postCall?.(call, thread); } finally { finishExternalStateObservation(); } } }),
+      ...(observers.postHandler === undefined ? {} : { postHandler: (handler, thread) => { exposeExternalState(); try { observers.postHandler?.(handler, thread); } finally { finishExternalStateObservation(); } } }),
+      ...(observers.onEffect === undefined ? {} : { onEffect: (effect, thread) => { exposeExternalState(); try { observers.onEffect?.(effect, thread); } finally { finishExternalStateObservation(); } } }),
+    };
     const nextServices = createScriptServices(
       state,
-      guardExternalPlugins(plugins, FIRST_PARTY_PLUGINS, flushSurfaces),
+      guardExternalPlugins(plugins, FIRST_PARTY_PLUGINS, exposeExternalState),
       undefined,
       undefined,
       programLoader,
@@ -1345,7 +1370,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       undefined,
       packageStartupLifecycle,
       media,
-      init.scriptObservers,
+      safeObservers,
       menuOwners,
       mainFile?.gameOverPrg ?? null,
       {
@@ -1659,7 +1684,10 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   function attachEffectObserver(): void {
     const post = init.scriptObservers?.onEffect;
     if (post === undefined) return;
-    observeEffects(state.vm, (record) => observe(post, record, record.thread));
+    observeEffects(state.vm, (record) => {
+      exposeExternalState();
+      try { observe(post, record, record.thread); } finally { finishExternalStateObservation(); }
+    });
   }
   attachEffectObserver();
   if (init.mainFile === undefined && init.programLoader !== undefined) loader = init.programLoader;
@@ -2296,6 +2324,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     } finally {
       observingTick = false;
     }
+    if (externalStateExposed) flushSurfaces();
     observer({ tick: state.time.tick, stateHash, drawHash });
   }
   function finalizeBlobRequests(): void {
@@ -2742,7 +2771,15 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     failed = false;
     postQuitWriteFailures.length = 0;
     state.engine = mainKey === null ? { cacheKeys: [], claims: [] } : { cacheKeys: [], claims: [], boot: { stage: "assets", main: mainKey, fonts: [] } };
-    for (const registration of [...(init.resetRegistrations ?? [])].sort((left, right) => (left.rank ?? 0) - (right.rank ?? 0))) registration.reset(state);
+    for (const registration of [...(init.resetRegistrations ?? [])].sort((left, right) => (left.rank ?? 0) - (right.rank ?? 0))) {
+      const internal = isInternalResetRegistration(registration);
+      if (!internal) exposeExternalState();
+      try {
+        registration.reset(state);
+      } finally {
+        if (!internal) finishExternalStateObservation();
+      }
+    }
     init.spriteRuntime?.bindState(state.sprites, state.vm, resolveSpriteProgram);
     if (nextMain !== undefined) {
       const found = index.byKey.get(assetKey(nextMain));
@@ -4334,17 +4371,16 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     }
   }
   // Script drawing inside runThreadsPhase is held in working buffers (withSurfaceBatch) and written
-  // into the canonical `bitmap.b64` snapshots when the phase ends, including after a thrown command
-  // or a breakpoint pause. Only code that can observe the state tree mid-command defeats that:
-  //  - effectAppliers and scriptObservers are host callbacks the engine cannot vouch for, so
-  //    batching is off whenever either is installed and every edit materialises immediately;
-  //  - package, catalogue and main-file plugins, and their listeners and host-object hooks, are handed
-  //    `view.state`; guardExternalPlugins flushes the batch before any of that code runs (see
-  //    makeServices), so they see exactly what an eager engine would show;
-  //  - the engine's own packs read pixels through the surface API, which sees the working buffers, and
-  //    never trigger a flush;
-  //  - phaseRegistrations run outside the threads phase, and resetRegistrations run after reset has
-  //    installed a fresh, unbatched surfaces section.
+  // into canonical `bitmap.b64` snapshots when the phase ends, including after a thrown command or pause. Only code
+  // that can observe the state tree mid-command defeats that:
+  //  - effectAppliers and scriptObservers are host callbacks the engine cannot vouch for, so batching is off whenever
+  //    either is installed; script observer callbacks also flush pending presented pixels before they run;
+  //  - plugins, listeners and host-object hooks are handed `view.state`; guardExternalPlugins flushes batched edits and
+  //    pending presented pixels before they run, so they see exactly what an eager engine would show;
+  //  - unmarked external phase registrations are similarly bracketed by a flush, including after synchronous effects;
+  //    only trusted core-owned registrations that do not inspect pixels use the deferred path;
+  //  - the engine's own packs read pixels through the surface API, which sees working buffers and never triggers a flush;
+  //  - resetRegistrations run after reset has installed a fresh, unbatched surfaces section.
   const canBatchSurfaces = (init.effectAppliers?.length ?? 0) === 0
     && init.scriptObservers === undefined;
   function withSurfaceBatch<T>(run: () => T): T {
@@ -4621,6 +4657,25 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   function finishScriptThreadPass(): void {
     state.ui.surfaceResultsPending = false;
   }
+  function runPhaseRegistration(
+    registration: EnginePhaseRegistration,
+    postEffect?: (section: SectionKey, effect: PostEffect) => void,
+  ): void {
+    const internal = isInternalPhaseRegistration(registration);
+    const deliverEffect = (section: SectionKey, effect: PostEffect): void => {
+      try {
+        (postEffect ?? ((effectSection, post) => bus.postEffect(effectSection, post)))(section, effect);
+      } finally {
+        if (!internal) finishExternalStateObservation();
+      }
+    };
+    if (!internal) exposeExternalState();
+    try {
+      registration.run(state, postEffect === undefined ? undefined : deliverEffect);
+    } finally {
+      if (!internal) finishExternalStateObservation();
+    }
+  }
   function runPhase(phase: EnginePhase, consumed: InputRecord[]): void {
     state.engine.phase = phase;
     switch (phase) {
@@ -4635,7 +4690,10 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
           if (thread.wait?.kind === "input.key" && thread.wait.parkSeq === undefined) thread.wait.parkSeq = state.input.nextSeq;
         }
         applyQueuedInputRecords(consumed);
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state);
+        const registrations = registrationByPhase.get(phase);
+        if (registrations !== undefined && registrations.length > 0) {
+          for (const registration of registrations) runPhaseRegistration(registration);
+        }
         return;
       }
       case "waits":
@@ -4695,7 +4753,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       case "events":
         returnToBoardAfterBattle();
         runEventsPhase(state, services, STEP_BUDGET);
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         return;
       case "time":
         runTimePhase(state.time);
@@ -4703,21 +4761,21 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         state.ui.actionSurfaces = state.ui.actionSurfaces.filter((surface) => surface.publishedTick >= state.time.tick - 1);
         collectStateGarbage(state, layerRoots(services.layers));
         // Preserve the observer seam after the final phase's state updates (docs/spec/engine/main-loop-and-startup.md#reawakened-phases).
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         return;
       case "movement":
         state.camera = updateCamera(state.camera, state.world.board ?? null, init.cameraTarget ?? init.spriteRuntime);
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         if (state.vm.threads.some((thread) => thread.kind === "blocking" && (thread.wait?.kind === "sprite.movement" || thread.wait?.kind === "movement" || thread.wait?.kind === "sprite.stance"))) {
           boardRedraw();
         }
         return;
       case "edges":
         runEdgesPhase();
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         return;
       case "triggers":
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         if (mainFile !== null) {
           runRandomEncounterPhase(state, {
             fightingDisabled: mainFile.fightingDisabled,
@@ -4731,12 +4789,12 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         return;
       case "animation":
         runAnimationPhase();
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         return;
       case "audio":
         audio.phase();
         audio.retry();
-        for (const registration of registrationByPhase.get(phase) ?? []) registration.run(state, (section, effect) => bus.postEffect(section, effect));
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         return;
       default: {
         const neverPhase: never = phase;
@@ -5139,7 +5197,11 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     // A frame that could not be replayed is never left as a silently blank or partial image.
     frameFailure = rendered.error === null ? null : { hash: nextHash, message: rendered.error };
     if (report && frameFailure !== null) reportRenderFailure(frameFailure.message);
-    if (mode === "present") replaceSurface(state.surfaces, 0 as SurfaceId, rendered.width, rendered.height, rendered.rgba);
+    if (mode === "present") {
+      presentSurfaceFrame(state.surfaces, rendered.width, rendered.height, rendered.rgba);
+      // A retained mutable state reference can observe the next engine callback, so publish each committed frame to it.
+      if (externalStateExposed) flushSurfaces();
+    }
     frameHash = nextHash;
   }
 
@@ -5289,6 +5351,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       finalizeBlobRequests();
       publishQuitRequest();
       refreshPresentedFrame();
+      if (externalStateExposed) flushSurfaces();
       const reportDiagnostics = [...diagnostics.splice(0), ...drainDiagnostics(services)];
       pausedThread = paused?.thread ?? null;
       return {
