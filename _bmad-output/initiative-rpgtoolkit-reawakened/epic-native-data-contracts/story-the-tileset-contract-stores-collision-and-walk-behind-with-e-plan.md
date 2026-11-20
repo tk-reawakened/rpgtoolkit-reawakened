@@ -33,6 +33,8 @@ The [merged terrain design](../../../docs/design/terrain-scene-formats.md) gives
 
 **Isometric output.** Do not treat a 2D `.tst` projected on an isometric board as equivalent to a native `.iso` diamond. Prove `.iso` detail 150 sample order and transparent coverage separately from projection of a 2D tile. For three-face recipes, spell out anchor, face order and clipping, then use an independently expected solid footprint and walk-behind vector to verify the built board. Until that mapping is approved and verified, refuse isometric recipes with a located error rather than guessing at geometry. This does not remove isometric coverage from the story.
 
+**Proposed review choice: store walk-behind geometry, not just a flag.** Reuse the [asset pack vector vocabulary](../../../docs/spec/formats/native-asset-pack.md#fields): closed `under` polygons in integer pixels relative to the placement anchor, carrying the existing mask flags. A tool may propose a polygon from the art, but the saved polygon owns the result. Solid collision stays independent: a tile may have walk-behind and no solid barrier. Verify with a solid post under a wider roof, a walkable canopy with no solid geometry, and two placements at different anchors. The alternative is a `wallCapUnder` boolean that always turns the tile footprint into the under polygon; it cannot describe a cap that extends beyond or covers only part of the footprint.
+
 ## Review Triage Log
 
 ## Verification
