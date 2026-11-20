@@ -292,6 +292,9 @@ item's literal asset identity.
 This migration applies to normal Save/Load and interruption restoration. New
 saves retain each placement identity and its thread link as ordinary
 continuation state; they do not infer ownership from array order.
+Multiple saved items claiming the same `sourceSlot` are invalid and are refused
+with `restore.item-identity` at the later `sprites.items[i].sourceSlot`, before
+normal or interruption restoration replaces live state.
 
 
 The world section is version 3. A version-2 save's `world.board.runtime.tileEdits`
