@@ -97,26 +97,35 @@ floors: [{id: ground}]
 start: {x: 16, y: 31, floor: ground}
 `);
 
-test("packaging refuses a stale board after the scene source was saved and closed", async () => {
-  const scenePath = "Boards/start.tkrscn";
-  const { host, workspace, services } = packageHost({ "Main/demo.gam": authoredMain(""), [scenePath]: nativeScene(1) });
-  const ownership = createSceneBuildOwnership({ fs: host.fs, history: workspace.history, storage: createSceneBuildOwnershipStorage(host.fs) });
-  const saveBuild = async () => {
-    const result = await prepareTerrainSceneProject({ fs: host.fs, scenePath, ownership });
-    ok(result.ok);
-    ok((await writePreparedTerrainSceneProject(result, ownership)).ok);
-  };
-  const prepare = () => prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
-  await saveBuild();
-  ok((await prepare()).ok);
-  await host.fs.write(scenePath, nativeScene(2));
-  const stale = await prepare();
-  ok(!stale.ok);
-  match(stale.message, /Boards\/start\.brd is missing or out of date/);
-  await saveBuild();
-  ok((await prepare()).ok);
-  workspace.dispose();
-});
+for (const root of ["", "Game/Example/"]) {
+  test(`packaging refuses a stale board under ${root}Boards/ after the scene source was saved and closed`, async () => {
+    const scenePath = `${root}Boards/start.tkrscn`;
+    const { host, workspace, services } = packageHost({
+      "Main/demo.gam": authoredMain(""),
+      ...(root === "" ? {} : { "Boards/start.brd": exampleBoard(4) }),
+      [scenePath]: nativeScene(1),
+    });
+    const ownership = createSceneBuildOwnership({ fs: host.fs, history: workspace.history, storage: createSceneBuildOwnershipStorage(host.fs) });
+    const saveBuild = async () => {
+      const result = await prepareTerrainSceneProject({ fs: host.fs, scenePath, ownership });
+      ok(result.ok);
+      ok((await writePreparedTerrainSceneProject(result, ownership)).ok);
+    };
+    const prepare = () => prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+    const boardPath = `${root}Boards/start.brd`;
+    await saveBuild();
+    const fresh = await prepare();
+    ok(fresh.ok);
+    ok(fresh.value.includedFiles.includes(boardPath));
+    await host.fs.write(scenePath, nativeScene(2));
+    const stale = await prepare();
+    ok(!stale.ok, `The package would ship stale bytes for ${boardPath}`);
+    ok(stale.message.includes(`${boardPath} is missing or out of date`));
+    await saveBuild();
+    ok((await prepare()).ok);
+    workspace.dispose();
+  });
+}
 
 test("a changed tileset declaration makes a reviewed scene build stale before any output is written", async () => {
   const scenePath = "Boards/start.tkrscn";

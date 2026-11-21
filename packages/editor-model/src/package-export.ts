@@ -193,7 +193,7 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
   // The archive writer uses these captured bytes, not a second filesystem read of the generated files.
   const scenes = collected.excludedFiles.filter((path) => {
     const key = foldPath(path);
-    return key.startsWith("boards/") && key.endsWith(".tkrscn");
+    return key.endsWith(".tkrscn") && /^(?:game\/[^/]+\/)?boards\//.test(key);
   });
   if (scenes.length > 0) {
     const archiveFiles = new Map(collected.files.map(({ path, bytes }) => [foldPath(path), bytes]));
