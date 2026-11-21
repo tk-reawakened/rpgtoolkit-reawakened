@@ -20,6 +20,11 @@ export interface FilesViewProps {
   readonly onNewBoard?: () => void;
   /** Make a new program (T-40); the host asks for its name and opens it. */
   readonly onNewAnimation?: () => void;
+  /**
+   * Import the selected `.brd` as its same-stem scene and open it. The host reviews and writes; this view only shows
+   * the person-facing failure, or nothing when the import succeeded or was cancelled.
+   */
+  readonly onImportBoard?: (path: string) => Promise<string | null>;
   readonly onRecovery?: () => void;
   readonly onNewProgram?: () => void;
 }
@@ -38,7 +43,7 @@ function routeNote(row: TreeRow): string {
  * so nothing needs a pointer or a context menu. A refusal or a host failure is shown in a live region; nothing is
  * renamed or deleted without the tree's own checks and, for delete, the user's confirmation.
  */
-export function FilesView({ tree, fs, onOpened, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onPackage, onDownload }: FilesViewProps) {
+export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onPackage, onDownload }: FilesViewProps) {
   const snapshot = useDocumentSnapshot(tree);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -57,6 +62,7 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onNewAnimation, onRe
   const [packageMessage, setPackageMessage] = useState("");
   const [prepared, setPrepared] = useState<PreparedGamePackage | null>(null);
   const [inventoryReviewed, setInventoryReviewed] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
   const focusRow = useRef(false);
   const list = useRef<HTMLDivElement>(null);
   const rows = snapshot.rows;
@@ -151,6 +157,18 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onNewAnimation, onRe
       if (result.ok) setRenaming(null);
     });
   };
+  const importBoard = (path: string): void => {
+    if (onImportBoard === undefined) return;
+    setImportMessage("");
+    run(async () => {
+      try {
+        const message = await onImportBoard(path);
+        if (message !== null) setImportMessage(message);
+      } catch (error) {
+        setImportMessage(`Could not import ${path} as a scene: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    });
+  };
 
   const onKeyDown = (event: KeyboardEvent, row: TreeRow, index: number): void => {
     const move = (to: number): void => {
@@ -199,6 +217,16 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onNewAnimation, onRe
       </h2>
       <div class="tkr-files-toolbar" role="toolbar" aria-label="File actions">
         {onNewBoard === undefined ? null : <button type="button" class="tkr-files-new-board" disabled={busy} onClick={onNewBoard}>New board…</button>}
+        {onImportBoard === undefined ? null : (
+          <button
+            type="button"
+            class="tkr-files-import-board"
+            disabled={busy || current === null || current.kind !== "file" || !/\.brd$/i.test(current.path)}
+            onClick={() => { if (current !== null) importBoard(current.path); }}
+          >
+            Import board as scene…
+          </button>
+        )}
         {onNewAnimation === undefined ? null : <button type="button" disabled={busy} onClick={onNewAnimation}>New animation…</button>}
         {onRecovery === undefined ? null : <button type="button" disabled={busy} onClick={onRecovery}>Project recovery…</button>}
         {onNewProgram === undefined ? null : <button type="button" class="tkr-files-new-program" disabled={busy} onClick={onNewProgram}>New program…</button>}
@@ -286,6 +314,7 @@ export function FilesView({ tree, fs, onOpened, onNewBoard, onNewAnimation, onRe
           )}
         </div>
       ) : null}
+      {importMessage.length === 0 ? null : <p class="tkr-files-import-status" role="alert">{importMessage}</p>}
       {renaming === null ? null : (
         <div class="tkr-files-rename-row" role="group" aria-label={`Rename ${renaming}`}>
           <label for={`${ids}-name`}>New name for {renaming}</label>

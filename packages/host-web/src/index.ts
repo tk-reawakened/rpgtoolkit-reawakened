@@ -1,5 +1,5 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
-import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
+import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath, importSavedBoardAsScene } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
@@ -293,7 +293,7 @@ export const openGameSettings = openEditor;
  * project's files by the one board compositor (AD-29). The workspace types a document by its lifecycle only, so the
  * kind is what says which command and snapshot types it has.
  */
-function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContext["document"] {
+function viewDocumentFor(project: WebProject, document: AnyDocument, openImported?: (path: string) => Promise<string | null>): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
@@ -361,6 +361,26 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
     // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
     undo: () => board.undo(),
     redo: () => board.redo(),
+    // Only a live board mounted by a host with an open route offers import; history and snapshot mounts never get here.
+    ...(openImported === undefined ? {} : {
+      importAsScene: async (): Promise<PlatformResult<void>> => {
+        const imported = await importSavedBoardAsScene({
+          fs: project.services.fs,
+          dialogs: project.services.dialogs,
+          projectId: project.project.id,
+          boardPath: document.identity.path,
+          // The reviewed import asks again before each write; the board's unsaved, saving and conflicted state is read now.
+          hasPendingEdits: () => {
+            const snapshot = document.getSnapshot();
+            return snapshot.dirty || snapshot.saving || snapshot.conflict !== null || project.workspace.pendingEdits(document).busy();
+          },
+        });
+        if (!imported.ok) return imported;
+        if (imported.value === null) return platformOk(undefined);
+        const reason = await openImported(imported.value);
+        return reason === null ? platformOk(undefined) : platformError("io-error", `${imported.value} was created but could not be opened: ${reason}`);
+      },
+    }),
   };
   return view;
 }
@@ -415,6 +435,8 @@ export function mountDocumentView(
   navigation?: ViewContext["navigation"],
   /** The running project's main file (`.gam`), which the language server reads the project from; `null` when none. */
   main: string | null = null,
+  /** Whether this is the live editor of a document the author is editing, not a history preview or snapshot mount. */
+  live = false,
 ): DocumentView {
   const documentLayout = projectLayoutForDocumentPath(document.identity.path);
   const browserLayout = documentLayout.projectFolder === "" ? projectLayout : documentLayout;
@@ -438,7 +460,7 @@ export function mountDocumentView(
     mounted = document.kind === "terrain-scene"
       ? mountWebTerrainScene(container, project, asTerrainSceneDocument(document), main, browserLayout.projectFolder)
       : mount(container, {
-      document: viewDocumentFor(project, document),
+      document: viewDocumentFor(project, document, live && openSource !== undefined ? openSource : undefined),
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),
