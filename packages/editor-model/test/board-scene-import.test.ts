@@ -67,6 +67,22 @@ void test("dirty, refused and occupied sources never offer to write an import", 
   deepEqual(host.bytesOf(boardPath), board);
 });
 
+void test("explicit import does not enter review for paths outside the board roots", async () => {
+  const elsewhere = "Other/Village.brd";
+  const board = authored(2);
+  const host = createMemoryPlatformServices({ files: { [elsewhere]: board } });
+  for (const requested of [elsewhere, "Boards/../Other/Village.brd", "Boards/./Village.brd", "Boards\\Village.brd", "Boards/Volumes:Village.brd", "Boards/Bad\u0000Name.brd"]) {
+    const result = await importSavedBoardAsScene({
+      fs: host.fs, dialogs: host.dialogs, projectId: "outside-board-roots", boardPath: requested, hasPendingEdits: () => false,
+    });
+    ok(!result.ok);
+    equal(result.error.code, "invalid-path");
+  }
+  deepEqual(host.questions, []);
+  deepEqual(host.bytesOf(elsewhere), board);
+  equal(host.bytesOf("Other/Village.tkrscn"), undefined);
+});
+
 void test("a changed source or new destination during review stops the import", async () => {
   for (const change of ["board", "destination", "dirty"] as const) {
     const board = authored(2);

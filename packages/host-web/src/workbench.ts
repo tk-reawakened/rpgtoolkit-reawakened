@@ -214,7 +214,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
                 return reference === "" ? "" : referencePath(projectLayout, "boards", reference);
               },
             }),
-          }, main, true), shownIn: container };
+          }, main, importBoard), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -255,7 +255,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
    * Import the file selected in Files as a same-stem scene and open it through the ordinary open route. Older boards
    * reach this even when their legacy view refuses them; a board open in a tab is refused while it has unsaved edits.
    */
-  const importBoard = async (path: string): Promise<string | null> => {
+  const importBoard = async (path: string) => {
     const key = foldPath(path);
     const imported = await importSavedBoardAsScene({
       fs: services.fs,
@@ -269,12 +269,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         return snapshot.dirty || snapshot.saving || snapshot.conflict !== null || workspace.pendingEdits(live).busy();
       },
     });
-    if (!imported.ok) return imported.error.message;
-    if (imported.value === null) return null;
-    // The Files panel is where the new scene was asked for, so its tree shows the row before the scene opens.
+    if (!imported.ok) return imported;
+    if (imported.value === null) return platformOk(undefined);
+    // Both the board and Files routes update the tree before opening the new scene.
     await tree.refresh();
     const reason = await openSource(imported.value);
-    return reason === null ? null : `${imported.value} was created but could not be opened: ${reason}`;
+    return reason === null ? platformOk(undefined) : platformError("io-error", `${imported.value} was created but could not be opened: ${reason}`);
   };
 
   const tell = (message: string): Promise<unknown> =>
@@ -492,7 +492,10 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       if (result.via === "document") show(result.document);
     },
     onOpenPath: (path) => { void openPath(path); },
-    onImportBoard: importBoard,
+    onImportBoard: async (path) => {
+      const result = await importBoard(path);
+      return result.ok ? null : result.error.message;
+    },
     onPackage: async (mainPath, releaseVersion) => {
       const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
       return prepared.ok ? { ok: true, prepared: prepared.value } : prepared;

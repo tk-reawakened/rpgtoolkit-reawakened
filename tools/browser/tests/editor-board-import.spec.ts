@@ -156,6 +156,7 @@ test("Opening a supported legacy board never imports it; the board toolbar can e
   const review = page.getByRole("dialog").filter({ hasText: "Import Boards/vector.brd as a scene?" });
   await review.getByRole("button", { name: "Import as Scene", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Boards/vector.tkrscn", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("treeitem", { name: /^vector\.tkrscn,/ })).toBeVisible();
   expect(await listFolder(page, folder, "Boards")).toEqual(["vector.brd", "vector.tkrscn"]);
   expect(await readFolderFile(page, folder, "Boards/vector.brd")).toEqual(vectorBoard);
 });
