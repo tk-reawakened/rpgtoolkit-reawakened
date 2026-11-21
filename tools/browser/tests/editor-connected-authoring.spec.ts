@@ -4,7 +4,7 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { BinaryReader, createEmptyCharacter, createEmptyMainFile, readBoard, writeCharacter, writeMainFile } from "@tk-reawakened/core";
+import { BinaryReader, createEmptyCharacter, createEmptyMainFile, readBoard, writeBoard, writeCharacter, writeMainFile } from "@tk-reawakened/core";
 import { encodeScenePng } from "@tk-reawakened/editor-model";
 import {
   CONNECTED_BOARD,
@@ -229,7 +229,8 @@ test("browser connected authoring follows shared graphics and local programs int
   await page.screenshot({ path: test.info().outputPath("connected-authoring.png") });
 });
 
-test("paint, touch up, reshape, save, reopen and play a native terrain scene", async ({ page }) => {
+test("paint, touch up, reshape, save, safely recover and play a native terrain scene", async ({ page }) => {
+  test.setTimeout(60_000);
   const unwrap = <T,>(r: {ok: true; value: T} | {ok: false}): T => { expect(r.ok).toBe(true); if (!r.ok) throw new Error("Fixture could not be encoded"); return r.value; };
   const input = (path: string, value: string | Uint8Array) => ({ path, bytes: [...(typeof value === "string" ? new TextEncoder().encode(value) : value)] });
   const scenePath = "Boards/pond.tkrscn";
@@ -239,11 +240,11 @@ test("paint, touch up, reshape, save, reopen and play a native terrain scene", a
   await installFolderPicker(page, [
     input("Main/test.gam", unwrap(writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, initBoard: "configured-start.brd", initChar: "hero.tem", startupPrg: "" }))),
     input("Chrs/hero.tem", unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: Array(6).fill("") }))),
-    input(scenePath, "contract: scene\nversion: 1.0.0-pre.1\n# Keep this comment\nprojection: 2d\nsize: {width: 4, height: 3}\nfloors:\n  - id: ground\nstart: {x: 16, y: 31, floor: ground}\n"),
+    input(scenePath, "contract: scene\nversion: 1.0.0-pre.2\n# Keep this comment\nprojection: 2d\nsize: {width: 4, height: 3}\nfloors:\n  - id: ground\nstart: {x: 16, y: 31, floor: ground}\n"),
     input("Tiles/water.tkrtle", tile("Water", "  cels:\n    - {id: a, sample: {file: Tiles/sheet.png, rect: [0,0,32,32]}}\n    - {id: b, sample: {file: Tiles/sheet.png, rect: [32,0,32,32]}}\n  timeline:\n    frames: [{cel: a, ms: 200}, {cel: b, ms: 200}]")),
     input("Tiles/bank.tkrtle", tile("Bank", "  sample: {file: Tiles/sheet.png, rect: [64,0,32,32]}")),
     input("Tiles/sheet.png", encodeScenePng({ w: 96, h: 32, rgba })),
-    input("Tiles/pond.tkrtst", "contract: tileset\nversion: 1.0.0-pre.1\nname: Pond\nexpects: {projection: 2d, cellSize: [32,32]}\ntiles: [{tile: Tiles/water.tkrtle}, {tile: Tiles/bank.tkrtle}]\nterrains:\n  - id: water\n    name: Water\n    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}\n    neighbours: cardinal-4\n    coverage: complete\n    sync: lockstep\n    rules: [{id: water, when: {}, use: {tile: Tiles/water.tkrtle}}]\noutputBinding:\n  target: Tiles/pond.tst\n  detail: 1\n  slots: [{slot: 1, tile: Tiles/water.tkrtle, cel: a}, {slot: 2, tile: Tiles/water.tkrtle, cel: b}, {slot: 3, tile: Tiles/bank.tkrtle}]\n"),
+    input("Tiles/pond.tkrtst", "contract: tileset\nversion: 1.0.0-pre.2\nname: Pond\nexpects: {projection: 2d, cellSize: [32,32]}\ntiles: [{tile: Tiles/water.tkrtle}, {tile: Tiles/bank.tkrtle}]\nterrains:\n  - id: water\n    name: Water\n    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}\n    neighbours: cardinal-4\n    coverage: complete\n    sync: lockstep\n    rules: [{id: water, when: {}, use: {tile: Tiles/water.tkrtle}}]\noutputBinding:\n  target: Tiles/pond.tst\n  detail: 1\n  slots: [{slot: 1, tile: Tiles/water.tkrtle, cel: a}, {slot: 2, tile: Tiles/water.tkrtle, cel: b}, {slot: 3, tile: Tiles/bank.tkrtle}]\n"),
   ]);
   await page.goto("/tools/browser/editor-web/index.html");
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
@@ -269,15 +270,22 @@ test("paint, touch up, reshape, save, reopen and play a native terrain scene", a
   await cell(2, 1).click();
   await expect(cell(0, 0)).toHaveAccessibleName(/bank\.tkrtle/);
   await expect(cell(0, 1)).toHaveAccessibleName(/base/);
-  const saveActive = page.getByRole("button", { name: "Save active editor", exact: true });
-  await saveActive.click();
-  await expect(page.getByText("Scene saved and board built.", { exact: true })).toBeVisible();
   const bytes = async (path: string) => new Uint8Array(await page.evaluate(async (path) => {
     let dir = (window as ProofWindow).__tkrTestFolder!;
     const parts = path.split("/");
     for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part);
     return [...new Uint8Array(await (await (await dir.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
   }, path));
+  await editor.getByRole("button", { name: "Preview build", exact: true }).click();
+  const canvas = editor.getByRole("img", { name: "Compiled scene preview" });
+  await expect(canvas).toBeVisible();
+  await expect.poll(() => canvas.evaluate((element: HTMLCanvasElement) =>
+    [...element.getContext("2d")!.getImageData(16, 16, 1, 1).data])).toEqual([140, 90, 30, 255]);
+  await expect(bytes("Boards/pond.brd")).rejects.toThrow();
+  expect(new TextDecoder().decode(await bytes(scenePath))).not.toContain("terrainRegions");
+  const saveActive = page.getByRole("button", { name: "Save active editor", exact: true });
+  await saveActive.click();
+  await expect(page.getByText("Scene saved and board built.", { exact: true })).toBeVisible();
   expect(new TextDecoder().decode(await bytes(scenePath))).toContain("# Keep this comment");
   const board = unwrap(readBoard(new BinaryReader(await bytes("Boards/pond.brd"))));
   expect(board.tileMatrix.slice(0, 8).map((i) => board.lut[i])).toEqual(["pond.tst3", expect.stringMatching(/\.tan$/), expect.stringMatching(/\.tan$/), "", "", expect.stringMatching(/\.tan$/), expect.stringMatching(/\.tan$/), ""]);
@@ -319,4 +327,36 @@ test("paint, touch up, reshape, save, reopen and play a native terrain scene", a
       return session?.engine?.drawList().commands.flatMap(({ kind, source }) => kind === "blit" && source?.asset?.endsWith("/pond.tst") && typeof source.tile === "number" ? [source.tile] : []) ?? [];
     }), { timeout: 10_000 }).toContain(frame);
   }
+
+  await page.getByRole("button", { name: "Close Running game", exact: true }).click();
+  await page.getByRole("tab", { name: scenePath, exact: true }).click();
+  const boardPath = "Boards/pond.brd";
+  const recovered = "Boards/pond.recovered.tkrscn";
+  const savedSource = await bytes(scenePath);
+  const priorBoard = unwrap(readBoard(new BinaryReader(await bytes(boardPath))));
+  const outside = unwrap(writeBoard({ ...priorBoard, properties: { ...priorBoard.properties, start: { x: 48, y: 31, layer: 1 } } }));
+  await page.evaluate(async (replacement) => {
+    const root = (window as ProofWindow).__tkrTestFolder!;
+    const boards = await root.getDirectoryHandle("Boards");
+    const writable = await (await boards.getFileHandle("pond.brd")).createWritable();
+    await writable.write(new Uint8Array(replacement));
+    await writable.close();
+  }, [...outside]);
+  await editor.getByRole("radio", { name: "Clear override" }).check();
+  await cell(3, 2).click();
+  await saveActive.click();
+  const review = page.getByRole("dialog").filter({ hasText: "Outside changes were found" });
+  await expect(review).toContainText(recovered);
+  await review.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(review).not.toBeVisible();
+  await expect(bytes(recovered)).rejects.toThrow();
+  expect(await bytes(boardPath)).toEqual(outside);
+  expect(await bytes(scenePath)).toEqual(savedSource);
+
+  await saveActive.click();
+  await expect(review).toContainText("leaves the current scene and board unchanged");
+  await review.getByRole("button", { name: "Write recovery scene", exact: true }).click();
+  await expect.poll(async () => new TextDecoder().decode(await bytes(recovered).catch(() => new Uint8Array()))).toMatch(/(^|\n)contract: scene\nversion: 1\.0\.0-pre\.2/);
+  expect(await bytes(boardPath)).toEqual(outside);
+  expect(await bytes(scenePath)).toEqual(savedSource);
 });

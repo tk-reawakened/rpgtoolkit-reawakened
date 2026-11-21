@@ -1,11 +1,11 @@
-import { BinaryReader, readBoard } from "@tk-reawakened/core";
+import { BinaryReader, readBoard, writeBoard } from "@tk-reawakened/core";
 import type { expect as playwrightExpect, Frame, Page } from "@playwright/test";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 
 type Expect = typeof playwrightExpect;
 export const NATIVE_SCENE_PROOF_PATH = "Boards/terrain-proof.tkrscn";
 const boardPath = "Boards/terrain-proof.brd";
-export async function runVscodeNativeSceneProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>, original: Uint8Array): Promise<void> {
+export async function runVscodeNativeSceneProof(page: Page, expect: Expect, workbenchUrl: string, readBacking: (path: string) => Promise<Uint8Array>, writeBacking: (path: string, bytes: Uint8Array) => Promise<void>, original: Uint8Array): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   const editor = async (): Promise<Frame> => {
@@ -50,6 +50,9 @@ export async function runVscodeNativeSceneProof(page: Page, expect: Expect, work
     throw new Error(`Native terrain editor did not open: ${JSON.stringify(frames)}`, { cause });
   }
   await expect(view.getByRole("grid", { name: "Scene cells" })).toBeVisible();
+  await view.getByRole("button", { name: "Preview build", exact: true }).click();
+  await expect(view.getByRole("img", { name: "Compiled scene preview" })).toBeVisible();
+  await expect(readBacking(boardPath)).rejects.toMatchObject({ code: "ENOENT" });
   await view.getByRole("radio", { name: "Manual empty" }).check();
   await view.getByRole("gridcell").first().getByRole("button").click();
   await expect(sceneTab).toHaveClass(/dirty/);
@@ -86,4 +89,30 @@ export async function runVscodeNativeSceneProof(page: Page, expect: Expect, work
   }, { timeout: 30_000 }).toBe(true);
   if (player === undefined) throw new Error("The scene-play workbench frame did not open");
   await expect.poll(async () => await player!.evaluate(() => Reflect.get(window, "__live") as { board: string | null } | undefined)).toMatchObject({ board: expect.stringContaining("terrain-proof.brd") });
+
+  await sceneTab.click();
+  view = await editor();
+  const sourceBeforeRecovery = await readBacking(NATIVE_SCENE_PROOF_PATH);
+  const prior = readBoard(new BinaryReader(await readBacking(boardPath)));
+  if (!prior.ok) throw new Error(prior.error.message);
+  const outside = writeBoard({ ...prior.value, properties: { ...prior.value.properties, start: { x: 48, y: 31, layer: 1 } } });
+  if (!outside.ok) throw new Error(outside.error.message);
+  await writeBacking(boardPath, outside.value);
+  const recoveryPath = "Boards/terrain-proof.recovered.tkrscn";
+  const review = page.locator(".monaco-dialog-box").filter({ hasText: "Outside changes were found" });
+  const saveNative = view.getByRole("button", { name: "Save", exact: true });
+  await saveNative.click();
+  await expect(review).toContainText(recoveryPath);
+  await review.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(review).not.toBeVisible();
+  await expect(readBacking(recoveryPath)).rejects.toMatchObject({ code: "ENOENT" });
+  expect(new Uint8Array(await readBacking(boardPath))).toEqual(outside.value);
+  expect(await readBacking(NATIVE_SCENE_PROOF_PATH)).toEqual(sourceBeforeRecovery);
+
+  await saveNative.click();
+  await expect(review).toContainText(recoveryPath);
+  await review.getByRole("button", { name: "Write recovery scene", exact: true }).click();
+  await expect.poll(async () => new TextDecoder().decode(await readBacking(recoveryPath).catch(() => new Uint8Array()))).toContain("version: 1.0.0-pre.2");
+  expect(new Uint8Array(await readBacking(boardPath))).toEqual(outside.value);
+  expect(await readBacking(NATIVE_SCENE_PROOF_PATH)).toEqual(sourceBeforeRecovery);
 }

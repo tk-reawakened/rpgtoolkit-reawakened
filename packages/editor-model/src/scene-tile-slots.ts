@@ -5,6 +5,7 @@ import {
 import { documentId, type NativeTile, type NativeTileSample } from "@tk-reawakened/native-data";
 import { sha256Hex } from "./document-history.ts";
 import { encodeSceneTileCrop } from "./scene-tile-encoder.ts";
+import { linkFor, reservedFolder } from "./reserved-folders.ts";
 
 export type SceneTileSlot =
   | { readonly slot: number; readonly tile: string; readonly cel?: string; readonly reserved?: never }
@@ -23,19 +24,28 @@ type CelAllocation = { readonly sample: NativeTileSample; slot: number };
 type TileAllocation = { readonly cels: Map<string, CelAllocation>; readonly member: Member };
 
 const fold = (path: string): string => documentId(path).replace(/[A-Z]/g, (c) => c.toLowerCase());
-const legacyReference = (path: string): string => path.slice("Tiles/".length).replaceAll("/", "\\");
 const EXACT_MS = new Set([50, 100, 200, 250, 500, 1000]);
 
-/** Prepare the legacy images and references; the scene build owns preflight, freshness and persistence. */
+/**
+ * Prepare the legacy images and references; the scene build owns preflight, freshness and persistence.
+ * The binding target and every stored reference are project-relative; `projectFolder` only places outputs in the workspace.
+ */
 export async function lowerSceneTileSlots(
   binding: Binding,
   members: readonly Member[],
   resolveCrop: (sample: NativeTileSample) => Promise<SceneTileCrop | null>,
+  projectFolder = "",
 ): Promise<Result> {
   // docs/spec/formats/native-tileset.md#terrain-cutover
   const target = documentId(binding.target);
   const problems: Problem[] = [];
-  if (!/^Tiles\/.+\.tst$/i.test(target)) problems.push({ path: "outputBinding.target", message: "Generated tilesets must have a .tst destination under Tiles/." });
+  // The document names its output relative to the project (`Tiles/<name>.tst`); the workspace path adds the project folder.
+  const inside = linkFor({ projectFolder: "" }, "tiles", target);
+  if (!inside.inside || !/\.tst$/i.test(inside.reference) || binding.target.startsWith("/") || binding.target.includes("\\") || binding.target.split("/").some((part) => part === "..")) {
+    problems.push({ path: "outputBinding.target", message: "Generated tilesets must have a .tst destination under Tiles/." });
+  }
+  const relativeToTiles = inside.inside ? inside.reference.replaceAll("\\", "/") : target;
+  const outputPath = `${reservedFolder({ projectFolder }, "tiles")}/${relativeToTiles}`;
   const detail = tilesetDetail(binding.detail);
   if (detail === undefined || detail.isometric) problems.push({ path: "outputBinding.detail", message: "The binding requires an unsupported flat tileset detail." });
   if (binding.slots.length > 32767) problems.push({ path: "outputBinding.slots", message: "The slot table exceeds the signed tileset count of 32767." });
@@ -119,16 +129,18 @@ export async function lowerSceneTileSlots(
   const tst = writeTileset({ version: 20, detail, tiles: encoded, residue: new Uint8Array() });
   if (!tst.ok) return { ok: false, problems: [{ path: "outputBinding", message: tst.error.message }] };
 
-  const outputs: Output[] = [{ path: target, bytes: tst.value }];
+  const outputs: Output[] = [{ path: outputPath, bytes: tst.value }];
   const references = new Map<string, string>();
-  const tstRef = legacyReference(target);
+  const qualified = (reference: string): string => /^tiles\\/i.test(reference) ? `Tiles\\${reference}` : reference;
+  const tstRef = qualified(inside.inside ? inside.reference : "");
   // File order is deterministic even when display order changes. Name allocation does not depend on cel order.
   for (const id of [...tiles.keys()].sort()) {
     const { member, cels } = tiles.get(id)!;
     const timeline = member.tile.visual.timeline;
     if (timeline === undefined) { references.set(id, `${tstRef}${cels.get("")!.slot}`); continue; }
     const hash = await sha256Hex(utf8Encode(id));
-    const path = `${target.slice(0, -4)}.tile-${hash}.tan`;
+    const relativeTan = `${relativeToTiles.slice(0, -4)}.tile-${hash}.tan`;
+    const path = `${outputPath.slice(0, -4)}.tile-${hash}.tan`;
     const frames = timeline.frames.map(({ cel }) => `${tstRef}${cels.get(cel)!.slot}`);
     const tan = writeTileAnimation({
       magic: TILE_ANIMATION_MAGIC, major: TILE_ANIMATION_MAJOR, minor: TILE_ANIMATION_MINOR,
@@ -136,7 +148,7 @@ export async function lowerSceneTileSlots(
     });
     if (!tan.ok) return { ok: false, problems: [{ path, message: tan.error.message }] };
     outputs.push({ path, bytes: tan.value });
-    references.set(id, legacyReference(path));
+    references.set(id, qualified(relativeTan.replaceAll("/", "\\")));
   }
   return { ok: true, outputs, references };
 }

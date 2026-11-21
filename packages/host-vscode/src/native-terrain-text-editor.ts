@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, readScene, setSceneTerrain, writePreparedTerrainSceneProject, type Scene, type DocumentHistoryStore } from "@tk-reawakened/editor-model";
+import { createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, readScene, reviewTerrainSceneConflicts, setSceneTerrain, writePreparedTerrainSceneProject, type BoardPicture, type Scene, type TerrainSceneConflictDialogs, type DocumentHistoryStore } from "@tk-reawakened/editor-model";
 import type { RunService } from "@tk-reawakened/platform-services";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { playVscodeTerrainScene } from "./terrain-scene-host.ts";
@@ -20,15 +20,35 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
     const scenePath = relativeToWorkspace(folder.uri, document.uri);
     if (scenePath === undefined) return Promise.resolve("The scene is outside its workspace folder.");
     const fs = createVscodeFileSystem(folder.uri);
-    const owner = createSceneBuildOwnership({ fs, history: historyFor(folder), storage: createSceneBuildOwnershipStorage(fs) });
+    const owner = createSceneBuildOwnership({ fs, history: historyFor(folder), storage: createSceneBuildOwnershipStorage(fs), projectId: folder.uri.toString() });
     const revision = document.version;
     const task = (existing?.promise ?? Promise.resolve(null)).then(async (): Promise<string | null> => {
       if (document.version !== revision || document.isDirty) return "Scene changed during build; save again.";
       const prepared = await prepareTerrainSceneProject({ fs, scenePath, ownership: owner });
       if (!prepared.ok) return prepared.problems.map(({ path, message }) => `${path}: ${message}`).join("; ");
-      if (prepared.check.conflicts.length > 0) return `Build refused: ${prepared.check.conflicts.map(({ message }) => message).join("; ")}`;
-      if (document.version !== revision) return "Scene changed during build; save again.";
-      const written = await writePreparedTerrainSceneProject(prepared, owner);
+      let authorizedPaths: readonly string[] | null = [];
+      if (prepared.check.conflicts.length > 0) {
+        const dialogs: TerrainSceneConflictDialogs = {
+          async reviewRecovery(proposal) {
+            const findings = proposal.findings.map((finding) => `${finding.severity}: ${finding.field} (${finding.path}) — ${finding.message}`).join("\n");
+            const choice = await vscode.window.showWarningMessage(
+              `Outside changes were found in ${proposal.boardPath}. Review the proposed scene at ${proposal.path}.`,
+              { modal: true, detail: `This writes a separate scene and leaves the current scene and board unchanged.\n\n${findings}` },
+              "Write recovery scene",
+            );
+            return choice === "Write recovery scene";
+          },
+          async reviewOutputs(conflicts) {
+            const detail = conflicts.map(({ path, kind, plannedHash, currentHash }) => `${path} (${kind}): planned ${plannedHash}; on disk ${currentHash ?? "absent"}.`).join("\n");
+            return await vscode.window.showWarningMessage("Generated outputs conflict with existing project files.", { modal: true, detail }, "Authorize listed outputs") === "Authorize listed outputs";
+          },
+          report: (message) => vscode.window.showInformationMessage(message),
+        };
+        authorizedPaths = await reviewTerrainSceneConflicts(fs, prepared.check, dialogs, folder.uri.toString());
+        if (authorizedPaths === null) return "Build cancelled or recovery scene created; the original board was not rebuilt.";
+      }
+      if (document.version !== revision || document.isDirty) return "Scene changed during review; save again.";
+      const written = await writePreparedTerrainSceneProject(prepared, owner, authorizedPaths);
       return written.ok ? null : `Scene was saved, but generated outputs were not all written: ${written.message} ${written.outcomes.map(({ path, status, message }) => `${path} (${status}): ${message}`).join("; ")}`;
     }).catch((error: unknown) => `Scene was saved, but building failed: ${error instanceof Error ? error.message : String(error)}`);
     builds.set(key, { version: revision, promise: task });
@@ -58,9 +78,11 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
       const folder = vscode.workspace.getWorkspaceFolder(document.uri);
       const key = document.uri.toString();
       const target: Panel = { panel, initialized: false };
+      let disposed = false;
       const set = panels.get(key) ?? new Set<Panel>(); set.add(target); panels.set(key, set);
       panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")] };
-      const inventory = folder === undefined ? null : await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri));
+      const projectPath = folder === undefined ? undefined : relativeToWorkspace(folder.uri, document.uri);
+      const inventory = folder === undefined || projectPath === undefined ? null : await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath);
       const tilesets = inventory?.ok ? [...inventory.tilesets].map(([path, tileset]) => ({ path, terrains: (tileset.terrains ?? []).map(({ id, name }) => ({ id, label: name })) })) : [];
       const assetTiles = inventory?.ok ? inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })) : [];
       panel.webview.onDidReceiveMessage(async (value: unknown) => {
@@ -82,24 +104,47 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
           const edit = new vscode.WorkspaceEdit();
           edit.replace(document.uri, new vscode.Range(document.positionAt(prefix), document.positionAt(currentText.length - suffix)), result.text.slice(prefix, result.text.length - suffix));
           if (!await vscode.workspace.applyEdit(edit)) { sendStatus(target, "VS Code could not apply the terrain edit."); return; }
+        } else if (value.type === "preview" && "requestId" in value && typeof value.requestId === "string") {
+          const requestId = value.requestId;
+          const reply = async (picture: BoardPicture): Promise<void> => {
+            if (disposed) return;
+            await panel.webview.postMessage({ type: "preview-result", requestId, picture });
+          };
+          if (folder === undefined) { await reply({ ok: false, message: "Open this scene inside a workspace folder to preview it." }); return; }
+          const scenePath = relativeToWorkspace(folder.uri, document.uri);
+          if (scenePath === undefined) { await reply({ ok: false, message: "The scene is outside its workspace folder." }); return; }
+          const revision = document.version;
+          try {
+            const preview = await previewTerrainSceneProject({
+              fs: createVscodeFileSystem(folder.uri),
+              projectId: folder.uri.toString(),
+              scenePath,
+              sceneText: document.getText(),
+            });
+            if (document.version !== revision) { await reply({ ok: false, message: "The scene changed while previewing. Preview again." }); return; }
+            await reply(preview.ok ? {
+              ok: true, width: preview.preview.width, height: preview.preview.height, rgba: preview.preview.rgba,
+              warnings: preview.preview.warnings, objectBounds: preview.preview.objectBounds,
+            } : { ok: false, message: preview.problems.map(({ path, message }) => `${path}: ${message}`).join("; ") });
+          } catch (error) {
+            await reply({ ok: false, message: error instanceof Error ? error.message : String(error) });
+          }
         } else if (value.type === "save") {
           try {
-            const saved = await vscode.workspace.save(document.uri);
-            if (saved === undefined) { sendStatus(target, "The scene was not saved."); return; }
+            if (document.isDirty && await vscode.workspace.save(document.uri) === undefined) { sendStatus(target, "The scene was not saved."); return; }
             const buildResult = await buildSavedRevision(document);
             sendStatus(target, buildResult ?? "Scene saved and board built.");
           } catch (error) { sendStatus(target, `Save failed: ${String(error)}`); }
         } else if (value.type === "play") {
           try {
-            const saved = await vscode.workspace.save(document.uri);
-            if (saved === undefined) { sendStatus(target, "The scene was not saved; play was cancelled."); return; }
+            if (document.isDirty && await vscode.workspace.save(document.uri) === undefined) { sendStatus(target, "The scene was not saved; play was cancelled."); return; }
             const buildResult = await buildSavedRevision(document);
             if (buildResult !== null) { sendStatus(target, buildResult); return; }
             await playVscodeTerrainScene(document, runForProject, (message) => sendStatus(target, message));
           } catch (error) { sendStatus(target, `Play failed: ${String(error)}`); }
         }
       });
-      panel.onDidDispose(() => { set.delete(target); if (set.size === 0) panels.delete(key); });
+      panel.onDidDispose(() => { disposed = true; set.delete(target); if (set.size === 0) panels.delete(key); });
       panel.webview.html = html(panel.webview, context);
     },
   };

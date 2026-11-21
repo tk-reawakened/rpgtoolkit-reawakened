@@ -3,12 +3,13 @@ import { test } from "node:test";
 import { BinaryReader, readBoard, utf8Encode } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { asTerrainSceneDocument } from "../src/kinds.ts";
+import { encodeScenePng } from "../src/scene-png.ts";
 import { createDocumentWorkspace } from "../src/workspace.ts";
 
 const path = "Boards/pond.tkrscn";
 const output = "Boards/pond.brd";
 const source = `contract: scene
-version: 1.0.0-pre.1
+version: 1.0.0-pre.2
 projection: 2d
 size: {width: 1, height: 1}
 floors: [{id: ground, tiles: [[1, 1]]}]
@@ -53,4 +54,27 @@ void test("unsupported automatic wall caps do not write the source or generated 
   ok(saved.failure.message.includes("floors[0].boundarySources.autoWallCaps"));
   deepEqual(host.bytesOf(path), utf8Encode(text));
   equal((await host.fs.read(output)).ok, false);
+});
+
+void test("separate games in one workspace can each build Tiles/pond.tst without sharing it", async () => {
+  const files: Record<string, Uint8Array> = {};
+  for (const game of ["Game/First", "Game/Second"]) {
+    const tile = `${game}/Tiles/bank.tkrtle`;
+    const image = `${game}/Tiles/sheet.png`;
+    files[`${game}/${path}`] = utf8Encode(source.replace("legacy: grass.tst1", `tile: ${tile}`));
+    files[`${game}/Tiles/bank.tkrtst`] = utf8Encode(`contract: tileset\nversion: 1.0.0-pre.2\nname: Bank\nexpects: {projection: 2d, cellSize: [32, 32]}\ntiles: [{tile: ${tile}}]\noutputBinding: {target: Tiles/pond.tst, detail: 1, slots: [{slot: 1, tile: ${tile}}]}\n`);
+    files[tile] = utf8Encode(`contract: tile\nversion: 1.0.0-pre.1\nname: Bank\nprojection: 2d\nrole: floor\nvisual: {transparent: {mode: alpha}, sample: {file: ${image}, rect: [0, 0, 32, 32]}}\n`);
+    files[image] = encodeScenePng({ w: 32, h: 32, rgba: new Uint8Array(32 * 32 * 4).fill(game.endsWith("First") ? 255 : 0) });
+  }
+  const host = createMemoryPlatformServices({ files });
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  for (const game of ["Game/First", "Game/Second"]) {
+    const opened = await workspace.open(`${game}/${path}`);
+    ok(opened.ok);
+    const built = await opened.document.save();
+    ok(built.ok, built.ok ? "" : built.failure.message);
+    ok((await host.fs.read(`${game}/Tiles/pond.tst`)).ok);
+  }
+  equal((await host.fs.read("Tiles/pond.tst")).ok, false);
+  workspace.dispose();
 });

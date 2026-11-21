@@ -1,5 +1,5 @@
-import type { Scene, SceneTerrainCellTile } from "@tk-reawakened/editor-model";
-import { useState } from "preact/hooks";
+import type { BoardPicture, Scene, SceneTerrainCellTile } from "@tk-reawakened/editor-model";
+import { useEffect, useRef, useState } from "preact/hooks";
 type SceneTerrainRegion = NonNullable<Scene["terrainRegions"]>[number];
 
 export interface TerrainSceneViewProps {
@@ -8,6 +8,7 @@ export interface TerrainSceneViewProps {
   readonly assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[];
   readonly onChange: (scene: Scene) => void;
   readonly onSave?: () => void;
+  readonly onPreview?: () => Promise<BoardPicture>;
   readonly onRun?: () => void;
   readonly disabled?: boolean;
 }
@@ -38,7 +39,7 @@ function newRegionId(regions: readonly SceneTerrainRegion[]): string {
   return `region-${n}`;
 }
 
-export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave, onRun, disabled = false }: TerrainSceneViewProps) {
+export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave, onPreview, onRun, disabled = false }: TerrainSceneViewProps) {
   const [floorId, setFloorId] = useState(scene.floors[0]?.id ?? "");
   const [tilesetPath, setTilesetPath] = useState(tilesets[0]?.path ?? "");
   const [terrainId, setTerrainId] = useState(tilesets[0]?.terrains[0]?.id ?? "");
@@ -46,6 +47,23 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave
   const [tileIndex, setTileIndex] = useState(0);
   const [tool, setTool] = useState<Tool>("select");
   const [anchor, setAnchor] = useState<Point | null>(null);
+  const [preview, setPreview] = useState<{ readonly scene: Scene; readonly picture: BoardPicture } | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const previewCanvas = useRef<HTMLCanvasElement>(null);
+  const picture = preview?.scene === scene ? preview.picture : null;
+  useEffect(() => {
+    if (picture?.ok !== true || typeof ImageData === "undefined") return;
+    const context = previewCanvas.current?.getContext("2d");
+    context?.putImageData(new ImageData(new Uint8ClampedArray(picture.rgba), picture.width, picture.height), 0, 0);
+  }, [picture]);
+  const showPreview = async (): Promise<void> => {
+    if (previewBusy || onPreview === undefined) return;
+    setPreviewBusy(true);
+    setPreview(null);
+    try { setPreview({ scene, picture: await onPreview() }); }
+    catch (error) { setPreview({ scene, picture: { ok: false, message: `Could not preview the scene: ${String(error)}` } }); }
+    finally { setPreviewBusy(false); }
+  };
   const regions = scene.terrainRegions ?? [];
   const overrides = scene.tileOverrides ?? [];
   const floor = scene.floors.find((entry) => entry.id === floorId) ?? scene.floors[0];
@@ -93,8 +111,16 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave
     <h2>Scene terrain</h2>
     <div>
       {onSave !== undefined && <button type="button" data-editor-save="true" disabled={disabled} onClick={onSave}>Save</button>}
+      {onPreview !== undefined && <button type="button" aria-disabled={previewBusy} onClick={() => void showPreview()}>Preview build</button>}
       {onRun !== undefined && <button type="button" disabled={disabled} onClick={onRun}>Play</button>}
     </div>
+    {previewBusy && <progress aria-label="Building scene preview" />}
+    {picture?.ok === true && <figure class="tkr-scene-preview">
+      <canvas ref={previewCanvas} width={picture.width} height={picture.height} role="img" aria-label="Compiled scene preview">The preview canvas is unavailable.</canvas>
+      <figcaption>Current scene as it would appear in the game. Previewing does not save it.</figcaption>
+      {picture.warnings.length > 0 && <ul aria-label="Preview warnings">{picture.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+    </figure>}
+    <div role="status">{picture?.ok === false ? picture.message : ""}</div>
     <label>Floor <select value={activeFloor} disabled={disabled} onChange={(event) => { setFloorId(event.currentTarget.value); setSelectedId(""); setAnchor(null); }}>
       {scene.floors.map((entry) => <option key={entry.id} value={entry.id}>{entry.id}</option>)}
     </select></label>

@@ -60,7 +60,7 @@ function sourceBoard(): Board {
 function sourceScene(): Scene {
   return {
     contract: "scene",
-    version: "1.0.0-pre.1",
+    version: "1.0.0-pre.2",
     projection: "2d",
     pixelCoordinates: true,
     size: { width: 2, height: 1 },
@@ -165,7 +165,7 @@ test("a hand-authored scene lowers through the real writer and reader without lo
 });
 
 test("no palette stays absent and every empty or duplicate palette slot keeps its index", () => {
-  const absent: Scene = { contract: "scene", version: "1.0.0-pre.1", projection: "2d", size: { width: 1, height: 1 }, floors: [{ id: "floor", tiles: [[1, 0]] }] };
+  const absent: Scene = { contract: "scene", version: "1.0.0-pre.2", projection: "2d", size: { width: 1, height: 1 }, floors: [{ id: "floor", tiles: [[1, 0]] }] };
   const noPalette = lowerSceneBoard(absent, null);
   ok(noPalette.ok);
   deepEqual(noPalette.board.lut, []);
@@ -184,7 +184,7 @@ test("no palette stays absent and every empty or duplicate palette slot keeps it
 
 test("runs stay split across floors and residue stays in the final encoded records", () => {
   const scene: Scene = {
-    contract: "scene", version: "1.0.0-pre.1", projection: "2d", size: { width: 2, height: 1 },
+    contract: "scene", version: "1.0.0-pre.2", projection: "2d", size: { width: 2, height: 1 },
     floors: [{ id: "first", tiles: [[2, 1]] }, { id: "last", tiles: [[2, 1]] }],
     tilePalette: [{}, { legacy: "grass.tst1" }],
     legacy: { excessTiles: [32767, 1] },

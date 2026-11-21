@@ -50,11 +50,12 @@ test("scene builds append boundary vectors after authored vector slots", async (
   const input: Parameters<typeof buildScene>[0] = {
     scenePath: "Boards/boundary.tkrscn",
     scene: {
-      contract: "scene", version: "1.0.0-pre.1", projection: "2d", size: { width: 1, height: 1 },
+      contract: "scene", version: "1.0.0-pre.2", projection: "2d", size: { width: 1, height: 1 },
       floors: [{ id: "ground", tiles: [[1, 1]], boundarySources: { walkableTiles: [{ legacy: "grass.tst1" }] } }],
       tilePalette: [{}, { legacy: "grass.tst1" }], vectors: [authored],
     },
-    resolveTileset: async () => null, resolvePack: async () => null, readSource: async () => null,
+    resolvePack: async () => null, readSource: async () => null,
+    terrain: { tilesets: new Map(), loadTile: async () => null, resolveCrop: async () => null },
   };
   const result = await buildScene(input);
   if (!result.ok) throw new Error(result.problems.map((problem) => problem.message).join("; "));

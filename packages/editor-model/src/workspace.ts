@@ -211,7 +211,7 @@ interface HostHistory {
 function historyOptions(options: WorkspaceOptions): DocumentHistoryOptions {
   const { fs, capabilities } = options.services;
   const base = { project: fs, policy: options.historyPolicy ?? (() => DEFAULT_HISTORY_POLICY), coveredType: (path: string) =>
-    kindForPath(path) !== null || (path.toLowerCase().startsWith("bitmap/.tkr-generated/") && path.toLowerCase().endsWith(".png")) };
+    kindForPath(path) !== null || /(^|\/)bitmap\/\.tkr-generated\/.*\.png$/i.test(path) || /\.tile-[a-f0-9]{64}\.tan$/i.test(path) };
   if (options.historyStorage !== undefined) return { ...base, storage: options.historyStorage.fs, location: { kind: "host-storage", description: options.historyStorage.description } };
   if (capabilities.has("folderWrite")) return { ...base, storage: fs, location: { kind: "project-folder", description: "Kept in the project's .tkr-history folder, so it travels with the project." } };
   return { ...base, storage: createMemoryHistoryStorage(), location: { kind: "session-memory", description: "History for this session copy is kept only in this page and is lost when the page closes or the browser clears it." } };
@@ -245,7 +245,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   const documentStorage: DocumentStorage = { readProject: fs.readProject.bind(fs), writeProject: fs.writeProject.bind(fs), history: sink };
   const documents = new Map<string, AnyDocument>();
   const register = (document: AnyDocument): void => {
-    if (document.kind === "terrain-scene") connectTerrainSceneSave(asTerrainSceneDocument(document), fs, historyStore);
+    if (document.kind === "terrain-scene") connectTerrainSceneSave(asTerrainSceneDocument(document), fs, historyStore, projectId);
     documents.set(document.identity.key, document);
   };
   const opening = new Map<string, Promise<WorkspaceOpenResult>>();

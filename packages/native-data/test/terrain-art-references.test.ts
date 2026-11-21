@@ -3,7 +3,7 @@ import test from "node:test";
 import { sceneTerrainArtReferences, tilesetTerrainArtReferences } from "../src/terrain-art-references.ts";
 
 const SCENE = `contract: scene
-version: 1.0.0-pre.1
+version: 1.0.0-pre.2
 tilePalette:
   - {tile: 'tiles/field.tkrtle'}
 floors:
@@ -19,7 +19,7 @@ terrainRegions:
 `;
 
 const TILESET = `contract: tileset
-version: 1.0.0-pre.1
+version: 1.0.0-pre.2
 tiles:
   - {tile: tiles/grass.tkrtle}
 terrains:

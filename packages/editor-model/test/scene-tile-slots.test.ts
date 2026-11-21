@@ -1,7 +1,8 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { BinaryReader, expandTileToRgba, readTileAnimation, readTileset } from "@tk-reawakened/core";
+import { BinaryReader, PACKAGE_ROOT, assetKey, createAssetIndex, expandTileToRgba, readTileAnimation, readTileset, resolveTileReference, utf8Encode } from "@tk-reawakened/core";
 import type { NativeTile, NativeTileSample } from "@tk-reawakened/native-data";
+import { sha256Hex } from "../src/document-history.ts";
 import { lowerSceneTileSlots, type SceneTileSlot } from "../src/scene-tile-slots.ts";
 
 const transparent = { mode: "alpha" } as const;
@@ -65,4 +66,54 @@ void test("invalid allocation or timing refuses before looking up source pixels"
   const inexact = await lowerSceneTileSlots({ target, detail: 1, slots: [{ slot: 1, tile: pond.path, cel: "first" }, { slot: 2, tile: pond.path, cel: "second" }] }, [{ ...pond, tile: late }], () => { throw new Error("read before validation"); });
   ok(!inexact.ok);
   deepEqual(inexact.problems.map(({ path }) => path), ["Tiles/Water.tkrtle.visual.timeline.phaseMs", "Tiles/Water.tkrtle.visual.timeline.frames"]);
+});
+
+void test("a nested project keeps its tileset, animation frames and references inside its own Tiles folder", async () => {
+  const result = await lowerSceneTileSlots({ target: "Tiles/Village/pond.tst", detail: 1, slots: rows }, [ground, pond, bank, last], crop, "Game/Quest");
+  ok(result.ok, result.ok ? "" : result.problems.map((problem) => problem.message).join("; "));
+  equal(result.outputs[0]!.path, "Game/Quest/Tiles/Village/pond.tst");
+  equal(result.references.get("tiles/grass.tkrtle"), "Village\\pond.tst1");
+  const tanAsset = `Tiles/Village/${result.outputs[1]!.path.split("/").at(-1)!}`;
+  equal(result.references.get("tiles/water.tkrtle"), tanAsset.slice("Tiles/".length).replaceAll("/", "\\"));
+  const tan = readTileAnimation(new BinaryReader(result.outputs[1]!.bytes));
+  ok(tan.ok);
+  const animated = resolveTileReference(createAssetIndex([tanAsset]), PACKAGE_ROOT, result.references.get("tiles/water.tkrtle")!);
+  ok(animated.ok);
+  equal(animated.ok ? animated.value.kind === "animatedTile" && animated.value.asset : null, assetKey(tanAsset));
+  for (const frame of tan.value.frames) {
+    const resolved = resolveTileReference(createAssetIndex(["Tiles/Village/pond.tst"]), PACKAGE_ROOT, frame);
+    ok(resolved.ok, frame);
+    equal(resolved.value.kind, "tileset");
+    equal(resolved.value.asset, assetKey("Tiles/Village/pond.tst"));
+  }
+  const workspaceTarget = await lowerSceneTileSlots({ target: "Game/Quest/Tiles/Village/pond.tst", detail: 1, slots: rows }, [ground, pond, bank, last], crop, "Game/Quest");
+  ok(!workspaceTarget.ok);
+  equal(workspaceTarget.problems[0]?.path, "outputBinding.target");
+  const wrongFolder = await lowerSceneTileSlots({ target: "Bitmap/pond.tst", detail: 1, slots: rows }, [ground], crop, "Game/Quest");
+  ok(!wrongFolder.ok);
+  const escape = await lowerSceneTileSlots({ target: "../Tiles/pond.tst", detail: 1, slots: rows }, [ground], crop, "Game/Quest");
+  ok(!escape.ok);
+});
+
+void test("a directory literally named Tiles needs the qualified reference and still resolves", async () => {
+  const targetPath = "Tiles/Tiles/walls.tst";
+  const result = await lowerSceneTileSlots({ target: targetPath, detail: 1, slots: [{ slot: 1, tile: ground.path }, { slot: 2, tile: pond.path, cel: "first" }, { slot: 3, tile: pond.path, cel: "second" }] }, [ground, pond], crop);
+  ok(result.ok, result.ok ? "" : result.problems.map((problem) => problem.message).join("; "));
+  equal(result.references.get("tiles/grass.tkrtle"), "Tiles\\Tiles\\walls.tst1");
+  equal(result.references.get("tiles/water.tkrtle"), `Tiles\\Tiles\\walls.tile-${await sha256Hex(utf8Encode("tiles/water.tkrtle"))}.tan`);
+  const index = createAssetIndex([targetPath]);
+  const still = resolveTileReference(index, PACKAGE_ROOT, "Tiles\\Tiles\\walls.tst1");
+  ok(still.ok);
+  equal(still.ok ? still.value.kind === "tileset" && still.value.asset : null, assetKey(targetPath));
+  const tan = readTileAnimation(new BinaryReader(result.outputs[1]!.bytes));
+  ok(tan.ok);
+  const tanAsset = `Tiles/Tiles/${result.outputs[1]!.path.split("/").at(-1)!}`;
+  const animated = resolveTileReference(createAssetIndex([tanAsset]), PACKAGE_ROOT, result.references.get("tiles/water.tkrtle")!);
+  ok(animated.ok, result.references.get("tiles/water.tkrtle"));
+  equal(animated.ok ? animated.value.kind === "animatedTile" && animated.value.asset : null, assetKey(tanAsset));
+  for (const frame of tan.value.frames) {
+    const resolved = resolveTileReference(index, PACKAGE_ROOT, frame);
+    ok(resolved.ok, `frame ${frame} must resolve to ${targetPath}`);
+    equal(resolved.ok ? resolved.value.kind === "tileset" && resolved.value.asset : null, assetKey(targetPath));
+  }
 });

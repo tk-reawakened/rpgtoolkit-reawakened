@@ -1,5 +1,5 @@
 import { DOS_PALETTE, isInsideIsoDiamond, tileDimensions, tilesetDetail, type DecodedTexture, type TilesetTile } from "@tk-reawakened/core";
-import type { Tileset } from "@tk-reawakened/native-data";
+import type { NativeTile } from "@tk-reawakened/native-data";
 
 /** A composed image, in row-major RGBA byte order. */
 export interface SceneTileImage {
@@ -19,8 +19,8 @@ export function encodeSceneTileCrop(
   detailCode: number,
   image: DecodedTexture,
   [x, y, width, height]: readonly [number, number, number, number],
-  transparent: Tileset["sources"][number]["transparent"],
-  kitbash: Tileset["tiles"][number]["kitbash"],
+  transparent: NativeTile["visual"]["transparent"],
+  kitbash: NativeTile["kitbash"],
 ): SceneTileEncodeResult {
   const detail = tilesetDetail(detailCode);
   if (detail === undefined) return { ok: false, error: { section: "detail", message: `Unsupported tileset detail ${detailCode}.` } };

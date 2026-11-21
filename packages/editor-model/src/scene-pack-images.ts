@@ -2,25 +2,28 @@ import { decodeTexture, utf8Encode, type BoardImage } from "@tk-reawakened/core"
 import type { AssetPack, Scene } from "@tk-reawakened/native-data";
 import { sha256Hex } from "./document-history.ts";
 import { encodeScenePng } from "./scene-png.ts";
+import { linkFor, reservedFolder } from "./reserved-folders.ts";
 
 export type ScenePackImageOutput = { readonly path: string; readonly bytes: Uint8Array };
 export type ScenePackImageResult =
   | { readonly ok: true; readonly images: readonly BoardImage[]; readonly outputs: readonly ScenePackImageOutput[] }
   | { readonly ok: false; readonly problems: readonly { readonly path: string; readonly message: string }[] };
 
-/** Returns only generated board slots, in placement/visual order. Outputs are project-relative. */
+/** Returns only generated board slots, in placement/visual order. Outputs are workspace-relative. */
 export async function lowerScenePackImages(
   scene: Scene,
   scenePath: string,
   resolvePack: (path: string) => Promise<AssetPack | null>,
   readSource: (path: string) => Promise<Uint8Array | null>,
   existingOutputPaths: readonly string[] = [],
+  projectFolder = "",
 ): Promise<ScenePackImageResult> {
   const problems: { path: string; message: string }[] = [];
   const images: BoardImage[] = [];
   const outputs: ScenePackImageOutput[] = [];
   const occupied = new Set(existingOutputPaths.map((path) => path.toLowerCase()));
   const ids = new Set<string>();
+  const bitmapRoot = reservedFolder({ projectFolder }, "bitmaps");
   const sceneKey = await sha256Hex(utf8Encode(scenePath));
   const integer = (n: number): boolean => Number.isInteger(n) && n >= -2147483648 && n <= 2147483647;
   const fail = (path: string, message: string): void => { problems.push({ path, message }); };
@@ -64,6 +67,10 @@ export async function lowerScenePackImages(
       if (transparency?.mode === "colorKey" && (!Array.isArray(transparency.color) || transparency.color.length !== 3 || !transparency.color.every((v) => Number.isInteger(v) && v >= 0 && v <= 255))) {
         fail(visualPath, "Invalid transparent color key."); continue;
       }
+      const sourceLink = linkFor({ projectFolder }, "bitmaps", source.file);
+      if (!sourceLink.inside || source.file.startsWith("/") || source.file.includes("\\") || source.file.split("/").some((part) => part === "..")) {
+        fail(visualPath, "Visual source must be inside the project's Bitmap/ folder."); continue;
+      }
       let bytes: Uint8Array | null;
       try { bytes = await readSource(source.file); } catch { fail(visualPath, "Unable to read visual source."); continue; }
       if (!(bytes instanceof Uint8Array)) { fail(visualPath, "Unable to read visual source."); continue; }
@@ -78,7 +85,7 @@ export async function lowerScenePackImages(
       if (![x, y, width, height].every(Number.isSafeInteger) || x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > w || y + height > h) {
         fail(visualPath, "Visual crop is outside the source image."); continue;
       }
-      if (jpeg && (width !== w || height !== h || !/^Bitmap\/.+/i.test(source.file))) {
+      if (jpeg && (width !== w || height !== h)) {
         fail(visualPath, "JPEG requires a whole Bitmap source without transparency conversion."); continue;
       }
       const crop = new Uint8Array(width * height * 4);
@@ -97,17 +104,19 @@ export async function lowerScenePackImages(
       const color = { r: key >>> 16, g: (key >>> 8) & 255, b: key & 255 };
       let file: string;
       if (jpeg) {
-        file = source.file.slice(7).replaceAll("/", "\\");
+        file = sourceLink.reference;
       } else {
         for (let i = 0; i < crop.length; i += 4) if (crop[i + 3] === 0) {
           crop[i] = color.r; crop[i + 1] = color.g; crop[i + 2] = color.b;
         }
-        const outputPath = `Bitmap/.tkr-generated/${sceneKey}/${placement.instanceId}-${visualIndex}.png`;
+        const outputPath = `${bitmapRoot}/.tkr-generated/${sceneKey}/${placement.instanceId}-${visualIndex}.png`;
         if (occupied.has(outputPath.toLowerCase())) { fail(visualPath, "Generated image path collides with another output."); continue; }
         occupied.add(outputPath.toLowerCase());
         try { outputs.push({ path: outputPath, bytes: encodeScenePng({ w: width, h: height, rgba: crop }) }); }
         catch { fail(visualPath, "Visual crop cannot be encoded as PNG."); continue; }
-        file = outputPath.slice(7).replaceAll("/", "\\");
+        const outputLink = linkFor({ projectFolder }, "bitmaps", outputPath);
+        if (!outputLink.inside) { fail(visualPath, "Generated image path is outside the project's Bitmap/."); continue; }
+        file = outputLink.reference;
       }
       images.push({ file, left, top, layer, drawType: 0, transparent: color, reserved: 100 });
     }

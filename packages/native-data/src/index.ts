@@ -62,14 +62,15 @@ export {
   type ClipWriteResult,
 } from "./clip.ts";
 export {
-  readTileset, writeTileset, checkTileset, setTilesetProperty,
+  readTileset, writeTileset, checkTileset, tilesetAssetPaths, tilesetCellBounds, tilesetCellReferences,
   TILESET_CONTRACT, TILESET_VERSION,
-  type Tileset, type TilesetProblem, type TilesetReadResult,
+  type Tileset, type TilesetProblem, type TilesetReadResult, type TilesetWriteResult,
+  type TilesetAssetPath, type TilesetCell, type TilesetCellReference, type TilesetCollision,
+  type TilesetGrid, type TilesetIsoBlock, type TilesetIsoFace, type TilesetKitbashOp,
+  type TilesetProjection, type TilesetRgb, type TilesetRole, type TilesetRule,
+  type TilesetSlot, type TilesetSource, type TilesetSourceCell, type TilesetTerrain,
+  type TilesetTileReference, type TilesetTransparent,
 } from "./tileset.ts";
-export {
-  readTerrainTileset, writeTerrainTileset, checkTerrainTileset,
-  type TerrainTileset, type TerrainTilesetReadResult, type TerrainSlot,
-} from "./terrain-tileset.ts";
 export {
   TILE_CONTRACT, TILE_VERSION, checkTile, readTile, writeTile,
   type NativeTile, type NativeTileSample, type TileProblem, type TileReadResult, type TileWriteResult,
@@ -102,5 +103,6 @@ export {
   type RenamePlan,
   type RenameRefusal,
   type RenameResult,
+  type TerrainRename,
 } from "./rename.ts";
 export { applySplices, type Splice } from "./splice.ts";

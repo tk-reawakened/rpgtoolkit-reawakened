@@ -1,7 +1,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { utf8Decode, utf8Encode } from "@tk-reawakened/core";
-import { platformError, platformOk, type PlatformResult } from "@tk-reawakened/platform-services";
+import { platformError, platformOk, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createSceneBuildOwnership, type SceneBuildOwnershipStorage, type SceneBuildRecord } from "../src/scene-build-ownership.ts";
 import { sha256Hex } from "../src/document-history.ts";
 
@@ -17,6 +17,21 @@ function setup(initial: Record<string, Uint8Array> = {}) {
   const failures = new Set<string>();
   const writes: string[] = [];
   const fs = {
+    async list(path: string): Promise<PlatformResult<readonly DirectoryEntry[]>> {
+      const prefix = path === "" ? "" : `${path}/`;
+      const names = new Map<string, "file" | "directory">();
+      let found = path === "";
+      for (const key of files.keys()) {
+        if (!key.startsWith(prefix)) continue;
+        found = true;
+        const rest = key.slice(prefix.length);
+        const slash = rest.indexOf("/");
+        if (slash === -1) names.set(rest, "file");
+        else names.set(rest.slice(0, slash), "directory");
+      }
+      if (!found) return platformError("not-found", "missing folder");
+      return platformOk([...names].map(([name, kind]) => ({ name, kind })));
+    },
     async read(path: string): Promise<PlatformResult<Uint8Array>> {
       const bytes = files.get(path);
       return bytes === undefined ? platformError("not-found", "missing") : platformOk(bytes.slice());
@@ -48,17 +63,25 @@ function setup(initial: Record<string, Uint8Array> = {}) {
       return platformOk(undefined);
     },
   };
-  const ownership = () => createSceneBuildOwnership({
+  const ownership = (projectId?: string) => createSceneBuildOwnership({
     fs,
     storage,
+    ...(projectId === undefined ? {} : { projectId }),
     history: { async keep(path, bytes) { history.push(`${path}:${utf8Decode(bytes)}`); return { outcome: "held" as const }; } },
   });
   return { fs, files, records, pending, history, failures, storage, ownership, writes };
 }
 
-async function persistBaseline(records: Map<string, Uint8Array>, scene: string, path: string, bytes: Uint8Array): Promise<void> {
-  const record: SceneBuildRecord = { version: 1, scene, output: path, sha256: await sha256Hex(bytes) };
+async function persistBaseline(records: Map<string, Uint8Array>, scene: string, path: string, bytes: Uint8Array, producer: string = scene): Promise<void> {
+  const record: SceneBuildRecord = { version: 2, scene, producer, output: path, sha256: await sha256Hex(bytes) };
   records.set(path, utf8Encode(JSON.stringify(record)));
+}
+
+// The ES2022 test contract has no Promise.withResolvers; this Promise API requires its synchronous executor form.
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => { resolve = settle; });
+  return { promise, resolve };
 }
 
 test("durable ownership survives coordinator restart and matching baseline writes normally", async () => {
@@ -98,6 +121,43 @@ test("check reports unowned, changed, deleted, owner mismatch and pending output
   equal(state.files.get("Boards/unowned.brd") !== undefined, true);
   equal(state.history.length, 0);
   equal(state.records.size, 4);
+});
+
+test("malformed and legacy ownership records fail safe until explicitly authorized", async () => {
+  const bytes = utf8Encode("baseline");
+  const state = setup({ [OUTPUT]: bytes });
+  state.records.set(OUTPUT, utf8Encode(`{"version":2,"scene":"${SCENE}","producer":"${SCENE}","output":"${OUTPUT}","sha256":"zz"}`));
+  const malformed = await state.ownership().check(SCENE, [{ path: OUTPUT, bytes }]);
+  ok(malformed.ok);
+  deepEqual(malformed.check.conflicts.map((item) => item.kind), ["untrusted"]);
+  const refused = await state.ownership().write(malformed.check, [{ path: OUTPUT, bytes }]);
+  equal(refused.ok, false);
+  equal(state.writes.length, 0);
+  state.records.set(OUTPUT, utf8Encode(JSON.stringify({ version: 1, scene: SCENE, output: OUTPUT, sha256: await sha256Hex(bytes) })));
+  const legacy = await state.ownership().check(SCENE, [{ path: OUTPUT, bytes }]);
+  ok(legacy.ok);
+  deepEqual(legacy.check.conflicts.map((item) => item.kind), ["untrusted"]);
+  const repaired = await state.ownership().write(legacy.check, [{ path: OUTPUT, bytes }], [OUTPUT]);
+  equal(repaired.ok, true);
+  const followup = await state.ownership().check(SCENE, [{ path: OUTPUT, bytes }]);
+  ok(followup.ok);
+  deepEqual(followup.check.conflicts, []);
+});
+
+test("an interrupted write by another producer stays an ownership conflict, not an authorizable untrusted file", async () => {
+  const sharedPath = "Tilesets/shared.tst";
+  const tileset = "Tilesets/shared.tkrtst";
+  const bytes = utf8Encode("tileset output");
+  const state = setup({ [sharedPath]: bytes });
+  await persistBaseline(state.records, "Boards/first.tkrscn", sharedPath, bytes, tileset);
+  state.pending.add(sharedPath);
+  const checked = await state.ownership().check("Boards/second.tkrscn", [{ path: sharedPath, bytes: utf8Encode("other") }]);
+  ok(checked.ok);
+  deepEqual(checked.check.conflicts.map((item) => item.kind), ["owner-mismatch"]);
+  const refused = await state.ownership().write(checked.check, [{ path: sharedPath, bytes: utf8Encode("other") }], [sharedPath]);
+  equal(refused.ok, false);
+  equal(state.writes.length, 0);
+  deepEqual(utf8Decode(state.files.get(sharedPath)!), "tileset output");
 });
 
 test("all outputs are checked before writes and conflict authorization is explicit", async () => {
@@ -182,32 +242,47 @@ test("all outputs enter history before writes; unchanged outputs skip history", 
   equal(blocked.ok, false);
   equal(utf8Decode(state.files.get(firstPath)!), "first new");
 });
-test("a shared identical build is reused without changing its ownership; divergent ownership conflicts", async () => {
+test("a shared tileset producer is reused without rewriting; another producer cannot take it", async () => {
   const sharedBytes = utf8Encode("shared tileset bytes");
-  const sharedPath = "Tilesets/shared.tkt";
+  const sharedPath = "Tilesets/shared.tst";
+  const tileset = "Tilesets/shared.tkrtst";
   const firstScene = "Boards/first.tkrscn";
   const secondScene = "Boards/second.tkrscn";
   const state = setup({ [sharedPath]: sharedBytes });
-  await persistBaseline(state.records, firstScene, sharedPath, sharedBytes);
+  await persistBaseline(state.records, firstScene, sharedPath, sharedBytes, tileset);
   const originalRecord = state.records.get(sharedPath)!.slice();
   const ownership = state.ownership();
-  const identical = await ownership.check(secondScene, [{ path: sharedPath, bytes: sharedBytes }]);
+  const identical = await ownership.check(secondScene, [{ path: sharedPath, bytes: sharedBytes, producer: tileset }]);
   ok(identical.ok);
   deepEqual(identical.check.conflicts, []);
-  const reused = await ownership.write(identical.check, [{ path: sharedPath, bytes: sharedBytes }]);
+  const reused = await ownership.write(identical.check, [{ path: sharedPath, bytes: sharedBytes, producer: tileset }]);
   equal(reused.ok, true);
   deepEqual(reused.outcomes.map((item) => item.status), ["shared"]);
   deepEqual(state.records.get(sharedPath), originalRecord);
   equal(state.writes.length, 0);
   equal(state.history.length, 0);
 
-  const divergentBytes = utf8Encode("different generated tileset");
-  const divergent = await ownership.check(secondScene, [{ path: sharedPath, bytes: divergentBytes }]);
-  ok(divergent.ok);
-  deepEqual(divergent.check.conflicts.map((item) => item.kind), ["owner-mismatch"]);
-  const refused = await ownership.write(divergent.check, [{ path: sharedPath, bytes: divergentBytes }]);
+  // A second scene rebuilding from the same tileset producer updates the shared output in place.
+  const updatedBytes = utf8Encode("regenerated shared tileset");
+  const update = await ownership.check(secondScene, [{ path: sharedPath, bytes: updatedBytes, producer: tileset }]);
+  ok(update.ok);
+  deepEqual(update.check.conflicts, []);
+  const updated = await ownership.write(update.check, [{ path: sharedPath, bytes: updatedBytes, producer: tileset }]);
+  equal(updated.ok, true);
+  deepEqual(updated.outcomes.map((item) => item.status), ["written"]);
+  const saved = JSON.parse(utf8Decode(state.records.get(sharedPath)!)) as SceneBuildRecord;
+  equal(saved.producer, tileset);
+  equal(state.writes.length, 1);
+
+  // A scene-owned build of the same path is a different producer: refused even with identical bytes and authorization.
+  const intruder = await ownership.check(secondScene, [{ path: sharedPath, bytes: updatedBytes }]);
+  ok(intruder.ok);
+  deepEqual(intruder.check.conflicts.map((item) => item.kind), ["owner-mismatch"]);
+  const refused = await ownership.write(intruder.check, [{ path: sharedPath, bytes: utf8Encode("different generated tileset") }], [sharedPath]);
   equal(refused.ok, false);
-  equal(state.writes.length, 0);
+  equal(state.writes.length, 1);
+  deepEqual(utf8Decode(state.files.get(sharedPath)!), "regenerated shared tileset");
+  equal((JSON.parse(utf8Decode(state.records.get(sharedPath)!)) as SceneBuildRecord).producer, tileset);
 });
 
 test("destination changed during history capture is rechecked and left untouched", async () => {
@@ -253,3 +328,108 @@ test("file and ownership-record failures are reported and never trusted on next 
   equal(state.records.has(outputs[1]!.path), false);
 });
 
+test("concurrent coordinators on one project cannot overwrite each other, even when authorized", async () => {
+  const base = utf8Encode("unowned base");
+  const state = setup({ [OUTPUT]: base });
+  const first = state.ownership("project-1");
+  const second = createSceneBuildOwnership({
+    fs: {
+      list: (path) => state.fs.list(path),
+      read: (path) => state.fs.read(path),
+      write: (path, bytes) => state.fs.write(path, bytes),
+    },
+    storage: state.storage,
+    projectId: "project-1",
+    history: { async keep() { return { outcome: "held" as const }; } },
+  });
+  const firstOutput = { path: OUTPUT, bytes: utf8Encode("first build") };
+  const secondOutput = { path: OUTPUT, bytes: utf8Encode("second build") };
+  const firstReview = await first.check(SCENE, [firstOutput]);
+  const secondReview = await second.check(SCENE, [secondOutput]);
+  ok(firstReview.ok && secondReview.ok);
+  deepEqual(firstReview.check.conflicts.map((item) => item.kind), ["unowned"]);
+  const [firstResult, secondResult] = await Promise.all([
+    first.write(firstReview.check, [firstOutput], [OUTPUT]),
+    second.write(secondReview.check, [secondOutput], [OUTPUT]),
+  ]);
+  equal([firstResult.ok, secondResult.ok].filter(Boolean).length, 1);
+  equal(state.writes.length, 1);
+  equal(state.pending.size, 0);
+  const winnerClaimed = firstResult.ok ? firstOutput : secondOutput;
+  deepEqual(utf8Decode(state.files.get(OUTPUT)!), utf8Decode(winnerClaimed.bytes));
+  const settled = await state.ownership("project-1").check(SCENE, [winnerClaimed]);
+  ok(settled.ok);
+  deepEqual(settled.check.conflicts, []);
+});
+
+test("the input verifier runs inside the project queue, after history retention, and its failure releases the lock", async () => {
+  const state = setup({ [OUTPUT]: utf8Encode("base") });
+  const output = { path: OUTPUT, bytes: utf8Encode("built") };
+  const review = await state.ownership().check(SCENE, [output]);
+  ok(review.ok);
+  deepEqual(review.check.conflicts.map((item) => item.kind), ["unowned"]);
+  const refused = await state.ownership().write(review.check, [output], [OUTPUT], async () => ({ ok: false, message: "scene changed during the build" }));
+  equal(refused.ok, false);
+  equal(state.history.length, 1);
+  equal(state.writes.length, 0);
+  equal(state.pending.size, 0);
+  const thrown = await state.ownership().write(review.check, [output], [OUTPUT], async () => { throw new Error("verifier crashed"); });
+  equal(thrown.ok, false);
+  equal(state.writes.length, 0);
+  const saved = await state.ownership().write(review.check, [output], [OUTPUT], async () => ({ ok: true }));
+  equal(saved.ok, true);
+  equal(state.writes.length, 1);
+  deepEqual(utf8Decode(state.files.get(OUTPUT)!), "built");
+
+  const first = state.ownership("project-2");
+  const second = state.ownership("project-2");
+  const a = { path: "Boards/queued-a.brd", bytes: utf8Encode("a") };
+  const b = { path: "Boards/queued-b.brd", bytes: utf8Encode("b") };
+  const reviewA = await first.check(SCENE, [a]);
+  const reviewB = await second.check(SCENE, [b]);
+  ok(reviewA.ok && reviewB.ok);
+  const entered = deferred();
+  const gate = deferred();
+  const ahead = first.write(reviewA.check, [a], [], async () => {
+    entered.resolve();
+    await gate.promise;
+    return { ok: true };
+  });
+  await entered.promise;
+  const behind = second.write(reviewB.check, [b], [], async () => ({ ok: true }));
+  equal(state.files.has(b.path), false);
+  gate.resolve();
+  const [aheadResult, behindResult] = await Promise.all([ahead, behind]);
+  equal(aheadResult.ok, true);
+  equal(behindResult.ok, true);
+  equal(state.files.has(a.path), true);
+  equal(state.files.has(b.path), true);
+});
+
+test("existing spelling is resolved and ambiguous case-folded paths are refused", async () => {
+  const state = setup({ "Boards/Cottage.brd": utf8Encode("existing") });
+  const requested = { path: "boards/cottage.brd", bytes: utf8Encode("rebuilt") };
+  const review = await state.ownership().check(SCENE, [requested]);
+  ok(review.ok);
+  equal(review.check.observations[0]!.resolvedPath, "Boards/Cottage.brd");
+  const written = await state.ownership().write(review.check, [requested], [requested.path]);
+  equal(written.ok, true);
+  equal(state.files.has("boards/cottage.brd"), false);
+  deepEqual(utf8Decode(state.files.get("Boards/Cottage.brd")!), "rebuilt");
+  const settled = await state.ownership().check(SCENE, [{ path: "BOARDS/COTTAGE.BRD", bytes: requested.bytes }]);
+  ok(settled.ok);
+  deepEqual(settled.check.conflicts, []);
+  equal(settled.check.observations[0]!.resolvedPath, "Boards/Cottage.brd");
+
+  const collided = setup({ "Boards/Out.brd": utf8Encode("one"), "Boards/OUT.brd": utf8Encode("two") });
+  const ambiguous = await collided.ownership().check(SCENE, [{ path: "Boards/out.brd", bytes: utf8Encode("built") }]);
+  equal(ambiguous.ok, false);
+  const ambiguousFolder = setup({ "Boards/Out.brd": utf8Encode("one"), "boards/Other.brd": utf8Encode("two") });
+  equal((await ambiguousFolder.ownership().check(SCENE, [{ path: "BOARDS/Out.brd", bytes: utf8Encode("built") }])).ok, false);
+  const duplicateSpelling = await state.ownership().check(SCENE, [
+    { path: "Boards/Cottage.brd", bytes: requested.bytes },
+    { path: "boards/cottage.brd", bytes: requested.bytes },
+  ]);
+  equal(duplicateSpelling.ok, false);
+  equal(collided.writes.length, 0);
+});

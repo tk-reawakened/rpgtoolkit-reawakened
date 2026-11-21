@@ -107,3 +107,22 @@ test("rejects JPEG crops and color-key conversion instead of re-encoding", async
   ok(!keyConversion.ok);
   equal(keyConversion.problems[0]?.message, "JPEG crops and transparency conversion are unavailable.");
 });
+
+test("a nested project writes PNGs under its own Bitmap and links them relative to the board", async () => {
+  const nestedPack: AssetPack = { ...pack, sources: [{ id: "atlas", file: "Game/Quest/Bitmap/atlas.png", transparent: { mode: "colorKey", color: [255, 0, 0] } }] };
+  const nested = scene([{ ...placements[0]!, pack: "Game/Quest/Packs/test.tkrpack" }]);
+  const result = await lowerScenePackImages(nested, "Game/Quest/Boards/one.tkrscn",
+    async (path) => path === "Game/Quest/Packs/test.tkrpack" ? nestedPack : null,
+    async (path) => path === "Game/Quest/Bitmap/atlas.png" ? sourceBytes : null,
+    [], "Game/Quest");
+  ok(result.ok, result.ok ? "" : result.problems.map((problem) => problem.message).join("; "));
+  const generated = result.outputs[0]!;
+  ok(generated.path.startsWith("Game/Quest/Bitmap/.tkr-generated/"), generated.path);
+  equal(result.images[0]?.file, generated.path.slice("Game/Quest/Bitmap/".length).replaceAll("/", "\\"));
+  const outsidePack: AssetPack = { ...pack, sources: [{ id: "atlas", file: "Bitmap/atlas.png", transparent: { mode: "alpha" } }] };
+  const outside = await lowerScenePackImages(nested, "Game/Quest/Boards/one.tkrscn",
+    async (path) => path === "Game/Quest/Packs/test.tkrpack" ? outsidePack : null,
+    async () => sourceBytes, [], "Game/Quest");
+  ok(!outside.ok);
+  equal(outside.problems[0]?.path, "placedPacks[0].visuals[0]");
+});

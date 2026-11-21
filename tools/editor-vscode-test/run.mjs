@@ -112,7 +112,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
   await copyFile(spritePreviewGifFile, resolve(proofWorkspace, "Misc/vscode-web-proof.gif"));
   const nativeClipBytes = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/native/animation-clip/valid/sword-swing.tkranm")));
   await writeFile(resolve(proofWorkspace, NATIVE_CLIP_PROOF_PATH), nativeClipBytes);
-  const nativeSceneBytes = new TextEncoder().encode("contract: scene\nversion: 1.0.0-pre.1\nprojection: 2d\nsize: {width: 2, height: 2}\nfloors: [{id: ground, tiles: [[1, 1], [3, 0]]}]\ntilePalette: [{}, {legacy: village.tst1}]\nstart: {x: 16, y: 31, floor: ground}\n");
+  const nativeSceneBytes = new TextEncoder().encode("contract: scene\nversion: 1.0.0-pre.2\nprojection: 2d\nsize: {width: 2, height: 2}\nfloors: [{id: ground, tiles: [[1, 1], [3, 0]]}]\ntilePalette: [{}, {legacy: village.tst1}]\nstart: {x: 16, y: 31, floor: ground}\n");
   await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
   await writeFile(resolve(proofWorkspace, NATIVE_SCENE_PROOF_PATH), nativeSceneBytes);
   if (nativeSceneProof) await copyFile(resolve(root, "docs/spec/examples/game/Game/Example/Chrs/ada.tem"), resolve(proofWorkspace, "Chrs/ada.tem"));
@@ -410,8 +410,8 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       console.log("vscode.dev native clip edit, one-line save and reopen proof passed");
     };
     const proveNativeScene = async () => {
-      await runVscodeNativeSceneProof(page, expect, workbenchUrl, readBacking, nativeSceneBytes);
-      console.log("vscode.dev native scene terrain text edit, save and play proof passed");
+      await runVscodeNativeSceneProof(page, expect, workbenchUrl, readBacking, writeBacking, nativeSceneBytes);
+      console.log("vscode.dev native scene preview, terrain edit, save, recovery and play proof passed");
     };
     if (nativeSceneProof) {
       await proveNativeScene();

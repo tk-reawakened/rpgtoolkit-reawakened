@@ -234,7 +234,9 @@ export { setSceneTerrain, readScene } from "@tk-reawakened/native-data";
 export type { TerrainSceneDocument } from "./terrain-scene-document.ts";
 export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
 export { buildTerrainSceneLaunch } from "./terrain-scene-launch.ts";
-export { createSceneBuildOwnership, createSceneBuildOwnershipStorage } from "./scene-build-ownership.ts";
+export { createSceneBuildOwnership, createSceneBuildOwnershipStorage, type SceneBuildCheck, type SceneBuildConflictKind } from "./scene-build-ownership.ts";
+export { registerTerrainSceneConflictReview } from "./terrain-scene-save.ts";
+export { reviewTerrainSceneConflicts, terrainSceneBoardPath, type TerrainSceneConflictDialogs, type TerrainSceneConflictChoice, type TerrainSceneRecoveryReview } from "./terrain-scene-conflicts.ts";
 export { encodeScenePng } from "./scene-png.ts";
 export {
   createProgramDocument,

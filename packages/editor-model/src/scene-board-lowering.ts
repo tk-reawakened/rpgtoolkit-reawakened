@@ -68,8 +68,8 @@ export function lowerSceneBoard(scene: Scene, palette: readonly string[] | null)
     scene.tilePalette.forEach((entry, i) => {
       const resolved = palette[i];
       if (typeof resolved !== "string" || (entry.legacy !== undefined && resolved !== entry.legacy)
-        || (entry.legacy === undefined && entry.tileset === undefined && resolved !== "")
-        || (entry.tileset !== undefined && resolved === "")) {
+        || (entry.legacy === undefined && entry.tile === undefined && resolved !== "")
+        || (entry.tile !== undefined && resolved === "")) {
         problems.push({ path: `tilePalette[${i}]`, message: "The resolved reference does not represent this palette slot." });
       }
     });

@@ -12,8 +12,8 @@ const textScalar = (node: unknown): node is Scalar<string> =>
 
 /** Scene reference locations from docs/spec/formats/native-scene.md#resolving-painted-terrain. */
 export function sceneTerrainArtReferences(text: string): TerrainArtReferences {
-  const document = parseDocument(text, { version: "1.2", schema: "core" });
-  if (document.errors.length) return { references: [], problems: ["invalid YAML document"] };
+  const document = parseDocument(text, { version: "1.2", schema: "core", uniqueKeys: false });
+  if (document.errors.length) return { references: [], problems: [] };
   const root = document.contents;
   const contract = isMap(root) && isScalar(root.get("contract", true)) ? String(root.get("contract", true)?.value) : null;
   if (!isMap(root) || contract !== "scene") return { references: [], problems: [] };
@@ -60,8 +60,8 @@ export function sceneTerrainArtReferences(text: string): TerrainArtReferences {
 
 /** Tileset reference locations from docs/spec/formats/native-tileset.md#terrain-cutover. */
 export function tilesetTerrainArtReferences(text: string): TerrainArtReferences {
-  const document = parseDocument(text, { version: "1.2", schema: "core" });
-  if (document.errors.length) return { references: [], problems: ["invalid YAML document"] };
+  const document = parseDocument(text, { version: "1.2", schema: "core", uniqueKeys: false });
+  if (document.errors.length) return { references: [], problems: [] };
   const root = document.contents;
   const contract = isMap(root) && isScalar(root.get("contract", true)) ? String(root.get("contract", true)?.value) : null;
   if (!isMap(root) || contract !== "tileset") return { references: [], problems: [] };

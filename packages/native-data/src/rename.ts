@@ -26,8 +26,9 @@
  */
 
 import { isMap, isScalar, isSeq, parseDocument, type Node, type Pair, type Scalar } from "yaml";
-import { sceneArtReferences } from "./art-references.ts";
+import { scenePackReferences } from "./art-references.ts";
 import { checkDocuments, documentId, isDocumentPath, validateConfig, type CheckConfig, type CheckReport } from "./check.ts";
+import { sceneTerrainArtReferences, tilesetTerrainArtReferences } from "./terrain-art-references.ts";
 import { readDocument, type DocumentInput } from "./document.ts";
 import { compareText, foldId } from "./fold.ts";
 import { extensionOf, lookupExtension, REGISTRY } from "./registry.ts";
@@ -40,7 +41,12 @@ export type RenameConfig = CheckConfig & {
    * actors, for example). The spec leaves their names to the contracts that define them.
    */
   readonly referenceFields?: readonly string[];
+  /** Terrain-local ID renames inside named tileset documents; document paths are not moved. */
+  readonly terrainRenames?: readonly TerrainRename[];
 };
+
+/** One terrain-local rename inside a tileset document. `document` is its path as written. */
+export type TerrainRename = { readonly document: string; readonly from: string; readonly to: string };
 
 /** One rename: the old ID (a document the project holds) and the new ID. */
 export type RenamePair = { readonly from: string; readonly to: string };
@@ -80,6 +86,10 @@ export type RefusalCode =
   | "new-ids-collide"
   | "unreadable-reference"
   | "cannot-edit-in-place"
+  | "invalid-terrain-id"
+  | "terrain-document-not-tileset"
+  | "unknown-terrain"
+  | "terrain-id-exists"
   | "plan-not-clean";
 
 export type RenameRefusal = { readonly code: RefusalCode; readonly message: string };
@@ -100,6 +110,35 @@ export function validateRenameConfig(config: RenameConfig): void {
     if (seen.has(name)) throw new RangeError(`the reference field \`${name}\` is named twice`);
     seen.add(name);
   }
+  const renaming = new Set<string>();
+  for (const entry of config.terrainRenames ?? []) {
+    if (entry.document === "") throw new RangeError("a terrain rename document must not be empty");
+    const key = `${foldId(documentId(entry.document))}\0${entry.from}`;
+    if (renaming.has(key)) throw new RangeError(`the terrain \`${entry.from}\` of \`${entry.document}\` is renamed twice`);
+    renaming.add(key);
+  }
+}
+
+const LOCAL_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** The reason a text is not a terrain-local ID, or `null` when it is one. */
+function invalidLocalReason(id: string): string | null {
+  if (LOCAL_ID.test(id)) return null;
+  return "it must be lowercase kebab-case (a to z, digits and single hyphens), the grammar of a local ID";
+}
+
+/** The scalar that writes a terrain's own `id` inside a tileset document, when it has that terrain. */
+function terrainIdScalar(text: string, id: string): Scalar<string> | undefined {
+  const root = parseDocument(text, { version: "1.2", schema: "core" }).contents;
+  if (!isMap(root)) return undefined;
+  const terrains = root.get("terrains", true);
+  if (!isSeq(terrains)) return undefined;
+  for (const terrain of terrains.items) {
+    if (!isMap(terrain)) continue;
+    const value = terrain.get("id", true);
+    if (isScalar(value) && value.value === id) return value as Scalar<string>;
+  }
+  return undefined;
 }
 
 // ------------------------------------------------------------------ the new ID
@@ -233,7 +272,7 @@ function documentExtensions(config: RenameConfig): readonly string[] {
  */
 export function planRename(documents: readonly DocumentInput[], pairs: readonly RenamePair[], config: RenameConfig): RenameResult {
   validateRenameConfig(config);
-  if (pairs.length === 0) {
+  if (pairs.length === 0 && (config.terrainRenames?.length ?? 0) === 0) {
     return { ok: false, refusals: [{ code: "no-rename", message: "nothing to rename: give at least one old ID and new ID" }] };
   }
   const referenceFields = config.referenceFields ?? [];
@@ -336,14 +375,67 @@ export function planRename(documents: readonly DocumentInput[], pairs: readonly 
     }
   }
 
-  // 4. The references: every one that resolves to a renamed document is rewritten in place.
+  // 4. Terrain-local renames name a terrain inside one tileset document; they move no file.
+  const terrainRenames = new Map<Doc, Map<string, string>>();
+  for (const entry of config.terrainRenames ?? []) {
+    const reason = invalidLocalReason(entry.to) ?? invalidLocalReason(entry.from);
+    if (reason !== null) {
+      refuse("invalid-terrain-id", `terrain ID ${code(entry.from)} -> ${code(entry.to)} is not valid: ${reason}`);
+      continue;
+    }
+    const found = resolve(entry.document);
+    if (found.length !== 1) {
+      refuse("old-not-found", `no document has the ID ${code(entry.document)}, so its terrain ${code(entry.from)} cannot be renamed`);
+      continue;
+    }
+    const doc = found[0]!;
+    if (!("text" in doc.input)) {
+      refuse("unreadable-reference", `${doc.path}: the tileset cannot be read, so its terrain cannot be renamed`);
+      continue;
+    }
+    if (lookupExtension(extensionOf(doc.path) ?? "", config.registry ?? REGISTRY)?.contract !== "tileset") {
+      refuse("terrain-document-not-tileset", `${doc.path} is not a tileset document; only a tileset owns terrain-local IDs`);
+      continue;
+    }
+    if (terrainIdScalar(doc.input.text, entry.from) === undefined) {
+      refuse("unknown-terrain", `${doc.path} has no terrain ${code(entry.from)}`);
+      continue;
+    }
+    if (terrainIdScalar(doc.input.text, entry.to) !== undefined) {
+      refuse("terrain-id-exists", `${doc.path} already has a terrain ${code(entry.to)}`);
+      continue;
+    }
+    const map = terrainRenames.get(doc) ?? new Map<string, string>();
+    map.set(entry.from, entry.to);
+    terrainRenames.set(doc, map);
+  }
+  if (refusals.length > 0) return { ok: false, refusals };
+
+  // 5. The references: every one that names a renamed document, or a renamed terrain, is rewritten in place.
   const spliced = new Map<Doc, { readonly text: string; readonly splices: Splice[] }>();
+  type LocalOccurrence = { readonly field: string; readonly written: string; readonly node: Scalar; readonly terrainDoc: Doc };
   for (const doc of docs) {
     if (!("text" in doc.input)) continue;
     const { text } = doc.input;
     const { occurrences, problems } = scanReferences(text, fields);
-    for (const reference of sceneArtReferences(text).references) {
+    const local: LocalOccurrence[] = [];
+    for (const reference of sceneTerrainArtReferences(text).references) {
       occurrences.push({ field: `native-art:${reference.kind}`, written: reference.path.value, node: reference.path });
+      if (reference.kind === "tileset") {
+        const target = resolve(reference.path.value)[0];
+        if (target !== undefined) local.push({ field: "native-art:terrain-local", written: reference.localId, node: reference.localIdScalar, terrainDoc: target });
+      }
+    }
+    for (const reference of tilesetTerrainArtReferences(text).references) {
+      occurrences.push({ field: `native-art:${reference.kind}`, written: reference.path.value, node: reference.path });
+    }
+    for (const reference of scenePackReferences(text).references) {
+      occurrences.push({ field: `native-art:${reference.kind}`, written: reference.path.value, node: reference.path });
+    }
+    const ownTerrains = terrainRenames.get(doc);
+    for (const from of ownTerrains?.keys() ?? []) {
+      const node = terrainIdScalar(text, from);
+      if (node !== undefined) local.push({ field: "terrain-id", written: from, node, terrainDoc: doc });
     }
     for (const problem of problems) {
       refuse(
@@ -365,7 +457,22 @@ export function planRename(documents: readonly DocumentInput[], pairs: readonly 
         continue;
       }
       const splices = spliced.get(doc)?.splices ?? [];
-      splices.push({ start, end, text: occurrence.field.startsWith("native-art:") ? JSON.stringify(newId) : scalarText(newId, occurrence.node) });
+      splices.push({ start, end, text: scalarText(newId, occurrence.node) });
+      spliced.set(doc, { text, splices });
+    }
+    for (const occurrence of local) {
+      const newId = terrainRenames.get(occurrence.terrainDoc)?.get(occurrence.written);
+      if (newId === undefined || occurrence.written === newId) continue;
+      const [start, end] = rangeOf(occurrence.node);
+      if (occurrence.node.type === "BLOCK_FOLDED" || occurrence.node.type === "BLOCK_LITERAL" || text.slice(start, end).includes("\n")) {
+        refuse(
+          "cannot-edit-in-place",
+          `${doc.path}: line ${lineOf(text, start)}: the terrain ID ${code(occurrence.written)} in ${code(occurrence.field)} is not written on one line, so it cannot be replaced in place`,
+        );
+        continue;
+      }
+      const splices = spliced.get(doc)?.splices ?? [];
+      splices.push({ start, end, text: scalarText(newId, occurrence.node) });
       spliced.set(doc, { text, splices });
     }
   }
