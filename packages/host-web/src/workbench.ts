@@ -1,4 +1,3 @@
-import { foldPath } from "@tk-reawakened/core";
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import {
   createAnimationFile, createCheckpointGroups,
@@ -6,6 +5,7 @@ import {
   asksBeforeCreating,
   createAssetPicker,
   createBoardFile,
+  createDocumentIdentity,
   createLauncher,
   type AssetKind,
   createLayoutModel,
@@ -256,14 +256,14 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
    * reach this even when their legacy view refuses them; a board open in a tab is refused while it has unsaved edits.
    */
   const importBoard = async (path: string) => {
-    const key = foldPath(path);
+    const { key } = createDocumentIdentity(project.project.id, path);
     const imported = await importSavedBoardAsScene({
       fs: services.fs,
       dialogs: services.dialogs,
       projectId: project.project.id,
       boardPath: path,
       hasPendingEdits: () => {
-        const live = workspace.documents().find((candidate) => foldPath(candidate.identity.path) === key);
+        const live = workspace.documents().find((candidate) => candidate.identity.key === key);
         if (live === undefined) return false;
         const snapshot = live.getSnapshot();
         return snapshot.dirty || snapshot.saving || snapshot.conflict !== null || workspace.pendingEdits(live).busy();
