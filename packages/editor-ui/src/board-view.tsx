@@ -95,6 +95,7 @@ function brushFor(selection: BrowserSelection | null, stamp: { readonly path: st
  */
 export function BoardView({ doc, capabilities, onEdited, browser, preferences, navigation, pendingEdits }: BoardViewProps) {
   const snapshot = useDocumentSnapshot(doc);
+  const importAsScene = doc.importAsScene;
   const assetRevision = useContext(AssetRefreshContext);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -104,6 +105,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const [refusal, setRefusal] = useState<string | null>(null);
   const [picture, setPicture] = useState<BoardPicture | null>(null);
   const [savePending, setSavePending] = useState(false);
+  const [importPending, setImportPending] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
@@ -421,6 +424,17 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       <div class="tkr-board-workspace">
       <div class="tkr-board-main">
       {snapshot.readOnly === null ? null : <p class="tkr-board-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
+      {importAsScene === undefined ? null : (
+        <button type="button" disabled={importPending} onClick={() => {
+          setImportError(null);
+          setImportPending(true);
+          void pendingEdits.settle().then(() => importAsScene.call(doc)).then((result) => {
+            if (!result.ok) setImportError(result.error.message);
+          }).catch(() => setImportError(`Could not import ${doc.identity.path}.`))
+            .finally(() => setImportPending(false));
+        }}>Import as Scene…</button>
+      )}
+      {importError === null ? null : <p class="tkr-board-error" role="alert">{importError}</p>}
       {conflict === null ? null : (
         <div class="tkr-board-conflict" role="group" aria-label="Changed on disk">
           <p role="alert">{conflict.message}</p>

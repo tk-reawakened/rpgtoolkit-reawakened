@@ -22,6 +22,7 @@ export {
   type SetTilesCommand,
   type ShadeAssignment,
 } from "./board-document.ts";
+export { importSavedBoardAsScene } from "./board-scene-import.ts";
 export {
   createTilesetArtDocument,
   openTilesetArtDocument,

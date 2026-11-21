@@ -110,7 +110,7 @@ function magicIs(magic: string): (header: Uint8Array) => boolean {
 }
 
 /** Read a board of either docs/spec/formats/board.md#version-dispatch branch, converting a docs/spec/formats/legacy/older-binary-versions.md#board-minor-2-and-3-pre-vector pre-vector board(docs/spec/formats/board.md#vector-layout-minor-4-and-later model). */
-function decodeBoard(bytes: Uint8Array): Result<DecodedBoard> {
+export function decodeBoard(bytes: Uint8Array): Result<DecodedBoard> {
   if (bytes.length === 0) {
     const read = readBoard(new BinaryReader(bytes));
     return read.ok ? { ok: true, value: { board: read.value, layout: "vector" }, warnings: read.warnings } : read;
