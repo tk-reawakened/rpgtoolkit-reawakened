@@ -243,6 +243,40 @@ function sortSprites(
   });
 }
 
+/** Reuse normal-position image sampling when an under region puts part of a layer back over the sprite. */
+function underImageCandidates(board: WorldBoard, view: BoardView, frame: Rect, maxLayer: number) {
+  let images: Map<number, { readonly blit: BlitCommand; readonly texture: DecodedTexture }[]> | undefined;
+  if (!view.include.images || board.images === undefined) return images;
+  const left = frame.x - view.camera.x;
+  const top = frame.y - view.camera.y;
+  for (const image of board.images) {
+    if (image.layer > maxLayer || image.drawType !== 0 || image.cells !== undefined || image.left >= frame.x + frame.w || image.top >= frame.y + frame.h) continue;
+    const source = textureFor(view.assets, image.file, image.asset);
+    if (source === null) continue;
+    const blit = imageCommand(image, board, source.texture, source.key, view.camera, view.viewport);
+    if (blit === null || blit.dst.x + blit.dst.w <= left || blit.dst.y + blit.dst.h <= top || blit.dst.w !== blit.src.w || blit.dst.h !== blit.src.h) continue;
+    images ??= new Map();
+    let layer = images.get(image.layer);
+    if (layer === undefined) { layer = []; images.set(image.layer, layer); }
+    layer.push({ blit, texture: source.texture });
+  }
+  return images;
+}
+
+/** Only visible image pixels contribute to the translucent player silhouette; a keyed hole is not cover. */
+function addImageCoverage(spans: Array<[number, number]>, blit: BlitCommand, texture: DecodedTexture): void {
+  let start = -1;
+  let offset = (blit.src.y * texture.w + blit.src.x) * 4;
+  const { rgba } = texture;
+  const key = blit.key;
+  for (let x = 0; x < blit.src.w; x += 1, offset += 4) {
+    const drawn = rgba[offset + 3] !== 0 && (key === null || rgba[offset] !== key.r || rgba[offset + 1] !== key.g || rgba[offset + 2] !== key.b);
+    if (drawn && start < 0) start = x;
+    if (!drawn && start >= 0) { spans.push([blit.dst.x + start, blit.dst.x + x]); start = -1; }
+  }
+  if (start >= 0) spans.push([blit.dst.x + start, blit.dst.x + blit.dst.w]);
+}
+
 function emitUnderVectorRedraw(
   commands: DrawCommand[],
   sprite: SpriteDraw,
@@ -286,11 +320,17 @@ function emitUnderVectorRedraw(
   for (const v of activeVectors) {
     if (v.layer > maxLayer) maxLayer = v.layer;
   }
+  const images = underImageCandidates(board, view, frameRect, maxLayer);
+  // Promoted floor tile redraw is still 2D-only; normal-position images can be sliced in every projection.
+  const redrawTiles = !isIsometric(coordLayout(board.coordType));
+  const promotedLayers = redrawTiles || images !== undefined ? maxLayer : 0;
 
   for (let row = 0; row < spriteH; row += 1) {
     const y = boardTop + row;
     const dstY = y - view.camera.y;
     if (dstY < 0 || dstY >= view.viewport.height) continue;
+    const coveredAtStart = covered?.length ?? 0;
+    let imageCoverage: Array<[number, number]> | undefined;
 
     const bgIntervals: Array<[number, number]> = [];
     for (const v of activeVectors) {
@@ -318,14 +358,11 @@ function emitUnderVectorRedraw(
       }
     }
 
-    // Isometric diamonds overlap, so a one-row source slice cannot say which tile owns a
-    // pixel and an `iso2d` blit cannot be sliced at all: promoted tile redraw is 2D-only
-    // (plan 4.18, owner-visible item). Background spans above still apply.
-    const promotedLayers = isIsometric(coordLayout(board.coordType)) ? 0 : maxLayer;
     for (let layerNum = 1; layerNum <= promotedLayers; layerNum += 1) {
       const layerIdx = layerNum - 1;
       const layer = layers[layerIdx];
-      if (layer === undefined) continue;
+      const layerImages = images?.get(layerNum);
+      if ((!redrawTiles || layer === undefined) && layerImages === undefined) continue;
 
       const layerIntervals: Array<[number, number]> = [];
       for (const v of activeVectors) {
@@ -343,6 +380,7 @@ function emitUnderVectorRedraw(
 
       const merged = mergeIntervals(layerIntervals);
       for (const [spanX1, spanX2] of merged) {
+        if (!redrawTiles || layer === undefined) continue;
         const tileXStart = Math.floor(spanX1 / TILE_SIZE);
         const tileXEnd = Math.floor((spanX2 - 1) / TILE_SIZE);
         const tileY = Math.floor(y / TILE_SIZE);
@@ -377,6 +415,26 @@ function emitUnderVectorRedraw(
           });
         }
       }
+      if (layerImages !== undefined) {
+        for (const { blit, texture } of layerImages) {
+          if (dstY < blit.dst.y || dstY >= blit.dst.y + blit.dst.h) continue;
+          for (const [start, end] of merged) {
+            const rowImage = clipBlit(blit, { x: start - view.camera.x, y: dstY, w: end - start, h: 1 });
+            if (rowImage === null || !visible(rowImage.dst, view.viewport)) continue;
+            commands.push(rowImage);
+            if (covered !== undefined) addImageCoverage(imageCoverage ??= [], rowImage, texture);
+          }
+        }
+      }
+    }
+    if (covered !== undefined && imageCoverage !== undefined && imageCoverage.length > 0) {
+      // This row can be covered by tiles/background and several images. Blend the sprite just once per pixel.
+      for (let i = coveredAtStart; i < covered.length; i += 1) {
+        const { x, w } = covered[i]!;
+        imageCoverage.push([x, x + w]);
+      }
+      covered.length = coveredAtStart;
+      for (const [x, end] of mergeIntervals(imageCoverage)) covered.push({ x, y: dstY, w: end - x, h: 1 });
     }
   }
 }
@@ -520,7 +578,7 @@ function translucentFrames(sprite: SpriteDraw, board: WorldBoard, view: BoardVie
 }
 
 /** Intersect a blit with a clip rectangle, keeping the source slice aligned with the visible part of the destination. */
-function clipBlit(command: Extract<DrawCommand, { readonly kind: "blit" }>, clip: Rect): DrawCommand | null {
+function clipBlit(command: BlitCommand, clip: Rect): BlitCommand | null {
   const left = Math.max(command.dst.x, clip.x);
   const top = Math.max(command.dst.y, clip.y);
   const right = Math.min(command.dst.x + command.dst.w, clip.x + clip.w);
@@ -650,7 +708,7 @@ function imageCommand(
   resolvedAsset: AssetKey,
   camera: { readonly x: number; readonly y: number },
   viewport: { readonly width: number; readonly height: number },
-): DrawCommand | null {
+): BlitCommand | null {
   const imageWidth = image.width ?? texture.w;
   const imageHeight = image.height ?? texture.h;
   let width = imageWidth;

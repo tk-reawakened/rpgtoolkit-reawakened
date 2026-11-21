@@ -162,3 +162,21 @@ still returns immediately. Rasterization and surface encoding remain the dominan
 
 The headless `pnpm perf:player` run (without `--headed`) timed out after 120 seconds before producing a profile. No
 before/after metrics are available; performance remains unverified.
+
+## Placed pack image walk-behind (#1852, #3312)
+
+Apple M1 Pro, 16 GiB, Darwin arm64, Node 24.21.0, headless Chromium with default GPU. Both `pnpm perf:player`
+runs reached `boards/start.brd` in the same demo package (`fd806539d1c3ed65adb53b1019f95c404e207aed2e9bbb7867c25adec636838b`).
+
+| Measurement | Baseline `bf348bf44` | Image redraw |
+|---|---:|---:|
+| Frame rate | 51.8 fps | 40.5 fps |
+| Frame p50 / p99 | 16.7 / 33.4 ms | 16.8 / 50.0 ms |
+| Long tasks | 0 | 3 (196 ms total) |
+| Ticks per second | 60.8 | 61.1 |
+| `currentDrawList` sampled self time | 12 ms | 12 ms |
+
+These single-run observations include other workstation activity and do not attribute the frame-rate difference to the
+change. New work only runs for a sprite with an active under vector and images enabled: one pass over board images to
+find overlapping normal-position images, then clipped image spans for its affected sprite rows, in board layer order.
+Transparency is checked only in those spans and only if the translucent silhouette is enabled. No world state is copied.
