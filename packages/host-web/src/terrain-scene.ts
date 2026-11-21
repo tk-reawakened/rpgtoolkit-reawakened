@@ -34,7 +34,6 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
       tilesets: [...inventory.tilesets].map(([path, tileset]) => ({ path, terrains: (tileset.terrains ?? []).map(({ id, name }) => ({ id, label: name })) })),
       assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
       onChange: (scene) => {
-        if (busy) return;
         const result = document.apply({ type: "edit-scene-terrain", terrain: scene });
         if (!result.ok) report(result.rejection.message);
         else report("Unsaved terrain changes.");

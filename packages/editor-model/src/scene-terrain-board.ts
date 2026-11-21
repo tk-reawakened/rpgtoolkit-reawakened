@@ -17,6 +17,12 @@ export async function buildTerrainBoard(
 ): Promise<Result> {
   const { scene, scenePath } = inputs;
   if (!/\.tkrscn$/i.test(scenePath)) return { ok: false, problems: [{ path: "scenePath", message: "The source must have a .tkrscn extension." }] };
+  const unsupported: Problem[] = [];
+  if ((scene.placedPacks?.length ?? 0) > 0) unsupported.push({ path: "placedPacks", message: "This terrain build cannot lower placed packs." });
+  for (const [index, floor] of scene.floors.entries()) {
+    if (floor.boundarySources !== undefined) unsupported.push({ path: `floors[${index}].boundarySources`, message: "This terrain build cannot lower traced boundaries." });
+  }
+  if (unsupported.length > 0) return { ok: false, problems: unsupported };
   const resolution = await buildSceneTerrain(inputs);
   if (!resolution.ok) return resolution;
   const { tilePalette: _palette, terrainRegions: _regions, tileOverrides: _overrides, ...source } = scene;

@@ -58,6 +58,7 @@ The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approv
 
 - Required unit shards found inline styles incompatible with strict host CSP (#3265) and a missing terrain-scene conformance case (#3266).
 - Keep #3232 in draft while the terrain build and preview do not use the same compiler, pack geometry and recovery are not wired through the host path, and checker/rename still need to cover the new reference model.
+- Review identified a second compiler that omitted packs and boundary tracing (#3267); until unified lowering is ready, the terrain build refuses these inputs without writing an incomplete board. Other blockers are exact verified playback (#3268), input freshness and competing writes (#3270), the nested game asset root (#3271), and conflict recovery (#3272).
 
 ## Verification
 

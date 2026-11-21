@@ -40,3 +40,16 @@ void test("workspace Save All builds the edited scene, and a later outside board
   deepEqual(await host.fs.read(output), { ok: true, value: outside });
   deepEqual(await host.fs.read(path), savedSource);
 });
+
+void test("saving a scene does not silently discard pack placements or boundary tracing", async () => {
+  const text = `${source.replace("id: ground, tiles:", "id: ground, boundarySources: {walkableTiles: [{legacy: grass.tst1}]}, tiles:")}placedPacks: [{instanceId: arch, pack: Art/props.tkrpack, asset: arch, floor: ground, x: 20, y: 30}]\n`;
+  const host = createMemoryPlatformServices({ files: { [path]: utf8Encode(text) } });
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  const opened = await workspace.open(path);
+  ok(opened.ok, JSON.stringify(opened));
+  const saved = await opened.document.save();
+  ok(!saved.ok);
+  ok(saved.failure.message.includes("placedPacks"));
+  ok(saved.failure.message.includes("floors[0].boundarySources"));
+  equal((await host.fs.read(output)).ok, false);
+});

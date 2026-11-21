@@ -301,8 +301,12 @@ test("paint, touch up, reshape, save, reopen and play a native terrain scene", a
   await openScene();
   await expect(cell(0, 0)).toHaveAccessibleName(/bank\.tkrtle/);
   await expect(cell(1, 0)).toHaveAccessibleName(/terrain water/);
+  await editor.getByRole("radio", { name: "Manual empty" }).check();
+  await cell(3, 2).click();
+  expect(await savedTile(3, 2)).toBe("pond.tst3");
   await editor.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.locator(".tkr-run-current .tkr-run-snapshot")).toContainText("Board test at Boards/pond.brd");
+  await expect.poll(() => savedTile(3, 2)).toBe("");
   const player = page.frameLocator('iframe[title="Running game"]');
   await expect(player.locator("#screen")).toBeVisible();
   await expect.poll(async () => player.locator("#screen").evaluate(() => {

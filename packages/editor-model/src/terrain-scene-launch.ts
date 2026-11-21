@@ -20,8 +20,9 @@ export async function buildTerrainSceneLaunch(options: {
     return platformError("invalid-path", "The main, project folder and scene must use project-relative paths.");
   }
   const boardPath = `${scenePath.slice(0, -7)}.brd`;
-  if (projectFolder !== "" && !foldPath(boardPath).startsWith(`${foldPath(projectFolder)}/`)) {
-    return platformError("invalid-path", "The scene's compiled board is outside the game folder.");
+  const boardRoot = projectFolder === "" ? "Boards/" : `${projectFolder}/Boards/`;
+  if (!foldPath(boardPath).startsWith(foldPath(boardRoot))) {
+    return platformError("invalid-path", `Play requires the scene to be under ${boardRoot}.`);
   }
   const resolve = async (path: string): Promise<PlatformResult<string>> => {
     if (!safePath(path)) return platformError("invalid-path", `Invalid project path ${path}.`);
