@@ -3,7 +3,7 @@ type: feature
 title: "Set collision and walk-behind on tiles and assets, and place packs that stay packs"
 ticket: 17
 created: '2026-11-21'
-status: in-review
+status: built
 baseline_revision: 'bf348bf443572f9b7a390bdacc1c3305bdd3c925'
 route: full
 route_source: auto
