@@ -243,18 +243,19 @@ function sortSprites(
   });
 }
 
-/** Reuse normal-position image sampling when an under region puts part of a layer back over the sprite. */
-function underImageCandidates(board: WorldBoard, view: BoardView, frame: Rect, maxLayer: number) {
-  let images: Map<number, { readonly blit: BlitCommand; readonly texture: DecodedTexture }[]> | undefined;
-  if (!view.include.images || board.images === undefined) return images;
-  const left = frame.x - view.camera.x;
-  const top = frame.y - view.camera.y;
+type UnderImage = { readonly blit: BlitCommand; readonly texture: DecodedTexture };
+type UnderImageCache = { images?: ReadonlyMap<number, readonly UnderImage[]> | null };
+
+/** Resolve each visible normal image once, and only when a sprite activates an under region. */
+function underImagesForView(board: WorldBoard, view: BoardView): ReadonlyMap<number, readonly UnderImage[]> | null {
+  let images: Map<number, UnderImage[]> | null = null;
+  if (board.images === undefined) return images;
   for (const image of board.images) {
-    if (image.layer > maxLayer || image.drawType !== 0 || image.cells !== undefined || image.left >= frame.x + frame.w || image.top >= frame.y + frame.h) continue;
+    if (image.drawType !== 0 || image.cells !== undefined) continue;
     const source = textureFor(view.assets, image.file, image.asset);
     if (source === null) continue;
     const blit = imageCommand(image, board, source.texture, source.key, view.camera, view.viewport);
-    if (blit === null || blit.dst.x + blit.dst.w <= left || blit.dst.y + blit.dst.h <= top || blit.dst.w !== blit.src.w || blit.dst.h !== blit.src.h) continue;
+    if (blit === null || blit.dst.w !== blit.src.w || blit.dst.h !== blit.src.h) continue;
     images ??= new Map();
     let layer = images.get(image.layer);
     if (layer === undefined) { layer = []; images.set(image.layer, layer); }
@@ -289,6 +290,7 @@ function emitUnderVectorRedraw(
   spriteH: number,
   worldX: number,
   worldY: number,
+  imageCache: UnderImageCache | undefined,
   covered?: Rect[],
 ): void {
   const vectors = board.vectors;
@@ -320,10 +322,13 @@ function emitUnderVectorRedraw(
   for (const v of activeVectors) {
     if (v.layer > maxLayer) maxLayer = v.layer;
   }
-  const images = underImageCandidates(board, view, frameRect, maxLayer);
+  if (imageCache !== undefined && imageCache.images === undefined) imageCache.images = underImagesForView(board, view);
+  const images = imageCache?.images ?? null;
+  const frameDstLeft = boardLeft - view.camera.x;
+  const frameDstRight = frameDstLeft + spriteW;
   // Promoted floor tile redraw is still 2D-only; normal-position images can be sliced in every projection.
   const redrawTiles = !isIsometric(coordLayout(board.coordType));
-  const promotedLayers = redrawTiles || images !== undefined ? maxLayer : 0;
+  const promotedLayers = redrawTiles || images !== null ? maxLayer : 0;
 
   for (let row = 0; row < spriteH; row += 1) {
     const y = boardTop + row;
@@ -417,7 +422,7 @@ function emitUnderVectorRedraw(
       }
       if (layerImages !== undefined) {
         for (const { blit, texture } of layerImages) {
-          if (dstY < blit.dst.y || dstY >= blit.dst.y + blit.dst.h) continue;
+          if (dstY < blit.dst.y || dstY >= blit.dst.y + blit.dst.h || blit.dst.x >= frameDstRight || blit.dst.x + blit.dst.w <= frameDstLeft) continue;
           for (const [start, end] of merged) {
             const rowImage = clipBlit(blit, { x: start - view.camera.x, y: dstY, w: end - start, h: 1 });
             if (rowImage === null || !visible(rowImage.dst, view.viewport)) continue;
@@ -445,6 +450,7 @@ function emitSprite(
   board: WorldBoard,
   view: BoardView,
   layers: readonly WorldLayer[],
+  imageCache: UnderImageCache | undefined,
   redrawUnder = true,
 ): void {
   const pos = spritePosition(sprite, view.alpha);
@@ -549,7 +555,7 @@ function emitSprite(
 
   if (!redrawUnder) return;
   const underRows: Rect[] | undefined = spritePercent(view) > 0 ? [] : undefined;
-  emitUnderVectorRedraw(commands, sprite, board, view, layers, boardLeft, boardTop, spriteW, spriteH, worldX, worldY, underRows);
+  emitUnderVectorRedraw(commands, sprite, board, view, layers, boardLeft, boardTop, spriteW, spriteH, worldX, worldY, imageCache, underRows);
   // E-31: under-vector promotion hides the sprite behind the promoted rows; show it through them translucently.
   if (underRows !== undefined && underRows.length > 0) {
     for (const frame of translucentFrames(sprite, board, view, layers)) {
@@ -573,7 +579,7 @@ type BlitCommand = Extract<DrawCommand, { readonly kind: "blit" }>;
 function translucentFrames(sprite: SpriteDraw, board: WorldBoard, view: BoardView, layers: readonly WorldLayer[]): BlitCommand[] {
   const percent = spritePercent(view);
   const drawn: DrawCommand[] = [];
-  emitSprite(drawn, { ...sprite, blend: "translucent", translucency: Math.floor(percent * 255 / 100 + 0.5) }, board, view, layers, false);
+  emitSprite(drawn, { ...sprite, blend: "translucent", translucency: Math.floor(percent * 255 / 100 + 0.5) }, board, view, layers, undefined, false);
   return drawn.filter((command): command is BlitCommand => command.kind === "blit");
 }
 
@@ -846,6 +852,8 @@ function composeBoardView(view: BoardView): DrawList {
   const sortedSprites = (view.include.sprites && view.sprites !== undefined && view.sprites.length > 0)
     ? sortSprites(view.sprites, view.alpha, camera.y)
     : [];
+  const imageCache: UnderImageCache | undefined = view.include.images && (board.images?.length ?? 0) > 0
+    && (board.vectors?.length ?? 0) > 0 && sortedSprites.length > 0 ? {} : undefined;
   const layers = view.layers ?? board.layers;
   const layout = coordLayout(board.coordType);
   for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
@@ -878,7 +886,7 @@ function composeBoardView(view: BoardView): DrawList {
         ? sortedSprites.filter((s) => s.layer <= 1)
         : sortedSprites.filter((s) => s.layer === layerNumber);
       for (const sprite of layerSprites) {
-        emitSprite(commands, sprite, board, view, layers);
+        emitSprite(commands, sprite, board, view, layers, imageCache);
       }
     }
   }
@@ -888,7 +896,7 @@ function composeBoardView(view: BoardView): DrawList {
   if (view.include.sprites && sortedSprites.length > 0) {
     const higherSprites = sortedSprites.filter((s) => s.layer > layers.length);
     for (const sprite of higherSprites) {
-      emitSprite(commands, sprite, board, view, layers);
+      emitSprite(commands, sprite, board, view, layers, imageCache);
     }
   }
   for (const blit of view.blits ?? []) {
