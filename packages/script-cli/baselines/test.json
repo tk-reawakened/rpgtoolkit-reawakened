@@ -22,7 +22,7 @@
                   "sourcePath": "math.spec.prg"
                 }
               ],
-              "stateHash": "be4b7a8c1e8ccfc1"
+              "stateHash": "e5071e9c2b754c3f"
             },
             {
               "groups": [
@@ -41,7 +41,7 @@
                   "sourcePath": "math.spec.prg"
                 }
               ],
-              "stateHash": "3685218ad32892f9"
+              "stateHash": "f4ef96b255607f6f"
             },
             {
               "groups": [],
@@ -85,7 +85,7 @@
                   "sourcePath": "math.spec.prg"
                 }
               ],
-              "stateHash": "6e435e4bd8a53c3f"
+              "stateHash": "32cf709e651e9f09"
             }
           ],
           "failures": [],

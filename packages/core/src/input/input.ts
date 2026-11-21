@@ -410,6 +410,7 @@ function physicalKeyName(event: KeyInput | HistoricalKeyInput): string | null {
   const alias = aliases[event.code];
   if (alias !== undefined) return alias;
   const char = event.char;
+  const vk = "vk" in event ? event.vk : null;
   if (typeof char === "string" && char.length > 0) {
     let valid = true;
     for (let index = 0; index < char.length; index += 1) {
@@ -423,9 +424,14 @@ function physicalKeyName(event: KeyInput | HistoricalKeyInput): string | null {
         break;
       }
     }
-    if (valid) return char;
+    if (valid) {
+      if (vk === 37 && char === "%") return "LEFT";
+      if (vk === 38 && char === "&") return "UP";
+      if (vk === 39 && char === "'") return "RIGHT";
+      if (vk === 40 && char === "(") return "DOWN";
+      return char;
+    }
   }
-  const vk = "vk" in event ? event.vk : null;
   if (typeof vk !== "number" || !Number.isInteger(vk) || vk < 0 || vk > 0xffff || (vk >= 0xd800 && vk <= 0xdfff)) return null;
   if (vk >= 0x61 && vk <= 0x7a) return String.fromCharCode(vk - 0x20);
   return String.fromCharCode(vk);
