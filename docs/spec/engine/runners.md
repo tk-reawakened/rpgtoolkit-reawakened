@@ -266,20 +266,13 @@ reason to widen the bound.
 
 A runner turns its host's events into the AD-14 input records and feeds them to `advance` with the tick they belong to:
 The record kinds include:
-`key { code, char, vk, down, repeat? }` — a physical key in the host's own identifier space, the character it produced
-or `null`, its virtual-key number or `null`, and the optional `repeat` flag for host auto-repeat, which is not a new
-press edge; `pointer` in logical integer pixels; `gamepad` with a **physical** standard-layout button bitmask and
-`host.gamepads` with the complete current set of connected normalized standard-layout devices, as specified in
-[E-112](display-input-audio.md#reawakened-gamepad-contract); `host.features`, `host.display`; `focus { lost | gained }`.
+active v3 `key { code, char, vk, down, repeat? }` — a physical key in the host's own identifier space, the character it produced or `null`, its virtual-key number or `null`, and the optional host auto-repeat flag; the runner supplies no key name and core derives it as [E-110](display-input-audio.md#reawakened-key-name) specifies. Historical v1/v2 replay records retain their name-based shape and behavior; they are not rewritten to v3. Other records are `pointer` in logical integer pixels; `gamepad` with a **physical** standard-layout button bitmask; `host.gamepads` with the complete current set of connected normalized standard-layout devices as specified in [E-112](display-input-audio.md#reawakened-gamepad-contract); `host.features`, `host.display`; and `focus { lost | gained }`.
 
 When a successful `blob.loaded` installs saved state, the runner MUST append fresh `host.features` and `host.gamepads`
 records after that reply. Core applies them before resumed script execution, even if the request pump performs several
 internal advances. The v2 snapshot lists connected devices sorted by normalized index; an omitted device is disconnected.
 
-**A runner maps, it does not name.** `core` turns each key into its binding control (`key:<code>`,
-[ACT-3](display-input-audio.md#act-3)) and into its legacy queue name, so a script sees `LEFT` and `" "` on every host
-([E-110: key names](display-input-audio.md#reawakened-key-name)). A runner supplies the identifiers its host actually reports; it
-never decides what a key is called and never decides what it does.
+A runner maps, it does not name. Core turns each v3 key into its binding control (`key:<code>`, [ACT-3](display-input-audio.md#act-3)) and derives its physical queue name from the normalized record, so scripts see `LEFT` and `" "` consistently across hosts ([E-110](display-input-audio.md#reawakened-key-name)). The binding's action label never substitutes for that physical name. A runner supplies host identifiers and never decides what a key is called or what it does.
 
 Focus is the core's, not the runner's: after `focus.lost` the core consumes no ticks until `focus.gained` (E-03). A
 runner keeps calling `advance` — it must not stop its own loop — and lets the core return `ticksRun: 0`. A runner
