@@ -1,5 +1,5 @@
 ---
-id: 21
+id: 22
 type: bug
 title: "TK2 CheckButton does not write the clicked slot to its output argument"
 parent: none
