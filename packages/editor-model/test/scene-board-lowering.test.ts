@@ -182,19 +182,20 @@ test("no palette stays absent and every empty or duplicate palette slot keeps it
   if (!invalid.ok) equal(invalid.problems[0]?.path, "tilePalette[2]");
 });
 
-test("tile and shading overshoot is carried by the final encoded run and record", () => {
+test("runs stay split across floors and residue stays in the final encoded records", () => {
   const scene: Scene = {
     contract: "scene", version: "1.0.0-pre.1", projection: "2d", size: { width: 2, height: 1 },
-    floors: [{ id: "floor", tiles: [[2, 1]] }], tilePalette: [{}, { legacy: "grass.tst1" }],
-    legacy: { excessTiles: [3, 1] },
-    shading: [{ floor: "floor", cells: [[2, 0, 0, 0]], legacy: { excessCells: [2, 0, 0, 0] } }],
+    floors: [{ id: "first", tiles: [[2, 1]] }, { id: "last", tiles: [[2, 1]] }],
+    tilePalette: [{}, { legacy: "grass.tst1" }],
+    legacy: { excessTiles: [32767, 1] },
+    shading: [{ floor: "first", cells: [[2, 286, 0, 0]], legacy: { excessCells: [32766, 286, 0, 0] } }],
   };
   const lowered = lowerSceneBoard(scene, ["", "grass.tst1"]);
   ok(lowered.ok, lowered.ok ? "" : lowered.problems.map((problem) => problem.message).join("; "));
   const board = decode(encode(lowered.board));
-  deepEqual(board.tileRuns.map((run) => [run.count, run.lutIndex]), [[5, 1]]);
-  deepEqual(board.tileMatrix, [1, 1, 1, 1, 1]);
-  deepEqual(board.shadeLayers[0]?.records, [{ runCount: 4, r: 0, g: 0, b: 0 }]);
+  deepEqual(board.tileRuns.map((run) => [run.count, run.lutIndex]), [[2, 1], [1, 1], [32768, 1]]);
+  equal(board.tileMatrix.length, 4 + 32767);
+  deepEqual(board.shadeLayers[0]?.records, [{ runCount: 1, r: 286, g: 0, b: 0 }, { runCount: 32767, r: 286, g: 0, b: 0 }]);
 });
 
 test("lowering is byte deterministic and rejects invalid scene or unresolved palette values", () => {

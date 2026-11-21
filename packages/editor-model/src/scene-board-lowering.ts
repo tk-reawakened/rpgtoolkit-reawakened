@@ -79,12 +79,15 @@ export function lowerSceneBoard(scene: Scene, palette: readonly string[] | null)
   const layer = (ref: { readonly floor?: string; readonly layer?: number }): number => ref.floor === undefined ? (ref.layer ?? 1) : floorNumbers.get(ref.floor)!;
   const tileRuns: BoardTileRun[] = [];
   const tileMatrix: number[] = [];
-  // Merge across floors too: the board stream itself has no floor boundaries.
+  // Native scene runs are maximal within each floor, never across floors.
   const merged: { count: number; index: number }[] = [];
-  for (const floor of scene.floors) for (const [count, index] of floor.tiles ?? [[cells, 0]]) {
-    const previous = merged[merged.length - 1];
-    if (previous !== undefined && previous.index === index) previous.count += count;
-    else merged.push({ count, index });
+  for (const floor of scene.floors) {
+    const boundary = merged.length;
+    for (const [count, index] of floor.tiles ?? [[cells, 0]]) {
+      const previous = merged.length > boundary ? merged[merged.length - 1] : undefined;
+      if (previous !== undefined && previous.index === index) previous.count += count;
+      else merged.push({ count, index });
+    }
   }
   const tileExcess = scene.legacy?.excessTiles?.[0] ?? 0;
   for (let i = 0; i < merged.length; i++) {

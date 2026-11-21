@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { Scene } from "@tk-reawakened/native-data";
 import { generateSceneTileCollision, type SceneTileCollisionFlag } from "../src/scene-tile-collision.ts";
 
-const palette = [{}, { tileset: "Tiles/terrain.tkrtile", tile: "rock" }] as const;
+const palette = [{}, { tileset: "Tiles/terrain.tkrtst", tile: "rock" }] as const;
 function scene(projection: Scene["projection"], width: number, height: number, floors: Scene["floors"], extra: Partial<Scene> = {}): Scene {
   return { contract: "scene", version: "1.0.0-pre.1", projection, size: { width, height }, floors, tilePalette: palette, ...extra };
 }
@@ -41,7 +41,7 @@ test("generated vectors keep floor then row-major cell order", () => {
 
 test("empty, legacy, walkable, and out-of-grid excess cells produce no collision", () => {
   const withLegacy = scene("2d", 3, 1, [{ id: "ground", tiles: [[1, 0], [1, 1], [1, 2]] }], {
-    tilePalette: [{}, { tileset: "Tiles/terrain.tkrtile", tile: "grass" }, { legacy: "old.tst4" }],
+    tilePalette: [{}, { tileset: "Tiles/terrain.tkrtst", tile: "grass" }, { legacy: "old.tst4" }],
     legacy: { excessTiles: [9, 1] },
   });
   deepEqual(generateSceneTileCollision(withLegacy, [null, "walkable", null]), []);

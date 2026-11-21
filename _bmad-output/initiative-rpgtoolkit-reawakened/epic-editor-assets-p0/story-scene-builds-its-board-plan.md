@@ -48,6 +48,8 @@ Build-output ownership was specified in docs-first commit `a350ff795e`: project-
 
 The in-progress coordinator builds ordinary source-cell tilesets, pack images and translated vectors; a scene preview renders its generated board and the save coordinator detects changed output. The test proves preview pixels match the engine and an outside edit is not overwritten. Recovery offer and host integration remain. The builder deliberately reports unavailable for boundary tracing and unspecified advanced tileset recipes; these must be resolved before this story can be marked done (#3221).
 
+The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approved-cutover-decisions) supersede old allocation and tile geometry assumptions. Preserve the accepted compiler sequence from #3261: lower through the public board model, resolve artifacts and geometry before writing, verify against the real runner, then connect the same build to the terrain tools in #1733 and #1851. Raised isometric art stays editable but cannot be emitted until the overlay is proven. Flat terrain does not wait for that proof.
+
 ## Plan Change Log
 
 ## Review Triage Log

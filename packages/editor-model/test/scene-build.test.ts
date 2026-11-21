@@ -15,7 +15,7 @@ import { createDocumentWorkspace } from "../src/workspace.ts";
 const scene: Scene = {
   contract: "scene", version: "1.0.0-pre.1", projection: "2d", size: { width: 1, height: 1 },
   floors: [{ id: "ground", tiles: [[1, 1]] }],
-  tilePalette: [{}, { tileset: "Art/walls.tkrtile", tile: "wall" }],
+  tilePalette: [{}, { tileset: "Art/walls.tkrtst", tile: "wall" }],
   vectors: [{ id: "path", label: "Patrol", floor: "ground", type: "waypoint", closed: false, points: [[1, 2], [3, 4]], handle: "route" }],
   placedPacks: [{ instanceId: "arch", pack: "Art/props.tkrpack", asset: "arch", floor: "ground", x: 20, y: 30 }],
 };
@@ -37,7 +37,7 @@ const png = encodeScenePng({ w: 32, h: 32, rgba: pixels });
 const propPng = encodeScenePng({ w: 2, h: 2, rgba: new Uint8Array([0, 0, 255, 128, 0, 0, 255, 128, 0, 0, 255, 128, 0, 0, 255, 128]) });
 const inputs = {
   scene, scenePath: "Boards/town.tkrscn",
-  resolveTileset: async (path: string) => path === "Art/walls.tkrtile" ? tileset : null,
+  resolveTileset: async (path: string) => path === "Art/walls.tkrtst" ? tileset : null,
   resolvePack: async (path: string) => path === "Art/props.tkrpack" ? pack : null,
   readSource: async (path: string) => path === "Bitmap/sheet.png" ? png : path === "Bitmap/prop.png" ? propPng : null,
 };
