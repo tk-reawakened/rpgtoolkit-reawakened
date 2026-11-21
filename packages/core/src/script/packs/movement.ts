@@ -1,7 +1,7 @@
 /** Movement and input built-ins (E-22, E-32, E-60; ticket 5.7). */
 import type { Value } from "../../ports/value.ts";
 import type { Wait } from "../../ports/wait.ts";
-import type { InputSection } from "../../save/sections/input.ts";
+import type { InputButtonSlot, InputSection } from "../../save/sections/input.ts";
 import { configureInput } from "../../input/input.ts";
 import type { GameState } from "../../save/state.ts";
 import type { SpriteActor, SpritePoint, Facing, MovementProvenance, SpritesSection } from "../../sprites/model.ts";
@@ -337,9 +337,9 @@ const WAIT_INPUT: BuiltinSpec = {
 };
 const GET: BuiltinSpec = { name: "get", aliases: [], params: [{ name: "dest", optional: true, byRef: true, variadic: false }], doc: docs("Get the next buffered key.", "Returns and claims the lowest unclaimed key immediately, or returns an empty string when the buffer has no eligible key.") , call: (view, args) => { const key = view.state?.input.keys.find((candidate) => !(view.state?.engine.claims ?? []).includes(candidate.seq)); if (key === undefined) return { value: "", out: output(args, 0, "") }; return { value: key.name, out: output(args, 0, key.name), effects: [{ kind: "state-write", section: "input", args: [key.seq] }] }; } };
 const CLEAR_BUFFER: BuiltinSpec = { name: "clearbuffer", aliases: [], params: [], doc: docs("Clear all buffered keys.", "Claims every currently buffered key through the engine sequence protocol and removes only those claimed records immediately."), call: (_view) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: [] }] }) };
-const SET_BUTTON: BuiltinSpec = { name: "setbutton", aliases: [], params: [{ name: "file", optional: false, byRef: false, variadic: false }, { name: "slot", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "width", optional: false, byRef: false, variadic: false }, { name: "height", optional: false, byRef: false, variadic: false }], doc: docs("Create a clickable button.", "Creates or replaces a button slot at pixel x,y with the supplied dimensions until clearButtons removes it."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
-const CHECK_BUTTON: BuiltinSpec = { name: "checkbutton", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }], doc: docs("Check whether a button was clicked.", "Returns 1 when the pixel is inside an enabled button slot, otherwise 0; it does not wait."), call: (view, args) => { const input = view.state?.input; const x = number(args, 0); const y = number(args, 1); return { value: input?.buttons.some((button) => "id" in button && button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h) ? 1 : 0 }; } };
-const CLEAR_BUTTONS: BuiltinSpec = { name: "clearbuttons", aliases: [], params: [{ name: "slots", optional: true, byRef: false, variadic: true }], doc: docs("Clear clickable buttons.", "Removes every button, or only the numeric slots supplied, immediately and without waiting."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
+const SET_BUTTON: BuiltinSpec = { name: "setbutton", aliases: [], params: [{ name: "file", optional: false, byRef: false, variadic: false }, { name: "slot", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "width", optional: false, byRef: false, variadic: false }, { name: "height", optional: false, byRef: false, variadic: false }], doc: docs("Create a clickable button.", "Creates or replaces a button image and its independently clickable slot at pixel x,y with the supplied dimensions until clearButtons removes them."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
+const CHECK_BUTTON: BuiltinSpec = { name: "checkbutton", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "slot", optional: true, byRef: true, variadic: false }], doc: docs("Check whether a button was clicked.", "Returns 1 when the pixel is inside an enabled button slot, otherwise 0; it does not wait. Optionally writes the numeric slot number on a hit or 0 on a miss."), call: (view, args) => { const input = view.state?.input; const x = number(args, 0); const y = number(args, 1); const hit = input?.buttons.find((button): button is InputButtonSlot => "id" in button && button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h); const slot = hit === undefined ? 0 : Number(hit.id); return { value: hit === undefined ? 0 : 1, out: output(args, 2, Number.isFinite(slot) ? slot : 0) }; } };
+const CLEAR_BUTTONS: BuiltinSpec = { name: "clearbuttons", aliases: [], params: [{ name: "slots", optional: true, byRef: false, variadic: true }], doc: docs("Clear clickable buttons.", "Removes every button image and slot, or only the numeric slots supplied, immediately and without waiting."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
 const MOUSE_MOVE: BuiltinSpec = { name: "mousemove", aliases: [], params: [{ name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }], doc: docs("Read the pointer position.", "Returns the current window-relative pointer x and y through by-reference outputs without waiting."), call: (view, args) => ({ value: null, out: [...output(args, 0, view.state?.input.pointer.x ?? 0), ...output(args, 1, view.state?.input.pointer.y ?? 0)] }) };
 const MOUSE_CLICK: BuiltinSpec = {
   name: "mouseclick", aliases: [],
@@ -387,14 +387,23 @@ export function applyInputEffect(state: GameState, name: string, args: readonly 
     return;
   }
   if (name === "setbutton") {
-    const [, slot, x, y, width, height] = args;
-    const id = String(slot ?? "");
-    configureInput(state.input, { buttons: [...state.input.buttons.filter((button) => !("id" in button && button.id === id)), { id, x: numberValue(x), y: numberValue(y), w: numberValue(width), h: numberValue(height), action: id, enabled: true }] });
+    const [file, slot, x, y, width, height] = args;
+    const numericSlot = numberValue(slot);
+    const id = String(numericSlot);
+    const buttons = state.input.buttons.filter((button) => !("id" in button && button.id === id) && !("asset" in button && button.slot === numericSlot));
+    configureInput(state.input, { buttons });
+    configureInput(state.input, { buttons: [...buttons, { id, x: numberValue(x), y: numberValue(y), w: numberValue(width), h: numberValue(height), action: id, enabled: true }] });
+    state.input.buttons.push({ slot: numericSlot, asset: typeof file === "string" ? file : "", x: numberValue(x), y: numberValue(y), width: numberValue(width), height: numberValue(height) });
     return;
   }
   if (name === "clearbuttons") {
-    const slots = args.map((value) => String(value));
-    configureInput(state.input, { buttons: slots.length === 0 ? [] : state.input.buttons.filter((button) => !("id" in button && slots.includes(button.id))) });
+    const numericSlots = args.map((value) => numberValue(value));
+    const slots = numericSlots.map(String);
+    if (slots.length === 0) {
+      configureInput(state.input, { buttons: [] });
+      return;
+    }
+    configureInput(state.input, { buttons: state.input.buttons.filter((button) => !("id" in button && slots.includes(button.id)) && !("asset" in button && numericSlots.includes(button.slot))) });
   }
 }
 function numberValue(value: Value | undefined): number { return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : 0; }

@@ -122,14 +122,19 @@ function drawModal(commands: DrawCommand[], ui: UiSection, width: number, height
   });
 }
 
-function drawButtons(commands: DrawCommand[], input: InputSection | undefined): void {
+function drawButtons(commands: DrawCommand[], input: InputSection | undefined, imageSize?: (asset: AssetKey) => { readonly w: number; readonly h: number } | null): void {
   for (const button of input?.buttons ?? []) {
     if (!("asset" in button)) continue;
+    const asset = assetKey(button.asset);
+    const texture = imageSize?.(asset);
+    const width = texture === undefined || texture === null ? button.width : Math.min(button.width, texture.w);
+    const height = texture === undefined || texture === null ? button.height : Math.min(button.height, texture.h);
+    if (width <= 0 || height <= 0) continue;
     commands.push({
       kind: "blit",
-      source: { asset: assetKey(button.asset), tile: null },
-      src: { x: 0, y: 0, w: button.width, h: button.height },
-      dst: { x: button.x, y: button.y, w: button.width, h: button.height },
+      source: { asset, tile: null },
+      src: { x: 0, y: 0, w: width, h: height },
+      dst: { x: button.x, y: button.y, w: width, h: height },
       key: { r: 255, g: 0, b: 255 },
       tint: { r: 0, g: 0, b: 0 },
       alpha: 255,
@@ -213,7 +218,7 @@ function surfaceFocusCommands(ui: UiSection): DrawCommand[] {
   }
   return commands;
 }
-export function composeUi(ui: UiSection, width: number, height: number, input?: InputSection, includeCursor = true, cursorSelection?: number, messageGraphic: AssetKey | null = null, fonts?: FontMap): DrawCommand[] {
+export function composeUi(ui: UiSection, width: number, height: number, input?: InputSection, includeCursor = true, cursorSelection?: number, messageGraphic: AssetKey | null = null, fonts?: FontMap, buttonImageSize?: (asset: AssetKey) => { readonly w: number; readonly h: number } | null): DrawCommand[] {
   const commands: DrawCommand[] = [];
   if (Array.isArray(ui.draws)) {
     for (const draw of ui.draws) {
@@ -222,7 +227,7 @@ export function composeUi(ui: UiSection, width: number, height: number, input?: 
   }
   drawMessage(commands, ui, width, messageGraphic, fonts);
   drawModal(commands, ui, width, height, fonts);
-  drawButtons(commands, input);
+  drawButtons(commands, input, buttonImageSize);
   commands.push(...surfaceFocusCommands(ui));
   if (includeCursor) drawCursor(commands, ui, input, cursorSelection);
   return commands;

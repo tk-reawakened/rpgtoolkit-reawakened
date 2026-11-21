@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { compareRgbaWithPng, parseClosingPlan, runClosingGame, type ClosingBaseline } from "@tk-reawakened/runner-harness";
+import { compareRgbaWithPng, parseClosingPlan, runClosingGame, runClosingFrames, type ClosingBaseline } from "@tk-reawakened/runner-harness";
 import { loadGameFiles, runClosing } from "../src/closing.ts";
 
 const repoRoot = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
@@ -54,6 +54,42 @@ test("the demo sample game boots through the real engine and matches its committ
     equal(comparison.error, null);
     equal(comparison.equal, true, `${path}: ${JSON.stringify(comparison.firstDifference)}`);
   }
+});
+
+test("Final Destiny draws its title button and a slot click reaches the game board", { skip: haveLegacy ? false : "run pnpm fixtures:fetch" }, () => {
+  const game = plan.games.find((entry) => entry.name === "FinalDestiny");
+  ok(game !== undefined);
+  const bundled = new Map<string, Uint8Array>();
+  for (const folder of plan.bundled) for (const [path, bytes] of loadGameFiles(join(repoRoot, folder))) bundled.set(`${folder}/${path}`, bytes);
+  const files = loadGameFiles(join(repoRoot, "fixtures", "legacy", "FinalDestiny"));
+  const titlePlan = { ...plan, keys: [], frames: plan.frames.map((frame) => frame.label === "title" ? { ...frame, tick: 300 } : frame) };
+  const initial = runClosingFrames(titlePlan, game, files, bundled);
+  const initialTitle = initial.frames.find((frame) => frame.label === "title");
+  ok(initialTitle !== undefined);
+  const button = initialTitle.drawList.commands.find((entry) => entry.kind === "blit" && entry.key?.r === 255 && entry.key?.g === 0 && entry.key?.b === 255);
+  ok(button?.kind === "blit" && "asset" in button.source, `title frame has no keyed button image: ${JSON.stringify(initial.diagnostics)}`);
+  if (button?.kind !== "blit" || !("asset" in button.source)) return;
+  equal(button.source.asset, "bitmap/new.jpg");
+  let visibleButtonPixel = false;
+  for (let py = button.dst.y; py < button.dst.y + button.dst.h; py++) {
+    for (let px: number = button.dst.x; px < button.dst.x + button.dst.w; px++) {
+      const offset = (py * initialTitle.width + px) * 4;
+      if (initialTitle.pixels[offset] !== 0 || initialTitle.pixels[offset + 1] !== 0 || initialTitle.pixels[offset + 2] !== 0) {
+        visibleButtonPixel = true;
+        break;
+      }
+    }
+    if (visibleButtonPixel) break;
+  }
+  ok(visibleButtonPixel, "New Game image contributed no visible pixels");
+  const x = button.dst.x + Math.floor(button.dst.w / 2);
+  const y = button.dst.y + Math.floor(button.dst.h / 2);
+  const run = runClosingFrames(titlePlan, game, files, bundled, {
+    pointers: [{ tick: 300, x, y, buttons: 1 }, { tick: 301, x, y, buttons: 0 }],
+  });
+  equal(run.stalled, false);
+  ok(run.board !== null && run.board !== initial.board, "New Game click did not reach a different board");
+  ok(!run.diagnostics.some((diagnostic) => diagnostic.code === "arity.mismatch" && diagnostic.message.toLowerCase().includes("checkbutton")), "title click reported a CheckButton arity error");
 });
 
 
