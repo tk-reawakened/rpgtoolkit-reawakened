@@ -496,3 +496,17 @@ test("setbutton draws its magenta-keyed image and an unavailable image leaves no
   equal(rendered.rgba.some((channel) => channel !== 0), false);
   deepEqual(state.input.buttons.map((entry) => "id" in entry ? entry.id : entry.slot), ["2", 2]);
 });
+test("setbutton image blits are clipped to decoded texture bounds without shrinking hit slots", () => {
+  const state = createGameState({ seed: 0 });
+  applyInputEffect(state, "setbutton", ["button.png", 2, 3, 4, 8, 7]);
+  const slot = state.input.buttons.find((button) => !("asset" in button));
+  ok(slot);
+  if ("asset" in slot) throw new Error("expected a separate hit slot");
+  const bounds = { x: slot.x, y: slot.y, w: slot.w, h: slot.h };
+  const commands = composeUi(state.ui, 32, 32, state.input, false, undefined, null, undefined, () => ({ w: 5, h: 3 }));
+  const button = commands.find((entry) => entry.kind === "blit" && "asset" in entry.source);
+  if (button?.kind !== "blit") throw new Error("expected button image blit");
+  deepEqual(button.src, { x: 0, y: 0, w: 5, h: 3 });
+  deepEqual(button.dst, { x: 3, y: 4, w: 5, h: 3 });
+  deepEqual({ x: slot.x, y: slot.y, w: slot.w, h: slot.h }, bounds);
+});

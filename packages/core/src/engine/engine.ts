@@ -5130,7 +5130,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       const font = layoutFont(key);
       if (font !== undefined) uiFonts.set(key, font);
     }
-    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey(), uiFonts)] };
+    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey(), uiFonts, imageTexture)] };
     return {
       ...withUi,
       commands: [...withUi.commands, ...composeUiCursor(state.ui, state.input, cursorSelection, waitingCursor !== undefined)],
