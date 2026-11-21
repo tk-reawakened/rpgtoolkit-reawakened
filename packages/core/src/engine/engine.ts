@@ -77,7 +77,7 @@ import { applyWorldEffect, expireProgramTileEdits } from "../world/effects.ts";
 import { applyCameraEffect, createCameraSection, initCameraForBoard, positionAt, realignCamera, updateCamera } from "../world/camera.ts";
 import { applyInputEffect, applySpriteEffect } from "../script/packs/world.ts";
 import type { CameraPoint, CameraTarget } from "../ports/camera.ts";
-import type { SpriteActor, SpritePoint, Facing } from "../sprites/model.ts";
+import { FACING_VECTOR, isDirectionMove, type SpriteActor, type SpritePoint, type Facing } from "../sprites/model.ts";
 import { placeSelectedPlayer, selectActor as selectPartyActor, removeActorSprite, spriteDraws, createInitialPlayer, hydrateSprites, itemKey, setItemVisible, type SpriteRuntime, type SpriteThreadResolver } from "../sprites/runtime.ts";
 import { reconcileItemPlacementIdentities } from "./item-placement-identity.ts";
 import { battleInProgress, itemBattleHandlerRunning } from "../script/packs/battle.ts";
@@ -5028,8 +5028,16 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         ?? null;
       if (actor === null) return null;
       const waypoint = actor.queue.waypoint?.points ?? [];
-      if (actor.queue.moves.length === 0 && waypoint.length === 0) return null;
-      const path: SpritePoint[] = [{ x: actor.x, y: actor.y }, ...actor.queue.moves.map((move) => move.target), ...waypoint];
+      if (actor.queue.moves.length === 0 && waypoint.length === 0 && actor.movement.active === null) return null;
+      const path: SpritePoint[] = [{ x: actor.x, y: actor.y }];
+      if (actor.movement.active !== null) path.push(actor.movement.active.target);
+      for (const move of actor.queue.moves) {
+        const previous = path[path.length - 1]!;
+        if (!isDirectionMove(move)) { path.push(move.target); continue; }
+        const vector = FACING_VECTOR[move.direction];
+        path.push({ x: previous.x + vector[0] * move.distance, y: previous.y + vector[1] * move.distance });
+      }
+      path.push(...waypoint);
       const destination = path[path.length - 1];
       return destination === undefined ? null : { path, destination };
     };

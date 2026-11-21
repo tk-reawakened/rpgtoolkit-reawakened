@@ -1,10 +1,13 @@
 /** Fixed-tick actor movement and collision (E-22..E-30, R-50, R-51, R-54). */
 import type { GameState } from "../save/state.ts";
 import type { WorldBoard, WorldPoint, WorldVector } from "../world/model.ts";
-import { findBlockingThread, hasLiveBlockingThread, type Thread } from "../script/state.ts";
+import { findBlockingThread, hasLiveBlockingThread, scriptOwnsInput, type Thread } from "../script/state.ts";
 import type { EnginePhaseRegistration } from "../engine/engine.ts";
 import {
   FACING,
+  FACING_VECTOR,
+  isDirectionMove,
+  moveDestination,
   type Facing,
   type QueueSource,
   type SpriteActiveMove,
@@ -59,6 +62,11 @@ export type MovementOptions = {
   readonly freezePointer?: boolean;
   /** Hold board item sprites in place, including any step already under way. */
   readonly pauseItems?: boolean;
+  /**
+   * Whether a blocked player direction-style tile step runs end-of-step processing (R-64). The engine sets it
+   * false while a program owns input, which is a synchronous driver.
+   */
+  readonly countBlockedSteps?: boolean;
 };
 
 function fixed(value: number): number {
@@ -86,6 +94,8 @@ function cloneMovement(movement: SpriteMovement): SpriteMovement {
     lastStepTick: movement.lastStepTick,
     lastStepDistance: movement.lastStepDistance,
     lastStepProvenance: movement.lastStepProvenance,
+    lastStepTarget: movement.lastStepTarget === null ? null : { ...movement.lastStepTarget },
+    lastStepBlocked: movement.lastStepBlocked,
   };
 }
 function event(
@@ -242,9 +252,8 @@ function ticksPerAdvance(speed: number, gameSpeed: number): number {
   return Math.max(1, Math.floor((intervalNumerator + 500) / 1000));
 }
 function directionVector(facing: Facing): [number, number] {
-  const index = FACING.indexOf(facing);
-  const vectors: [number, number][] = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]];
-  return vectors[index] ?? [0, 0];
+  const vector = FACING_VECTOR[facing];
+  return [vector[0], vector[1]];
 }
 function advancePoint(actor: SpriteActor, active: SpriteActiveMove, pixelMovement: number): { x: number; y: number; reached: boolean } {
   const [x, y] = positionFixed(actor);
@@ -291,7 +300,26 @@ function offBoard(actor: SpriteActor, board: WorldBoard, x: number, y: number): 
 function free(section: SpritesSection, actor: SpriteActor, board: WorldBoard, x: number, y: number): boolean {
   return boardHit(actor, board, x, y) === null && spriteHit(section, actor, x, y) === null && offBoard(actor, board, x, y) === null;
 }
-function finishActor(actor: SpriteActor, active: SpriteActiveMove, blocked: boolean, tpa: number, tick: number, sink?: (event: MovementEvent) => void): SpriteActor {
+/** R-63: test the collision base at the whole tile destination before the step advances. */
+function destinationBlocker(section: SpritesSection, actor: SpriteActor, board: WorldBoard, target: SpritePoint): { readonly vector: string | null; readonly sprite: string | null } | null {
+  const vector = boardHit(actor, board, fixed(target.x), fixed(target.y));
+  if (vector !== null) return { vector: vector.handle, sprite: null };
+  const sprite = spriteHit(section, actor, fixed(target.x), fixed(target.y));
+  return sprite === null ? null : { vector: null, sprite: sprite.id };
+}
+/** Rebuild a relative direction entry from a stopped active step so a non-player can retry it (R-64 item 3). */
+function retryMove(active: SpriteActiveMove): SpriteMove {
+  const dx = fixed(active.target.x) - fixed(active.start.x);
+  const dy = fixed(active.target.y) - fixed(active.start.y);
+  return {
+    source: "direction",
+    direction: active.facing ?? FACING[facingIndex(dx, dy)] ?? "S",
+    distance: Math.max(Math.abs(px(dx)), Math.abs(px(dy))),
+    ...(active.provenance === undefined ? {} : { provenance: active.provenance }),
+    ...(active.pointer === true ? { pointer: true as const } : {}),
+  };
+}
+function finishActor(actor: SpriteActor, active: SpriteActiveMove, blocked: boolean, tpa: number, tick: number, sink?: (event: MovementEvent) => void, countedBlocked = false): SpriteActor {
   const waypoint = actor.queue.waypoint;
   const waypointDone = waypoint !== null && waypoint.cycles !== 0 && waypoint.cursor >= waypoint.points.length && waypoint.cycle + 1 >= waypoint.cycles;
   const nextWaypoint = waypointDone ? null : waypoint;
@@ -304,8 +332,21 @@ function finishActor(actor: SpriteActor, active: SpriteActiveMove, blocked: bool
   // `fixed` is exact and the sum below is an exact integer.
   const dx256 = fixed(dx);
   const dy256 = fixed(dy);
-  const partyDistance256 = blocked ? 0 : Math.floor(Math.sqrt(dx256 * dx256 + dy256 * dy256) + 0.5);
-  const movement = { ...cloneMovement(actor.movement), active: null, waitTicks: 0, lastStepTick: tick, lastStepDistance: distance, lastStepProvenance: active.provenance ?? { kind: "unknown" as const } };
+  // R-64 (docs/spec/engine/movement-and-collision.md#r-64): a blocked player direction-style tile step is
+  // consumed and counted as one tile even though the actor did not move.
+  const partyDistance256 = blocked
+    ? (countedBlocked ? STEP_TILE * FP : 0)
+    : Math.floor(Math.sqrt(dx256 * dx256 + dy256 * dy256) + 0.5);
+  const movement = {
+    ...cloneMovement(actor.movement),
+    active: null,
+    waitTicks: 0,
+    lastStepTick: tick,
+    lastStepDistance: distance,
+    lastStepProvenance: active.provenance ?? { kind: "unknown" as const },
+    lastStepTarget: countedBlocked ? { ...active.target } : null,
+    lastStepBlocked: blocked,
+  };
   if (!blocked) event(tick, "step-complete", { actor: actor.id, distance, partyDistance256 }, sink);
   const state = queue ? "moving" : "waiting";
   if (!queue) event(tick, "movement-complete", { actor: actor.id, blocked }, sink);
@@ -367,7 +408,7 @@ function waypointMove(actor: SpriteActor): { readonly move: SpriteMove; readonly
     waypoint: nextWaypoint,
   };
 }
-function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldBoard, tick: number, gameSpeed: number, pixelMovement: number, freezePointer: boolean, sink?: (event: MovementEvent) => void): void {
+function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldBoard, tick: number, gameSpeed: number, pixelMovement: number, freezePointer: boolean, countBlockedSteps: boolean, sink?: (event: MovementEvent) => void): void {
   if (!actor.visible) return;
   if (actor.state === "frozen") {
     if (actor.frozenUntil !== null && tick >= actor.frozenUntil) {
@@ -400,9 +441,11 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
       return;
     }
     const move = next;
-    const dx = move.target.x - actor.x;
-    const dy = move.target.y - actor.y;
-    const active: SpriteActiveMove = { source: move.source, start: { x: actor.x, y: actor.y }, target: { ...move.target }, facing: move.facing, cadence: actor.prev !== null ? Math.max(0, ticksPerAdvance(actor.speed, gameSpeed) - 1) : 0, ignoreBoard: move.source === "points", tried: false, provenance: move.provenance ?? { kind: "unknown" }, ...(move.pathMode === undefined ? {} : { pathMode: move.pathMode }), ...(move.deferredComplete === true ? { deferredComplete: true } : {}), ...(move.pointer === true ? { pointer: true as const } : {}) };
+    const target = moveDestination(move, actor);
+    const facing = isDirectionMove(move) ? move.direction : move.facing;
+    const dx = target.x - actor.x;
+    const dy = target.y - actor.y;
+    const active: SpriteActiveMove = { source: move.source, start: { x: actor.x, y: actor.y }, target, facing, cadence: actor.prev !== null ? Math.max(0, ticksPerAdvance(actor.speed, gameSpeed) - 1) : 0, ignoreBoard: move.source === "points", tried: false, provenance: move.provenance ?? { kind: "unknown" }, ...(move.pathMode === undefined ? {} : { pathMode: move.pathMode }), ...(move.deferredComplete === true ? { deferredComplete: true } : {}), ...(move.pointer === true ? { pointer: true as const } : {}) };
     movement = { ...movement, active };
     const moves = actor.queue.moves.length > 0 ? actor.queue.moves.slice(1) : actor.queue.moves;
     const nextActor: SpriteActor = { ...actor, state: "moving", queue: { ...queue, moves }, movement };
@@ -421,6 +464,35 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
   if (active.cadence > 0) {
     replaceActor(section, { ...actor, movement: { ...movement, active: { ...active, cadence: active.cadence - 1 } } });
     return;
+  }
+  const tileDirection = pixelMovement === 0 && active.source === "direction";
+  // R-63/R-65 item 4: test the whole destination before every advance. A restored or migrated active step
+  // therefore cannot move toward a destination that is already blocked.
+  if (tileDirection) {
+    const blocked = destinationBlocker(section, actor, board, active.target);
+    if (blocked !== null) {
+      const atStart = fixed(actor.x) === fixed(active.start.x) && fixed(actor.y) === fixed(active.start.y);
+      const detail = {
+        actor: actor.id,
+        ...(blocked.vector === null ? {} : { vector: blocked.vector }),
+        ...(blocked.sprite === null ? {} : { blocker: blocked.sprite }),
+        blocked: true,
+      };
+      if (actor.kind === "player" && actor.controlled === true) {
+        const counted = atStart && countBlockedSteps;
+        event(tick, "blocked", { ...detail, ...(counted ? { partyDistance256: STEP_TILE * FP } : {}) }, sink);
+        const finished = finishActor({ ...actor, facing: active.facing ?? actor.facing }, active, true, tpa, tick, sink, counted);
+        // R-64 item 1: the next queued entry starts on the following update, whether or not this step was
+        // counted. The previous-step marker is what delays a fresh entry by one advance cadence, so any
+        // consumed blocked step clears it — a mid-step block and a script-owned block included.
+        replaceActor(section, { ...finished, prev: null });
+        return;
+      }
+      event(tick, "blocked", detail, sink);
+      const requeued = { ...actor, facing: active.facing ?? actor.facing, queue: { ...actor.queue, moves: [retryMove(active), ...actor.queue.moves] } };
+      replaceActor(section, { ...finishActor(requeued, active, true, tpa, tick, sink), prev: null });
+      return;
+    }
   }
   const next = advancePoint(actor, active, pixelMovement);
   const direction = active.facing ?? FACING[facingIndex(next.x - fixed(actor.x), next.y - fixed(actor.y))] ?? actor.facing;
@@ -455,14 +527,35 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
         }
       }
     }
-    const completes = actor.queue.moves.length === 0 && actor.queue.waypoint === null;
-    replaceActor(section, finishActor({ ...actor, facing: direction }, active, true, tpa, tick));
+    if (tileDirection) {
+      event(tick, "blocked", { actor: actor.id, vector: hit.handle, blocked: true }, sink);
+      if (actor.kind !== "player" || actor.controlled !== true) {
+        const requeued = { ...actor, facing: direction, queue: { ...actor.queue, moves: [retryMove(active), ...actor.queue.moves] } };
+        replaceActor(section, { ...finishActor(requeued, active, true, tpa, tick, sink), prev: null });
+      } else {
+        const stopped = finishActor({ ...actor, facing: direction }, active, true, tpa, tick, sink);
+        replaceActor(section, { ...stopped, prev: null });
+      }
+      return;
+    }
     event(tick, "blocked", { actor: actor.id, vector: hit.handle, blocked: true }, sink);
-    if (completes) event(tick, "movement-complete", { actor: actor.id, blocked: true }, sink);
+    replaceActor(section, finishActor({ ...actor, facing: direction }, active, true, tpa, tick, sink));
     return;
   }
   const blocker = spriteHit(section, actor, next.x, next.y);
   if (blocker !== null) {
+    // R-64 item 2: a direction-style sprite block is not a freeze for the initiating player.
+    if (tileDirection) {
+      event(tick, "blocked", { actor: actor.id, blocker: blocker.id, blocked: true }, sink);
+      if (actor.kind !== "player" || actor.controlled !== true) {
+        const requeued = { ...actor, facing: direction, queue: { ...actor.queue, moves: [retryMove(active), ...actor.queue.moves] } };
+        replaceActor(section, { ...finishActor(requeued, active, true, tpa, tick, sink), prev: null });
+      } else {
+        const stopped = finishActor({ ...actor, facing: direction }, active, true, tpa, tick, sink);
+        replaceActor(section, { ...stopped, prev: null });
+      }
+      return;
+    }
     const following = active.source === "points" || active.source === "path" || active.source === "waypoint-path" || active.source === "waypoint-link";
     if (following && movement.waitTicks === 0 && !active.tried) {
       const diversion = findPath(board, section, actor, active.target, active.pathMode ?? 1);
@@ -524,24 +617,17 @@ export function enqueueScriptDirectionMove(section: SpritesSection, id: string, 
   return enqueueDirectionDistanceMove(section, id, facing, distance, clear, false, provenance);
 }
 function enqueueDirectionDistanceMove(section: SpritesSection, id: string, facing: Facing, distance: number, clear: boolean, preserveCadence = false, provenance: MovementProvenance = { kind: "input" }): boolean {
-  const actor = allActors(section).find((value) => value.id === id);
-  if (actor === undefined) return false;
-  const vector = directionVector(facing);
-  return updateActor(section, id, (value) => {
-    const previous = value.queue.moves[value.queue.moves.length - 1];
-    const origin = !clear && previous !== undefined ? previous.target : !clear ? value.movement.active?.target ?? value : value;
-    return {
-      ...value,
-      state: value.visible ? "moving" : value.state,
-      prev: clear && !preserveCadence ? null : value.prev,
-      movement: clear ? { ...cloneMovement(value.movement), active: null, waitTicks: 0 } : value.movement,
-      queue: {
-        ...value.queue,
-        waypoint: clear ? null : value.queue.waypoint,
-        moves: [...(clear ? [] : value.queue.moves), { source: "direction", target: { x: origin.x + vector[0] * distance, y: origin.y + vector[1] * distance }, facing, provenance }],
-      },
-    };
-  }) !== null;
+  return updateActor(section, id, (value) => ({
+    ...value,
+    state: value.visible ? "moving" : value.state,
+    prev: clear && !preserveCadence ? null : value.prev,
+    movement: clear ? { ...cloneMovement(value.movement), active: null, waitTicks: 0 } : value.movement,
+    queue: {
+      ...value.queue,
+      waypoint: clear ? null : value.queue.waypoint,
+      moves: [...(clear ? [] : value.queue.moves), { source: "direction", direction: facing, distance, provenance }],
+    },
+  })) !== null;
 }
 
 /** Advance all actors in stable draw order for one movement phase. */
@@ -561,7 +647,7 @@ export function runMovementPhase(section: SpritesSection, board: WorldBoard | nu
       replaceActor(section, actor);
     }
     if (actor !== undefined && !(options.pauseItems === true && actor.kind === "item")) {
-      advanceActor(section, actor, board, tick, gameSpeed, pixelMovement, options.freezePointer === true, sink);
+      advanceActor(section, actor, board, tick, gameSpeed, pixelMovement, options.freezePointer === true, options.countBlockedSteps !== false, sink);
     }
   }
   return events;
@@ -592,11 +678,13 @@ export function movementPhaseRegistration(options: MovementOptions & { readonly 
         pixelMovement: state.world.movement.walking ?? options.pixelMovement ?? 0,
         freezePointer: blocker !== null || hasLiveBlockingThread(state.vm),
         pauseItems: modalPausesItems(state, blocker),
+        countBlockedSteps: !scriptOwnsInput(state.vm),
         onEvent: (ev) => {
           options.onEvent?.(ev);
-          if (ev.type === "step-complete" && ev.actor === state.sprites.selectedPlayer &&
-            ev.partyDistance256 !== undefined && ev.partyDistance256 > 0) {
-            const total = state.party.stepRemainder + ev.partyDistance256;
+          const stepDistance = ev.type === "step-complete" || ev.type === "blocked" ? ev.partyDistance256 : undefined;
+          if (ev.actor === state.sprites.selectedPlayer &&
+            stepDistance !== undefined && stepDistance > 0) {
+            const total = state.party.stepRemainder + stepDistance;
             // Copy on write: an owner read may have frozen the live section (menu/ports.ts `read`), exactly as it
             // does for every other section the owners publish.
             state.party = {
@@ -617,11 +705,10 @@ export const spriteMovementRegistration = movementPhaseRegistration;
 /** R-50's deterministic cadence conversion, exposed for fixture and runner tests. */
 export { ticksPerAdvance };
 
-/** Build a direction move without mutating a section, useful for input owners. */
-export function directionMove(actor: SpriteActor, facing: Facing, pixelMovement = 0): SpriteMove {
-  const vector = directionVector(facing);
+/** Build a direction entry without mutating a section, useful for input owners. */
+export function directionMove(facing: Facing, pixelMovement = 0): SpriteMove {
   const distance = pixelMovement === 0 ? STEP_TILE : STEP_PIXEL;
-  return { source: "direction", target: { x: actor.x + vector[0] * distance, y: actor.y + vector[1] * distance }, facing, provenance: { kind: "input" } };
+  return { source: "direction", direction: facing, distance, provenance: { kind: "input" } };
 }
 
 /** Return the distance cadence used by the active actor. */
@@ -639,6 +726,8 @@ export function ensureMovementState(actor: SpriteActor): SpriteMovement {
     lastStepTick: actor.movement?.lastStepTick ?? null,
     lastStepDistance: actor.movement?.lastStepDistance ?? 0,
     lastStepProvenance: actor.movement?.lastStepProvenance ?? { kind: "unknown" },
+    lastStepTarget: actor.movement?.lastStepTarget ?? null,
+    lastStepBlocked: actor.movement?.lastStepBlocked ?? false,
   };
 }
 

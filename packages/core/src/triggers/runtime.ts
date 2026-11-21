@@ -388,7 +388,16 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   const stepEligible = step && !triggerStep;
   const movementEvent = stepEligible || moving;
   const kind = key ? "key" : "step";
-  const shape = playerShape(player);
+  // R-64 item 2: a blocked player tile step's end-of-step processing (step triggers, item activations and
+  // the random-battle check) runs at the step's intended destination. Only STEP processing moves there:
+  // a key activation (E-41) still tests the player's own collision base where the player stands.
+  const stepDestination = step && player.movement.lastStepBlocked && player.movement.lastStepTarget !== null
+    ? player.movement.lastStepTarget
+    : null;
+  const playerBase = playerShape(player);
+  const shape = stepDestination === null
+    ? playerBase
+    : translate(player.collisionBase.points as WorldPoint[], stepDestination.x, stepDestination.y);
   const regions = (board.programs ?? []).map(regionCandidate);
   const items: Candidate[] = [];
   // The re-arm pool covers every authored item: an arrival-suppressed item on another layer or with
@@ -407,10 +416,14 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     // Mid-step polling exists for item contact only; regions retain the original
     // step/key cadence, plus delayed consumption after a trigger-owned movement.
     if (candidate.source === "region" && !step && !key && !completedTriggerMovement) continue;
+    // E-40/E-19 re-arming observes the area the candidate was eligible in: a key-press candidate only
+    // against the player's standing shape (E-41), a step/repeat candidate against the shape its step is
+    // tested with — the blocked step's destination while one is being processed (R-64 item 2).
+    const area = (candidate.activationType & 3) === 1 ? playerBase : shape;
     const overlapsArea = candidate.layer === player.layer
       && (candidate.source === "item"
-        ? candidate.actor !== undefined && candidate.actor.visible && overlaps(shape, itemShape(candidate))
-        : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
+        ? candidate.actor !== undefined && candidate.actor.visible && overlaps(area, itemShape(candidate))
+        : overlaps(area, polygon(candidate.points), candidate.closed !== 0));
     if (!overlapsArea) {
       delete section.fired[candidate.key];
       delete section.repeat[candidate.key];
@@ -428,8 +441,10 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     // A trigger belongs to the layer it was authored on: only the player's own layer may fire it
     // (docs/spec/engine/movement-and-collision.md#triggers). Regions are collected from every layer,
     // so the comparison has to be here as well as in the item list above.
+    // R-64 item 2: a step is tested where it was headed; a key press is tested where the player stands.
+    const testShape = eventKind === "step" ? shape : playerBase;
     const inArea = candidate.layer === player.layer
-      && (candidate.source === "item" ? overlaps(shape, itemShape(candidate)) : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
+      && (candidate.source === "item" ? overlaps(testShape, itemShape(candidate)) : overlaps(testShape, polygon(candidate.points), candidate.closed !== 0));
     if (!inArea || !conditionMatches(state, candidate) || candidate.program === "") return false;
     if (eventKind === "key") return pointerTarget === undefined || candidate.key === pointerTarget;
     const fired = section.fired[candidate.key] === true;

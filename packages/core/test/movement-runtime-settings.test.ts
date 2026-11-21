@@ -14,6 +14,8 @@ import {
   IR_VERSION,
   enqueueDirectionMove,
   movementPhaseRegistration,
+  moveDestination,
+  pointMoveTarget,
   PACKAGE_ROOT,
   startThread,
   utf8Encode,
@@ -197,7 +199,7 @@ test("RPGCode pixelmovement setter results and coercion are visible to scripts (
   equal(state.vm.globals.afternullargument, 0);
   const player = state.sprites.players[0];
   ok(player !== undefined);
-  equal(player.movement.active?.target.x ?? player.queue.moves[0]?.target.x, initialX + 32);
+  equal(player.movement.active?.target.x ?? (player.queue.moves[0] === undefined ? undefined : moveDestination(player.queue.moves[0], player).x), initialX + 32);
 });
 
 for (const [label, initialMode, walking, expectedDistance] of [
@@ -275,7 +277,7 @@ for (const [targetKind, pushing, expectedDistance] of [
     deepEqual(fixture.pressA().diagnostics, []);
     const actor = targetKind === "player" ? fixture.state().sprites.players[0] : fixture.state().sprites.items[0];
     ok(actor !== undefined);
-    const target = actor.movement.active?.target.x ?? actor.queue.moves[0]?.target.x;
+    const target = actor.movement.active?.target.x ?? (actor.queue.moves[0] === undefined ? undefined : moveDestination(actor.queue.moves[0], actor).x);
     ok(target !== undefined);
     equal(target, startX + expectedDistance);
   });
@@ -286,7 +288,7 @@ test("a player's first script push takes over inherited destinations and later p
   const state = fixture.state();
   const player = state.sprites.players[0];
   ok(player !== undefined);
-  player.queue.moves = [{ source: "direction", target: { x: player.x + 20, y: player.y }, facing: "E" }];
+  player.queue.moves = [{ source: "direction", direction: "E", distance: 20 }];
   const thread = startThread(state.vm, {
     ref: { kind: "inline", text: "end()", ir: IR_VERSION },
     kind: "persistent",
@@ -298,9 +300,9 @@ test("a player's first script push takes over inherited destinations and later p
 
   const after = state.sprites.players[0];
   ok(after !== undefined);
-  deepEqual(after.queue.moves.map(({ target }) => target), [
-    { x: player.x + 8, y: player.y },
-    { x: player.x + 8, y: player.y - 8 },
+  deepEqual(after.queue.moves.map((move) => move.source === "direction" ? { direction: move.direction, distance: move.distance } : pointMoveTarget(move)), [
+    { direction: "E", distance: 8 },
+    { direction: "N", distance: 8 },
   ]);
 });
 
@@ -340,7 +342,7 @@ test("playerpath CLEAR_QUEUE cancels active travel before calculating the next r
   const after = state.sprites.players.find((actor) => actor.id === player.id);
   ok(after !== undefined);
   equal(after.movement.active, null);
-  deepEqual(after.queue.moves.map(({ target }) => target), [{ x: 64, y: 64 }, { x: 96, y: 64 }]);
+  deepEqual(after.queue.moves.map((move) => pointMoveTarget(move)), [{ x: 64, y: 64 }, { x: 96, y: 64 }]);
 });
 
 test("same-position waypoint does not take over a queued click route (#1643)", () => {
@@ -465,7 +467,7 @@ test("itempath preserves a waypoint after queued item movement", () => {
 
   equal(applySpriteEffect(state, "pushitem", [0, "E", 0], thread.id), true);
   equal(applySpriteEffect(state, "itempath", [0, 8, "home", 1], thread.id), true);
-  deepEqual(state.sprites.items[0]?.queue.moves.map(({ target }) => target), [{ x: initial.x + 32, y: initial.y }]);
+  deepEqual(state.sprites.items[0]?.queue.moves.map((move) => moveDestination(move, initial)), [{ x: initial.x + 32, y: initial.y }]);
   deepEqual(state.sprites.items[0]?.queue.waypoint?.points, [{ x: initial.x, y: initial.y }]);
 });
 
@@ -498,7 +500,7 @@ test("a waypoint after scripted travel compares against the queued destination (
 
   equal(applySpriteEffect(state, "playerpath", [player.id, 0, player.x + 32, player.y], thread.id), true);
   equal(applySpriteEffect(state, "playerpath", [player.id, 8, "home", 1], thread.id), true);
-  deepEqual(state.sprites.players[0]?.queue.moves.map(({ target }) => target), [{ x: player.x + 32, y: player.y }]);
+  deepEqual(state.sprites.players[0]?.queue.moves.map((move) => pointMoveTarget(move)), [{ x: player.x + 32, y: player.y }]);
   deepEqual(state.sprites.players[0]?.queue.waypoint?.points, [{ x: player.x, y: player.y }]);
 });
 
@@ -557,7 +559,7 @@ test("blocking push resumes only at its runtime-selected target completion tick 
   const issued = fixture.state();
   const player = issued.sprites.players[0];
   ok(player !== undefined);
-  const targetX = player.movement.active?.target.x ?? player.queue.moves[0]?.target.x;
+  const targetX = player.movement.active?.target.x ?? (player.queue.moves[0] === undefined ? undefined : moveDestination(player.queue.moves[0], player).x);
   ok(targetX !== undefined);
   equal(targetX, start.x + 8);
   equal(issued.vm.globals.continued, undefined);

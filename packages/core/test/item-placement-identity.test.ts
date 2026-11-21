@@ -52,7 +52,7 @@ test("same-file item placements have independent identities, movement, and threa
   equal(first.id, "walker.itm");
   equal(second.id, "walker.itm#board-slot:1");
   equal(first.multitaskThread === second.multitaskThread, false);
-  equal(enqueueMove(runtime.section, second.id, { source: "direction", target: { x: 1, y: 0 }, facing: "E" }), true);
+  equal(enqueueMove(runtime.section, second.id, { source: "direction", direction: "E", distance: 1 }), true);
   equal(runtime.section.items[0]?.queue.moves.length, 0);
   equal(runtime.section.items[1]?.queue.moves.length, 1);
   equal(runtime.hideItem(second.id), true);

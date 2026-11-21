@@ -19,7 +19,7 @@ const repoRoot = resolve(here, "..", "..", "..");
 
 const NAMED = [
   "movement-tile-pixel", "collision-solid-stairs-under", "collision-sprite-blocking", "edges-board-link-program",
-  "board-entry-thread-lifecycle", "triggers-precedence", "actor-hydration-item-multitask", "pathfinding-axial-diagonal-vector",
+  "board-entry-thread-lifecycle", "triggers-precedence", "tile-step-precheck-events", "actor-hydration-item-multitask", "pathfinding-axial-diagonal-vector",
   "input-replay-button-slots", "movement-waits", "animation-fallback-stance", "random-encounter",
   "demo-npc-pathfinding", "demo-npc-battle-trigger",
 ];
@@ -105,7 +105,7 @@ test("movement-tile-pixel: a 32 px tile is 8 advances, 24 ticks, completing on t
 
 test("collision-solid-stairs-under: blocked, sliding, layers and under facts", () => {
   const solid = theCase("collision-solid-stairs-under", "tile-solid-blocks");
-  deepEqual(events(solid, "blocked").map((e) => e.t), [24, 27]); // the second E step blocks as well; the third never starts
+  deepEqual(events(solid, "blocked").map((e) => e.t), [24, 25]); // the second E step blocks, then the third on the following update
   const slide = theCase("collision-solid-stairs-under", "pixel-glancing-slide");
   // R-54 item 3: the glancing SE step turns south, adopts the slid point and ends there, so x never moves.
   deepEqual(actorAt(slide, 0, "hero"), ["hero", 112, 67, 0, "waiting", "S"]);
@@ -124,20 +124,34 @@ test("collision-solid-stairs-under: blocked, sliding, layers and under facts", (
   ok(!isGlancing([100, 101], [1, 0], false));
 });
 
-test("collision-sprite-blocking: R-51 loser order, 120-tick freeze, diversion, wait and stop", () => {
+test("collision-sprite-blocking: R-64 consumed and retried steps, plus diversion, wait and stop", () => {
   const sc = "collision-sprite-blocking";
-  const lose = theCase(sc, "stationary-loses");
-  deepEqual(events(lose, "sprite-collision").map((e) => [e.t, e.winner, e.loser]), [[24, "hero", "npc"]]);
-  const thaw = theCase(sc, "freeze-thaw-and-refreeze");
-  equal(actorAt(thaw, 24, "npc")[4], "frozen");
-  equal(actorAt(thaw, 143, "npc")[4], "frozen"); // 120 ticks: 24 .. 143
-  equal(actorAt(thaw, 144, "npc")[4], "waiting");
-  deepEqual(events(thaw, "thaw").map((e) => e.t), [144]);
+  // R-64 item 1: the player's blocked direction entry is consumed and counted; the NPC is unaffected.
+  const lose = theCase(sc, "direction-step-consumed-into-npc");
+  deepEqual(events(lose, "sprite-collision").map((e) => [e.t, e.winner, e.loser]), []);
+  deepEqual(events(lose, "blocked").map((e) => e.t), [24, 25]);
+  equal(actorAt(lose, 35, "npc")[4], "waiting");
+  equal(actorAt(lose, 35, "hero")[1], 80); // two 32 px steps complete; the third is blocked at the last safe position
+  // R-64 item 3: no direction step ever freezes another actor, not even a fresh attempt at tick 145.
+  const thaw = theCase(sc, "blocked-direction-step-never-freezes-npc");
+  equal(actorAt(thaw, 24, "npc")[4], "waiting");
+  equal(actorAt(thaw, 143, "npc")[4], "waiting");
+  deepEqual(events(thaw, "thaw").map((e) => e.t), []);
+  deepEqual(events(thaw, "blocked").map((e) => e.t), [24, 25, 145]);
   equal(actorAt(thaw, 144, "hero")[4], "waiting");
-  deepEqual(events(thaw, "sprite-collision").map((e) => e.t), [24, 145]); // only a fresh explicit attempt refreezes it
-  deepEqual(events(theCase(sc, "controlled-player-wins-between-movers"), "sprite-collision").map((e) => e.winner), ["hero"]);
-  deepEqual(events(theCase(sc, "faster-sprite-wins"), "sprite-collision").map((e) => [e.winner, e.loser]), [["fast", "slow"]]);
-  deepEqual(events(theCase(sc, "equal-speed-larger-drawid-loses"), "sprite-collision").map((e) => [e.winner, e.loser]), [["first", "second"]]);
+  deepEqual(events(thaw, "sprite-collision").map((e) => e.t), []);
+  // R-64 item 2: a direction block is not resolved by the R-51 winner/loser order.
+  const movers = theCase(sc, "direction-movers-consume-and-retry");
+  deepEqual(events(movers, "sprite-collision").map((e) => e.winner), []);
+  deepEqual(events(movers, "blocked").length > 0, true);
+  const retry = theCase(sc, "non-player-direction-steps-retry-forever");
+  deepEqual(events(retry, "sprite-collision").map((e) => [e.winner, e.loser]), []);
+  equal(actorAt(retry, 59, "slow")[4], "moving");
+  equal(actorAt(retry, 59, "fast")[4], "moving");
+  const mutual = theCase(sc, "mutual-direction-retry-queues-wait");
+  deepEqual(events(mutual, "sprite-collision").map((e) => [e.winner, e.loser]), []);
+  equal(actorAt(mutual, 89, "first")[4], "moving");
+  equal(actorAt(mutual, 89, "second")[4], "moving");
   const dive = theCase(sc, "diversion-around-blocker");
   equal(events(dive, "diversion").length, 1);
   equal(events(dive, "sprite-collision").length, 0); // the collision is not applied
@@ -213,6 +227,55 @@ test("triggers-precedence: once-per-entry, repeat distance, precedence, conditio
   deepEqual(fired(appended), [[7, "shove"], [39, "later"]]);
   deepEqual(actorAt(appended, 99, "hero").slice(1, 3), [208, 63]);
   deepEqual(fired(theCase(sc, "hidden-item-is-not-a-candidate")), [[39, "secret"]]);
+});
+
+test("tile-step-precheck-events: a counted blocked step is processed at its intended destination", () => {
+  const sc = "tile-step-precheck-events";
+  // R-63: the step into the wall (x 76..84) never advances, so the player stays at x 48 and only turns.
+  const door = theCase(sc, "blocked-counted-step-fires-the-step-region-at-the-destination");
+  deepEqual(door.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "door"]]);
+  deepEqual(actorAt(door, 0, "hero").slice(1, 3), [48, 63]);
+  equal(actorAt(door, 0, "hero")[5], "E");
+  deepEqual(events(door, "blocked").map((e) => [e.t, e.by]), [[0, "wall"]]);
+  deepEqual(events(door, "movement-complete").map((e) => [e.t, e.blocked]), [[0, true]]);
+  equal(events(door, "step-complete").length, 0);
+  // R-64 item 2: the battle check runs at the intended destination tile (x 48 is tile 1, x 80 is tile 2).
+  const battle = theCase(sc, "blocked-counted-step-checks-battles-at-the-destination");
+  deepEqual(events(battle, "tile-moved").map((e) => [e.t, e.cell]), [[0, [2, 1]]]);
+  deepEqual(events(battle, "rng-draw").map((e) => [e.n, e.value]), [[4, 0], [1, 0]]);
+  const handoff = events(battle, "fight-handoff")[0];
+  equal(handoff.t, 0);
+  deepEqual(handoff.enemies, ["rat.ene"]);
+  deepEqual([handoff.x, handoff.y], [48, 63]);
+  // P-19: the counted step adds 0 px to repeat distance, so the second 40 px pass never fires.
+  const repeat = theCase(sc, "blocked-counted-step-does-not-leak-into-repeat-distance");
+  deepEqual(repeat.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "trail"]]);
+  deepEqual(events(repeat, "blocked").map((e) => e.t), [0, 8]);
+  // R-63 item 2 with R-64: the step is stopped after its first advance by an item that walked into the
+  // destination's collision area, so it is not the counted step and the step region over the destination
+  // never fires. The item finishes its own step at the end of the run.
+  const midStep = theCase(sc, "blocked-mid-step-is-not-counted");
+  deepEqual(midStep.expect.filter((r) => r.fired), []);
+  deepEqual(actorAt(midStep, 1, "hero"), ["hero", 50.828125, 60.171875, 0, "waiting", "NE"]);
+  deepEqual(events(midStep, "blocked").map((e) => [e.t, e.by]), [[1, "cart"]]);
+  deepEqual(events(midStep, "step-complete").map((e) => e.actor), ["cart"]);
+  deepEqual(events(midStep, "movement-complete").map((e) => [e.t, e.actor, e.blocked === true]), [[1, "hero", true], [7, "cart", false]]);
+  // R-64 item 1: a blocked step consumes the entry whether or not it was counted, so the next queued
+  // direction starts on the update after the block (tick 3 + 1), not one three-tick advance cadence later.
+  // Hero speed 0.05 advances every three ticks: 52 at tick 0, then the precheck runs at tick 3 with the
+  // cart (speed 0.02, one 4 px step per tick) already in the destination's collision area at (96, 63).
+  const queue = theCase(sc, "blocked-mid-step-queue-continues-next-update");
+  deepEqual(events(queue, "blocked").map((e) => [e.t, e.by]), [[3, "cart"]]);
+  deepEqual(events(queue, "step-complete").map((e) => [e.t, e.actor]), [[7, "cart"]]);
+  deepEqual(queue.expect.filter((r) => r.a.find((a) => a[0] === "hero")[2] === 59).map((r) => r.t), [4, 5, 6]);
+  deepEqual(actorAt(queue, 4, "hero"), ["hero", 52, 59, 0, "moving", "N"]);
+  // R-64 item 3: a non-selected party player keeps and retries its blocked entry every update, so it never
+  // completes the step and never emits a counted or completed-step event.
+  const ally = theCase(sc, "non-selected-player-blocked-step-retries");
+  deepEqual(actorAt(ally, 5, "ally"), ["ally", 48, 127, 0, "moving", "E"]);
+  equal(events(ally, "blocked").length, ally.ticks);
+  equal(events(ally, "movement-complete").length, 0);
+  equal(events(ally, "step-complete").length, 0);
 });
 
 test("actor-hydration-item-multitask: compacted order, hidden items and thread ownership", () => {

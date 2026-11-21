@@ -36,6 +36,27 @@ export function triggersPrecedence() {
   };
 }
 
+export function tileStepPrecheckEvents() {
+  // R-63/R-64: a direction-style tile step that is blocked at its destination never advances, but the
+  // player consumes it, counts it, and runs end-of-step processing at the tile it pressed into.
+  const wall = solid("wall", 76, 32, 84, 224);
+  const door = region("door", "step", 64, 47, 96, 79);
+  const trail = region("trail", "repeat", 64, 47, 160, 79, { distanceRepeat: 40 });
+  const battlefield = { allowed: true, type: 1, chances: 1, skill: 1, background: "cave.bkg" };
+  const press = (dirs, t = 0) => ({ t, op: "push", actor: "hero", dirs });
+  return {
+    spec: ["movement-and-collision.md#r-63", "movement-and-collision.md#r-64", "movement-and-collision.md#e-40", "movement-and-collision.md#e-42", "plugins-and-battle.md#random-encounters"],
+    cases: [
+      makeCase("blocked-counted-step-fires-the-step-region-at-the-destination", "R-63 makes the step into the wall never advance; R-64 item 2 makes the consumed step a step event, so the step region on the tile the player pressed into (x 64..96) fires on that tick even though the player still stands at x 48.", { board: "field", boards: { field: board({ vectors: [wall], programs: [door] }) }, players: [hero({ x: 48, y: 63, speed: 0.02 })] }, [press("E")], 12),
+      makeCase("blocked-counted-step-checks-battles-at-the-destination", "R-64 item 2 runs the random-battle check at the intended destination: one tile is counted (tile x 1 to x 2) even though the player never leaves its tile. PROPOSED P-10 fixes the draws.", { board: "field", boards: { field: board({ vectors: [wall], battle: battlefield }) }, players: [hero({ x: 48, y: 63, speed: 0.02 })], fightEnabled: true, encounterTable: [{ enemy: "rat.ene", skill: 1 }], rng: [0, 0] }, [press("E")], 8),
+      makeCase("blocked-counted-step-does-not-leak-into-repeat-distance", "R-64 item 2 gives the consumed step the party remainder and end-of-step processing, and names no repeat-distance contribution: two presses into the wall therefore add 0 px to the repeat counter. The second press must not fire the 40 px repeat region (PROPOSED P-19).", { board: "field", boards: { field: board({ vectors: [wall], programs: [trail] }) }, players: [hero({ x: 48, y: 63, speed: 0.02 })] }, [press("E"), press("E", 8)], 20),
+      makeCase("blocked-mid-step-is-not-counted", "R-63 item 2 and R-64: an item that walks into the destination's collision area after the step began ends the player's step at its last safe position with no successful-step distance and no counted-step processing. The step region over the destination (x 68..100, away from the player's base at x 35.8..65.8) therefore never fires; all movement here is tile movement (speed 0.02 is one 4 px advance per tick).", { board: "field", boards: { field: board({ programs: [region("door", "step", 68, 16, 100, 50)], items: [npc("cart", 48, 31, { speed: 0 })] }) }, players: [hero({ x: 48, y: 63, speed: 0.02 })] }, [press("NE"), { t: 0, op: "push", actor: "cart", dirs: "E" }], 12),
+      makeCase("blocked-mid-step-queue-continues-next-update", "R-63 item 2 with R-64 item 1: the player's east step advances once, then the cart walks into the destination's collision area and stops it mid-way, so it is not counted. The queued north step starts on the following update — tick 3 blocks, tick 4 is 4 px north — not one advance cadence later.", { board: "field", boards: { field: board({ items: [npc("cart", 96, 79, { speed: 0.02 })] }) }, players: [hero({ x: 48, y: 63, speed: 0.05 })] }, [press("E,N"), { t: 0, op: "push", actor: "cart", dirs: "N" }], 8),
+      makeCase("non-selected-player-blocked-step-retries", "R-64 item 3: a party player that is not the selected (controlled) player is an other actor for a blocked direction step — the entry is kept and retried every update, the sprite never moves and never emits a completed or counted step. The wall (x 76..84) blocks the ally's whole destination (x 64..96).", { board: "field", boards: { field: board({ vectors: [wall] }) }, players: [hero({ x: 48, y: 63, speed: 0.02 }), { id: "ally", x: 48, y: 127, layer: 0, speed: 0.02, facing: "E", controlled: false }] }, [{ t: 0, op: "push", actor: "ally", dirs: "E" }], 6),
+    ],
+  };
+}
+
 export function actorHydrationItemMultitask() {
   const hall = board({
     threads: [{ id: "hall.ambience", kind: "board" }],

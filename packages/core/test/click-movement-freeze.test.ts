@@ -11,6 +11,7 @@ import {
   inputPhaseRegistration,
   killThread,
   movementPhaseRegistration,
+  pointMoveTarget,
   runThreadsPhase,
   scriptOwnsInput,
   startProgram,
@@ -319,7 +320,7 @@ test("a held pointer repaths with the current simulation camera rather than the 
   inputPhase(state);
   const route = hero(state).queue.moves;
   ok(route.length > 0, "the held pointer starts a route");
-  deepEqual(route[route.length - 1]!.target, { x: 167, y: 63 }, "current camera and shake locate the board goal");
+  deepEqual(pointMoveTarget(route[route.length - 1]), { x: 167, y: 63 }, "current camera and shake locate the board goal");
 });
 
 test("a click on a centred board renders the player's feet at the clicked viewport point", () => {
@@ -352,7 +353,7 @@ test("a queued click keeps its captured world point after the camera moves", () 
   inputPhase(state);
   const route = hero(state).queue.moves;
   ok(route.length > 0, "the eligible click still routes");
-  deepEqual(route[route.length - 1]!.target, { x: 154, y: 63 });
+  deepEqual(pointMoveTarget(route[route.length - 1]), { x: 154, y: 63 });
   ticks(state, 1, 200);
   deepEqual({ x: hero(state).x, y: hero(state).y }, { x: 154, y: 63 });
 
@@ -388,7 +389,7 @@ test("queued clicks, releases and held-pointer repaths survive save and determin
     inputPhase(state);
     const route = hero(state).queue.moves;
     ok(route.length > 0);
-    deepEqual(route[route.length - 1]!.target, { x: 144, y: 63 }, "the held gesture's captured goal is preserved");
+    deepEqual(pointMoveTarget(route[route.length - 1]), { x: 144, y: 63 }, "the held gesture's captured goal is preserved");
     state.camera.x = 80;
     state.camera.prevX = 80;
     ticks(state, 1, 200);

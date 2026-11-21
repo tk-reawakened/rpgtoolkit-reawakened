@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { assetKey } from "../src/formats/resolver/resolver.ts";
 import { createGameState, type GameState } from "../src/save/state.ts";
 import { restoreGameState, snapshot } from "../src/save/snapshot.ts";
-import { actorFromSource, type SpriteActor } from "../src/sprites/model.ts";
+import { actorFromSource, moveDestination, pointMoveTarget, type SpriteActor } from "../src/sprites/model.ts";
 import { applyTriggerEffect, runTriggersPhase, selectPointerActivationTarget, type TriggerEvent, type TriggerPhaseOptions } from "../src/triggers/runtime.ts";
 import { fileProgramRef } from "../src/script/program.ts";
 import { ScriptError } from "../src/script/errors.ts";
@@ -207,7 +207,7 @@ test("an item gesture removes all its movement points without consuming the foll
   deepEqual(state.input.keys.map((key) => key.target), ["item:0"], "the first gesture confirms its item");
   const route = state.sprites.players[0]!.queue.moves;
   ok(route.length > 0, "the independent ground gesture starts a route");
-  deepEqual(route.at(-1)?.target, { x: 120, y: 0 }, "the route goes to the ground, not an item gesture point");
+  deepEqual(pointMoveTarget(route.at(-1)), { x: 120, y: 0 }, "the route goes to the ground, not an item gesture point");
 });
 
 test("pointer target selection refuses a non-key or unreachable item", () => {
@@ -605,14 +605,16 @@ test("trigger-owned movement entries stay suppressed, but unrelated queued steps
   const startKeys = (events: TriggerEvent[]) => events.filter((event) => event.type === "trigger-start").map((event) => event.key);
   const advanceStep = (current: GameState): string[] => {
     const player = current.sprites.players[0];
-    const move = player?.movement.active ?? player?.queue.moves[0];
-    if (move === undefined) throw new Error("expected a queued movement step");
+    if (player === undefined) throw new Error("expected a selected player");
+    const queued = player.queue.moves[0];
+    const target = player.movement.active?.target ?? (queued === undefined ? undefined : moveDestination(queued, player));
+    if (target === undefined) throw new Error("expected a queued movement step");
     for (let attempt = 0; attempt < 512; attempt += 1) {
       const events = tick(current);
       const arrived = current.sprites.players[0];
-      if (arrived?.x === move.target.x && arrived.y === move.target.y) return startKeys(events);
+      if (arrived?.x === target.x && arrived.y === target.y) return startKeys(events);
     }
-    throw new Error(`expected queued movement to reach ${move.target.x}, got x=${current.sprites.players[0]?.x} active=${current.sprites.players[0]?.movement.active?.target.x ?? "none"}`);
+    throw new Error(`expected queued movement to reach ${target.x}, got x=${current.sprites.players[0]?.x} active=${current.sprites.players[0]?.movement.active?.target.x ?? "none"}`);
   };
 
   for (const current of [state, restored]) {
@@ -682,6 +684,40 @@ test("send-arrival deactivation suppresses the arrival frame only and re-arms wh
   state.sprites.players = state.sprites.players.map((player) => ({ ...player, x: 0, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 32 } }));
   const reentered = runTriggersPhase(state, { programRef: (name) => ref(name) });
   equal(reentered[0]?.key, "region:0", "the region re-arms after the player leaves and re-enters");
+});
+
+test("a blocked step never re-arms an arrival-deactivated key region the player still stands in", () => {
+  // E-19 deactivates the region under an arrival and E-40 re-arms it only when the player's base leaves.
+  // R-64 item 2 moves STEP processing to the blocked step's intended destination, but a key-press region
+  // (E-41) is still tested where the player stands, so a press into a wall must not forget the overlap.
+  const world: WorldBoard = {
+    ...board([{ ...region(0, 1), points: rectangle(-16, -16, 16, 1) }]),
+    vectors: [{ handle: "wall", attributes: 0, closed: 1, layer: 1, type: 1, points: rectangle(28, -40, 36, 40) }],
+  };
+  const state = stateWith(world);
+  // The engine sets the board key inside arrive() before it posts deactivateat; mirror that here.
+  state.triggers.boardKey = world.key;
+  applyTriggerEffect(state, { name: "deactivateat", args: [0, 0, 1, "pixel"] } as EffectRecord);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1 } }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  deepEqual(state.triggers.deactivated, ["region:0"], "the arrival deactivates the key region under it");
+
+  state.time.tick = 2;
+  enqueueDirectionMove(state.sprites, "player", "E", 0);
+  runMovementPhase(state.sprites, world, state.time.tick);
+  const player = state.sprites.players[0]!;
+  equal(player.x, 0, "the wall stops the whole-destination precheck before any advance");
+  equal(player.movement.lastStepBlocked, true);
+  deepEqual(player.movement.lastStepTarget, { x: 32, y: 0 }, "the counted blocked step records its destination");
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.deactivated.includes("region:0"), true, "destination step processing does not re-arm the key region the player still occupies");
+
+  state.time.tick = 3;
+  state.input.keys.push({ seq: 1, name: "ENTER", code: "Enter", char: "\n", action: null, resolvedActions: [] });
+  const events = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.active, null, "the suppressed key region does not fire");
+  equal(events.some((record) => record.type === "trigger-start"), false);
 });
 
 test("send-arrival tile placement and deactivation agree on stacked and rotated boards", () => {
