@@ -5,6 +5,7 @@
 - **Why:** owner rulings on [#1300](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1300) (queued moves after a blocked tile step) and [#1290](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1290) (linked-edge arrival refused) need the original behaviour first.
 - **Review:** a reviewer subagent that had not seen the extractor's transcript returned PASS WITH EDITS three times, every finding was applied by the extractor, and a fourth full-file review returned PASS on the landed text.
 - **Open:** each answer marks what is not determinable; read those labels before relying on a fact.
+- **Conflict with the spec, for the owner to decide:** R17-Q3 (3.1.x) reports that the crossing is attempted on the step's first update and the step is not completed. [E-138](../spec/engine/movement-and-collision.md#e-138) says a linked step completes and the board change follows that tick's movement update. The spec's "Moving between boards" section (load the linked board, place the player, test the spot) agrees with the extracted order, so the spec disagrees with itself as well. The extracted fact is not a ruling: E-138, #1290 and the "check first" recommendation should not rest on either account until the owner rules. E-138's source is not recorded separately in the extraction log (`docs/spec/` was accepted on owner attestation, log round 4).
 
 # Clean-room extraction, round 17 — whole-tile movement: blocked steps, queues, board-edge crossings
 
