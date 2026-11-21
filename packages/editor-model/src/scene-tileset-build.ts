@@ -44,7 +44,7 @@ export async function lowerSceneTileset(
   if (document.tags !== undefined) notes.push({ path: "tags", message: "Tags remain in the native tileset source; they are not encoded in legacy .tst." });
   if (document.metadata !== undefined) notes.push({ path: "metadata", message: "Metadata remains in the native tileset source; it is not encoded in legacy .tst." });
   if (document.pluginData !== undefined) notes.push({ path: "pluginData", message: "Opaque plugin data remains in the native tileset source; it is not encoded in legacy .tst." });
-  if (document.isoBlocks !== undefined && document.isoBlocks.length > 0) problems.push({ path: "isoBlocks", message: "Isometric block composition and output mapping are not specified." });
+  if ((document.isoBlocks?.length ?? 0) > 0) notes.push({ path: "isoBlocks", message: "Raised block recipes remain in the source and are not emitted by the flat tileset binding." });
   if (document.autotiles !== undefined && document.autotiles.length > 0) problems.push({ path: "autotiles", message: "Autotile composition and canonical output mapping are not specified." });
   const detail = tilesetDetail(document.outputBinding.detail);
   if (detail === undefined) problems.push({ path: "outputBinding.detail", message: `Unsupported tileset detail ${document.outputBinding.detail}.` });

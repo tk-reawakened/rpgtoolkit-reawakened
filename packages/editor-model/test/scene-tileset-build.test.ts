@@ -103,20 +103,33 @@ test("applies cutCorner masks to cropped pixels before encoding", async () => {
   deepEqual(rgbaAt(nw.value, 15, 15), [0, 1, 2, 0]);
 });
 
-test("reports unsupported block recipes and out-of-bounds cells", async () => {
+test("reports out-of-bounds cells and unsupported autotile recipes", async () => {
   const png = sheet(32, 32, () => [20, 30, 40, 255]);
   const outside = document({ tiles: [{ id: "first", name: "First", source: "sheet", cell: [1, 0], role: "floor", collision: "walkable" }] });
   const bounds = await lowerSceneTileset(outside, async () => png);
   ok(!bounds.ok);
   ok(bounds.problems.some(({ path, message }) => path === "tiles[0].cell" && message.includes("outside source")));
-  const iso = document({ isoBlocks: [{ id: "block", name: "Block", heightPixels: 32, faces: {
-    top: { source: "sheet", cell: [0, 0] }, left: { source: "sheet", cell: [0, 0] }, right: { source: "sheet", cell: [0, 0] },
-  }, collision: "solid" }] });
-  const isoResult = await lowerSceneTileset(iso, async () => png);
-  ok(!isoResult.ok);
-  ok(isoResult.problems.some(({ path }) => path === "isoBlocks"));
   const autotile = document({ autotiles: [{ id: "water", name: "Water", mode: "blob-47", base: { source: "sheet", cell: [0, 0] }, border: { source: "sheet", cell: [0, 0] }, innerCorner: { source: "sheet", cell: [0, 0] }, exportOrder: "t25-canonical" }] });
   const autotileResult = await lowerSceneTileset(autotile, async () => png);
   ok(!autotileResult.ok);
   ok(autotileResult.problems.some(({ path }) => path === "autotiles"));
+});
+
+test("an unreferenced raised block does not change flat output or masquerade as a diamond", async () => {
+  const png = sheet(32, 32, () => [20, 30, 40, 255]);
+  const ordinary = document();
+  const withBlock = document({ isoBlocks: [{ id: "block", name: "Block", heightPixels: 32, faces: {
+    top: { source: "sheet", cell: [0, 0] }, left: { source: "sheet", cell: [0, 0] }, right: { source: "sheet", cell: [0, 0] },
+  }, collision: "solid", wallCapUnder: true }] });
+  const flat = await lowerSceneTileset(ordinary, async () => png);
+  const mixed = await lowerSceneTileset(withBlock, async () => png);
+  ok(flat.ok && mixed.ok);
+  deepEqual(mixed.bytes, flat.bytes);
+  deepEqual(mixed.tiles, flat.tiles);
+  ok(mixed.notes.some(({ path }) => path === "isoBlocks"));
+
+  const isoTarget = document({ ...withBlock, outputBinding: { ...withBlock.outputBinding, detail: 150 } });
+  const refused = await lowerSceneTileset(isoTarget, async () => png);
+  ok(!refused.ok);
+  ok(refused.problems.some(({ path }) => path === "outputBinding.detail"));
 });
