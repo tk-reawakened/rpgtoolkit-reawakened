@@ -80,6 +80,8 @@ export interface BoardViewDocument extends ViewDocument<BoardDocumentSnapshot, B
    */
   undo?(): HistoryResult | Promise<HistoryResult>;
   redo?(): HistoryResult | Promise<HistoryResult>;
+  /** Run the host's reviewed import of this saved board, then open the new scene. Not provided to history views. */
+  importAsScene?(): Promise<PlatformResult<void>>;
 }
 
 /** The board-editor preferences in force (T-33), read by the board view and told when they change. */

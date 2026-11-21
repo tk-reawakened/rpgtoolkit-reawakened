@@ -13,6 +13,7 @@ import { registerRunDebugger } from "./run-debug.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
+import { registerImportBoardAsScene } from "./import-board-scene.ts";
 import { boardPreviewRootForPath, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
@@ -78,6 +79,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   const findTextDocument = (uri: vscode.Uri) => vscode.workspace.textDocuments.find((document) => !document.isClosed
     && document.uri.scheme === uri.scheme && document.uri.authority === uri.authority
     && createDocumentIdentity("", document.uri.path).key === createDocumentIdentity("", uri.path).key);
+  const hasDirtyTextDocument = (uri: vscode.Uri): boolean => findTextDocument(uri)?.isDirty === true;
   const port: GameEditorPort<vscode.Uri> = {
     capabilities: vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop),
     dialogs: (folder) => createVscodeDialogs(folder.uri),
@@ -93,6 +95,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
     isTextDocumentOpen: (uri) => findTextDocument(uri) !== undefined,
+    hasDirtyTextDocument,
     nativeTextDocument: async (uri) => {
       const document = findTextDocument(uri);
       if (document === undefined) return null;
@@ -174,6 +177,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     generation += 1;
     changes.fire(event);
   });
+  registerImportBoardAsScene(context, core, hasDirtyTextDocument);
   context.subscriptions.push(vscode.commands.registerCommand("tkr.returnFromBoard", async () => {
     const uri = vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri();
     if (uri === undefined) {

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -14,6 +15,7 @@ import { runVscodeBoardPropertiesProof, runVscodeBoardObjectsProof, runVscodeCon
 import { runVscodeDesignProof } from "./design-proof.ts";
 import { NATIVE_CLIP_PROOF_PATH, runVscodeNativeClipProof } from "./native-clip-proof.ts";
 import { NATIVE_SCENE_PROOF_PATH, runVscodeNativeSceneProof } from "./native-scene-proof.ts";
+import { runVscodeBoardImportProof } from "./board-import-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -116,6 +118,8 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
   if (nativeSceneBytes !== undefined) {
     await mkdir(resolve(proofWorkspace, "Boards"), { recursive: true });
     await writeFile(resolve(proofWorkspace, NATIVE_SCENE_PROOF_PATH), nativeSceneBytes);
+    // A supported older board (minor 3, pre-vector): the legacy editor cannot open it for editing, but Import as Scene can.
+    await copyFile(resolve(root, "docs/spec/examples/versions/board/board_minor3.brd"), resolve(proofWorkspace, "Boards/older-board.brd"));
     await copyFile(resolve(root, "docs/spec/examples/game/Game/Example/Chrs/ada.tem"), resolve(proofWorkspace, "Chrs/ada.tem"));
   }
   const boardPath = "Boards/village.brd";
@@ -414,6 +418,26 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     if (nativeSceneBytes !== undefined) {
       await runVscodeNativeSceneProof(page, expect, workbenchUrl, readBacking, writeBacking, nativeSceneBytes);
       console.log("vscode.dev native scene preview, terrain edit, save, recovery and play proof passed");
+      await runVscodeBoardImportProof(page, expect, readBacking, {
+        listScenes: async () => {
+          try {
+            return (await readdir(resolve(proofWorkspace, "Boards"))).filter((name) => name.toLowerCase().endsWith(".tkrscn"));
+          } catch (error) {
+            if (error?.code === "ENOENT") return [];
+            throw error;
+          }
+        },
+        historyContains: async (bytes) => {
+          const blob = resolve(proofWorkspace, ".tkr-history/blobs", createHash("sha256").update(bytes).digest("hex"));
+          try {
+            return (await readFile(blob)).equals(Buffer.from(bytes));
+          } catch (error) {
+            if (error?.code === "ENOENT") return false;
+            throw error;
+          }
+        },
+      });
+      console.log("vscode.dev board import review, cancel, one scene and authorized first-build history proof passed");
     } else if (nativeClipProof) {
       await proveNativeClip();
     } else if (designProof) {

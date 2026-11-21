@@ -73,7 +73,7 @@ export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snaps
 
 export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly CheckpointEntry[] | void>;
 export type BridgeMessage =
-  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string }
+  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string; readonly readOnly?: boolean }
   | { readonly type: "board-preferences"; readonly preferences: EditorPreferences }
   | { readonly type: "snapshot"; readonly snapshot: BridgedSnapshot }
   | { readonly type: "browser-state"; readonly changes: BrowserStatePatch }
@@ -89,6 +89,8 @@ export type BridgeMessage =
   | { readonly type: "browser-list-result"; readonly requestId: string; readonly result: PlatformResult<readonly DirectoryEntry[]> }
   | { readonly type: "browser-read-result"; readonly requestId: string; readonly result: PlatformResult<Uint8Array> }
   | { readonly type: "animation-action-result"; readonly requestId: string; readonly result: AnimationActionResult }
+  /** The reviewed import completed or was cancelled, or failed with a message to show. */
+  | { readonly type: "import-as-scene-result"; readonly requestId: string; readonly result: PlatformResult<void> }
   /** The extension host is about to save, back up, revert or move the document: the webview answers `settled` once every edit it accepted has reached it (#2613). */
   | { readonly type: "settle"; readonly requestId: string };
 
@@ -108,6 +110,8 @@ export type EditorHostRequest =
   | { readonly type: "browser-list"; readonly requestId: string; readonly path: string }
   | { readonly type: "browser-read"; readonly requestId: string; readonly path: string }
   | { readonly type: "animation-action"; readonly requestId: string; readonly action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore"; readonly id?: string; readonly command?: AnimationCommand; readonly bitmaps?: readonly AnimationBitmap[] }
+  /** Import this saved board as a native scene. The document's own identity is the only source; a webview sends no path. */
+  | { readonly type: "import-as-scene"; readonly requestId: string }
   /** The answer to `settle`. It is sent after every edit the webview accepted, so the channel's order puts those edits before it. */
   | { readonly type: "settled"; readonly requestId: string };
 
@@ -133,6 +137,8 @@ export interface BridgedDocument {
   initialBoardPath(): Promise<string | undefined>;
   pickAsset(request: AssetPickRequest): Promise<PickOutcome>;
   animationAction?(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<AnimationActionResult>;
+  /** Run the reviewed import of this saved board and open the created scene; only a live board document implements it. */
+  importAsScene?(): Promise<PlatformResult<void>>;
   readProject(path: string): Promise<PlatformResult<Uint8Array>>;
   /** A webview answered a `settle` request: every edit it had accepted has reached this document (#2613). */
   viewSettled?(requestId: string): void;
@@ -183,6 +189,12 @@ export async function handleEditorHostRequest(
   } else if (request.type === "animation-action") {
     const result = document.animationAction === undefined ? platformError("unavailable", "Animation recovery is unavailable.") : await document.animationAction(request.action, request.id, request.command, request.bitmaps);
     await postMessage({ type: "animation-action-result", requestId: request.requestId, result });
+  } else if (request.type === "import-as-scene") {
+    // The board is this document's own identity; a webview cannot name another file, and an error is shown, not swallowed.
+    const result = document.importAsScene === undefined
+      ? platformError("unavailable", "This document has no reviewed board import.")
+      : await document.importAsScene();
+    await postMessage({ type: "import-as-scene-result", requestId: request.requestId, result });
   } else if (request.type === "preview") {
     await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview(request.request) });
   } else if (request.type === "visit" || request.type === "visit-reference") {
@@ -232,6 +244,7 @@ export async function handleHistoryPreviewRequest(
       capabilities: [],
       browserState: document.browserSession.getSnapshot(),
       boardPreferences: DEFAULT_EDITOR_PREFERENCES,
+      readOnly: true,
     });
   } else if (request.type === "browser-context") {
     applyBrowserStatePatch(document.browserSession, request.changes);
@@ -284,6 +297,8 @@ export async function handleHistoryPreviewRequest(
       requestId: request.requestId,
       result: platformError("permission-denied", denied),
     });
+  } else if (request.type === "import-as-scene") {
+    await postMessage({ type: "import-as-scene-result", requestId: request.requestId, result: platformError("permission-denied", denied) });
   } else if (request.type === "pick-asset") {
     await postMessage({ type: "pick-result", requestId: request.requestId, outcome: { chosen: false } });
   } else if (request.type === "set-initial-board") {
@@ -363,6 +378,7 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (!("requestId" in value) || typeof value.requestId !== "string") return false;
   if (value.type === "browser-list" || value.type === "browser-read" || value.type === "read-project") return "path" in value && isProjectPath(value.path);
   if (value.type === "save" || value.type === "return-visit" || value.type === "settled") return true;
+  if (value.type === "import-as-scene") return true;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
   if (value.type === "visit" || value.type === "visit-reference") return "path" in value && typeof value.path === "string" && value.path !== "";
   if (value.type === "set-initial-board") return "path" in value && typeof value.path === "string" && value.path !== "";
@@ -394,8 +410,14 @@ export class RemoteDocument {
   private readonly pendingBrowserLists = new Map<string, (result: PlatformResult<readonly DirectoryEntry[]>) => void>();
   private readonly pendingBrowserReads = new Map<string, (result: PlatformResult<Uint8Array>) => void>();
   private readonly pendingAnimationActions = new Map<string, (result: AnimationActionResult) => void>();
+  private readonly pendingImports = new Map<string, (result: PlatformResult<void>) => void>();
   private nextRequest = 0;
   private readonly vscode: VscodeApi;
+  /**
+   * The reviewed board import (ADR 0019 native-scene authoring), present only on a live document. A read-only history
+   * preview leaves it out, so its board view offers no import button.
+   */
+  readonly importAsScene?: () => Promise<PlatformResult<void>>;
   /**
    * The edits the views of this document have accepted but not yet handed over (#2613). A view registers here; the
    * extension host's `settle` request waits for it, so a save or close never leaves a queued edit behind.
@@ -409,7 +431,7 @@ export class RemoteDocument {
   private preferences: EditorPreferences;
   private readonly preferenceListeners = new Set<() => void>();
 
-  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES, initialBoardPath?: string) {
+  constructor(kind: string, snapshot: BridgedSnapshot, browserState: BrowserState, vscode: VscodeApi, preferences: EditorPreferences = DEFAULT_EDITOR_PREFERENCES, initialBoardPath?: string, live = true) {
     this.preferences = preferences;
     this.boardPreferences = {
       get: () => this.preferences,
@@ -424,6 +446,7 @@ export class RemoteDocument {
     this.browserSession.subscribe((changes) => {
       if (!this.applyingBrowserState) this.vscode.postMessage({ type: "browser-context", changes });
     });
+    if (live) this.importAsScene = () => this.requestImportAsScene();
   }
 
   getSnapshot(): BridgedSnapshot { return this.snapshot; }
@@ -457,6 +480,14 @@ export class RemoteDocument {
     return new Promise((resolve) => {
       this.pendingAnimationActions.set(requestId, resolve);
       this.vscode.postMessage({ type: "animation-action", requestId, action, ...(id === undefined ? {} : { id }), ...(command === undefined ? {} : { command }), ...(bitmaps === undefined ? {} : { bitmaps }) });
+    });
+  }
+  /** Ask the extension host to run the reviewed import of this board; the request carries no path, only its id. */
+  private requestImportAsScene(): Promise<PlatformResult<void>> {
+    const requestId = `import-as-scene-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingImports.set(requestId, resolve);
+      this.vscode.postMessage({ type: "import-as-scene", requestId });
     });
   }
   save(): Promise<SaveResult> {
@@ -574,6 +605,10 @@ export class RemoteDocument {
     }
     if (message.type === "animation-action-result") {
       this.settle(this.pendingAnimationActions, message.requestId, message.result);
+      return;
+    }
+    if (message.type === "import-as-scene-result") {
+      this.settle(this.pendingImports, message.requestId, message.result);
       return;
     }
     if (message.type === "preview-result") {

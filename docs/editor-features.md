@@ -116,6 +116,14 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 **T-35 Sprite/image placeholders.** Objects with no graphic draw as 32×32 placeholder squares. Items with graphics show their south-facing rest frame.
 
+### Import a legacy board as a native scene (story 12.16)
+
+To edit a legacy board as a native scene, choose **Import as Scene…** in the board editor. For an older board that the legacy editor cannot open, select the `.brd` in the browser editor’s Files panel and choose **Import board as scene…**, or use **RPG Toolkit: Import board as scene…** in VS Code’s Command Palette.
+
+Save or discard any pending board edits first. Review what the converter found and where it will write the scene. Import creates and opens a new `.tkrscn` beside the board; it does not change the original `.brd` or the game’s links. Edit the scene normally. The first build that would replace the board asks separately and keeps the preceding board in history before writing.
+
+See [the native scene import contract](spec/formats/native-scene.md#import-from-a-board-to-a-scene) for supported locations and refusal cases.
+
 ### Reawakened rules for the P0 board canvas and tile tools (story 12.10)
 
 These rules settle what T-20 to T-24, T-28 and T-33 leave open for the first editable board canvas. They apply to the three coordinate layouts of [board.md](spec/formats/board.md#coordinates): top-down (`coordType` 0), iso-stacked (1) and iso-rotated (2), each with or without the pixel-coordinate flag 4, which changes no tile geometry.
