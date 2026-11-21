@@ -80,8 +80,7 @@ contracts.
 
 ## Implementation notes and proposed rulings
 
-Every proposed choice below remains **Proposed ruling (pending owner review)**;
-the scene records the observable consequence and the rejected alternative:
+Every proposed choice below remains **Proposed ruling (pending owner review)**, except P-19, which is settled; the scene records the observable consequence and the rejected alternative:
 
 - P-1/P-3/P-4: cadence begins on command, 4 px advances use 1/256 fixed-point
   vectors, and blocked/reached steps end independently. Evidence: E-22/E-23
@@ -112,13 +111,20 @@ the scene records the observable consequence and the rejected alternative:
 - P-14/P-15/P-16: animation delay rounding, waits-phase wake-up, path diversion
   and 120-tick retests are explicit. Evidence: E-21, R-51 and AD-26. Rejected
   wall-clock waits, immediate wake-up, or unbounded diversion search.
-- P-19: a counted blocked player step adds 0 px to a repeat region's distance
-  counter. R-64 item 2 grants the tile to the party remainder and names only
-  the step-triggered programs, item activations and the random-battle check as
-  end-of-step processing; it does not state a repeat-distance contribution.
-  Evidence: R-64 item 2, E-42. Rejected: counting the tile twice, once in the
-  party remainder and again in repeat distance. The ambiguity is recorded on
-  #3311 for owner review.
+- **P-19 (settled).** A counted blocked player direction-style tile step adds one
+  step's worth (32 px in tile mode) to the repeat distance of each step-activated
+  repeat program whose area the attempted destination overlaps, and resets the
+  others exactly as a normal step leaving the area does; pressing into a wall can
+  therefore re-fire a repeat program once per press. Settled 2026-11-21 by
+  [R-67](../../../docs/spec/engine/movement-and-collision.md#r-67) (owner: Jensen;
+  [ADR 0041](../../../docs/adr/0041-blocked-step-repeat-distance-program-driven-steps-and-getpath.md)),
+  which resolves the ambiguity in favour of the traced legacy finished-move
+  processing (`docs/provenance/facts-round-18.md`, Q1a/Q1b). Rejected: the previous
+  zero contribution, which contradicted that processing and made a repeat program
+  in front of a wall impossible to author deliberately. The generated case
+  `blocked-counted-step-does-not-leak-into-repeat-distance` and the `P-19` entry
+  in the fixture registry still encode the superseded answer; re-record them when
+  #1281 implements R-67.
 
 ## Acceptance mapping
 
