@@ -84,7 +84,7 @@ A scene refers to other things in these ways and no other. A **native document**
 
 | Form | Where it is used | Spelling | Resolved by |
 |---|---|---|---|
-| Native tile | a [palette entry](#the-tile-palette), a floor's `boundarySources.walkableTiles` entry | `{tileset: <path of a .tkrtile>, tile: <local tile id>}` | The `tileset` path is a native document ID under the shared [identity rules](native-contracts.md#identity); it must resolve to a registered `.tkrtile` whose stamp says `tileset`, and the `tile` must name exactly one tile in it ([native-tileset.md](native-tileset.md#references-and-identity)). |
+| Native tile | a [palette entry](#the-tile-palette), a floor's `boundarySources.walkableTiles` entry | `{tileset: <path of a .tkrtst>, tile: <local tile id>}` | The `tileset` path is a native document ID under the shared [identity rules](native-contracts.md#identity); it must resolve to a registered `.tkrtst` whose stamp says `tileset`, and the `tile` must name exactly one tile in it ([native-tileset.md](native-tileset.md#references-and-identity)). |
 | Legacy tile | the same two places | `{legacy: <tile reference text>}`, for example `{legacy: village.tst12}` | Carried **exactly as stored**, in the legacy [tile reference](README.md#tile-references) spelling (`name.tstN`, `name.isoN`, `name.gph`, `name.tan`, sub-folders with `\`). A legacy tile reference is not a native document and has no path identity. Whether the file exists is a warning, not an error ([validation](#validation)). |
 | Pack asset | a [pack placement](#pack-placements) | `pack: <path of a .tkrpack>` and `asset: <pack-local asset id>` as two keys | As in [native-asset-pack.md](native-asset-pack.md#scene-references): the path is a native document ID, the asset id is local to that pack. |
 | Floor | `floor`, `toFloor` | a floor `id` of this document | The `floors` list. |
@@ -102,8 +102,8 @@ Native-document references, and the local ids that go with them, are at exactly 
 
 | Location | Names | Rewritten by a rename of |
 |---|---|---|
-| `tilePalette[].tileset` | a `.tkrtile` document | that tileset's path |
-| `floors[].boundarySources.walkableTiles[].tileset` | a `.tkrtile` document | that tileset's path |
+| `tilePalette[].tileset` | a `.tkrtst` document | that tileset's path |
+| `floors[].boundarySources.walkableTiles[].tileset` | a `.tkrtst` document | that tileset's path |
 | `placedPacks[].pack` | a `.tkrpack` document | that pack's path |
 | `tilePalette[].tile` and `floors[].boundarySources.walkableTiles[].tile` | a tile id local to the `tileset` beside it | that tile's local id |
 | `placedPacks[].asset` | an asset id local to the `pack` beside it | that asset's local id |
@@ -407,7 +407,7 @@ Checks run in three places: the contract's **reader** (the text and model alone)
 | V12 | A light's node or colour count does not fit its type. A light or ambient channel outside −255 to 255 is not a problem; it is a note. | warning for count | reader |
 | V13 | A keyed text is not empty; an integer is within its field's width; a point has two integers; a colour has three channels in range. | error | reader |
 | V14 | `condition.mode` is `always` or `conditional`; a type, `mode` or `type` value is in its vocabulary. | error | reader |
-| V15 | Every native tile reference resolves: the `tileset` path is a registered `.tkrtile` whose stamp says `tileset`, and the `tile` id names one tile. | error | project; build |
+| V15 | Every native tile reference resolves: the `tileset` path is a registered `.tkrtst` whose stamp says `tileset`, and the `tile` id names one tile. | error | project; build |
 | V16 | Every `pack` path resolves to a `.tkrpack`, the `asset` names one asset in it, and the pack's `projection` equals the scene's. | error | project; build |
 | V17 | A legacy reference (tile, item, image, music, program, link, battle background) names a file that exists. | warning, never blocks | project |
 | V18 | A text the board's code page cannot store; a list over 32,768 entries; an unencodable native tile. | error | build |
@@ -437,7 +437,7 @@ floors:
     tiles: [[4, 1], [2, 2], [2, 4], [4, 1]]
     boundarySources:
       walkableTiles:
-        - {tileset: tiles/village.tkrtile, tile: grass-main}
+        - {tileset: tiles/village.tkrtst, tile: grass-main}
         - {legacy: village.tst1}
       autoWallCaps: true
   - id: roof
@@ -445,7 +445,7 @@ floors:
 tilePalette:
   - {}
   - {legacy: village.tst1}
-  - {tileset: tiles/village.tkrtile, tile: stone-wall-base}
+  - {tileset: tiles/village.tkrtst, tile: stone-wall-base}
   - {}
   - {legacy: water.tan}
 shading:

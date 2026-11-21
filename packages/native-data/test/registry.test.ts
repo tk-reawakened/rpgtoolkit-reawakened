@@ -9,7 +9,7 @@ const spec = fileURLToPath(new URL("../../../docs/spec/formats/native-contracts.
 void test("the shipped registry holds the documented native contracts, and passes its own rules", () => {
   deepEqual(REGISTRY, [
     { extension: ".tkranm", contract: "animation-clip" },
-    { extension: ".tkrtile", contract: "tileset" },
+    { extension: ".tkrtst", contract: "tileset" },
     { extension: ".tkrpack", contract: "asset-pack" },
     { extension: ".tkrscn", contract: "scene" },
   ]);
@@ -31,7 +31,7 @@ void test("a registry needs unique extensions and unique contracts, each extensi
   throws(() => validateRegistry([entry, { extension: ".tkrrai", contract: "weather" }]), /more than one extension/);
   throws(() => validateRegistry([{ extension: ".tkrwth", contract: " " }]), /no contract name/);
   // A kind code has no fixed length above three letters (native-contracts.md#file-names, rule 1).
-  validateRegistry([{ extension: ".tkrtile", contract: "tileset" }, { extension: ".tkrpack", contract: "asset-pack" }]);
+  validateRegistry([{ extension: ".tkrtst", contract: "tileset" }, { extension: ".tkrpack", contract: "asset-pack" }]);
   for (const bad of [".anm", ".yaml", "tkrwth", ".tkr", ".tkrw", ".tkrwt", ".TKRWTH", ".tkrw1h", ".tkr-th", ".tkrwth ", ".tkrTile", ".tkrtil3"]) {
     throws(() => validateRegistry([{ extension: bad, contract: "weather" }]), RangeError, bad);
   }
@@ -66,6 +66,8 @@ void test("the extension of a path is the text from the last dot of its last par
 void test("an extension is a registered native one or another, and every classic legacy extension is another", () => {
   equal(classifyExtension(".tkranm"), "native-registered");
   equal(classifyExtension(".TKRANM"), "native-registered");
+  equal(classifyExtension(".TKRTST"), "native-registered");
+  equal(classifyExtension(".tkrtile"), "other", "the retired tileset extension is not an alias");
   for (const legacy of [".anm", ".brd", ".tem", ".itm", ".ene", ".tst", ".ANM"]) equal(classifyExtension(legacy), "other", legacy);
   // Not registered is not native, a tkr spelling included: the registry decides.
   equal(classifyExtension(".tkrxyz"), "other");

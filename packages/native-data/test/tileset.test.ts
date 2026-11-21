@@ -339,7 +339,7 @@ void test("each rule of the contract page refuses what it says", () => {
     ["no output binding", (m) => delete m.outputBinding, "(document)"],
     ["output target that is not a tst", (m) => (m.outputBinding.target = "Tiles/village.png"), "outputBinding.target"],
     ["output target without an extension", (m) => (m.outputBinding.target = "Tiles/village"), "outputBinding.target"],
-    ["output target that is a native document", (m) => (m.outputBinding.target = "tiles/village.tkrtile"), "outputBinding.target"],
+    ["output target that is a native document", (m) => (m.outputBinding.target = "tiles/village.tkrtst"), "outputBinding.target"],
     [
       "output target that overwrites a source",
       (m) => {

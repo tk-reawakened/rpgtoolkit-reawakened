@@ -38,12 +38,12 @@ projection: 2d
 size: {width: 1, height: 1}
 tilePalette:
   - {}
-  - {tileset: tiles/village.tkrtile, tile: grass} # retain
+  - {tileset: tiles/village.tkrtst, tile: grass} # retain
 floors:
   - id: ground
     boundarySources:
       walkableTiles:
-        - {tileset: tiles/village.tkrtile, tile: grass}
+        - {tileset: tiles/village.tkrtst, tile: grass}
 placedPacks:
   - {instanceId: rock-1, pack: packs/props.tkrpack, asset: rock, floor: ground, x: 0, y: 0}
 pluginData:
@@ -52,7 +52,7 @@ pluginData:
     data: {pack: packs/props.tkrpack} # plugin-owned
 `;
 const inputs = [
-  { path: "tiles/village.tkrtile", text: tiles },
+  { path: "tiles/village.tkrtst", text: tiles },
   { path: "packs/props.tkrpack", text: pack },
   { path: "scenes/village.tkrscn", text: scene },
 ];
@@ -73,7 +73,7 @@ void test("checker reports a pack whose projection differs from the scene", () =
 
 void test("rename updates nested art references without touching plugin payload", () => {
   const result = planRename(inputs, [
-    { from: "tiles/village.tkrtile", to: "tiles/new.tkrtile" },
+    { from: "tiles/village.tkrtst", to: "tiles/new.tkrtst" },
     { from: "packs/props.tkrpack", to: "packs/new.tkrpack" },
   ], config);
   ok(result.ok, result.ok ? "" : JSON.stringify(result.refusals));
@@ -81,20 +81,20 @@ void test("rename updates nested art references without touching plugin payload"
   deepEqual(checkDocuments(after, config), []);
   const changed = after.find((input) => input.path === "scenes/village.tkrscn");
   ok(changed && "text" in changed);
-  equal(changed.text, scene.replaceAll("tiles/village.tkrtile", '"tiles/new.tkrtile"').replace("pack: packs/props.tkrpack, asset:", 'pack: "packs/new.tkrpack", asset:'));
+  equal(changed.text, scene.replaceAll("tiles/village.tkrtst", '"tiles/new.tkrtst"').replace("pack: packs/props.tkrpack, asset:", 'pack: "packs/new.tkrpack", asset:'));
 });
 
 void test("rename resolves normalized references and quotes flow-map punctuation", () => {
   const original = inputs.map((input) => input.path.endsWith(".tkrscn")
-    ? { ...input, text: input.text.replaceAll("tiles/village.tkrtile", "./tiles//village.tkrtile") }
+    ? { ...input, text: input.text.replaceAll("tiles/village.tkrtst", "./tiles//village.tkrtst") }
     : input);
-  const result = planRename(original, [{ from: "tiles/village.tkrtile", to: "tiles/winter, snow.tkrtile" }], config);
+  const result = planRename(original, [{ from: "tiles/village.tkrtst", to: "tiles/winter, snow.tkrtst" }], config);
   ok(result.ok, result.ok ? "" : JSON.stringify(result.refusals));
   const after = applyPlanToDocuments(original, result.plan);
   deepEqual(checkDocuments(after, config), []);
   const changed = after.find((input) => input.path.endsWith(".tkrscn"));
   ok(changed && "text" in changed);
-  ok(changed.text.includes('"tiles/winter, snow.tkrtile"'));
+  ok(changed.text.includes('"tiles/winter, snow.tkrtst"'));
 });
 
 void test("checker rejects an incomplete native pack reference before rename", () => {

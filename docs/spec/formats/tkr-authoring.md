@@ -1,4 +1,4 @@
-# TK Reawakened Authoring Formats (`.tkrscn`, `.tkrtile`, `.tkrpack`)
+# TK Reawakened Authoring Formats (`.tkrscn`, `.tkrtst`, `.tkrpack`)
 
 This specification defines the normative structure of TK Reawakened's native YAML authoring documents ([ADR 0019](../../adr/0019-tkr-authoring-formats.md)).
 
@@ -116,9 +116,10 @@ placedPacks:
 
 ---
 
-## 3. Tile Recipe Document (`.tkrtile`)
+<a id="3-tile-recipe-document-tkrtile"></a>
+## 3. Tile Recipe Document (`.tkrtst`)
 
-A `.tkrtile` manages a cohesive tileset palette, including source sheets, non-destructive transformations, procedural 3-plane isometric blocks, and autotile transition sets.
+A `.tkrtst` manages a cohesive tileset palette, including source sheets, non-destructive transformations, procedural 3-plane isometric blocks, and autotile transition sets.
 
 ```yaml
 contract: tileset
