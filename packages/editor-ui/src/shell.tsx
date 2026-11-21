@@ -36,6 +36,8 @@ export interface ShellProps {
   readonly onOpened: (result: Extract<TreeOpenResult, { readonly ok: true }>, row: TreeRow) => void;
   /** The Game panel asks for a file to be opened; the host opens it through the tree, as Files does. */
   readonly onOpenPath: (path: string) => void;
+  /** Import the board selected in Files as a same-stem scene; resolves to a person-facing failure, or `null` on success or cancel. */
+  readonly onImportBoard?: (path: string) => Promise<string | null>;
   /** The Files panel preflights and constructs an immutable package proposal; nothing is written. */
   readonly onPackage: (mainPath: string, version: string) => Promise<PackageActionOutcome>;
   /** Downloads an already prepared artifact through the host's normal download path after an explicit user click. */
@@ -80,7 +82,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -122,7 +124,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
         </>
       }
       panels={{
-        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewAnimation === undefined ? {} : { onNewAnimation })} {...(onRecovery === undefined ? {} : { onRecovery })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
+        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onImportBoard === undefined ? {} : { onImportBoard })} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewAnimation === undefined ? {} : { onNewAnimation })} {...(onRecovery === undefined ? {} : { onRecovery })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
         ...(creatorTests === undefined ? {} : { tests: <TestsView controller={creatorTests} /> }),

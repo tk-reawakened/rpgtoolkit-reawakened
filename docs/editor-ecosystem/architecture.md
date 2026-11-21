@@ -79,9 +79,9 @@ The storage class decides who is the authority for the content. It is ADR 0022 D
 
 | Storage class | Examples | Authority | Edited through | Notes |
 |---|---|---|---|---|
-| **Legacy binary** | `.gam`, `.brd`, `.tem`, `.itm`, `.ene`, `.anm`, `.tbm`, `.tst` | `editor-model`: bytes plus a command stack | Commands | Read-write only with a same-version writer (D2.1); otherwise read-only with the reason |
+| **Legacy binary** | `.gam`, `.tem`, `.itm`, `.ene`, `.anm`, `.tbm`, `.tst`; standalone `.brd` for preview and import | `editor-model`: bytes plus a command stack where editable | Commands where editable | Same-version writer required (D2.1). The scene editor uses [reviewed board import](../spec/formats/native-scene.md#import-from-a-board-to-a-scene), not a `.brd` writer. |
 | **Program text** | `.prg`, `*.spec.prg` | The host's text document in VS Code; an `editor-model` text document elsewhere | Text edits | A visual view submits text changes and keeps no second model (D2.3) |
-| **Native text** | `.tkranm`, and later scene, actor and other `.tkr*` documents | As program text (D2, native row) | Text edits made by structured commands | Closed core fields, open plugin blocks, both preserved on write (ADR 0023 decision 12) |
+| **Native text** | `.tkranm`, `.tkrscn`, and other `.tkr*` documents | As program text (D2, native row) | Text edits made by structured commands | Closed core fields, open plugin blocks, both preserved on write (ADR 0023 decision 12) |
 | **Outside asset** | PNG, JPEG, GIF, BMP, WAV, MIDI, fonts | The file | A viewer; an art or audio tool where one exists; an outside application | Referenced by other documents; may be the source of an [import](#import) |
 | **Build output** | A `.brd` built from a `.tkrscn` | The kind it is built from | Not editable | An outside edit is found by hash and offered as an import, never overwritten (ADR 0019 decision 4) |
 

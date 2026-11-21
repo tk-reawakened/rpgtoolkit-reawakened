@@ -1,4 +1,4 @@
-import { boardPreviewRootForPath, projectLayoutForDocumentPath, createAnimationAuthoring, asAnimationDocument, asMainDocument, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { boardPreviewRootForPath, projectLayoutForDocumentPath, createAnimationAuthoring, asAnimationDocument, asMainDocument, importSavedBoardAsScene, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -47,6 +47,7 @@ export interface GameEditorPort<Uri extends UriLike> {
   deleteBackup(destination: Uri): Promise<void>;
   /** Native text documents live outside the shared model workspace; replacement/removal must refuse while one is open. */
   isTextDocumentOpen?(uri: Uri): boolean;
+  hasDirtyTextDocument?(uri: Uri): boolean;
   /** Snapshot and restore a normal VS Code text editor through its native buffer and undo stack. */
   nativeTextDocument?(uri: Uri): Promise<{ readonly bytes: Uint8Array; readonly dirty: boolean } | null>;
   restoreNativeTextDocument?(uri: Uri, bytes: Uint8Array | null, expected: Uint8Array | null, groupId: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string } | null>;
@@ -119,6 +120,44 @@ export interface WebviewPort {
   onDidDispose(listener: () => void): { dispose(): void };
 }
 
+/** What either host route of the reviewed board import supplies: the shared service, the live board's settled state and the open route for the scene. */
+export interface BoardImportHost {
+  readonly fs: Pick<FileSystemService, "list" | "read" | "write">;
+  readonly dialogs: Pick<DialogService, "ask">;
+  readonly projectId: string;
+  readonly boardPath: string;
+  /** Hand over every edit a live view accepted; a message says why that could not be confirmed. */
+  settle(): Promise<string | null>;
+  /** True while the live board has unsaved work, is saving, or waits on a change made on disk. */
+  pendingEdits(): boolean;
+  /** Open the created scene in the editor the workbench has for it. */
+  openScene(path: string): Promise<void>;
+}
+
+/**
+ * Prepare the reviewed import of one saved board and open the scene it creates
+ * (docs/spec/formats/native-scene.md#import-from-a-board-to-a-scene). A cancelled review writes nothing and is not an
+ * error. A scene that was created but could not be opened is an error saying so; the file is not removed.
+ */
+export async function importBoardScene(host: BoardImportHost): Promise<PlatformResult<string | null>> {
+  const unsettled = await host.settle();
+  if (unsettled !== null) return platformError("unavailable", `Could not import ${host.boardPath}: ${unsettled}. Nothing was written.`);
+  const result = await importSavedBoardAsScene({
+    fs: host.fs,
+    dialogs: host.dialogs,
+    projectId: host.projectId,
+    boardPath: host.boardPath,
+    hasPendingEdits: host.pendingEdits,
+  });
+  if (!result.ok || result.value === null) return result;
+  try {
+    await host.openScene(result.value);
+  } catch (error) {
+    return platformError("io-error", `${result.value} was created, but it could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return result;
+}
+
 /** VS Code's `CustomDocument` for one document of a registered kind (a `.gam`, a `.brd`): the extension host's model and the bridge to its webviews. */
 export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly uri: Uri;
@@ -131,6 +170,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly #navigation: DocumentNavigation<Uri>;
   readonly #port: GameEditorPort<Uri>;
   readonly #fire: (event: GameEditEvent<Uri>) => void;
+  /** Runs when the workbench disposes this document, so the provider forgets the open route to it. */
+  readonly #onDispose: () => void;
   /** The webviews showing this document: each can be asked to hand over the edits it has accepted (#2613). */
   readonly #views = new Set<SettleTarget>();
   #nextSettle = 0;
@@ -154,7 +195,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     return delay !== null && this.#now() - this.#lastEditAt <= delay + 1000 ? "auto" : "manual";
   }
 
-  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession) {
+  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession, onDispose: () => void = () => undefined) {
     this.uri = uri;
     this.model = model;
     this.capabilities = port.capabilities;
@@ -165,6 +206,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.#navigation = navigation;
     this.#port = port;
     this.#fire = fire;
+    this.#onDispose = onDispose;
     this.#lastEditAt = this.#now();
     this.#lastHead = model.getSnapshot().edits.at(-1)?.editId ?? null;
     model.subscribe(() => {
@@ -185,6 +227,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** VS Code disposes a custom document when its last editor closes; the workbench has already asked about unsaved work. */
   dispose(): void {
     this.#workspace.release(this.model);
+    this.#onDispose();
   }
 
   /** Track a webview of this document; the returned function forgets it (its panel was disposed). */
@@ -256,6 +299,30 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** Go back to where the latest visit started. */
   returnFromVisit(): Promise<ReturnOutcome> {
     return this.#navigation.returnFromVisit(this);
+  }
+
+  /**
+   * Import this saved board as one new native scene (ADR 0019 native-scene authoring), then open the scene. A live
+   * view's accepted edits are handed over and pending work is refused first, so the review always reads the saved board.
+   * The board itself is never written, and cancelling the review is not an error.
+   */
+  async importAsScene(): Promise<PlatformResult<void>> {
+    if (this.model.kind !== "board") return platformError("invalid-request", `Only a board can be imported as a scene, and ${this.model.identity.path} is not one.`);
+    const folder = this.#port.folderOf(this.uri);
+    if (folder === undefined) return platformError("unavailable", `${this.model.identity.path} is outside the open workspace folder, so its project is unavailable.`);
+    const result = await importBoardScene({
+      fs: this.#fs,
+      dialogs: this.#port.dialogs(folder),
+      projectId: this.model.identity.projectId,
+      boardPath: this.model.identity.path,
+      settle: () => this.settleViews(),
+      pendingEdits: () => {
+        const state = this.model.getSnapshot();
+        return state.dirty || state.saving || state.conflict !== null || this.#port.hasDirtyTextDocument?.(this.uri) === true;
+      },
+      openScene: async (path) => { await this.#port.openEditor(this.#port.uriFor(folder, path)); },
+    });
+    return result.ok ? platformOk(undefined) : result;
   }
   setInitialBoard(path: string): Promise<ReturnOutcome> {
     return this.#navigation.setInitialBoard(this, path);
@@ -426,6 +493,8 @@ export interface GameEditorProvider<Uri extends UriLike> {
   backupCustomDocument(document: GameDocument<Uri>, destination: Uri): Promise<{ readonly id: string; delete(): Promise<void> }>;
   /** Connect a webview panel (a new one, or one VS Code re-created after hiding it) to the document's model. */
   resolveCustomEditor(document: GameDocument<Uri>, webview: WebviewPort): void;
+  /** The live document the workbench has open for `uri`, when it has one; a host command outside an editor uses its settled state. */
+  openDocument(uri: Uri): GameDocument<Uri> | undefined;
   /** The project workspace and files of a folder, for a host view outside a custom editor (the History command, #2833). */
   returnFromLinkedVisit(uri: Uri): Promise<ReturnOutcome>;
   /** The project workspace and files of a folder, for a host view outside a custom editor. */
@@ -436,6 +505,8 @@ export interface GameEditorProvider<Uri extends UriLike> {
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
   const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession }>();
   const hostDocuments = new WeakMap<AnyDocument, GameDocument<Uri>>();
+  /** The live document of each open identity, so a host command outside an editor reaches its settled state. */
+  const openDocuments = new Map<string, GameDocument<Uri>>();
   const createWorkspace = (folder: WorkspaceFolderLike<Uri>, fs: FileSystemService): DocumentWorkspace => {
     const policy = port.historyPolicy;
     return createDocumentWorkspace({
@@ -644,8 +715,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const recovered = await recoverDocument(kind, workspace.storage, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
-        const document = new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession);
+        const document = new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession, () => {
+          if (openDocuments.get(recovered.document.identity.key)?.model === recovered.document) openDocuments.delete(recovered.document.identity.key);
+        });
         hostDocuments.set(document.model, document);
+        openDocuments.set(document.model.identity.key, document);
         return document;
       }
       const known = new Set(workspace.documents());
@@ -658,8 +732,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (known.has(opened.document)) {
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
-      const document = new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession);
+      const document = new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession, () => {
+        if (openDocuments.get(opened.document.identity.key)?.model === opened.document) openDocuments.delete(opened.document.identity.key);
+      });
       hostDocuments.set(document.model, document);
+      openDocuments.set(document.model.identity.key, document);
       return document;
     },
     async saveCustomDocument(document) {
@@ -726,6 +803,14 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       return { ok: true, path: returned.originPath, message: wasOpen ? null : `${returned.originPath} was reopened.` };
     },
     workspaceFor,
+    openDocument(uri) {
+      const folder = port.folderOf(uri);
+      if (folder === undefined) return undefined;
+      const root = folder.uri.path.replace(/\/$/, "");
+      if (uri.path !== root && !uri.path.startsWith(`${root}/`)) return undefined;
+      const path = uri.path === root ? "" : uri.path.slice(root.length + 1);
+      return openDocuments.get(createDocumentIdentity(folder.key, path).key);
+    },
     resolveCustomEditor(document, webview) {
       const publish = () => { void webview.postMessage({ type: "snapshot", snapshot: document.model.getSnapshot() }); };
       const subscription = document.model.subscribe(publish);

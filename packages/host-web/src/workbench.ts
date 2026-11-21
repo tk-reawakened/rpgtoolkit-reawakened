@@ -5,6 +5,7 @@ import {
   asksBeforeCreating,
   createAssetPicker,
   createBoardFile,
+  createDocumentIdentity,
   createLauncher,
   type AssetKind,
   createLayoutModel,
@@ -27,6 +28,7 @@ import {
   rememberNewBoard,
   suggestProgramPath,
   uniqueBoardName,
+  importSavedBoardAsScene,
   type AnyDocument,
   type CreateBoardResult,
   type NewBoardSettings,
@@ -212,7 +214,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
                 return reference === "" ? "" : referencePath(projectLayout, "boards", reference);
               },
             }),
-          }, main), shownIn: container };
+          }, main, importBoard), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -247,6 +249,32 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
     if (result.via === "document") show(result.document);
     return null;
+  };
+
+  /**
+   * Import the file selected in Files as a same-stem scene and open it through the ordinary open route. Older boards
+   * reach this even when their legacy view refuses them; a board open in a tab is refused while it has unsaved edits.
+   */
+  const importBoard = async (path: string) => {
+    const { key } = createDocumentIdentity(project.project.id, path);
+    const imported = await importSavedBoardAsScene({
+      fs: services.fs,
+      dialogs: services.dialogs,
+      projectId: project.project.id,
+      boardPath: path,
+      hasPendingEdits: () => {
+        const live = workspace.documents().find((candidate) => candidate.identity.key === key);
+        if (live === undefined) return false;
+        const snapshot = live.getSnapshot();
+        return snapshot.dirty || snapshot.saving || snapshot.conflict !== null || workspace.pendingEdits(live).busy();
+      },
+    });
+    if (!imported.ok) return imported;
+    if (imported.value === null) return platformOk(undefined);
+    // Both the board and Files routes update the tree before opening the new scene.
+    await tree.refresh();
+    const reason = await openSource(imported.value);
+    return reason === null ? platformOk(undefined) : platformError("io-error", `${imported.value} was created but could not be opened: ${reason}`);
   };
 
   const tell = (message: string): Promise<unknown> =>
@@ -464,6 +492,10 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       if (result.via === "document") show(result.document);
     },
     onOpenPath: (path) => { void openPath(path); },
+    onImportBoard: async (path) => {
+      const result = await importBoard(path);
+      return result.ok ? null : result.error.message;
+    },
     onPackage: async (mainPath, releaseVersion) => {
       const prepared = await prepareGamePackage({ workspace, services, mainPath, version: releaseVersion });
       return prepared.ok ? { ok: true, prepared: prepared.value } : prepared;

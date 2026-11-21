@@ -293,7 +293,7 @@ export const openGameSettings = openEditor;
  * project's files by the one board compositor (AD-29). The workspace types a document by its lifecycle only, so the
  * kind is what says which command and snapshot types it has.
  */
-function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContext["document"] {
+function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
@@ -361,6 +361,8 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
     // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
     undo: () => board.undo(),
     redo: () => board.redo(),
+    // Live board tabs and the Files panel use the same workbench import route; previews do not offer it.
+    ...(importBoard === undefined ? {} : { importAsScene: () => importBoard(document.identity.path) }),
   };
   return view;
 }
@@ -415,6 +417,8 @@ export function mountDocumentView(
   navigation?: ViewContext["navigation"],
   /** The running project's main file (`.gam`), which the language server reads the project from; `null` when none. */
   main: string | null = null,
+  /** Only live editors may import; history and snapshot mounts do not pass this action. */
+  importBoard?: (path: string) => Promise<PlatformResult<void>>,
 ): DocumentView {
   const documentLayout = projectLayoutForDocumentPath(document.identity.path);
   const browserLayout = documentLayout.projectFolder === "" ? projectLayout : documentLayout;
@@ -438,7 +442,7 @@ export function mountDocumentView(
     mounted = document.kind === "terrain-scene"
       ? mountWebTerrainScene(container, project, asTerrainSceneDocument(document), main, browserLayout.projectFolder)
       : mount(container, {
-      document: viewDocumentFor(project, document),
+      document: viewDocumentFor(project, document, importBoard),
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),

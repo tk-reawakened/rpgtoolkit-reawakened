@@ -19,6 +19,15 @@ import { applyInputEffect } from "../src/script/packs/movement.ts";
 import { pollInputKey, pollMenuScreen } from "../src/script/waits.ts";
 import { validateInputEvent } from "../src/validate/input-event.ts";
 
+import { createScriptServices, type Arg, type GameState } from "../src/index.ts";
+import { MOVEMENT_PLUGIN } from "../src/script/packs/movement.ts";
+function movementCommand(name: string, state: GameState, args: readonly Arg[]) {
+  const services = createScriptServices(state, [{ definition: MOVEMENT_PLUGIN }]);
+  const spec = services.commands.get(name)?.spec;
+  if (spec === undefined) throw new Error(`missing ${name}`);
+  return spec.call(services.view, args, () => ({ value: null }));
+}
+
 test("input records have monotonic sequences and claims deliver each key once", () => {
   const state = createInputSection();
   applyInputEvent(state, { kind: "key", name: "A", code: "KeyA", char: "a", down: true });
@@ -409,13 +418,67 @@ test("button slot presses survive snapshots; old input sections migrate without 
 
 test("clearing and recreating a pressed button does not resurrect its press", () => {
   const state = createGameState({ seed: 7 });
-  applyInputEffect(state, "setbutton", ["", "ok", 0, 0, 10, 10]);
+  applyInputEffect(state, "setbutton", ["", 1, 0, 0, 10, 10]);
   applyInputEvent(state.input, { kind: "pointer", x: 5, y: 5, buttons: 1 });
-  applyInputEffect(state, "clearbuttons", ["ok"]);
-  applyInputEffect(state, "setbutton", ["", "ok", 0, 0, 10, 10]);
+  applyInputEffect(state, "clearbuttons", [1]);
+  applyInputEffect(state, "setbutton", ["", 1, 0, 0, 10, 10]);
   applyInputEvent(state.input, { kind: "pointer", x: 5, y: 5, buttons: 0 });
   deepEqual(state.input.pendingActions, []);
   deepEqual(state.input.keys, []);
+});
+test("setbutton replaces and clears its image with its independent hit slot", () => {
+  const state = createGameState({ seed: 7 });
+  applyInputEffect(state, "setbutton", ["first.png", 3, 10, 20, 30, 40]);
+  deepEqual(state.input.buttons, [
+    { id: "3", x: 10, y: 20, w: 30, h: 40, action: "3", enabled: true },
+    { slot: 3, asset: "first.png", x: 10, y: 20, width: 30, height: 40 },
+  ]);
+  applyInputEffect(state, "setbutton", ["second.png", 3, 1, 2, 3, 4]);
+  deepEqual(state.input.buttons, [
+    { id: "3", x: 1, y: 2, w: 3, h: 4, action: "3", enabled: true },
+    { slot: 3, asset: "second.png", x: 1, y: 2, width: 3, height: 4 },
+  ]);
+  applyInputEffect(state, "clearbuttons", [3]);
+  deepEqual(state.input.buttons, []);
+});
+
+test("clearing all buttons removes every image and hit slot", () => {
+  const state = createGameState({ seed: 7 });
+  applyInputEffect(state, "setbutton", ["first.png", 1, 0, 0, 10, 10]);
+  applyInputEffect(state, "setbutton", ["second.png", 2, 10, 0, 10, 10]);
+  applyInputEffect(state, "clearbuttons", []);
+  deepEqual(state.input.buttons, []);
+});
+
+test("unavailable button image keeps its slot clickable", () => {
+  const state = createGameState({ seed: 7 });
+  applyInputEffect(state, "setbutton", ["missing.png", 5, 10, 20, 30, 40]);
+  applyInputEvent(state.input, { kind: "pointer", x: 15, y: 25, buttons: 1 });
+  applyInputEvent(state.input, { kind: "pointer", x: 15, y: 25, buttons: 0 });
+  deepEqual(state.input.pendingActions, ["5"]);
+});
+test("replacing a pressed numeric button slot cancels the old press", () => {
+  const state = createGameState({ seed: 7 });
+  applyInputEffect(state, "setbutton", ["first.png", 3, 10, 20, 30, 40]);
+  applyInputEvent(state.input, { kind: "pointer", x: 15, y: 25, buttons: 1 });
+  applyInputEffect(state, "setbutton", ["second.png", 3, 10, 20, 30, 40]);
+  applyInputEvent(state.input, { kind: "pointer", x: 15, y: 25, buttons: 0 });
+  deepEqual(state.input.pendingActions, []);
+  deepEqual(state.input.keys, []);
+});
+
+test("checkbutton keeps its 1/0 result and writes the optional hit slot or zero", () => {
+  const state = createGameState({ seed: 7 });
+  applyInputEffect(state, "setbutton", ["button.png", 4, 10, 20, 30, 40]);
+  const hit = movementCommand("checkbutton", state, [
+    { value: 10, ref: null }, { value: 20, ref: null }, { value: 0, ref: "slot" as never },
+  ]);
+  deepEqual([hit.value, hit.out], [1, [[2, 4]]]);
+  const miss = movementCommand("checkbutton", state, [
+    { value: 40, ref: null }, { value: 20, ref: null }, { value: 0, ref: "slot" as never },
+  ]);
+  deepEqual([miss.value, miss.out], [0, [[2, 0]]]);
+  equal(movementCommand("checkbutton", state, [{ value: 10, ref: null }, { value: 20, ref: null }]).value, 1);
 });
 
 test("extended input section snapshots restore exactly", () => {

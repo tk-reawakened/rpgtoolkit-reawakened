@@ -3,7 +3,7 @@
 * **Status:** Accepted
 * **Date:** 2026-10-11
 * **Context documents:** [0001-typescript-core.md](0001-typescript-core.md), [spec/README.md](../spec/README.md), [editor-features.md](../editor-features.md)
-* **Amended:** 2026-11-09 (accepted); and 2026-11-11 (second amendment, at the end of this file).
+* **Amended:** 2026-11-09, 2026-11-11, and [2026-11-21 for board authoring only](#amendment-2026-11-21-native-scene-authoring).
 * **Refined by:** [0023-native-data-contracts-versioning-identity-and-sidecars.md](0023-native-data-contracts-versioning-identity-and-sidecars.md) (stamp, per-contract versions and identity for native documents).
 
 ## Context
@@ -45,7 +45,7 @@ A follow-up ADR (or a native-format page in `docs/spec/formats/`) will settle th
 
 Owner decision, 2026-11-09. It answers the open question above for the first release.
 
-1. The TK3 formats `.gam`, `.brd`, `.tem`, `.anm`, `.itm`, `.ene` and `.prg` stay **first-class editable**, not only importable.
+1. The TK3 formats `.gam`, `.tem`, `.anm`, `.itm`, `.ene` and `.prg` stay **first-class editable**, not only importable. `.brd` was included in this decision and is now governed by the [board authoring amendment](#amendment-2026-11-21-native-scene-authoring).
 2. Native YAML documents (epic 27, [ADR 0023](0023-native-data-contracts-versioning-identity-and-sidecars.md)) are **deferred**. They are not required for the first release.
 3. Decisions 1 to 5 and the status above are unchanged. This amendment changes only the open question.
 
@@ -53,7 +53,7 @@ Owner decision, 2026-11-09. It answers the open question above for the first rel
 
 Owner direction of 2026-11-11 ([#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)): the scene editor is to be full-featured in the first release, and storing collision and walk-behind with tiles and assets is a feature to include. It was approved by the owner on 2026-11-11 by merging [#1843](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1843).
 
-1. Point 1 of the first amendment is unchanged: the TK3 formats stay first-class editable. A `.brd` is opened and saved directly.
+1. This amendment left the legacy authoring rule unchanged at the time. The [2026-11-21 amendment](#amendment-2026-11-21-native-scene-authoring) now makes an exception for boards.
 2. Point 2 gains one exception. The three authoring formats of [ADR 0019](0019-tkr-authoring-formats.md) (`.tkrscn`, `.tkrtile`, `.tkrpack`) are **in scope for the first release**, for the scene editor. Every other native contract of epic 27 stays deferred.
 3. This is decision 3 applied: a native format where the legacy format limits a feature. A board cannot store an object's identity, what a placed asset was, or collision that belongs to a tile or an asset.
 
@@ -63,4 +63,8 @@ The owner confirmed that compatibility knowledge should support Reawakened's own
 
 Native documents are to own their friendly names and short descriptions; contained scene elements own theirs in the scene. Project organization belongs to the project. Programs and standalone media can carry their presentation information in the project rather than changing their source formats. Plugin contributions remain in the document they describe.
 
-This authorizes design of the broader family; it does **not** change the first-release allocation in the two amendments above or retire direct legacy editing. Each new contract still needs its field accounting, schema, import/build mapping and proof before a cutover. `.tkrproj` is the recommended project extension, not a registered format yet. [27.15 / #3233](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3233), [27.16 / #3234](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3234) and [27.17 / #3235](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3235) own the design, contract and connected proof respectively.
+This authorizes design of the broader family, not a broad cutover from legacy editing. Each new contract still needs its field accounting, schema, import/build mapping and proof before a cutover. `.tkrproj` is the recommended project extension, not a registered format yet. [27.15 / #3233](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3233), [27.16 / #3234](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3234) and [27.17 / #3235](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3235) own the design, contract and connected proof respectively.
+
+## Amendment (2026-11-21): native scene authoring
+
+Edit a board's native scene, not its compiled board file. A legacy `.brd` is still a playable input and can be previewed or explicitly imported; the scene editor does not need a second save path for it. Existing legacy board tools remain during the transition to avoid dropping editing capabilities. This exception is limited to boards; it changes neither playback compatibility nor the editability of other legacy formats. The import and build rules are in [ADR 0019](0019-tkr-authoring-formats.md#native-scene-authoring).

@@ -663,6 +663,11 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   bus.register("engine", (effect) => applyEngineEffect(effect));
   bus.register("input", (effect) => {
     const values = effect.args as readonly Value[]; // Script effects use the VM Value subset.
+    if (effect.name.toLowerCase() === "setbutton" && typeof values[0] === "string") {
+      const resolved = resolveAsset(index, root, "bitmaps", values[0]);
+      applyInputEffect(state, effect.name, [resolved.ok ? resolved.value : values[0], ...values.slice(1)]);
+      return;
+    }
     applyInputEffect(state, effect.name, values);
   });
   bus.register("sprites", (effect) => {
@@ -5125,7 +5130,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       const font = layoutFont(key);
       if (font !== undefined) uiFonts.set(key, font);
     }
-    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey(), uiFonts)] };
+    const withUi = { ...withOverlay, commands: [...withOverlay.commands, ...debugCommands(), ...composeUi(uiForCompose, init.width, init.height, state.input, false, cursorSelection, messageGraphicKey(), uiFonts, imageTexture)] };
     return {
       ...withUi,
       commands: [...withUi.commands, ...composeUiCursor(state.ui, state.input, cursorSelection, waitingCursor !== undefined)],

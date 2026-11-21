@@ -15,12 +15,14 @@ import {
   pollRenderMsgBox,
   restoreGameState,
   snapshot,
+  rasterize,
   rasterizePresentation,
   UI_COMMANDS,
   UI_PLUGIN,
   type Arg,
   type Wait,
 } from "../src/index.ts";
+import { applyInputEffect } from "../src/script/packs/movement.ts";
 import { resetUiForProgramStart } from "../src/save/sections/ui.ts";
 import { killSurface } from "../src/raster/surfaces.ts";
 import { pollMenuScreen } from "../src/script/waits.ts";
@@ -478,4 +480,33 @@ test("mouseCursor restores the bundled arrow and button slots stay in the overla
   equal(arrow?.kind, "blit");
   if (arrow?.kind === "blit" && "asset" in arrow.source) equal(arrow.source.asset, "media/cursors/tkr-arrow.png");
   equal(commands.filter((entry) => entry.kind === "blit").length, 2);
+});
+
+test("setbutton draws its magenta-keyed image and an unavailable image leaves no pixels", () => {
+  const state = createGameState({ seed: 0 });
+  applyInputEffect(state, "setbutton", ["missing.png", 2, 3, 4, 8, 7]);
+  const commands = composeUi(state.ui, 32, 32, state.input);
+  const button = commands.find((entry) => entry.kind === "blit");
+  ok(button?.kind === "blit");
+  if (button?.kind !== "blit") return;
+  deepEqual(button.dst, { x: 3, y: 4, w: 8, h: 7 });
+  deepEqual(button.key, { r: 255, g: 0, b: 255 });
+  const rendered = rasterize({ protocolVersion: 3, tick: 0, width: 32, height: 32, commands, marginCommands: [] }, new Map());
+  equal(rendered.error, "missing decoded texture or surface");
+  equal(rendered.rgba.some((channel) => channel !== 0), false);
+  deepEqual(state.input.buttons.map((entry) => "id" in entry ? entry.id : entry.slot), ["2", 2]);
+});
+test("setbutton image blits are clipped to decoded texture bounds without shrinking hit slots", () => {
+  const state = createGameState({ seed: 0 });
+  applyInputEffect(state, "setbutton", ["button.png", 2, 3, 4, 8, 7]);
+  const slot = state.input.buttons.find((button) => !("asset" in button));
+  ok(slot);
+  if ("asset" in slot) throw new Error("expected a separate hit slot");
+  const bounds = { x: slot.x, y: slot.y, w: slot.w, h: slot.h };
+  const commands = composeUi(state.ui, 32, 32, state.input, false, undefined, null, undefined, () => ({ w: 5, h: 3 }));
+  const button = commands.find((entry) => entry.kind === "blit" && "asset" in entry.source);
+  if (button?.kind !== "blit") throw new Error("expected button image blit");
+  deepEqual(button.src, { x: 0, y: 0, w: 5, h: 3 });
+  deepEqual(button.dst, { x: 3, y: 4, w: 5, h: 3 });
+  deepEqual({ x: slot.x, y: slot.y, w: slot.w, h: slot.h }, bounds);
 });
