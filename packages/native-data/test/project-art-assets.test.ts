@@ -34,7 +34,7 @@ assets:
 `;
 
 const inputs = [
-  { path: "Tiles/village.tkrtile", text: tileset },
+  { path: "Tiles/village.tkrtst", text: tileset },
   { path: "Props/props.tkrpack", text: pack },
 ];
 
@@ -47,7 +47,7 @@ test("a missing or unreadable source image is reported once per source", () => {
   const reports = checkProjectArtAssets(inputs, () => null);
   deepEqual(reports, [
     { class: "native-art", path: "Props/props.tkrpack", field: "sources[0].file", message: "source image Bitmap/props.png is missing or unreadable", line: null },
-    { class: "native-art", path: "Tiles/village.tkrtile", field: "sources[0].file", message: "source image Bitmap/sheet.png is missing or unreadable", line: null },
+    { class: "native-art", path: "Tiles/village.tkrtst", field: "sources[0].file", message: "source image Bitmap/sheet.png is missing or unreadable", line: null },
   ]);
 });
 
@@ -56,7 +56,7 @@ test("tileset cells and pack crops outside the real image are reported by field"
   equal(reports.length, 2);
   deepEqual(reports.map((report) => [report.class, report.path, report.field, report.line]), [
     ["native-art", "Props/props.tkrpack", "assets[0].visuals[1].rect", null],
-    ["native-art", "Tiles/village.tkrtile", "tiles[1].cell", null],
+    ["native-art", "Tiles/village.tkrtst", "tiles[1].cell", null],
   ]);
   equal(reports[0]!.message.includes("[60, 0, 8, 8]"), true);
   equal(reports[1]!.message.includes("[2, 0]"), true);
@@ -70,8 +70,8 @@ test("a cell on a partial final cell is outside the image", () => {
 test("unreadable and non-art documents are left to the document checker", () => {
   const reports = checkProjectArtAssets(
     [
-      { path: "Tiles/bad.tkrtile", text: "contract: tileset\n" },
-      { path: "Tiles/gone.tkrtile", unreadable: "not UTF-8" },
+      { path: "Tiles/bad.tkrtst", text: "contract: tileset\n" },
+      { path: "Tiles/gone.tkrtst", unreadable: "not UTF-8" },
       { path: "Notes/readme.md", text: tileset },
     ],
     () => null,

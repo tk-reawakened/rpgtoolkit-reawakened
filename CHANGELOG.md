@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Native tilesets now use `.tkrtst`. Scene references, project checks, rename and package export use the new extension. The pre-release `.tkrtile` spelling is not an alias; legacy `.tst`, `.iso` and `.tan` assets are unchanged (#1846; [native file names](docs/spec/formats/native-contracts.md#file-names)).
 - Repeated placements of one item now keep independent sprite and item-thread identities. Older duplicate-ID saves restore items by authored slot; ambiguous item-thread ownership or nested item references are refused without replacing live state (#1324; [save migration](docs/spec/formats/save-game.md#duplicate-item-placement-identity)).
 - Script-emitted `dialogue.completed` events with no target now reach the stock RPG `talked` bridge with a null target, without changing positive target IDs or native event details (#2026; [event details](docs/spec/engine/rpgcode-modules-and-objects.md#emit-13)).
 - Animated board tiles now retain their ordered, preloaded `.tan` frames and select them from the fixed game tick, so adjacent cells stay synchronized without a board reload. Empty animation slots draw nothing, and loading requests later-frame assets before board activation (#5; [board animation](docs/spec/formats/board.md#animated-tiles)).
