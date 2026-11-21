@@ -1,9 +1,10 @@
 import { writeBoard, type Board } from "@tk-reawakened/core";
-import { checkScene, documentId, sceneCellCount, type AssetPack, type Scene, type Tileset } from "@tk-reawakened/native-data";
+import { checkScene, documentId, type AssetPack, type NativeTile, type Scene, type Tileset } from "@tk-reawakened/native-data";
 import { traceSceneBoundaries } from "./scene-boundary-tracing.ts";
 import { lowerSceneBoard } from "./scene-board-lowering.ts";
 import { lowerScenePackImages } from "./scene-pack-images.ts";
 import { lowerScenePackVectors } from "./scene-pack-vectors.ts";
+import { buildSceneTerrain, type SceneTerrainBuildInputs } from "./scene-terrain-build.ts";
 import { generateSceneTileCollision, type SceneTileCollisionFlag } from "./scene-tile-collision.ts";
 import { lowerSceneTileset, type SceneTilesetBuildResult } from "./scene-tileset-build.ts";
 
@@ -32,6 +33,7 @@ export interface SceneBuildInputs {
   readonly scene: Scene;
   readonly resolveTileset: (path: string) => Promise<Tileset | null>;
   readonly resolvePack: (path: string) => Promise<AssetPack | null>;
+  readonly terrain?: Omit<SceneTerrainBuildInputs, "scene">;
   readonly readSource: (path: string) => Promise<Uint8Array | null>;
 }
 export interface SceneBuildProblem { readonly path: string; readonly message: string }
@@ -129,31 +131,78 @@ export async function buildScene(inputs: SceneBuildInputs): Promise<SceneBuildRe
     }
   }
   if (problems.length > 0) return { ok: false, problems };
-  const lower = lowerSceneBoard(scene, palette);
+  let resolvedScene = scene;
+  let resolvedPalette: readonly string[] | null = palette;
+  let nativeTiles: readonly (NativeTile | null)[] = [];
+  if ((scene.terrainRegions?.length ?? 0) > 0 || (scene.tileOverrides?.length ?? 0) > 0) {
+    const terrain = inputs.terrain;
+    if (terrain === undefined) return { ok: false, problems: [{ path: scenePath, message: "Terrain source resolution is unavailable." }] };
+    // Embedded palette slots are already lowered. Keep their positions but do not let a legacy
+    // override reuse one and accidentally inherit collision from its embedded tile.
+    const { tilePalette, terrainRegions, tileOverrides, ...base } = scene;
+    const resolved = await buildSceneTerrain({
+      ...terrain,
+      scene: {
+        ...base, ...(terrainRegions === undefined ? {} : { terrainRegions }), ...(tileOverrides === undefined ? {} : { tileOverrides }),
+        ...(tilePalette === undefined ? {} : { tilePalette: tilePalette.map(({ legacy }) => legacy === undefined ? {} : { legacy }) }),
+      },
+      loadTile(path) {
+        sources.add(fold(path));
+        return terrain.loadTile(path);
+      },
+      resolveCrop(sample) {
+        sources.add(fold("source" in sample ? sample.source : sample.file));
+        return terrain.resolveCrop(sample);
+      },
+    });
+    if (!resolved.ok) return resolved;
+    resolvedPalette = resolved.palette === null ? null : resolved.palette.map((text, index) => tilePalette?.[index]?.tileset === undefined ? text : palette![index]!);
+    resolvedScene = {
+      ...base,
+      floors: scene.floors.map((floor, index) => ({ ...floor, tiles: resolved.floors[index]!.tiles })),
+      ...(resolvedPalette === null ? {} : { tilePalette: resolvedPalette.map((text, index) => {
+        const original = tilePalette?.[index];
+        if (original?.tileset !== undefined) return original;
+        return text === "" ? {} : { legacy: text };
+      }) }),
+    };
+    while (flags.length < (resolvedPalette?.length ?? 0)) flags.push(null);
+    nativeTiles = resolved.tiles;
+    outputs.push(...resolved.outputs);
+    notes.push(...resolved.notes);
+    if ((terrainRegions?.length ?? 0) > 0) note("terrainRegions", "Painted terrain becomes board tiles; the original regions stay in the scene.");
+    if ((tileOverrides?.length ?? 0) > 0) note("tileOverrides", "Manual overrides become board tiles; the original override records stay in the scene.");
+  }
+  const lower = lowerSceneBoard(resolvedScene, resolvedPalette);
   if (!lower.ok) return lower;
   const packs = new Map<string, AssetPack>();
   for (const [index, placement] of (scene.placedPacks ?? []).entries()) {
     const key = fold(placement.pack);
     if (packs.has(key)) continue;
-    const pack = await inputs.resolvePack(placement.pack);
-    if (pack === null) problems.push({ path: `placedPacks[${index}].pack`, message: `Cannot resolve ${placement.pack}.` });
-    else {
+    try {
+      const pack = await inputs.resolvePack(placement.pack);
+      if (pack === null) {
+        problems.push({ path: `placedPacks[${index}].pack`, message: `Cannot resolve ${placement.pack}.` });
+        continue;
+      }
       sources.add(key);
       for (const source of pack.sources) sources.add(fold(source.file));
       packs.set(key, pack);
+    } catch (error) {
+      problems.push({ path: `placedPacks[${index}].pack`, message: error instanceof Error ? error.message : String(error) });
     }
   }
   if (problems.length > 0) return { ok: false, problems };
   const images = await lowerScenePackImages(scene, scenePath, async (path) => packs.get(fold(path)) ?? null, inputs.readSource, outputs.map((output) => output.path));
   if (!images.ok) return images;
   let tileVectors;
-  try { tileVectors = generateSceneTileCollision(scene, flags); }
-  catch (error) { return { ok: false, problems: [{ path: "tilePalette", message: String(error) }] }; }
+  try { tileVectors = generateSceneTileCollision(resolvedScene, flags, nativeTiles); }
+  catch (error) { return { ok: false, problems: [{ path: "tilePalette", message: error instanceof Error ? error.message : String(error) }] }; }
   const packVectors = lowerScenePackVectors(scene, (path, id) => packs.get(fold(path))?.assets.find((asset) => asset.id === id) ?? null, lower.board.vectors.length + tileVectors.length);
   if (!packVectors.ok) return packVectors;
-  const boundaryVectors = scene.floors.flatMap((floor, floorIndex) => floor.boundarySources === undefined
+  const boundaryVectors = resolvedScene.floors.flatMap((floor, floorIndex) => floor.boundarySources === undefined
     ? []
-    : traceSceneBoundaries(scene, floorIndex, boundaryPaletteSlots(scene, floorIndex, tilesets)));
+    : traceSceneBoundaries(resolvedScene, floorIndex, boundaryPaletteSlots(resolvedScene, floorIndex, tilesets)));
   const vectorCount = lower.board.vectors.length + tileVectors.length + packVectors.vectors.length + boundaryVectors.length;
   if (vectorCount > 32768) return { ok: false, problems: [{ path: "vectors", message: "vector table exceeds 32768 entries" }] };
   const board: Board = { ...lower.board, images: [...lower.board.images, ...images.images], vectors: [...lower.board.vectors, ...tileVectors, ...packVectors.vectors, ...boundaryVectors] };

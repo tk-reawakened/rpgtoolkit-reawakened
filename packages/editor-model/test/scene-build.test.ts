@@ -1,15 +1,15 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import test from "node:test";
-import { BinaryReader, PACKAGE_ROOT, SCRIPT_SCREEN, assetKey, blitTexture, createAssetIndex, createEngine, createSurface, createSurfacesSection, readBoard, readSurfacePixels, readTileset, resolveTileReference, writeBoard, type EnginePhaseRegistration, type GameState } from "@tk-reawakened/core";
-import { readScene, type AssetPack, type Scene, type Tileset } from "@tk-reawakened/native-data";
+import { BinaryReader, PACKAGE_ROOT, SCRIPT_SCREEN, assetKey, blitTexture, createAssetIndex, createEngine, createSurface, createSurfacesSection, readBoard, readSurfacePixels, readTileset, resolveTileReference, utf8Encode, writeBoard, type EnginePhaseRegistration, type GameState } from "@tk-reawakened/core";
+import { readScene, writeAssetPack, writeScene, writeTileset as writeNativeTileset, type AssetPack, type Scene, type Tileset } from "@tk-reawakened/native-data";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { previewBoard } from "../src/board-preview.ts";
 import { createSceneBuildOwnership, createSceneBuildOwnershipStorage } from "../src/scene-build-ownership.ts";
 import { proposeSceneBuildRecovery } from "../src/scene-build-recovery.ts";
-import { prepareSceneBuild, writePreparedSceneBuild } from "../src/scene-build-save.ts";
-import { previewSceneBuild } from "../src/scene-build-preview.ts";
+import { asTerrainSceneDocument } from "../src/kinds.ts";
 import { buildScene } from "../src/scene-build.ts";
 import { encodeScenePng } from "../src/scene-png.ts";
+import { prepareTerrainSceneProject, previewTerrainSceneProject, writePreparedTerrainSceneProject } from "../src/terrain-scene-project.ts";
 import { createDocumentWorkspace } from "../src/workspace.ts";
 
 const scene: Scene = {
@@ -64,24 +64,98 @@ test("a scene builds deterministic board and art with authored slots before gene
   ok(first.outputs.some((output) => output.path.startsWith("Bitmap/.tkr-generated/") && output.path.endsWith("/arch-0.png")));
 });
 
-test("scene preview uses the generated board and art without writing them", async () => {
-  const emptyHost = createMemoryPlatformServices({ files: {} });
-  const preview = await previewSceneBuild(emptyHost.fs, "memory-project", inputs);
-  ok(preview.ok, preview.ok ? "" : preview.problems.map((problem) => problem.message).join("; "));
-  const built = await buildScene(inputs);
-  ok(built.ok);
-  const host = createMemoryPlatformServices({ files: Object.fromEntries(built.outputs.map((output) => [output.path, output.bytes])) });
-  const board = built.outputs.find((output) => output.path === "Boards/town.brd");
-  ok(board);
-  const savedPreview = await previewBoard(host.fs, "memory-project", board.bytes);
+test("one project scene build keeps terrain, pack art, and traced boundaries in preview, Save and the engine", async () => {
+  const authored = writeScene({
+    ...scene,
+    size: { width: 4, height: 1 },
+    floors: [{ id: "ground", tiles: [[1, 0], [1, 1], [2, 0]], boundarySources: { walkableTiles: [{ legacy: "WALLS.tst1" }] } }],
+  });
+  const authoredTileset = writeNativeTileset(tileset);
+  const authoredPack = writeAssetPack(pack);
+  ok(authored.ok && authoredTileset.ok && authoredPack.ok);
+  const fsFiles = {
+    [inputs.scenePath]: utf8Encode(authored.text),
+    "Art/walls.tkrtst": utf8Encode(authoredTileset.text),
+    "Art/props.tkrpack": utf8Encode(authoredPack.text),
+    "Bitmap/sheet.png": png,
+    "Bitmap/prop.png": propPng,
+    "Art/rail.tkrtle": utf8Encode(`contract: tile
+version: 1.0.0-pre.1
+name: Rail
+projection: 2d
+role: wall
+visual:
+  transparent: {mode: alpha}
+  sample: {file: Bitmap/sheet.png, rect: [0,0,32,32]}
+solid: [{label: Rail, closed: false, points: [[3,13], [27,13]]}]
+`),
+    "Art/rail.tkrtst": utf8Encode(`contract: tileset
+version: 1.0.0-pre.1
+name: Rail
+expects: {projection: 2d, cellSize: [32,32]}
+tiles: [{tile: Art/rail.tkrtle}]
+terrains:
+  - id: rail
+    name: Rail
+    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}
+    neighbours: cardinal-4
+    coverage: complete
+    sync: lockstep
+    rules: [{id: rail, when: {}, use: {tile: Art/rail.tkrtle}}]
+outputBinding:
+  target: Tiles/rail.tst
+  detail: 1
+  slots: [{slot: 1, tile: Art/rail.tkrtle}]
+`),
+  };
+  const host = createMemoryPlatformServices({ files: fsFiles });
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
+  const opened = await workspace.open(inputs.scenePath);
+  ok(opened.ok);
+  const doc = asTerrainSceneDocument(opened.document);
+  ok(doc.apply({ type: "edit-scene-terrain", terrain: {
+    terrainRegions: [{ id: "rail", floor: "ground", terrain: { tileset: "Art/rail.tkrtst", terrain: "rail" }, coverage: { shape: "tile-grid", spans: [[0, 0, 1], [2, 0, 1]] } }],
+    tileOverrides: [{ floor: "ground", cell: [2, 0], tile: { legacy: "walls.tst1" } }],
+  } }).ok);
+  const path = "Boards/town.brd";
+  const preview = await previewTerrainSceneProject({ fs: host.fs, projectId: "memory-project", scenePath: inputs.scenePath, sceneText: doc.getSnapshot().text });
+  ok(preview.ok, preview.ok ? "" : JSON.stringify(preview.problems));
+  equal(host.bytesOf(path), undefined, "preview must not generate files");
+  deepEqual(host.bytesOf(inputs.scenePath), fsFiles[inputs.scenePath], "preview must not save the edit");
+  deepEqual(await workspace.saveAll(), [{ document: inputs.scenePath, result: { ok: true } }]);
+  const bytes = host.bytesOf(path);
+  ok(bytes);
+  const board = readBoard(new BinaryReader(bytes, path));
+  ok(board.ok);
+  deepEqual(board.value.tileMatrix, [2, 1, 3, 0]);
+  deepEqual(board.value.lut, ["", "Tiles\\walls.tst1", "rail.tst1", "walls.tst1"]);
+  const packImage = board.value.images[0]!;
+  deepEqual([packImage.left, packImage.top, packImage.layer], [19, 28, 1]);
+  const vectors = board.value.vectors.map(({ type, points }) => [type, points.map(({ x, y }) => [x, y])]);
+  deepEqual(vectors, [
+    [16, [[1, 2], [3, 4]]], // Authored waypoint.
+    [1, [[3, 13], [27, 13]]], // Standalone rail; not a full-cell obstacle.
+    [1, [[32, 0], [64, 0], [64, 32], [32, 32]]], // Embedded solid tile.
+    [2, [[18, 29], [22, 29], [22, 31], [18, 31]]], // Pack under-vector uses its placement.
+    [1, [[64, 0], [96, 0], [96, 32], [64, 32], [64, 0]]], // Traces the final overridden cell, not the base grid.
+  ]);
+  const paths = [path, "Tiles/walls.tst", "Tiles/rail.tst", `Bitmap/${packImage.file.replaceAll("\\", "/")}`];
+  const files = new Map(paths.map((output) => {
+    const data = host.bytesOf(output);
+    ok(data);
+    return [assetKey(output), data] as const;
+  }));
+  ok((await doc.save()).ok);
+  for (const output of paths) deepEqual(host.bytesOf(output), files.get(assetKey(output)));
+  const savedPreview = await previewBoard(host.fs, "memory-project", bytes);
   ok(savedPreview.ok);
   deepEqual(preview.preview.drawList, savedPreview.drawList);
   deepEqual(preview.preview.rgba, savedPreview.rgba);
-  const files = new Map(built.outputs.map((output) => [assetKey(output.path), output.bytes]));
+  ok(preview.preview.drawList.commands.some((command) => command.kind === "blit" && "asset" in command.source && command.source.asset === assetKey(paths[3]!)));
   let latest: GameState | undefined;
   const registration: EnginePhaseRegistration = { phase: "events", run: (state) => { latest = state; } };
   const engine = createEngine({
-    seed: 19, assetIndex: createAssetIndex(built.outputs.map((output) => output.path)), assetRoot: PACKAGE_ROOT,
+    seed: 19, assetIndex: createAssetIndex(paths), assetRoot: PACKAGE_ROOT,
     initialBoard: "town.brd", width: preview.preview.width, height: preview.preview.height, maxTicks: 20,
     program: `createcanvas(${preview.preview.width}, ${preview.preview.height}, c)\nviewbrd("town.brd", 0, 0, c)\nend()\n`,
     phaseRegistrations: [registration],
@@ -94,6 +168,7 @@ test("scene preview uses the generated board and art without writing them", asyn
     if (advance.requests.length === 0 && !advance.loading) break;
   }
   ok(latest);
+  deepEqual(latest.world.board?.vectors?.map(({ type, points }) => [type, points.map(({ x, y }) => [x, y])]), vectors);
   const canvas = Object.values(latest.surfaces.entries).find((entry) => entry.id !== (0 as never) && entry.id !== SCRIPT_SCREEN);
   ok(canvas);
   const rendered = engine.surfacePixels(canvas.id, canvas.rev);
@@ -108,37 +183,45 @@ test("scene preview uses the generated board and art without writing them", asyn
   const previewOnCanvas = readSurfacePixels(surfaces, id, entry.rev);
   ok(previewOnCanvas);
   deepEqual(previewOnCanvas.rgba, rendered.rgba);
-  const root = await emptyHost.fs.list("");
-  ok(root.ok);
-  deepEqual(root.value, []);
 });
 
 test("saving checks a built board against its last build and preserves an outside edit", async () => {
-  const host = createMemoryPlatformServices({ files: {} });
+  const text = writeScene(scene);
+  const tileText = writeNativeTileset(tileset);
+  const packText = writeAssetPack(pack);
+  ok(text.ok && tileText.ok && packText.ok);
+  const host = createMemoryPlatformServices({ files: {
+    [inputs.scenePath]: utf8Encode(text.text),
+    "Art/walls.tkrtst": utf8Encode(tileText.text),
+    "Art/props.tkrpack": utf8Encode(packText.text),
+    "Bitmap/sheet.png": png,
+    "Bitmap/prop.png": propPng,
+  } });
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
   const ownership = createSceneBuildOwnership({
     fs: host.fs,
     storage: createSceneBuildOwnershipStorage(host.fs),
     history: workspace.history,
   });
-  const first = await prepareSceneBuild(inputs, ownership);
+  const options = { fs: host.fs, scenePath: inputs.scenePath, ownership };
+  const first = await prepareTerrainSceneProject(options);
   ok(first.ok);
   deepEqual(first.check.conflicts, []);
-  const written = await writePreparedSceneBuild(first, ownership);
+  const written = await writePreparedTerrainSceneProject(first, ownership);
   ok(written.ok);
-  const repeated = await prepareSceneBuild(inputs, ownership);
+  const repeated = await prepareTerrainSceneProject(options);
   ok(repeated.ok);
-  ok((await writePreparedSceneBuild(repeated, ownership)).ok);
+  ok((await writePreparedTerrainSceneProject(repeated, ownership)).ok);
   equal(workspace.history.coverage("Bitmap/unrelated.png", 1).covered, false);
   equal(workspace.history.coverage("Bitmap/.tkr-generated/test/output.png", 1).covered, true);
   const changedBoard = writeBoard({ ...first.built.board, links: { ...first.built.board.links, north: "outside.brd" } });
   ok(changedBoard.ok);
   const changed = changedBoard.value;
   ok((await host.fs.write("Boards/town.brd", changed)).ok);
-  const next = await prepareSceneBuild(inputs, ownership);
+  const next = await prepareTerrainSceneProject(options);
   ok(next.ok);
   ok(next.check.conflicts.some((conflict) => conflict.path === "Boards/town.brd" && conflict.kind === "modified"));
-  const refused = await writePreparedSceneBuild(next, ownership);
+  const refused = await writePreparedTerrainSceneProject(next, ownership);
   ok(!refused.ok);
   const onDisk = await host.fs.read("Boards/town.brd");
   ok(onDisk.ok);

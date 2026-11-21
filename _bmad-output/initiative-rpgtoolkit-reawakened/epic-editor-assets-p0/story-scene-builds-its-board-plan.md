@@ -53,6 +53,7 @@ The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approv
 ## Plan Change Log
 
 - #3232 connects the terrain scene to the normal Save, keyboard Save and Save All paths, and uses a board-test launch for Play so the `.gam` file's startup board does not select the scene. Generating these derived assets is not a format conversion of the source document. A source write and a generated-output write can have different outcomes.
+- #3267: compile the resolved terrain grid, tile collision, pack raster art and vectors, and traced boundaries in `scene-build.ts`, then write the board once. Save and Play use that project build; the preview renders the same generated files in memory. Boundary tracing sees the final grid after overrides, not the original runs. The reader/checker/rename wire cutover is still #3273.
 
 ## Review Triage Log
 
@@ -60,6 +61,7 @@ The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approv
 - Keep #3232 in draft while the terrain build and preview do not use the same compiler, pack geometry and recovery are not wired through the host path, and checker/rename still need to cover the new reference model.
 - Review identified a second compiler that omitted packs and boundary tracing (#3267); until unified lowering is ready, the terrain build refuses these inputs without writing an incomplete board. Other blockers are exact verified playback (#3268), input freshness and competing writes (#3270), the nested game asset root (#3271), and conflict recovery (#3272).
 - The checker and rename cutover (#3273), refusing stale outputs during packaging (#3274), and project-wide tileset ownership (#3275) also block merge. Nested `Tiles` runtime path handling is tracked in #3276.
+- #3267 is addressed: the production path no longer refuses supported packs or boundaries or omits them. Automatic wall caps still refuse as specified. The remaining draft blockers above are unchanged.
 
 ## Verification
 
@@ -70,5 +72,6 @@ The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approv
 - Chromium's connected-authoring journey passed: paint, touch up, reshape, rebuild via the workbench Save button, keyboard Save and Save All, reopen, and play the compiled pond with the `.gam` startup board set elsewhere. The live draw list contained the manual bank and both water cels.
 - 42 focused document conformance and save tests and the strict-CSP source check passed after removing the inline styles and adding the terrain-scene lifecycle case.
 - VS Code Web workbench proof passed with the packaged extension (`TKR_VSCODE_NATIVE_SCENE_PROOF=1`): the terrain editor writes through the native text document; Ctrl/Cmd+S builds an empty override; workbench Save All rebuilds the base tile after clearing it; Play saves a fresh edit and launches `Boards/terrain-proof.brd`, not the startup board. Finding the main file through the virtual workspace filesystem fixed #3277.
+- The mixed-scene proof passed through the production workspace Save All: exact tile slots and ordered rail, pack, and traced boundary vectors; identical repeated outputs; unchanged source during preview; equal in-memory and saved previews; and matching headless-engine pixels and loaded vectors. All 17 focused tests, host typechecks, scoped lint, and the Chromium terrain journey passed.
 
 Run focused editor-model and native-data tests, package typechecks, targeted lint, dependency graph and provenance; run the smallest headless-engine proof that compares scene preview with the built board.
