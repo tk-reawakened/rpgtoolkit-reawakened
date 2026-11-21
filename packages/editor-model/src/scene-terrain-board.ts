@@ -1,4 +1,5 @@
 import { writeBoard, type Board } from "@tk-reawakened/core";
+import { documentId, foldId } from "@tk-reawakened/native-data";
 import type { Scene } from "@tk-reawakened/native-data";
 import { lowerSceneBoard } from "./scene-board-lowering.ts";
 import { buildSceneTerrain, type SceneTerrainBuildInputs } from "./scene-terrain-build.ts";
@@ -15,6 +16,7 @@ export async function buildTerrainBoard(
   inputs: Omit<SceneTerrainBuildInputs, "scene"> & { readonly scene: TileScene; readonly scenePath: string },
 ): Promise<Result> {
   const { scene, scenePath } = inputs;
+  if (!/\.tkrscn$/i.test(scenePath)) return { ok: false, problems: [{ path: "scenePath", message: "The source must have a .tkrscn extension." }] };
   const resolution = await buildSceneTerrain(inputs);
   if (!resolution.ok) return resolution;
   const { tilePalette: _palette, terrainRegions: _regions, tileOverrides: _overrides, ...source } = scene;
@@ -30,5 +32,12 @@ export async function buildTerrainBoard(
   const board = { ...lowered.board, vectors: [...lowered.board.vectors, ...geometry.vectors] };
   const written = writeBoard(board);
   if (!written.ok) return { ok: false, problems: [{ path: "board", message: written.error.message }] };
-  return { ok: true, board, outputs: [...resolution.outputs, { path: `${scenePath.slice(0, -7)}.brd`, bytes: written.value }], notes: resolution.notes };
+  const outputs = [...resolution.outputs, { path: `${scenePath.slice(0, -7)}.brd`, bytes: written.value }];
+  const destinations = new Set<string>();
+  for (const output of outputs) {
+    const id = foldId(documentId(output.path));
+    if (destinations.has(id)) return { ok: false, problems: [{ path: output.path, message: "Multiple generated outputs claim this destination." }] };
+    destinations.add(id);
+  }
+  return { ok: true, board, outputs, notes: resolution.notes };
 }
