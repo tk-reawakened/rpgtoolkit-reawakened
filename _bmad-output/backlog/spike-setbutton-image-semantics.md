@@ -17,35 +17,38 @@ risk: high
 
 ## Description
 
-`setbutton` accepts a file argument, but the current function contract describes only a clickable slot and does not say whether or when the image is drawn. The issue's Final Destiny fixture shows clickable but invisible buttons, and ticket #2153 waits on the answer. The owner must approve the user-visible contract before rendering behavior is implemented.
+`setbutton` accepts a file argument, but the prior function contract described only a clickable slot. Issue #2153 showed that the unchanged Final Destiny title can create clickable slots while drawing no button images. The owner resolved the question in favor of a visible image overlay that remains independent of the hit rectangle.
+
+## Decision
+
+The owner approved drawing the supplied image at the slot's pixel coordinates while retaining the independently sized click rectangle. Replacing a numeric slot replaces both its image and hit rectangle; clearing selected slots removes both, and clearing without arguments removes all. A missing or undecodable image contributes no pixels but leaves the hit rectangle enabled. The full contract is recorded in `docs/spec/engine/rpgcode-functions.md#reawakened-setbutton-images`.
+
+The existing UI renderer already composes image-backed buttons as keyed blits, while `setbutton` previously created only the click slot. The unchanged Final Destiny fixture's observed title draw list contains text and no button-image blits. The authored UI test also demonstrates the existing image-button overlay path. This evidence supports the implementation without reading or changing legacy game source.
 
 ## Approach
 
-1. Compare treating the file as a visible button image, as a hit-test-only asset name, or as an optional visual while preserving click geometry.
-2. Check the existing spec and the unchanged Final Destiny fixture for evidence of intended draw timing, slot replacement, clear behavior, and missing-asset behavior; do not infer a ruling from the fixture alone.
-3. Recommend drawing the supplied image at the slot's pixel coordinates while retaining its independent hit-test rectangle, with replacement and clear behavior tied to the button slot lifecycle.
-4. Have the owner approve the behavior and record the full contract in `docs/spec/engine/rpgcode-functions.md` before ticket #2153 starts.
+1. Compare image-backed slots, hit-test-only slots, and optional images that preserve click geometry.
+2. Use the clean-room function spec, authored UI fixture, and unchanged Final Destiny draw list to assess image timing, slot replacement, clearing, click geometry, and asset failure.
+3. Record the owner-approved rule in the function spec before implementing the waiting title-screen fix.
 
 ## Acceptance Criteria
 
 1. **The candidate contracts are compared against the observable cases**
-   Verify: the comparison covers image draw timing, slot replacement, `clearButtons`, click geometry, and missing-asset behavior.
+   Verify: comparison covers image drawing, slot replacement, `clearButtons`, click geometry, and missing-asset behavior.
 2. **A deterministic fixture demonstrates the selected contract**
-   Verify: the unchanged Final Destiny fixture shows its button image and clickable bounds, plus replacement and clear cases, without changing its source.
+   Verify: the unchanged Final Destiny fixture draws its button image and retains clickable bounds; regression cases cover replacement, clearing, and missing images.
 3. **The approved contract is recorded where the waiting ticket can find it**
-   Verify: the spec defines the file's visual behavior and lifecycle, and ticket #2153 references the rule.
+   Verify: `docs/spec/engine/rpgcode-functions.md#reawakened-setbutton-images` defines the image and lifecycle behavior.
 4. **The owner has accepted the contract**
    Verify: the dated owner decision is recorded in the spec.
 
 ## References
 
 - issue — https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2569
-- waiting ticket — bug-final-destiny-title-screen-buttons.md (#2153)
-- spec — docs/spec/engine/rpgcode-functions.md, `setbutton` command catalogue entry
+- waiting ticket — `_bmad-output/backlog/bug-final-destiny-title-screen-buttons.md` (#2153)
+- spec — `docs/spec/engine/rpgcode-functions.md#reawakened-setbutton-images`
 
 ## Notes
 
-- Open question: does the `file` argument draw a visible image, and what are its replacement, clearing, and missing-asset semantics?
-- Assumption: button images are meant to be visible while their slots remain clickable; the owner must confirm this before implementation.
-
-- Risk: high — visible title-screen controls may remain absent; outside this ticket's criteria, smoke-test the unchanged Final Destiny fixture in Electron after the rule is approved.
+- Decision: The owner approved image rendering with independent hit geometry, same-slot replacement, paired clearing, and a clickable slot when the image asset is unavailable (2026-11-21).
+- Risk: high — a bad implementation leaves title controls invisible; outside the ticket's regression criteria, run the headless closing suite against the unchanged fetched game fixtures.

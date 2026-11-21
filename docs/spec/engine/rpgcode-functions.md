@@ -610,9 +610,9 @@ The core optional output reference is the second argument of the two-argument ca
 
 | Command | Signature | Purpose | Notes |
 |---|---|---|---|
-| `setbutton` | `setbutton(string file, int slot, int x, int y, int width, int height)` | Create a clickable button. The slot is replaced at fixed pixel coordinates until clearButtons removes it. |  |
-| `checkbutton` | `int = checkbutton(int x, int y)` | Check whether a button covers a pixel. It returns 1 for an enabled slot and 0 otherwise without waiting. |  |
-| `clearbuttons` | `clearbuttons([int slot1, int slot2...])` | Remove selected button slots, or all slots when no slot is supplied. |  |
+| `setbutton` | `setbutton(string file, int slot, int x, int y, int width, int height)` | Draw a button image and create its clickable slot. Replaces the same slot. | The image is keyed with magenta, drawn 1:1 at `(x,y)`, and clipped to `width` × `height`. |
+| `checkbutton` | `int = checkbutton(int x, int y [, int &slot])` | Check whether an enabled button slot covers a pixel. Returns 1 on a hit and 0 otherwise. | The optional output receives the hit slot number, or 0 on a miss. |
+| `clearbuttons` | `clearbuttons([int slot1, int slot2...])` | Remove selected button slots, or all slots when no slot is supplied. | Removing a slot also removes its image. |
 | `mouseclick` | `mouseclick(int &x, int &y [, bool noWait])` | Wait for a click or read the current pointer position. Blocking mode resumes from the input event; noWait writes pixel x/y immediately. |  |
 | `mousemove` | `mousemove(int &x, int &y)` | Read the pointer position. The current window-relative pixel x/y are written by reference without waiting. |  |
 | `createcursormap` | `cursor_map createcursormap([cursor_map &ret])` | Create a cursor map. |  |
@@ -621,6 +621,12 @@ The core optional output reference is the second argument of the two-argument ca
 | `cursormaprun` | `int cursormaprun(cursor_map map, [int &ret])` | Run a cursor map and wait for a point to be chosen. | Blocks until Enter or Space selects a point; returns its zero-based index. See [cursor-map runner](#reawakened-cursor-map-runner). |
 | `cursormaphand` | `void cursormaphand(string cursor[, bool stretch = true])` | Choose the image used for the cursor-map hand. | The default hand is a bundled 32×32 asset with no hot spot, drawn at an offset of (−40, −10) from the selected point; `stretch=true` scales a supplied image to 32×32 with nearest-neighbour sampling. |
 | `mousecursor` | `void mousecursor(string file, int x, int y, int red, int green. int blue)` | Change the mouse cursor. "TK DEFAULT" or "" restores the default cursor. | `TK DEFAULT` and empty file restore the bundled 32×32 arrow with hot spot (0,0); custom assets retain the supplied hot spot and transparent colour. |
+
+<a id="reawakened-setbutton-images"></a>
+**Reawakened rule (owner decision, 2026-11-21; #2569, #2153).** `setbutton` creates an enabled hit rectangle and an image overlay for the same numeric slot. The hit rectangle is `[x, x + width) × [y, y + height)` and does not depend on image pixels. The image is drawn on the next UI composition at its original size, keyed with magenta and clipped to the supplied width and height; it is not scaled. Repeating a slot replaces both its image and hit rectangle. `clearbuttons(slot...)` removes each selected slot and image; `clearbuttons()` removes them all. If the image cannot be resolved or decoded, it contributes no pixels, but the hit rectangle remains enabled and the call does not fail.
+
+<a id="reawakened-checkbutton-slot-output"></a>
+**Reawakened rule (#1951; clean-room compatibility).** The optional third `checkbutton` argument is a by-reference integer output for the hit slot. The command remains nonblocking and keeps its existing 1/0 return value. It writes the slot number on a hit and writes 0 on a miss, matching the existing false result.
 
 <a id="reawakened-cursor-map-runner"></a>
 **Reawakened rule (OWNER; Toolkit 3.1.0 engineer source-read, ruled 2026-11-02; #1178).** In plain terms: `cursorMapRun()` runs a keyboard-controlled list of screen points, shows its hand while it waits, and returns the chosen point's index. Technically, it is a blocking script command. Selection starts at the first point; Up or Left moves to the previous point, Down or Right to the next, and navigation wraps at either end. Enter or Space selects the current point and the script receives its zero-based index. The runner does not read mouse input and has no Escape cancel path. The script can replace the hand graphic with `cursorMapHand()`; the hand is drawn only while the cursor-map runner is executing and is not the OS pointer. Toolkit 3.1.0 source identifies shops and some message-box choices as cursor-map use cases; this is legacy evidence, not a claim that Reawakened shops or message boxes invoke this runner. The Toolkit 3.1 startup example uses one for New Game, Load and Quit.
