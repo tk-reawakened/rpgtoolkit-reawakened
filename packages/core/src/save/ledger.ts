@@ -349,7 +349,7 @@ export type LedgerSprites = {
   readonly randomEncounter: LedgerPresence<LedgerRandomEncounter>;
 };
 
-/** Active-board trigger progress; `active`, `lastKeySeq` and `silentUntilIdle` are continuation. */
+/** Active-board trigger progress; `active` and `lastKeySeq` are continuation. */
 export type LedgerTriggers = {
   readonly boardKey: string | null;
   readonly fired: { readonly [key: string]: boolean };

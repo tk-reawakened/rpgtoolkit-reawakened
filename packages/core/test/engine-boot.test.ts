@@ -535,7 +535,7 @@ test("symbolic pathfinding and pause flags route around a solid and park the thr
 for (const kind of ["player", "item"] as const) {
   for (const command of ["step", "path"] as const) {
     for (const returnToStart of [false, true]) {
-      for (const blocking of [false, true]) test(`${kind}${command} ${blocking ? "blocking" : "pause"} uses the queued endpoint (${returnToStart ? "new route" : "no new route"})`, () => {
+      for (const blocking of [false, true]) test(`${kind}${command} ${blocking ? "blocking" : "pause"} handles inherited movement when target is ${returnToStart ? "current position" : "beyond queued endpoint"}`, () => {
         const fixture = pushFixture("end()", 1);
         deepEqual(fixture.pressA().diagnostics, []);
         const state = fixture.state();
@@ -558,7 +558,8 @@ for (const kind of ["player", "item"] as const) {
         equal(state.vm.globals.continued, undefined, "pause waits for existing movement even without a new route");
         deepEqual(run(fixture.engine, fixture.game.files, 180).diagnostics, []);
         const moved = kind === "player" ? state.sprites.players[0]! : state.sprites.items[0]!;
-        equal(moved.x, goal.x);
+        const expectedX = kind === "player" && returnToStart ? start.x + 32 : goal.x;
+        equal(moved.x, expectedX);
         equal(state.vm.globals.continued, 1);
       });
     }
@@ -791,7 +792,7 @@ test("RPGCode push and pushitem append after active and queued targets (#1296)",
   equal(fixture.state().vm.globals.continued, 1);
 });
 
-test("a pause push waits for all earlier queued directions and its own step (#1297)", () => {
+test("a pause push takes over earlier queued directions and waits for its own step (#1297, #1643)", () => {
   const fixture = pushFixture('push("E", 0, 1)\ncontinued = 1\nend()', 0);
   const state = fixture.state();
   const hero = state.sprites.players[0];
@@ -800,14 +801,16 @@ test("a pause push waits for all earlier queued directions and its own step (#12
   fixture.runtime.section.players = state.sprites.players;
 
   deepEqual(fixture.pressA().diagnostics, []);
+  const afterTakeover = fixture.state().sprites.players[0];
+  ok(afterTakeover !== undefined);
+  equal(afterTakeover.movement.active?.target.x, hero.x + 32, "the script's first direction replaces the inherited route");
+  deepEqual(afterTakeover.queue.moves, []);
   const wait = fixture.state().vm.threads.find((thread) => thread.wait?.kind === "sprite.movement")?.wait;
   equal(wait?.kind === "sprite.movement" ? wait.actor : undefined, hero.id);
-  deepEqual(run(fixture.engine, fixture.game.files, 30).diagnostics, []);
-  ok(fixture.state().vm.threads.some((thread) => thread.wait?.kind === "sprite.movement"), "the wait remains parked while earlier queued steps are still moving");
   equal(fixture.state().vm.globals.continued, undefined);
-  deepEqual(run(fixture.engine, fixture.game.files, 120).diagnostics, []);
-  equal(fixture.state().sprites.players[0]?.x, hero.x + 128);
-  equal(fixture.state().vm.globals.continued, 1, "the script resumes only when the full queue is idle");
+  deepEqual(run(fixture.engine, fixture.game.files, 100).diagnostics, []);
+  equal(fixture.state().sprites.players[0]?.x, hero.x + 32);
+  equal(fixture.state().vm.globals.continued, 1, "the script resumes when its own movement step finishes");
 });
 
 for (const [pixelMovement, distance] of [[0, 32], [1, 32], [2, 8]] as const) {
@@ -1136,34 +1139,23 @@ test("an infinite waypoint wait releases after its first traversal instead of ha
   equal(settled.sprites.players[0]?.queue.waypoint?.cycles, 0, "the movement itself continues as an infinite cycle");
 });
 
-test("a paused push waits through a pending finite waypoint without waking between segments (#1303)", () => {
+test("a paused push takes over a pending finite waypoint and waits for its own step (#1303, #1643)", () => {
   const fixture = pushFixture('push("E", 0, 1)\ncontinued = 1\nend()', 1);
   const state = fixture.state();
-  const board = state.world.board;
-  if (board === null || board === undefined) throw new Error("the board was not hydrated");
-  Object.assign(board, { vectors: [{ points: [{ x: 160, y: 64 }, { x: 200, y: 64 }], attributes: 0, closed: 0, layer: 1, type: 0, handle: "patrol" }] });
   const hero = state.sprites.players[0];
   if (hero === undefined) throw new Error("the hero was not hydrated");
   hero.queue.waypoint = { points: [{ x: 160, y: 64 }, { x: 200, y: 64 }], cycles: 1, cycle: 0, cursor: 0, live: false };
   fixture.runtime.section.players = state.sprites.players;
 
   deepEqual(fixture.pressA().diagnostics, []);
-  let guard = 0;
-  while (fixture.state().sprites.players[0]?.x !== 160 && guard < 300) {
-    deepEqual(run(fixture.engine, fixture.game.files, 1).diagnostics, []);
-    guard += 1;
-  }
-  equal(fixture.state().sprites.players[0]?.x, 160, "the waypoint's first target is reached");
-  deepEqual(run(fixture.engine, fixture.game.files, 1).diagnostics, []);
-  equal(fixture.state().sprites.players[0]?.movement.active?.target.x, 200);
-  equal(fixture.state().vm.globals.continued, undefined, "the paused push does not wake while its finite waypoint queue remains");
-  guard = 0;
-  while (fixture.state().vm.globals.continued !== 1 && guard < 300) {
-    deepEqual(run(fixture.engine, fixture.game.files, 1).diagnostics, []);
-    guard += 1;
-  }
-  equal(fixture.state().sprites.players[0]?.x, 200);
-  equal(fixture.state().vm.globals.continued, 1);
+  const afterTakeover = fixture.state().sprites.players[0];
+  ok(afterTakeover !== undefined);
+  equal(afterTakeover.queue.waypoint, null);
+  equal(afterTakeover.movement.active?.target.x, hero.x + 32);
+  equal(fixture.state().vm.globals.continued, undefined);
+  deepEqual(run(fixture.engine, fixture.game.files, 100).diagnostics, []);
+  equal(fixture.state().sprites.players[0]?.x, hero.x + 32);
+  equal(fixture.state().vm.globals.continued, 1, "the script resumes after its own movement step");
 });
 
 
@@ -3570,7 +3562,19 @@ test("recovery defaults each missing movement setting from its associated main f
 });
 
 test("recovery boots startup first, stages durable state paused, and resumes entry exactly once", () => {
-  const { game, candidate, savedTick } = recoveryCandidateWithDurableState();
+  const { game, candidate, savedTick } = recoveryCandidateWithDurableState(PAUSED_RECOVERY_GAME, [], (candidateState) => {
+    const playerId = candidateState.sprites.players[0]!.id;
+    enqueueDirectionMove(candidateState.sprites, playerId, "E", 0, false, false, { kind: "input" });
+    runMovementPhase(candidateState.sprites, candidateState.world.board!, candidateState.time.tick + 1);
+    enqueueDirectionMove(candidateState.sprites, playerId, "E", 0, false, false, { kind: "input" });
+    candidateState.sprites.players = candidateState.sprites.players.map((player) => ({
+      ...player,
+      x: 123,
+      movement: { ...player.movement, waitTicks: 1 },
+    }));
+    equal(candidateState.sprites.players[0]?.movement.active?.provenance?.kind, "input");
+    equal(candidateState.sprites.players[0]?.queue.moves.length, 1);
+  });
   const doubles = makeDoubles();
   const engine = bootEngine(game, doubles, undefined, undefined, candidate);
   equal(engine.recoveryStatus(), "loading");
@@ -3598,6 +3602,8 @@ test("recovery boots startup first, stages durable state paused, and resumes ent
   deepEqual(state.triggers.suppressed, ["suppressed-trigger"]);
   deepEqual(state.triggers.deactivated, ["deactivated-trigger"]);
   deepEqual(state.triggers.deactivateAt, { x: 7, y: 8, layer: 1 });
+  equal(state.sprites.players[0]?.movement.active, null, "recovery discards the candidate active move");
+  deepEqual(state.sprites.players[0]?.queue.moves, [], "recovery discards candidate queued movement");
   equal(state.sprites.items[0]?.multitaskThread, null, "item multitask waits for explicit Resume");
   equal(state.vm.globals.entrycount, 0);
   equal(state.vm.globals.boardcount, 0);

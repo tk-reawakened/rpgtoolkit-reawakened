@@ -13,7 +13,7 @@
 
 ## Context
 
-Issue #1643 reports that a non-stopping trigger which issues no movement silences later regions along an inherited click route. Its investigation proposes tracking movement ownership, but that representation and the historical-save migration were not owner-approved.
+Issue #1643 reports that a non-stopping board program which issues no movement silences later regions along an inherited click route. Its investigation proposed tracking movement ownership, but the representation and historical-save migration were not selected by the 2026-11-07 ruling. On 2026-11-19 the owner delegated those remaining implementation choices to engineering; the normative choices are recorded in the [per-move provenance contract](../spec/engine/movement-and-collision.md#reawakened-trigger-movement-provenance), not as an additional owner ruling.
 
 The owner stated: “I would say if a program did something to change the movement of the player, all queued movement would be removed.” Asked whether to clear once on takeover or on every movement command, the owner selected **Once on takeover**: discard inherited movement when the program first takes over, then preserve the program's ordinary append/clear semantics.
 
@@ -23,7 +23,7 @@ This is a Reawakened behavior decision. The documented 3.1 source-read establish
 
 1. Apply the [normative takeover rule](../spec/engine/movement-and-collision.md#reawakened-program-movement-takeover) per program execution and targeted player. The first accepted movement instruction clears the complete pending queue and linked/repeating waypoint, regardless of whether they came from input or another script. It then applies the new instruction.
 2. Subsequent movement instructions in that execution append normally unless their own flags or documented behavior clear or replace movement. Multiple directions within one command are not separate takeovers.
-3. Nested calls share the enclosing execution's takeover. Waiting or crossing a tick does not reset it. A separately started program execution has its own takeover. No particular state representation is selected here.
+3. Nested calls share the enclosing execution's takeover. Waiting or crossing a tick does not reset it. A separately started program execution has its own takeover. The 2026-11-07 ruling selected no state representation; the later delegated engineering choice is recorded in the spec, not as a new owner decision.
 4. Preserve active-step, collision, placement, board-transition, held-input and movement-setting rules. Clearing a queue does not itself interrupt an active step, and a rejected command does not clear it. Changing speed, walking/push mode or facing alone is not a travel instruction.
 5. A trigger that issued no movement must not suppress the resumed inherited route merely because that route remains queued after the program returns. Movement issued inside the trigger remains subject to R-52's non-recursion rule.
 
@@ -49,7 +49,5 @@ This is a Reawakened behavior decision. The documented 3.1 source-read establish
 
 ## Deferred
 
-- The exact saveable takeover/suppression representation, section versions, and migration of old in-flight saves that lack the necessary information. Do not fabricate historical ownership.
-- Suppression lifetime when unrelated executions append movement, or when a trigger installs a linked/forever waypoint. This ruling does not approve the earlier per-move provenance proposal or a blanket queue-drain substitute.
-- Aligning the P-8 oracle model, its generator/manifest and behavioral fixtures with the final suppression contract. Existing P-8 describes queue-drain locking and must not be treated as approval of blanket suppression for an untouched inherited route.
+- Implementation of the delegated per-move contract and alignment of the P-8 oracle remain tracked by #1643. The design and old-save policy are in the [movement provenance contract](../spec/engine/movement-and-collision.md#reawakened-trigger-movement-provenance); they do not claim 3.1 parity or add an owner ruling.
 - #1180's reported historical per-frame click-walking quirks, and #1281/#1300/#1290's collision and linked-edge decisions, remain separate.

@@ -80,7 +80,9 @@
         "aborted-program-does-not-set",
         "stop-movement-clears-queue",
         "gone-suppresses-until-board-left",
-        "movement-inside-a-trigger-is-silent",
+        "trigger-origin-movement-does-not-recurse",
+        "unrelated-queued-step-remains-eligible",
+        "new-unrelated-step-remains-eligible",
         "hidden-item-is-not-a-candidate"
       ],
       "proposed": ["P-6","P-7","P-8"]
@@ -178,7 +180,7 @@
     "P-5": "R-54 slide: select the hit edge by canonically ordered endpoints independently of vertex order; the turned step has the same length, and the facing is the octant of its vector.",
     "P-6": "Triggers are evaluated when a player step completes and when the activation key is pressed; a repeat region fires on entry then every distanceRepeat px; losing candidates are not marked fired; re-arming is evaluated at step completion.",
     "P-7": "Item activation turns the item to face the player and clears the player's queue (E-43).",
-    "P-8": "Trigger programs are modelled as ops (set, gone, abort, silentMove); silent movement locks trigger evaluation until the player's queue drains and evaluates nothing at the end.",
+    "P-8": "Trigger programs can issue triggerMove; each resulting step carries triggerOrigin and cannot start another trigger. Unrelated inherited or newly queued steps remain eligible even in the same queue; suppression never waits for queue drain, and a suppressed step consumes its E-40 entry until the player leaves.",
     "P-9": "An item hidden by its loading condition starts no thread; showing it later starts the thread and hiding or removing it stops the thread.",
     "P-10": "Random encounter: type 0 draws one integer in [0, chances) per tile moved and fights on 0; type 1 counts tiles; a fight draws a count 1 + [0, 4) then one index into the skill-level pool per enemy.",
     "P-11": "Edge arrival keeps the player's remaining queue on refusal and clears it on success; send() names a position in the destination board's own coordinate mode - one-based tiles at the tile's bottom-centre on a plain board, board pixels on a board that sets the pixel-coordinate flag; the layer is one-based.",

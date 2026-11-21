@@ -4,7 +4,7 @@ import type { Wait } from "../../ports/wait.ts";
 import type { InputSection } from "../../save/sections/input.ts";
 import { configureInput } from "../../input/input.ts";
 import type { GameState } from "../../save/state.ts";
-import type { SpriteActor, SpritePoint, Facing, SpritesSection } from "../../sprites/model.ts";
+import type { SpriteActor, SpritePoint, Facing, MovementProvenance, SpritesSection } from "../../sprites/model.ts";
 import { enqueueDirectionMove, enqueueScriptDirectionMove } from "../../sprites/movement.ts";
 import { enqueueMove, enqueuePointPathMove, setWaypoint, itemKey } from "../../sprites/runtime.ts";
 import type { Character } from "../../formats/actor/index.ts";
@@ -147,6 +147,10 @@ function routePoints(board: WorldBoard, sprites: SpritesSection, actorValue: Spr
     start = path.points.at(-1) ?? start;
   }
   return points;
+}
+function requestsTravel(actorValue: SpriteActor, points: readonly SpritePoint[], clear = false, queuedTail?: SpritePoint): boolean {
+  const origin = clear ? actorValue : queuedTail ?? actorValue.movement.active?.target ?? actorValue;
+  return points.some((point) => point.x !== origin.x || point.y !== origin.y);
 }
 
 function moveEffect(_name: string, args: readonly Arg[]): CommandEffect { return { kind: "state-write", section: "sprites", args: args.map((arg) => arg.value as never) }; }
@@ -394,6 +398,25 @@ export function applyInputEffect(state: GameState, name: string, args: readonly 
   }
 }
 function numberValue(value: Value | undefined): number { return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : 0; }
+function movementProvenance(state: GameState, threadId: number): MovementProvenance {
+  return state.triggers.active?.thread === threadId
+    ? { kind: "trigger", thread: threadId }
+    : { kind: "script", thread: threadId };
+}
+function takeOverPlayerMovement(state: GameState, threadId: number, playerId: string): void {
+  const thread = state.vm.threads.find((value) => value.id === threadId);
+  if (thread === undefined || thread.takeover.includes(playerId)) return;
+  const player = state.sprites.players.find((value) => value.id === playerId);
+  if (player === undefined) return;
+  replaceActor(state, playerId, { queue: { ...player.queue, moves: [], waypoint: null } });
+  thread.takeover = [...thread.takeover, playerId];
+}
+function afterTakeover(actor: SpriteActor, state: GameState, threadId: number): SpriteActor {
+  const thread = state.vm.threads.find((value) => value.id === threadId);
+  return thread !== undefined && !thread.takeover.includes(actor.id)
+    ? { ...actor, queue: { ...actor.queue, moves: [], waypoint: null } }
+    : actor;
+}
 export function applySpriteEffect(state: GameState, name: string, args: readonly Value[], threadId = 0): boolean {
   if (name === "spritetranslucency") {
     // E-31: the percentage of a sprite shown through the higher board content that covers it. 0 hides it, 100 is opaque.
@@ -456,8 +479,11 @@ export function applySpriteEffect(state: GameState, name: string, args: readonly
       : [...state.sprites.players, ...state.sprites.items].find((value) => value.id === id || String(value.handle) === id);
   if (actor === undefined && name !== "activeplayer") return playerCommand || itemCommand;
   if (name === "activeplayer") { const target = String(args[0] ?? ""); state.sprites.selectedPlayer = state.sprites.players.find((value) => value.id === target || String(value.index) === target)?.id ?? state.sprites.selectedPlayer; return true; }
+  const provenance = movementProvenance(state, threadId);
   if (name === "push" || name === "pushitem") {
     const dirs = directions(String(args[name === "push" ? 0 : 1] ?? ""));
+    if (dirs.length === 0) return true;
+    if (name === "push" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
     if (name === "push" && args[3] === 1) {
       actor!.queue.moves = actor!.queue.moves.filter((move) => move.pointer !== true);
       const active = actor!.movement.active;
@@ -467,21 +493,24 @@ export function applySpriteEffect(state: GameState, name: string, args: readonly
       }
     }
     const distance = state.world.movement.pushing === 1 ? 8 : 32;
-    for (const [index, facing] of dirs.entries()) enqueueScriptDirectionMove(state.sprites, actor!.id, facing, distance, index === 0 && (numberValue(args[2]) & 2) !== 0);
+    for (const [index, facing] of dirs.entries()) enqueueScriptDirectionMove(state.sprites, actor!.id, facing, distance, index === 0 && (numberValue(args[2]) & 2) !== 0, provenance);
     return true;
   }
   if (name === "playerstep" || name === "itemstep") {
     const board = state.world.board;
     if (board == null) return false;
     const clear = (numberValue(args[3]) & 2) !== 0;
+    const movementActor = name === "playerstep" && !clear ? afterTakeover(actor!, state, threadId) : actor!;
+    const points = routePoints(board, state.sprites, movementActor, [{ x: numberValue(args[1]), y: numberValue(args[2]) }], clear);
     if (clear) replaceActor(state, actor!.id, {
       queue: { moves: [], waypoint: null },
       movement: { ...actor!.movement, active: null, waitTicks: 0 },
       prev: null,
     });
-    const points = routePoints(board, state.sprites, actor!, [{ x: numberValue(args[1]), y: numberValue(args[2]) }], clear);
-    for (const point of points) enqueueMove(state.sprites, actor!.id, { source: "path", target: point, facing: null, pathMode: 1 });
-    return points.length > 0;
+    if (points.length === 0) return false;
+    if (name === "playerstep" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+    for (const point of points) enqueueMove(state.sprites, actor!.id, { source: "path", target: point, facing: null, pathMode: 1, provenance });
+    return true;
   }
   if (name === "playerpath" || name === "itempath") {
     const flags = numberValue(args[1]);
@@ -490,23 +519,54 @@ export function applySpriteEffect(state: GameState, name: string, args: readonly
     const points = waypoint
       ? state.world.board?.vectors?.find((value) => String(value.handle) === String(args[2]))?.points ?? []
       : pointsFromValues(args.slice(2));
+    if (waypoint) {
+      const thread = state.vm.threads.find((value) => value.id === threadId);
+      const queuedTail = thread?.takeover.includes(actor!.id)
+        ? actor!.queue.moves.at(-1)?.target ?? actor!.movement.active?.target
+        : undefined;
+      const travels = requestsTravel(actor!, points, clear, queuedTail);
+      if (travels && name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+      if (clear) replaceActor(state, actor!.id, {
+        queue: { moves: [], waypoint: null },
+        movement: { ...actor!.movement, active: null, waitTicks: 0 },
+        prev: null,
+      });
+      if (!travels && name === "playerpath" && points.length > 0) return true;
+      return setWaypoint(state.sprites, actor!.id, points, numberValue(args[3]), (flags & WAYPOINT_LINK) !== 0, provenance);
+    }
+    if ((flags & PATHFIND) !== 0) {
+      const board = state.world.board;
+      if (board == null) {
+        if (clear) replaceActor(state, actor!.id, {
+          queue: { moves: [], waypoint: null },
+          movement: { ...actor!.movement, active: null, waitTicks: 0 },
+          prev: null,
+        });
+        return false;
+      }
+      const movementActor = name === "playerpath" && !clear ? afterTakeover(actor!, state, threadId) : actor!;
+      const route = routePoints(board, state.sprites, movementActor, points, clear);
+      if (clear) replaceActor(state, actor!.id, {
+        queue: { moves: [], waypoint: null },
+        movement: { ...actor!.movement, active: null, waitTicks: 0 },
+        prev: null,
+      });
+      if (route.length === 0) return false;
+      if (name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+      for (const point of route) enqueueMove(state.sprites, actor!.id, { source: "path", target: point, facing: null, pathMode: 1, provenance });
+      return true;
+    }
     if (clear) replaceActor(state, actor!.id, {
       queue: { moves: [], waypoint: null },
       movement: { ...actor!.movement, active: null, waitTicks: 0 },
       prev: null,
     });
-    if (waypoint) return setWaypoint(state.sprites, actor!.id, points, numberValue(args[3]), (flags & WAYPOINT_LINK) !== 0);
-    if ((flags & PATHFIND) !== 0) {
-      if (state.world.board == null) return false;
-      const route = routePoints(state.world.board, state.sprites, actor!, points, clear);
-      for (const point of route) enqueueMove(state.sprites, actor!.id, { source: "path", target: point, facing: null, pathMode: 1 });
-      return route.length > 0;
-    }
-    return enqueuePointPathMove(state.sprites, actor!.id, points, false);
+    if (requestsTravel(actor!, points, clear) && name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+    return enqueuePointPathMove(state.sprites, actor!.id, points, false, undefined, provenance);
   }
   if (name === "playerdirection" || name === "itemdirection") { const facing = direction(String(args[1] ?? args[0] ?? "S")); replaceActor(state, actor!.id, { facing }); return true; }
   if (name === "playerspeed" || name === "itemspeed") { replaceActor(state, actor!.id, { speed: numberValue(args[1] ?? args[0]) }); return true; }
-  if (name === "wander") { enqueueDirectionMove(state.sprites, actor!.id, direction(String(args[1] ?? "S")), 0, false); return true; }
+  if (name === "wander") { enqueueDirectionMove(state.sprites, actor!.id, direction(String(args[1] ?? "S")), 0, false, false, provenance); return true; }
   if (name === "playerstance" || name === "itemstance") { return playStance(state.sprites, actor!.id, String(args[1] ?? ""), state.time.tick) !== null; }
   return false;
 }

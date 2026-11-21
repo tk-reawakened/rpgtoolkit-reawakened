@@ -205,7 +205,6 @@ function restoreTriggers(state: GameState, ledger: GameLedgerV1): void {
   triggers.deactivateAt = ledger.triggers.deactivateAt === null ? null : { ...ledger.triggers.deactivateAt };
   triggers.active = null;
   triggers.lastKeySeq = 0;
-  triggers.silentUntilIdle = false;
 }
 
 /** Restore durable ledger fields into a private startup-state copy before loading its saved board. */
@@ -373,7 +372,7 @@ function restoreSprite(base: SpriteActor, sprite: LedgerSprite, id: string): Spr
       stance: sprite.visual.stance,
     },
     queue: { moves: [], waypoint: null },
-    movement: { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0 },
+    movement: { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: { kind: "unknown" } },
     prev: null,
     frozenUntil: null,
     multitaskProgram: sprite.multitaskProgram,

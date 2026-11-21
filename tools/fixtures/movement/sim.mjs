@@ -56,7 +56,6 @@ export class World {
     this.repeat = new Map();
     this.gone = new Set();
     this.walked = 0;
-    this.lock = false;
     this.pendingSend = null;
     this.threads = [];
     this.tick = -1;
@@ -99,6 +98,7 @@ export class World {
       wp: null,
       idleCount: 0,
       stepDone: false,
+      stepDoneOrigin: false,
       anims: def.anims ?? null,
       idleMs: def.idleMs ?? 3000,
       anim: null,
@@ -276,9 +276,11 @@ export class World {
   // ---------------------------------------------------------------- commands (input phase)
 
   enqueue(a, step) {
+    if (step.triggerOrigin === undefined) step.triggerOrigin = false;
     a.queue.push(step);
   }
   issue(a, flags, points, extra = {}) {
+    const triggerOrigin = extra.triggerOrigin ?? false;
     if (flags & FLAGS.CLEAR_QUEUE) {
       a.queue.length = 0;
       a.cur = null;
@@ -289,18 +291,18 @@ export class World {
       const goal = points[points.length - 1];
       const { result, cache, mode } = this.route(a, goal);
       this.emit("path", { actor: a.id, mode, goal, route: result.points, expansions: result.expansions, capped: result.capped, reached: result.reached, goalAdjusted: result.goalAdjusted, cache });
-      for (const [x, y] of result.points) this.enqueue(a, { src: "path", tx: Math.round(x * FP), ty: Math.round(y * FP) });
+      for (const [x, y] of result.points) this.enqueue(a, { src: "path", tx: Math.round(x * FP), ty: Math.round(y * FP), triggerOrigin });
     } else if (flags & (FLAGS.WAYPOINT_PATH | FLAGS.WAYPOINT_LINK)) {
       const v = this.board.vectors.find((vec) => vec.id === extra.vector);
-      a.wp = { vector: v.id, link: Boolean(flags & FLAGS.WAYPOINT_LINK), cycles: extra.cycles ?? 1, done: 0, idx: 0, copy: v.points.map((p) => [...p]) };
+      a.wp = { vector: v.id, link: Boolean(flags & FLAGS.WAYPOINT_LINK), cycles: extra.cycles ?? 1, done: 0, idx: 0, copy: v.points.map((p) => [...p]), triggerOrigin };
       this.emit("waypoint-start", { actor: a.id, vector: v.id, link: a.wp.link, cycles: a.wp.cycles });
     } else {
-      for (const [x, y] of points) this.enqueue(a, { src: "point", tx: Math.round(x * FP), ty: Math.round(y * FP), ignoreBoard: true });
+      for (const [x, y] of points) this.enqueue(a, { src: "point", tx: Math.round(x * FP), ty: Math.round(y * FP), ignoreBoard: true, triggerOrigin });
     }
   }
-  pushDirs(a, dirs, clear) {
+  pushDirs(a, dirs, clear, triggerOrigin = false) {
     if (clear) this.issue(a, FLAGS.CLEAR_QUEUE, []);
-    for (const d of dirs.split(",").map((s) => s.trim()).filter(Boolean)) this.enqueue(a, { src: "dir", dir: FACINGS.indexOf(d), size: this.moveSize() });
+    for (const d of dirs.split(",").map((s) => s.trim()).filter(Boolean)) this.enqueue(a, { src: "dir", dir: FACINGS.indexOf(d), size: this.moveSize(), triggerOrigin });
   }
 
   applyScript(op) {
@@ -476,7 +478,7 @@ export class World {
     const dir = s.src === "dir";
     const tx = dir ? a.x + DIRV[s.dir][0] * s.size * FP : s.tx;
     const ty = dir ? a.y + DIRV[s.dir][1] * s.size * FP : s.ty;
-    a.cur = { src: s.src, dir: dir ? s.dir : null, tx, ty, sx: a.x, sy: a.y, ignoreBoard: Boolean(s.ignoreBoard), tried: false };
+    a.cur = { src: s.src, dir: dir ? s.dir : null, tx, ty, sx: a.x, sy: a.y, ignoreBoard: Boolean(s.ignoreBoard), tried: false, triggerOrigin: s.triggerOrigin ?? false };
     a.state = "moving";
     return true;
   }
@@ -499,7 +501,7 @@ export class World {
     }
     const [x, y] = pts[w.idx];
     w.idx += 1;
-    a.queue.push({ src: "waypoint", tx: x, ty: y });
+    a.queue.push({ src: "waypoint", tx: x, ty: y, triggerOrigin: a.wp.triggerOrigin ?? false });
   }
 
   advanceVec(a) {
@@ -645,7 +647,10 @@ export class World {
     const vy = c.ty - c.sy;
     const passed = (c.tx - a.x) * vx + (c.ty - a.y) * vy <= 0;
     if (reach || passed) {
-      if (a.kind === "player") a.stepDone = true;
+      if (a.kind === "player") {
+        a.stepDone = true;
+        a.stepDoneOrigin = c.triggerOrigin ?? false;
+      }
       finish(false);
     } else a.cadence = tpa - 1;
   }
@@ -658,8 +663,8 @@ export class World {
       const { result } = this.route(a, [Math.round(c.tx / FP), Math.round(c.ty / FP)]);
       if (result.reached && result.points.length > 0) {
         const via = result.points;
-        const rest = { src: c.src, tx: c.tx, ty: c.ty, ignoreBoard: c.ignoreBoard };
-        a.queue.unshift(...via.map(([x, y]) => ({ src: "path", tx: Math.round(x * FP), ty: Math.round(y * FP) })), rest);
+        const rest = { src: c.src, tx: c.tx, ty: c.ty, ignoreBoard: c.ignoreBoard, triggerOrigin: c.triggerOrigin };
+        a.queue.unshift(...via.map(([x, y]) => ({ src: "path", tx: Math.round(x * FP), ty: Math.round(y * FP), triggerOrigin: c.triggerOrigin })), rest);
         a.cur = null;
         a.cadence = tpa - 1;
         this.emit("diversion", { actor: a.id, blocker: blocker.id, via });
@@ -771,20 +776,14 @@ export class World {
   triggersPhase() {
     const p = this.player;
     const stepEvent = p.stepDone;
+    const stepOrigin = p.stepDoneOrigin;
     p.stepDone = false;
+    p.stepDoneOrigin = false;
     const keyEvent = Boolean(this.activateKey);
     this.activateKey = false;
-    if (this.lock) {
-      if (p.cur === null && p.queue.length === 0) {
-        this.lock = false;
-        this.walked = 0;
-        this.lastCell = this.cellOf(p);
-      }
-      return false;
-    }
     let stepped = false;
     if (stepEvent) {
-      this.evaluate("step");
+      this.evaluate("step", stepOrigin);
       stepped = true;
     }
     if (keyEvent) this.evaluate("key");
@@ -796,7 +795,7 @@ export class World {
     return c === null || c === undefined || this.vars[c.var] === c.value;
   }
 
-  evaluate(kind) {
+  evaluate(kind, suppressed = false) {
     const p = this.player;
     const base = translate(p.base, p.x, p.y);
     const regions = this.board.programs.filter((r) => r.layer === p.layer && !this.gone.has(r.id));
@@ -826,6 +825,11 @@ export class World {
     });
     if (itemQ.length > 0) {
       const item = itemQ[0];
+      if (suppressed) {
+        this.fired.add(`item:${item.id}`);
+        this.repeat.set(`item:${item.id}`, 0);
+        return;
+      }
       item.facing = facingOf(p.x - item.x, p.y - item.y);
       this.emit("item-faces-player", { item: item.id });
       this.clearQueue(p, item.id);
@@ -835,6 +839,11 @@ export class World {
     const regionQ = regions.filter((r) => overlaps(base, r.points) && qualifies(r.id, r));
     if (regionQ.length > 0) {
       const region = regionQ[regionQ.length - 1]; // last in stored board order wins
+      if (suppressed) {
+        this.fired.add(region.id);
+        this.repeat.set(region.id, 0);
+        return;
+      }
       if (region.stopMovement) this.clearQueue(p, region.id);
       this.fire(region.id, "region", region.id, region);
     }
@@ -859,10 +868,9 @@ export class World {
       if (op.op === "set") this.setVar(op.var, op.value);
       else if (op.op === "gone") { this.gone.add(key); this.emit("gone", { trigger: id }); }
       else if (op.op === "abort") aborted = true;
-      else if (op.op === "silentMove") {
-        this.pushDirs(this.player, op.dirs, false);
-        this.lock = true;
-        this.emit("silent-move", { dirs: op.dirs });
+      else if (op.op === "triggerMove") {
+        this.pushDirs(this.player, op.dirs, false, true);
+        this.emit("trigger-move", { dirs: op.dirs });
       }
     }
     if (!aborted && trig.set) this.setVar(trig.set.var, trig.set.value); // set only after the program completes
