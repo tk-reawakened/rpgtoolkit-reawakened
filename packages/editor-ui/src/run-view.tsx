@@ -299,7 +299,7 @@ export function RunView({ launcher, fs, layout, active = null, version, store, i
   });
   const request = (kind: LaunchKind, fixtureId: string): Launch =>
     kind === "game" ? { kind: "game", ...base }
-      : kind === "board" ? { kind: "board", ...base, start: { board: chosenBoard, ...boardAt }, party: boardParty, ...(boardSeed === "" ? {} : { seed: Number(boardSeed) }) }
+      : kind === "board" ? { kind: "board", ...base, start: { board: chosenBoard, ...boardAt }, party: boardParty, expectedFiles: null, ...(boardSeed === "" ? {} : { seed: Number(boardSeed) }) }
         : { kind: "program", ...base, program: chosenProgram, fixture: { id: fixtureId, ...fixtureFields() } };
   /** The setup as saved: the main file only when the project has a choice of them, so the setup follows the open game (D8.7). */
   const setupOf = (setupName: string): LaunchSetup => {

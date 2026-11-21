@@ -501,7 +501,7 @@ stockMenu = {
         local(first) = 0
         ui.last = ev
         if (ev.kind == "key") {
-            key = stockMenu.normalize(ev.key)
+            key = stockMenu.normalize(ev.key); if (ev.action != null) { key = ev.action }
         } else {
             first = stockMenu.firstOf(stockMenu.getSel(ui), ui.rows, ui.cap)
             key = stockMenu.pointer(ui, ev, ui.rows, first, ui.y0)

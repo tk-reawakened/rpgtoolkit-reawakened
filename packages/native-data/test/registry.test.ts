@@ -10,6 +10,7 @@ void test("the shipped registry holds the documented native contracts, and passe
   deepEqual(REGISTRY, [
     { extension: ".tkranm", contract: "animation-clip" },
     { extension: ".tkrtst", contract: "tileset" },
+    { extension: ".tkrtle", contract: "tile" },
     { extension: ".tkrpack", contract: "asset-pack" },
     { extension: ".tkrscn", contract: "scene" },
   ]);

@@ -10,6 +10,8 @@ import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 import { createWebRunService, type RunPresenter } from "./run.ts";
 import { historyPolicyFrom, type HistoryPolicy } from "@tk-reawakened/editor-model";
+import { asTerrainSceneDocument } from "@tk-reawakened/editor-model";
+import { mountWebTerrainScene } from "./terrain-scene.ts";
 
 /**
  * A project open in the browser host. Its `workspace` is the host's workbench: one model per document, undo by `editId`,
@@ -414,7 +416,6 @@ export function mountDocumentView(
   /** The running project's main file (`.gam`), which the language server reads the project from; `null` when none. */
   main: string | null = null,
 ): DocumentView {
-  const viewDocument = viewDocumentFor(project, document);
   const documentLayout = projectLayoutForDocumentPath(document.identity.path);
   const browserLayout = documentLayout.projectFolder === "" ? projectLayout : documentLayout;
   let mounted: ViewHandle | null = null;
@@ -434,8 +435,10 @@ export function mountDocumentView(
   };
   const show = (container: HTMLElement): void => {
     if (disposed || mounted !== null) throw new Error("Cannot show a disposed or already mounted editor view.");
-    mounted = mount(container, {
-      document: viewDocument,
+    mounted = document.kind === "terrain-scene"
+      ? mountWebTerrainScene(container, project, asTerrainSceneDocument(document), main, browserLayout.projectFolder)
+      : mount(container, {
+      document: viewDocumentFor(project, document),
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),

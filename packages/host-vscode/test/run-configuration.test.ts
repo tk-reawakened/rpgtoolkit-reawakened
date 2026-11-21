@@ -49,7 +49,7 @@ test("a board test asks only for what is missing and requires a party", async ()
   }, ROOTS, prompts);
   assert.deepEqual(resolved, {
     ok: true,
-    launch: { kind: "board", main: "Main/quest.gam", projectFolder: "Game/Quest", start: { board: "Game/Quest/Boards/village.brd", x: 4, y: 5, layer: 1 }, party: ["Game/Quest/Chrs/ada.tem"] },
+    launch: { kind: "board", main: "Main/quest.gam", projectFolder: "Game/Quest", start: { board: "Game/Quest/Boards/village.brd", x: 4, y: 5, layer: 1 }, party: ["Game/Quest/Chrs/ada.tem"], expectedFiles: null },
   });
   assert.deepEqual(asked, ["coordinate(layer)", "party(Game/Quest,true)"]);
 });

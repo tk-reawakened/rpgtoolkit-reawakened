@@ -9,6 +9,7 @@ import { animationCodec, createAnimationDocument, openAnimationDocument, type An
 import { createProgramDocument, openProgramDocument, programCodec, type ProgramCommand, type ProgramDocument } from "./program-document.ts";
 import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type TileBitmapCommand, type TileBitmapDocument } from "./tile-bitmap-document.ts";
 import { createNativeClipDocument, nativeClipCodec, openNativeClipDocument, type NativeClipCommand, type NativeClipDocument } from "./native-clip-document.ts";
+import { createTerrainSceneDocument, openTerrainSceneDocument, terrainSceneCodec, type TerrainSceneCommand, type TerrainSceneDocument } from "./terrain-scene-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -19,7 +20,7 @@ import { createNativeClipDocument, nativeClipCodec, openNativeClipDocument, type
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand | NativeClipCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
@@ -157,6 +158,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     isCommand: nativeClipCodec.isCommand,
     recoveryMarker: () => null,
   },
+  {
+    id: "terrain-scene",
+    label: "Terrain scene",
+    description: "Paint and reshape terrain while keeping manual tile touch-ups.",
+    extensions: [".tkrscn"],
+    storage: "native-text",
+    open: openTerrainSceneDocument,
+    create: createTerrainSceneDocument,
+    summarise: (bytes, path) => {
+      const parsed = terrainSceneCodec.read(bytes, path);
+      return parsed.ok ? terrainSceneCodec.summary(parsed.value) : null;
+    },
+    isCommand: terrainSceneCodec.isCommand,
+    recoveryMarker: () => null,
+  },
   ...(["character", "item"] as const).map((id) => ({
     id,
     label: id === "character" ? "Character" : "Item",
@@ -222,6 +238,11 @@ export function asAnimationDocument(document: AnyDocument): AnimationDocument {
 export function asNativeClipDocument(document: AnyDocument): NativeClipDocument {
   if (document.kind !== "native-clip") throw new Error(`Expected native-clip document, got ${document.kind}.`);
   return document as NativeClipDocument;
+}
+
+export function asTerrainSceneDocument(document: AnyDocument): TerrainSceneDocument {
+  if (document.kind !== "terrain-scene") throw new Error("Expected a terrain scene document.");
+  return document as TerrainSceneDocument;
 }
 
 /** The document as a program document (see `asMainDocument`). */

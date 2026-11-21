@@ -570,6 +570,15 @@ function updatePadActions(
   }
 }
 
+/** E-110: Enter, Escape and the arrows are ENTER, ESC, LEFT...; a letter key is its capital letter; any other key keeps the name the host sent. */
+function legacyKeyName(event: KeyInput): string {
+  if (event.code === "Enter" || event.code === "Escape" || event.code.startsWith("Arrow")) return PHYSICAL_KEY_ALIASES[event.code]?.[0] ?? event.name;
+  if (event.code === "Space") return " ";
+  // A letter is the capital of the character typed, so a non-QWERTY layout names the key by its label (E-110: key names).
+  if (event.char !== null && /^[A-Za-z]$/.test(event.char)) return event.char.toUpperCase();
+  return /^Key[A-Z]$/.test(event.code) ? event.code.slice(3) : event.name;
+}
+
 function applyKey(state: InputSection, event: KeyInput, onUnknownAction?: (action: string) => void, onActionTransition?: (action: string, down: boolean, firstSeq: number) => void): void {
   const physicalControl = event.code.length > 0 ? event.code : event.name;
   const priorRaw = state.held[physicalControl] === true;
@@ -600,10 +609,8 @@ function applyKey(state: InputSection, event: KeyInput, onUnknownAction?: (actio
     ])].sort((a, b) => state.actionOrder[a]! - state.actionOrder[b]!),
   ];
   if (event.down) {
-    const semanticGameBinding = mapped !== undefined && mapped.startsWith("game.");
-    // E-110: physical arrows reach RPGCode as LEFT, RIGHT, UP or DOWN across all runners.
-    const arrowName = event.code.startsWith("Arrow") ? PHYSICAL_KEY_ALIASES[event.code]?.[0] : undefined;
-    const name = arrowName ?? (semanticGameBinding ? event.name : configured ?? event.name);
+    // E-110: the script-facing name is the legacy key name, never the bound action's name (#1091).
+    const name = legacyKeyName(event);
     appendKey(state, name, event.code, event.char, configured ?? null, ordered, null, !event.repeat && !priorRaw);
   }
   if (event.down && event.repeat === true) return;

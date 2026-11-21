@@ -62,10 +62,20 @@ export {
   type ClipWriteResult,
 } from "./clip.ts";
 export {
-  readTileset, writeTileset, checkTileset, setTilesetProperty,
+  readTileset, writeTileset, checkTileset, tilesetAssetPaths, tilesetCellBounds, tilesetCellReferences,
   TILESET_CONTRACT, TILESET_VERSION,
-  type Tileset, type TilesetProblem, type TilesetReadResult,
+  type Tileset, type TilesetProblem, type TilesetReadResult, type TilesetWriteResult,
+  type TilesetAssetPath, type TilesetCell, type TilesetCellReference, type TilesetCollision,
+  type TilesetGrid, type TilesetIsoBlock, type TilesetIsoFace, type TilesetKitbashOp,
+  type TilesetProjection, type TilesetRgb, type TilesetRole, type TilesetRule,
+  type TilesetSlot, type TilesetSource, type TilesetSourceCell, type TilesetTerrain,
+  type TilesetTileReference, type TilesetTransparent,
 } from "./tileset.ts";
+export {
+  TILE_CONTRACT, TILE_VERSION, checkTile, readTile, writeTile,
+  type NativeTile, type NativeTileSample, type TileProblem, type TileReadResult, type TileWriteResult,
+} from "./tile.ts";
+export type { SceneTerrainRegion, SceneTileOverride, SceneTerrainReference, SceneTerrainCellTile } from "./scene-terrain.ts";
 export {
   readAssetPack, writeAssetPack, checkAssetPack, setAssetPackProperty,
   ASSET_PACK_CONTRACT, ASSET_PACK_VERSION,
@@ -74,7 +84,7 @@ export {
 export { checkProjectArtAssets } from "./project-art-assets.ts";
 export {
   SCENE_CONTRACT, SCENE_VERSION,
-  readScene, writeScene, checkScene, setSceneProperty, sceneFindings,
+  readScene, writeScene, checkScene, setSceneProperty, setSceneTerrain, sceneFindings,
   sceneNativeReferences, sceneCellCount, formatScenePath, formatSceneProblems,
   type Scene, type SceneProblem, type SceneReadResult, type SceneWriteResult,
   type SceneEditResult, type SceneEditValue, type ScenePath,
@@ -93,5 +103,6 @@ export {
   type RenamePlan,
   type RenameRefusal,
   type RenameResult,
+  type TerrainRename,
 } from "./rename.ts";
 export { applySplices, type Splice } from "./splice.ts";

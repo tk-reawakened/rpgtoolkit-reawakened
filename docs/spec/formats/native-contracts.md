@@ -115,6 +115,7 @@ An extension that is registered below (each one starts with `tkr`) marks a nativ
 |---|---|---|
 | `.tkranm` | `animation-clip` | [native-animation-clip.md](native-animation-clip.md) |
 | `.tkrtst` | `tileset` | [native-tileset.md](native-tileset.md) |
+| `.tkrtle` | `tile` | [native-tile.md](native-tile.md) |
 | `.tkrpack` | `asset-pack` | [native-asset-pack.md](native-asset-pack.md) |
 | `.tkrscn` | `scene` | [native-scene.md](native-scene.md) |
 
@@ -278,7 +279,7 @@ A top-level `bloom: 0.4` is not a `plugin-block` problem. It is the closed-contr
 
 ## Checker
 
-A checker reads a folder of native documents and reports problems. It **reports and never repairs**. It treats only files whose extension the [registry](#the-registry) holds as native documents; other files, including legacy files, are not checked as native documents. Project-level art checks also read the source images named by tilesets and asset packs to verify their existence and dimensions. The checker reports every class below, each with the content shown.
+A checker reads a folder of native documents and reports problems. It **reports and never repairs**. It treats only files whose extension the [registry](#the-registry) holds as native documents; other files, including legacy files, are not checked as native documents. Project-level art checks also read the source images named by standalone tiles, tilesets and asset packs to verify their existence and dimensions. The checker reports every class below, each with the content shown.
 
 | Class | Report names | Meaning |
 |---|---|---|
@@ -287,7 +288,7 @@ A checker reads a folder of native documents and reports problems. It **reports 
 | Two paths fold to one ID | both paths and the folded ID | The [identity rule](#identity), item 4 failed. |
 | Plugin block (`plugin-block`) | the document path, the problem kind, the plugin id where there is one, and the text found | A block's [envelope](#the-envelope) failed. The problem kinds are in the next table. |
 | Extension and contract disagree (**proposed, needs the owner's confirmation**) | the path, the extension, the registered contract, and the contract the stamp names | The [file name rule](#file-names), item 4 failed: the extension is registered for one contract and the stamp names another. |
-| Native art (`native-art`) | the document path, field and explanation, with the line when available | A tileset or asset-pack field or local source reference is invalid, a referenced image is missing or unreadable, a source cell or crop lies outside its image, or a scene's native art reference cannot resolve its document and local ID. |
+| Native art (`native-art`) | the document path, field and explanation, with the line when available | A tile, tileset or asset-pack field or local source reference is invalid, a referenced image is missing or unreadable, a source cell or crop lies outside its image, or a scene's native art reference cannot resolve its document and, where required, its local ID. |
 | Native scene (`native-scene`) | the document path, field and explanation, with the line when available | A scene field violates the closed scene contract or a scene-local reference is invalid. |
 
 The first four rows are the classes the owner ruled. The `plugin-block` class replaces the three link classes the 2026-11-08 ruling had (a plugin document with no owner, an owner link with no back-link, a mismatched link): they are **retired** (owner ruling of 2026-11-09), because plugin data has no document of its own to link. The fifth is an addition made with the file name rule and is not yet confirmed. It is judged only for a document whose extension is registered and whose stamp names one contract as text; any other stamp is already a stamp report.

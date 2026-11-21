@@ -37,6 +37,9 @@ import type { RunHandle } from "@tk-reawakened/platform-services";
 import { DocumentHistoryView, type DocumentHistoryViewProps } from "./document-history-view.tsx";
 import { CreatorTestsView, type CreatorTestsViewProps } from "./creator-tests-view.tsx";
 import { BoardView } from "./board-view.tsx";
+import { TerrainSceneView, type TerrainSceneViewProps } from "./terrain-scene-view.tsx";
+import { useDocumentSnapshot } from "./use-document.ts";
+import type { TerrainSceneDocument } from "@tk-reawakened/editor-model";
 import { NewBoardView, type NewBoardViewProps } from "./new-board-view.tsx";
 import { NewProjectView, type NewProjectViewProps } from "./new-project-view.tsx";
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
@@ -318,6 +321,16 @@ export function mountPreferences(el: HTMLElement, props: PreferencesViewProps): 
 /** Render the new-board questions into `el`. */
 export function mountNewBoard(el: HTMLElement, props: NewBoardViewProps): ViewHandle {
   return mountElement(el, createElement(NewBoardView, props));
+}
+
+type TerrainDocumentProps = Omit<TerrainSceneViewProps, "scene"> & {
+  readonly document: Pick<TerrainSceneDocument, "subscribe"> & { getSnapshot(): { readonly scene: TerrainSceneViewProps["scene"] } };
+};
+function TerrainDocumentView({ document, ...props }: TerrainDocumentProps) {
+  return createElement(TerrainSceneView, { ...props, scene: useDocumentSnapshot(document).scene });
+}
+export function mountTerrainScene(el: HTMLElement, props: TerrainDocumentProps): ViewHandle {
+  return mountElement(el, createElement(TerrainDocumentView, props));
 }
 
 /** Render the new-project wizard into `el` (T-04). */

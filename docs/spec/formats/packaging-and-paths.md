@@ -80,6 +80,10 @@ No legacy asset bundle is assumed redistributable: starter material joins this t
 
 Paths use `\`. Sub-folders below a type folder are preserved in stored names. File names are case-insensitive (Windows), folded by the ASCII rule in [README.md](README.md#paths-inside-files).
 
+**Generated tile references — Reawakened rule.** A tile reference the editor's scene build generates is the target's path **inside `Tiles\`** (`village\pond.tst1`, or `village\pond.tile-<hash>.tan` for an animation), so an ordinary project root keeps the established `name.tstN` bytes. A reader tolerates one leading type-folder segment ([`stripTypeFolder`](../../../packages/core/src/formats/main-file/layout.ts)), so a target under a sub-folder itself named `Tiles` would lose that first segment and resolve to a different file. The build therefore writes that one case **type-folder-qualified** — `Tiles\Tiles\walls.tst1` for `Tiles\Tiles\walls.tst`, and the same qualification in every `.tan` frame — which strips back to the intended `Tiles\Tiles\walls.tst`. No other reference changes spelling.
+
+**Generated files live with the game that owns them.** A scene in `Game/<game>/Boards/` uses tilesets belonging to that game. The `outputBinding.target` of a tileset in `Game/<game>/` is relative to that game's folder; for a loose project it is relative to the workspace root. Two games can each generate `Tiles/pond.tst` because the files are in different folders. Generated pack images also go in the scene's own `Bitmap/`. Native document and source-art references still use workspace-relative paths.
+
 **Separators — Reawakened rule (R-08).** A reader accepts **both** `\` and `/` in a stored or packaged name (it rewrites `\` to `/` before matching, [README.md](README.md#paths-inside-files)). Our own **distribution package writes `/`**, normalising every entry name, so the archive this project emits is unambiguous and byte-stable. *Reason:* the legacy pak used `\`, but `/` is the ZIP convention and both forms fold to the same path; the reader's tolerance means a legacy pak and ours load identically. The writer's normalisation is `packages/core/src/formats/package/write.ts:171`.
 
 ## PAK archive (`.tpk`)
@@ -135,7 +139,7 @@ The editor's **"Make package"** (T-70) **writes a distribution package** — a `
 **Exporter exclusions (12.9, future Reawakened output only).** The distribution-package inventory omits:
 
 * `Saved/` and main files other than the selected `Main/<game>.gam`, as for the PAK input contract above;
-* every file whose extension is `.tkrscn`, `.tkrtst` or `.tkrpack`, compared with the package path's ASCII-folded extension (ADR 0019 decision 6);
+* every file whose extension is `.tkrscn`, `.tkrtst`, `.tkrtle` or `.tkrpack`, compared with the package path's ASCII-folded extension (ADR 0019 decision 6 and terrain cutover);
 * every `*.spec.prg` creator test, matched case-insensitively (ADR 0022 D9 and TOOL-5);
 * the test runner's helper library at the complete project-relative path `Prg/script-spec/`, matched ASCII-case-insensitively; ordinary game programs and similarly named sibling folders remain package assets;
 * the project-root reserved editor-history directory `.tkr-history/`, including all descendants (ADR 0022 D12.7; its name and layout are fixed by D12.10);

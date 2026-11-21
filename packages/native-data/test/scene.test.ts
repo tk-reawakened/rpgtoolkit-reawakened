@@ -22,7 +22,7 @@ import {
  * The board is 4 by 3 tiles on a 2-D grid, so each of its two floors has 12 cells.
  */
 const AUTHORED = `contract: scene # the stamp
-version: 1.0.0-pre.1
+version: 1.0.0-pre.2
 # Imported from cottage.brd, then extended in the scene editor.
 tags: [imported]
 metadata:
@@ -37,7 +37,7 @@ floors:
     tiles: [[4, 1], [2, 2], [2, 4], [4, 1]]  # three rows of four cells
     boundarySources:
       walkableTiles:
-        - {tileset: tiles/village.tkrtst, tile: grass-main}
+        - {tile: tiles/grass-main.tkrtle}
         - {legacy: village.tst1}
       autoWallCaps: true
   - id: roof
@@ -45,7 +45,7 @@ floors:
 tilePalette:
   - {}
   - {legacy: village.tst1}
-  - {tileset: tiles/village.tkrtst, tile: stone-wall-base}
+  - {tile: tiles/stone-wall-base.tkrtle}
   - {}
   - {legacy: water.tan}
 shading:
@@ -202,7 +202,7 @@ function refusedEdit(path: (string | number)[], value: string | number | boolean
 
 /** The smallest scene the contract allows: a stamp, a projection, a size and one floor. */
 const MINIMAL = `contract: scene
-version: 1.0.0-pre.1
+version: 1.0.0-pre.2
 projection: 2d
 size: {width: 2, height: 1}
 floors:
@@ -231,14 +231,14 @@ void test("an authored scene reads into the typed model and keeps its source", (
     title: "Ground",
     tiles: [[4, 1], [2, 2], [2, 4], [4, 1]],
     boundarySources: {
-      walkableTiles: [{ tileset: "tiles/village.tkrtst", tile: "grass-main" }, { legacy: "village.tst1" }],
+      walkableTiles: [{ tile: "tiles/grass-main.tkrtle" }, { legacy: "village.tst1" }],
       autoWallCaps: true,
     },
   });
   deepEqual(scene.floors[1], { id: "roof", tiles: [[12, 0]] });
   ok(!("title" in scene.floors[1]!), "an absent title stays absent");
 
-  deepEqual(scene.tilePalette, [{}, { legacy: "village.tst1" }, { tileset: "tiles/village.tkrtst", tile: "stone-wall-base" }, {}, { legacy: "water.tan" }]);
+  deepEqual(scene.tilePalette, [{}, { legacy: "village.tst1" }, { tile: "tiles/stone-wall-base.tkrtle" }, {}, { legacy: "water.tan" }]);
   deepEqual(scene.shading, [{ floor: "roof", cells: [[8, 0, 0, 0], [4, 286, -20, -10]], legacy: { excessCells: [2, 286, -20, -10] } }]);
   deepEqual(scene.lights, [{ floor: "ground", type: "ellipse", nodes: [[64, 48], [96, 48], [64, 80]], colors: [[0, 0, 0], [60, 50, 20]] }]);
   equal(scene.vectors?.length, 4);
@@ -314,9 +314,9 @@ void test("the reader reports the notes the contract names, with their lines, an
 void test("the smallest scene reads, and every optional key stays absent", () => {
   const result = readScene(MINIMAL);
   if (!result.ok) throw new Error(formatSceneProblems(result.problems));
-  deepEqual(result.scene, { contract: "scene", version: "1.0.0-pre.1", projection: "2d", size: { width: 2, height: 1 }, floors: [{ id: "layer-1" }] });
+  deepEqual(result.scene, { contract: "scene", version: "1.0.0-pre.2", projection: "2d", size: { width: 2, height: 1 }, floors: [{ id: "layer-1" }] });
   deepEqual(result.findings, []);
-  equal(accepted(swap(MINIMAL, "version: 1.0.0-pre.1", "version: 1.0.0-pre.1+build.7")).version, "1.0.0-pre.1+build.7");
+  equal(accepted(swap(MINIMAL, "version: 1.0.0-pre.2", "version: 1.0.0-pre.2+build.7")).version, "1.0.0-pre.2+build.7");
 });
 
 void test("a document with no stamp, a wrong stamp or an unknown version is refused by name", () => {
@@ -332,10 +332,10 @@ void test("a document with no stamp, a wrong stamp or an unknown version is refu
     refused(swap(AUTHORED, "contract: scene", "contract: tileset")).map((problem) => [problem.kind, problem.path, problem.message]),
     [["shape", "contract", "must be `scene`"]],
   );
-  ok(refused(swap(AUTHORED, "version: 1.0.0-pre.1", "version: 1.1.0"))[0]!.message.includes("not a version this reader knows"));
-  ok(refused(swap(AUTHORED, "version: 1.0.0-pre.1", "version: 1.0"))[0]!.message.includes("patch is missing"));
-  ok(refused(`name: Early\ncontract: scene\nversion: 1.0.0-pre.1\n${MINIMAL.slice(MINIMAL.indexOf("projection:"))}`)[0]!.message.includes("must be the first two keys"));
-  equal(accepted(`version: 1.0.0-pre.1\ncontract: scene\n${MINIMAL.slice(MINIMAL.indexOf("projection:"))}`).projection, "2d");
+  ok(refused(swap(AUTHORED, "version: 1.0.0-pre.2", "version: 1.1.0"))[0]!.message.includes("not a version this reader knows"));
+  ok(refused(swap(AUTHORED, "version: 1.0.0-pre.2", "version: 1.0"))[0]!.message.includes("patch is missing"));
+  ok(refused(`name: Early\ncontract: scene\nversion: 1.0.0-pre.2\n${MINIMAL.slice(MINIMAL.indexOf("projection:"))}`)[0]!.message.includes("must be the first two keys"));
+  equal(accepted(`version: 1.0.0-pre.2\ncontract: scene\n${MINIMAL.slice(MINIMAL.indexOf("projection:"))}`).projection, "2d");
   ok(refused(swap(AUTHORED, "projection: 2d\n", "projection: 2d\nprojection: 2d\n"))[0]!.message.includes("YAML error"));
 });
 
@@ -438,15 +438,13 @@ void test("each rule of the contract page refuses what it says", () => {
   ["a null palette", (m) => (m.tilePalette = null), "tilePalette"],
   ["a palette entry as text", (m) => (m.tilePalette[1] = "village.tst1"), "tilePalette[1]"],
   ["an empty legacy tile", (m) => (m.tilePalette[1].legacy = ""), "tilePalette[1].legacy"],
-  ["a tile that is legacy and native", (m) => (m.tilePalette[1].tileset = "tiles/village.tkrtst"), "tilePalette[1]"],
-  ["a native tile with no tile id", (m) => delete m.tilePalette[2].tile, "tilePalette[2]"],
-  ["a native tile with no tileset", (m) => delete m.tilePalette[2].tileset, "tilePalette[2]"],
-  ["a tile id in capitals", (m) => (m.tilePalette[2].tile = "Stone"), "tilePalette[2].tile"],
-  ["a tileset that is not a tileset path", (m) => (m.tilePalette[2].tileset = "tiles/village.png"), "tilePalette[2].tileset"],
-  ["a tileset that is a pack", (m) => (m.tilePalette[2].tileset = "packs/props.tkrpack"), "tilePalette[2].tileset"],
-  ["an absolute tileset path", (m) => (m.tilePalette[2].tileset = "/tiles/village.tkrtst"), "tilePalette[2].tileset"],
-  ["a tileset path with a backslash", (m) => (m.tilePalette[2].tileset = "tiles\\village.tkrtst"), "tilePalette[2].tileset"],
-  ["a tileset path leaving the project", (m) => (m.tilePalette[2].tileset = "../village.tkrtst"), "tilePalette[2].tileset"],
+  ["a tile that is legacy and native", (m) => (m.tilePalette[1].tile = "tiles/village.tkrtle"), "tilePalette[1]"],
+  ["a native tile with no path", (m) => (m.tilePalette[2].tile = ""), "tilePalette[2].tile"],
+  ["a tile that is not a tile path", (m) => (m.tilePalette[2].tile = "tiles/village.png"), "tilePalette[2].tile"],
+  ["a tile that is a pack", (m) => (m.tilePalette[2].tile = "packs/props.tkrpack"), "tilePalette[2].tile"],
+  ["an absolute tile path", (m) => (m.tilePalette[2].tile = "/tiles/village.tkrtle"), "tilePalette[2].tile"],
+  ["a tile path with a backslash", (m) => (m.tilePalette[2].tile = "tiles\\village.tkrtle"), "tilePalette[2].tile"],
+  ["a tile path leaving the project", (m) => (m.tilePalette[2].tile = "../village.tkrtle"), "tilePalette[2].tile"],
   ["an unknown palette key", (m) => (m.tilePalette[1].path = "x"), "tilePalette[1].path"],
   ["a shading layer with no cells", (m) => delete m.shading[0].cells, "shading[0]"],
   ["a shading layer with no layer", (m) => delete m.shading[0].floor, "shading[0]"],
@@ -611,7 +609,7 @@ void test("what the contract allows is read: every projection, empty lists, no p
     [
       "capitals in the extension of a native document",
       (m) => {
-        m.tilePalette[2].tileset = "Tiles/Village.TKRTST";
+        m.tilePalette[2].tile = "Tiles/Village.TKRTLE";
         m.placedPacks[0].pack = "Packs/Props.TkrPack";
       },
     ],
@@ -889,8 +887,8 @@ void test("the model check judges a model the way the reader judges a document, 
 void test("the native references and the cell count are available to a project checker", () => {
   const scene = accepted(AUTHORED);
   deepEqual(sceneNativeReferences(scene), [
-    { path: "tilePalette[2]", kind: "tile", document: "tiles/village.tkrtst", id: "stone-wall-base" },
-    { path: "floors[0].boundarySources.walkableTiles[0]", kind: "tile", document: "tiles/village.tkrtst", id: "grass-main" },
+    { path: "tilePalette[2]", kind: "tile", document: "tiles/stone-wall-base.tkrtle" },
+    { path: "floors[0].boundarySources.walkableTiles[0]", kind: "tile", document: "tiles/grass-main.tkrtle" },
     { path: "placedPacks[0]", kind: "asset", document: "packs/cottage-props.tkrpack", id: "lantern" },
   ]);
   deepEqual(sceneNativeReferences(accepted(MINIMAL)), []);
@@ -950,11 +948,11 @@ void test("a new document is written in contract order, reads back to the same m
   const model = plain() as Scene;
   const written = writeScene(model);
   if (!written.ok) throw new Error(formatSceneProblems(written.problems));
-  ok(written.text.startsWith("contract: scene\nversion: 1.0.0-pre.1\ntags: [imported]\nmetadata:\n  source: cottage.brd\nname: Cottage\nprojection: 2d\npixelCoordinates: true\nsize: {width: 4, height: 3}\nfloors:\n"), written.text);
+  ok(written.text.startsWith("contract: scene\nversion: 1.0.0-pre.2\ntags: [imported]\nmetadata:\n  source: cottage.brd\nname: Cottage\nprojection: 2d\npixelCoordinates: true\nsize: {width: 4, height: 3}\nfloors:\n"), written.text);
   for (const line of [
     "    tiles: [[4, 1], [2, 2], [2, 4], [4, 1]]\n",
-    "        - {tileset: tiles/village.tkrtst, tile: grass-main}\n",
-    "  - {}\n  - {legacy: village.tst1}\n  - {tileset: tiles/village.tkrtst, tile: stone-wall-base}\n",
+    "        - {tile: tiles/grass-main.tkrtle}\n",
+    "  - {}\n  - {legacy: village.tst1}\n  - {tile: tiles/stone-wall-base.tkrtle}\n",
     "    cells: [[8, 0, 0, 0], [4, 286, -20, -10]]\n    legacy: {excessCells: [2, 286, -20, -10]}\n",
     "    type: under\n    closed: true\n    points: [[32, 8], [64, 8], [64, 32], [32, 32]]\n    attributes: 3\n",
     "    activation: {keyPress: true, repeat: true, repeatDistance: 16}\n",
@@ -984,7 +982,7 @@ void test("a new document is written in contract order, reads back to the same m
 void test("a new document keeps its slots: empty palette slots, an empty thread list, and a long run list one run to a line", () => {
   const model = {
     contract: "scene",
-    version: "1.0.0-pre.1",
+    version: "1.0.0-pre.2",
     name: "Quote: the 2nd",
     projection: "2d",
     size: { width: 3, height: 3 },
@@ -1047,15 +1045,15 @@ void test("a replaced quoted value keeps its quote style, and a plain value is q
 
 void test("a palette slot is filled in place and its neighbours do not move", () => {
   const filled = edited(["tilePalette", 3, "legacy"], "grass.tst2");
-  equal(filled, swap(AUTHORED, "  - {tileset: tiles/village.tkrtst, tile: stone-wall-base}\n  - {}\n", "  - {tileset: tiles/village.tkrtst, tile: stone-wall-base}\n  - {legacy: grass.tst2}\n"));
+  equal(filled, swap(AUTHORED, "  - {tile: tiles/stone-wall-base.tkrtle}\n  - {}\n", "  - {tile: tiles/stone-wall-base.tkrtle}\n  - {legacy: grass.tst2}\n"));
   const scene = accepted(filled);
   equal(scene.tilePalette?.length, 5);
   deepEqual(scene.tilePalette?.[3], { legacy: "grass.tst2" });
   deepEqual(scene.tilePalette?.[4], { legacy: "water.tan" });
-  equal(edited(["tilePalette", 1, "legacy"], "village.tst2"), swap(AUTHORED, "{legacy: village.tst1}\n  - {tileset", "{legacy: village.tst2}\n  - {tileset"));
+  equal(edited(["tilePalette", 1, "legacy"], "village.tst2"), swap(AUTHORED, "{legacy: village.tst1}\n  - {tile", "{legacy: village.tst2}\n  - {tile"));
   deepEqual(refusedEdit(["tilePalette", 0, "legacy"], "x.tst1").map((problem) => problem.path), ["tilePalette[0]"]);
-  const half = refusedEdit(["tilePalette", 3, "tileset"], "tiles/village.tkrtst");
-  ok(half.some((problem) => problem.path === "tilePalette[3]" && problem.message.includes("`tile` is required")), formatSceneProblems(half));
+  const half = refusedEdit(["tilePalette", 3, "tile"], "tiles/village.png");
+  ok(half.some((problem) => problem.path === "tilePalette[3].tile"), formatSceneProblems(half));
 });
 
 void test("an empty slot takes its program, item or id in the contract's key order, and the slot keeps its index", () => {
@@ -1109,7 +1107,7 @@ void test("a key left out of the document is added where the contract's key orde
 
 void test("a new key goes below the comment lines that belong to the entry above it, and above those of the entry after it", () => {
   const text = `contract: scene
-version: 1.0.0-pre.1
+version: 1.0.0-pre.2
 projection: 2d
 size: {width: 1, height: 1}
 floors:
@@ -1162,11 +1160,11 @@ void test("an edit that would break the contract is refused with the reader's lo
     [["start", "y"], 0, ["start.y"]],
     [["placedPacks", 0, "pack"], "tiles/village.tkrtst", ["placedPacks[0].pack"]],
     [["placedPacks", 0, "floor"], "cellar", ["placedPacks[0].floor"]],
-    [["tilePalette", 2, "tileset"], "tiles/village.tkrpack", ["tilePalette[2].tileset"]],
+    [["tilePalette", 2, "tile"], "tiles/village.tkrpack", ["tilePalette[2].tile"]],
     [["tilePalette", 2, "tile"], "Stone", ["tilePalette[2].tile"]],
     [["legacy", "excessTiles", 1], 4, ["legacy.excessTiles[1]"]],
     [["contract"], "tileset", ["contract"]],
-    [["version"], "1.0.0-pre.2", ["version"]],
+    [["version"], "1.0.0-pre.1", ["version"]],
     [["projection"], 2, ["projection"]],
     [["name"], "", ["name"]],
     [["triggers", 0, "program"], "", ["triggers[0].program"]],
@@ -1277,7 +1275,7 @@ void test("a multiline text replacing a value in a flow list is written as an es
 
 void test("an alias expansion past the parser's limit is a located problem, not a throw", () => {
   const aliases = Array.from({ length: 150 }, () => "*a").join(", ");
-  const text = `contract: scene\nversion: 1.0.0-pre.1\nprojection: 2d\nmetadata: {x: &a [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], y: [${aliases}]}\nsize: {width: 2, height: 1}\nfloors:\n  - id: layer-1\n`;
+  const text = `contract: scene\nversion: 1.0.0-pre.2\nprojection: 2d\nmetadata: {x: &a [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], y: [${aliases}]}\nsize: {width: 2, height: 1}\nfloors:\n  - id: layer-1\n`;
   const problems = refused(text);
   deepEqual(problems.map((problem) => [problem.kind, problem.path, problem.line]), [["shape", "(document)", 4]]);
   ok(problems[0]!.message.includes("Excessive alias count"));
