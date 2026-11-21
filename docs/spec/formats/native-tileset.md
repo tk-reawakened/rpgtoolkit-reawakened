@@ -107,6 +107,8 @@ All pixel and grid values are exact integers. Coordinates and cell indices are z
 
 `wallCapUnder` is optional and defaults to `false`. When `true`, the generated block acts as a wall cap that can be walked under: lowering emits the corresponding under/walk-behind region for the block footprint as well as any collision selected by `collision`. It is independent of `collision`; setting it does not turn solid collision off. A block with no valid under-region geometry is rejected rather than silently downgraded.
 
+A flat `.tst` binding emits only the `tiles` rows. An unreferenced block recipe stays in the authored YAML and is reported as not emitted; its presence does not block a flat build. A target requiring raised blocks is refused until the projected faces, draw order, solid collision and walk-behind are specified and verified in both isometric layouts. Detail 150 describes a flat diamond, not a way to flatten a raised block.
+
 ### Autotiles
 
 `autotiles`, when present, is an ordered list of unique ids. Each entry has a non-empty `name`, `mode` (`blob-47`), `base`, `border`, and `innerCorner` source-cell references, and `exportOrder` (`t25-canonical`). Each reference has exactly `source` and `cell`, names a source in this document and a valid cell. `blob-47` denotes the 8-neighbour 47-variant blob mask family; `t25-canonical` selects its fixed canonical output ordering. Unsupported modes or orderings are errors, not best-effort fallbacks.
