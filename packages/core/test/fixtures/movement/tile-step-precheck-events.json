@@ -218,6 +218,50 @@
       ]
     },
     {
+      "name": "blocked-mid-step-queue-continues-next-update",
+      "note": "R-63 item 2 with R-64 item 1: the player's east step advances once, then the cart walks into the destination's collision area and stops it mid-way, so it is not counted. The queued north step starts on the following update — tick 3 blocks, tick 4 is 4 px north — not one advance cadence later.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [],
+            "items": [{"id":"cart","x":96,"y":79,"layer":0,"speed":0.02,"facing":"S"}],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.05,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E,N"},
+        {"t":0,"op":"push","actor":"cart","dirs":"N"}
+      ],
+      "ticks": 8,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"hydrate","id":"cart","drawId":1,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",52,63,0,"moving","E"],["cart",96,75,0,"moving","N"]]},
+        {"t":1,"a":[["hero",52,63,0,"moving","E"],["cart",96,71,0,"moving","N"]]},
+        {"t":2,"a":[["hero",52,63,0,"moving","E"],["cart",96,67,0,"moving","N"]]},
+        {"t":3,"a":[["hero",52,63,0,"moving","E"],["cart",96,63,0,"moving","N"]],"ev":[{"e":"blocked","actor":"hero","by":"cart"}]},
+        {"t":4,"a":[["hero",52,59,0,"moving","N"],["cart",96,59,0,"moving","N"]]},
+        {"t":5,"a":[["hero",52,59,0,"moving","N"],["cart",96,55,0,"moving","N"]]},
+        {"t":6,"a":[["hero",52,59,0,"moving","N"],["cart",96,51,0,"moving","N"]]},
+        {"t":7,"a":[["hero",52,55,0,"moving","N"],["cart",96,47,0,"waiting","N"]],"ev":[{"e":"step-complete","actor":"cart"},{"e":"movement-complete","actor":"cart"}]}
+      ]
+    },
+    {
       "name": "non-selected-player-blocked-step-retries",
       "note": "R-64 item 3: a party player that is not the selected (controlled) player is an other actor for a blocked direction step — the entry is kept and retried every update, the sprite never moves and never emits a completed or counted step. The wall (x 76..84) blocks the ally's whole destination (x 64..96).",
       "setup": {

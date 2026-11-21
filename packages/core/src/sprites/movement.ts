@@ -482,7 +482,10 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
         const counted = atStart && countBlockedSteps;
         event(tick, "blocked", { ...detail, ...(counted ? { partyDistance256: STEP_TILE * FP } : {}) }, sink);
         const finished = finishActor({ ...actor, facing: active.facing ?? actor.facing }, active, true, tpa, tick, sink, counted);
-        replaceActor(section, counted ? { ...finished, prev: null } : finished);
+        // R-64 item 1: the next queued entry starts on the following update, whether or not this step was
+        // counted. The previous-step marker is what delays a fresh entry by one advance cadence, so any
+        // consumed blocked step clears it — a mid-step block and a script-owned block included.
+        replaceActor(section, { ...finished, prev: null });
         return;
       }
       event(tick, "blocked", detail, sink);

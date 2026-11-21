@@ -175,6 +175,36 @@ test("R-64 runs the battle check at the blocked step's destination", () => {
   equal(posts.length, rolls, "the following tick does not re-check the source tile");
 });
 
+test("R-64 continues the queue one update after a mid-step block, not one cadence later", () => {
+  // A mid-step block (R-63 item 2) stops a step already under way, so it is not the counted step: the
+  // party remainder stays put. R-64 item 1 still consumes the entry and continues with the next queued
+  // entry "on the following update", which is one tick after the block — not one advance cadence.
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const cart = { ...actorFromSource({ id: "cart", kind: "item", source: "cart.itm", x: 96, y: 79, layer: 1 }, currentBoard, 0, 0), speed: 0.02 };
+  current.sprites = { ...current.sprites, items: [cart] };
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueDirectionMove(current.sprites, "hero", "N", 0);
+  enqueueDirectionMove(current.sprites, "cart", "N", 0);
+  const events: MovementEvent[] = [];
+  const heroYs: number[] = [];
+  for (let tick = 0; tick <= 8; tick += 1) {
+    events.push(...runMovementPhase(current.sprites, currentBoard, tick));
+    heroYs.push(current.sprites.players[0]?.y ?? 0);
+  }
+  equal(current.sprites.players[0]?.x, 52, "the east step advanced once before anything blocked it");
+  const blocked = events.find((record) => record.type === "blocked" && record.actor === "hero");
+  // speed 0.05 is three ticks per advance: the first advance lands on tick 0 and the precheck runs again
+  // on tick 3, by which time the cart (one 4 px advance per tick, speed 0.02) has walked into the
+  // destination's collision area at (80, 63).
+  equal(blocked?.tick, 3, "the cart enters the destination after the first advance");
+  equal(blocked?.type === "blocked" ? blocked.blocker : null, "cart", "the destination precheck names the sprite");
+  equal(events.some((record) => record.type === "step-complete" && record.actor === "hero"), false, "a blocked step never completes");
+  equal(current.party.steps, 0, "a step stopped mid-way contributes nothing");
+  equal(current.party.stepRemainder, 0);
+  equal(heroYs.findIndex((y) => y !== 63), 4, "north starts on the update after the block (tick 3 + 1)");
+});
+
 // R-65 ---------------------------------------------------------------
 
 test("R-65 recomputes a queued direction from where the actor actually stands", () => {

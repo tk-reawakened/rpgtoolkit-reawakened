@@ -260,6 +260,15 @@ test("tile-step-precheck-events: a counted blocked step is processed at its inte
   deepEqual(events(midStep, "blocked").map((e) => [e.t, e.by]), [[1, "cart"]]);
   deepEqual(events(midStep, "step-complete").map((e) => e.actor), ["cart"]);
   deepEqual(events(midStep, "movement-complete").map((e) => [e.t, e.actor, e.blocked === true]), [[1, "hero", true], [7, "cart", false]]);
+  // R-64 item 1: a blocked step consumes the entry whether or not it was counted, so the next queued
+  // direction starts on the update after the block (tick 3 + 1), not one three-tick advance cadence later.
+  // Hero speed 0.05 advances every three ticks: 52 at tick 0, then the precheck runs at tick 3 with the
+  // cart (speed 0.02, one 4 px step per tick) already in the destination's collision area at (96, 63).
+  const queue = theCase(sc, "blocked-mid-step-queue-continues-next-update");
+  deepEqual(events(queue, "blocked").map((e) => [e.t, e.by]), [[3, "cart"]]);
+  deepEqual(events(queue, "step-complete").map((e) => [e.t, e.actor]), [[7, "cart"]]);
+  deepEqual(queue.expect.filter((r) => r.a.find((a) => a[0] === "hero")[2] === 59).map((r) => r.t), [4, 5, 6]);
+  deepEqual(actorAt(queue, 4, "hero"), ["hero", 52, 59, 0, "moving", "N"]);
   // R-64 item 3: a non-selected party player keeps and retries its blocked entry every update, so it never
   // completes the step and never emits a counted or completed-step event.
   const ally = theCase(sc, "non-selected-player-blocked-step-retries");
