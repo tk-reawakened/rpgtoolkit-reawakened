@@ -36,10 +36,10 @@ context:
 ## Verification
 
 **Commands:**
-- `node --test packages/core/test/presentation-surface-encoding.test.ts packages/core/test/surface-batch.test.ts` -- PASS (43 deterministic tests, 535 ms; individual tests remain below one second), including alias snapshots, nested rollback and randomized batch parity.
+- `node --test packages/core/test/presentation-surface-encoding.test.ts packages/core/test/surface-batch.test.ts` -- PASS (43 deterministic tests, 625 ms; individual tests remain below one second), including alias snapshots, nested rollback and randomized batch parity.
 - `pnpm --filter @tk-reawakened/core typecheck:tests` -- PASS.
 - `pnpm build && pnpm browser:build` -- PASS.
-- `pnpm perf:player --headed --out .perf/issue-2795-before-latest` and `pnpm perf:player --headed --out .perf/issue-2795-final` -- PASS on `boards/start.brd`; current main `368bb7e72e0918e56915ae8913c3508c2a71ef2e` measured 101.5 fps / p99 17.5 ms, final candidate 120.5 fps / p99 9.3 ms; zero long tasks in both; `encodeSurfaceBytes` was 28.0% of baseline sampled self CPU and absent from candidate sampled self CPU.
+- `pnpm perf:player --headed --out .perf/issue-2795-before-latest` and `pnpm perf:player --headed --out .perf/issue-2795-final` -- PASS on `boards/start.brd`; current main `368bb7e72e0918e56915ae8913c3508c2a71ef2e` measured 101.5 fps / p99 17.5 ms, final candidate 120.6 fps / p99 9.3 ms (max 108.1 ms); zero long tasks in both; `encodeSurfaceBytes` was 28.0% of baseline sampled self CPU and absent from candidate sampled self CPU.
 - Independent review: all alias rollback and snapshot-rebase findings resolved; no remaining actionable findings.
 
 ## Review Triage Log

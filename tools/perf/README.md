@@ -95,12 +95,12 @@ These are single-run advisory observations, not CI thresholds.
 
 | Measurement | Current main | Final candidate |
 |---|---:|---:|
-| Frame rate | 101.5 fps | 120.5 fps (display cap) |
+| Frame rate | 101.5 fps | 120.6 fps (display cap) |
 | Frame p50 / p90 / p99 | 8.4 / 16.6 / 17.5 ms | 8.3 / 9.0 / 9.3 ms |
-| Maximum frame | 116.5 ms | 100.2 ms |
+| Maximum frame | 116.5 ms | 108.1 ms |
 | Long tasks | 0 | 0 |
 | Ticks per second | 60.9 | 60.9 |
-| Measured duration | 8.226 s | 8.107 s |
+| Measured duration | 8.226 s | 8.132 s |
 | `encodeSurfaceBytes` self CPU | 28.0% (2337 ms) | not among sampled self-CPU rows |
 
 The current-main trace is `.perf/issue-2795-before-latest/demo.cpuprofile`; the final candidate trace is
