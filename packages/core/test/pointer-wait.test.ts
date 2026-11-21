@@ -80,12 +80,12 @@ test("waitInput hands a script the press and release that arrived together, then
 
 test("waitInput delivers a key first and reports the pointer change that came with it on the next call", () => {
   const state = makeState();
-  const program = "first = waitinput()\nk1 = first.kind\nn1 = first.key\nsecond = waitinput(first)\nk2 = second.kind\nd2 = second.newdowns\nend()";
+  const program = "first = waitinput()\nk1 = first.kind\nn1 = first.key\na1 = first.action\nsecond = waitinput(first)\nk2 = second.kind\nd2 = second.newdowns\nend()";
   const thread = startProgram(state.vm, { kind: "inline", ir: "1", text: program });
   const services = createScriptServices(state);
   runThreadsPhase(state.vm, services, 100);
   step(state, services, [press(9, 9), enter(true)]);
-  deepEqual([state.vm.globals.k1, state.vm.globals.n1], ["key", "confirm"], "a key wins the same-tick tie");
+  deepEqual([state.vm.globals.k1, state.vm.globals.n1, state.vm.globals.a1], ["key", "ENTER", "confirm"], "a key wins the same-tick tie, named ENTER with its bound action beside it (#1091)");
   step(state, services);
   deepEqual([state.vm.globals.k2, state.vm.globals.d2], ["pointer", 1], "the pointer press was not lost behind the key");
   equal(thread.status, "finished");
