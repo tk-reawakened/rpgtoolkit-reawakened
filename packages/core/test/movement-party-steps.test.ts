@@ -112,7 +112,7 @@ function makeRig(options: Options) {
   if (state === undefined) throw new Error("engine did not initialize party movement state");
   const key = (code: "ArrowRight" | "ArrowDown", down: boolean): InputRecord => ({
     tick: state!.time.tick,
-    event: { kind: "key", name: code.slice("Arrow".length).toUpperCase(), code, char: null, down },
+    event: { kind: "key", code, char: null, vk: null, down },
   });
   /** Press and release the keys, then let the queued move finish. */
   const move = (codes: readonly ("ArrowRight" | "ArrowDown")[]) => {

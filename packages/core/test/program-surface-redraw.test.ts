@@ -195,8 +195,8 @@ test("P2 board redraw commands erase program drawing and preserve message window
   }
 
   function advanceWait(): void {
-    report = step([{ tick: report.tickAfter, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } }]);
-    report = step([{ tick: report.tickAfter, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false } }]);
+    report = step([{ tick: report.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }]);
+    report = step([{ tick: report.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: false } }]);
   }
 
   function hasTextInDrawList(str: string): boolean {

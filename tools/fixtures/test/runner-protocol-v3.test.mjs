@@ -59,6 +59,44 @@ test("v3 unknown-blend refusal vector catches schema widening", async () => {
   ok((await v3Problems({ schema })).some((problem) => problem.includes("vector refuse-blit-unknown-blend: should be refused")));
 });
 
+test("v3 key vectors catch missing virtual-key and derived-name schema widening", async () => {
+  const schema = v3Schema();
+  schema.$defs.keyInput.properties.vk = { type: "number" };
+  ok((await v3Problems({ schema })).some((problem) => problem.includes("vector refuse-input-key-invalid-vk: should be refused")));
+
+  const permissive = v3Schema();
+  permissive.$defs.keyInput.additionalProperties = true;
+  ok((await v3Problems({ schema: permissive })).some((problem) => problem.includes("vector refuse-input-key-name: should be refused")));
+});
+
+test("v3 key vectors catch surrogate virtual-key schema widening", async () => {
+  const schema = v3Schema();
+  schema.$defs.keyInput.properties.vk = {
+    oneOf: [{ type: "integer", minimum: 0, maximum: 65535 }, { type: "null" }],
+  };
+  ok((await v3Problems({ schema })).some((problem) => problem.includes("vector refuse-input-key-surrogate-vk: should be refused")));
+});
+
+test("v3 key records require physical code, character, vk and no host-derived name", () => {
+  const schema = v3Schema();
+  const valid = v3Vectors().vectors.find((vector) => vector.id === "input-key").record;
+  ok(schemaErrors(schema, valid).length === 0);
+  ok(schemaErrors(schema, { ...valid, event: { ...valid.event, vk: 0x41 } }).length === 0);
+  ok(schemaErrors(schema, { ...valid, event: { ...valid.event, vk: 0xd7ff } }).length === 0);
+  ok(schemaErrors(schema, { ...valid, event: { ...valid.event, vk: 0xd800 } }).length > 0);
+  ok(schemaErrors(schema, { ...valid, event: { ...valid.event, vk: 0xdfff } }).length > 0);
+  ok(schemaErrors(schema, { ...valid, event: { ...valid.event, vk: 0xe000 } }).length === 0);
+  ok(schemaErrors(schema, { ...valid, event: { ...valid.event, vk: 0x10000 } }).length > 0);
+  ok(schemaErrors(schema, { ...valid, event: { ...valid.event, vk: -1 } }).length > 0);
+  ok(schemaErrors(schema, { ...valid, event: { ...valid.event, name: "A" } }).length > 0);
+});
+
+test("v3 key character schema rejects unpaired UTF-16 surrogates", async () => {
+  const schema = v3Schema();
+  delete schema.$defs.keyInput.properties.char.oneOf[0].pattern;
+  ok((await v3Problems({ schema })).some((problem) => problem.includes("vector refuse-input-key-unpaired-surrogate: should be refused")));
+});
+
 test("v3 schema refuses missing and unsupported protocol versions", () => {
   const schema = v3Schema();
   const draw = v3Vectors().vectors.find((vector) => vector.id === "draw-blit-source-over").record;

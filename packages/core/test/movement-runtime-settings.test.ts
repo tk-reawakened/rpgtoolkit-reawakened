@@ -161,7 +161,7 @@ function makeFixture(options: FixtureOptions = {}): Fixture {
   ok(parked, "the board-entry script is parked at wait()");
   const pressA = () => run(engine, files, 1, [{
     tick: state().time.tick,
-    event: { kind: "key", name: "A", code: "KeyA", char: "a", down: true },
+    event: { kind: "key", code: "KeyA", char: "a", vk: null, down: true },
   }]);
   return { engine, files, runtime, state, pressA };
 }
@@ -212,12 +212,12 @@ for (const [label, initialMode, walking, expectedDistance] of [
     ok(player !== undefined);
     deepEqual(run(fixture.engine, fixture.files, 1, [{
       tick: beforeInput.time.tick,
-      event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true },
+      event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: true },
     }]).diagnostics, []);
     const keyUpTick = fixture.state().time.tick;
     deepEqual(run(fixture.engine, fixture.files, 1, [{
       tick: keyUpTick,
-      event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: false },
+      event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: false },
     }]).diagnostics, []);
     deepEqual(run(fixture.engine, fixture.files, 40).diagnostics, []);
     const moved = fixture.state().sprites.players[0];

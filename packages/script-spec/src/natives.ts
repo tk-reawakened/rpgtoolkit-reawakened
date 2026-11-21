@@ -362,7 +362,7 @@ function specInput(doubles: SpecDoubles | undefined): BuiltinSpec {
     aliases: [],
     params: [
       param("tick", "The absolute fixture tick the edge enters the input section in; later than the tick of the call."),
-      param("name", "The key name scripts see, as the engine's key event carries it (for example \"ENTER\")."),
+      param("name", "A non-empty compatibility label retained for existing cases; the key scripts see is derived by core from the code, character or virtual key."),
       param("code", "The physical key code, as the engine's key event carries it (for example \"Enter\")."),
       param("char", "The one character the key types, or \"\" or the unset value for none."),
       param("down", "1 for a press, 0 for a release."),
@@ -394,7 +394,7 @@ function specInput(doubles: SpecDoubles | undefined): BuiltinSpec {
       else char = bad("the character must be one character, \"\" or unset");
       const down = args[4]?.value;
       if (down !== 0 && down !== 1) bad("down must be 1 (press) or 0 (release)");
-      run.pending.push({ tick: tick!, event: { kind: "key", name: name as string, code: code as string, char, down: down === 1 } });
+      run.pending.push({ tick: tick!, event: { kind: "key", code: code as string, char, vk: null, down: down === 1 } });
       return { value: null };
     },
   };

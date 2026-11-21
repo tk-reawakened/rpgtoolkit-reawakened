@@ -137,8 +137,8 @@ test("rendernow toggle and cnvRenderNow drawing show at board redraw, not next f
   }
 
   function advanceWait(): void {
-    report = step([{ tick: report.tickAfter, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } }]);
-    report = step([{ tick: report.tickAfter, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false } }]);
+    report = step([{ tick: report.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }]);
+    report = step([{ tick: report.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: false } }]);
   }
 
   function findOverlayCommand(): DrawCommand | null {

@@ -29,6 +29,17 @@ test("exported historical command unions remain frozen while v3 has an explicit 
   equal(v2IsV3, false);
 });
 
+test("v3 draw hashes are explicitly frozen", () => {
+  equal(hashDrawList(vectors.hashDrawList[0]!.input), "f66cea8e09d1901f");
+  const margin = vectors.hashDrawList[1]!;
+  if ("a" in margin) {
+    equal(hashDrawList(margin.a), "f66cea8e09d1901f");
+    equal(hashDrawList(margin.b), "ceebede6da9220be");
+  } else {
+    throw new Error("missing frozen margin hash vector");
+  }
+});
+
 test("runner protocol v3 hashes the version and both ordered command planes", () => {
   for (const row of vectors.hashDrawList) {
     if ("input" in row) {

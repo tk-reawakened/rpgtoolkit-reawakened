@@ -14,9 +14,9 @@ const SIZE = 64;
 
 type KeyEvent = {
   readonly kind: "key";
-  readonly name: string;
   readonly code: string;
   readonly char: string | null;
+  readonly vk: number | null;
   readonly down: boolean;
 };
 
@@ -100,7 +100,7 @@ function boot(program: string, stockMenu = false): Game {
 }
 
 function spacePress(): readonly KeyEvent[] {
-  const key = { kind: "key" as const, name: " ", code: "Space", char: " " };
+  const key = { kind: "key" as const, code: "Space", char: " ", vk: null };
   return [{ ...key, down: true }, { ...key, down: false }];
 }
 
@@ -126,18 +126,18 @@ test("the shipped bindings open, navigate, confirm and cancel the stock menu", (
   // A screen reads keys only once its thread has parked: a key that arrives while it is still drawing is older than its
   // park floor and is ignored, exactly as for `wait()`. So each step waits for the settled state and for the park.
   const parked = (state: GameState): boolean => state.vm.threads.some((thread) => thread.status === "waiting" && thread.wait?.kind === "input.key") || state.menu.screens.length === 0;
-  const press = (name: string, code: string, settled: (state: GameState) => boolean): void => {
-    game.step([{ kind: "key", name, code, char: null, down: true }]);
-    game.step([{ kind: "key", name, code, char: null, down: false }]);
+  const press = (code: string, char: string | null, settled: (state: GameState) => boolean): void => {
+    game.step([{ kind: "key", code, char, vk: null, down: true }]);
+    game.step([{ kind: "key", code, char, vk: null, down: false }]);
     for (let i = 0; i < 40 && !(settled(game.state()) && parked(game.state())); i += 1) game.step();
     ok(settled(game.state()), `${code} took effect`);
     ok(parked(game.state()), `the menu is waiting for input after ${code}`);
   };
   const stack = (): string[] => game.state().menu.screens.map((screen) => screen.screen);
-  press("Enter", "Enter", (state) => state.menu.screens[0]?.screen === "main");
-  press("ArrowDown", "ArrowDown", (state) => state.menu.screens[0]?.selection === 1);
-  press("Space", "Space", (state) => state.menu.screens.length === 2);
+  press("Enter", null, (state) => state.menu.screens[0]?.screen === "main");
+  press("ArrowDown", null, (state) => state.menu.screens[0]?.selection === 1);
+  press("Space", " ", (state) => state.menu.screens.length === 2);
   deepEqual(stack(), ["main", "equipment"]);
-  press("Escape", "Escape", (state) => state.menu.screens.length === 1);
-  press("Escape", "Escape", (state) => state.menu.screens.length === 0);
+  press("Escape", null, (state) => state.menu.screens.length === 1);
+  press("Escape", null, (state) => state.menu.screens.length === 0);
 });

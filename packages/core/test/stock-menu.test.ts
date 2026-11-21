@@ -15,7 +15,7 @@ import {
   utf8Decode,
   type GameState,
 } from "../src/index.ts";
-import { boot, drawn, giveGear, overlayBlits, pad, pointer, press, repoRoot, type Session } from "./stock-menu-rig.ts";
+import { boot, drawn, giveGear, overlayBlits, pad, pointer, press, pressWithActions, repoRoot, type Session } from "./stock-menu-rig.ts";
 import { encodePng } from "./battle-ui-rig.ts";
 
 
@@ -25,6 +25,24 @@ test("three separately delivered keys move the selection in order", () => {
   equal(press(session, "DOWN").menu.screens[0]!.selection, 1);
   equal(press(session, "DOWN").menu.screens[0]!.selection, 2);
   equal(press(session, "UP").menu.screens[0]!.selection, 1);
+});
+
+test("a main confirm followed by a custom menu action closes without opening Items", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+
+  // Enter has its default confirm plus this custom ACT-4 action. The later menu action belongs to Main, not Items.
+  equal(pressWithActions(session, ["menu"]).menu.screens.length, 0);
+});
+
+test("a custom menu action closes the existing Items stack", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  press(session, "ENTER");
+  equal(session.state().menu.screens.at(-1)?.screen, "items");
+
+  // The default confirm changes Items locally; the custom menu action from the same key then closes its whole stack.
+  equal(pressWithActions(session, ["menu"]).menu.screens.length, 0);
 });
 
 test("the menu key opens the main screen and the menu key closes it", () => {

@@ -36,7 +36,7 @@ function restore(json: string): ScriptHost {
   return restoreScriptHost(json, { loader: fixtureLoader() });
 }
 
-const PRESS: InputRecord = { tick: 0, event: { kind: "key", name: "A", code: "KeyA", char: "a", down: true } };
+const PRESS: InputRecord = { tick: 0, event: { kind: "key", code: "KeyA", char: "a", vk: null, down: true } };
 /** The key arrives on tick 5, after the first line has been shown and the gate is waiting. */
 const keyOnTick = (tick: number): readonly InputRecord[] => (tick === 5 ? [PRESS] : []);
 
@@ -119,7 +119,7 @@ test("the script host delivers cursor-map keys once and restores the selected po
   }
   equal(initialWait.cursorMap, 1);
 
-  const right: InputRecord = { tick: 0, event: { kind: "key", name: "Right", code: "ArrowRight", char: null, down: true } };
+  const right: InputRecord = { tick: 0, event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: true } };
   deepEqual(fresh.advance(1, [right]).consumed, [right]);
   const movedState = fresh.state();
   const movedWait = movedState.vm.threads[0]?.wait;
@@ -136,7 +136,7 @@ test("the script host delivers cursor-map keys once and restores the selected po
 
   const restored = restore(fresh.snapshot());
   equal(restored.stateHash(), fresh.stateHash());
-  const enter: InputRecord = { tick: 0, event: { kind: "key", name: "Enter", code: "Enter", char: null, down: true } };
+  const enter: InputRecord = { tick: 0, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } };
   fresh.advance(1, [enter]);
   restored.advance(1, [enter]);
   equal(restored.stateHash(), fresh.stateHash());

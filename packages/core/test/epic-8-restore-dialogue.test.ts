@@ -130,7 +130,7 @@ function runDialogue(killAtWait: boolean): { readonly state: GameState; readonly
       killThread(current!.vm, active.id);
     } else if (!killAtWait && active?.wait?.kind === "input.key") {
       sawWait = true;
-      replies = [{ tick: report.tickAfter, event: { kind: "key", name: "Enter", code: "Enter", char: null, down: true } }];
+      replies = [{ tick: report.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }];
     }
     const assetReplies = report.requests.flatMap((request) => request.kind === "asset"
       ? [{ tick: report.tickAfter, event: { kind: "asset" as const, reqId: request.reqId, bytes: files.get(request.key) ?? null } }]

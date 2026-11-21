@@ -203,7 +203,7 @@ test("stalled successful load discards old margin taps and preserves geometry fo
     const logical = pointerEventToLogical({ clientX: 0, clientY: 0 } as PointerEvent, host, { width: 2, height: 2 }, observed.current());
     deepEqual(logical, { x: -2, y: 0 });
     pending.push(
-      { tick: loadReport.tickAfter, event: { kind: "key", name: "A", code: "KeyA", char: "a", down: true }, pointerGeometry: null },
+      { tick: loadReport.tickAfter, event: { kind: "key", code: "KeyA", char: "a", vk: null, down: true }, pointerGeometry: null },
       { tick: loadReport.tickAfter, event: { kind: "pointer", ...logical, buttons: 1 }, pointerGeometry: resized },
       { tick: loadReport.tickAfter, event: { kind: "pointer", ...logical, buttons: 0 }, pointerGeometry: resized },
     );
@@ -413,7 +413,7 @@ test("gamepad polling accepts only the standard mapping and emits devices in asc
     pads.push({ ...pad(0, "standard"), axes: [1, 0] } as unknown as Gamepad);
     observer.poll();
     pending.push(
-      { tick: null, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true }, pointerGeometry: null },
+      { tick: null, event: { kind: "key", code: "Enter", char: null, vk: null, down: true }, pointerGeometry: null },
       { tick: null, event: { kind: "action", action: "confirm", down: true, source: "runner.fallback", modalId: null }, pointerGeometry: null },
       { tick: null, event: { kind: "focus", state: "lost" }, pointerGeometry: null },
     );

@@ -46,6 +46,31 @@ function deepCopyValue<T>(value: T): T {
   return value;
 }
 
+/** The name a key record shows: a historical `name`, else the physical name the active record implies. */
+function physicalKeyName(event: {
+  readonly name?: string;
+  readonly code: string;
+  readonly char: string | null;
+  readonly vk?: number | null;
+}): string | null {
+  if (event.name !== undefined) return event.name;
+  const aliases: Readonly<Record<string, string>> = {
+    Enter: "ENTER", NumpadEnter: "ENTER", Escape: "ESC", ArrowUp: "UP",
+    ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT", Space: " ",
+  };
+  const alias = aliases[event.code];
+  if (alias !== undefined) return alias;
+  if (event.char !== null) return event.char;
+  const vk = event.vk ?? null;
+  if (vk === null) return null;
+  if (vk >= 0x30 && vk <= 0x39) return String.fromCharCode(vk);
+  if (vk >= 0x41 && vk <= 0x5a) return String.fromCharCode(vk);
+  if (vk === 13) return "ENTER";
+  if (vk === 27) return "ESC";
+  if (vk === 32) return " ";
+  return null;
+}
+
 export function createTestEngine(): Engine {
   const state: TestEngineState = {
     tick: 0,
@@ -89,9 +114,10 @@ export function createTestEngine(): Engine {
         const event = record.event;
         switch (event.kind) {
           case "key": {
+            const name = physicalKeyName(event);
             if (event.down) {
-              if (!state.keys.includes(event.name)) {
-                state.keys.push(event.name);
+              if (name !== null && !state.keys.includes(name)) {
+                state.keys.push(name);
                 state.keys.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
               }
               state.cueId++;
@@ -109,11 +135,9 @@ export function createTestEngine(): Engine {
                 targetVolume: null,
                 durationTicks: null,
               });
-            } else {
-              const index = state.keys.indexOf(event.name);
-              if (index !== -1) {
-                state.keys.splice(index, 1);
-              }
+            } else if (name !== null) {
+              const index = state.keys.indexOf(name);
+              if (index !== -1) state.keys.splice(index, 1);
             }
             break;
           }

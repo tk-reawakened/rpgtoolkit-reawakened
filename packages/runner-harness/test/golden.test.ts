@@ -89,6 +89,26 @@ test("parseRun parses v1 events with non-BMP char and bytes", () => {
 
 
 
+test("parseRun keeps the frozen v1 key record and refuses a v3 virtual-key field", () => {
+  const run = parseRun(JSON.stringify({
+    schema: 1,
+    ticks: 1,
+    log: [{ tick: 0, event: { kind: "key", name: "ENTER", code: "Enter", char: "\n", down: true, repeat: false } }],
+  }));
+  deepEqual(run.log, [
+    { tick: 0, event: { kind: "key", name: "ENTER", code: "Enter", char: "\n", down: true, repeat: false } },
+  ]);
+
+  throws(
+    () => parseRun(JSON.stringify({
+      schema: 1,
+      ticks: 1,
+      log: [{ tick: 0, event: { kind: "key", code: "Enter", char: null, vk: 13, down: true } }],
+    })),
+    (err: unknown) => err instanceof Error && err.message.includes("record 0: vk: unexpected key"),
+  );
+});
+
 test("parseRun rejects bad files and root schema", () => {
   const badFiles: readonly { name: string; text: string }[] = [
     { name: "not json", text: "invalid-json" },

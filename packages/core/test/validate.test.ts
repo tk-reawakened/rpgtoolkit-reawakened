@@ -64,6 +64,7 @@ test("validateInputEvent names the path of the first failure", () => {
       { kind: "key", name: undefined, code: "KeyA", char: null, down: true },
       "name",
     ],
+    ["fractional vk", { kind: "key", code: "KeyA", char: null, vk: 1.5, down: true }, "vk"],
     ["string x", { kind: "pointer", x: "10", y: 0, buttons: 0 }, "x"],
     ["fractional x", { kind: "pointer", x: 1.5, y: 0, buttons: 0 }, "x"],
     ["negative buttons", { kind: "pointer", x: 0, y: 0, buttons: -1 }, "buttons"],

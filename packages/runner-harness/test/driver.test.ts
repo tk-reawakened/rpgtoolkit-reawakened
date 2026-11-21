@@ -114,6 +114,43 @@ test("runLog translates historical v1 gamepad buttons before active dispatch", (
   if (event.kind === "gamepad") equal(event.buttons, 1 << 15);
 });
 
+test("runLog preserves normalized v2 gamepad button masks", () => {
+  const base = createTestEngine();
+  let received: readonly InputRecord[] = [];
+  const engine: Engine = {
+    ...base,
+    advance(ticks, inputs, maxTicks) {
+      received = inputs;
+      return base.advance(ticks, inputs, maxTicks);
+    },
+  };
+  const event = { ...GAMEPAD, buttons: 1 << 13 };
+  const run: Run = { schema: 2, ticks: 1, log: [{ tick: 0, event }] };
+  runLog(engine, run, 1, createNullAudio());
+  equal(received[0]!.event.kind, "gamepad");
+  if (received[0]!.event.kind === "gamepad") equal(received[0]!.event.buttons, 1 << 13);
+});
+
+test("runLog preserves historical key names and codes for v1 and v2 replay", () => {
+  const event = { kind: "key" as const, name: "recorded-name", code: "noncanonical-code", char: null, down: true };
+  for (const schema of [1, 2] as const) {
+    const base = createTestEngine();
+    let received: readonly InputRecord[] = [];
+    const engine: Engine = {
+      ...base,
+      advance(ticks, inputs, maxTicks) {
+        received = inputs;
+        return base.advance(ticks, inputs, maxTicks);
+      },
+    };
+    const run: Run = schema === 1
+      ? { schema: 1, ticks: 1, log: [{ tick: 0, event }] }
+      : { schema: 2, ticks: 1, log: [{ tick: 0, event }] };
+    runLog(engine, run, 1, createNullAudio());
+    equal(base.drawList(0).commands.length, 2, `schema ${schema} retains one physical key state`);
+  }
+});
+
 test("runLog returns records on empty log", () => {
   const engine = createTestEngine();
   const run: Run = {

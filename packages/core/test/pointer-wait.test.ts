@@ -17,6 +17,7 @@ import {
 } from "../src/index.ts";
 import { createScriptServices } from "./script-test-services.ts";
 
+import { registerGameAction } from "../src/input/index.ts";
 type Event = Parameters<typeof applyInputEvent>[1];
 
 function makeState(): GameState {
@@ -32,7 +33,12 @@ function step(state: GameState, services: ScriptServices, events: Event[] = []):
     state.vm,
     { tick: state.time.tick, input: state.input, claims: [], events: state.events },
     undefined,
-    (seq) => { if (seq !== undefined) state.input.keys = state.input.keys.filter((key) => key.seq !== seq); },
+    (seq) => {
+      if (seq !== undefined) {
+        state.input.keys = state.input.keys.filter((key) => key.seq !== seq);
+        state.input.actionKeys = state.input.actionKeys.filter((key) => key.seq !== seq);
+      }
+    },
     services,
   );
   runThreadsPhase(state.vm, services, 100);
@@ -100,6 +106,21 @@ test("legacy wait() and get() never wake for the pointer", () => {
   equal(thread.status, "waiting");
 });
 
+test("waitinput receives action-only keys with ordered actions while wait/get ignore them", () => {
+  const state = makeState();
+  registerGameAction(state.input, { name: "game.fireball", label: "Fireball", icon: null, group: null, controls: ["key:Unidentified"], locked: false, hidden: false });
+  const thread = startProgram(state.vm, { kind: "inline", ir: "1", text: "record = waitinput()\nk = record.key\na = record.action\nfirst = record.actions[0]\ncount = record.actions.length\nend()" });
+  const legacyWait = startProgram(state.vm, { kind: "inline", ir: "2", text: "wait()\nend()" });
+  const services = createScriptServices(state);
+  runThreadsPhase(state.vm, services, 100);
+  applyInputEvent(state.input, { kind: "key", code: "Unidentified", char: null, vk: null, down: true });
+  equal(state.input.keys.length, 0);
+  step(state, services);
+  deepEqual([state.vm.globals.k, state.vm.globals.a, state.vm.globals.first, state.vm.globals.count], [null, "game.fireball", "game.fireball", 1]);
+  equal(thread.status, "finished");
+  equal(legacyWait.status, "waiting", "action-only key records do not wake legacy wait()");
+});
+
 function nativeProvider(): PluginDefinition {
   const park = (state: unknown) => ({ kind: "wait" as const, state: state as never, wait: { kind: "menu.screen" as const, global: true, id: "test-menu", payload: [], resumeRefs: [] } });
   return {
@@ -110,7 +131,7 @@ function nativeProvider(): PluginDefinition {
         const log = (input.state as { log: unknown[] } | null)?.log ?? [];
         if (event.type === "enter") return park({ log: [] });
         if (event.type === "pointer") return park({ log: [...log, [event.moved, event.newDowns, event.newUps, event.x, event.downX]] });
-        if (event.type === "input") return park({ log: [...log, ["key", event.key]] });
+        if (event.type === "input") return park({ log: [...log, ["key", event.key, [...event.actions]]] });
         return { kind: "complete" as const };
       },
     },
@@ -119,6 +140,7 @@ function nativeProvider(): PluginDefinition {
 
 test("a native menu provider receives the pointer as its own event and keeps a pointer change that arrived with a key", () => {
   const state = makeState();
+  registerGameAction(state.input, { name: "game.fireball", label: "Fireball", icon: null, group: null, controls: ["key:Unidentified"], locked: false, hidden: false });
   const thread = startProgram(state.vm, { kind: "inline", ir: "1", text: "mainmenu()\nend()" });
   const services = coreCreateScriptServices(state, [{ definition: CORE_PLUGIN }, { definition: UI_PLUGIN }, { definition: CATALOGUE_PLUGIN }, { definition: nativeProvider() }]);
   runThreadsPhase(state.vm, services, 100);
@@ -130,8 +152,10 @@ test("a native menu provider receives the pointer as its own event and keeps a p
   step(state, services);
   equal(log().length, 1, "nothing new, nothing delivered");
   step(state, services, [press(5, 6), enter(true)]);
-  deepEqual(log().at(-1), ["key", "confirm"], "the key wins the tie");
+  deepEqual(log().at(-1), ["key", "confirm", ["confirm"]], "the key wins the tie");
   step(state, services);
   deepEqual(log().at(-1), [1, 1, 0, 5, 5], "the press that arrived with the key is delivered next");
+  step(state, services, [{ kind: "key", code: "Unidentified", char: null, vk: null, down: true }]);
+  deepEqual(log().at(-1), ["key", "game.fireball", ["game.fireball"]], "action-only keys route to native menu consumers");
   ok(thread.status === "waiting");
 });

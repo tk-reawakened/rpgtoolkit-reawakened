@@ -237,6 +237,7 @@ function serviceBlobRequests(
   return next;
 }
 
+
 function createHost(
   gameState: GameState,
   services: ScriptServices,
@@ -268,22 +269,14 @@ function createHost(
             inputIndex++;
             continue;
           }
-          if (record.event.kind === "key" && record.event.down) {
-            let matched = false;
-            for (const thread of gameState.vm.threads) {
-              if (thread.wait?.kind === "input.key" && thread.wait.key === null) {
-                thread.wait.key = record.event.name;
-                consumed.push(record);
-                matched = true;
-                break;
-              }
-            }
-            if (matched) {
-              inputIndex++;
-              continue;
-            }
+          if (record.event.kind === "key") {
+            applyInputEvent(gameState.input, record.event, reportUnknownAction);
+            consumed.push(record);
+            inputIndex++;
+            continue;
           }
           break;
+
         }
         advanceScriptTick(gameState, services, STEP_BUDGET);
         effectIndex = serviceBlobRequests(gameState, blobs, effectIndex, requests);

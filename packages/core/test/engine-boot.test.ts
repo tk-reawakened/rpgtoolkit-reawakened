@@ -1276,7 +1276,7 @@ test("a Toolkit 2 system module pauses the board script before its deliberate qu
   equal(doubles.state().vm.globals.acknowledged, undefined);
 
   const arrow = run(engine, game.files, 2, [
-    { tick: doubles.state().time.tick, event: { kind: "key", name: "ARROWLEFT", code: "ArrowLeft", char: null, down: true } },
+    { tick: doubles.state().time.tick, event: { kind: "key", code: "ArrowLeft", char: null, vk: null, down: true } },
   ]);
   deepEqual(arrow.diagnostics, []);
   equal(arrow.report.requests.some((request) => request.kind === "quit"), false);
@@ -1495,10 +1495,9 @@ test("boot first free-roam frame polls held and queued activation without arriva
     let state = current();
     ok(state.vm.threads.some((thread) => thread.wait?.kind === "input.key"), scenario);
     const direction = scenario === "direction";
-    const name = direction ? "RIGHT" : "ENTER";
     const code = direction ? "ArrowRight" : "Enter";
     const key = (tick: number, down: boolean): InputRecord => ({
-      tick, event: { kind: "key", name, code, char: null, down },
+      tick, event: { kind: "key", code, char: null, vk: null, down },
     });
     run(engine, game.files, 1, [key(state.time.tick, true)]);
     if (scenario === "none" || scenario === "queued" || scenario === "queued-direction") {
@@ -1509,7 +1508,7 @@ test("boot first free-roam frame polls held and queued activation without arriva
     }
     if (scenario === "queued-direction") {
       run(engine, game.files, 1, [{
-        tick: state.time.tick, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true },
+        tick: state.time.tick, event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: true },
       }]);
     }
     for (let guard = 0; state.world.board == null && guard < 100; guard += 1) {
@@ -1559,7 +1558,7 @@ test("wait drops mid-delay keys before the same thread's following get (#1174, d
 
   const sendKey = (tick: number, name: string): InputRecord => ({
     tick,
-    event: { kind: "key", name, code: name, char: null, down: true },
+    event: { kind: "key", code: `Key${name}`, char: null, vk: name.charCodeAt(0), down: true },
   });
   const duringDelay = doubles.state().time.tick;
   run(engine, game.files, 3, [sendKey(duringDelay, "A"), sendKey(duringDelay + 2, "B")]);
@@ -1611,7 +1610,7 @@ test("wait captures its floor while the queue is empty and accepts the first lat
     tick: state.time.tick,
     event: { kind: "key", name: "A", code: "KeyA", char: "a", down: true },
   }]);
-  equal(doubles.state().vm.globals.pressed, "A", "the first key appended after the park is eligible");
+  equal(doubles.state().vm.globals.pressed, "a", "the first key appended after the park is eligible");
 });
 
 test("E-02 requests initChar and creates its real party actor and sprite before startup and board entry", () => {
@@ -2491,7 +2490,7 @@ for (const keepHolding of [false, true]) {
     });
     const key = (direction: "Right" | "Up", down: boolean): InputRecord => ({
       tick: doubles.state().time.tick,
-      event: { kind: "key", code: `Arrow${direction}`, name: direction.toUpperCase(), char: null, down },
+      event: { kind: "key", code: `Arrow${direction}`, char: null, vk: null, down },
     });
     deepEqual(run(engine, game.files, 4).diagnostics, []);
     equal(doubles.state().world.board?.key, "boards/start.brd");
@@ -2757,7 +2756,7 @@ for (const pixelMovement of [1, 2]) test(`packaged demo returns through its door
   };
   const advance = (ticks: number): void => { run(engine, files, ticks); };
   const key = (code: string, down: boolean): void => {
-    run(engine, files, 1, [{ tick: current().time.tick, event: { kind: "key", name: code === "Enter" ? "ENTER" : code, code, char: null, down } }]);
+    run(engine, files, 1, [{ tick: current().time.tick, event: { kind: "key", code, char: null, vk: null, down } }]);
   };
   const position = (): readonly [number | undefined, number | undefined] => [current().sprites.players[0]?.x, current().sprites.players[0]?.y];
   advance(30);
@@ -2865,10 +2864,9 @@ test("demo item activation starts the real oldman program after walking into its
     return latest;
   };
   const key = (code: string, down: boolean): void => {
-    const name = code === "Enter" ? "ENTER" : code;
     run(engine, sample.files, 1, [{
       tick: current().time.tick,
-      event: { kind: "key", name, code, char: null, down },
+      event: { kind: "key", code, char: null, vk: null, down },
     }]);
   };
   const oldmanProgramStarted = (): boolean => current().vm.threads.some((thread) =>
@@ -3044,7 +3042,7 @@ test("a region naming an absent .prg reports one located program.missing and the
   equal(state.triggers.active, null, "no trigger runs");
   ok(state.time.tick > 0, "ticks ran past the diagnostic");
   const afterTick = stateRef.current?.time.tick ?? 0;
-  const after = play(12, [{ tick: afterTick, event: { kind: "key", name: "ArrowRight", code: "ArrowRight", char: null, down: true } }]);
+  const after = play(12, [{ tick: afterTick, event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: true } }]);
   equal(after.diagnostics.filter((diagnostic) => diagnostic.code === "program.missing").length, 0, "one held press reports once, never per frame");
   const afterState = stateRef.current;
   if (afterState === null) throw new Error("no tick ran");
@@ -3149,12 +3147,12 @@ test("main-file movement settings survive boot and reset, then change with MainF
   }, (state) => { resets += 1; resetStates.push(state); }, createAssetIndex([...files.keys()]));
   const initial = run(host.engine, files, 2);
   equal(initial.ticksRun, 2);
-  const key = (code: string, name: string): string[] => {
+  const key = (code: string, char: string): string[] => {
     const tick = host.state().time.tick;
-    const pressed = host.engine.advance(1, [{ tick, event: { kind: "key", code, name, char: name, down: true } }]);
+    const pressed = host.engine.advance(1, [{ tick, event: { kind: "key", code, char, vk: null, down: true } }]);
     equal(pressed.ticksRun, 1);
     const actions = host.state().input.keys.at(-1)?.resolvedActions ?? [];
-    const released = host.engine.advance(1, [{ tick: host.state().time.tick, event: { kind: "key", code, name, char: name, down: false } }]);
+    const released = host.engine.advance(1, [{ tick: host.state().time.tick, event: { kind: "key", code, char, vk: null, down: false } }]);
     equal(released.ticksRun, 1);
     return actions;
   };

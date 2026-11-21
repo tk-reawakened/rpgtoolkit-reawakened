@@ -2,7 +2,7 @@ import {
   decodeLog,
   validateInputEvent,
   type InputEventV1,
-  type InputRecord,
+  type InputEventV2,
   type InputRecordV1,
   type PlainData,
   type PortData,
@@ -20,11 +20,20 @@ export type LegacyRun = {
   readonly log: readonly InputRecordV1[];
 };
 
-/** Active v2 replay logs carry normalized records without legacy conversion. */
+/**
+ * V2 logs keep the historical named-key record and add the action and host.gamepad
+ * records v2 introduced; both are members of the historical union, so v2 adds no new
+ * key shape and no v3 `vk` field.
+ */
+export type InputRecordV2 = {
+  readonly tick: number;
+  readonly event: InputEventV2;
+};
+
 export type ActiveRun = {
   readonly schema: 2;
   readonly ticks: number;
-  readonly log: readonly InputRecord[];
+  readonly log: readonly InputRecordV2[];
 };
 
 export type Run = LegacyRun | ActiveRun;
@@ -52,9 +61,14 @@ function checkNoExtraKeys(
  * The record must carry an own `event` that is a non-null, non-array object;
  * otherwise the failure names `event`. `decodeLog` then restores each
  * `{t:"bytes",hex}` leaf to `Uint8Array` and names the dotted path of a codec
- * failure; `validateInputEvent` names the field of a contract failure. Both
- * messages carry the record index. This is the only place that knows about
- * event shapes; `parseRun` keeps run-file structure.
+ * failure; the contract check names the field of a failure. Both messages
+ * carry the record index. This is the only place that knows about event
+ * shapes; `parseRun` keeps run-file structure.
+ *
+ * Key events are decoded against the frozen v1/v2 record — a recorded `name`
+ * and no virtual-key field — because `run.json` is a schema-1 log. The active
+ * v3 `{code, char, vk}` key shape belongs to live input, not to replay, so the
+ * active validator is consulted only for the other kinds.
  */
 export function parseEvent(raw: unknown, recordIndex: number): InputEventV1 {
   const missingEvent = `run.json: record ${recordIndex}: event: missing or not an object`;
@@ -81,7 +95,21 @@ export function parseEvent(raw: unknown, recordIndex: number): InputEventV1 {
     throw new Error(`run.json: record ${recordIndex}: ${message}`);
   }
 
-  const result = validateInputEvent(readEventField(decoded));
+  const event = readEventField(decoded);
+  const historicalKey = isKeyRecord(event) ? validateHistoricalKey(event) : null;
+  if (historicalKey !== null) {
+    if (!historicalKey.ok) {
+      const prefix = `run.json: record ${recordIndex}: `;
+      throw new Error(
+        historicalKey.path === ""
+          ? prefix + historicalKey.message
+          : `${prefix}${historicalKey.path}: ${historicalKey.message}`,
+      );
+    }
+    return historicalKey.value;
+  }
+
+  const result = validateInputEvent(event);
   if (!result.ok) {
     const prefix = `run.json: record ${recordIndex}: `;
     throw new Error(
@@ -97,6 +125,86 @@ export function parseEvent(raw: unknown, recordIndex: number): InputEventV1 {
     throw new Error(`run.json: record ${recordIndex}: buttons: expected a 7-bit legacy button mask`);
   }
   return result.value;
+}
+
+/** The historical named-key event: every field plus the optional auto-repeat flag. */
+type HistoricalKeyRecord = Extract<InputEventV1, { readonly kind: "key" }>;
+
+const HISTORICAL_KEY_FIELDS = ["kind", "name", "code", "char", "down", "repeat"] as const;
+
+type HistoricalKeyCheck =
+  | { readonly ok: true; readonly value: HistoricalKeyRecord }
+  | { readonly ok: false; readonly path: string; readonly message: string };
+
+function isKeyRecord(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as Record<string, unknown>)["kind"] === "key"
+  );
+}
+
+/** `null` or exactly one code point; a lone surrogate and a longer string fail. */
+function isHistoricalChar(value: unknown): value is string | null {
+  if (value === null) return true;
+  if (typeof value !== "string") return false;
+  if (value.length === 1) {
+    const code = value.charCodeAt(0);
+    return code < 0xd800 || code > 0xdfff;
+  }
+  if (value.length === 2) {
+    const high = value.charCodeAt(0);
+    const low = value.charCodeAt(1);
+    return high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff;
+  }
+  return false;
+}
+
+/**
+ * Check the frozen v1/v2 key record: `name`, `code`, `char`, `down` and an
+ * optional `repeat`, with no `vk`. The field order and messages match the
+ * historical validator so a rejected log still names the same field.
+ */
+function validateHistoricalKey(record: Record<string, unknown>): HistoricalKeyCheck {
+  for (const key of Object.keys(record)) {
+    if (!(HISTORICAL_KEY_FIELDS as readonly string[]).includes(key)) {
+      return { ok: false, path: key, message: "unexpected key" };
+    }
+  }
+  for (const key of HISTORICAL_KEY_FIELDS) {
+    if (key === "repeat") continue;
+    if (!Object.prototype.hasOwnProperty.call(record, key)) {
+      return { ok: false, path: key, message: "missing required key" };
+    }
+  }
+  if (typeof record["name"] !== "string" || record["name"].length === 0) {
+    return { ok: false, path: "name", message: "expected a non-empty string" };
+  }
+  if (typeof record["code"] !== "string" || record["code"].length === 0) {
+    return { ok: false, path: "code", message: "expected a non-empty string" };
+  }
+  if (!isHistoricalChar(record["char"])) {
+    return { ok: false, path: "char", message: "expected null or a single code point" };
+  }
+  if (typeof record["down"] !== "boolean") {
+    return { ok: false, path: "down", message: "expected a boolean" };
+  }
+  if (record["repeat"] !== undefined && typeof record["repeat"] !== "boolean") {
+    return { ok: false, path: "repeat", message: "expected a boolean" };
+  }
+  const name = record["name"] as string;
+  const code = record["code"] as string;
+  const char = record["char"] as string | null;
+  const down = record["down"] as boolean;
+  const repeat = record["repeat"];
+  return {
+    ok: true,
+    value:
+      repeat === undefined
+        ? { kind: "key", name, code, char, down }
+        : { kind: "key", name, code, char, down, repeat: repeat as boolean },
+  };
 }
 
 /** The `event` member of a decoded record, or `undefined` when it is not one. */

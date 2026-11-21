@@ -786,12 +786,12 @@ test("pixels a finished program drew on the script screen are reset at later out
   // Phase 2: Resume enter.prg to let it draw green and park in wait()
   replies.push({
     tick: state1.time.tick,
-    event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true },
+    event: { kind: "key", code: "Enter", char: null, vk: null, down: true },
   });
   advanceTicks(1);
   replies.push({
     tick: state().time.tick,
-    event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false },
+    event: { kind: "key", code: "Enter", char: null, vk: null, down: false },
   });
   advanceTicks(2);
 
@@ -805,12 +805,12 @@ test("pixels a finished program drew on the script screen are reset at later out
   // Phase 3: Resume enter.prg to let it finish. The trigger region then activates trigger.prg.
   replies.push({
     tick: state().time.tick,
-    event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true },
+    event: { kind: "key", code: "Enter", char: null, vk: null, down: true },
   });
   advanceTicks(1);
   replies.push({
     tick: state().time.tick,
-    event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false },
+    event: { kind: "key", code: "Enter", char: null, vk: null, down: false },
   });
   advanceTicks(5);
 

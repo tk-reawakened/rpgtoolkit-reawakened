@@ -176,8 +176,8 @@ test("message window pixels persist in presented frame after program finishes (#
 
   // Send Enter key to dismiss wait() and finish program:
   const confirmInput: InputRecord[] = [
-    { tick: lastReport.tickAfter, event: { kind: "key", name: "Enter", code: "Enter", char: null, down: true } },
-    { tick: lastReport.tickAfter + 1, event: { kind: "key", name: "Enter", code: "Enter", char: null, down: false } },
+    { tick: lastReport.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } },
+    { tick: lastReport.tickAfter + 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: false } },
   ];
   engine.advance(2, confirmInput);
 

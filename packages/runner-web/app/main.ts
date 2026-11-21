@@ -654,7 +654,7 @@ function startLiveLoop(
     }
     if (shouldSuppressGameplayKey(event.code, event.repeat, down, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
-    pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
+    pending.push({ tick: session.tick(), event: { kind: "key", code: event.code, char: event.key.length === 1 ? event.key : null, vk: event.keyCode, down, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
   };
   const onKeyDown = (event: KeyboardEvent): void => key(event, true);
   const onKeyUp = (event: KeyboardEvent): void => key(event, false);

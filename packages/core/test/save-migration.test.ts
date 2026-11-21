@@ -630,3 +630,14 @@ test("restore refuses malformed shared readiness before exposing the saved conti
     ok(error.message.includes("engine.cacheKeys"));
   }
 });
+test("input schema 10 migrates action-only records into their separate queue", () => {
+  const raw = JSON.parse(snapshot(createGameState())) as { schema: { input: number }; input: Record<string, unknown> };
+  raw.schema.input = 10;
+  raw.input.version = 10;
+  raw.input.nextSeq = 2;
+  raw.input.keys = [{ seq: 1, name: null, code: "action", char: null, action: "game.fireball", resolvedActions: ["game.fireball"], actionOnly: true }];
+  delete raw.input.actionKeys;
+  const restored = restoreGameState(JSON.stringify(raw));
+  deepEqual(restored.input.keys, []);
+  deepEqual(restored.input.actionKeys.map((key) => [key.seq, key.name, key.resolvedActions]), [[1, null, ["game.fireball"]]]);
+});

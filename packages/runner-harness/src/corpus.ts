@@ -672,8 +672,8 @@ export function buildFetchedCorpus(files: FetchedGameFiles): readonly CorpusProg
       },
       restoreHost: (json) => restoreScriptHost(json, { loader: demoLoader }),
       inputsForTick: (tick) => {
-        if (tick === 1) return [{ tick: 1, event: { kind: "key", name: "0", code: "0", char: "0", down: true } }];
-        if (tick === 2) return [{ tick: 2, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }];
+        if (tick === 1) return [{ tick: 1, event: { kind: "key", code: "Digit0", char: "0", vk: null, down: true } }];
+        if (tick === 2) return [{ tick: 2, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }];
         return [];
       },
     },
@@ -709,7 +709,7 @@ export function buildFetchedCorpus(files: FetchedGameFiles): readonly CorpusProg
         return createScriptHost({ program: ref, loader: demoLoader, seed });
       },
       restoreHost: (json) => restoreScriptHost(json, { loader: demoLoader }),
-      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }] : [],
+      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }] : [],
     },
     {
       id: "sample-oldman-demo",
@@ -721,7 +721,7 @@ export function buildFetchedCorpus(files: FetchedGameFiles): readonly CorpusProg
         return createScriptHost({ program: ref, loader: demoLoader, seed });
       },
       restoreHost: (json) => restoreScriptHost(json, { loader: demoLoader }),
-      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }] : [],
+      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }] : [],
     },
     {
       id: "sample-man-demo",
@@ -733,7 +733,7 @@ export function buildFetchedCorpus(files: FetchedGameFiles): readonly CorpusProg
         return createScriptHost({ program: ref, loader: demoLoader, seed });
       },
       restoreHost: (json) => restoreScriptHost(json, { loader: demoLoader }),
-      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }] : [],
+      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }] : [],
     },
     {
       id: "sample-man-wander-demo",
@@ -745,7 +745,7 @@ export function buildFetchedCorpus(files: FetchedGameFiles): readonly CorpusProg
         return createScriptHost({ program: ref, loader: demoLoader, seed });
       },
       restoreHost: (json) => restoreScriptHost(json, { loader: demoLoader }),
-      inputsForTick: (t) => t === 3 ? [{ tick: 3, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }] : [],
+      inputsForTick: (t) => t === 3 ? [{ tick: 3, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }] : [],
     },
     {
       id: "sample-start-basic",
@@ -758,8 +758,8 @@ export function buildFetchedCorpus(files: FetchedGameFiles): readonly CorpusProg
       },
       restoreHost: (json) => restoreScriptHost(json, { loader: basicLoader }),
       inputsForTick: (tick) => {
-        if (tick === 1) return [{ tick: 1, event: { kind: "key", name: "0", code: "0", char: "0", down: true } }];
-        if (tick === 2) return [{ tick: 2, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }];
+        if (tick === 1) return [{ tick: 1, event: { kind: "key", code: "Digit0", char: "0", vk: null, down: true } }];
+        if (tick === 2) return [{ tick: 2, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }];
         return [];
       },
     },
@@ -1071,13 +1071,13 @@ export function buildCorpus(): readonly CorpusProgram[] {
         if (tick === 1) {
           return [{
             tick: 1,
-            event: { kind: "key", name: "0", code: "0", char: "0", down: true },
+            event: { kind: "key", code: "Digit0", char: "0", vk: null, down: true },
           }];
         }
         if (tick === 2) {
           return [{
             tick: 2,
-            event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true },
+            event: { kind: "key", code: "Enter", char: null, vk: null, down: true },
           }];
         }
         return [];
@@ -1107,13 +1107,13 @@ export function buildCorpus(): readonly CorpusProgram[] {
         if (tick === 1) {
           return [{
             tick: 1,
-            event: { kind: "key", name: "0", code: "0", char: "0", down: true },
+            event: { kind: "key", code: "Digit0", char: "0", vk: null, down: true },
           }];
         }
         if (tick === 2) {
           return [{
             tick: 2,
-            event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true },
+            event: { kind: "key", code: "Enter", char: null, vk: null, down: true },
           }];
         }
         return [];
@@ -1150,7 +1150,7 @@ export function buildCorpus(): readonly CorpusProgram[] {
       ticks: 2,
       createHost: (seed) => createScriptHost({ program: SAMPLE_DEMO_WIN_SOURCE, seed }),
       restoreHost: (json) => restoreScriptHost(json, {}),
-      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }] : [],
+      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }] : [],
     },
     {
       id: "sample-oldman-demo",
@@ -1159,7 +1159,7 @@ export function buildCorpus(): readonly CorpusProgram[] {
       ticks: 2,
       createHost: (seed) => createScriptHost({ program: SAMPLE_DEMO_OLDMAN_SOURCE, seed }),
       restoreHost: (json) => restoreScriptHost(json, {}),
-      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }] : [],
+      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }] : [],
     },
     {
       id: "sample-man-demo",
@@ -1168,7 +1168,7 @@ export function buildCorpus(): readonly CorpusProgram[] {
       ticks: 2,
       createHost: (seed) => createScriptHost({ program: SAMPLE_DEMO_MAN_SOURCE, seed }),
       restoreHost: (json) => restoreScriptHost(json, {}),
-      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }] : [],
+      inputsForTick: (t) => t === 1 ? [{ tick: 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }] : [],
     },
     {
       id: "sample-man-wander-demo",
@@ -1190,7 +1190,7 @@ export function buildCorpus(): readonly CorpusProgram[] {
         });
         return restoreScriptHost(json, { loader });
       },
-      inputsForTick: (t) => t === 3 ? [{ tick: 3, event: { kind: "key", name: "ENTER", code: "ENTER", char: null, down: true } }] : [],
+      inputsForTick: (t) => t === 3 ? [{ tick: 3, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }] : [],
     },
     {
       id: "sample-wander-basic",

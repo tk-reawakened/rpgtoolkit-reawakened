@@ -502,11 +502,11 @@ function runCreatorTask(
     const actionInputs = doubles.creatorActions.takeInputs(currentTick);
     const consumed = scene.advance([...actionInputs, ...keyInputs]);
     const acceptedKeys = new Set(consumed.flatMap((record) =>
-      record.event.kind === "key" ? [`${record.tick}\\0${record.event.name}\\0${record.event.down}`] : [],
+      record.event.kind === "key" ? [`${record.tick}\\0${record.event.code}\\0${record.event.down}`] : [],
     ));
     for (let index = doubles.pending.length - 1; index >= 0; index -= 1) {
       const item = doubles.pending[index]!;
-      if (acceptedKeys.has(`${item.tick}\\0${item.event.name}\\0${item.event.down}`)) doubles.pending.splice(index, 1);
+      if (acceptedKeys.has(`${item.tick}\\0${item.event.code}\\0${item.event.down}`)) doubles.pending.splice(index, 1);
     }
     doubles.creatorActions.completeTick(scene.tick());
     actionLog.push(...consumed.filter((record) => record.event.kind === "action" || record.event.kind === "key"));
@@ -526,7 +526,7 @@ function runCreatorTask(
   for (const item of doubles.pending) {
     errors.push({
       code: "spec.input-pending",
-      message: `a key edge (${item.event.name}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`,
+      message: `a key edge (${item.event.code}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`,
       line: 0,
     });
   }
@@ -656,7 +656,7 @@ function runTask(
   }));
   if (!finished) errors.push({ code: "spec.timeout", message: "spec did not finish within 1000 ticks", line: 0 });
   for (const item of doubles.pending) {
-    errors.push({ code: "spec.input-pending", message: `a key edge (${item.event.name}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`, line: 0 });
+    errors.push({ code: "spec.input-pending", message: `a key edge (${item.event.code}, ${item.event.down ? "down" : "up"}) scheduled for tick ${item.tick} never entered the input section`, line: 0 });
   }
   if (checkpointFailure !== null) errors.push({ code: "spec.snapshot", message: checkpointFailure, line: 0 });
   const outcomes: SpecOutcome[] = [];

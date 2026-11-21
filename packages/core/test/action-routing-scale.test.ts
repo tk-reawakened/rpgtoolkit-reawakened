@@ -47,9 +47,9 @@ test("engine action and key routing do not scan a 512-action registry or unrelat
   equal(live.input.actions["game.action511"], true);
   run({ kind: "action", action: "game.action511", source: "touch", down: false, modalId: null });
   equal(live.input.actions["game.action511"], false);
-  run({ kind: "key", name: "F", code: "KeyF", char: "f", down: true });
+  run({ kind: "key", code: "KeyF", char: "f", vk: null, down: true });
   equal(live.input.actions["game.action511"], true);
-  run({ kind: "key", name: "F", code: "KeyF", char: "f", down: false });
+  run({ kind: "key", code: "KeyF", char: "f", vk: null, down: false });
   equal(live.input.actions["game.action511"], false);
   run({ kind: "action", action: "game.unknown", source: "touch", down: true, modalId: null });
 });
@@ -97,7 +97,7 @@ test("shared physical key routes author confirmation with linear bounded action 
       },
     });
     reads = 0;
-    engine.advance(1, [{ tick: live.time.tick, event: { kind: "key", name: "Enter", code: "Enter", char: null, down: true } }]);
+    engine.advance(1, [{ tick: live.time.tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }]);
     equal(activationSeq, 1, "author surface receives the physical key sequence");
     equal(live.vm.globals.activated, 0, "the script observes the author activation");
     equal(live.vm.globals.after, "", "the author claim consumes the key before Get");

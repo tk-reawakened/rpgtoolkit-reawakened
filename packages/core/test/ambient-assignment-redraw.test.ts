@@ -188,8 +188,8 @@ test("ambientRed/Green/Blue assignment changes the composed frame only after for
 
   const pressEnter = () => {
     const currentTick = latestState?.time?.tick ?? 0;
-    step([{ tick: currentTick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } }]);
-    step([{ tick: currentTick + 1, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false } }]);
+    step([{ tick: currentTick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }]);
+    step([{ tick: currentTick + 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: false } }]);
   };
 
   // Tick until enter.prg is running at step 1:

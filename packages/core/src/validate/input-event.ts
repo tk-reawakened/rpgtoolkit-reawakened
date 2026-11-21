@@ -1,3 +1,11 @@
+function validateKey(record: UnknownRecord): InputEventValidation {
+  if (!isNonEmptyString(record["code"])) return invalid("code", "expected a non-empty string");
+  if (!isChar(record["char"])) return invalid("char", "expected null or one Unicode scalar value");
+  if (record["vk"] !== null && (!isInteger(record["vk"]) || record["vk"] < 0 || record["vk"] > 0xffff || (record["vk"] >= 0xd800 && record["vk"] <= 0xdfff))) return invalid("vk", "expected null or a non-surrogate 16-bit virtual-key value");
+  if (typeof record["down"] !== "boolean") return invalid("down", "expected a boolean");
+  if (record["repeat"] !== undefined && typeof record["repeat"] !== "boolean") return invalid("repeat", "expected a boolean");
+  return accept(record);
+}
 /**
  * The runtime check for an untrusted `InputEvent` (AD-14, AD-5).
  *
@@ -54,7 +62,7 @@ type EventKind = (typeof KINDS)[number];
 
 /** The exact key set of each event kind, in check order. */
 const KEY_SETS: { readonly [kind in EventKind]: readonly string[] } = {
-  key: ["kind", "name", "code", "char", "down", "repeat"],
+  key: ["kind", "code", "char", "vk", "down", "repeat"],
   pointer: ["kind", "x", "y", "buttons"],
   "pointer.cancel": ["kind"],
   action: ["kind", "action", "down", "source", "modalId"],
@@ -131,17 +139,6 @@ function accept(record: UnknownRecord): InputEventValidation {
   return { ok: true, value: value as InputEvent };
 }
 
-function validateKey(record: UnknownRecord): InputEventValidation {
-  const name = record["name"];
-  if (!isNonEmptyString(name)) return invalid("name", "expected a non-empty string");
-  const code = record["code"];
-  if (!isNonEmptyString(code)) return invalid("code", "expected a non-empty string");
-  const char = record["char"];
-  if (!isChar(char)) return invalid("char", "expected null or a single code point");
-  if (typeof record["down"] !== "boolean") return invalid("down", "expected a boolean");
-  if (record["repeat"] !== undefined && typeof record["repeat"] !== "boolean") return invalid("repeat", "expected a boolean");
-  return accept(record);
-}
 
 function validatePointer(record: UnknownRecord): InputEventValidation {
   if (!isInteger(record["x"])) return invalid("x", "expected an integer");

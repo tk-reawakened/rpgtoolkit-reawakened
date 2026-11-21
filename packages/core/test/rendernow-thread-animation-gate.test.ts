@@ -168,11 +168,11 @@ test("rendernow overlay and thread animations started earlier do not compose dur
 
   // Now resume wait() by pressing ENTER:
   step([
-    { tick: report.tickAfter, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } },
+    { tick: report.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } },
   ]);
   // Release ENTER and step:
   step([
-    { tick: report.tickAfter + 1, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false } },
+    { tick: report.tickAfter + 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: false } },
   ]);
 
   // Now enter.prg has ended, game is in free roam:

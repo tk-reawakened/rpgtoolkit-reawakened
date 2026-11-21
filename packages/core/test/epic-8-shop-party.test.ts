@@ -80,10 +80,10 @@ function openShop(): Session {
   // A real held ArrowRight walks the board player one 32-pixel tile before the script runs, so the step count is
   // earned by completed travel (a script that owns input would hold the direction rule off).
   const start = session.state().time.tick;
-  session.advance(4, [{ tick: start, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true } }]);
+  session.advance(4, [{ tick: start, event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: true } }]);
   for (let step = 0; step < 10 && session.state().party.steps < 1; step += 1) session.advance(4);
   const walked = session.state();
-  session.advance(1, [{ tick: walked.time.tick, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: false } }]);
+  session.advance(1, [{ tick: walked.time.tick, event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: false } }]);
   startThread(session.state().vm, {
     ref: { kind: "inline", text: STEP_PROBE + 'givegp(15)\naddplayer("ally1.tem")\nmainmenu()\ncallshop("stock-potion", "stock-tonic")\nafter = 1\n', ir: IR_VERSION },
     kind: "blocking", owner: "script",
@@ -207,8 +207,8 @@ test("opening a stock menu frame does not freeze the party section: a later walk
   const closed = press(session, "ESC");
   equal(closed.menu.screens.length, 0, "cancel closed the menu");
   const start = session.state().time.tick;
-  session.advance(1, [{ tick: start, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true } }]);
-  session.advance(1, [{ tick: start + 1, event: { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: false } }]);
+  session.advance(1, [{ tick: start, event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: true } }]);
+  session.advance(1, [{ tick: start + 1, event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: false } }]);
   for (let step = 0; step < 20 && session.state().party.steps < 1; step += 1) session.advance(2);
   const walked = session.state();
   equal(walked.party.steps, 1, "one completed 32-pixel tile is exactly one step");

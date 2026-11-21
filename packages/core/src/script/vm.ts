@@ -1226,13 +1226,15 @@ function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread
       ? { type: "enter" }
       : saved.phase === "child.closed"
         ? { type: "child.closed", screen: String(saved.childScreen) as MenuScreenId }
-        : record !== undefined
-          ? {
-            type: "pointer", x: Number(record.x), y: Number(record.y), buttons: Number(record.buttons), downs: Number(record.downs),
-            ups: Number(record.ups), downX: Number(record.downx), downY: Number(record.downy), button: Number(record.button),
-            moved: Number(record.moved), newDowns: Number(record.newdowns), newUps: Number(record.newups),
-          }
-          : { type: "input", key: String(result.value) };
+        : record !== undefined && record.kind === "key"
+          ? { type: "input", key: String(record.key), actions: Array.isArray(record.actions) ? record.actions as string[] : [] }
+          : record !== undefined
+            ? {
+              type: "pointer", x: Number(record.x), y: Number(record.y), buttons: Number(record.buttons), downs: Number(record.downs),
+              ups: Number(record.ups), downX: Number(record.downx), downY: Number(record.downy), button: Number(record.button),
+              moved: Number(record.moved), newDowns: Number(record.newdowns), newUps: Number(record.newups),
+            }
+            : { type: "input", key: String(result.value), actions: [] };
     // A pointer event consumes the record as it is now; a key leaves the old baseline, so a pointer change that arrived
     // with it is delivered by the next wake instead of being lost.
     const reparked = event.type === "pointer" ? pointerBaselineOf(view.input?.pointer) : (saved.pointer ?? null);
@@ -1259,7 +1261,16 @@ function resolveWait(vm: VmState, view: WaitView, poll: WaitPoll, thread: Thread
   let resumed = result.value;
   if (result.record !== undefined) {
     const object = createObject(vm, null);
-    for (const [field, value] of Object.entries(result.record)) writeMember(object, field, value as Value);
+    for (const [field, value] of Object.entries(result.record)) {
+      if (Array.isArray(value)) {
+        const array = createObject(vm, null);
+        value.forEach((item, index) => writeMember(array, String(index), item as Value));
+        writeMember(array, "length", value.length);
+        writeMember(object, field, objectValue(array));
+      } else {
+        writeMember(object, field, value as Value);
+      }
+    }
     resumed = objectValue(object);
   }
   if ("resumeRefs" in wait && wait.resumeRefs !== undefined) {

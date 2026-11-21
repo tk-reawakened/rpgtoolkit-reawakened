@@ -92,7 +92,7 @@ export type TickObserver = (observation: TickObservation) => void;
 const V1_GAMEPAD_BUTTON_BITS = [12, 13, 14, 15, 0, 1, 9] as const;
 
 function upgradeV1Record(record: InputRecordV1): InputRecord {
-  if (record.event.kind !== "gamepad") return record;
+  if (record.event.kind !== "gamepad") return record as unknown as InputRecord;
   let buttons = 0;
   for (let bit = 0; bit < V1_GAMEPAD_BUTTON_BITS.length; bit++) {
     if ((record.event.buttons & (1 << bit)) !== 0) buttons |= 1 << V1_GAMEPAD_BUTTON_BITS[bit]!;
@@ -133,7 +133,9 @@ export function runLog(
           `runLog: call ${callIndex}: record tick ${rec.tick} is before window [${before}, ${endWindow})`,
         );
       }
-      fedInputs.push(run.schema === 1 ? upgradeV1Record(rec as InputRecordV1) : rec as InputRecord);
+      // A historical record reaches the engine unchanged. Core's `applyInputEvent`
+      // accepts the named-key event, but `advance` is typed with the active union.
+      fedInputs.push(run.schema === 1 ? upgradeV1Record(rec) : rec as unknown as InputRecord);
       inputIndex++;
     }
 

@@ -234,7 +234,7 @@ test("a host-captured modal identity cannot target a modal reopened from an olde
     const tick = game.state()?.time.tick ?? 0;
     const inputs: InputRecord[] = [];
     if (modal === 1 && !originalDismissed) {
-      inputs.push({ tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } });
+      inputs.push({ tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } });
       originalDismissed = true;
     } else if (loadApplied && typeof modal === "number" && !staleActionSent) {
       inputs.push({ tick, event: { kind: "action", action: "confirm", down: true, source: "runner.fallback", modalId: 1 } });
@@ -374,7 +374,7 @@ test("Reset preserves suppression of a live held primary through its physical re
   const epoch = game.engine.surfaceCacheEpoch();
   game.engine.advance(1, [
     { tick: current.time.tick, event: { kind: "pointer", x: 20, y: 20, buttons: 1 } },
-    { tick: current.time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } },
+    { tick: current.time.tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } },
   ]);
   ok(game.engine.surfaceCacheEpoch() > epoch, "the real Reset replaced the lifecycle");
   equal(current.input.primaryPointerSuppressedUntilRelease, true);
@@ -403,7 +403,7 @@ test("Load reattaches absent-row defaults and respects explicit zero movement fi
     deepEqual(run(loader, saved).diagnostics, []);
     const state = loader.state();
     ok(state !== null);
-    applyInputEvent(state.input, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true });
+    applyInputEvent(state.input, { kind: "key", code: "ArrowRight", char: null, vk: null, down: true });
     equal(state.input.actions.right, true);
     equal(state.input.directionOrder.includes("right"), minor === 8);
   }
@@ -518,7 +518,7 @@ test("each waiting kind restores unchanged and the state keeps its hash", () => 
 test("a load consumes only its own reply, never a queued input record", () => {
   const saved = capture(SAVER);
   const loader = boot(LOADER);
-  const key: InputRecord = { tick: 0, event: { kind: "key", name: "Enter", code: "Enter", char: "\n", down: true } };
+  const key: InputRecord = { tick: 0, event: { kind: "key", code: "Enter", char: "\n", vk: null, down: true } };
   const result = run(loader, saved, { ticks: 10, keys: [{ tick: 0, record: key }] });
   ok(result.loadTicks.length === 1, `the load committed once: ${JSON.stringify(result.loadTicks)}`);
   const loadTick = result.loadTicks[0]!;

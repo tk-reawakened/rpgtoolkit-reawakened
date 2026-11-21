@@ -383,7 +383,7 @@ export function applyInputEffect(state: GameState, name: string, args: readonly 
     return;
   }
   if (name === "clearbuffer") {
-    for (const key of state.input.keys) if (!state.engine.claims.includes(key.seq)) state.engine.claims.push(key.seq);
+    for (const key of [...state.input.keys, ...state.input.actionKeys]) if (!state.engine.claims.includes(key.seq)) state.engine.claims.push(key.seq);
     return;
   }
   if (name === "setbutton") {

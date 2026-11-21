@@ -356,7 +356,10 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
     for (const frame of plan.frames) if (frame.tick === tick) captures.push(capture(engine, frame.label, tick, stateHash));
     for (const key of plan.keys) {
       if (key.tick !== tick) continue;
-      for (const down of [true, false]) queued.push({ tick, event: { kind: "key", name: key.name, code: key.code, char: null, down } });
+      // The plan names a physical key; a one-character name is its character, and any
+      // other name (ENTER, LEFT) is derived from `code` by the engine's key aliases.
+      const char = [...key.name].length === 1 ? key.name : null;
+      for (const down of [true, false]) queued.push({ tick, event: { kind: "key", code: key.code, char, vk: null, down } });
     }
   }
   // Report whatever the last frame read queued (a frame that could not be replayed is a diagnostic, not a blank image).

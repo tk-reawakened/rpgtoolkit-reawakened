@@ -366,7 +366,7 @@ test("a key-press trigger fires on a key and a step-on trigger fires on a step, 
 test("all semantic actions resolved from one physical key reach the trigger dispatcher", () => {
   const state = stateWith(board([region(0, 1)]));
   state.input.bindings = { keys: { ArrowUp: "confirm" } };
-  applyInputEvent(state.input, { kind: "key", name: "ArrowUp", code: "ArrowUp", char: null, down: true });
+  applyInputEvent(state.input, { kind: "key", code: "ArrowUp", char: null, vk: null, down: true });
   equal(state.input.keys[0]?.resolvedActions.includes("up"), true);
   equal(state.input.keys[0]?.resolvedActions.includes("confirm"), true);
   state.time.tick = 1;

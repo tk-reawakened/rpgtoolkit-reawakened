@@ -111,7 +111,7 @@ test("held direction replaces the remainder of a click route after the active st
   tick(state, 1, [up(GOAL.x, GOAL.y)]);
   const originalTarget = hero(state).movement.active!.target;
   ok(hero(state).queue.moves.length > 0, "the click produced a route beyond the active step");
-  tick(state, 2, [{ kind: "key", name: "DOWN", code: "ArrowDown", char: null, down: true }]);
+  tick(state, 2, [{ kind: "key", code: "ArrowDown", char: null, vk: null, down: true }]);
   deepEqual(hero(state).movement.active!.target, originalTarget, "the current click step is not interrupted");
   for (let t = 3; t < 100 && hero(state).movement.active?.facing !== "S"; t += 1) tick(state, t);
   equal(hero(state).x, originalTarget.x, "the original step reached its target before turning");

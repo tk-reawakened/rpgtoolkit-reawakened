@@ -44,30 +44,53 @@ function createSchema() {
   const schema = JSON.parse(readFileSync(baseSchemaPath, "utf8"));
   schema.$id = "https://tk-reawakened.dev/schema/runner-protocol-v3.schema.json";
   schema.title = "TK Reawakened runner boundary protocol v3";
-  schema.description = `${schema.description} V3 DrawList records require protocolVersion 3 and support source-over.`;
+  schema.description = `${schema.description} V3 DrawList records require protocolVersion 3 and support source-over. V3 key events carry physical code, character, and virtual-key data; they do not carry a host-derived name.`;
   schema.$defs.drawList.required = ["protocolVersion", "tick", "width", "height", "commands", "marginCommands"];
   schema.$defs.drawList.properties.protocolVersion = { type: "integer", const: 3 };
   schema.$defs.blit.properties.blend.enum.push("source-over");
+  schema.$defs.keyInput.required = ["kind", "code", "char", "vk", "down"];
+  delete schema.$defs.keyInput.properties.name;
+  schema.$defs.keyInput.properties.vk = {
+    oneOf: [
+      { type: "integer", minimum: 0, maximum: 0xd7ff },
+      { type: "integer", minimum: 0xe000, maximum: 0xffff },
+      { type: "null" },
+    ],
+  };
+  schema.$defs.keyInput.properties.char.oneOf[0].pattern = "^(?:[\\u0000-\\uD7FF\\uE000-\\uFFFF]|[\\uD800-\\uDBFF][\\uDC00-\\uDFFF])$";
   return schema;
 }
 
 function createVectors() {
   const old = JSON.parse(readFileSync(baseVectorsPath, "utf8"));
-  const rows = old.vectors.map((vector) => vector.family !== "draw" ? structuredClone(vector) : {
-    ...structuredClone(vector), record: { protocolVersion: 3, ...vector.record },
+  const rows = old.vectors.map((vector) => {
+    const converted = structuredClone(vector);
+    if (converted.family === "draw") converted.record = { protocolVersion: 3, ...converted.record };
+    if (converted.family === "input" && converted.record.event.kind === "key") {
+      const event = converted.record.event;
+      converted.record.event = { kind: "key", code: event.code, char: event.char, vk: null, down: event.down, ...(event.repeat === undefined ? {} : { repeat: event.repeat }) };
+    }
+    return converted;
   });
   rows.push(
     { id: "draw-blit-additive", family: "draw", valid: true, record: { ...hashInput, commands: [blit("additive")] } },
     { id: "draw-blit-source-over", family: "draw", valid: true, record: { ...hashInput, commands: [blit("source-over")] } },
     { id: "draw-margin-blit-source-over", family: "draw", valid: true, record: { ...hashInput, marginCommands: [blit("source-over", 255)] } },
+    { id: "input-key-numpad-enter", family: "input", valid: true, record: { tick: 12, event: { kind: "key", code: "NumpadEnter", char: null, vk: null, down: true } } },
+    { id: "input-action", family: "input", valid: true, record: { tick: 12, event: { kind: "action", action: "confirm", down: true, source: "keyboard", modalId: null } } },
+    { id: "refuse-input-key-missing-vk", family: "input", valid: false, why: "v3 key events require vk", record: { tick: 12, event: { kind: "key", code: "KeyA", char: "a", down: true } } },
+    { id: "refuse-input-key-invalid-vk", family: "input", valid: false, why: "vk is null or an unsigned 16-bit integer", record: { tick: 12, event: { kind: "key", code: "KeyA", char: "a", vk: -1, down: true } } },
+    { id: "refuse-input-key-surrogate-vk", family: "input", valid: false, why: "vk cannot be a UTF-16 surrogate code unit", record: { tick: 12, event: { kind: "key", code: "KeyA", char: null, vk: 0xd800, down: true } } },
+    { id: "refuse-input-key-name", family: "input", valid: false, why: "v3 key events do not carry a derived name", record: { tick: 12, event: { kind: "key", name: "A", code: "KeyA", char: "a", vk: null, down: true } } },
     { id: "refuse-draw-missing-protocol-version", family: "draw", valid: false, why: "v3 requires an explicit protocolVersion", record: { tick: 12, width: 640, height: 480, commands: [], marginCommands: [] } },
+    { id: "refuse-input-key-unpaired-surrogate", family: "input", valid: false, why: "key char must be one Unicode scalar value", record: { tick: 12, event: { kind: "key", code: "KeyA", char: "\ud800", vk: null, down: true } } },
     { id: "refuse-draw-unsupported-protocol-version", family: "draw", valid: false, why: "v3 accepts only protocolVersion 3", record: { ...hashInput, protocolVersion: 2 } },
     { id: "refuse-blit-unknown-blend", family: "draw", valid: false, why: "v3 rejects unknown blend modes", record: { ...hashInput, commands: [blit("multiply")] } },
   );
   return {
     schema: 3,
     protocol: "runner-protocol-v3",
-    note: "V3 is the strict runner contract: every DrawList requires protocolVersion 3, both command planes, and supports source-over. V1 and v2 schemas and vectors remain unchanged. Validate against packages/runner-harness/schema/runner-protocol-v3.schema.json.",
+    note: "V3 is the strict runner contract: every DrawList requires protocolVersion 3, both command planes, and supports source-over. Key inputs carry physical code/char/vk without a derived name; action events remain separate ordered input records. V1 and v2 schemas and vectors remain unchanged. Validate against packages/runner-harness/schema/runner-protocol-v3.schema.json.",
     counts: {
       draw: rows.filter((vector) => vector.family === "draw").length,
       input: rows.filter((vector) => vector.family === "input").length,
@@ -130,7 +153,16 @@ export async function check({ schema: schemaOverride, committedSchema, vectors: 
     .flatMap((vector) => [...vector.record.commands, ...vector.record.marginCommands])
     .filter((draw) => draw.kind === "blit").map((draw) => draw.blend));
   for (const blend of blends) if (!usedBlends.has(blend)) problems.push(`vector kit covers blit blend "${blend}" defined in the schema`);
-  for (const id of ["refuse-draw-missing-protocol-version", "refuse-draw-unsupported-protocol-version", "refuse-blit-unknown-blend"]) {
+  for (const id of [
+    "refuse-draw-missing-protocol-version",
+    "refuse-draw-unsupported-protocol-version",
+    "refuse-blit-unknown-blend",
+    "refuse-input-key-missing-vk",
+    "refuse-input-key-invalid-vk",
+    "refuse-input-key-name",
+    "refuse-input-key-surrogate-vk",
+    "refuse-input-key-unpaired-surrogate",
+  ]) {
     if (!vectors.vectors.some((vector) => vector.id === id && vector.valid === false)) problems.push(`vector kit requires refusal vector "${id}"`);
   }
   for (const row of vectors.hashDrawList) {

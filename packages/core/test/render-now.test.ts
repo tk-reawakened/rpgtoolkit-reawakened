@@ -88,7 +88,7 @@ function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {},
       { phase: "audio", run: (state) => { latest = state; } },
     ],
   });
-  let replies: { readonly tick: number; readonly event: { readonly kind: "asset"; readonly reqId: number; readonly bytes: Uint8Array | null } | { readonly kind: "key"; readonly name: string; readonly code: string; readonly char: null; readonly down: boolean } }[] = [];
+  let replies: { readonly tick: number; readonly event: { readonly kind: "asset"; readonly reqId: number; readonly bytes: Uint8Array | null } | { readonly kind: "key"; readonly code: string; readonly char: null; readonly vk: null; readonly down: boolean } }[] = [];
   const game: Game = {
     engine,
     requests: [],
@@ -100,9 +100,9 @@ function boot(program: string, extra: Readonly<Record<string, Uint8Array>> = {},
     advance(ticks, keys = []) {
       for (let remaining = ticks; remaining > 0;) {
         const tick = latest?.time.tick ?? 0;
-        const inputs = keys.length === 0 ? [] : keys.flatMap((name, index) => [
-          { tick: tick + index * 2, event: { kind: "key" as const, name, code: name, char: null, down: true } },
-          { tick: tick + index * 2 + 1, event: { kind: "key" as const, name, code: name, char: null, down: false } },
+        const inputs = keys.length === 0 ? [] : keys.flatMap((code, index) => [
+          { tick: tick + index * 2, event: { kind: "key" as const, code, char: null, vk: null, down: true } },
+          { tick: tick + index * 2 + 1, event: { kind: "key" as const, code, char: null, vk: null, down: false } },
         ]);
         keys = [];
         const report = engine.advance(1, [...replies, ...inputs] as never);
@@ -214,7 +214,7 @@ test("screen clear removes earlier text but canvas clear leaves it alone", () =>
   const text = (): string[] => game.engine.drawList().commands
     .flatMap((command) => command.kind === "text" ? [command.text] : []);
   deepEqual(text(), ["old", "old pixel"], "clearing a canvas leaves screen text");
-  game.advance(2, ["ENTER"]);
+  game.advance(2, ["Enter"]);
   deepEqual(text(), ["new"], "screen clear removes both earlier text forms but not later text");
 });
 
@@ -471,7 +471,7 @@ test("scan and mem restore the captured tile through the real board renderer", (
   ok(hasColor(greenPixels, 0, 255, 0), "the visible cell renders the replacement tile's expected pixels");
   equal(hasColor(greenPixels, 255, 0, 0), false);
 
-  game.advance(1, ["SPACE"]);
+  game.advance(1, ["Space"]);
 
   equal(game.state().vm.globals.phase, 2);
   equal(game.state().world.board?.layers[0]?.tiles[82]?.asset, "tiles/red.gph");
@@ -575,7 +575,7 @@ test("ending and finishing animations releases the surfaces decoded for an anima
 
 test("get() returns a pressed key once and never again, and clearbuffer() empties the queue", () => {
   const game = boot("count = 0\nloops = 0\nwhile (loops < 100) {\n  k = get()\n  if (k != \"\") {\n    count = count + 1\n  }\n  loops = loops + 1\n  threadSleep(getThreadId(), 1/60)\n}\ndone = 1\nend()\n");
-  game.advance(2, ["DOWN"]);
+  game.advance(2, ["ArrowDown"]);
   game.advance(80);
   equal(game.state().vm.globals.done, 1);
   equal(game.state().vm.globals.count, 1, "one press is one key");

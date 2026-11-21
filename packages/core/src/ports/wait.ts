@@ -110,7 +110,8 @@ export type WaitKind = Wait["kind"];
 
 export type WaitInputView = {
   readonly nextSeq?: number;
-  readonly keys: readonly { readonly seq: number; readonly name: string; readonly code: string; readonly char: string | null; readonly action?: string | null; readonly resolvedActions?: readonly string[] }[];
+  readonly keys: readonly { readonly seq: number; readonly name: string | null; readonly code: string; readonly char: string | null; readonly action?: string | null; readonly resolvedActions?: readonly string[] }[];
+  readonly actionKeys?: readonly { readonly seq: number; readonly name: null; readonly code: string; readonly char: string | null; readonly action?: string | null; readonly resolvedActions?: readonly string[] }[];
   readonly modalActions?: readonly { readonly seq: number; readonly action: "confirm" | "cancel"; readonly modalId: number }[];
   readonly focused: boolean;
   readonly pointer?: { readonly x: number; readonly y: number; readonly buttons: number; readonly downs?: number; readonly ups?: number; readonly downX?: number; readonly downY?: number; readonly button?: number };

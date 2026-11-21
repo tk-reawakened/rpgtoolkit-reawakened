@@ -21,8 +21,8 @@ export type UndefinedFieldIsNotPortData = AssertPortData<{ readonly value: strin
 export type MapIsNotPortData = AssertPortData<Map<string, number>>;
 export type FunctionIsNotPlainData = AssertPlainData<() => number>;
 export type UndefinedIsNotPlainData = AssertPlainData<undefined>;
-export const badKeyInputMissingChar: KeyInput = { kind: "key", name: "A", code: "KeyA", down: true };
-export const badKeyInputUndefinedChar: KeyInput = { kind: "key", name: "A", code: "KeyA", char: undefined, down: true };
+export const badKeyInputMissingChar: KeyInput = { kind: "key", code: "KeyA", vk: null, down: true };
+export const badKeyInputUndefinedChar: KeyInput = { kind: "key", code: "KeyA", char: undefined, vk: null, down: true };
 export const badAudioCueUndefinedAsset: AudioCue = { cueId: 1, tick: 0, kind: "media.play", track: "music", voice: 0, asset: undefined, loop: null, flags: null, positionTicks: 0, volume: 100, targetVolume: null, durationTicks: null };
 export const badAudioCueMissingVolume: AudioCue = { cueId: 1, tick: 0, kind: "media.play", track: "music", voice: 0, asset: "a.wav" as AssetKey, loop: null, flags: null, positionTicks: 0, targetVolume: null, durationTicks: null };
 export const badTexRefUndefinedTile: TexRef = { asset: "hero.png" as AssetKey, tile: undefined };

@@ -597,8 +597,8 @@ test("seeded tile movement reaches a stock random encounter outcome and replays"
       const tick = current?.time.tick ?? 0;
       if (current?.battle !== null && current?.battle !== undefined && tick >= nextPress) {
         nextPress = tick + 12;
-        replies.push({ tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } });
-        replies.push({ tick: tick + 1, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false } });
+        replies.push({ tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } });
+        replies.push({ tick: tick + 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: false } });
       }
       const report = engine.advance(12, replies);
       diagnostics.push(...report.diagnostics.map((item) => item.code));

@@ -271,6 +271,6 @@ test("liveTextureProvider resolves a real engine GIF page from core pixels witho
 
 test("interactive bindings route the browser Space event into the key queue", () => {
   const input = createInputSection({ bindings: INTERACTIVE_INPUT_BINDINGS });
-  applyInputEvent(input, { kind: "key", name: " ", code: "Space", char: " ", down: true });
+  applyInputEvent(input, { kind: "key", code: "Space", char: " ", vk: null, down: true });
   deepEqual(input.keys.map((key) => [key.name, key.code, key.action]), [[" ", "Space", " "]]);
 });

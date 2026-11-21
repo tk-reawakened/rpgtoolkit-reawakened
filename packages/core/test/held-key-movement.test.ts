@@ -54,9 +54,9 @@ function makeBoard(): WorldBoard {
 
 type InputEv = Parameters<typeof applyInputEvent>[1];
 
-/** A key record named like the runners name it: the logical name is the code without its `Arrow` prefix, upper-cased. */
+/** A v3 physical key event; core derives the script-facing name from its code, character or virtual-key fallback. */
 function key(code: "ArrowRight" | "ArrowLeft" | "ArrowDown", down: boolean, repeat = false): InputEv {
-  return { kind: "key", name: code.slice("Arrow".length).toUpperCase(), code, char: null, down, ...(repeat ? { repeat: true } : {}) };
+  return { kind: "key", code, char: null, vk: null, down, ...(repeat ? { repeat: true } : {}) };
 }
 
 function makeState(allowDiagonals = false): GameState {
@@ -296,7 +296,7 @@ test("holding a direction key moves the player continuously, not one tile", () =
   const startX = state.sprites.players[0]!.x;
 
   // Press and hold ArrowRight; the runner never sends a keyup.
-  tick(state, 0, [{ kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true }]);
+  tick(state, 0, [{ kind: "key", code: "ArrowRight", char: null, vk: null, down: true }]);
   for (let t = 1; t < 60; t += 1) tick(state, t);
 
   const endX = state.sprites.players[0]!.x;
@@ -323,8 +323,8 @@ test("a single tapped direction key moves exactly one tile", () => {
   const startX = state.sprites.players[0]!.x;
 
   // Press and release on consecutive ticks.
-  tick(state, 0, [{ kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true }]);
-  tick(state, 1, [{ kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: false }]);
+  tick(state, 0, [{ kind: "key", code: "ArrowRight", char: null, vk: null, down: true }]);
+  tick(state, 1, [{ kind: "key", code: "ArrowRight", char: null, vk: null, down: false }]);
   for (let t = 2; t < 60; t += 1) tick(state, t);
 
   const endX = state.sprites.players[0]!.x;
@@ -335,10 +335,10 @@ test("releasing a held direction key stops after the current step", () => {
   const state = makeState();
   const startX = state.sprites.players[0]!.x;
 
-  tick(state, 0, [{ kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true }]);
+  tick(state, 0, [{ kind: "key", code: "ArrowRight", char: null, vk: null, down: true }]);
   // Hold until just before the first step completes (8 advances of 3 ticks each), then release.
   for (let t = 1; t < 21; t += 1) tick(state, t);
-  tick(state, 21, [{ kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: false }]);
+  tick(state, 21, [{ kind: "key", code: "ArrowRight", char: null, vk: null, down: false }]);
   for (let t = 22; t < 60; t += 1) tick(state, t);
 
   const endX = state.sprites.players[0]!.x;
@@ -351,8 +351,8 @@ test("opposing held direction keys cancel out and produce no movement", () => {
   const startX = state.sprites.players[0]!.x;
 
   tick(state, 0, [
-    { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true },
-    { kind: "key", name: "LEFT", code: "ArrowLeft", char: null, down: true },
+    { kind: "key", code: "ArrowRight", char: null, vk: null, down: true },
+    { kind: "key", code: "ArrowLeft", char: null, vk: null, down: true },
   ]);
   for (let t = 1; t < 60; t += 1) tick(state, t);
 
@@ -423,7 +423,7 @@ test("losing focus prevents new held-direction steps after the current step fini
   const startX = state.sprites.players[0]!.x;
 
   // Press and hold; the first step queues on tick 0.
-  tick(state, 0, [{ kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true }]);
+  tick(state, 0, [{ kind: "key", code: "ArrowRight", char: null, vk: null, down: true }]);
   // Focus is lost just before the first step completes (8 advances of 3 ticks each), so the
   // player becomes idle while focus is already lost and no second step may be queued.
   for (let t = 1; t < 21; t += 1) tick(state, t);
@@ -671,7 +671,7 @@ test("the diagonal flag controls cardinal composition and keeps a dedicated keyp
     deepEqual(state.input.directionOrder, ["right", "down"], "repeat does not promote a held key");
   }
   const state = withMovementPolicy(1, [0, 0x51, 0, 0, 0, 0, 0, 0]);
-  tick(state, 0, [{ kind: "key", code: "Numpad3", name: "3", char: "3", down: true }]);
+  tick(state, 0, [{ kind: "key", code: "Numpad3", char: "3", vk: null, down: true }]);
   equal(state.sprites.players[0]!.movement.active?.facing, "SE");
   deepEqual(state.input.keys.at(-1)?.resolvedActions, ["down", "right"]);
 });
@@ -682,7 +682,7 @@ test("an explicitly effective directional control walks while an unbound arrow r
     state.input.controlActions["key:KeyF"] = ["right"];
     tick(state, 0, [key("ArrowRight", true)]);
     equal(state.sprites.players[0]!.movement.active, null);
-    tick(state, 1, [{ kind: "key", code: "KeyF", name: "F", char: "f", down: true }]);
+    tick(state, 1, [{ kind: "key", code: "KeyF", char: "f", vk: null, down: true }]);
     equal(state.sprites.players[0]!.movement.active?.facing ?? null, controls === 1 ? "E" : null);
     deepEqual(state.input.keys.at(-1)?.resolvedActions, ["right"]);
   }
@@ -707,7 +707,7 @@ test("a collision reports each binding and dispatches all actions in ACT-4 order
     { code: "Space", actions: ["right", "down", "confirm", "game.z", "game.a"] },
   ]);
   const transitions: string[] = [];
-  const event = { kind: "key", code: "Space", name: " ", char: " " } as const;
+  const event = { kind: "key", code: "Space", char: " ", vk: null } as const;
   applyInputEvent(state.input, { ...event, down: true }, undefined, (action, down) => transitions.push(`${action}:${down}`));
   tick(state, 0);
   equal(state.input.keys.length, 1);
@@ -721,20 +721,20 @@ test("a collision reports each binding and dispatches all actions in ACT-4 order
   equal(state.input.keys.length, 1, "release does not append another raw key");
 });
 
-test("a movement key shared with the menu and game actions emits all ordered edges", () => {
+test("a movement key shared with confirm and game actions emits all ordered edges", () => {
   const state = withMovementPolicy(1, [0x1c, 0, 0x1c, 0, 0, 0, 0, 0]);
   ok(registerGameAction(state.input, { name: "game.spell", label: "Spell", controls: ["key:Enter"], icon: null, group: null, locked: false, hidden: false }));
   const transitions: string[] = [];
-  const event = { kind: "key", code: "Enter", name: "ENTER", char: null } as const;
+  const event = { kind: "key", code: "Enter", char: null, vk: null } as const;
   for (const down of [true, false]) {
     applyInputEvent(state.input, { ...event, down }, undefined, (action, pressed) => transitions.push(`${action}:${pressed}`));
   }
   deepEqual(state.input.keys.map(({ name, resolvedActions }) => ({ name, resolvedActions })), [{
-    name: "ENTER", resolvedActions: ["down", "right", "confirm", "menu", "game.spell"],
+    name: "ENTER", resolvedActions: ["down", "right", "confirm", "game.spell"],
   }]);
   deepEqual(transitions, [
-    "down:true", "right:true", "confirm:true", "menu:true", "game.spell:true",
-    "down:false", "right:false", "confirm:false", "menu:false", "game.spell:false",
+    "down:true", "right:true", "confirm:true", "game.spell:true",
+    "down:false", "right:false", "confirm:false", "game.spell:false",
   ]);
 });
 

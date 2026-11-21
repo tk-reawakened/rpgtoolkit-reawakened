@@ -366,7 +366,7 @@ test("focused Load preserves mixed source edges, live capabilities, and the rest
     const features = { touch: true, pointer: "coarse", keyboard: true, gamepad: true, haptics: false, orientation: "portrait" } as const;
     const restored = game.engine.advance(1, [
       { tick: report.tickAfter, event: { kind: "blob.loaded", reqId: load.reqId, bytes: captured.saved } },
-      { tick: report.tickAfter, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } },
+      { tick: report.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } },
       { tick: report.tickAfter, event: { kind: "action", action: "confirm", down: true, source: "runner.fallback", modalId: null } },
       { tick: report.tickAfter, event: { kind: "gamepad", device: 0, connected: true, axes: { x: 0, y: 0 }, buttons: 0 } },
       { tick: report.tickAfter, event: { kind: "host.features", features } },
@@ -378,7 +378,7 @@ test("focused Load preserves mixed source edges, live capabilities, and the rest
     equal(game.state()?.input.pendingActions.includes("confirm"), false, "source transfer does not synthesize a second confirm press");
     equal(globals(game)["touchbranch"], 1, "the restored continuation observes live host capabilities");
     const released = game.engine.advance(1, [
-      { tick: restored.tickAfter, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false } },
+      { tick: restored.tickAfter, event: { kind: "key", code: "Enter", char: null, vk: null, down: false } },
       { tick: restored.tickAfter, event: { kind: "action", action: "confirm", down: false, source: "runner.fallback", modalId: null } },
     ]);
     deepEqual(released.consumed.map(({ event }) => event.kind), ["key", "action"]);

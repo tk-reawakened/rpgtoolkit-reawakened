@@ -219,7 +219,7 @@ test("a key release visits only actions indexed to that control", () => {
   equal(scannedRegistry, false, "the release uses only its physical control's reverse index");
 });
 
-test("registered keyboard and gamepad controls dispatch without extra key aliases", () => {
+test("registered keyboard and gamepad controls preserve compatibility key entries", () => {
   const state = createInputSection();
   const action = { name: "game.fireball", label: "Fireball", icon: null, group: "Spells", controls: ["key:KeyF", "pad:0"], locked: false, hidden: false };
   equal(registerGameAction(state, action), true);
@@ -249,7 +249,6 @@ test("validated physical pad 9 dispatches its registered action after JSON trans
   if (!validated.ok) throw new Error("pad:9 must pass input validation");
   applyInputEvent(state, validated.value);
   processGamepadEvents(state);
-  equal(state.actions["game.fireball"], true);
   equal(state.keys.some((entry) => entry.name === "game.fireball"), true);
   const release = validateInputEvent({ ...event, buttons: 0 });
   if (!release.ok) throw new Error("gamepad release must validate");
@@ -757,4 +756,48 @@ test("focus loss clears held aliases and resets ownership claims (#1646)", () =>
   applyInputEvent(state, { kind: "focus", state: "gained" });
   equal(state.held["+"], false);
   equal(state.held.Equal, false);
+});
+test("v3 virtual keys reject surrogate code units and never derive lone-surrogate names", () => {
+  for (const vk of [0xd800, 0xdfff]) {
+    const event = { kind: "key", code: "Unidentified", char: null, vk, down: true };
+    equal(validateInputEvent(event).ok, false);
+    const state = createInputSection();
+    applyInputEvent(state, event);
+    equal(state.keys.length, 0);
+    equal(state.actionKeys.length, 0);
+  }
+});
+test("action-only keys are isolated per input state and survive save restore", () => {
+  const first = createInputSection();
+  const second = createInputSection();
+  const action = { name: "game.fireball", label: "Fireball", icon: null, group: null, controls: ["key:Unidentified"], locked: false, hidden: false };
+  registerGameAction(first, action);
+  applyInputEvent(first, { kind: "key", code: "Unidentified", char: null, vk: null, down: true });
+  equal(first.keys.length, 0, "action-only input is not exposed to wait/get");
+  deepEqual(first.actionKeys.map((key) => [key.seq, key.name, key.resolvedActions]), [[1, null, ["game.fireball"]]]);
+  const waitInputResult = pollInputKey(
+    { tick: 0, input: inputView(first), claims: [] },
+    { kind: "input.key", global: true, key: null, parkSeq: 1, pointer: { x: 0, y: 0, buttons: 0, downs: 0, ups: 0 } },
+  );
+  deepEqual(waitInputResult?.record?.action, "game.fireball");
+  deepEqual(waitInputResult?.record?.actions, ["game.fireball"]);
+  const menuResult = pollMenuScreen(
+    { tick: 0, input: inputView(first), claims: [] },
+    { kind: "menu.screen", global: true, id: "native", payload: [{ providerId: "native", phase: "input", parkSeq: 1, pointer: null }], resumeRefs: [] },
+  );
+  deepEqual(menuResult?.record, { kind: "key", key: "game.fireball", actions: ["game.fireball"] });
+  deepEqual(second.actionKeys, [], "a separate input instance has an independent action queue");
+
+  const state = createGameState();
+  registerGameAction(state.input, action);
+  applyInputEvent(state.input, { kind: "key", code: "Unidentified", char: null, vk: null, down: true });
+  const restored = restoreGameState(snapshot(state));
+  deepEqual(restored.input.actionKeys.map((key) => [key.seq, key.name, key.resolvedActions]), [[1, null, ["game.fireball"]]]);
+});
+test("semantic press edges retain compatibility keys alongside ordered action dispatch", () => {
+  const state = createInputSection();
+  applySemanticActionEdge(state, "confirm", true, "gamepad:0");
+  deepEqual(state.keys.map((key) => [key.name, key.resolvedActions]), [["confirm", ["confirm"]]]);
+  deepEqual(state.pendingActions, ["confirm"]);
+  deepEqual(state.actionKeys, []);
 });

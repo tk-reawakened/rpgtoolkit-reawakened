@@ -13,13 +13,22 @@ import type { HostDisplayGeometry, NormalizedHostFeatures } from "./host.ts";
 /** A key press or release (E-110). */
 export type KeyInput = {
   readonly kind: "key";
+  readonly code: string;
+  readonly char: string | null;
+  readonly vk: number | null;
+  readonly down: boolean;
+  readonly repeat?: boolean;
+};
+/** Frozen v1/v2 key record; historical replays retain their recorded name. */
+export type HistoricalKeyInput = {
+  readonly kind: "key";
   readonly name: string;
   readonly code: string;
   readonly char: string | null;
   readonly down: boolean;
-  /** Host auto-repeat is deliberately not a new press edge. */
   readonly repeat?: boolean;
 };
+type HistoricalEvent = Exclude<InputEvent, KeyInput> | HistoricalKeyInput;
 
 /** Cancellation of the active pointer gesture, without a release edge (E-111). */
 export type PointerCancelInput = { readonly kind: "pointer.cancel" };
@@ -161,20 +170,8 @@ export type InputRecord = {
   readonly tick: number;
   readonly event: InputEvent;
 };
-/** Historical runner protocol v1 event union; active v2 adds ActionInput and HostGamepadsInput. */
-export type InputEventV1 =
-  | KeyInput
-  | PointerInput
-  | PointerCancelInput
-  | GamepadInput
-  | FocusInput
-  | HostFeaturesInput
-  | HostDisplayInput
-  | AssetReply
-  | BlobLoaded
-  | BlobSaved
-  | BlobListed
-  | ExtensionResult
-  | AudioEnded
-  | VideoEnded;
+/** Frozen v1 runner event union; v2 adds ActionInput and HostGamepadsInput. */
+export type InputEventV1 = Exclude<HistoricalEvent, ActionInput | HostGamepadsInput>;
+/** Frozen v2 event union, including historical named-key records. */
+export type InputEventV2 = HistoricalEvent;
 export type InputRecordV1 = { readonly tick: number; readonly event: InputEventV1 };

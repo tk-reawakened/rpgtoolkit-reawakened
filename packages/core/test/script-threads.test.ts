@@ -675,21 +675,21 @@ test("input key wait accepts the next key buffered after the thread parks", () =
   const wait = state.vm.threads[0]?.wait;
   if (wait?.kind !== "input.key") throw new Error("expected the thread to park on a key wait");
   equal(wait.parkSeq, state.input.nextSeq);
-  applyInputEvent(state.input, { kind: "key", name: "A", code: "KeyA", char: "a", down: true });
+  applyInputEvent(state.input, { kind: "key", code: "KeyA", char: "a", vk: null, down: true });
   advanceScriptTick(state, services);
-  equal(state.vm.globals.pressed, "A");
+  equal(state.vm.globals.pressed, "a");
   equal(state.vm.threads[0]?.status, "finished");
 });
 test("advanceScriptTick shares a host-key wait's backlog discard before any thread can get", () => {
   const { state, plugins } = setup("pressed = wait()\nafter = get()\nend()\n");
-  applyInputEvent(state.input, { kind: "key", name: "A", code: "KeyA", char: "a", down: true });
-  applyInputEvent(state.input, { kind: "key", name: "B", code: "KeyB", char: "b", down: true });
+  applyInputEvent(state.input, { kind: "key", code: "KeyA", char: "a", vk: null, down: true });
+  applyInputEvent(state.input, { kind: "key", code: "KeyB", char: "b", vk: null, down: true });
   const services = createScriptServices(state, plugins);
   advanceScriptTick(state, services);
   const waiting = state.vm.threads[0];
   if (waiting?.wait?.kind !== "input.key") throw new Error("expected wait() to park");
   equal(waiting.wait.parkSeq, state.input.nextSeq);
-  deepEqual(state.input.keys.map((key) => key.name), ["A", "B"], "pre-park backlog remains until the wait resolves");
+  deepEqual(state.input.keys.map((key) => key.name), ["a", "b"], "pre-park backlog remains until the wait resolves");
   // Simulate a legacy/manual wait without a persisted floor; the scheduler must backfill before polling.
   delete waiting.wait.parkSeq;
   startThread(state.vm, { ref: ref("other = get()\nend()\n"), kind: "persistent", owner: "script" });

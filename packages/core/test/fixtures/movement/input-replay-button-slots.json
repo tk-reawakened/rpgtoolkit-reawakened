@@ -16,7 +16,7 @@
   "cases": [
     {
       "name": "keyboard-diagonal-and-repeat",
-      "note": "E-24: two orthogonal keys give a diagonal only when diagonals are allowed; OS auto-repeat appends no queue entry; an unbound key is ignored; sequence numbers rise monotonically.",
+      "note": "E-24: two orthogonal keys give a diagonal only when diagonals are allowed; OS auto-repeat appends no queue entry; an unnamed unbound key appends nothing; sequence numbers rise monotonically. Enter confirms only; menu is KeyM.",
       "setup": {
         "bindings": {
           "keys": {"ArrowUp":"up","ArrowDown":"down","ArrowLeft":"left","ArrowRight":"right","Enter":"confirm","Escape":"cancel"}
@@ -42,13 +42,13 @@
       "ticks": 10,
       "expect": [
         {"t":0,"held":[],"intent":null,"slots":["attack","back"]},
-        {"t":1,"held":["up"],"intent":"N","queue":[{"seq":1,"key":"up"}],"slots":["attack","back"]},
-        {"t":2,"held":["up","right"],"intent":"NE","queue":[{"seq":2,"key":"right"}],"slots":["attack","back"]},
-        {"t":3,"held":["up","right"],"intent":"NE","queue":[{"seq":3,"key":"right"}],"slots":["attack","back"]},
-        {"t":4,"held":["up","right"],"intent":"NE","queue":[{"seq":4,"key":"KeyQ"}],"notes":["ignored:unbound:KeyQ"],"slots":["attack","back"]},
-        {"t":5,"held":["up","right","confirm","menu"],"intent":"NE","queue":[{"seq":5,"key":"confirm"}],"slots":["attack","back"]},
-        {"t":6,"held":["right","confirm","menu"],"intent":"E","slots":["attack","back"]},
-        {"t":7,"held":["confirm","menu"],"intent":null,"slots":["attack","back"]},
+        {"t":1,"held":["up"],"intent":"N","queue":[{"seq":1,"key":"UP"}],"slots":["attack","back"]},
+        {"t":2,"held":["up","right"],"intent":"NE","queue":[{"seq":2,"key":"RIGHT"}],"slots":["attack","back"]},
+        {"t":3,"held":["up","right"],"intent":"NE","queue":[{"seq":3,"key":"RIGHT"}],"slots":["attack","back"]},
+        {"t":4,"held":["up","right"],"intent":"NE","notes":["ignored:unbound:KeyQ"],"slots":["attack","back"]},
+        {"t":5,"held":["up","right","confirm"],"intent":"NE","queue":[{"seq":4,"key":"ENTER"}],"slots":["attack","back"]},
+        {"t":6,"held":["right","confirm"],"intent":"E","slots":["attack","back"]},
+        {"t":7,"held":["confirm"],"intent":null,"slots":["attack","back"]},
         {"t":8,"held":[],"intent":null,"slots":["attack","back"]},
         {"t":9,"held":[],"intent":null,"slots":["attack","back"]}
       ]
@@ -77,8 +77,8 @@
       "ticks": 7,
       "expect": [
         {"t":0,"held":[],"intent":null,"slots":["attack","back"]},
-        {"t":1,"held":["up"],"intent":"N","queue":[{"seq":1,"key":"up"}],"slots":["attack","back"]},
-        {"t":2,"held":["up","right"],"intent":"E","queue":[{"seq":2,"key":"right"}],"slots":["attack","back"]},
+        {"t":1,"held":["up"],"intent":"N","queue":[{"seq":1,"key":"UP"}],"slots":["attack","back"]},
+        {"t":2,"held":["up","right"],"intent":"E","queue":[{"seq":2,"key":"RIGHT"}],"slots":["attack","back"]},
         {"t":3,"held":["up","right"],"intent":"E","slots":["attack","back"]},
         {"t":4,"held":["right"],"intent":"E","slots":["attack","back"]},
         {"t":5,"held":[],"intent":null,"slots":["attack","back"]},

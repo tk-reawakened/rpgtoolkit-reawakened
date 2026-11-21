@@ -186,7 +186,7 @@ function assertTokenPresented(engine: Engine): void {
 function activate(engine: Engine, files: Map<AssetKey, Uint8Array>, state: GameState): void {
   advance(engine, files, 1, [{
     tick: state.time.tick,
-    event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true },
+    event: { kind: "key", code: "Enter", char: null, vk: null, down: true },
   }]);
   advance(engine, files, 2);
 }

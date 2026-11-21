@@ -1,13 +1,13 @@
 {
   "schema": 3,
   "protocol": "runner-protocol-v3",
-  "note": "V3 is the strict runner contract: every DrawList requires protocolVersion 3, both command planes, and supports source-over. V1 and v2 schemas and vectors remain unchanged. Validate against packages/runner-harness/schema/runner-protocol-v3.schema.json.",
+  "note": "V3 is the strict runner contract: every DrawList requires protocolVersion 3, both command planes, and supports source-over. Key inputs carry physical code/char/vk without a derived name; action events remain separate ordered input records. V1 and v2 schemas and vectors remain unchanged. Validate against packages/runner-harness/schema/runner-protocol-v3.schema.json.",
   "counts": {
     "draw": 22,
-    "input": 69,
+    "input": 76,
     "request": 13,
-    "valid": 53,
-    "invalid": 51
+    "valid": 55,
+    "invalid": 56
   },
   "vectors": [
     {
@@ -295,9 +295,9 @@
         "tick": 12,
         "event": {
           "kind": "key",
-          "name": "ENTER",
           "code": "Enter",
           "char": "\n",
+          "vk": null,
           "down": true
         }
       }
@@ -310,9 +310,9 @@
         "tick": 12,
         "event": {
           "kind": "key",
-          "name": "LEFT",
           "code": "ArrowLeft",
           "char": null,
+          "vk": null,
           "down": false
         }
       }
@@ -786,9 +786,9 @@
         "tick": 12,
         "event": {
           "kind": "key",
-          "name": "ENTER",
           "code": "Enter",
-          "char": null
+          "char": null,
+          "vk": null
         }
       }
     },
@@ -2132,6 +2132,100 @@
       }
     },
     {
+      "id": "input-key-numpad-enter",
+      "family": "input",
+      "valid": true,
+      "record": {
+        "tick": 12,
+        "event": {
+          "kind": "key",
+          "code": "NumpadEnter",
+          "char": null,
+          "vk": null,
+          "down": true
+        }
+      }
+    },
+    {
+      "id": "input-action",
+      "family": "input",
+      "valid": true,
+      "record": {
+        "tick": 12,
+        "event": {
+          "kind": "action",
+          "action": "confirm",
+          "down": true,
+          "source": "keyboard",
+          "modalId": null
+        }
+      }
+    },
+    {
+      "id": "refuse-input-key-missing-vk",
+      "family": "input",
+      "valid": false,
+      "why": "v3 key events require vk",
+      "record": {
+        "tick": 12,
+        "event": {
+          "kind": "key",
+          "code": "KeyA",
+          "char": "a",
+          "down": true
+        }
+      }
+    },
+    {
+      "id": "refuse-input-key-invalid-vk",
+      "family": "input",
+      "valid": false,
+      "why": "vk is null or an unsigned 16-bit integer",
+      "record": {
+        "tick": 12,
+        "event": {
+          "kind": "key",
+          "code": "KeyA",
+          "char": "a",
+          "vk": -1,
+          "down": true
+        }
+      }
+    },
+    {
+      "id": "refuse-input-key-surrogate-vk",
+      "family": "input",
+      "valid": false,
+      "why": "vk cannot be a UTF-16 surrogate code unit",
+      "record": {
+        "tick": 12,
+        "event": {
+          "kind": "key",
+          "code": "KeyA",
+          "char": null,
+          "vk": 55296,
+          "down": true
+        }
+      }
+    },
+    {
+      "id": "refuse-input-key-name",
+      "family": "input",
+      "valid": false,
+      "why": "v3 key events do not carry a derived name",
+      "record": {
+        "tick": 12,
+        "event": {
+          "kind": "key",
+          "name": "A",
+          "code": "KeyA",
+          "char": "a",
+          "vk": null,
+          "down": true
+        }
+      }
+    },
+    {
       "id": "refuse-draw-missing-protocol-version",
       "family": "draw",
       "valid": false,
@@ -2142,6 +2236,22 @@
         "height": 480,
         "commands": [],
         "marginCommands": []
+      }
+    },
+    {
+      "id": "refuse-input-key-unpaired-surrogate",
+      "family": "input",
+      "valid": false,
+      "why": "key char must be one Unicode scalar value",
+      "record": {
+        "tick": 12,
+        "event": {
+          "kind": "key",
+          "code": "KeyA",
+          "char": "\ud800",
+          "vk": null,
+          "down": true
+        }
       }
     },
     {

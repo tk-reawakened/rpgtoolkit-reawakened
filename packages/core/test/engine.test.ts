@@ -45,7 +45,7 @@ test("engine queues non-asset inputs while loading and respects consuming ticks"
   if (request?.kind !== "asset") throw new Error("expected board asset request");
   const futureReply = engine.advance(0, [{ tick: 1, event: { kind: "asset", reqId: request.reqId, bytes: null } }]);
   equal(futureReply.consumed.length, 0);
-  const queued = engine.advance(0, [{ tick: 0, event: { kind: "key", name: "A", code: "KeyA", char: "a", down: true } }]);
+  const queued = engine.advance(0, [{ tick: 0, event: { kind: "key", code: "KeyA", char: "a", vk: null, down: true } }]);
   equal(queued.consumed.length, 0);
   const failed = engine.advance(0, [{ tick: 0, event: { kind: "asset", reqId: request.reqId, bytes: null } }]);
   equal(failed.consumed.length, 1);
@@ -622,7 +622,7 @@ test("fallback modal actions are claimed only by their captured modal after earl
   engine.advance(1, []);
   equal(engine.runnerControlPointerPreemption(300, 200), 1);
   engine.advance(1, [
-    { tick: 1, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } },
+    { tick: 1, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } },
     { tick: 1, event: { kind: "action", action: "confirm", down: true, source: "runner.fallback", modalId: 1 } },
     { tick: 1, event: { kind: "action", action: "confirm", down: false, source: "runner.fallback", modalId: 1 } },
   ]);
@@ -645,7 +645,7 @@ test("default Enter and Escape claims prevent Get from reading the same key", ()
       'end()',
     ].join("\n"), [capture.registration]);
     engine.advance(1, []);
-    engine.advance(1, [{ tick: 1, event: { kind: "key", name: key, code: key, char: null, down: true } }]);
+    engine.advance(1, [{ tick: 1, event: { kind: "key", code: key, char: null, vk: null, down: true } }]);
     const state = capture.state();
     if (state === undefined) throw new Error("expected captured game state");
     const action = key === "Enter" ? "confirm" : "cancel";
@@ -755,7 +755,7 @@ test("a pre-blur author cancellation survives until the resumed script reads uiC
   ].join("\n"), [capture.registration]);
   engine.advance(1, []);
   const blurred = engine.advance(1, [
-    { tick: 1, event: { kind: "key", name: "ESCAPE", code: "Escape", char: null, down: true } },
+    { tick: 1, event: { kind: "key", code: "Escape", char: null, vk: null, down: true } },
     { tick: 1, event: { kind: "focus", state: "lost" } },
   ]);
   equal(blurred.ticksRun, 0);
@@ -1276,7 +1276,7 @@ test("engine displays no-enemies handoffs, runs custom starts as a program, and 
   engine.advance(1, []); // Let the wait capture the input sequence before the key is pressed.
   const tick = observed.state?.time.tick;
   if (tick === undefined) throw new Error("engine did not advance");
-  const reports = [engine.advance(1, [{ tick, event: { kind: "key", name: "Z", code: "KeyZ", char: "z", down: true } }])];
+  const reports = [engine.advance(1, [{ tick, event: { kind: "key", code: "KeyZ", char: "z", vk: null, down: true } }])];
   for (let i = 0; i < 4; i += 1) reports.push(engine.advance(1, []));
   const diagnostics = reports.flatMap((report) => report.diagnostics);
   equal(diagnostics.some((diagnostic) => diagnostic.code === "battle.package-missing"), true);
@@ -1342,9 +1342,9 @@ test("batching the same stamped input log produces the same state hash", () => {
   const one = loadedEngine();
   const batched = loadedEngine();
   const inputs = [
-    { tick: 0, event: { kind: "key" as const, name: "A", code: "KeyA", char: "a", down: true } },
+    { tick: 0, event: { kind: "key" as const, code: "KeyA", char: "a", vk: null, down: true } },
     { tick: 12, event: { kind: "pointer" as const, x: 4, y: 5, buttons: 1 } },
-    { tick: 30, event: { kind: "key" as const, name: "A", code: "KeyA", char: "a", down: false } },
+    { tick: 30, event: { kind: "key" as const, code: "KeyA", char: "a", vk: null, down: false } },
   ];
   for (let tick = 0; tick < 60; tick += 1) one.advance(1, inputs.filter((input) => input.tick === tick));
   const final = batched.advance(60, inputs);

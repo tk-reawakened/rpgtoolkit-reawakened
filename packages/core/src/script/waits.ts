@@ -135,12 +135,17 @@ function pollInputPointer(view: WaitView, wait: InputKeyWait, baseline: NonNulla
   const base = { x: baseline.x, y: baseline.y, buttons: baseline.buttons, downs: baseline.downs, ups: baseline.ups };
   const keyRecord = (name: string): { readonly [field: string]: PlainData } => ({ kind: "key", key: name, ...base, downx: current.downX, downy: current.downY, button: current.button, moved: 0, newdowns: 0, newups: 0 });
   if (view.input !== undefined) {
-    for (const key of view.input.keys) {
+    const records = [...view.input.keys, ...(view.input.actionKeys ?? [])].sort((a, b) => a.seq - b.seq);
+    for (const key of records) {
       if (key.seq < floor || claimed.has(key.seq)) continue;
-      return { value: null, ok: true, record: keyRecord(key.name), claim: key.seq, discardBefore: floor };
+      return { value: null, ok: true, record: {
+        ...keyRecord(key.name ?? ""),
+        key: key.name,
+        action: key.resolvedActions?.[0] ?? null,
+        actions: [...(key.resolvedActions ?? [])],
+      }, claim: key.seq, discardBefore: floor };
     }
   }
-  if (wait.key !== null) return { value: null, ok: true, record: keyRecord(wait.key), discardBefore: floor };
   if (current.x !== base.x || current.y !== base.y || current.buttons !== base.buttons || current.downs !== base.downs || current.ups !== base.ups) {
     const { downX, downY, ...rest } = current;
     return {
@@ -161,9 +166,11 @@ export function pollMenuScreen(view: WaitView, wait: Wait): WaitResult | null {
     const floor = typeof saved.parkSeq === "number" ? saved.parkSeq : 0;
     if (saved.phase !== "input") return { value: null, ok: true };
     const claimed = new Set(view.claims ?? []);
-    for (const key of view.input?.keys ?? []) {
+    const records = [...(view.input?.keys ?? []), ...(view.input?.actionKeys ?? [])].sort((a, b) => a.seq - b.seq);
+    for (const key of records) {
       if (key.seq < floor || claimed.has(key.seq)) continue;
-      return { value: key.name, ok: true, claim: key.seq };
+      const actions = [...(key.resolvedActions ?? [])];
+      return { value: null, ok: true, record: { kind: "key", key: actions[0] ?? key.name ?? "", actions }, claim: key.seq };
     }
     const base = saved.pointer;
     const now = view.input?.pointer;
@@ -233,7 +240,7 @@ export function pollRenderMsgBox(view: WaitView, wait: Wait): WaitResult | null 
   if (view.input === undefined) return null;
   const claimed = new Set(view.claims ?? []);
   const entries = [
-    ...view.input.keys.map((key) => ({ kind: "key" as const, seq: key.seq, key })),
+    ...[...view.input.keys, ...(view.input.actionKeys ?? [])].map((key) => ({ kind: "key" as const, seq: key.seq, key })),
     ...(view.input.modalActions ?? []).map((action) => ({ kind: "modal" as const, seq: action.seq, action })),
   ].sort((left, right) => left.seq - right.seq);
   for (const entry of entries) {

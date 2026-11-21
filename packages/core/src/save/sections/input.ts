@@ -1,16 +1,16 @@
 /** Owner: core/input (AD-10/AD-14; E-110..E-112). */
 import type { PlainData } from "../../ports/plain-data.ts";
 
-export const INPUT_SCHEMA_VERSION = 10;
+export const INPUT_SCHEMA_VERSION = 11;
 
 export type InputKeyState = {
   readonly seq: number;
-  readonly name: string;
+  readonly name: string | null;
   readonly code: string;
   readonly char: string | null;
   readonly action: string | null;
   readonly resolvedActions: string[];
-  readonly target?: string;
+  readonly actionOnly?: boolean;
 };
 
 export type InputButtonSlot = {
@@ -70,6 +70,7 @@ export type InputSection = {
   version: number;
   nextSeq: number;
   keys: InputKeyState[];
+  actionKeys: InputKeyState[];
   held: { [name: string]: boolean };
   /**
    * The last pointer position and pressed-button bitmask, plus the monotonic press/release edge counters

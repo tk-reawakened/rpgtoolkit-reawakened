@@ -1,5 +1,5 @@
 /** Deterministic input owner for keyboard, pointer and normalized gamepad data. */
-import type { InputEvent, GamepadInput, KeyInput, PointerInput } from "../ports/input.ts";
+import type { HistoricalKeyInput, InputEvent, GamepadInput, KeyInput, PointerInput } from "../ports/input.ts";
 import { INPUT_SCHEMA_VERSION, type InputBindings, type InputButton, type InputButtonSlot, type InputGamepad, type InputKeyState, type InputSection, type RegisteredAction } from "../save/sections/input.ts";
 
 import type { MainFileMovementSettings } from "./movement-settings.ts";
@@ -27,10 +27,14 @@ const ENGINE_PAD_MASKS: Readonly<Record<string, number>> = {
   up: (1 << 12) | (1 << 19), down: (1 << 13) | (1 << 20),
   left: (1 << 14) | (1 << 17), right: (1 << 15) | (1 << 18),
 };
-const LEGACY_ACTION_ALIASES: Readonly<Record<string, string>> = { ENTER: "menu", ESC: "cancel", " ": "confirm", SPACE: "confirm" };
+const LEGACY_ACTION_ALIASES: Readonly<Record<string, string>> = { ENTER: "confirm", ESC: "cancel", " ": "confirm", SPACE: "confirm" };
 const DEFAULT_KEY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   ArrowUp: ["up"], ArrowDown: ["down"], ArrowLeft: ["left"], ArrowRight: ["right"],
-  Enter: ["confirm", "menu"], Space: ["confirm"], Escape: ["cancel"],
+  Enter: ["confirm"], NumpadEnter: ["confirm"], Space: ["confirm"], Escape: ["cancel"], KeyM: ["menu"],
+};
+const HISTORICAL_DEFAULT_KEY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
+  ArrowUp: ["up"], ArrowDown: ["down"], ArrowLeft: ["left"], ArrowRight: ["right"],
+  Enter: ["confirm"], Space: ["confirm"], Escape: ["cancel"],
 };
 // Game configuration is derived from the active main file. Only held state and press order are saved.
 const movementSettings = new WeakMap<InputSection, MainFileMovementSettings>();
@@ -390,10 +394,41 @@ export function inputView(state: InputSection): InputView {
 }
 
 
-const GAME_ACTION_NAME = /^game\.[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$/;
-
 function mappedAction(state: InputSection, event: KeyInput): string | undefined {
-  return state.bindings.keys[event.code] ?? state.bindings.keys[event.name];
+  return state.bindings.keys[event.code];
+}
+
+function physicalKeyName(event: KeyInput | HistoricalKeyInput): string | null {
+  const aliases: Readonly<Record<string, string>> = {
+    Enter: "ENTER", NumpadEnter: "ENTER", Escape: "ESC", ArrowUp: "UP",
+    ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT", Space: " ",
+  };
+  const alias = aliases[event.code];
+  if (alias !== undefined) return alias;
+  const char = event.char;
+  if (typeof char === "string" && char.length > 0) {
+    let valid = true;
+    for (let index = 0; index < char.length; index += 1) {
+      const unit = char.charCodeAt(index);
+      if (unit >= 0xd800 && unit <= 0xdbff) {
+        const next = char.charCodeAt(index + 1);
+        if (next < 0xdc00 || next > 0xdfff) { valid = false; break; }
+        index += 1;
+      } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+        valid = false;
+        break;
+      }
+    }
+    if (valid) return char;
+  }
+  const vk = "vk" in event ? event.vk : null;
+  if (typeof vk !== "number" || !Number.isInteger(vk) || vk < 0 || vk > 0xffff || (vk >= 0xd800 && vk <= 0xdfff)) return null;
+  if (vk >= 0x30 && vk <= 0x39) return String.fromCharCode(vk);
+  if (vk >= 0x41 && vk <= 0x5a) return String.fromCharCode(vk);
+  if (vk === 13) return "ENTER";
+  if (vk === 27) return "ESC";
+  if (vk === 32) return " ";
+  return null;
 }
 
 /** Register an action definition and index its canonical controls for constant-time event resolution. */
@@ -467,7 +502,7 @@ export function applySemanticActionEdge(
 
 function appendKey(
   state: InputSection,
-  name: string,
+  name: string | null,
   code: string,
   char: string | null,
   action: string | null,
@@ -477,7 +512,9 @@ function appendKey(
 ): void {
   const seq = state.nextSeq;
   state.nextSeq += 1;
-  state.keys.push({ seq, name, code, char, action, resolvedActions: [...resolvedActions], ...(target === null ? {} : { target }) });
+  const record: InputKeyState = { seq, name, code, char, action, resolvedActions: [...resolvedActions], ...(name === null ? { actionOnly: true } : {}), ...(target === null ? {} : { target }) };
+  if (name === null) state.actionKeys.push(record);
+  else state.keys.push(record);
   if (pendingKeySequence) state.pendingKeySequences.push(seq);
 }
 
@@ -570,14 +607,15 @@ function updatePadActions(
   }
 }
 
-function applyKey(state: InputSection, event: KeyInput, onUnknownAction?: (action: string) => void, onActionTransition?: (action: string, down: boolean, firstSeq: number) => void): void {
-  const physicalControl = event.code.length > 0 ? event.code : event.name;
+function applyKey(state: InputSection, event: KeyInput | HistoricalKeyInput, onUnknownAction?: (action: string) => void, onActionTransition?: (action: string, down: boolean, firstSeq: number) => void, target?: string, recordedName?: string): void {
+  const physicalName = recordedName ?? physicalKeyName(event);
+  const physicalControl = event.code.length > 0 ? event.code : physicalName ?? "";
   const priorRaw = state.held[physicalControl] === true;
   if (event.down && event.repeat === true && !priorRaw) return;
-  updateHeldClaims(state, physicalControl, event.name, event.down);
+  if (physicalName !== null) updateHeldClaims(state, physicalControl, physicalName, event.down);
   const control = `key:${event.code}`;
   const configured = mappedAction(state, event);
-  const defaultActions = DEFAULT_KEY_ACTIONS[event.code] ?? [];
+  const defaultActions = (recordedName === undefined ? DEFAULT_KEY_ACTIONS : HISTORICAL_DEFAULT_KEY_ACTIONS)[event.code] ?? [];
   const mapped = configured === undefined ? undefined : LEGACY_ACTION_ALIASES[configured] ?? configured;
   const bound = state.controlActions[control] ?? [];
   const settings = movementSettings.get(state);
@@ -600,11 +638,10 @@ function applyKey(state: InputSection, event: KeyInput, onUnknownAction?: (actio
     ])].sort((a, b) => state.actionOrder[a]! - state.actionOrder[b]!),
   ];
   if (event.down) {
-    const semanticGameBinding = mapped !== undefined && mapped.startsWith("game.");
-    // E-110: physical arrows reach RPGCode as LEFT, RIGHT, UP or DOWN across all runners.
-    const arrowName = event.code.startsWith("Arrow") ? PHYSICAL_KEY_ALIASES[event.code]?.[0] : undefined;
-    const name = arrowName ?? (semanticGameBinding ? event.name : configured ?? event.name);
-    appendKey(state, name, event.code, event.char, configured ?? null, ordered, null, !event.repeat && !priorRaw);
+    const arrowName = recordedName === undefined && event.code.startsWith("Arrow") ? PHYSICAL_KEY_ALIASES[event.code]?.[0] : undefined;
+    const keyName = recordedName ?? arrowName ?? physicalName;
+    if (keyName !== null) appendKey(state, keyName, event.code, event.char, configured ?? null, ordered, target ?? null, !event.repeat && !priorRaw);
+    else if (ordered.length > 0) appendKey(state, null, event.code, event.char, ordered[0] ?? null, ordered, target ?? null, false);
   }
   if (event.down && event.repeat === true) return;
   if (event.down && priorRaw) return;
@@ -727,9 +764,9 @@ function applyPointer(state: InputSection, event: PointerInput): void {
 }
 
 /** Apply one raw event. Gamepad events are staged for deterministic device ordering. */
-export function applyInputEvent(state: InputSection, event: InputEvent, onUnknownAction?: (action: string) => void, onActionTransition?: (action: string, down: boolean, firstSeq: number) => void): void {
+export function applyInputEvent(state: InputSection, event: InputEvent | HistoricalKeyInput, onUnknownAction?: (action: string) => void, onActionTransition?: (action: string, down: boolean, firstSeq: number) => void): void {
   switch (event.kind) {
-    case "key": applyKey(state, event, onUnknownAction, onActionTransition); return;
+    case "key": applyKey(state, event, onUnknownAction, onActionTransition, undefined, "name" in event && typeof event.name === "string" ? event.name : undefined); return;
     case "action":
       if (event.modalId !== null) {
         if (event.action !== "confirm" && event.action !== "cancel") {
@@ -822,7 +859,7 @@ export function takeInputActions(state: InputSection): { actions: string[]; clic
 
 /** Add every queued key or scoped modal action older than a waiter's park floor to the shared claim set. */
 export function claimInputBefore(state: InputSection, floor: number, claims: number[]): void {
-  for (const key of state.keys) {
+  for (const key of [...state.keys, ...state.actionKeys]) {
     if (key.seq < floor && !claims.includes(key.seq)) claims.push(key.seq);
   }
   for (const action of state.modalActions) {
@@ -835,6 +872,7 @@ export function pruneClaimed(state: InputSection, claimed: readonly number[]): v
   if (claimed.length === 0) return;
   const used = new Set(claimed);
   state.keys = state.keys.filter((key) => !used.has(key.seq));
+  state.actionKeys = state.actionKeys.filter((key) => !used.has(key.seq));
   state.modalActions = state.modalActions.filter((action) => !used.has(action.seq));
 }
 /** Recompute derived action state after restoring the physical gamepad sample across a lifecycle reset. */

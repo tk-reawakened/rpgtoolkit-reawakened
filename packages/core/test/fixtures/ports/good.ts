@@ -269,9 +269,9 @@ export const pinTickReport: TickReport = {
       tick: 0,
       event: {
         kind: "key",
-        name: "A",
         code: "KeyA",
         char: null,
+        vk: 65,
         down: true,
       },
     },
@@ -421,17 +421,17 @@ export const pinPrefetchRequest: RunnerRequest = {
 
 export const pinKeyInputWithChar: KeyInput = {
   kind: "key",
-  name: "A",
   code: "KeyA",
   char: "a",
+  vk: null,
   down: true,
 };
 
 export const pinKeyInputWithoutChar: KeyInput = {
   kind: "key",
-  name: "B",
   code: "KeyB",
   char: null,
+  vk: 66,
   down: true,
 };
 

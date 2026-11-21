@@ -413,6 +413,20 @@ export function press(session: Session, key: string): GameState {
   return session.pump((current) => current.time.tick > tick, key);
 }
 
+/** Send Enter with extra ACT-4 actions bound to its physical control for this one press. */
+export function pressWithActions(session: Session, actions: readonly string[]): GameState {
+  const control = "key:Enter";
+  const controls = session.state().input.controlActions;
+  const previous = controls[control];
+  controls[control] = [...actions];
+  try {
+    return press(session, "ENTER");
+  } finally {
+    if (previous === undefined) delete controls[control];
+    else controls[control] = previous;
+  }
+}
+
 /** Deliver one pointer report on the next tick; a press and its release are two reports on two ticks, like a real host. */
 export function pointer(session: Session, x: number, y: number, buttons: number): GameState {
   const tick = session.state().time.tick;

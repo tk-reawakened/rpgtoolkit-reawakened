@@ -334,7 +334,8 @@ stockMenu = {
         local(ui) = {
             mode: "list", framed: framed, follow: 0, sel: 0, actor0: actor, actor: actor,
             last: null, pressed: -1, dirty: 1, cap: 1, y0: 48, rows: 0,
-            memberSel: 0, slotSel: 0, stack: 0, stackSel: 0, actionSel: 0, move: 0, moveSel: 0
+            memberSel: 0, slotSel: 0, stack: 0, stackSel: 0, actionSel: 0, move: 0, moveSel: 0,
+            actions: {}, actionCount: 0, actionIndex: 0, pending: "", pendingActor: 0, pendingSlot: "", pendingEntry: 0
         }
         return ui
     },
@@ -377,6 +378,11 @@ stockMenu = {
         ui.pressed = -1
         ui.dirty = 1
         return 0
+    },
+    // A key's complete ACT-4 list remains on the `ui` that claimed it. A screen must drain it before it waits again,
+    // and a parent must not hand any remainder to a nested provider.
+    hasBuffered: (ui) => {
+        return ui.actionIndex < ui.actionCount
     },
     wrap: (value, count) => {
         if (count < 1) {
@@ -494,17 +500,36 @@ stockMenu = {
         }
         return result
     },
-    // The one input wait of every screen: one key (normalised) or one pointer change.
+    // The one input wait of every screen: one buffered action from the owning key, or one pointer change.
     read: (ui) => {
-        local(ev) = waitinput(ui.last)
+        local(ev)
         local(key) = ""
         local(first) = 0
-        ui.last = ev
-        if (ev.kind == "key") {
-            key = stockMenu.normalize(ev.key)
+        local(index) = 0
+        if (stockMenu.hasBuffered(ui) == 1) {
+            key = ui.actions[ui.actionIndex]
+            ui.actionIndex = ui.actionIndex + 1
         } else {
-            first = stockMenu.firstOf(stockMenu.getSel(ui), ui.rows, ui.cap)
-            key = stockMenu.pointer(ui, ev, ui.rows, first, ui.y0)
+            ev = waitinput(ui.last)
+            ui.last = ev
+            if (ev.kind == "key") {
+                ui.actionCount = ev.actions.length
+                ui.actionIndex = 0
+                ui.actions = {}
+                for (index = 0; index < ui.actionCount; index = index + 1) {
+                    ui.actions[index] = ev.actions[index]
+                }
+                if (stockMenu.hasBuffered(ui) == 1) {
+                    key = ui.actions[ui.actionIndex]
+                    ui.actionIndex = ui.actionIndex + 1
+                } else {
+                    // A named key with no resolved action keeps the historical single-key interpretation.
+                    key = stockMenu.normalize(ev.key)
+                }
+            } else {
+                first = stockMenu.firstOf(stockMenu.getSel(ui), ui.rows, ui.cap)
+                key = stockMenu.pointer(ui, ev, ui.rows, first, ui.y0)
+            }
         }
         if (key != "") {
             stockMenu.message = ""
@@ -779,52 +804,79 @@ stockMenu = {
                 }
                 if (key == "confirm") {
                     if (selection == 0) {
+                        ui.pending = "items"
                         stockMenu.cue("choose")
-                        itemmenu()
-                        if (stockMenu.closeAll == 1) { done = 1 }
-                        stockMenu.resync(ui)
                     }
                     if (selection == 1) {
+                        ui.pending = "equipment"
                         stockMenu.cue("choose")
-                        equipmentmenu()
-                        if (stockMenu.closeAll == 1) { done = 1 }
-                        stockMenu.resync(ui)
                     }
                     if (selection == 2) {
+                        ui.pending = "abilities"
                         stockMenu.cue("choose")
-                        abilitiesmenu()
-                        if (stockMenu.closeAll == 1) { done = 1 }
-                        stockMenu.resync(ui)
                     }
                     if (selection == 3) {
                         if (context.menu.saveallowed == 0) {
                             stockMenu.message = "Saving is not allowed here"
                             stockMenu.cue("cancel")
                         } else {
+                            ui.pending = "save"
                             stockMenu.cue("choose")
-                            name = dirsav("Save game", 1, 0, 0, "")
-                            if (stockMenu.closeAll == 1) { done = 1 }
-                            if (name != "CANCEL") {
-                                save(name)
-                                stockMenu.message = "Saved " + name
-                            }
-                            stockMenu.resync(ui)
                         }
                     }
                     if (selection == 4) {
+                        ui.pending = "load"
                         stockMenu.cue("choose")
-                        name = dirsav("Load game", 0, 0, 0, "")
-                        if (stockMenu.closeAll == 1) { done = 1 }
-                        if (name != "CANCEL") {
-                            load(name)
-                            done = 1
-                        }
-                        stockMenu.resync(ui)
                     }
                     if (selection == 5) {
                         stockMenu.enter(ui, "quit", ui.actor0, 0, 0)
                         stockMenu.cue("choose")
                     }
+                }
+            }
+            // A single physical key can carry several actions. Finish its batch on Main before crossing a provider
+            // boundary; in particular, a later `menu` cancels this pending child instead of closing it from inside.
+            if (done == 1) {
+                ui.pending = ""
+            }
+            if (done == 0 && ui.pending != "" && stockMenu.hasBuffered(ui) == 0) {
+                if (ui.pending == "items") {
+                    ui.pending = ""
+                    itemmenu()
+                    if (stockMenu.closeAll == 1) { done = 1 }
+                    stockMenu.resync(ui)
+                }
+                if (ui.pending == "equipment") {
+                    ui.pending = ""
+                    equipmentmenu()
+                    if (stockMenu.closeAll == 1) { done = 1 }
+                    stockMenu.resync(ui)
+                }
+                if (ui.pending == "abilities") {
+                    ui.pending = ""
+                    abilitiesmenu()
+                    if (stockMenu.closeAll == 1) { done = 1 }
+                    stockMenu.resync(ui)
+                }
+                if (ui.pending == "save") {
+                    ui.pending = ""
+                    name = dirsav("Save game", 1, 0, 0, "")
+                    if (stockMenu.closeAll == 1) { done = 1 }
+                    if (name != "CANCEL") {
+                        save(name)
+                        stockMenu.message = "Saved " + name
+                    }
+                    stockMenu.resync(ui)
+                }
+                if (ui.pending == "load") {
+                    ui.pending = ""
+                    name = dirsav("Load game", 0, 0, 0, "")
+                    if (stockMenu.closeAll == 1) { done = 1 }
+                    if (name != "CANCEL") {
+                        load(name)
+                        done = 1
+                    }
+                    stockMenu.resync(ui)
                 }
             }
         }
@@ -966,17 +1018,8 @@ stockMenu = {
                             }
                             if (key == "confirm") {
                                 if (stockMenu.memberCount > 0) {
-                                    actorId = stockMenu.memberIds[selection]
-                                    result = context.inventory.use({ entryId: stockMenu.stackIds[ui.stack], actorId: actorId })
-                                    if (result.status == "complete") {
-                                        stockMenu.message = "Used " + stockMenu.stackHandles[ui.stack]
-                                        stockMenu.enter(ui, "list", ui.actor0, ui.stackSel, 0)
-                                        stockMenu.cue("choose")
-                                    } else {
-                                        stockMenu.message = result.error.message
-                                        stockMenu.cue("cancel")
-                                    }
-                                    stockMenu.resync(ui)
+                                    ui.pendingActor = stockMenu.memberIds[selection]
+                                    ui.pending = "useItem"
                                 }
                             }
                         } else {
@@ -994,6 +1037,22 @@ stockMenu = {
                         }
                     }
                 }
+            }
+            if (done == 1) {
+                ui.pending = ""
+            }
+            if (done == 0 && ui.pending == "useItem" && stockMenu.hasBuffered(ui) == 0) {
+                ui.pending = ""
+                result = context.inventory.use({ entryId: stockMenu.stackIds[ui.stack], actorId: ui.pendingActor })
+                if (result.status == "complete") {
+                    stockMenu.message = "Used " + stockMenu.stackHandles[ui.stack]
+                    stockMenu.enter(ui, "list", ui.actor0, ui.stackSel, 0)
+                    stockMenu.cue("choose")
+                } else {
+                    stockMenu.message = result.error.message
+                    stockMenu.cue("cancel")
+                }
+                stockMenu.resync(ui)
             }
         }
         stockMenu.close(parent)
@@ -1154,32 +1213,48 @@ stockMenu = {
                                 stockMenu.cue("cancel")
                             }
                             if (key == "confirm") {
-                                result = null
                                 if (stockMenu.listHasRemove == 1 && selection == 0) {
-                                    result = context.inventory.removeEquipment({ actorId: ui.actor, slot: slot })
+                                    ui.pendingSlot = slot
+                                    ui.pending = "removeEquipment"
                                 } else {
                                     position = selection
                                     if (stockMenu.listHasRemove == 1) {
                                         position = selection - 1
                                     }
                                     if (position < stockMenu.itemcount) {
-                                        result = context.inventory.replace({ entryId: stockMenu.stackIds[stockMenu.listPositions[position]], actorId: ui.actor, slot: slot })
+                                        ui.pendingSlot = slot
+                                        ui.pendingEntry = stockMenu.stackIds[stockMenu.listPositions[position]]
+                                        ui.pending = "replaceEquipment"
                                     }
-                                }
-                                if (result != null) {
-                                    if (result.status == "complete") {
-                                        stockMenu.enter(ui, "slot", ui.actor, ui.slotSel, 0)
-                                        stockMenu.message = "Equipped"
-                                        stockMenu.cue("choose")
-                                    } else {
-                                        stockMenu.message = result.error.message
-                                        stockMenu.cue("cancel")
-                                    }
-                                    stockMenu.resync(ui)
                                 }
                             }
                         }
                     }
+                }
+            }
+            if (done == 1) {
+                ui.pending = ""
+            }
+            if (done == 0 && stockMenu.hasBuffered(ui) == 0) {
+                result = null
+                if (ui.pending == "removeEquipment") {
+                    ui.pending = ""
+                    result = context.inventory.removeEquipment({ actorId: ui.actor, slot: ui.pendingSlot })
+                }
+                if (ui.pending == "replaceEquipment") {
+                    ui.pending = ""
+                    result = context.inventory.replace({ entryId: ui.pendingEntry, actorId: ui.actor, slot: ui.pendingSlot })
+                }
+                if (result != null) {
+                    if (result.status == "complete") {
+                        stockMenu.enter(ui, "slot", ui.actor, ui.slotSel, 0)
+                        stockMenu.message = "Equipped"
+                        stockMenu.cue("choose")
+                    } else {
+                        stockMenu.message = result.error.message
+                        stockMenu.cue("cancel")
+                    }
+                    stockMenu.resync(ui)
                 }
             }
         }
@@ -1346,21 +1421,9 @@ stockMenu = {
                                     stockMenu.enter(ui, "info", ui.actor, 1, 0)
                                     stockMenu.cue("choose")
                                 } else {
-                                    spc = battlemovedata(stockMenu.moveFiles[ui.move])
-                                    program = ""
-                                    if (spc != null) {
-                                        program = spc.program
-                                    }
-                                    if (program == "") {
-                                        stockMenu.message = "Nothing happens"
-                                    } else {
-                                        member = stockMenu.members(context)[ui.memberSel]
-                                        executeprogram(program, { source: "" + member.handle, target: "" + member.handle })
-                                        stockMenu.message = "Used " + stockMenu.moveNames[ui.move]
-                                    }
-                                    stockMenu.enter(ui, "list", ui.actor, ui.moveSel, 0)
-                                    stockMenu.cue("choose")
-                                    stockMenu.resync(ui)
+                                    // `battlemovedata` and the move program can both wait. Let this screen finish
+                                    // its claimed action batch before either call can park the script.
+                                    ui.pending = "move"
                                 }
                             }
                         } else {
@@ -1378,6 +1441,27 @@ stockMenu = {
                         }
                     }
                 }
+            }
+            if (done == 1) {
+                ui.pending = ""
+            }
+            if (done == 0 && ui.pending == "move" && stockMenu.hasBuffered(ui) == 0) {
+                ui.pending = ""
+                spc = battlemovedata(stockMenu.moveFiles[ui.move])
+                program = ""
+                if (spc != null) {
+                    program = spc.program
+                }
+                if (program == "") {
+                    stockMenu.message = "Nothing happens"
+                } else {
+                    member = stockMenu.members(context)[ui.memberSel]
+                    executeprogram(program, { source: "" + member.handle, target: "" + member.handle })
+                    stockMenu.message = "Used " + stockMenu.moveNames[ui.move]
+                }
+                stockMenu.enter(ui, "list", ui.actor, ui.moveSel, 0)
+                stockMenu.cue("choose")
+                stockMenu.resync(ui)
             }
         }
         stockMenu.close(parent)

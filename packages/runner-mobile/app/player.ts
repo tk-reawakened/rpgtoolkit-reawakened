@@ -257,12 +257,12 @@ function run(
     }
     if (shouldSuppressGameplayKey(event.code, event.repeat, true, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(event.code)) event.preventDefault();
-    pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: true, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
+    pending.push({ tick: session.tick(), event: { kind: "key", code: event.code, char: event.key.length === 1 ? event.key : null, vk: event.keyCode, down: true, ...(event.repeat ? { repeat: true } : {}) }, pointerGeometry: null });
   };
   const onKeyUp = (event: KeyboardEvent): void => {
     if (isDiagnosticsToggle(event)) { event.preventDefault(); return; }
     if (shouldSuppressGameplayKey(event.code, event.repeat, false, isFallbackTouchControlTarget(event.target), fallbackControlKeys)) return;
-    pending.push({ tick: session.tick(), event: { kind: "key", name: event.key.toUpperCase(), code: event.code, char: event.key.length === 1 ? event.key : null, down: false }, pointerGeometry: null });
+    pending.push({ tick: session.tick(), event: { kind: "key", code: event.code, char: event.key.length === 1 ? event.key : null, vk: event.keyCode, down: false }, pointerGeometry: null });
   };
   const focus = (state: "lost" | "gained"): void => {
     pending.push({ tick: session.tick(), event: { kind: "focus", state }, pointerGeometry: null });

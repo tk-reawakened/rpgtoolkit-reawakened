@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tk-reawakened.dev/schema/runner-protocol-v3.schema.json",
   "title": "TK Reawakened runner boundary protocol v3",
-  "description": "The records that cross the runner boundary, in the JSON projection a non-TypeScript runner sees. Every record has exactly the keys for its kind and an absent value is null, never an omitted key (AD-14). Uint8Array leaves travel as base64 strings; a runner validates what it sends and what it receives against this schema and replays the vector kit (tools/fixtures/runner-protocol/) to prove it behaves. The audio messages and events are NOT restated here: they are packages/synth/schema/audio-protocol-v1.schema.json. V2 DrawList records require both ordered command planes. V3 DrawList records require protocolVersion 3 and support source-over.",
+  "description": "The records that cross the runner boundary, in the JSON projection a non-TypeScript runner sees. Every record has exactly the keys for its kind and an absent value is null, never an omitted key (AD-14). Uint8Array leaves travel as base64 strings; a runner validates what it sends and what it receives against this schema and replays the vector kit (tools/fixtures/runner-protocol/) to prove it behaves. The audio messages and events are NOT restated here: they are packages/synth/schema/audio-protocol-v1.schema.json. V2 DrawList records require both ordered command planes. V3 DrawList records require protocolVersion 3 and support source-over. V3 key events carry physical code, character, and virtual-key data; they do not carry a host-derived name.",
   "oneOf": [
     {
       "$ref": "#/$defs/drawList"
@@ -588,18 +588,14 @@
       "additionalProperties": false,
       "required": [
         "kind",
-        "name",
         "code",
         "char",
+        "vk",
         "down"
       ],
       "properties": {
         "kind": {
           "const": "key"
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1
         },
         "code": {
           "type": "string"
@@ -607,7 +603,8 @@
         "char": {
           "oneOf": [
             {
-              "type": "string"
+              "type": "string",
+              "pattern": "^(?:[\\u0000-\\uD7FF\\uE000-\\uFFFF]|[\\uD800-\\uDBFF][\\uDC00-\\uDFFF])$"
             },
             {
               "type": "null"
@@ -619,6 +616,23 @@
         },
         "repeat": {
           "type": "boolean"
+        },
+        "vk": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 55295
+            },
+            {
+              "type": "integer",
+              "minimum": 57344,
+              "maximum": 65535
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "description": "`repeat` is the one optional key in the boundary: host auto-repeat is not a new press edge (E-110)."

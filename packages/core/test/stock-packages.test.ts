@@ -134,7 +134,7 @@ function run(engine: Engine, files: Files, doubles: Started, closeMenu = false):
     if (closeMenu && !openedMenu && doubles.state().menu.screens.length > 0 &&
         doubles.state().vm.threads.some((thread) => thread.wait?.kind === "input.key")) {
       openedMenu = true;
-      replies.push({ tick: report.tickAfter, event: { kind: "key", name: "ESC", code: "Escape", char: null, down: true } });
+      replies.push({ tick: report.tickAfter, event: { kind: "key", code: "Escape", char: null, vk: null, down: true } });
     }
     if (doubles.state().vm.globals.ended === 1) return { diagnostics, openedMenu };
   }

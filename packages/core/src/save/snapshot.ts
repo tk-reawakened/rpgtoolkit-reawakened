@@ -519,7 +519,8 @@ function migrateInput(record: Record<string, unknown>, schema: Record<string, un
     if (typeof input.keyboardActionSources !== "object" || input.keyboardActionSources === null || Array.isArray(input.keyboardActionSources)) input.keyboardActionSources = {};
     if (!Array.isArray(input.pendingKeySequences)) input.pendingKeySequences = [];
     input.keys = normalizeKeys(input.keys);
-    if (typeof input.nextPointerGestureId !== "number" || !Number.isSafeInteger(input.nextPointerGestureId) || input.nextPointerGestureId < 1) input.nextPointerGestureId = 1;
+    if (!Array.isArray(input.actionKeys)) input.actionKeys = [];
+    else input.actionKeys = normalizeKeys(input.actionKeys);
     if (typeof input.pointerGestureId !== "number" || !Number.isSafeInteger(input.pointerGestureId)) input.pointerGestureId = null;
     if (!Array.isArray(input.pendingClicks)) input.pendingClicks = [];
     else input.pendingClicks = input.pendingClicks.map((value) => typeof value === "object" && value !== null && typeof (value as Record<string, unknown>).x === "number" && typeof (value as Record<string, unknown>).y === "number"
@@ -546,9 +547,19 @@ function migrateInput(record: Record<string, unknown>, schema: Record<string, un
     rebuildInputActionIndexes(input);
     return;
   }
+  if (version === 10) {
+    const input = recordAt(record.input, "input");
+    const keys = normalizeKeys(input.keys);
+    input.keys = keys.filter((entry) => typeof entry !== "object" || entry === null || (entry as Record<string, unknown>).actionOnly !== true);
+    input.actionKeys = keys.filter((entry) => typeof entry === "object" && entry !== null && (entry as Record<string, unknown>).actionOnly === true);
+    input.version = INPUT_SCHEMA_VERSION;
+    schema.input = INPUT_SCHEMA_VERSION;
+    return;
+  }
   if (version === 8 || version === 9) {
     const input = recordAt(record.input, "input");
     input.version = INPUT_SCHEMA_VERSION;
+    input.actionKeys = [];
     if (!Array.isArray(input.modalActions)) input.modalActions = [];
     schema.input = INPUT_SCHEMA_VERSION;
     return;
@@ -556,6 +567,7 @@ function migrateInput(record: Record<string, unknown>, schema: Record<string, un
   if (version === 7) {
     const input = recordAt(record.input, "input");
     input.version = INPUT_SCHEMA_VERSION;
+    input.actionKeys = [];
     if (!Array.isArray(input.pendingKeySequences)) input.pendingKeySequences = [];
     if (!Array.isArray(input.modalActions)) input.modalActions = [];
     input.keys = normalizeKeys(input.keys);
@@ -606,11 +618,11 @@ function migrateInput(record: Record<string, unknown>, schema: Record<string, un
       registeredActions: version >= 5 && Array.isArray(oldRecord.registeredActions) ? oldRecord.registeredActions : [],
       semanticActionSources: version >= 5 && typeof oldRecord.semanticActionSources === "object" && oldRecord.semanticActionSources !== null ? oldRecord.semanticActionSources : {},
       keyboardActionSources: {},
+      actionKeys: [],
       pointerMovementSuppressed: version >= 5 && typeof oldRecord.pointerMovementSuppressed === "boolean" ? oldRecord.pointerMovementSuppressed : false,
       pointerPlane: version >= 5 && oldRecord.pointerPlane !== undefined ? oldRecord.pointerPlane : null,
       pendingKeySequences: [],
       modalActions: [],
-      gamepads: pads,
       pointerGestureId: activeGestureId,
       pendingClicks: clicks,
       pendingPointerUps: pointerUps,

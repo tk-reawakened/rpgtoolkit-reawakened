@@ -92,13 +92,13 @@ test("specInput: a scheduled press reaches a waiting script at its tick, edges o
     '  t = specTicks(0)',
     '  specInput(t + 2, "B", "KeyB", "b", 1)',
     '  specInput(t + 2, "A", "KeyA", "a", 1)',
-    '  expect(wait()).toEqual("B")',
+    '  expect(wait()).toEqual("b")',
     '})',
     'it("same tick, A scheduled first", () => {',
     '  t = specTicks(0)',
     '  specInput(t + 2, "A", "KeyA", "a", 1)',
     '  specInput(t + 2, "B", "KeyB", "b", 1)',
-    '  expect(wait()).toEqual("A")',
+    '  expect(wait()).toEqual("a")',
     '})',
   ].join("\n"));
   deepEqual(verdicts(report).failed, []);
@@ -109,13 +109,13 @@ test("specInput: due edges enter the input section in scheduling order, and a ke
   // No RPGCode command reads a held key yet, so the runner's per-tick step is checked on a real input section.
   const doubles = createDoubles();
   const input = createInputSection();
-  const key = (down: boolean): KeyInput => ({ kind: "key", name: "A", code: "KeyA", char: "a", down });
-  doubles.pending.push({ tick: 5, event: key(true) }, { tick: 6, event: key(false) }, { tick: 5, event: { ...key(true), name: "B", code: "KeyB", char: "b" } });
+  const key = (down: boolean): KeyInput => ({ kind: "key", code: "KeyA", char: "a", vk: null, down });
+  doubles.pending.push({ tick: 5, event: key(true) }, { tick: 6, event: key(false) }, { tick: 5, event: { ...key(true), code: "KeyB", char: "b" } });
   applyDue(doubles, input, 4);
   equal(input.held.KeyA === true, false);
   applyDue(doubles, input, 5);
   equal(input.held.KeyA, true);
-  deepEqual(input.keys.map((item) => item.name), ["A", "B"]);
+  deepEqual(input.keys.map((item) => item.name), ["a", "b"]);
   deepEqual(doubles.pending.map((item) => item.tick), [6]);
   applyDue(doubles, input, 6);
   equal(input.held.KeyA === true, false, "the key-up edge did not release the key");

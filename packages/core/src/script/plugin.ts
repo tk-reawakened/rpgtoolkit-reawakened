@@ -255,7 +255,7 @@ export type MenuScreenId = "main" | "items" | "equipment" | "abilities" | "shop"
 export const MENU_SCREEN_IDS: readonly MenuScreenId[] = ["main", "items", "equipment", "abilities", "shop"];
 export type MenuProviderEvent =
   | { readonly type: "enter" }
-  | { readonly type: "input"; readonly key: string }
+  | { readonly type: "input"; readonly key: string; readonly actions: readonly string[] }
   | {
     readonly type: "pointer";
     readonly x: number;
