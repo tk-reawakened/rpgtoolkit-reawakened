@@ -105,7 +105,7 @@ test("movement-tile-pixel: a 32 px tile is 8 advances, 24 ticks, completing on t
 
 test("collision-solid-stairs-under: blocked, sliding, layers and under facts", () => {
   const solid = theCase("collision-solid-stairs-under", "tile-solid-blocks");
-  deepEqual(events(solid, "blocked").map((e) => e.t), [24, 27]); // the second E step blocks as well; the third never starts
+  deepEqual(events(solid, "blocked").map((e) => e.t), [24, 25]); // the second E step blocks, then the third on the following update
   const slide = theCase("collision-solid-stairs-under", "pixel-glancing-slide");
   // R-54 item 3: the glancing SE step turns south, adopts the slid point and ends there, so x never moves.
   deepEqual(actorAt(slide, 0, "hero"), ["hero", 112, 67, 0, "waiting", "S"]);
@@ -124,20 +124,34 @@ test("collision-solid-stairs-under: blocked, sliding, layers and under facts", (
   ok(!isGlancing([100, 101], [1, 0], false));
 });
 
-test("collision-sprite-blocking: R-51 loser order, 120-tick freeze, diversion, wait and stop", () => {
+test("collision-sprite-blocking: R-64 consumed and retried steps, plus diversion, wait and stop", () => {
   const sc = "collision-sprite-blocking";
-  const lose = theCase(sc, "stationary-loses");
-  deepEqual(events(lose, "sprite-collision").map((e) => [e.t, e.winner, e.loser]), [[24, "hero", "npc"]]);
-  const thaw = theCase(sc, "freeze-thaw-and-refreeze");
-  equal(actorAt(thaw, 24, "npc")[4], "frozen");
-  equal(actorAt(thaw, 143, "npc")[4], "frozen"); // 120 ticks: 24 .. 143
-  equal(actorAt(thaw, 144, "npc")[4], "waiting");
-  deepEqual(events(thaw, "thaw").map((e) => e.t), [144]);
+  // R-64 item 1: the player's blocked direction entry is consumed and counted; the NPC is unaffected.
+  const lose = theCase(sc, "direction-step-consumed-into-npc");
+  deepEqual(events(lose, "sprite-collision").map((e) => [e.t, e.winner, e.loser]), []);
+  deepEqual(events(lose, "blocked").map((e) => e.t), [24, 25]);
+  equal(actorAt(lose, 35, "npc")[4], "waiting");
+  equal(actorAt(lose, 35, "hero")[1], 80); // two 32 px steps complete; the third is blocked at the last safe position
+  // R-64 item 3: no direction step ever freezes another actor, not even a fresh attempt at tick 145.
+  const thaw = theCase(sc, "blocked-direction-step-never-freezes-npc");
+  equal(actorAt(thaw, 24, "npc")[4], "waiting");
+  equal(actorAt(thaw, 143, "npc")[4], "waiting");
+  deepEqual(events(thaw, "thaw").map((e) => e.t), []);
+  deepEqual(events(thaw, "blocked").map((e) => e.t), [24, 25, 145]);
   equal(actorAt(thaw, 144, "hero")[4], "waiting");
-  deepEqual(events(thaw, "sprite-collision").map((e) => e.t), [24, 145]); // only a fresh explicit attempt refreezes it
-  deepEqual(events(theCase(sc, "controlled-player-wins-between-movers"), "sprite-collision").map((e) => e.winner), ["hero"]);
-  deepEqual(events(theCase(sc, "faster-sprite-wins"), "sprite-collision").map((e) => [e.winner, e.loser]), [["fast", "slow"]]);
-  deepEqual(events(theCase(sc, "equal-speed-larger-drawid-loses"), "sprite-collision").map((e) => [e.winner, e.loser]), [["first", "second"]]);
+  deepEqual(events(thaw, "sprite-collision").map((e) => e.t), []);
+  // R-64 item 2: a direction block is not resolved by the R-51 winner/loser order.
+  const movers = theCase(sc, "direction-movers-consume-and-retry");
+  deepEqual(events(movers, "sprite-collision").map((e) => e.winner), []);
+  deepEqual(events(movers, "blocked").length > 0, true);
+  const retry = theCase(sc, "non-player-direction-steps-retry-forever");
+  deepEqual(events(retry, "sprite-collision").map((e) => [e.winner, e.loser]), []);
+  equal(actorAt(retry, 59, "slow")[4], "moving");
+  equal(actorAt(retry, 59, "fast")[4], "moving");
+  const mutual = theCase(sc, "mutual-direction-retry-queues-wait");
+  deepEqual(events(mutual, "sprite-collision").map((e) => [e.winner, e.loser]), []);
+  equal(actorAt(mutual, 89, "first")[4], "moving");
+  equal(actorAt(mutual, 89, "second")[4], "moving");
   const dive = theCase(sc, "diversion-around-blocker");
   equal(events(dive, "diversion").length, 1);
   equal(events(dive, "sprite-collision").length, 0); // the collision is not applied

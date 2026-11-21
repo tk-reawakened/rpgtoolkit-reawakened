@@ -11,9 +11,13 @@ import type { VmState } from "../script/state.ts";
 import { foldAscii } from "../script/values.ts";
 import type { WorldBoard, WorldItem } from "../world/model.ts";
 
-export const SPRITES_SCHEMA_VERSION = 3;
+export const SPRITES_SCHEMA_VERSION = 4;
 export const FACING = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
 export type Facing = (typeof FACING)[number];
+/** One step's direction in board pixels. */
+export const FACING_VECTOR: Record<Facing, readonly [number, number]> = {
+  N: [0, -1], NE: [1, -1], E: [1, 0], SE: [1, 1], S: [0, 1], SW: [-1, 1], W: [-1, 0], NW: [-1, -1],
+};
 export type SpriteKind = "player" | "item";
 export type SpriteState = "waiting" | "idling" | "moving" | "done" | "stance" | "frozen" | "hidden";
 export type QueueSource = "keyboard" | "direction" | "points" | "path" | "waypoint-path" | "waypoint-link";
@@ -41,16 +45,43 @@ export type SpriteVisual = {
   stanceHeld: boolean;
   stanceComplete: boolean;
 };
-export type SpriteMove = {
-  readonly source: QueueSource;
-  readonly target: SpritePoint;
-  readonly facing: Facing | null;
+type SpriteMoveBase = {
   readonly pathMode?: 1 | 2 | 3;
   readonly deferredComplete?: boolean;
   readonly provenance?: MovementProvenance;
   /** Queued by a pointer click or held button; such moves pause while a script owns the key queue. */
   readonly pointer?: true;
 };
+/**
+ * A direction entry is relative intent (R-65, docs/spec/engine/movement-and-collision.md#r-65): it stores the
+ * direction and step size, never an expanded target, so its target is computed from the actor's position when
+ * the step starts and a blocked step cannot redirect a later entry through the obstacle.
+ */
+export type SpriteDirectionMove = SpriteMoveBase & {
+  readonly source: "direction";
+  readonly direction: Facing;
+  readonly distance: number;
+};
+/** A point entry keeps its absolute target (E-22, R-65 item 2). */
+export type SpritePointMove = SpriteMoveBase & {
+  readonly source: Exclude<QueueSource, "direction">;
+  readonly target: SpritePoint;
+  readonly facing: Facing | null;
+};
+export type SpriteMove = SpriteDirectionMove | SpritePointMove;
+export function isDirectionMove(move: SpriteMove): move is SpriteDirectionMove {
+  return move.source === "direction";
+}
+/** The absolute destination of a point entry, or undefined for a relative direction entry. */
+export function pointMoveTarget(move: SpriteMove | undefined): SpritePoint | undefined {
+  return move !== undefined && !isDirectionMove(move) ? move.target : undefined;
+}
+/** Where a queued entry points when it starts: a point keeps its target; a direction is relative (R-65). */
+export function moveDestination(move: SpriteMove, origin: SpritePoint): SpritePoint {
+  if (!isDirectionMove(move)) return move.target;
+  const vector = FACING_VECTOR[move.direction];
+  return { x: origin.x + vector[0] * move.distance, y: origin.y + vector[1] * move.distance };
+}
 export type WaypointLink = {
   points: SpritePoint[];
   cycles: number;
@@ -92,10 +123,17 @@ export type SpriteMovement = {
   readonly lastStepDistance: number;
   /** Provenance of the most recently completed step, including blocked attempts. */
   readonly lastStepProvenance: MovementProvenance;
+  /**
+   * The intended destination of the most recent finished step. A blocked player tile step is consumed and
+   * processed at this point even though the actor did not move (R-64, docs/spec/engine/movement-and-collision.md#r-64).
+   */
+  readonly lastStepTarget: SpritePoint | null;
+  /** True when the most recent finished step was blocked rather than completed. */
+  readonly lastStepBlocked: boolean;
 };
 
 export function createSpriteMovement(): SpriteMovement {
-  return { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: { kind: "unknown" } };
+  return { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: { kind: "unknown" }, lastStepTarget: null, lastStepBlocked: false };
 }
 
 /** Persisted progress for movement-owned random encounters. */

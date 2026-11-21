@@ -67,7 +67,7 @@ import { itemActionRecordIssue, ITEM_ACTION_COMPLETE_COMMAND } from "../script/i
 import { IR_VERSION } from "../script/program.ts";
 import { SCHEMA_VERSIONS, type GameState } from "./state.ts";
 import { asActorsSection, createActorsSection, ACTORS_SCHEMA_VERSION, validateActorProgression, type ActorProgression, type ActorStats } from "../actors/model.ts";
-import { asSpritesSection, createSpritesSection, SPRITES_SCHEMA_VERSION } from "../sprites/model.ts";
+import { asSpritesSection, createSpritesSection, FACING, SPRITES_SCHEMA_VERSION, type Facing, type MovementProvenance, type SpriteMove, type SpritePoint } from "../sprites/model.ts";
 import { createInputSection, rebuildKeyboardActionClaimIndex } from "../input/input.ts";
 import { createTriggersSection, TRIGGERS_SCHEMA_VERSION } from "../triggers/model.ts";
 import { INPUT_SCHEMA_VERSION } from "./sections/input.ts";
@@ -307,6 +307,45 @@ function migrateWorld(record: Record<string, unknown>, schema: Record<string, un
   schema.world = SCHEMA_VERSIONS.world;
 }
 
+function migratedFacing(dx: number, dy: number): Facing {
+  if (dy < 0) return dx === 0 ? "N" : dx > 0 ? "NE" : "NW";
+  if (dy > 0) return dx === 0 ? "S" : dx > 0 ? "SE" : "SW";
+  if (dx > 0) return "E";
+  if (dx < 0) return "W";
+  return "S";
+}
+/**
+ * R-65 (docs/spec/engine/movement-and-collision.md#r-65) migration: a pre-v4 save stored direction entries as
+ * absolute targets. Recompute each as relative intent from where the previous entry ends, so a restored queue
+ * cannot replay a stale target through an obstacle.
+ */
+function migrateAbsoluteDirectionMoves(moves: readonly SpriteMove[], origin: SpritePoint): SpriteMove[] {
+  let base = { x: origin.x, y: origin.y };
+  return moves.map((move): SpriteMove => {
+    const raw = move as unknown as Record<string, unknown>;
+    const target = isRecord(raw.target) ? raw.target : null;
+    if (raw.source !== "direction" || raw.direction !== undefined || target === null) {
+      if (target !== null && typeof target.x === "number" && typeof target.y === "number") base = { x: target.x, y: target.y };
+      return move;
+    }
+    if (typeof target.x !== "number" || typeof target.y !== "number") return move;
+    const dx = target.x - base.x;
+    const dy = target.y - base.y;
+    base = { x: target.x, y: target.y };
+    // The legacy entry stored its facing; that is authoritative when the target assumed a dropped step succeeded.
+    const direction = typeof raw.facing === "string" && FACING.includes(raw.facing as Facing)
+      ? raw.facing as Facing
+      : migratedFacing(dx, dy);
+    return {
+      source: "direction",
+      direction,
+      distance: Math.max(Math.abs(dx), Math.abs(dy)),
+      ...(raw.provenance === undefined ? {} : { provenance: raw.provenance as MovementProvenance }),
+      ...(raw.pointer === true ? { pointer: true as const } : {}),
+    };
+  });
+}
+
 /** Migrate the old empty sprites placeholder and v2 actors to the movement-aware section. */
 function migrateSprites(record: Record<string, unknown>, schema: Record<string, unknown>): void {
   const version = schema.sprites;
@@ -316,12 +355,15 @@ function migrateSprites(record: Record<string, unknown>, schema: Record<string, 
   if (version === SPRITES_SCHEMA_VERSION && current === null) return;
   const section = current === null ? createSpritesSection() : current;
   const unknownProvenance = { kind: "unknown" as const };
-  const movement = { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: unknownProvenance };
+  const movement = { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: unknownProvenance, lastStepTarget: null, lastStepBlocked: false };
   const normalise = (actor: (typeof section.players)[number]) => ({
     ...actor,
     queue: {
       ...actor.queue,
-      moves: actor.queue.moves.map((move) => ({ ...move, provenance: move.provenance ?? unknownProvenance })),
+      moves: (version < 4
+        ? migrateAbsoluteDirectionMoves(actor.queue.moves, actor.movement?.active?.target ?? { x: actor.x, y: actor.y })
+        : actor.queue.moves
+      ).map((move) => ({ ...move, provenance: move.provenance ?? unknownProvenance })),
       waypoint: actor.queue.waypoint === null ? null : { ...actor.queue.waypoint, provenance: actor.queue.waypoint.provenance ?? unknownProvenance },
     },
     movement: {
@@ -333,6 +375,8 @@ function migrateSprites(record: Record<string, unknown>, schema: Record<string, 
       lastStepTick: actor.movement?.lastStepTick ?? null,
       lastStepDistance: actor.movement?.lastStepDistance ?? 0,
       lastStepProvenance: actor.movement?.lastStepProvenance ?? unknownProvenance,
+      lastStepTarget: actor.movement?.lastStepTarget ?? null,
+      lastStepBlocked: actor.movement?.lastStepBlocked ?? false,
     },
   });
   section.players = section.players.map(normalise);
@@ -1288,7 +1332,19 @@ function validateSpritesShape(value: unknown): void {
       const actor = recordAt(actorValue, path);
       const queue = recordAt(actor.queue, `${path}.queue`);
       for (const [moveIndex, moveValue] of arrayAt(queue.moves, `${path}.queue.moves`).entries()) {
-        validateMovementProvenance(recordAt(moveValue, `${path}.queue.moves[${moveIndex}]`).provenance, `${path}.queue.moves[${moveIndex}].provenance`);
+        const movePath = `${path}.queue.moves[${moveIndex}]`;
+        const move = recordAt(moveValue, movePath);
+        validateMovementProvenance(move.provenance, `${movePath}.provenance`);
+        if (move.source === "direction") {
+          if (typeof move.direction !== "string" || !FACING.includes(move.direction as Facing)) shapeError(`the snapshot's ${movePath}.direction is invalid`);
+          const distance = numberAt(move.distance, `${movePath}.distance`);
+          if (distance < 0) shapeError(`the snapshot's ${movePath}.distance must be non-negative`);
+          if (move.target !== undefined) shapeError(`the snapshot's ${movePath} must not serialize an expanded target for a direction entry`);
+        } else {
+          const target = recordAt(move.target, `${movePath}.target`);
+          numberAt(target.x, `${movePath}.target.x`);
+          numberAt(target.y, `${movePath}.target.y`);
+        }
       }
       if (queue.waypoint !== null) {
         validateMovementProvenance(recordAt(queue.waypoint, `${path}.queue.waypoint`).provenance, `${path}.queue.waypoint.provenance`);
@@ -1298,6 +1354,12 @@ function validateSpritesShape(value: unknown): void {
         validateMovementProvenance(recordAt(movement.active, `${path}.movement.active`).provenance, `${path}.movement.active.provenance`);
       }
       validateMovementProvenance(movement.lastStepProvenance, `${path}.movement.lastStepProvenance`);
+      if (movement.lastStepBlocked !== true && movement.lastStepBlocked !== false) shapeError(`the snapshot's ${path}.movement.lastStepBlocked must be a boolean`);
+      if (movement.lastStepTarget !== null) {
+        const target = recordAt(movement.lastStepTarget, `${path}.movement.lastStepTarget`);
+        numberAt(target.x, `${path}.movement.lastStepTarget.x`);
+        numberAt(target.y, `${path}.movement.lastStepTarget.y`);
+      }
     }
   }
   const itemSlots = new Set<number>();

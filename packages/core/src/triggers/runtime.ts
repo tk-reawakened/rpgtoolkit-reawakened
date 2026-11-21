@@ -388,7 +388,13 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   const stepEligible = step && !triggerStep;
   const movementEvent = stepEligible || moving;
   const kind = key ? "key" : "step";
-  const shape = playerShape(player);
+  // R-64: a blocked player tile step is processed at the step's intended destination.
+  const stepDestination = step && player.movement.lastStepBlocked && player.movement.lastStepTarget !== null
+    ? player.movement.lastStepTarget
+    : null;
+  const shape = stepDestination === null
+    ? playerShape(player)
+    : translate(player.collisionBase.points as WorldPoint[], stepDestination.x, stepDestination.y);
   const regions = (board.programs ?? []).map(regionCandidate);
   const items: Candidate[] = [];
   // The re-arm pool covers every authored item: an arrival-suppressed item on another layer or with

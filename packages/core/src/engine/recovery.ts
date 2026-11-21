@@ -372,7 +372,7 @@ function restoreSprite(base: SpriteActor, sprite: LedgerSprite, id: string): Spr
       stance: sprite.visual.stance,
     },
     queue: { moves: [], waypoint: null },
-    movement: { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: { kind: "unknown" } },
+    movement: { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: { kind: "unknown" }, lastStepTarget: null, lastStepBlocked: false },
     prev: null,
     frozenUntil: null,
     multitaskProgram: sprite.multitaskProgram,

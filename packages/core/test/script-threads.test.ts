@@ -552,7 +552,7 @@ test("multiRun collects several moves into one movement wait; the block lifts wh
 test("standalone scheduler waits for a live sprite's queued movement (#1313)", () => {
   const { state, log, plugins } = setup("mark(1)\nend()\n");
   const player = actorFromSource({ id: "hero", kind: "player", source: "hero.tem", x: 48, y: 64, layer: 1 }, null, 0, null);
-  player.queue.moves.push({ source: "direction", target: { x: 80, y: 64 }, facing: "E" });
+  player.queue.moves.push({ source: "direction", direction: "E", distance: 32 });
   state.sprites.players = [player];
   const thread = state.vm.threads[0]!;
   thread.wait = { kind: "sprite.movement", actor: player.id, global: true };
@@ -570,7 +570,7 @@ test("a multiRun live wait keeps a completed actor's milestone while another act
   const { state, log, plugins } = setup("mark(1)\nend()\n");
   const done = { ...actorFromSource({ id: "done", kind: "item", source: "done.itm", x: 64, y: 64, layer: 1 }, null, 0, 0), queue: { moves: [], waypoint: null } };
   const moving = actorFromSource({ id: "moving", kind: "item", source: "moving.itm", x: 64, y: 96, layer: 1 }, null, 1, 1);
-  moving.queue.moves.push({ source: "direction", target: { x: 96, y: 96 }, facing: "E" });
+  moving.queue.moves.push({ source: "direction", direction: "E", distance: 32 });
   state.sprites.items = [done, moving];
   const thread = state.vm.threads[0]!;
   thread.wait = { kind: "movement", global: true, moves: [{ sprite: "done", until: 0, actual: true }, { sprite: "moving", until: 0, actual: true }] };

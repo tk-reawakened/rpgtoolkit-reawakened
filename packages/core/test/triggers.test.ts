@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { assetKey } from "../src/formats/resolver/resolver.ts";
 import { createGameState, type GameState } from "../src/save/state.ts";
 import { restoreGameState, snapshot } from "../src/save/snapshot.ts";
-import { actorFromSource, type SpriteActor } from "../src/sprites/model.ts";
+import { actorFromSource, moveDestination, pointMoveTarget, type SpriteActor } from "../src/sprites/model.ts";
 import { applyTriggerEffect, runTriggersPhase, selectPointerActivationTarget, type TriggerEvent, type TriggerPhaseOptions } from "../src/triggers/runtime.ts";
 import { fileProgramRef } from "../src/script/program.ts";
 import { ScriptError } from "../src/script/errors.ts";
@@ -207,7 +207,7 @@ test("an item gesture removes all its movement points without consuming the foll
   deepEqual(state.input.keys.map((key) => key.target), ["item:0"], "the first gesture confirms its item");
   const route = state.sprites.players[0]!.queue.moves;
   ok(route.length > 0, "the independent ground gesture starts a route");
-  deepEqual(route.at(-1)?.target, { x: 120, y: 0 }, "the route goes to the ground, not an item gesture point");
+  deepEqual(pointMoveTarget(route.at(-1)), { x: 120, y: 0 }, "the route goes to the ground, not an item gesture point");
 });
 
 test("pointer target selection refuses a non-key or unreachable item", () => {
@@ -605,14 +605,16 @@ test("trigger-owned movement entries stay suppressed, but unrelated queued steps
   const startKeys = (events: TriggerEvent[]) => events.filter((event) => event.type === "trigger-start").map((event) => event.key);
   const advanceStep = (current: GameState): string[] => {
     const player = current.sprites.players[0];
-    const move = player?.movement.active ?? player?.queue.moves[0];
-    if (move === undefined) throw new Error("expected a queued movement step");
+    if (player === undefined) throw new Error("expected a selected player");
+    const queued = player.queue.moves[0];
+    const target = player.movement.active?.target ?? (queued === undefined ? undefined : moveDestination(queued, player));
+    if (target === undefined) throw new Error("expected a queued movement step");
     for (let attempt = 0; attempt < 512; attempt += 1) {
       const events = tick(current);
       const arrived = current.sprites.players[0];
-      if (arrived?.x === move.target.x && arrived.y === move.target.y) return startKeys(events);
+      if (arrived?.x === target.x && arrived.y === target.y) return startKeys(events);
     }
-    throw new Error(`expected queued movement to reach ${move.target.x}, got x=${current.sprites.players[0]?.x} active=${current.sprites.players[0]?.movement.active?.target.x ?? "none"}`);
+    throw new Error(`expected queued movement to reach ${target.x}, got x=${current.sprites.players[0]?.x} active=${current.sprites.players[0]?.movement.active?.target.x ?? "none"}`);
   };
 
   for (const current of [state, restored]) {

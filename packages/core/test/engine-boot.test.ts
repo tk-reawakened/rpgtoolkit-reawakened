@@ -49,6 +49,8 @@ import {
   writeCharacter,
   selectRecovery,
   projectGameLedger,
+  pointMoveTarget,
+  moveDestination,
   registerActorObject,
   restoreRecoveryCandidate,
   registerGameAction,
@@ -529,7 +531,7 @@ test("symbolic pathfinding and pause flags route around a solid and park the thr
   equal(fixture.state().vm.globals.continued, undefined);
   equal(moved.movement.active?.source ?? moved.queue.moves[0]?.source, "path");
   ok(moved.movement.active?.ignoreBoard !== true, "pathfinding must not use the collision-ignoring explicit point mode");
-  ok([moved.movement.active?.target, ...moved.queue.moves.map((move) => move.target)].some((point) => point !== undefined && point.y !== player.y), "route diverts around the wall");
+  ok([moved.movement.active?.target, ...moved.queue.moves.map((move) => pointMoveTarget(move))].some((point) => point !== undefined && point.y !== player.y), "route diverts around the wall");
 });
 
 for (const kind of ["player", "item"] as const) {
@@ -580,7 +582,7 @@ for (const kind of ["player", "item"] as const) {
     deepEqual(run(fixture.engine, fixture.game.files, 1).diagnostics, []);
     equal(state.vm.globals.continued, undefined);
     const queued = kind === "player" ? state.sprites.players[0]! : state.sprites.items[0]!;
-    const targets = [queued.movement.active?.target, ...queued.queue.moves.map((move) => move.target)];
+    const targets = [queued.movement.active?.target, ...queued.queue.moves.map((move) => pointMoveTarget(move))];
     ok(targets.some((point) => point?.x === x + 32 && point.y === y), "first destination is queued");
     ok(targets.some((point) => point?.x === x + 32 && point.y === y + 32), "second destination is queued");
     deepEqual(run(fixture.engine, fixture.game.files, 180).diagnostics, []);
@@ -607,7 +609,7 @@ for (const kind of ["player", "item"] as const) {
     startThread(state.vm, { ref: { kind: "inline", text: `${kind}path(0, 5, ${x + 160}, ${y}, ${x + 32}, ${y})\ncontinued = 1\nend()`, ir: IR_VERSION }, kind: "persistent", owner: "script" });
     deepEqual(run(fixture.engine, fixture.game.files, 1).diagnostics, []);
     const queued = kind === "player" ? state.sprites.players[0]! : state.sprites.items[0]!;
-    ok([queued.movement.active?.target, ...queued.queue.moves.map((move) => move.target)].some((point) => point?.x === x + 32 && point.y === y), "reachable destination after the unreachable leg remains queued");
+    ok([queued.movement.active?.target, ...queued.queue.moves.map((move) => pointMoveTarget(move))].some((point) => point?.x === x + 32 && point.y === y), "reachable destination after the unreachable leg remains queued");
     equal(state.vm.globals.continued, undefined);
     deepEqual(run(fixture.engine, fixture.game.files, 180).diagnostics, []);
     const moved = kind === "player" ? state.sprites.players[0]! : state.sprites.items[0]!;
@@ -685,7 +687,8 @@ test("symbolic clear queue flag interrupts an existing push before appending dir
   deepEqual(run(fixture.engine, fixture.game.files, 1).diagnostics, []);
   const moved = fixture.state().sprites.players[0]!;
   equal(moved.movement.active?.facing, "E");
-  equal(moved.queue.moves[0]?.facing, "E");
+  const queuedPush = moved.queue.moves[0];
+  equal(queuedPush?.source === "direction" ? queuedPush.direction : queuedPush?.facing, "E");
   equal(moved.queue.moves.length, 1);
 });
 test("path clear flag replaces an existing move and path without the flag appends", () => {
@@ -698,7 +701,7 @@ test("path clear flag replaces an existing move and path without the flag append
   deepEqual(run(fixture.engine, fixture.game.files, 1).diagnostics, []);
   const moved = fixture.state().sprites.players[0]!;
   deepEqual(moved.movement.active?.target, { x: player.x + 32, y: player.y });
-  deepEqual(moved.queue.moves.map((move) => move.target), [{ x: player.x + 64, y: player.y }]);
+  deepEqual(moved.queue.moves.map((move) => pointMoveTarget(move)), [{ x: player.x + 64, y: player.y }]);
 });
 
 
@@ -728,7 +731,7 @@ for (const flags of [0, 1]) {
     if (wait?.kind === "sprite.movement") equal(wait.actor, "ally");
     equal(pushed.sprites.players.find((value) => value.id === hero.id)?.x, hero.x, "the selected hero does not receive the named ally's push");
     const allyMove = pushed.sprites.players.find((value) => value.id === "ally");
-    equal(allyMove?.movement.active?.target.x ?? allyMove?.queue.moves[0]?.target.x, 168);
+    equal(allyMove?.movement.active?.target.x ?? (allyMove?.queue.moves[0] === undefined ? undefined : moveDestination(allyMove.queue.moves[0], allyMove).x), 168);
     deepEqual(run(fixture.engine, fixture.game.files, 40).diagnostics, []);
     equal(fixture.state().sprites.players.find((value) => value.id === "ally")?.x, 168);
     equal(fixture.state().vm.globals.continued, 1, "the script resumes after the named actor's movement completes");
@@ -774,7 +777,7 @@ test("RPGCode push and pushitem append after active and queued targets (#1296)",
   const movingItem = {
     ...item,
     state: "moving" as const,
-    queue: { moves: [{ source: "direction" as const, target: { x: 176, y: 160 }, facing: "E" as const }], waypoint: null },
+    queue: { moves: [{ source: "direction" as const, direction: "E" as const, distance: 8 }], waypoint: null },
     movement: { ...item.movement, active: itemActive, waitTicks: 0 },
   };
   state.sprites.items = [movingItem];
@@ -854,7 +857,7 @@ for (const [pixelMovement, distance] of [[0, 32], [1, 32], [2, 8]] as const) {
         if (wait?.kind === "sprite.movement") equal(wait.actor, targetId);
         equal(afterPush.vm.globals.continued, undefined, "the actual target's movement keeps the script parked");
         const target = [...afterPush.sprites.players, ...afterPush.sprites.items].find((actor) => actor.id === targetId);
-        equal(target?.movement.active?.target.x ?? target?.queue.moves[0]?.target.x, 160 + distance);
+        equal(target?.movement.active?.target.x ?? (target?.queue.moves[0] === undefined ? undefined : moveDestination(target.queue.moves[0], target).x), 160 + distance);
         deepEqual(run(fixture.engine, fixture.game.files, 100).diagnostics, []);
         const settled = fixture.state();
         equal([...settled.sprites.players, ...settled.sprites.items].find((actor) => actor.id === targetId)?.x, 160 + distance);
@@ -900,7 +903,7 @@ for (const [label, command] of [
     if (wait?.kind === "sprite.movement") equal(wait.actor, ally.id);
     equal(queued.vm.globals.continued, undefined, "the nonblocking pause waits for the target ally");
     equal(queued.sprites.players[0]?.x, hero.x, "the selected hero is not moved");
-    equal(queued.sprites.players[1]?.movement.active?.target.x ?? queued.sprites.players[1]?.queue.moves[0]?.target.x, 192);
+    equal(queued.sprites.players[1]?.movement.active?.target.x ?? (queued.sprites.players[1]?.queue.moves[0] === undefined ? undefined : moveDestination(queued.sprites.players[1]!.queue.moves[0]!, queued.sprites.players[1]!).x), 192);
 
     deepEqual(run(fixture.engine, fixture.game.files, 100).diagnostics, []);
     const settled = fixture.state();

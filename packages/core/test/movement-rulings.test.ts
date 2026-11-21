@@ -1,0 +1,269 @@
+// Owner rulings R-63, R-64 and R-65 (docs/spec/engine/movement-and-collision.md#r-63 to #r-65;
+// ADR 0040). These are the contract tests for #1281's first slice: a tile direction step prechecks its
+// whole destination, a blocked player step is consumed and counted, other actors retry, and queued
+// directions are relative intent while point targets stay absolute.
+import { deepEqual, equal, ok } from "node:assert/strict";
+import { test } from "node:test";
+import {
+  actorFromSource,
+  createEmptyBoard,
+  createGameState,
+  enqueueDirectionMove,
+  hydrateSprites,
+  IR_VERSION,
+  movementPhaseRegistration,
+  restoreGameState,
+  runMovementPhase,
+  runTriggersPhase,
+  snapshot,
+  startThread,
+  type GameState,
+  type MovementEvent,
+  type WorldBoard,
+  type WorldProgram,
+} from "../src/index.ts";
+import { runRandomEncounterPhase } from "../src/sprites/encounters.ts";
+import { applySpriteEffect } from "../src/script/packs/movement.ts";
+import { enqueueMove } from "../src/sprites/runtime.ts";
+import { pixelToTile, coordLayout } from "../src/world/coords.ts";
+
+const HERO = { id: "hero", kind: "player" as const, source: "hero.tem", x: 48, y: 63, layer: 1, controlled: true };
+const TILE = 32;
+
+function board(vectors: WorldBoard["vectors"] = [], programs: WorldProgram[] = []): WorldBoard {
+  const empty = createEmptyBoard();
+  const { residue: _residue, ...plain } = empty;
+  return ({
+    ...plain,
+    key: "test.brd",
+    width: 320,
+    height: 320,
+    sizeX: 10,
+    sizeY: 10,
+    coordType: 0,
+    vectors,
+    programs,
+    items: [],
+  } as unknown) as WorldBoard;
+}
+
+function wall(left: number, right: number, handle = "wall"): NonNullable<WorldBoard["vectors"]>[number] {
+  return { handle, attributes: 0, closed: 1, layer: 1, type: 1, points: [{ x: left, y: 32 }, { x: right, y: 32 }, { x: right, y: 224 }, { x: left, y: 224 }] };
+}
+
+function sprites(currentBoard: WorldBoard) {
+  return hydrateSprites({ board: currentBoard, players: [HERO] });
+}
+
+function stateWith(currentBoard: WorldBoard, players = sprites(currentBoard).players): GameState {
+  const state = createGameState({ seed: 7 });
+  state.world = { ...state.world, board: currentBoard };
+  state.sprites = { ...sprites(currentBoard), players };
+  return state;
+}
+
+function region(points: WorldProgram["points"]): WorldProgram {
+  return { program: "region-0", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "", activate: 0, activationType: 0, repeatDistance: 0, layer: 1, points, closed: 1, handle: "r0" };
+}
+
+const programRef = (name: string) => ({ kind: "inline" as const, text: `mark("${name}")\nend()`, ir: IR_VERSION, dialect: "tk3" as const });
+
+// R-63 ---------------------------------------------------------------
+
+test("R-63 prechecks the whole destination before the first advance", () => {
+  const currentBoard = board([wall(76, 84)]);
+  const current = sprites(currentBoard);
+  enqueueDirectionMove(current, "hero", "E", 0);
+  const events = runMovementPhase(current, currentBoard, 0);
+  equal(current.players[0]?.x, 48, "a blocked destination never advances, not even by 4 px");
+  equal(current.players[0]?.movement.active, null);
+  equal(events.some((record) => record.type === "blocked" && record.vector === "wall"), true);
+  equal(events.some((record) => record.type === "step-complete"), false, "no successful-step event");
+});
+
+test("R-63 ends an active tile step at the last safe position when a solid appears", () => {
+  const clearBoard = board();
+  const current = sprites(clearBoard);
+  enqueueDirectionMove(current, "hero", "E", 0);
+  runMovementPhase(current, clearBoard, 0);
+  equal(current.players[0]?.x, 52, "the first advance is safe");
+  const blockedBoard = board([wall(70, 74)]);
+  const events: MovementEvent[] = [];
+  for (let tick = 1; tick <= 5; tick += 1) events.push(...runMovementPhase(current, blockedBoard, tick));
+  equal(current.players[0]?.x, 52, "the step stops at the last safe position");
+  equal(events.some((record) => record.type === "step-complete"), false);
+  equal(events.some((record) => record.type === "blocked"), true);
+});
+
+// R-64 ---------------------------------------------------------------
+
+test("R-64 consumes and counts a blocked player direction step and fires its destination trigger", () => {
+  const destination = { x: 64, y: 47 };
+  const currentBoard = board([wall(76, 84)], [region([{ x: destination.x, y: destination.y }, { x: destination.x + TILE, y: destination.y }, { x: destination.x + TILE, y: destination.y + TILE }, { x: destination.x, y: destination.y + TILE }])]);
+  const current = stateWith(currentBoard);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const events: MovementEvent[] = [];
+  movementPhaseRegistration({ onEvent: (record) => events.push(record) }).run(current);
+  equal(current.sprites.players[0]?.x, 48);
+  equal(current.sprites.players[0]?.queue.moves.length, 0, "the blocked entry is consumed");
+  equal(current.party.steps, 1, "a blocked player tile step counts one tile");
+  equal(current.party.stepRemainder, 0);
+  equal(events.some((record) => record.type === "step-complete"), false, "a blocked step never emits step-complete");
+  equal(events.some((record) => record.type === "blocked" && record.partyDistance256 === TILE * 256), true);
+  const triggers = runTriggersPhase(current, { programRef });
+  equal(triggers.some((record) => record.type === "trigger-start" && record.key === "region:0"), true, "the region on the tile the player pressed into fires");
+});
+
+test("R-64 makes a blocked non-player retry the same entry with its queue waiting", () => {
+  const currentBoard = board([wall(76, 84)]);
+  const base = sprites(currentBoard);
+  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
+  const current = { ...base, items: [{ ...npc, queue: { moves: [{ source: "direction" as const, direction: "E" as const, distance: TILE }], waypoint: null } }] };
+  const events: MovementEvent[] = [];
+  for (let tick = 0; tick < 6; tick += 1) events.push(...runMovementPhase(current, currentBoard, tick));
+  equal(current.items[0]?.x, 48, "the blocked item does not move");
+  const pending = current.items[0]?.movement.active ?? current.items[0]?.queue.moves[0];
+  equal(pending?.source, "direction", "the blocked entry is neither consumed nor dropped");
+  equal(events.some((record) => record.type === "movement-complete"), false, "a retrying queue has not drained");
+});
+
+test("R-64 suppresses blocked-step processing while a program owns input", () => {
+  const currentBoard = board([wall(76, 84)]);
+  const current = stateWith(currentBoard);
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  movementPhaseRegistration().run(current);
+  equal(current.sprites.players[0]?.queue.moves.length, 0, "the entry is still consumed");
+  equal(current.party.steps, 0, "end-of-step processing is suppressed");
+  equal(current.party.stepRemainder, 0);
+  equal(current.sprites.players[0]?.movement.lastStepTarget, null, "no destination processing is recorded");
+});
+
+test("R-64 runs the battle check at the blocked step's destination", () => {
+  const battleBoard = { ...board([wall(76, 84)]), allowBattles: 1 } as WorldBoard;
+  const current = stateWith(battleBoard);
+  const sourceTile = pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, 48, 63);
+  current.sprites.randomEncounter = { boardKey: battleBoard.key, tile: sourceTile, tiles: 0 };
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  movementPhaseRegistration().run(current);
+  const posts: string[] = [];
+  runRandomEncounterPhase(current, { fightingDisabled: 0, enemies: [], fightType: 0, chances: 1, useCustomFightPrg: 0, customFightPrg: "" }, (_section, effect) => posts.push(effect.name));
+  equal(posts.length > 0, true, "the encounter check observes the intended destination tile");
+  deepEqual(current.sprites.randomEncounter?.tile, sourceTile, "progress keeps the actor's real tile");
+  const rolls = posts.length;
+  current.time = { ...current.time, tick: current.time.tick + 1 };
+  runRandomEncounterPhase(current, { fightingDisabled: 0, enemies: [], fightType: 0, chances: 1, useCustomFightPrg: 0, customFightPrg: "" }, (_section, effect) => posts.push(effect.name));
+  equal(posts.length, rolls, "the following tick does not re-check the source tile");
+});
+
+// R-65 ---------------------------------------------------------------
+
+test("R-65 recomputes a queued direction from where the actor actually stands", () => {
+  const currentBoard = board([wall(76, 84)]);
+  const current = sprites(currentBoard);
+  enqueueDirectionMove(current, "hero", "E", 0);
+  enqueueDirectionMove(current, "hero", "N", 0);
+  for (let tick = 0; tick <= 30; tick += 1) runMovementPhase(current, currentBoard, tick);
+  equal(current.players[0]?.x, 48, "the blocked east step never moves the actor");
+  equal(current.players[0]?.y, 63 - TILE, "north starts from the last safe position, not a stale east target");
+});
+
+test("R-65 keeps a point target absolute and consumes it on a blocked attempt", () => {
+  const currentBoard = board([wall(70, 74)]);
+  const current = sprites(currentBoard);
+  enqueueMove(current, "hero", { source: "path", target: { x: 80, y: 63 }, facing: null, pathMode: 1 });
+  const events: MovementEvent[] = [];
+  for (let tick = 0; tick <= 20; tick += 1) events.push(...runMovementPhase(current, currentBoard, tick));
+  equal(current.players[0]?.x, 52, "the point ends at the last safe position and never grants passage");
+  equal(current.players[0]?.queue.moves.length, 0, "the blocked point entry was consumed");
+  equal(events.some((record) => record.type === "step-complete"), false);
+});
+
+test("R-65 preserves each entry's kind across save and restore", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueDirectionMove(current.sprites, "hero", "N", 0);
+  const restored = restoreGameState(snapshot(current));
+  const moves = restored.sprites.players[0]?.queue.moves ?? [];
+  deepEqual(moves.map((move) => move.source), ["direction", "direction"]);
+  for (const move of moves) {
+    equal("target" in move, false, "a direction entry never serializes an expanded target");
+    equal(move.source === "direction" ? move.distance : undefined, TILE);
+  }
+  deepEqual(restored.sprites, current.sprites);
+});
+
+test("R-65 migrates a pre-v4 save's absolute direction target to relative intent", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const saved = JSON.parse(snapshot(current)) as { schema: { sprites: number }; sprites: { players: { queue: { moves: unknown[] } }[] } };
+  saved.schema.sprites = 3;
+  saved.sprites.players[0]!.queue.moves = [
+    { source: "direction", target: { x: 80, y: 63 }, facing: "E" },
+    { source: "direction", target: { x: 112, y: 31 }, facing: "N" },
+  ];
+  const restored = restoreGameState(JSON.stringify(saved));
+  const moves = restored.sprites.players[0]?.queue.moves ?? [];
+  const first = moves[0];
+  ok(first !== undefined && first.source === "direction");
+  equal(first.source === "direction" ? first.direction : null, "E");
+  equal(first.source === "direction" ? first.distance : 0, TILE);
+  equal("target" in first, false);
+  // The legacy second target assumes the east step succeeded (112,31 is diagonal from 80,63); its stored
+  // facing is authoritative, so migration keeps N rather than inventing NE.
+  const second = moves[1];
+  ok(second !== undefined && second.source === "direction");
+  equal(second.source === "direction" ? second.direction : null, "N");
+  equal(second.source === "direction" ? second.distance : 0, TILE);
+  equal("target" in second, false);
+});
+
+test("R-65 revalidates a restored active step against its destination", () => {
+  const clearBoard = board();
+  const current = stateWith(clearBoard);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  runMovementPhase(current.sprites, clearBoard, 0);
+  equal(current.sprites.players[0]?.x, 52);
+  const saved = snapshot(current);
+  const restored = restoreGameState(saved);
+  const blockedBoard = board([wall(76, 84)]);
+  const events: MovementEvent[] = [];
+  for (let tick = 1; tick <= 3; tick += 1) events.push(...runMovementPhase(restored.sprites, blockedBoard, tick));
+  equal(restored.sprites.players[0]?.x, 52, "the destination is revalidated before every advance, so the restored step never moves");
+  equal(restored.sprites.players[0]?.movement.lastStepBlocked, true);
+  equal(events.some((record) => record.type === "step-complete"), false);
+});
+
+test("R-65 appends a script route from the active step's target, not the mid-step pixel", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const player = current.sprites.players[0]!;
+  current.sprites.players = [{
+    ...player,
+    x: 52,
+    prev: { x: 48, y: 63 },
+    state: "moving",
+    queue: { moves: [{ source: "direction", direction: "E", distance: TILE }], waypoint: null },
+    movement: {
+      ...player.movement,
+      active: { source: "direction", start: { x: 48, y: 63 }, target: { x: 80, y: 63 }, facing: "E", cadence: 0, ignoreBoard: false, tried: false, provenance: { kind: "input" } },
+    },
+  }];
+  const thread = startThread(current.vm, { ref: { kind: "inline", text: "end()", ir: IR_VERSION }, kind: "persistent", owner: "script" });
+  thread.takeover.push(player.id);
+  // The active step ends at 80 and the queued E step ends at 112; a route to 112 therefore needs no travel.
+  // Starting the expansion from the mid-step pixel 52 lands on 84 and wrongly enqueues a route.
+  equal(applySpriteEffect(current, "playerpath", [player.id, 4, 112, 63], thread.id), false);
+  equal(current.sprites.players[0]?.queue.moves.length, 1, "no route is appended when the queued end already equals the goal");
+});
+
+test("R-65 keeps one FIFO across kinds; a direction after a point starts where the point ended", () => {
+  const currentBoard = board();
+  const current = sprites(currentBoard);
+  enqueueMove(current, "hero", { source: "points", target: { x: 64, y: 63 }, facing: null });
+  enqueueDirectionMove(current, "hero", "E", 0);
+  for (let tick = 0; tick <= 60; tick += 1) runMovementPhase(current, currentBoard, tick);
+  equal(current.players[0]?.x, 96, "the direction starts from the point's actual end");
+});

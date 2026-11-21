@@ -33,11 +33,11 @@
       "scene": "collision-sprite-blocking",
       "file": "collision-sprite-blocking.json",
       "cases": [
-        "stationary-loses",
-        "freeze-thaw-and-refreeze",
-        "controlled-player-wins-between-movers",
-        "faster-sprite-wins",
-        "equal-speed-larger-drawid-loses",
+        "direction-step-consumed-into-npc",
+        "blocked-direction-step-never-freezes-npc",
+        "direction-movers-consume-and-retry",
+        "non-player-direction-steps-retry-forever",
+        "mutual-direction-retry-queues-wait",
         "diversion-around-blocker",
         "no-route-waits-then-continues",
         "no-route-wait-expires-and-stops"

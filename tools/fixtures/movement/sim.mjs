@@ -478,7 +478,7 @@ export class World {
     const dir = s.src === "dir";
     const tx = dir ? a.x + DIRV[s.dir][0] * s.size * FP : s.tx;
     const ty = dir ? a.y + DIRV[s.dir][1] * s.size * FP : s.ty;
-    a.cur = { src: s.src, dir: dir ? s.dir : null, tx, ty, sx: a.x, sy: a.y, ignoreBoard: Boolean(s.ignoreBoard), tried: false, triggerOrigin: s.triggerOrigin ?? false };
+    a.cur = { src: s.src, dir: dir ? s.dir : null, size: dir ? s.size : null, tx, ty, sx: a.x, sy: a.y, ignoreBoard: Boolean(s.ignoreBoard), tried: false, triggerOrigin: s.triggerOrigin ?? false };
     a.state = "moving";
     return true;
   }
@@ -566,8 +566,23 @@ export class World {
         a.state = "waiting";
         a.cadence = 0;
         this.emit("movement-complete", blocked ? { actor: a.id, blocked: true } : { actor: a.id });
-      } else a.cadence = tpa - 1;
+      } else a.cadence = blocked ? 0 : tpa - 1;
     };
+
+    // R-63 (docs/spec/engine/movement-and-collision.md#r-63): a tile direction step checks its whole
+    // destination before the first advance. R-64: the player consumes and counts it; other actors retry.
+    if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
+      const solid = this.boardHit(a, c.tx, c.ty);
+      const other = solid === null ? this.spriteHit(a, c.tx, c.ty) : null;
+      if (solid !== null || other !== null) {
+        if (dirIdx >= 0) a.facing = dirIdx;
+        if (a.kind === "player") this.walked += c.sx === a.x && c.sy === a.y ? 32 * FP : 0;
+        else a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+        this.emit("blocked", { actor: a.id, by: (solid ?? other).id });
+        finish(true);
+        return;
+      }
+    }
 
     // The player cannot leave the board except over a link (E-28); items are not limited.
     if (a.kind === "player") {
@@ -582,6 +597,13 @@ export class World {
 
     const hit = c.ignoreBoard ? null : this.boardHit(a, nx, ny);
     if (hit !== null) {
+      if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
+        if (dirIdx >= 0) a.facing = dirIdx;
+        if (a.kind !== "player") a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+        this.emit("blocked", { actor: a.id, by: hit.id });
+        finish(true);
+        return;
+      }
       const slid = (this.board.pixelMovement ?? 0) >= 1 ? this.slide(a, hit, nx, ny) : null;
       if (slid === null) {
         this.emit("blocked", { actor: a.id, by: hit.id });
@@ -656,6 +678,15 @@ export class World {
   }
 
   spriteCollision(a, c, blocker, tpa, finish) {
+    // R-64 item 2: a direction-style tile block is consumed by the player and retried by other actors;
+    // no sprite is frozen and the direction step is never resolved as a point-style collision.
+    if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
+      if (c.dir !== null) a.facing = c.dir;
+      if (a.kind !== "player") a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+      this.emit("blocked", { actor: a.id, by: blocker.id });
+      finish(true);
+      return;
+    }
     const following = c.src === "point" || c.src === "path" || c.src === "waypoint";
     if (following && a.waitLeft === 0 && !c.tried) {
       c.tried = true;
