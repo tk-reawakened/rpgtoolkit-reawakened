@@ -23,9 +23,12 @@ type TerrainProblem =
   | { readonly code: "terrain-rule-ambiguous"; readonly mask: number; readonly rules: readonly [string, string] }
   | { readonly code: "terrain-rule-unsatisfiable" | "terrain-rule-invalid-weights"; readonly rule: string }
   | { readonly code: "terrain-pattern-uncovered"; readonly count: number };
-export type TerrainMatcherResult =
-  | { readonly ok: true; readonly uncovered: number; readonly choose: (sameMask: number, floor: string, x: number, y: number) => string | null }
-  | { readonly ok: false; readonly problems: readonly TerrainProblem[] };
+export type TerrainMatcher = {
+  readonly ok: true;
+  readonly uncovered: number;
+  readonly choose: (sameMask: number, floor: string, x: number, y: number) => string | null;
+};
+export type TerrainMatcherResult = TerrainMatcher | { readonly ok: false; readonly problems: readonly TerrainProblem[] };
 
 function activeBits(cardinal: number, diagonal: boolean): number {
   let active = 15;
