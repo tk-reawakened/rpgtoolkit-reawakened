@@ -84,6 +84,8 @@ Gameplay input, keys and mouse alike, is read only while the player is idle and 
 
 Evidence: this page's Input table ("queue a step ... when the player is idle"); E-24 and E-110; the deterministic fixed-tick rule in [main-loop-and-startup.md](main-loop-and-startup.md#reawakened-phases) (R-56). **Rejected alternative:** relying on the host OS key-repeat events, which makes movement cadence depend on the host's repeat delay and rate and differs between runners (violating G3).
 
+**Rejected alternative (#1091):** appending a second, action-named queue entry for each bound keyboard press, as a gamepad press does. It breaks the one-entry-per-press rule above and double-delivers to `wait()` / `get()`. A bound key keeps its single legacy-named entry; that entry also records the action it resolved to (`action`), which `waitinput` and the menu screen read as the semantic label.
+
 **Owner clarification (2026-11-11, #1865):** When diagonals are disabled and two orthogonal directions remain held, movement uses the most recently pressed held direction, one axial step per step boundary; it does not alternate them. Press order follows the ordered input records and, when one record resolves to several actions, the ACT-4 action order. Repeats and additional sources that leave an action already held do not create a new press edge.
 
 **Owner ruling (Jensen, 2026-11-02; issue #1123):** “Freeze input while a script is blocked.” This covers `wait()`, `Get()`, message windows, prompts, menus, battle and the script error box while a thread owns the key queue. The queue continues to receive keys, and `wait()` discards its backlog before waiting so only a new key counts.
