@@ -59,6 +59,7 @@ The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approv
 - Required unit shards found inline styles incompatible with strict host CSP (#3265) and a missing terrain-scene conformance case (#3266).
 - Keep #3232 in draft while the terrain build and preview do not use the same compiler, pack geometry and recovery are not wired through the host path, and checker/rename still need to cover the new reference model.
 - Review identified a second compiler that omitted packs and boundary tracing (#3267); until unified lowering is ready, the terrain build refuses these inputs without writing an incomplete board. Other blockers are exact verified playback (#3268), input freshness and competing writes (#3270), the nested game asset root (#3271), and conflict recovery (#3272).
+- The checker and rename cutover (#3273), refusing stale outputs during packaging (#3274), and project-wide tileset ownership (#3275) also block merge. Nested `Tiles` runtime path handling is tracked in #3276.
 
 ## Verification
 
@@ -68,5 +69,6 @@ The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approv
 - 49 focused tests passed together; editor-model build and test typecheck, targeted lint, dependency graph and provenance passed. A subsequent engine-view and saved-output conflict integration test also passed; current changes require final verification after review.
 - Chromium's connected-authoring journey passed: paint, touch up, reshape, rebuild via the workbench Save button, keyboard Save and Save All, reopen, and play the compiled pond with the `.gam` startup board set elsewhere. The live draw list contained the manual bank and both water cels.
 - 42 focused document conformance and save tests and the strict-CSP source check passed after removing the inline styles and adding the terrain-scene lifecycle case.
+- VS Code Web workbench proof passed with the packaged extension (`TKR_VSCODE_NATIVE_SCENE_PROOF=1`): the terrain editor writes through the native text document; Ctrl/Cmd+S builds an empty override; workbench Save All rebuilds the base tile after clearing it; Play saves a fresh edit and launches `Boards/terrain-proof.brd`, not the startup board. Finding the main file through the virtual workspace filesystem fixed #3277.
 
 Run focused editor-model and native-data tests, package typechecks, targeted lint, dependency graph and provenance; run the smallest headless-engine proof that compares scene preview with the built board.

@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createNativeClipTextEditorProvider } from "./native-clip-text-editor.ts";
+import { createNativeTerrainTextEditorProvider } from "./native-terrain-text-editor.ts";
 import { createGameEditorProvider, DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
@@ -48,6 +49,13 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
   const stylesheet = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "tileset-browser.css"));
   return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${stylesheet}"><title>RPG Toolkit editor</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
 }
+function terrainHtml(webview: vscode.Webview, context: vscode.ExtensionContext): string {
+  const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const bundle = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "terrain-scene.js"));
+  const stylesheet = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "terrain-scene.css"));
+  return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${stylesheet}"><title>RPG Toolkit Scene Terrain</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
+}
+
 
 
 
@@ -352,6 +360,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(
     "tkr.nativeClip",
     createNativeClipTextEditorProvider(context, html, vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop)),
+    { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true },
+  ));
+  context.subscriptions.push(vscode.window.registerCustomEditorProvider(
+    "tkr.nativeScene",
+    createNativeTerrainTextEditorProvider(context, terrainHtml, (folder) => core.workspaceFor({ uri: folder.uri, key: folder.uri.toString() }).workspace.history, runForProject),
     { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true },
   ));
   return () => generation;
