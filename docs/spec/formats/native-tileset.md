@@ -1,6 +1,6 @@
 # Native tileset contract (`.tkrtst`)
 
-**Status: draft, pre-release; Jensen's approval is pending.** This page is the proposed normative contract for native tileset documents, derived from section 3 of [tkr-authoring.md](tkr-authoring.md#3-tile-recipe-document-tkrtile), [native-contracts.md](native-contracts.md), [ADR 0019](../../adr/0019-tkr-authoring-formats.md) and [ADR 0005](../../adr/0005-independent-product-v1-and-native-format.md). It is reviewable, not an assertion that the owner approved its detailed choices. The proposed registry row appears below.
+**Status: pre-release terrain cutover contract.** This page defines the `.tkrtst` contract from [tkr-authoring.md](tkr-authoring.md#3-tile-recipe-document-tkrtile), [native-contracts.md](native-contracts.md), [ADR 0019](../../adr/0019-tkr-authoring-formats.md) and [ADR 0005](../../adr/0005-independent-product-v1-and-native-format.md). The [terrain cutover](#terrain-cutover) section supersedes earlier embedded-tile and output-allocation wording on this page.
 
 ## In plain words
 
@@ -10,69 +10,33 @@ The document uses the shared native stamp and plugin-block rules. Its own top-le
 
 ## Stamp and top-level shape
 
-`contract` is exactly `tileset`; `version` is text in the shared semantic-version form. Both are the first two keys. A writer emits `1.0.0-pre.1` until a released version is approved. Optional `tags`, `metadata` and `pluginData` follow shared rules. The contract's fields are `name`, `projection`, `cellSize`, `sources`, `tiles`, optional `isoBlocks`, optional `autotiles`, and `outputBinding`. No other top-level key is accepted.
+`contract` is exactly `tileset`; `version` is text in the shared semantic-version form. Both are the first two keys. Writers emit `1.0.0-pre.2` until a released version is approved. Optional `tags`, `metadata` and `pluginData` follow shared rules. The contract's fields are `name`, `expects`, `tiles`, optional `terrains`, and `outputBinding`. No other top-level key is accepted.
 
 ```yaml
 contract: tileset
-version: 1.0.0-pre.1
+version: 1.0.0-pre.2
 name: Village Master Tileset
-projection: 2d
-cellSize: [32, 32]
-sources:
-  - id: village-sheet
-    file: Bitmap/village_tiles_source.png
-    grid:
-      width: 32
-      height: 32
-      marginX: 0
-      marginY: 0
-      gapX: 0
-      gapY: 0
-    transparent: {mode: alpha}
+expects: {projection: 2d, cellSize: [32, 32]}
 tiles:
-  - id: grass-main
-    name: Meadow Grass
-    source: village-sheet
-    cell: [0, 0]
-    role: floor
-    collision: walkable
-  - id: stone-wall-base
-    name: Rough Stone Wall
-    source: village-sheet
-    cell: [1, 0]
-    role: wall
-    collision: solid
-  - id: wood-counter-diagonal
-    name: Angled Counter Corner
-    source: village-sheet
-    cell: [2, 0]
-    role: decorative
-    collision: walkable
-    kitbash:
-      - op: cutCorner
-        diagonal: north-west
-        clearHalf: true
-isoBlocks:
-  - id: stone-cube
-    name: Stone Isometric Cube
-    heightPixels: 32
-    faces:
-      top: {source: village-sheet, cell: [3, 0], tint: [0, 0, 0]}
-      left: {source: village-sheet, cell: [4, 0], tint: [-24, -24, -24]}
-      right: {source: village-sheet, cell: [4, 0], tint: [-56, -56, -56]}
-    collision: solid
-    wallCapUnder: true
-autotiles:
-  - id: water-edge
-    name: Water Coast Autotile
-    mode: blob-47
-    base: {source: village-sheet, cell: [5, 0]}
-    border: {source: village-sheet, cell: [6, 0]}
-    innerCorner: {source: village-sheet, cell: [7, 0]}
-    exportOrder: t25-canonical
+  - {tile: Tiles/grass-main.tkrtle}
+  - {tile: Tiles/stone-wall-base.tkrtle}
+terrains:
+  - id: grass
+    name: Meadow
+    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}
+    neighbours: cardinal-4
+    coverage: complete
+    sync: independent
+    rules:
+      - id: all
+        when: {}
+        use: {tile: Tiles/grass-main.tkrtle}
 outputBinding:
   target: Tiles/village_auto.tst
   detail: 1
+  slots:
+    - {slot: 1, tile: Tiles/grass-main.tkrtle}
+    - {slot: 2, tile: Tiles/stone-wall-base.tkrtle}
 ```
 
 ## Fields
@@ -129,19 +93,19 @@ This defines how `builtin/neighbour-match@1.0.0` chooses a tile for the [terrain
 
 This section replaces the embedding and source-order rules above at the [terrain cutover](../../adr/0019-tkr-authoring-formats.md#amendment-retained-terrain-and-standalone-tiles). The `tileset` stamp keeps its name under `.tkrtst`; the new palette uses [standalone tiles](native-tile.md#stamp-identity-and-fields).
 
-- `expects: {projection, cellSize}` gives the projection and two positive integer pixel dimensions that every member must match. `tiles` is an ordered palette of closed `{tile}` mappings. A `tile` is a `.tkrtle` path. Duplicate document identities are errors. A member's name, geometry, artwork and timeline are not copied here. Old embedded flat tiles and sheet grids are not alternative member forms.
-- `terrains` is optional. Each record has a unique local `id`, a non-empty `name`, `resolver: {provider, id, version}`, `neighbours`, `coverage`, `sync` and `rules`. Optional `outside` is `same` or `other` (default), and optional `seed` is a signed 32-bit integer (default zero). `sync` is exactly `lockstep` or `independent`; `lockstep` requires identical frame duration sequences and phase for all animated tiles the rules select, and may not mix still and animated tiles. `independent` makes no timing requirement across members.
-- A rule is a closed `{id, when, use}` or `{id, when, variants}` mapping. Rule IDs are unique within the terrain. `when` maps direction names from the [matcher](#built-in-terrain-matcher) to `same` or `other`; `{}` has no conditions. `use` is `{tile}`, and `variants` is a non-empty ordered list of `{tile, weight}`. Every selected tile must resolve and be listed in `tiles`, using normalized document identity. This cutover defines `builtin/neighbour-match@1.0.0`; a resolver pin that cannot be supplied blocks the affected build. The pin cannot install or enable a plugin.
-- `outputBinding` gains a required `slots` list. Rows are exactly `{slot, tile}`, `{slot, tile, cel}` or `{slot, reserved: true}`. `slot` is a unique integer from 1 to 32767. Every number through the largest allocated slot has one row. A still member has one row, and an animated member has one row per distinct authored cel, including transparent or unused cels; repeated timeline references do not allocate again. A reserved row has no tile or cel. All allocations must name existing members and, where applicable, an existing cel of that member. Missing, duplicate and incompatible allocations are errors.
-- Generate tiles in numeric slot order, including every tombstone with the target detail's transparent value. A tile or cel removed from an allocation leaves the slot reserved even at the end; new allocations append. No table derives numbers from palette order, slot row order or previous output bytes. The builder never alters the table. For animation, emitted `.tan` frame references use these cel numbers. The separate generated destinations still obey the output ownership rules.
-- A flat binding names an output `.tst` under `Tiles/`. A native still tile produces a reference to that file plus its allocated number; `.tan` frames use the same spelling. These references use backslashes and are relative to `Tiles/`. For an animated member, output `<target stem>.tile-<hash>.tan` beside the `.tst`, where `<hash>` is lowercase SHA-256 of the UTF-8 normalized tile document identity (including ASCII case fold). The board references that `.tan`, also relative to `Tiles/`. Palette, slot, cel and timeline reorder do not change the animation file name. A rename can change it; the output ownership check still applies.
-- The rename inventory includes `tiles[].tile`, `terrains[].rules[].use.tile`, `terrains[].rules[].variants[].tile`, and `outputBinding.slots[].tile`. A tile rename changes these paths, not slot numbers. A terrain rename changes the local terrain ID in the recipe and its scene references.
+- `expects: {projection, cellSize}` gives the projection and two positive integer pixel dimensions every member must match. `tiles` is an ordered palette of closed `{tile: <.tkrtle path>}` mappings. Duplicate normalized document identities are errors. Member names, geometry, artwork and timelines are not copied here; embedded tile records, source grids and sheet cells are obsolete and rejected.
+- `terrains` is optional. Each record has a unique local `id`, non-empty `name`, `resolver: {provider, id, version}`, `neighbours`, `coverage`, `sync` and `rules`. Optional `outside` is `same` or `other` (default), and optional `seed` is signed 32-bit (default zero). `sync` is `lockstep` or `independent`; lockstep requires identical frame-duration sequences and phase for all selected animated tiles and may not mix still and animated tiles.
+- A rule is a closed `{id, when, use}` or `{id, when, variants}` mapping. Rule IDs are unique within the terrain. `when` maps matcher directions to `same` or `other`; `{}` has no conditions. `use` is `{tile: <.tkrtle path>}`; `variants` is a non-empty ordered list of `{tile: <.tkrtle path>, weight}`. Every selected tile must resolve to one standalone tile document and be listed in `tiles`, comparing normalized document identities. A resolver pin that cannot be supplied blocks the affected build and cannot install or enable a plugin.
+- `outputBinding` has required `target`, `detail` and `slots`. Slot rows are exactly `{slot, tile}`, `{slot, tile, cel}` or `{slot, reserved: true}`. `slot` is a unique integer from 1 through 32767; every number through the largest allocated slot has one row. Still members have one row; animated members have one row per distinct authored cel, including transparent or unused cels. A reserved row has no tile or cel. Allocations must name existing palette members and, where applicable, existing cels.
+- Generate output tiles in numeric slot order, including tombstones at the target detail's transparent value. Retiring a tile/cel leaves its slot reserved even at the end; new allocations append. The writer and builder never derive or change slot numbers. Animated output uses the same allocated cel numbers.
+- A flat binding names a `.tst` output under `Tiles/`. Native tiles produce references to that output using their allocated numbers. Animated members generate `<target stem>.tile-<hash>.tan` beside the `.tst`; `<hash>` is lowercase SHA-256 of normalized standalone tile identity (including ASCII case fold). Reordering palette, slots, cels or timeline does not change the animation filename.
+- Rename inventory includes `tiles[].tile`, `terrains[].rules[].use.tile`, `terrains[].rules[].variants[].tile` and `outputBinding.slots[].tile`. A standalone tile rename changes paths, never slot integers. Terrain ID rename rewrites local terrain references in scenes.
 
 ## References and identity
 
 A tileset document's identity is its path, extension included, under the shared native identity rules (ASCII-only case folding and path normalization). The path is stable until an explicit rename updates references. No document-level `id` is present.
 
-A reference to a tile is a mapping with a `tileset` document path and a `tile` local ID, for example `{tileset: tiles/village.tkrtst, tile: grass-main}`. The document path must resolve to a registered `.tkrtst` whose stamp says `tileset`; the local ID must name exactly one tile in that document. A document rename updates the path field; renaming a tile updates its local-ID references. Source IDs and isometric/autotile IDs are local to their recipe and are not cross-document references. This two-field recommendation matches the proposed asset-pack reference and avoids introducing fragment parsing and escaping rules.
+A reference to a standalone tile is `{tile: <.tkrtle path>}`. It resolves to exactly one registered `tile` document; there is no tileset-local tile ID. A terrain reference is the pair `{tileset: <.tkrtst path>, terrain: <local terrain id>}`. The path resolves to exactly one registered `tileset` document, and the ID to exactly one terrain in that document. Rename updates document paths or local terrain IDs at the contract-defined sites.
 
 ## Plugin data
 

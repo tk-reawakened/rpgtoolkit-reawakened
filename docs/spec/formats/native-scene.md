@@ -24,7 +24,7 @@ This page decides the scene document and its relation to the `.brd`. It does not
 
 ## Stamp, identity and file name
 
-- **Extension:** `.tkrscn`. **Contract stamp:** `contract: scene`; `version` is text in the shared version form, `1.0.0-pre.1` until a release is approved. `contract` and `version` are the first two keys; the extension and the stamp's `contract` agree ([file names](native-contracts.md#file-names)).
+- **Extension:** `.tkrscn`. **Contract stamp:** `contract: scene`; writers emit `version: 1.0.0-pre.2`. `contract` and `version` are the first two keys; the extension and the stamp's `contract` agree ([file names](native-contracts.md#file-names)).
 - **Identity:** the document's project-relative path, extension included, such as `Boards/cottage.tkrscn`, under the shared [identity rules](native-contracts.md#identity). There is **no document-level `id`** (the draft's `id` is dropped). A rename changes the identity and every reference to it.
 - **Build target and where scenes live.** Saving a scene builds one `.brd` in the **same folder with the same stem and the extension `.brd`** (`Boards/cottage.tkrscn` builds `Boards/cottage.brd`) ([ADR 0019](../../adr/0019-tkr-authoring-formats.md), decision 4). The target is derived, not a field, so it cannot disagree with the path. The engine reaches a board only in the project's `Boards\` folder (sub-folders allowed), by its name relative to that folder ([board.md](board.md), [README.md](README.md#paths-inside-files)); a link or a script names the built `.brd` that way, as it always did. A scene is therefore kept **under `Boards/`**, and the editor creates scenes there. A scene anywhere else builds a `.brd` that no link or script can reach: nothing in this contract makes such an output playable, and the project check warns about it ([V21](#validation)). Renaming a scene renames its build target; see [open items](#not-decided-here).
 - **Not shipped.** A distribution package excludes `.tkrscn` ([packaging-and-paths.md](packaging-and-paths.md)); only the built `.brd` ships.
@@ -84,7 +84,7 @@ A scene refers to other things in these ways and no other. A **native document**
 
 | Form | Where it is used | Spelling | Resolved by |
 |---|---|---|---|
-| Native tile | a [palette entry](#the-tile-palette), a floor's `boundarySources.walkableTiles` entry | `{tileset: <path of a .tkrtst>, tile: <local tile id>}` | The `tileset` path is a native document ID under the shared [identity rules](native-contracts.md#identity); it must resolve to a registered `.tkrtst` whose stamp says `tileset`, and the `tile` must name exactly one tile in it ([native-tileset.md](native-tileset.md#references-and-identity)). |
+| Native tile | a [palette entry](#the-tile-palette), a floor's `boundarySources.walkableTiles` entry | `{tile: <path of a .tkrtle>}` | The path resolves to exactly one registered standalone `tile` document ([native-tile.md](native-tile.md#stamp-identity-and-fields)). |
 | Legacy tile | the same two places | `{legacy: <tile reference text>}`, for example `{legacy: village.tst12}` | Carried **exactly as stored**, in the legacy [tile reference](README.md#tile-references) spelling (`name.tstN`, `name.isoN`, `name.gph`, `name.tan`, sub-folders with `\`). A legacy tile reference is not a native document and has no path identity. Whether the file exists is a warning, not an error ([validation](#validation)). |
 | Pack asset | a [pack placement](#pack-placements) | `pack: <path of a .tkrpack>` and `asset: <pack-local asset id>` as two keys | As in [native-asset-pack.md](native-asset-pack.md#scene-references): the path is a native document ID, the asset id is local to that pack. |
 | Floor | `floor`, `toFloor` | a floor `id` of this document | The `floors` list. |
@@ -102,10 +102,10 @@ Native-document references, and the local ids that go with them, are at exactly 
 
 | Location | Names | Rewritten by a rename of |
 |---|---|---|
-| `tilePalette[].tileset` | a `.tkrtst` document | that tileset's path |
-| `floors[].boundarySources.walkableTiles[].tileset` | a `.tkrtst` document | that tileset's path |
+| `tilePalette[].tile`, `floors[].boundarySources.walkableTiles[].tile`, `tileOverrides[].tile.tile` | a `.tkrtle` document | that tile's path |
+| `terrainRegions[].terrain.tileset` | a `.tkrtst` document | that tileset's path |
+| `terrainRegions[].terrain.terrain` | a terrain local to the referenced tileset | that terrain's local id |
 | `placedPacks[].pack` | a `.tkrpack` document | that pack's path |
-| `tilePalette[].tile` and `floors[].boundarySources.walkableTiles[].tile` | a tile id local to the `tileset` beside it | that tile's local id |
 | `placedPacks[].asset` | an asset id local to the `pack` beside it | that asset's local id |
 
 **The rename tool must discover and rewrite every one of these** as part of its all-or-nothing rename ([rename](native-contracts.md#rename)), and a reference it cannot read at one of them makes it refuse rather than skip. The location list is nested (`[]` marks a list), where the tool of the shared page takes top-level field names; teaching it nested paths is an implementation need of the rename tool (#1806, cutover #1822), not something this page can configure. A `{legacy: …}` tile reference is not a native document and is never rewritten.
@@ -156,7 +156,7 @@ The closed top-level mapping gains two optional lists immediately after `tilePal
 
 Addresses are zero-based integers on the same effective grid as `tiles`. A span's positive length must stay within its row. Spans are ordered by `y` then `x` without overlap; a reader accepts adjacent spans, and an editor rewriting coverage writes maximal spans. Region order is paint order and is never normalized. An override must be unique by floor and cell. Override order affects nothing; a writer inserting one places it in floor, row and column order.
 
-The palette and `boundarySources.walkableTiles` use the same native tile path form, replacing `{tileset, tile: <local id>}`. The boundary list still does not accept `{}`. Inventory and rename include `tilePalette[].tile`, `floors[].boundarySources.walkableTiles[].tile`, `tileOverrides[].tile.tile` and both fields of `terrainRegions[].terrain`. Only the final field is a terrain-local ID; the others are native document paths. A project check locates an unresolved document or terrain at its reference; it does not substitute a tile.
+The palette and `boundarySources.walkableTiles` use `{tile: <.tkrtle path>}`. `tileOverrides[].tile` has that same form, `{legacy: <legacy tile reference>}`, or `{}`. `terrainRegions[].terrain` is `{tileset: <.tkrtst path>, terrain: <terrain-local id>}`. Inventory and rename include every listed tile path and the terrain document path/local ID; tile document paths are rewritten on tile rename, and terrain-local IDs on terrain rename. A project check locates missing or ambiguous document and terrain targets at their reference; it does not substitute a tile.
 
 #### Cell precedence
 
@@ -169,7 +169,7 @@ The palette and `boundarySources.walkableTiles` use the same native tile path fo
 
 `boundarySources` records what a floor's walls were traced from, so they can be traced again. It has two optional keys: `walkableTiles`, a non-empty list of **tile references** (native or legacy form, never `{}`), and `autoWallCaps`, a boolean (absent means false). It is a scene-only feature: a `.brd` has nowhere to store it.
 
-When `autoWallCaps` is false or absent, the build traces the union of the footprints of the floor's cells whose palette references match `walkableTiles`. An absent list matches no cells. Native references match by case-insensitive document identity and exact tile ID; legacy references match by case-insensitive text. Every native reference must resolve even when no cell uses it. Duplicate matching palette slots and references do not change the result. Empty slots, empty cells and excess cells never match.
+When `autoWallCaps` is false or absent, the build traces the union of the footprints of the floor's cells whose palette references match `walkableTiles`. An absent list matches no cells. Native references match by case-insensitive document identity; legacy references match by case-insensitive text. Every native reference must resolve even when no cell uses it. Duplicate matching palette slots and references do not change the result. Empty slots, empty cells and excess cells never match.
 
 Each selected cell contributes the same rectangle or diamond as a generated solid footprint below. Shared, oppositely directed edges cancel. The remaining edges form directed contours with selected cells on their right. At a vertex where contours touch, take the sharpest right turn, keeping corner-touching regions separate. Remove intermediate collinear points. Order contours by their topmost, then leftmost vertex; at a tie order by the direction of their first edge clockwise from east. Start each contour at that vertex and use its directed edge order. Outer contours are open solid polylines with the first point repeated at the end; hole contours are closed solid polygons without a repeated endpoint. All have empty handles and zero attributes. They are on the source floor and follow the scene-owned vector slots; exceeding the board vector-table limit is a build error.
 
@@ -182,11 +182,11 @@ Each selected cell contributes the same rectangle or diamond as a generated soli
 1. **Position is the LUT index.** Entry `i` of the list is LUT index `i`. The stored upper bound is the list length minus one.
 2. **Position 0 is always `{}`**: the board's index 0 is always "no tile". A palette whose first entry is not `{}` is an error.
 3. **Absent versus empty slot.** An **absent** `tilePalette` is the board having **no table at all** (stored upper bound −1, and there is then no index 0). A **present** palette always has position 0. Inside a present palette, an **empty slot** is `{}` and is **not** the same as an absent palette: it keeps later indices where they were. The editor trims only trailing unused slots; a reader and an importer keep every slot as stored, trailing empty ones included.
-4. **An entry is one of three shapes:** `{}` (empty slot), a **legacy tile** `{legacy: <text>}`, or a **native tile** `{tileset: <path>, tile: <id>}` ([reference forms](#reference-forms)). A `.tan` animated tile is a legacy tile reference (`{legacy: water.tan}`); a native animated tile is not in this contract. A tile may appear in more than one slot.
-5. **What the build writes.** A legacy entry writes its text unchanged. A native entry writes the legacy tile reference of the tile the tileset's build generates for it ([native-tileset.md](native-tileset.md#lowering-and-preservation)); if a tile cannot be encoded the build reports it as unavailable and does not substitute. A native tile also contributes the `collision` its tile record states (`walkable` contributes nothing, `solid` the tile-footprint solid boundary, as [native-tileset.md](native-tileset.md#tiles) describes) as **generated vectors** ([order](#order-and-indices)); they are not copied into `vectors`. **Walk-behind is not promised by a tile reference.** The tileset stores `wallCapUnder` only on `isoBlocks`, and a reference names an entry of `tiles`, never an iso block ([native-tileset.md](native-tileset.md#references-and-identity)), so a scene cannot reach that behaviour through a palette entry. An author who wants a walk-behind region draws an `under` vector or places a pack asset whose `under` vectors carry it.
+4. **An entry is one of three shapes:** `{}` (empty slot), a **legacy tile** `{legacy: <text>}`, or a **native tile** `{tile: <.tkrtle path>}` ([reference forms](#reference-forms)). A tile may appear in more than one slot.
+5. **What the build writes.** A legacy entry writes its text unchanged. A native entry writes the legacy reference produced by its allocated tileset output; unresolved or ambiguous allocations are errors. The tile's explicit solid and under geometry contributes generated vectors as described in [native-tile.md](native-tile.md#geometry-and-program-activation).
 6. **An import produces only legacy entries**, because a `.brd` holds only legacy tile references. Swapping an entry for a native tile is an author action in the scene editor.
 
-**Generated solid footprints.** For each actual cell using a solid native tile, the build appends one closed solid polygon, in floor, row, then column order; excess cells are not board cells and produce none. In 2D the polygon is the 32-by-32 pixel cell rectangle. In either isometric layout it is the 64-by-32 diamond centered on that cell's board-pixel position, with vertices top, right, bottom, left. Cell positions use the board coordinate conversion. Walkable and legacy tile entries generate no solid polygon. A generated polygon follows the scene-owned vector slots and does not change them.
+**Boundary footprints.** For tracing walkable tiles, each selected cell contributes a 32-by-32 pixel rectangle in 2D or the 64-by-32 isometric cell diamond. These footprints do not imply tile collision.
 
 ## Shading
 
@@ -409,7 +409,7 @@ These are the scene features a `.brd` has no field for. On a `.brd` with no scen
 | U2 | A record's `id` (shading, lights, vectors, triggers, items, images) | The board identifies a record by slot index only. | Dropped from the board; reported as a note. |
 | U3 | A vector's `label` | The board has the script-visible `handle` only. | Dropped from the board; reported as a note. |
 | U4 | A floor's `boundarySources` | The board stores the traced vectors, not the recipe they came from. | The tracer's vectors are written; the recipe is not. |
-| U5 | A native tile reference `{tileset, tile}` in the palette, and so the tile's stored `collision` as a link to its recipe | The board stores a tile as a legacy reference string and has no link to a recipe. | The legacy reference of the generated tile is written; the tile's collision is written as generated vectors. |
+| U5 | A native tile reference `{tile}` and its explicit geometry | The board stores a legacy tile reference and has no link to the source tile. | The generated legacy reference and applicable solid and under vectors are written. |
 | U6 | `placedPacks`, and the knowledge of which generated records came from which placement | The board stores the expanded images, cells and vectors, not where they came from. | The expansion is written; the provenance is not. |
 | U7 | `name` | The board has no name; its file name is its name. | Dropped; reported as a note. |
 | U8 | `tags` and `metadata` | A `.brd` has no stamp. | Dropped; reported as a note. |
@@ -444,7 +444,7 @@ Checks run in three places: the contract's **reader** (the text and model alone)
 | V12 | A light's node or colour count does not fit its type. A light or ambient channel outside −255 to 255 is not a problem; it is a note. | warning for count | reader |
 | V13 | A keyed text is not empty; an integer is within its field's width; a point has two integers; a colour has three channels in range. | error | reader |
 | V14 | `condition.mode` is `always` or `conditional`; a type, `mode` or `type` value is in its vocabulary. | error | reader |
-| V15 | Every native tile reference resolves: the `tileset` path is a registered `.tkrtst` whose stamp says `tileset`, and the `tile` id names one tile. | error | project; build |
+| V15 | Every native tile path resolves unambiguously to a `.tkrtle`; every terrain reference resolves to one `.tkrtst` and its local terrain ID. | error | project; build |
 | V16 | Every `pack` path resolves to a `.tkrpack`, the `asset` names one asset in it, and the pack's `projection` equals the scene's. | error | project; build |
 | V17 | A legacy reference (tile, item, image, music, program, link, battle background) names a file that exists. | warning, never blocks | project |
 | V18 | A text the board's code page cannot store; a list over 32,768 entries; an unencodable native tile. | error | build |
@@ -460,7 +460,7 @@ A scene that was imported from `cottage.brd` and then extended in the scene edit
 
 ```yaml
 contract: scene
-version: 1.0.0-pre.1
+version: 1.0.0-pre.2
 tags: [imported]
 metadata:
   source: cottage.brd
@@ -474,7 +474,7 @@ floors:
     tiles: [[4, 1], [2, 2], [2, 4], [4, 1]]
     boundarySources:
       walkableTiles:
-        - {tileset: tiles/village.tkrtst, tile: grass-main}
+        - {tile: tiles/grass-main.tkrtle}
         - {legacy: village.tst1}
       autoWallCaps: true
   - id: roof
@@ -482,7 +482,7 @@ floors:
 tilePalette:
   - {}
   - {legacy: village.tst1}
-  - {tileset: tiles/village.tkrtst, tile: stone-wall-base}
+  - {tile: tiles/stone-wall-base.tkrtle}
   - {}
   - {legacy: water.tan}
 shading:
@@ -801,8 +801,7 @@ A scene reader takes text and returns, like the clip, tileset and asset-pack rea
 - **Scene rename and links.** A link and a script name a board by its `.brd` name. Renaming `a.tkrscn` renames the build target and so breaks every link by name; the rename tool ([#1806](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1806)) does not know these names. Whether a link may name a scene by path is open.
 - **Rename and the scene's references.** The locations are fixed on this page ([where references are](#where-references-are)); what is open is how the rename tool is taught nested paths, an implementation matter for #1806 and #1822.
 - **Automatic wall caps.** `autoWallCaps: true` remains unsupported because the scene contract does not define under-region geometry; with the value false or absent, the boundary tracing rules above apply.
-- **Walk-behind from a tileset.** `wallCapUnder` is stored only on `isoBlocks`, which a reference cannot name; whether a scene can reference an iso block, and so receive its walk-behind, is the tileset contract's to decide. Until it does, a scene gets walk-behind only from `under` vectors and pack assets.
-- **A native animated tile** and a native reference for a tile of a legacy `.tst`.
+- **Walk-behind from a tileset.** Tileset palette members are standalone tile documents. A tile's explicit `under` geometry is available through its path; `wallCapUnder` remains only on `isoBlocks`, which a tile reference cannot name.
 - **What a board outside `Boards/` should do.** The contract only warns ([V21](#validation)); whether the editor refuses to create one is the editor's.
 - **The standard `metadata` keys and the `tags` vocabulary** ([native-contracts.md](native-contracts.md#not-decided-here)).
 - **The YAML profile and layout contract.**
