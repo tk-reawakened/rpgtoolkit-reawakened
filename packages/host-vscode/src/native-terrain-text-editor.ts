@@ -1,9 +1,10 @@
 import * as vscode from "vscode";
-import { createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, readScene, reviewTerrainSceneConflicts, setSceneTerrain, writePreparedTerrainSceneProject, type BoardPicture, type Scene, type TerrainSceneConflictDialogs, type DocumentHistoryStore } from "@tk-reawakened/editor-model";
+import { applyTerrainSceneEdit, createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, readScene, reviewTerrainSceneConflicts, writePreparedTerrainSceneProject, type BoardPicture, type Scene, type TerrainSceneConflictDialogs, type DocumentHistoryStore } from "@tk-reawakened/editor-model";
 import type { RunService } from "@tk-reawakened/platform-services";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { playVscodeTerrainScene } from "./terrain-scene-host.ts";
 import { relativeToWorkspace } from "./launch-prompts.ts";
+import { applyNativeTextEdit } from "./native-text-edit.ts";
 
 type Panel = { readonly panel: vscode.WebviewPanel; initialized: boolean };
 
@@ -82,28 +83,34 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
       const set = panels.get(key) ?? new Set<Panel>(); set.add(target); panels.set(key, set);
       panel.webview.options = { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, "dist")] };
       const projectPath = folder === undefined ? undefined : relativeToWorkspace(folder.uri, document.uri);
-      const inventory = folder === undefined || projectPath === undefined ? null : await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath);
+      const inventory = folder === undefined || projectPath === undefined ? null : await loadTerrainSceneProjectInventory(createVscodeFileSystem(folder.uri), projectPath, document.getText());
       const tilesets = inventory?.ok ? [...inventory.tilesets].map(([path, tileset]) => ({ path, terrains: (tileset.terrains ?? []).map(({ id, name }) => ({ id, label: name })) })) : [];
       const assetTiles = inventory?.ok ? inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })) : [];
+      const packs = inventory?.ok ? inventory.packs : [];
+      const ownerPaths = new Set([...(inventory?.ok === true ? inventory.tiles : []), ...packs.map(({ path }) => path)]);
       panel.webview.onDidReceiveMessage(async (value: unknown) => {
         if (typeof value !== "object" || value === null || !("type" in value)) return;
         if (value.type === "ready") {
           target.initialized = true;
           if (inventory?.ok === false) sendStatus(target, inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; "));
           else if (inventory === null) sendStatus(target, "Open this scene inside a workspace folder to load terrain assets.");
+          else if (inventory.packProblems.length > 0) sendStatus(target, inventory.packProblems.map(({ path, message }) => `${path}: ${message}`).join("; "));
           const current = readScene(document.getText());
           if (!current.ok) { sendStatus(target, `The native scene is invalid; repair it in the text editor before terrain editing. ${current.problems.map(({ message }) => message).join("; ")}`); return; }
-          void panel.webview.postMessage({ type: "initialize", snapshot: { scene: current.scene }, tilesets, assetTiles });
+          void panel.webview.postMessage({ type: "initialize", snapshot: { scene: current.scene }, tilesets, assetTiles, packs });
         } else if (value.type === "edit" && "terrain" in value) {
           const currentText = document.getText();
-          const result = setSceneTerrain(currentText, value.terrain as Pick<Scene, "terrainRegions" | "tileOverrides">);
+          const result = applyTerrainSceneEdit(currentText, {
+            terrain: value.terrain as Pick<Scene, "terrainRegions" | "tileOverrides">,
+            ...("placements" in value && Array.isArray(value.placements) ? { placements: value.placements as NonNullable<Scene["placedPacks"]> } : {}),
+          });
           if (!result.ok) { sendStatus(target, result.problems.map(({ message }) => message).join("; ")); return; }
-          let prefix = 0; while (prefix < currentText.length && prefix < result.text.length && currentText.charCodeAt(prefix) === result.text.charCodeAt(prefix)) prefix += 1;
-          let suffix = 0; while (suffix < currentText.length - prefix && suffix < result.text.length - prefix && currentText.charCodeAt(currentText.length - suffix - 1) === result.text.charCodeAt(result.text.length - suffix - 1)) suffix += 1;
-          if (prefix === currentText.length && prefix === result.text.length) return;
-          const edit = new vscode.WorkspaceEdit();
-          edit.replace(document.uri, new vscode.Range(document.positionAt(prefix), document.positionAt(currentText.length - suffix)), result.text.slice(prefix, result.text.length - suffix));
-          if (!await vscode.workspace.applyEdit(edit)) { sendStatus(target, "VS Code could not apply the terrain edit."); return; }
+          if (await applyNativeTextEdit(document, currentText, result.text) === "refused") sendStatus(target, "VS Code could not apply the scene edit.");
+        } else if (value.type === "open-owner" && "path" in value && typeof value.path === "string") {
+          if (folder === undefined) { sendStatus(target, "Open this scene inside a workspace folder to open its native sources."); return; }
+          if (!ownerPaths.has(value.path)) { sendStatus(target, `${value.path} is not a native tile or pack in this project's scene inventory.`); return; }
+          try { await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(folder.uri, value.path)); }
+          catch (error) { sendStatus(target, `Could not open ${value.path}: ${error instanceof Error ? error.message : String(error)}`); }
         } else if (value.type === "preview" && "requestId" in value && typeof value.requestId === "string") {
           const requestId = value.requestId;
           const reply = async (picture: BoardPicture): Promise<void> => {

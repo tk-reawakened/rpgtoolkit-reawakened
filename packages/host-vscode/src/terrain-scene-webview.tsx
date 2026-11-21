@@ -1,5 +1,5 @@
 import { mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
-import type { BoardPicture, Scene, SceneTerrainCellTile } from "@tk-reawakened/editor-model";
+import type { BoardPicture, Scene, SceneTerrainCellTile, TerrainScenePack } from "@tk-reawakened/editor-model";
 
 declare function acquireVsCodeApi(): { postMessage(value: unknown): void };
 const api = acquireVsCodeApi();
@@ -14,6 +14,7 @@ let view: ViewHandle | undefined;
 let snapshot: { readonly scene: Scene } | undefined;
 let tilesets: readonly { readonly path: string; readonly terrains: readonly { readonly id: string; readonly label?: string }[] }[] = [];
 let assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[] = [];
+let packs: readonly TerrainScenePack[] = [];
 const listeners = new Set<() => void>();
 let generation = 0;
 let previewsMade = 0;
@@ -42,7 +43,13 @@ function mount(): void {
     },
     tilesets,
     assetTiles,
-    onChange: (scene) => api.postMessage({ type: "edit", terrain: { terrainRegions: scene.terrainRegions, tileOverrides: scene.tileOverrides } }),
+    packs,
+    onOpenAsset: (path: string) => api.postMessage({ type: "open-owner", path }),
+    onChange: (scene) => api.postMessage({
+      type: "edit",
+      terrain: { terrainRegions: scene.terrainRegions, tileOverrides: scene.tileOverrides },
+      placements: scene.placedPacks ?? [],
+    }),
     onPreview: previewPicture,
     onSave: () => api.postMessage({ type: "save" }),
     onRun: () => api.postMessage({ type: "play" }),
@@ -71,6 +78,7 @@ window.addEventListener("message", (event: MessageEvent) => {
   snapshot = message.snapshot as { readonly scene: Scene };
   tilesets = message.tilesets as typeof tilesets;
   assetTiles = message.assetTiles as typeof assetTiles;
+  packs = message.packs as typeof packs;
   mount();
 });
 api.postMessage({ type: "ready" });

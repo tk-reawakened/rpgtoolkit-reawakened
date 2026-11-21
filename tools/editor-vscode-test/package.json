@@ -30,6 +30,7 @@
     "./animation-proof": "./animation-proof.ts",
     "./board-properties-proof": "./board-properties-proof.ts",
     "./board-objects-proof": "./board-objects-proof.ts",
-    "./connected-authoring-proof": "./connected-authoring-proof.ts"
+    "./connected-authoring-proof": "./connected-authoring-proof.ts",
+    "./native-geometry-proof": "./native-geometry-proof.ts"
   }
 }

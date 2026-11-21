@@ -301,6 +301,8 @@ The pack's `projection` must equal the scene's `projection` ([validation](#valid
 
 The crop preserves decoded straight RGBA; an omitted source transparency setting uses that alpha, and a color-key setting makes matching source RGB transparent. A board image also needs a transparent RGB key: use the first RGB value, in ascending numeric order, not used by a visible pixel; give transparent pixels that key. If there is no such key, report that the crop cannot be represented. PNG encoding follows the [image storage policy](images.md#storage-policy). A whole JPEG can be referenced as-is when no crop or transparency conversion is needed; otherwise a JPEG crop is reported as unavailable rather than violating the rule that JPEG is not re-encoded losslessly.
 
+**Walking behind pack images.** A normal-position pack image participates in the board layer's under-vector redraw ([E-30](../engine/movement-and-collision.md#e-30)). When the region activates, its covered part is drawn over the player, using the same crop, layer, alpha and transparent colour key as the ordinary image. Pixels outside the region and holes in the image do not hide the player. The region has no effect on movement; use a separate `solid` outline to block it.
+
 ## Atmosphere
 
 `atmosphere` has three optional keys:

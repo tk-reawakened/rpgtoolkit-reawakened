@@ -2,22 +2,34 @@
 type: feature
 title: "Refactor sweep"
 ticket: 13
-status: draft
+status: built
+route: oneshot
+route_source: auto
+risk: low
+baseline_revision: bb877f82e64b43e15614cdab2e6718dc36c4596f
+review: quick
+review_source: pinned
+lenses_ran: [quick]
+context: ["docs/guardrails.md", "docs/editor-features.md"]
 ---
 
 # Refactor sweep
 
-## Scope
+<frozen-after-approval reason="behavior-preserving Epic 12 cleanup">
 
-Remove duplication and address deferred review cleanup across the completed P0 asset editor stories without adding feature scope.
+## Intent
 
-Inspect completed plans and review findings, remove obsolete scaffolding and duplication, preserve behavior and document any intentional deferral without absorbing unimplemented features.
+The three native VS Code editors independently find the changed span and submit the same kind of workspace edit. Share that operation so they preserve surrounding source and native undo in the same way. Keep each editor's validation, diagnostics, save and conflict behavior unchanged. Do not add new authoring features.
 
-## Acceptance and verification
+</frozen-after-approval>
 
-The sweep accounts for prior review findings and preserves the asset editor and host conformance checks.
+## Implementation Notes
 
-Use the shared document lifecycle and preserve same-version unknown data; exercise relevant failure/cancel, keyboard access and save/reopen paths rather than relying on preview alone. Follow `discovery/inception-proposal.md`, `docs/editor-features.md` and G2/G7; do not claim checks passed without executing them.
+The native clip, geometry and terrain providers are the three callers. Keep their distinct no-change outcomes. The earlier linked-art and program issues (#3040, #3111, #3114, #3121) were handled by connected authoring. Corrupt imported ANM dimension hardening remains explicitly deferred in #3067; the sweep does not change imported animation behavior or take on the item editor work moved to Epic 29.
+
+## Verification
+
+Run the real VS Code Web native clip and native scene lanes to cover keyboard undo/redo, review cancellation, saved text, and reopen. Run editor document conformance and typecheck.
 
 ## Dependencies and decision gate
 

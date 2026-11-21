@@ -2,7 +2,12 @@ import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, previewTerra
 import { mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { WebProject } from "./index.ts";
 
-export function mountWebTerrainScene(container: HTMLElement, project: WebProject, document: TerrainSceneDocument, main: string | null, projectFolder: string): ViewHandle {
+/**
+ * Mount the native scene editor. The fifth argument is the game's asset folder; the sixth is the
+ * browser's ordinary source opener, which opens a project-relative path in a tab and returns a
+ * message when it could not. Owner links use only the paths the scene inventory supplied.
+ */
+export function mountWebTerrainScene(container: HTMLElement, project: WebProject, document: TerrainSceneDocument, main: string | null, projectFolder: string, openSource?: (path: string) => Promise<string | null>): ViewHandle {
   const status = container.ownerDocument.createElement("p");
   status.setAttribute("role", "status");
   status.textContent = "Loading terrain assets…";
@@ -56,18 +61,31 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
     finally { busy = false; }
   };
   const run = project.services.run;
-  void loadTerrainSceneProjectInventory(fs, document.identity.path).then((inventory) => {
+  void loadTerrainSceneProjectInventory(fs, document.identity.path, document.getSnapshot().text).then((inventory) => {
     if (disposed) return;
     if (!inventory.ok) { report(inventory.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")); return; }
-    report("");
+    report(inventory.packProblems.map(({ path, message }) => `${path}: ${message}`).join("; "));
+    const owners = new Set([...inventory.tiles, ...inventory.packs.map((pack) => pack.path)]);
     mounted = mountTerrainScene(content, {
       document,
       tilesets: [...inventory.tilesets].map(([path, tileset]) => ({ path, terrains: (tileset.terrains ?? []).map(({ id, name }) => ({ id, label: name })) })),
       assetTiles: inventory.tiles.map((tile) => ({ label: tile, tile: { tile } })),
+      packs: inventory.packs,
+      ...(openSource === undefined ? {} : { onOpenAsset: (path: string) => {
+        if (!owners.has(path)) { report(`${path} is not a native tile or pack in this project's scene inventory.`); return; }
+        void openSource(path).then((message) => { if (message !== null) report(message); }).catch((error: unknown) => report(String(error)));
+      } }),
       onChange: (scene) => {
-        const result = document.apply({ type: "edit-scene-terrain", terrain: scene });
+        const result = document.apply({
+          type: "edit-scene-terrain",
+          terrain: {
+            ...(scene.terrainRegions === undefined ? {} : { terrainRegions: scene.terrainRegions }),
+            ...(scene.tileOverrides === undefined ? {} : { tileOverrides: scene.tileOverrides }),
+          },
+          placements: scene.placedPacks ?? [],
+        });
         if (!result.ok) report(result.rejection.message);
-        else report("Unsaved terrain changes.");
+        else report("Unsaved scene changes.");
       },
       onSave: () => { void save(); },
       onPreview: async (): Promise<BoardPicture> => {
