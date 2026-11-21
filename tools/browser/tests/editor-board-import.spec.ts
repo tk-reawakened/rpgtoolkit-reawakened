@@ -151,6 +151,8 @@ test("Opening a supported legacy board never imports it; the board toolbar can e
   await page.getByRole("treeitem", { name: /^vector\.brd,/ }).dblclick();
   const board = page.getByRole("region", { name: "Board", exact: true });
   await expect(board).toBeVisible();
+  await expect(board.getByText(/linked pack placements are edited in native scenes, not legacy boards/)).toBeVisible();
+  await expect(board.getByRole("button", { name: "Place asset", exact: true })).toHaveCount(0);
   expect(await listFolder(page, folder, "Boards")).toEqual(["vector.brd"]);
   await board.getByRole("button", { name: "Import as Scene…", exact: true }).click();
   const review = page.getByRole("dialog").filter({ hasText: "Import Boards/vector.brd as a scene?" });

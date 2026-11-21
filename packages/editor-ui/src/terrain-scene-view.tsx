@@ -1,11 +1,16 @@
-import type { BoardPicture, Scene, SceneTerrainCellTile } from "@tk-reawakened/editor-model";
+import { placeScenePackAsset, placementPointForCell, type BoardPicture, type Scene, type SceneTerrainCellTile, type TerrainScenePack } from "@tk-reawakened/editor-model";
 import { useEffect, useRef, useState } from "preact/hooks";
+import { ScenePackPlacementEditor } from "./scene-pack-placement.tsx";
 type SceneTerrainRegion = NonNullable<Scene["terrainRegions"]>[number];
 
 export interface TerrainSceneViewProps {
   readonly scene: Scene;
   readonly tilesets: readonly { readonly path: string; readonly terrains: readonly { readonly id: string; readonly label?: string }[] }[];
   readonly assetTiles: readonly { readonly label: string; readonly tile: SceneTerrainCellTile }[];
+  /** The scene game's asset packs, whose assets can be placed and whose owner documents can be opened. */
+  readonly packs?: readonly TerrainScenePack[];
+  /** Open a native owner document by its canonical inventory path; the picker never invents a path. */
+  readonly onOpenAsset?: (path: string) => void;
   readonly onChange: (scene: Scene) => void;
   readonly onSave?: () => void;
   readonly onPreview?: () => Promise<BoardPicture>;
@@ -14,7 +19,7 @@ export interface TerrainSceneViewProps {
 }
 
 type Point = readonly [number, number];
-type Tool = "select" | "paint" | "reshape" | "tile" | "empty" | "clear";
+type Tool = "select" | "paint" | "reshape" | "tile" | "empty" | "clear" | "pack";
 
 /** Native terrain coverage is stored as horizontal spans; the base floor runs remain untouched.
  * See docs/spec/formats/native-scene.md#resolving-painted-terrain. */
@@ -39,7 +44,8 @@ function newRegionId(regions: readonly SceneTerrainRegion[]): string {
   return `region-${n}`;
 }
 
-export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave, onPreview, onRun, disabled = false }: TerrainSceneViewProps) {
+export function TerrainSceneView({ scene, tilesets, assetTiles, packs = [], onOpenAsset, onChange, onSave, onPreview, onRun, disabled = false }: TerrainSceneViewProps) {
+  const compatiblePacks = packs.filter((entry) => entry.external !== true && entry.projection === scene.projection);
   const [floorId, setFloorId] = useState(scene.floors[0]?.id ?? "");
   const [tilesetPath, setTilesetPath] = useState(tilesets[0]?.path ?? "");
   const [terrainId, setTerrainId] = useState(tilesets[0]?.terrains[0]?.id ?? "");
@@ -47,6 +53,9 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave
   const [tileIndex, setTileIndex] = useState(0);
   const [tool, setTool] = useState<Tool>("select");
   const [anchor, setAnchor] = useState<Point | null>(null);
+  const [placementId, setPlacementId] = useState("");
+  const [packPath, setPackPath] = useState(compatiblePacks[0]?.path ?? "");
+  const [packAsset, setPackAsset] = useState(compatiblePacks[0]?.assets[0]?.id ?? "");
   const [preview, setPreview] = useState<{ readonly scene: Scene; readonly picture: BoardPicture } | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const previewCanvas = useRef<HTMLCanvasElement>(null);
@@ -76,8 +85,23 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave
   const height = rotated ? width : scene.size.height;
 
   const chooseTool = (next: Tool): void => { setTool(next); setAnchor(null); };
+  const choosePack = (path: string): void => {
+    setPackPath(path);
+    setPackAsset(packs.find((entry) => entry.path === path)?.assets[0]?.id ?? "");
+  };
   const clickCell = (x: number, y: number): void => {
     if (disabled || floor === undefined) return;
+    if (tool === "pack") {
+      const chosen = compatiblePacks.find((entry) => entry.path === packPath);
+      const asset = chosen?.assets.find((entry) => entry.id === packAsset);
+      if (asset === undefined) return;
+      const at = placementPointForCell(scene, asset.anchor.snap, x, y);
+      if (at === null) return;
+      const placed = placeScenePackAsset(scene, { pack: packPath, asset: asset.id, floor: activeFloor }, at.x, at.y);
+      onChange(placed.scene);
+      setPlacementId(placed.instanceId);
+      return;
+    }
     if (tool === "select") {
       const hit = [...regions].reverse().find((region) => region.floor === activeFloor && contains(region, x, y));
       setSelectedId(hit?.id ?? "");
@@ -139,13 +163,33 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave
     <label>Manual tile <select value={String(tileIndex)} disabled={disabled || assetTiles.length === 0} onChange={(event) => setTileIndex(Number(event.currentTarget.value))}>
       {assetTiles.map((entry, index) => <option key={index} value={String(index)}>{entry.label}</option>)}
     </select></label>
+    {onOpenAsset !== undefined && <button type="button" data-tkr-tile-open="true" disabled={disabled || assetTiles[tileIndex] === undefined || !("tile" in (assetTiles[tileIndex]?.tile ?? {}))} onClick={() => {
+      const tile = assetTiles[tileIndex]?.tile;
+      if (tile !== undefined && "tile" in tile) onOpenAsset(tile.tile);
+    }}>Open tile source</button>}
     <fieldset disabled={disabled}><legend>Terrain tool</legend>
       {([
         ["select", "Select region"], ["paint", "Paint rectangle"], ["reshape", "Reshape region"],
-        ["tile", "Manual tile"], ["empty", "Manual empty"], ["clear", "Clear override"],
-      ] as const).map(([value, label]) => <label key={value}><input type="radio" name="scene-terrain-tool" checked={tool === value} onChange={() => chooseTool(value)} />{label}</label>)}
+        ["tile", "Manual tile"], ["empty", "Manual empty"], ["clear", "Clear override"], ["pack", "Place pack asset"],
+      ] as const).map(([value, label]) => <label key={value}><input type="radio" name="scene-terrain-tool" data-tkr-tool={value} checked={tool === value} onChange={() => chooseTool(value)} />{label}</label>)}
     </fieldset>
-    <p role="status">{anchor === null ? (tool === "paint" || tool === "reshape" ? "Choose the first corner of a rectangle." : "Choose a cell.") : `First corner: ${anchor[0]}, ${anchor[1]}. Choose the opposite corner.`}</p>
+    <ScenePackPlacementEditor
+      scene={scene}
+      packs={packs}
+      activeFloor={activeFloor}
+      placementId={placementId}
+      onSelect={setPlacementId}
+      packPath={packPath}
+      assetId={packAsset}
+      onPackChange={choosePack}
+      onAssetChange={setPackAsset}
+      onChange={onChange}
+      disabled={disabled}
+      {...(onOpenAsset === undefined ? {} : { onOpenAsset })}
+    />
+    <p role="status">{anchor === null
+      ? (tool === "paint" || tool === "reshape" ? "Choose the first corner of a rectangle." : tool === "pack" ? "Choose a cell to place the chosen pack asset." : "Choose a cell.")
+      : `First corner: ${anchor[0]}, ${anchor[1]}. Choose the opposite corner.`}</p>
     <div class="tkr-terrain-grid">
       <table role="grid" aria-label="Scene cells"><tbody>
         {Array.from({ length: height }, (_, y) => <tr key={y}>

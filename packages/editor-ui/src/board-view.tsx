@@ -434,6 +434,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
             .finally(() => setImportPending(false));
         }}>Import as Scene…</button>
       )}
+      <p>Reusable collision, walk-behind and linked pack placements are edited in native scenes, not legacy boards. Import this board as a scene to use those tools.</p>
       {importError === null ? null : <p class="tkr-board-error" role="alert">{importError}</p>}
       {conflict === null ? null : (
         <div class="tkr-board-conflict" role="group" aria-label="Changed on disk">

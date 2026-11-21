@@ -7,6 +7,7 @@ import type { BoardPreviewOptions, PreviewStorage } from "./board-preview.ts";
 import type { SceneTileCrop } from "./scene-tile-slots.ts";
 import type { SceneBuildCheck, SceneBuildOutput, SceneBuildWriteResult } from "./scene-build-ownership.ts";
 import { projectLayoutForDocumentPath } from "./reserved-folders.ts";
+import type { TerrainScenePack } from "./scene-pack-placements.ts";
 
 type ProjectFs = Pick<FileSystemService, "list" | "read">;
 type Ownership = {
@@ -16,14 +17,16 @@ type Ownership = {
 type Problem = { readonly path: string; readonly message: string };
 type ManagedSample = Extract<NativeTileSample, { readonly source: string }>;
 type Built = Extract<SceneBuildResult, { readonly ok: true }>;
-type InventoryWithFiles = Extract<TerrainSceneProjectInventory, { readonly ok: true }> & {
+type InventoryWithFiles = {
+  readonly ok: true;
+  readonly tilesets: ReadonlyMap<string, Tileset>;
   readonly files: ReadonlyMap<string, string>;
   readonly nativeTiles: ReadonlyMap<string, NativeTile>;
 };
 type InventoryFailure = Extract<TerrainSceneProjectInventory, { readonly ok: false }>;
 
 export type TerrainSceneProjectInventory =
-  | { readonly ok: true; readonly tilesets: ReadonlyMap<string, Tileset>; readonly tiles: readonly string[] }
+  | { readonly ok: true; readonly tilesets: ReadonlyMap<string, Tileset>; readonly tiles: readonly string[]; readonly packs: readonly TerrainScenePack[]; readonly packProblems: readonly Problem[] }
   | { readonly ok: false; readonly problems: readonly Problem[] };
 export type TerrainSceneProjectPreparation =
   | (CompiledSceneProject & { readonly check: SceneBuildCheck })
@@ -59,7 +62,7 @@ async function projectFiles(fs: ProjectFs): Promise<InventoryPaths | InventoryFa
   return { ok: true, files };
 }
 
-/** Inventory every native tileset in this game so destination conflicts cannot hide in an unused palette. */
+/** Inventory the build's tileset and standalone tile inputs. Packs are read only when a scene uses them. */
 async function inventory(fs: ProjectFs, gameFolder: string, readFile: (path: string) => Promise<Uint8Array>): Promise<InventoryWithFiles | InventoryFailure> {
   const project = await projectFiles(fs);
   if (!project.ok) return project;
@@ -85,16 +88,50 @@ async function inventory(fs: ProjectFs, gameFolder: string, readFile: (path: str
       else for (const problem of parsed.problems) problems.push({ path, message: `${problem.path}: ${problem.message}` });
     } catch (error) { problems.push({ path, message: `Cannot read native document: ${message(error)}` }); }
   }
-  return problems.length > 0 ? { ok: false, problems } : { ok: true, tilesets, tiles: [...nativeTiles.keys()], files, nativeTiles };
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, tilesets, files, nativeTiles };
 }
 
-/** Tileset and standalone tile choices for the scene's game, with parse and inventory failures surfaced. */
-export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath: string): Promise<TerrainSceneProjectInventory> {
+/**
+ * Browse the packs this scene can use without turning a broken pack into a build dependency: the
+ * packs in this game, plus any pack the saved or current scene already names, even in another game.
+ * A pack that is only reachable through a placement is marked `external`, so the picker can resolve
+ * and open it without offering it as a new authoring choice.
+ */
+export async function loadTerrainSceneProjectInventory(fs: ProjectFs, scenePath: string, sceneText?: string): Promise<TerrainSceneProjectInventory> {
   const { projectFolder } = projectLayoutForDocumentPath(scenePath);
   const result = await inventory(fs, projectFolder, (path) => readProjectFile(fs, path));
   if (!result.ok) return result;
   const members = new Set([...result.tilesets.values()].flatMap(({ tiles }) => tiles.map(({ tile }) => identity(tile))));
-  return { ok: true, tilesets: result.tilesets, tiles: result.tiles.filter((path) => members.has(identity(path))) };
+  const references = new Set<string>();
+  let text = sceneText;
+  if (text === undefined) {
+    const saved = result.files.get(identity(scenePath)) ?? scenePath;
+    try { text = utf8Decode(await readProjectFile(fs, saved)); }
+    catch { text = undefined; }
+  }
+  if (text !== undefined) {
+    const parsed = readScene(text);
+    if (parsed.ok) for (const placement of parsed.scene.placedPacks ?? []) references.add(identity(placement.pack));
+  }
+  const packs: TerrainScenePack[] = [];
+  const packProblems: Problem[] = [];
+  const game = identity(projectFolder);
+  for (const path of [...result.files.values()].sort()) {
+    const key = identity(path);
+    if (!key.endsWith(".tkrpack")) continue;
+    const ownGame = tilesetGame(path) === game;
+    if (!ownGame && !references.has(key)) continue;
+    try {
+      const parsed = readAssetPack(utf8Decode(await readProjectFile(fs, path)));
+      if (parsed.ok) {
+        const { name, projection, assets } = parsed.assetPack;
+        packs.push({ path, name, projection, ...(ownGame ? {} : { external: true }), assets: assets.map(({ id, name, kind, anchor }) => ({ id, name, kind, anchor })) });
+      } else {
+        for (const problem of parsed.problems) packProblems.push({ path, message: `${problem.path}: ${problem.message}` });
+      }
+    } catch (error) { packProblems.push({ path, message: `Cannot read native document: ${message(error)}` }); }
+  }
+  return { ok: true, tilesets: result.tilesets, tiles: [...result.nativeTiles.keys()].filter((path) => members.has(identity(path))), packs, packProblems };
 }
 
 type ProjectBuildInputs = {

@@ -10,6 +10,7 @@ import { createProgramDocument, openProgramDocument, programCodec, type ProgramC
 import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type TileBitmapCommand, type TileBitmapDocument } from "./tile-bitmap-document.ts";
 import { createNativeClipDocument, nativeClipCodec, openNativeClipDocument, type NativeClipCommand, type NativeClipDocument } from "./native-clip-document.ts";
 import { createTerrainSceneDocument, openTerrainSceneDocument, terrainSceneCodec, type TerrainSceneCommand, type TerrainSceneDocument } from "./terrain-scene-document.ts";
+import { createNativeGeometryDocument, nativeGeometryCodecs, openNativeGeometryDocument, type NativeGeometryCommand, type NativeGeometryDocument } from "./native-geometry-document.ts";
 
 /**
  * The registry of document kinds (ADR 0026 decisions 1, 2 and 9). A kind has an identifier, a label, the extensions it
@@ -20,7 +21,7 @@ import { createTerrainSceneDocument, openTerrainSceneDocument, terrainSceneCodec
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand | NativeGeometryCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
@@ -173,6 +174,23 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
     isCommand: terrainSceneCodec.isCommand,
     recoveryMarker: () => null,
   },
+  ...(["native-tile", "native-asset-pack"] as const).map((id) => ({
+    id,
+    label: id === "native-tile" ? "Native tile" : "Native asset pack",
+    description: id === "native-tile"
+      ? "A native tile: its collision and walk-behind shapes, kept with the tile."
+      : "A native asset pack: each asset's collision and walk-behind shapes, kept with the asset.",
+    extensions: [id === "native-tile" ? ".tkrtle" : ".tkrpack"],
+    storage: "native-text" as const,
+    open: (storage: DocumentStorage, identity: DocumentIdentity) => openNativeGeometryDocument(id, storage, identity),
+    create: (storage: DocumentStorage, identity: DocumentIdentity, bytes: Uint8Array) => createNativeGeometryDocument(id, storage, identity, bytes),
+    summarise: (bytes: Uint8Array, path: string) => {
+      const parsed = nativeGeometryCodecs[id].read(bytes, path);
+      return parsed.ok ? nativeGeometryCodecs[id].summary(parsed.value) : null;
+    },
+    isCommand: nativeGeometryCodecs[id].isCommand,
+    recoveryMarker: () => null,
+  })),
   ...(["character", "item"] as const).map((id) => ({
     id,
     label: id === "character" ? "Character" : "Item",
@@ -243,6 +261,12 @@ export function asNativeClipDocument(document: AnyDocument): NativeClipDocument 
 export function asTerrainSceneDocument(document: AnyDocument): TerrainSceneDocument {
   if (document.kind !== "terrain-scene") throw new Error("Expected a terrain scene document.");
   return document as TerrainSceneDocument;
+}
+
+/** The document as a native tile or pack document, whose owners keep collision and walk-behind (see `asMainDocument`). */
+export function asNativeGeometryDocument(document: AnyDocument): NativeGeometryDocument {
+  if (document.kind !== "native-tile" && document.kind !== "native-asset-pack") throw new Error(`${document.identity.path} is a ${document.kind} document, not a native tile or pack.`);
+  return document as NativeGeometryDocument;
 }
 
 /** The document as a program document (see `asMainDocument`). */

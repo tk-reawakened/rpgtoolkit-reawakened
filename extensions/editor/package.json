@@ -17,6 +17,7 @@
     "onCustomEditor:tkr.animation",
     "onCustomEditor:tkr.nativeClip",
     "onCustomEditor:tkr.nativeScene",
+    "onCustomEditor:tkr.nativeGeometry",
     "onView:tkr.game",
     "onStartupFinished",
     "onCommand:tkr.newProject",
@@ -223,6 +224,19 @@
         "selector": [
           {
             "filenamePattern": "*.tkrscn"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.nativeGeometry",
+        "displayName": "RPG Toolkit Native Collision and Walk-behind",
+        "selector": [
+          {
+            "filenamePattern": "*.tkrtle"
+          },
+          {
+            "filenamePattern": "*.tkrpack"
           }
         ],
         "priority": "default"

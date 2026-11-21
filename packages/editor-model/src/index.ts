@@ -204,6 +204,19 @@ export {
   type NativeClipSnapshot,
 } from "./native-clip-document.ts";
 export {
+  createNativeGeometryDocument,
+  nativeGeometryCodecs,
+  openNativeGeometryDocument,
+  type NativeGeometryCodec,
+  type NativeGeometryCommand,
+  type NativeGeometryDocument,
+  type NativeGeometryKind,
+  type NativeGeometryModel,
+  type NativeGeometryOpenResult,
+  type NativeGeometrySnapshot,
+  type NativeGeometrySource,
+} from "./native-geometry-document.ts";
+export {
   colourOfShade,
   createTileBitmapDocument,
   lightnessOfShade,
@@ -230,9 +243,17 @@ export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
 export { asAnimationDocument, asBoardDocument, asMainDocument, asNativeClipDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { asTerrainSceneDocument } from "./kinds.ts";
+export { asNativeGeometryDocument } from "./kinds.ts";
+export type { AssetPack, GeometryPoint, GeometrySolid, GeometryUnder, NativeTile, NativeTileSample, OwnerGeometry } from "@tk-reawakened/native-data";
 export type { Scene, SceneTerrainCellTile } from "@tk-reawakened/native-data";
-export { setSceneTerrain, readScene } from "@tk-reawakened/native-data";
-export type { TerrainSceneDocument } from "./terrain-scene-document.ts";
+export { setSceneTerrain, readScene, setScenePackPlacements } from "@tk-reawakened/native-data";
+export type { TerrainSceneCommand, TerrainSceneDocument } from "./terrain-scene-document.ts";
+export { applyTerrainSceneEdit } from "./terrain-scene-document.ts";
+export {
+  copyScenePackPlacement, findTerrainScenePack, moveScenePackPlacement,
+  nextScenePackPlacementId, placeScenePackAsset, placementPointForCell, removeScenePackPlacement,
+  scenePackPlacementMissing, type TerrainScenePack, type TerrainScenePackAsset,
+} from "./scene-pack-placements.ts";
 export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
 export { buildTerrainSceneLaunch } from "./terrain-scene-launch.ts";
 export { createSceneBuildOwnership, createSceneBuildOwnershipStorage, type SceneBuildCheck, type SceneBuildConflictKind } from "./scene-build-ownership.ts";

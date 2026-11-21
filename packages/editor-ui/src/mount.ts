@@ -25,6 +25,7 @@ import {
   type TilesetArtSnapshot,
 } from "@tk-reawakened/editor-model";
 import { NativeClipView, type NativeClipViewDocument } from "./native-clip-view.tsx";
+import { NativeGeometryView, type NativeGeometryViewDocument } from "./native-geometry-view.tsx";
 import type { PlatformResult, PlatformServices } from "@tk-reawakened/platform-services";
 import { createElement, Fragment, render } from "preact";
 import { AssetPickerView, type AssetPickerViewProps } from "./asset-picker-view.tsx";
@@ -111,7 +112,7 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeGeometryViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -168,6 +169,9 @@ function isAnimationView(document: ViewContext["document"]): document is Animati
 }
 function isNativeClipView(document: ViewContext["document"]): document is NativeClipViewDocument {
   return document.kind === "native-clip";
+}
+function isNativeGeometryView(document: ViewContext["document"]): document is NativeGeometryViewDocument {
+  return document.kind === "native-tile" || document.kind === "native-asset-pack";
 }
 
 /** Render the view of the document's kind into `el` (ADR 0026 decision 2: views are registered here, models in `editor-model`). */
@@ -243,12 +247,21 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     });
   } else if (isNativeClipView(document)) {
     view = createElement(NativeClipView, { doc: document, pendingEdits, capabilities, onEdited });
+  } else if (isNativeGeometryView(document)) {
+    const browserFs = ctx.browser?.fs;
+    view = createElement(NativeGeometryView, {
+      doc: document,
+      pendingEdits,
+      capabilities,
+      onEdited,
+      ...(browserFs === undefined ? {} : { readFile: async (path: string) => { const result = await browserFs.read(path); return result.ok ? result.value : null; } }),
+    });
   } else if (document.kind === "main") {
     view = createElement(SettingsView, { doc: document, capabilities, onEdited });
   } else {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }
-  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings" };
+  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack" };
   let assetRevision = 0;
   const display = (): void => render(createElement(AssetRefreshContext.Provider, { value: assetRevision },
     createElement("div", { class: "tkr-editor-surface", "data-tkr-editor": titles[document.kind] ?? document.kind }, view)), el);
