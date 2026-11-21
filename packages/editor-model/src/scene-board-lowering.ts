@@ -35,6 +35,8 @@ function decodeBase64(text: string): Uint8Array {
 /** Lower only scene-owned fields. The caller resolves the palette and appends generated outputs. */
 export function lowerSceneBoard(scene: Scene, palette: readonly string[] | null): SceneBoardLoweringResult {
   const problems: { path: string; message: string }[] = [...checkScene(scene)];
+  if ((scene.terrainRegions?.length ?? 0) > 0) problems.push({ path: "terrainRegions", message: "Resolve authored terrain before lowering board cells." });
+  if ((scene.tileOverrides?.length ?? 0) > 0) problems.push({ path: "tileOverrides", message: "Resolve explicit tile overrides before lowering board cells." });
   const boundedLists: readonly [string, number][] = [
     ["floors", scene.floors.length],
     ["tilePalette", scene.tilePalette?.length ?? 0],

@@ -17,7 +17,7 @@ export async function buildTerrainBoard(
   const { scene, scenePath } = inputs;
   const resolution = await buildSceneTerrain(inputs);
   if (!resolution.ok) return resolution;
-  const { tilePalette: _palette, ...source } = scene;
+  const { tilePalette: _palette, terrainRegions: _regions, tileOverrides: _overrides, ...source } = scene;
   const floors = scene.floors.map((floor, index) => ({ ...floor, tiles: resolution.floors[index]!.tiles }));
   const projected: Scene = {
     ...source, floors,
