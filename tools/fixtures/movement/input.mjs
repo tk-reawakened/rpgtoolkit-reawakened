@@ -10,7 +10,7 @@
 const DIR_ACTIONS = ["up", "down", "left", "right"];
 const BIT_ACTIONS = ["up", "down", "left", "right", "confirm", "cancel", "menu"]; // normalized internal action order
 const DEAD_ZONE = 250;
-const DEFAULT_KEY_ACTIONS = { ArrowUp: ["up"], ArrowDown: ["down"], ArrowLeft: ["left"], ArrowRight: ["right"], Enter: ["confirm"], Space: ["confirm"], Escape: ["cancel"] };
+const DEFAULT_KEY_ACTIONS = { ArrowUp: ["up"], ArrowDown: ["down"], ArrowLeft: ["left"], ArrowRight: ["right"], Enter: ["confirm"], Space: ["confirm"], Escape: ["cancel"], KeyM: ["menu"] };
 const LEGACY_ACTION_ALIASES = { ENTER: "menu", ESC: "cancel", " ": "confirm", SPACE: "confirm" };
 
 const PAD_BIT_ACTIONS = { 0: "confirm", 1: "cancel", 9: "menu", 12: "up", 13: "down", 14: "left", 15: "right", 17: "left", 18: "right", 19: "up", 20: "down" };
