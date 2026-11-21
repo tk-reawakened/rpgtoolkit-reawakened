@@ -4,6 +4,7 @@ import { platformError, type Capability } from "@tk-reawakened/platform-services
 import { isEditorHostRequest, type BridgeMessage } from "./document-bridge.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { relativeToWorkspace } from "./launch-prompts.ts";
+import { applyNativeTextEdit } from "./native-text-edit.ts";
 
 interface GeometryPanel {
   readonly panel: vscode.WebviewPanel;
@@ -140,15 +141,7 @@ export function createNativeGeometryTextEditorProvider(
     const next = codec.apply(parsed.value, command);
     const rejection = codec.refuse(next, command, parsed.value);
     if (rejection !== null) return { ok: false, rejection };
-    const nextText = next.text;
-    let prefix = 0;
-    while (prefix < currentText.length && prefix < nextText.length && currentText.charCodeAt(prefix) === nextText.charCodeAt(prefix)) prefix += 1;
-    let suffix = 0;
-    while (suffix < currentText.length - prefix && suffix < nextText.length - prefix
-      && currentText.charCodeAt(currentText.length - suffix - 1) === nextText.charCodeAt(nextText.length - suffix - 1)) suffix += 1;
-    const workspaceEdit = new vscode.WorkspaceEdit();
-    workspaceEdit.replace(document.uri, new vscode.Range(document.positionAt(prefix), document.positionAt(currentText.length - suffix)), nextText.slice(prefix, nextText.length - suffix));
-    if (!await vscode.workspace.applyEdit(workspaceEdit)) return invalid("VS Code could not apply the edit.");
+    if (await applyNativeTextEdit(document, currentText, next.text) === "refused") return invalid("VS Code could not apply the edit.");
     if (parseSnapshot(document) === null) return invalid("The edit was applied, but the document could not be read afterward.");
     return { ok: true, editId: `native-text-${document.version}` };
   };

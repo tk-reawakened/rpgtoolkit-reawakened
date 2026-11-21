@@ -4,6 +4,7 @@ import type { RunService } from "@tk-reawakened/platform-services";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { playVscodeTerrainScene } from "./terrain-scene-host.ts";
 import { relativeToWorkspace } from "./launch-prompts.ts";
+import { applyNativeTextEdit } from "./native-text-edit.ts";
 
 type Panel = { readonly panel: vscode.WebviewPanel; initialized: boolean };
 
@@ -104,12 +105,7 @@ export function createNativeTerrainTextEditorProvider(context: vscode.ExtensionC
             ...("placements" in value && Array.isArray(value.placements) ? { placements: value.placements as NonNullable<Scene["placedPacks"]> } : {}),
           });
           if (!result.ok) { sendStatus(target, result.problems.map(({ message }) => message).join("; ")); return; }
-          let prefix = 0; while (prefix < currentText.length && prefix < result.text.length && currentText.charCodeAt(prefix) === result.text.charCodeAt(prefix)) prefix += 1;
-          let suffix = 0; while (suffix < currentText.length - prefix && suffix < result.text.length - prefix && currentText.charCodeAt(currentText.length - suffix - 1) === result.text.charCodeAt(result.text.length - suffix - 1)) suffix += 1;
-          if (prefix === currentText.length && prefix === result.text.length) return;
-          const edit = new vscode.WorkspaceEdit();
-          edit.replace(document.uri, new vscode.Range(document.positionAt(prefix), document.positionAt(currentText.length - suffix)), result.text.slice(prefix, result.text.length - suffix));
-          if (!await vscode.workspace.applyEdit(edit)) { sendStatus(target, "VS Code could not apply the scene edit."); return; }
+          if (await applyNativeTextEdit(document, currentText, result.text) === "refused") sendStatus(target, "VS Code could not apply the scene edit.");
         } else if (value.type === "open-owner" && "path" in value && typeof value.path === "string") {
           if (folder === undefined) { sendStatus(target, "Open this scene inside a workspace folder to open its native sources."); return; }
           if (!ownerPaths.has(value.path)) { sendStatus(target, `${value.path} is not a native tile or pack in this project's scene inventory.`); return; }

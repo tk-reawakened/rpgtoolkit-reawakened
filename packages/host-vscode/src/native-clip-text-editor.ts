@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { applyNativeTextEdit } from "./native-text-edit.ts";
 import { createDocumentIdentity, DEFAULT_EDITOR_PREFERENCES, nativeClipCodec, type NativeClipCommand, type NativeClipSnapshot } from "@tk-reawakened/editor-model";
 import type { Capability } from "@tk-reawakened/platform-services";
 import { isEditorHostRequest, type BridgedSnapshot, type BridgeMessage } from "./document-bridge.js";
@@ -161,18 +162,9 @@ export function createNativeClipTextEditorProvider(
     const parsed = nativeClipCodec.read(encoder.encode(currentText), identityFor(document).path);
     if (!parsed.ok) return { ok: false, rejection: { reason: "invalid", message: "The native clip source is invalid. Correct the YAML before making a visual edit." } };
     const nextModel = nativeClipCodec.apply(parsed.value, command as NativeClipCommand);
-    const nextText = nextModel.text;
-    let prefix = 0;
-    while (prefix < currentText.length && prefix < nextText.length && currentText.charCodeAt(prefix) === nextText.charCodeAt(prefix)) prefix += 1;
-    let suffix = 0;
-    while (suffix < currentText.length - prefix && suffix < nextText.length - prefix
-      && currentText.charCodeAt(currentText.length - suffix - 1) === nextText.charCodeAt(nextText.length - suffix - 1)) suffix += 1;
-    if (prefix === currentText.length && prefix === nextText.length) return { ok: false, rejection: { reason: "invalid", message: "The native clip edit made no change." } };
-
-    const workspaceEdit = new vscode.WorkspaceEdit();
-    workspaceEdit.replace(document.uri, new vscode.Range(document.positionAt(prefix), document.positionAt(currentText.length - suffix)), nextText.slice(prefix, nextText.length - suffix));
-    const accepted = await vscode.workspace.applyEdit(workspaceEdit);
-    if (!accepted) return { ok: false, rejection: { reason: "invalid", message: "VS Code could not apply the native clip edit." } };
+    const accepted = await applyNativeTextEdit(document, currentText, nextModel.text);
+    if (accepted === "unchanged") return { ok: false, rejection: { reason: "invalid", message: "The native clip edit made no change." } };
+    if (accepted === "refused") return { ok: false, rejection: { reason: "invalid", message: "VS Code could not apply the native clip edit." } };
     const snapshot = parseSnapshot(document);
     if (snapshot === null) return { ok: false, rejection: { reason: "invalid", message: "The edit was applied, but the native clip could not be read afterward." } };
     lastValidSnapshots.set(keyFor(document), snapshot);
