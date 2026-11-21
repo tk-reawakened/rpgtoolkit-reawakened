@@ -1,37 +1,10 @@
 import { decodeTexture, tileDimensions, tilesetDetail, writeTileset, type DecodedTexture, type TilesetTile } from "@tk-reawakened/core";
 import { checkTileset, type Tileset } from "@tk-reawakened/native-data";
-import { encodeSceneTile } from "./scene-tile-encoder.ts";
+import { encodeSceneTileCrop } from "./scene-tile-encoder.ts";
 
 export type SceneTilesetBuildResult =
   | { readonly ok: true; readonly target: string; readonly name: string; readonly bytes: Uint8Array; readonly tiles: readonly { readonly id: string; readonly name: string; readonly index: number; readonly role: Tileset["tiles"][number]["role"]; readonly collision: Tileset["tiles"][number]["collision"] }[]; readonly notes: readonly { readonly path: string; readonly message: string }[] }
   | { readonly ok: false; readonly problems: readonly { readonly path: string; readonly message: string }[] };
-
-/**
- * Whether a cropped-cell pixel falls in a half cleared by the tile's ordered `cutCorner` operations.
- * Geometry is the linear half-plane test from docs/spec/formats/native-tileset.md; pixels whose
- * centers sit on the diagonal are kept.
- */
-function isClearedByKitbash(tile: Tileset["tiles"][number], x: number, y: number, width: number, height: number): boolean {
-  const u = 2 * x + 1, v = 2 * y + 1, limit = 2 * width * height;
-  for (const operation of tile.kitbash ?? []) {
-    if (!operation.clearHalf) continue;
-    switch (operation.diagonal) {
-      case "north-west":
-        if (u * height + v * width < limit) return true;
-        break;
-      case "north-east":
-        if ((2 * width - u) * height + v * width < limit) return true;
-        break;
-      case "south-east":
-        if ((2 * width - u) * height + (2 * height - v) * width < limit) return true;
-        break;
-      case "south-west":
-        if (u * height + (2 * height - v) * width < limit) return true;
-        break;
-    }
-  }
-  return false;
-}
 
 /** Build the image portion of a native tileset; placement metadata is returned for scene lowering. */
 export async function lowerSceneTileset(
@@ -104,22 +77,7 @@ export async function lowerSceneTileset(
       problems.push({ path: `tiles[${i}].cell`, message: `Cell [${tile.cell.join(", ")}] lies outside source ${source.id} (${image.w}×${image.h}); partial cells are not addressable.` });
       continue;
     }
-    const pixels = new Uint8Array(size.width * size.height * 4);
-    for (let row = 0; row < size.height; row++) for (let col = 0; col < size.width; col++) {
-      const from = ((y + row) * image.w + x + col) * 4;
-      const to = (row * size.width + col) * 4;
-      const r = image.rgba[from]!, g = image.rgba[from + 1]!, b = image.rgba[from + 2]!;
-      const key = source.transparent.mode === "colorKey" && source.transparent.color[0] === r && source.transparent.color[1] === g && source.transparent.color[2] === b;
-      const cleared = isClearedByKitbash(tile, col, row, size.width, size.height);
-      const alpha = key || cleared ? 0 : image.rgba[from + 3]!;
-      if (alpha === 0) {
-        pixels[to] = 0; pixels[to + 1] = detail.bytesPerPixel === 3 ? 1 : 0; pixels[to + 2] = detail.bytesPerPixel === 3 ? 2 : 0;
-      } else {
-        pixels[to] = r; pixels[to + 1] = g; pixels[to + 2] = b;
-      }
-      pixels[to + 3] = alpha;
-    }
-    const result = encodeSceneTile(detail.code, { width: size.width, height: size.height, pixels });
+    const result = encodeSceneTileCrop(detail.code, image, [x, y, size.width, size.height], source.transparent, tile.kitbash);
     if (!result.ok) {
       const location = result.error.x === undefined ? "" : ` at pixel (${result.error.x}, ${result.error.y})`;
       problems.push({ path: `tiles[${i}]`, message: `${result.error.message}${location}` });

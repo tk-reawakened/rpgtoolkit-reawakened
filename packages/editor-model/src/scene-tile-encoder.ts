@@ -1,4 +1,5 @@
-import { DOS_PALETTE, isInsideIsoDiamond, tileDimensions, tilesetDetail, type TilesetTile } from "@tk-reawakened/core";
+import { DOS_PALETTE, isInsideIsoDiamond, tileDimensions, tilesetDetail, type DecodedTexture, type TilesetTile } from "@tk-reawakened/core";
+import type { Tileset } from "@tk-reawakened/native-data";
 
 /** A composed image, in row-major RGBA byte order. */
 export interface SceneTileImage {
@@ -10,6 +11,52 @@ export interface SceneTileImage {
 export type SceneTileEncodeResult =
   | { readonly ok: true; readonly tile: TilesetTile }
   | { readonly ok: false; readonly error: { readonly section: string; readonly message: string; readonly x?: number; readonly y?: number } };
+
+const CORNERS = { "north-west": 1, "north-east": 2, "south-east": 4, "south-west": 8 } as const;
+
+/** Apply the source transparency and the promised half-plane masks before wire encoding. */
+export function encodeSceneTileCrop(
+  detailCode: number,
+  image: DecodedTexture,
+  [x, y, width, height]: readonly [number, number, number, number],
+  transparent: Tileset["sources"][number]["transparent"],
+  kitbash: Tileset["tiles"][number]["kitbash"],
+): SceneTileEncodeResult {
+  const detail = tilesetDetail(detailCode);
+  if (detail === undefined) return { ok: false, error: { section: "detail", message: `Unsupported tileset detail ${detailCode}.` } };
+  const size = tileDimensions(detail);
+  if (width !== size.width || height !== size.height) return { ok: false, error: { section: "size", message: `Detail ${detailCode} requires ${size.width}×${size.height} pixels.` } };
+  if (!Number.isSafeInteger(x) || !Number.isSafeInteger(y) || x < 0 || y < 0 || x + width > image.w || y + height > image.h) {
+    return { ok: false, error: { section: "rect", message: `Crop lies outside its source (${image.w}×${image.h}).` } };
+  }
+  let corners = 0;
+  for (const operation of kitbash ?? []) if (operation.clearHalf) corners |= CORNERS[operation.diagonal];
+  const colorKey = transparent.mode === "colorKey" ? transparent.color : null;
+  const targetRgb = detail.bytesPerPixel === 3;
+  const limit = 2 * width * height;
+  const pixels = new Uint8Array(width * height * 4);
+  for (let row = 0; row < height; row += 1) {
+    const v = 2 * row + 1;
+    for (let column = 0; column < width; column += 1) {
+      const u = 2 * column + 1;
+      const from = ((y + row) * image.w + x + column) * 4;
+      const to = (row * width + column) * 4;
+      const r = image.rgba[from]!, g = image.rgba[from + 1]!, b = image.rgba[from + 2]!;
+      const keyed = colorKey !== null && colorKey[0] === r && colorKey[1] === g && colorKey[2] === b;
+      const cleared = ((corners & 1) !== 0 && u * height + v * width < limit)
+        || ((corners & 2) !== 0 && (2 * width - u) * height + v * width < limit)
+        || ((corners & 4) !== 0 && (2 * width - u) * height + (2 * height - v) * width < limit)
+        || ((corners & 8) !== 0 && u * height + (2 * height - v) * width < limit);
+      const alpha = keyed || cleared ? 0 : image.rgba[from + 3]!;
+      if (alpha !== 0) {
+        pixels[to] = r; pixels[to + 1] = g; pixels[to + 2] = b; pixels[to + 3] = alpha;
+      } else if (targetRgb) {
+        pixels[to + 1] = 1; pixels[to + 2] = 2;
+      }
+    }
+  }
+  return encodeSceneTile(detailCode, { width, height, pixels });
+}
 
 /**
  * Encode one already-composed tile (docs/spec/formats/tiles.md#tile-data).
