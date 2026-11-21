@@ -536,7 +536,7 @@ test("the produced-archive check refuses every excluded class the inventory filt
   const selected = "Main/game.gam";
   const clean = ["manifest.json", "Main/game.gam", "Boards/a.brd", "Prg/start.prg"];
   deepEqual(producedArchiveViolations(clean, selected), []);
-  for (const leaked of ["Saved/slot.sav", "SAVED/x.sav", ".tkr-history/blobs/abc", ".TKR-HISTORY/entries/1.json", ".tkr-exports/p.tpk", "Main/other.gam", "Prg/t.spec.prg", "Prg/T.SPEC.PRG", "Boards/x.tkrscn", "Tiles/x.tkrtile", "Packs/x.tkrpack"]) {
+  for (const leaked of ["Saved/slot.sav", "SAVED/x.sav", ".tkr-history/blobs/abc", ".TKR-HISTORY/entries/1.json", ".tkr-exports/p.tpk", "Main/other.gam", "Prg/t.spec.prg", "Prg/T.SPEC.PRG", "Boards/x.tkrscn", "Tiles/x.tkrtst", "Packs/x.tkrpack"]) {
     deepEqual(producedArchiveViolations([...clean, leaked], selected), [leaked], `${leaked} must fail the check`);
   }
   notEqual(producedArchiveViolations(["Boards\\.tkr-history\\a.brd"], selected).length, 1, "a folder with that name below the root is ordinary project data");

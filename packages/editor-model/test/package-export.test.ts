@@ -37,7 +37,7 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd", script
     "Prg/smoke.spec.prg": utf8Encode("test only"),
     [scriptSpecPath]: utf8Encode("test-only library"),
     "Boards/editor.tkrscn": utf8Encode("editor scene"),
-    "Tiles/editor.tkrTile": utf8Encode("editor tiles"),
+    "Tiles/editor.tkrTst": utf8Encode("editor tiles"),
     "Packs/editor.tkrpack": utf8Encode("editor package"),
     ".tkr-history/snapshot.bin": utf8Encode("history"),
     ".TKR-Tests/Boards/wall.brd": utf8Encode("fixture board"),
@@ -61,7 +61,7 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/progress/")));
 
   deepEqual([...prepared.includedFiles].sort(), ["Boards/start.brd", "Main/demo.gam", "Media/Prg/script-spec/startup.prg", "Prg/script-spec-extra/startup.prg", "Prg/start.prg"]);
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Boards/editor.tkrscn", "Tiles/editor.tkrTile", "Packs/editor.tkrpack", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Boards/editor.tkrscn", "Tiles/editor.tkrTst", "Packs/editor.tkrpack", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
     ok(prepared.excludedFiles.includes(path), `${path} should be reported as excluded`);
   }
 
@@ -92,11 +92,11 @@ test("preflight creates a readable playable TPK and exact sibling install descri
 test("file-only suffix exclusions do not discard folders whose names use editor-only extensions", async () => {
   const { workspace, services } = packageHost({
     ...authoredFiles(),
-    "Bitmap/menu.tkrtile/background.png": utf8Encode("background image"),
+    "Bitmap/menu.tkrtst/background.png": utf8Encode("background image"),
   });
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
   ok(outcome.ok, outcome.ok ? "" : outcome.message);
-  ok(outcome.value.includedFiles.includes("Bitmap/menu.tkrtile/background.png"));
+  ok(outcome.value.includedFiles.includes("Bitmap/menu.tkrtst/background.png"));
   workspace.dispose();
 });
 

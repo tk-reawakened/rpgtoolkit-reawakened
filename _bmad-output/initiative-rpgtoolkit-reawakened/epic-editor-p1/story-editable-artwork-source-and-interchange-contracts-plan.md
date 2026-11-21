@@ -36,3 +36,25 @@ Use a project-relative artwork source path plus a stable source-local frame ID a
 Tiles choose source frames and regions and own their runtime-facing playback sequence. Tilesets own terrain rules and synchronization requirements; scenes own painted regions and hand-placed overrides. An external source edit invalidates dependent outputs; missing sources or conflicts preserve the authored references and prevent the affected output from being marked current.
 
 The worked examples must show a roof split across cells, connected water with shared timing, a kitbash override surviving regeneration, three-face isometric artwork with separately proven geometry, and an odd-grid sheet preserving margins and gaps. The source reference and preservation rules can be developed independently of codec adoption. Animated runtime lowering remains gated on held-board playback and phase proof ([#3244](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3244)); the [merged terrain design](../../../docs/design/terrain-scene-formats.md) does not supersede that gate.
+
+### Exact reference shape for review
+
+Use a closed, mutually exclusive reference: a managed sample is `{source, frame, region}`; a raster sample is `{file, rect}`. Both paths use project-relative path rules. An animated tile's cel carries one sample; a still tile carries one directly. A managed sample never carries a second crop rectangle. Transparency and playback settings belong to the consumer, outside the reference.
+
+```yaml
+managed: {source: art/village-pond, frame: ripple-01, region: bank-ne}
+raster: {file: art/imported/odd-grid.png, rect: [39, 5, 32, 32]}
+```
+
+The example keys `managed` and `raster` illustrate alternative values, not wrapper fields. The managed path is illustrative, not a reserved extension. Frame IDs are unique within a source. Region IDs name one logical region within a source; the source records its rectangle for each frame in which it exists. Both IDs survive label changes and reordering. Duplicating a frame assigns a new frame ID. A frame without a named region does not inherit the rectangle from another frame. Rectangles are `[x, y, width, height]` in composited source-frame pixels, with positive size and no implicit clipping or rescaling.
+
+| Case | Expected result |
+|---|---|
+| Roof split into `roof-west` and `roof-east` in frame `rest` | Both tiles sample the same composited frame; changing a shared roof layer affects both on rebuild. |
+| Animated pond bank | Cels for `ripple-01` and `ripple-02` use the same `bank-ne` region ID. Reordering art frames does not change the tile timeline; moving the region updates the sample on rebuild. |
+| Kitbash house with an edited window | Changing a recipe input invalidates dependent output. The authored window override remains an input and survives regeneration. |
+| Three-face isometric artwork | Face regions can be sampled independently. Sampling does not prove combined placement, collision, draw order or output encoding. |
+| External odd-grid PNG | With a left margin of 5, width 32 and gap 2, the second column starts at x=39. The saved rectangle, not an inferred grid, selects the cell. |
+| Missing source, frame or frame/region pair | Report the missing reference at the consuming tile or cel. Keep the reference and existing output; never substitute another slice or mark that output current. |
+
+Reconcile this shape with the existing still and animated raster examples before promotion. This proposal does not change the tile wire contract or select a source container, recipe serialization, interchange convention, or runtime lowering.

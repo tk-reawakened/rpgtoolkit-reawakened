@@ -353,6 +353,7 @@ function emitUnderVectorRedraw(
           const tile = layer.tiles[tileY * board.sizeX + tx];
           if (tile === null || tile === undefined) continue;
           const selected = selectedTile(tile, view.tick);
+          if (selected === null) continue;
           const tileLeft = tx * TILE_SIZE;
           const subX1 = Math.max(spanX1, tileLeft);
           const subX2 = Math.min(spanX2, tileLeft + TILE_SIZE);
@@ -584,11 +585,11 @@ function textureFor(
   return null;
 }
 
-function selectedTile(tile: WorldTile, tick: number): WorldTile {
+function selectedTile(tile: WorldTile, tick: number): WorldTile | null {
   const animation = tile.animation;
   if (animation === undefined || animation.frames.length === 0) return tile;
   const index = frameAt(0, tick, animation.ticksPerFrame, animation.frames.length, true);
-  return animation.frames[index] ?? tile;
+  return animation.frames[index] ?? null;
 }
 
 function tileTint(
@@ -606,8 +607,7 @@ function tileTint(
 
 function tileCommand(
   board: WorldBoard,
-  tile: WorldTile,
-  tick: number,
+  selected: WorldTile,
   layer: number,
   x: number,
   y: number,
@@ -618,7 +618,6 @@ function tileCommand(
   extraTint?: Tint,
   key: Rgb = TILE_KEY,
 ): DrawCommand {
-  const selected = selectedTile(tile, tick);
   const width = selected.width ?? TILE_SIZE;
   const height = selected.height ?? TILE_SIZE;
   return {
@@ -694,12 +693,13 @@ function emitImage(
     for (const cell of image.cells) {
       if (cell.tile === null) continue;
       const tile = selectedTile(cell.tile, view.tick);
+      if (tile === null) continue;
       const dx = image.left + cell.x * TILE_SIZE - view.camera.x;
       const dy = image.top + cell.y * TILE_SIZE - view.camera.y;
       const width = tile.width ?? TILE_SIZE;
       const height = tile.height ?? TILE_SIZE;
       if (!visible({ x: dx, y: dy, w: width, h: height }, view.viewport)) continue;
-      commands.push(tileCommand(board, tile, view.tick, layer, cell.x, cell.y, dx, dy, view.include.shading, view.globalAmbient, cell.tint));
+      commands.push(tileCommand(board, tile, layer, cell.x, cell.y, dx, dy, view.include.shading, view.globalAmbient, cell.tint));
     }
     return;
   }
@@ -731,6 +731,7 @@ function emitIsometricLayer(
     const tile = layer.tiles[y * gridWidth + x];
     if (tile === null || tile === undefined) return;
     const selected = selectedTile(tile, view.tick);
+    if (selected === null) return;
     const width = selected.width ?? TILE_SIZE;
     const height = selected.height ?? TILE_SIZE;
     const centre = tileToPixel(layout, board.sizeX, x + 1, y + 1);
@@ -799,12 +800,13 @@ function composeBoardView(view: BoardView): DrawList {
           const tile = layer.tiles[y * board.sizeX + x];
           if (tile === null || tile === undefined) continue;
           const selected = selectedTile(tile, view.tick);
+          if (selected === null) continue;
           const width = selected.width ?? TILE_SIZE;
           const height = selected.height ?? TILE_SIZE;
           const dx = x * TILE_SIZE - camera.x;
           const dy = y * TILE_SIZE - camera.y;
           if (!visible({ x: dx, y: dy, w: width, h: height }, viewport)) continue;
-          commands.push(tileCommand(board, tile, view.tick, layerNumber, x, y, dx, dy, view.include.shading, view.globalAmbient));
+          commands.push(tileCommand(board, selected, layerNumber, x, y, dx, dy, view.include.shading, view.globalAmbient));
         }
       }
     } else {

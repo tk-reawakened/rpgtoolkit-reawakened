@@ -11,6 +11,7 @@ import type {
   LedgerValue,
 } from "../save/ledger.ts";
 import { actorFromSource, createSpritesSection, type SpriteActor, type SpriteActorSource } from "../sprites/model.ts";
+import { ScriptError } from "../script/errors.ts";
 import { hydrateSprites } from "../sprites/runtime.ts";
 import type { ObjectRecord } from "../script/state.ts";
 import type { ProgramRef } from "../script/program.ts";
@@ -254,7 +255,7 @@ function restoreWorldTile(tile: LedgerTile): WorldTile {
     ...(tile.animation === null ? {} : {
       animation: {
         ticksPerFrame: tile.animation.ticksPerFrame,
-        frames: tile.animation.frames.map(restoreWorldTile),
+        frames: tile.animation.frames.map((frame) => frame === null ? null : restoreWorldTile(frame)),
       },
     }),
   };
@@ -335,7 +336,7 @@ function spriteSource(sprite: LedgerSprite, board: WorldBoard): SpriteActorSourc
   };
 }
 
-function restoreSprite(base: SpriteActor, sprite: LedgerSprite): SpriteActor {
+function restoreSprite(base: SpriteActor, sprite: LedgerSprite, id: string): SpriteActor {
   const { actorId: discardedActorId, ...withoutActorId } = base;
   void discardedActorId;
   const actorLink = sprite.actorId.state === "present"
@@ -344,7 +345,7 @@ function restoreSprite(base: SpriteActor, sprite: LedgerSprite): SpriteActor {
   return {
     ...withoutActorId,
     ...actorLink,
-    id: sprite.id,
+    id,
     kind: sprite.kind,
     index: sprite.index,
     handle: sprite.handle,
@@ -404,16 +405,35 @@ export function installRecoveryBoard(state: GameState, authored: WorldBoard, led
     variables: variablesFromGlobals(state.vm.globals),
   }, fresh);
   const freshPlayers = new Map(fresh.players.map((player) => [player.id, player]));
-  const freshItems = new Map(fresh.items.map((item) => [item.id, item]));
-  state.sprites = fresh;
-  state.sprites.players = ledger.sprites.players.map((sprite, index) => {
+  const freshItems = new Map(fresh.items.map((item) => [item.sourceSlot, item]));
+  const restoredPlayers = ledger.sprites.players.map((sprite, index) => {
     const base = freshPlayers.get(sprite.id) ?? actorFromSource(spriteSource(sprite, board), board, index, null);
-    return restoreSprite(base, sprite);
+    return restoreSprite(base, sprite, base.id);
   });
-  state.sprites.items = ledger.sprites.items.map((sprite, index) => {
-    const base = freshItems.get(sprite.id) ?? actorFromSource(spriteSource(sprite, board), board, index, sprite.handle);
-    return restoreSprite(base, sprite);
+  const itemAliasCounts = new Map<string, number>();
+  const itemPlacements = ledger.sprites.items.map((sprite, index) => {
+    const base = freshItems.get(sprite.sourceSlot) ?? actorFromSource(spriteSource(sprite, board), board, index, sprite.handle);
+    const itemKey = sprite.handle === null
+      ? sprite.id
+      : `item:${sprite.id === sprite.source ? sprite.source : sprite.id}`;
+    itemAliasCounts.set(sprite.id, (itemAliasCounts.get(sprite.id) ?? 0) + 1);
+    if (itemKey !== sprite.id) itemAliasCounts.set(itemKey, (itemAliasCounts.get(itemKey) ?? 0) + 1);
+    return { sprite, base, itemKey };
   });
+  const occupiedItemIds = new Set<string>();
+  const restoredItems = itemPlacements.map(({ sprite, base, itemKey }) => {
+    const rekey = (itemAliasCounts.get(sprite.id) ?? 0) > 1
+      || (itemKey !== sprite.id && (itemAliasCounts.get(itemKey) ?? 0) > 1);
+    const id = rekey ? base.id : sprite.id;
+    if (occupiedItemIds.has(id)) {
+      throw new ScriptError("restore.item-identity", `recovered item identity ${id} collides with another saved item ID`);
+    }
+    occupiedItemIds.add(id);
+    return restoreSprite(base, sprite, id);
+  });
+  state.sprites = fresh;
+  state.sprites.players = restoredPlayers;
+  state.sprites.items = restoredItems;
   state.sprites.selectedPlayer = ledger.sprites.selectedPlayer;
   state.sprites.nextItemHandle = ledger.sprites.nextItemHandle;
   if (ledger.sprites.randomEncounter.state === "absent") delete state.sprites.randomEncounter;

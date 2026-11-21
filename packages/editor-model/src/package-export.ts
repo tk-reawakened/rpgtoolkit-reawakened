@@ -19,7 +19,7 @@ const RESERVED_HISTORY_FOLDER = ".tkr-history";
 const RESERVED_EXPORT_FOLDER = ".tkr-exports";
 const RESERVED_TESTS_FOLDER = ".tkr-tests";
 const RESERVED_SCRIPT_SPEC_PATH = "prg/script-spec";
-const EDITOR_ONLY_EXTENSIONS = new Set([".tkrscn", ".tkrtile", ".tkrpack"]);
+const EDITOR_ONLY_EXTENSIONS = new Set([".tkrscn", ".tkrtst", ".tkrpack"]);
 
 /**
  * Every entry of a produced archive that the packaging rules exclude (`packaging-and-paths.md`): under `Saved/`, the

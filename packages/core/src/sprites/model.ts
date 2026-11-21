@@ -296,15 +296,21 @@ export function boardItemSources(
   actorIds?: Readonly<Record<string, ActorId | number | null>>,
 ): SpriteActorSource[] {
   const boardItems = (board.items ?? []).filter((item) => item.itemFile !== "");
-  const placementsByFile = new Map<string, number>();
-  for (const item of boardItems) placementsByFile.set(item.itemFile, (placementsByFile.get(item.itemFile) ?? 0) + 1);
+  const literalIds = new Set(boardItems.map((item) => item.itemFile));
   const seenByFile = new Map<string, number>();
+  const usedIds = new Set<string>();
   return boardItems.map((item) => {
     const occurrence = seenByFile.get(item.itemFile) ?? 0;
     seenByFile.set(item.itemFile, occurrence + 1);
-    const id = (placementsByFile.get(item.itemFile) ?? 0) > 1 && occurrence > 0
-      ? `${item.itemFile}#board-slot:${item.slot}`
-      : item.itemFile;
+    let id = occurrence === 0 ? item.itemFile : `${item.itemFile}#board-slot:${item.slot}`;
+    if (occurrence > 0) {
+      let suffix = 2;
+      while (literalIds.has(id) || usedIds.has(id)) {
+        id = `${item.itemFile}#board-slot:${item.slot}:${suffix}`;
+        suffix += 1;
+      }
+    }
+    usedIds.add(id);
     const actor = actorFiles.get(item.itemFile);
     const conditionName = foldAscii(item.loadingVar.replace(/[!$]$/, ""));
     const condition = item.loadingVar === "" || String(variables[conditionName] ?? "") === item.loadingValue;

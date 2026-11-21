@@ -4,6 +4,8 @@
 
 The examples are illustrative excerpts. They are not fixtures, they are not claimed to build with any existing code, and they do not show a complete project. They were written from this repository's own specifications only (G7); [Tiled](https://doc.mapeditor.org/en/stable/manual/terrain/) and [LDtk](https://ldtk.io/docs/general/auto-layers/auto-layer-rules/) informed the problem, and neither format is adopted.
 
+**Owner decision since this draft:** reusable tiles store explicit anchor-relative walk-behind polygons using the [asset pack vector vocabulary](../spec/formats/native-asset-pack.md#fields), separately from solid collision. This supersedes the `wallCapUnder` flag and footprint-derived walk-behind proposed below. The revised contract must allow a fence to block only at its authored solid outline while its upper artwork draws in front, without hand-drawn scene vectors at each placement. The examples below predate the decision and are not cutover fixtures.
+
 ## What this page decides, and what it leaves
 
 It proposes concrete shapes for three documents the owner has directed: a tile (`.tkrtle`), a tileset (`.tkrtst`, the renamed `.tkrtile`) and a tool (`.tkrtol`). It proposes how they refer to each other, how animated sheets and shared phase are expressed, how missing rules and missing tools are reported, and where a tool's trust ends and a plugin's begins. It does **not** specify the scene's painted-region shape (a companion proposal owns that), the editable artwork source ([#2320](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2320)), isometric geometry, or an executable plugin interface for editor tools. The clean cutover of `.tkrtile` to `.tkrtst` (no alias, no migration tool) is the owner's direction recorded in [Painting a world](terrain-scene-formats.md); this page only says what the replacement contract would contain.
@@ -218,6 +220,28 @@ terrains:
 outputBinding: {target: tiles/village-built.tst, detail: 1}
 ```
 
+### Stable output slots
+
+The [approved cutover decisions](terrain-scene-formats.md#approved-cutover-decisions) require persistent 1-based slots. The proposed wire shape puts those allocations under `outputBinding`, separate from palette display order. This excerpt illustrates the binding for a smaller set, not the complete pond above:
+
+```yaml
+outputBinding:
+  target: tiles/village-built.tst
+  detail: 1
+  slots:
+    - {slot: 1, tile: tiles/grass/main.tkrtle}
+    - {slot: 2, reserved: true}
+    - {slot: 3, tile: tiles/water/fill.tkrtle, cel: ripple-0}
+    - {slot: 4, tile: tiles/water/fill.tkrtle, cel: ripple-1}
+```
+
+- A row has exactly one of three shapes: `{slot, tile}` for a still member, `{slot, tile, cel}` for an animated member's cel, or `{slot, reserved: true}`. `tile` names a member of the palette; a cel ID is local to that tile. All slots from 1 through the largest allocated slot must have exactly one row. The maximum is 32767 for the signed legacy tile-count field. No build may infer missing rows from existing output bytes or palette order.
+- A still member receives one slot; every distinct cel of an animated member receives one slot, including intentionally transparent cels. Repeated references to one cel in its timeline reuse that slot. Refuse duplicate bindings and incompatible still/cel references, reporting the row or the member missing its allocation. A tile rename rewrites declared paths in the slot table without changing their numbers.
+- Emit tiles in numeric slot order. A removed tile or cel leaves a reserved row, even if it was the last slot. Encode reserved rows using the target detail's transparent value. Normal editing appends newly allocated slots; it never compacts the table or reuses a reservation. A single document cannot prove whether a manual edit reassigned an old slot, so do not claim that a successful check guarantees historical compatibility.
+- A build has no authority to allocate, remove or repair authored rows. If it cannot preserve an allocation, refuse the affected build and keep the previous output stale. A `.tan` output is still a separate generated file; its referenced cel numbers are taken only from this binding. Playback, timing and ownership checks still apply.
+
+Acceptance proof: build three visibly distinct slots, reorder the palette and slot rows, and compare the actual output bytes. Retire the middle and final slots separately; both must decode as transparent without moving a surviving slot. Append a new cel and check that existing `.tstN` references and `.tan` frame lists still resolve to their original cels. Refuse duplicate, missing and out-of-range slots without rewriting the YAML or the previous output.
+
 ### How a terrain recipe is read
 
 1. **`same` and `other`.** The input is the scene's **resolved ownership**, not raw coverage. For a cell owned by a region of terrain `T`, a neighbour is `same` if and only if its owner, **after the scene's overlap rule**, is a region whose terrain is the same full `{tileset, terrain}` reference as `T`. An unowned cell, a cell owned by another terrain (even when a region of `T` still lists that cell in its authored coverage beneath it) and an erased cell are `other`. Manual overrides are ignored by the test. A neighbour past the floor edge takes the terrain's `outside` value, which is optional and **defaults to `other`**, so this page and the scene proposal treat edges alike. The ownership derivation is the [scene proposal's](terrain-scene-contract-proposal.md#neighbours).
@@ -417,11 +441,11 @@ The scene contract's palette entries and `boundarySources.walkableTiles` entries
 
 ## Open decisions
 
-Each has a recommendation, none is a ruling.
+Entries below retain their design history; decisions explicitly marked approved take precedence over earlier examples.
 
 1. **Tile reference spelling `{tile: path}` versus keeping `{tileset, tile: local-id}`.** Recommended: path alone, so a tile has one identity. Alternative: keep the pair and make tiles tileset-local, which defeats a standalone `.tkrtle`.
 2. **Region identity inside editable art.** Recommended: pixel rectangles now; adopt a stable region id when [13.21](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2320) defines one, as a minor addition.
-3. **Output-slot allocation and deletions.** Legacy `set.tstN` is a 1-based slot, so anything that shifts a surviving entry retargets a legacy consumer, a *deletion* included: rebuilding `[A, B, C]` as `[A, C]` changes what `set.tst2` shows. Options: (a) an explicit authored `slot` per palette entry that tools never renumber; deleting an entry **reserves** its slot, built as an empty transparent tile until the author explicitly releases it in a refusal-gated action that lists the consumers it can find; (b) palette order is slot order and the editor **rejects** any reorder or deletion that would shift a later slot, listing what would move. Recommended: (a) for projects with legacy consumers, at the cost of an authored number per tile. Either way, generated cel tiles and `.tan` files are separate: cel tiles take slots after every authored slot in a deterministic order and are **not promised** to legacy consumers, and a `.tan` file name follows the derivation rule in [ownership](#generated-art-ownership-outside-edits-and-partial-writes). Not decided.
+3. **Output-slot allocation and deletions (approved).** The owner approved explicit tile and cel slots with no implicit reuse. See [stable output slots](#stable-output-slots) for the proposed wire shape and build checks. Palette order is not an allocation policy.
 4. **Unequal frame durations in the legacy target.** Recommended: refuse with `animation-timing-unrepresentable` until a repetition scheme is proven to give identical timing.
 5. **Playback, shared phase and nonzero phase.** Recommended: every animated tile stays refused for the legacy target (`animation-playback-unproven`) until a test on the target, playing a built board across ticks, shows the frames advance; lockstep additionally waits for a golden test that equal-cycle tiles stay in step across ticks; nonzero `phaseMs` stays refused until a mapping that preserves the static first frame is shown ([above](#animated-sheets-and-cels)). No playback claim is made for any current runtime.
 6. **Declared transformations (flip, rotate).** Recommended: none in the first cut; each orientation is a tile.
@@ -431,7 +455,7 @@ Each has a recommendation, none is a ruling.
 10. **Overlapping terrains and floor interplay**, and what a `same` neighbour means across regions. Owned by the scene proposal; this page reads the scene's resolved ownership, compared by the full `{tileset, terrain}` reference ([recipe reading](#how-a-terrain-recipe-is-read), item 1).
 11. **`wallCapUnder` and iso geometry on tiles.** Depends on [owner review 3](../spec/formats/native-tileset.md#owner-review-consequential-choices) and a design for isometric tiles.
 12. **Shape of the checker classes** (`native-art` and `native-scene` exist; whether these codes live under new classes or existing ones).
-13. **Isometric blocks.** Recommended: excluded from this revision with a located refusal until isometric tiles are designed. Alternative: each face becomes a `{tile: path}` reference to a tile document plus an optional tint, which keeps the capability but needs isometric tile geometry first.
+13. **Raised isometric blocks (approved boundary).** Preserve authors' face and geometry data and refuse affected builds until the projected overlay is proven. Flat terrain does not wait for that proof.
 14. **Binding a tile to managed artwork.** Needs a source-owner reference and frame selector from the artwork contract ([13.21](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2320)); until then tiles use standalone rasters only and nothing is inferred from file names.
 
 ## Evidence a later implementation would have to produce

@@ -79,6 +79,7 @@ import { applyInputEffect, applySpriteEffect } from "../script/packs/world.ts";
 import type { CameraPoint, CameraTarget } from "../ports/camera.ts";
 import type { SpriteActor, SpritePoint, Facing } from "../sprites/model.ts";
 import { placeSelectedPlayer, selectActor as selectPartyActor, removeActorSprite, spriteDraws, createInitialPlayer, hydrateSprites, itemKey, setItemVisible, type SpriteRuntime, type SpriteThreadResolver } from "../sprites/runtime.ts";
+import { reconcileItemPlacementIdentities } from "./item-placement-identity.ts";
 import { battleInProgress, itemBattleHandlerRunning } from "../script/packs/battle.ts";
 import { runAnimationPhase as runActorAnimationPhase } from "../sprites/animation.ts";
 import { boardCollisionAt } from "../sprites/movement.ts";
@@ -301,7 +302,7 @@ type PreparedRecovery = {
   readonly board: WorldBoard;
   readonly boardPrograms: ProgramRef[];
   readonly entryProgram: ProgramRef | null;
-  readonly itemPrograms: Map<string, ProgramRef>;
+  readonly itemPrograms: Map<string | number, ProgramRef>;
 };
 type SourceLocation = { file: string; line: number };
 type Paused = { thread: number; frame: number; line: number };
@@ -1065,7 +1066,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       if (!resolved.ok) return false;
       if (resolved.value.kind !== "empty" && !addBoardDependency(resolved.value.asset)) return false;
       if (tile.animation !== null) {
-        for (const frame of tile.animation.frames) if (!fingerprintTile(frame)) return false;
+        for (const frame of tile.animation.frames) if (frame !== null && !fingerprintTile(frame)) return false;
       }
       return true;
     };
@@ -1443,6 +1444,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     savedMessage?: UiMessageWindow,
   ): void {
     const losslessResume = projection === null;
+
     const previousCache = new Map(cache);
     const previousDeferredDecode = new Set(deferredRestoreDecode);
     const savedKeys = candidate.engine.cacheKeys;
@@ -1484,6 +1486,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       failed = previousFailed;
 
       rebaseModalTimeline(candidate, modalIdFloor);
+      reconcileItemPlacementIdentities(candidate);
       Object.assign(state, candidate);
       attachEffectObserver();
 
@@ -3498,7 +3501,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       if (!resolved.ok) return recoveryFailure("recovery.asset-missing", `saved board tile "${tile.asset}" is not in the asset index`);
       if (resolved.value.kind !== "empty") required.add(resolved.value.asset);
       if (tile.animation !== null) {
-        for (const frame of tile.animation.frames) if (!collectTile(frame)) return false;
+        for (const frame of tile.animation.frames) if (frame !== null && !collectTile(frame)) return false;
       }
       return true;
     };
@@ -3610,12 +3613,13 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     }
     const entryProgram = entryName === "" ? null : resolveProgram(entryName);
     if (entryName !== "" && entryProgram === null) return false;
-    const itemPrograms = new Map<string, ProgramRef>();
+    const itemPrograms = new Map<string | number, ProgramRef>();
     for (const sprite of ledger.sprites.items) {
       if (!sprite.visible || sprite.multitaskProgram === null) continue;
       const ref = resolveProgram(sprite.multitaskProgram, true);
       if (ref === null) return false;
-      itemPrograms.set(sprite.id, ref);
+      // Recovery can canonicalize static-item ids; sourceSlot stays stable through the restore.
+      itemPrograms.set(sprite.sourceSlot ?? sprite.id, ref);
     }
     preparedRecovery = { board, boardPrograms, entryProgram, itemPrograms };
     return true;
@@ -3717,7 +3721,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     try {
       items = state.sprites.items.map((item) => {
         if (!item.visible || item.multitaskProgram === null) return item;
-        const ref = prepared.itemPrograms.get(item.id);
+        const ref = prepared.itemPrograms.get(item.sourceSlot ?? item.id);
         if (ref === undefined) throw new Error(`item program "${item.multitaskProgram}" was not prepared`);
         const source = itemKey(item);
         const thread = startThread(stagedVm, { ref, kind: "item", owner: "world", source, target: source });
