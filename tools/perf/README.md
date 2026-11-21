@@ -162,3 +162,22 @@ still returns immediately. Rasterization and surface encoding remain the dominan
 
 The headless `pnpm perf:player` run (without `--headed`) timed out after 120 seconds before producing a profile. No
 before/after metrics are available; performance remains unverified.
+
+## Placed pack image walk-behind (#1852, #3312)
+
+Apple M1 Pro, 16 GiB, Darwin arm64, Node 24.21.0, headless Chromium with default GPU. Both `pnpm perf:player`
+runs reached `boards/start.brd` in the same demo package (`fd806539d1c3ed65adb53b1019f95c404e207aed2e9bbb7867c25adec636838b`).
+
+| Measurement | Baseline `bf348bf44` | Image redraw with lazy per-frame lookup |
+|---|---:|---:|
+| Frame rate | 51.8 fps | 29.0 fps |
+| Frame p50 / p99 | 16.7 / 33.4 ms | 33.3 / 100.0 ms |
+| Long tasks | 0 | 26 (1644 ms total) |
+| Ticks per second | 60.8 | 61.1 |
+| `currentDrawList` sampled self time | 12 ms | 10 ms |
+
+These single-run observations include concurrent workstation activity; they do not isolate the reported frame-rate
+difference. The first active under vector lazily resolves normal-position images once per draw. Each affected
+sprite row checks visible images on its promoted layers and emits only intersecting spans. The deterministic
+budget test limits each image to one ordinary lookup and one redraw lookup per frame across six covered actors.
+Transparency is checked only on the clipped spans and only for a translucent silhouette. No world state is copied.

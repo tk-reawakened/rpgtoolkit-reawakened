@@ -115,6 +115,8 @@ export async function runVscodeBoardImportProof(
   const view = await boardView();
   const importButton = view.getByRole("button", { name: /^Import as Scene/ });
   await expect(importButton).toBeVisible();
+  await expect(view.getByText(/linked pack placements are edited in native scenes, not legacy boards/)).toBeVisible();
+  await expect(view.getByRole("button", { name: "Place asset", exact: true })).toHaveCount(0);
 
   await importButton.click();
   const firstReview = review(`Import ${BOARD} as a scene?`);

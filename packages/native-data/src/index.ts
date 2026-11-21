@@ -83,12 +83,17 @@ export {
 } from "./asset-pack.ts";
 export { checkProjectArtAssets } from "./project-art-assets.ts";
 export {
+  setAssetPackGeometry, setTileGeometry,
+  type GeometryEditResult, type GeometryPoint, type GeometryProblem, type GeometrySolid, type GeometryUnder, type OwnerGeometry,
+} from "./native-asset-geometry.ts";
+export {
   SCENE_CONTRACT, SCENE_VERSION,
   readScene, writeScene, checkScene, setSceneProperty, setSceneTerrain, sceneFindings,
   sceneNativeReferences, sceneCellCount, formatScenePath, formatSceneProblems,
   type Scene, type SceneProblem, type SceneReadResult, type SceneWriteResult,
-  type SceneEditResult, type SceneEditValue, type ScenePath,
+  type SceneEditResult, type SceneEditValue, type ScenePath, type ScenePlacedPack, type SceneProjection,
 } from "./scene.ts";
+export { setScenePackPlacements } from "./scene-pack-placements.ts";
 export {
   applyPlanToDocuments,
   planRename,

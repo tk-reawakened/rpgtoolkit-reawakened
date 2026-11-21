@@ -16,6 +16,8 @@ import { runVscodeDesignProof } from "./design-proof.ts";
 import { NATIVE_CLIP_PROOF_PATH, runVscodeNativeClipProof } from "./native-clip-proof.ts";
 import { NATIVE_SCENE_PROOF_PATH, runVscodeNativeSceneProof } from "./native-scene-proof.ts";
 import { runVscodeBoardImportProof } from "./board-import-proof.ts";
+import { geometryProofFiles } from "./native-geometry-fixture.ts";
+import { runVscodeNativeGeometryProof } from "./native-geometry-vscode-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -121,6 +123,11 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     // A supported older board (minor 3, pre-vector): the legacy editor cannot open it for editing, but Import as Scene can.
     await copyFile(resolve(root, "docs/spec/examples/versions/board/board_minor3.brd"), resolve(proofWorkspace, "Boards/older-board.brd"));
     await copyFile(resolve(root, "docs/spec/examples/game/Game/Example/Chrs/ada.tem"), resolve(proofWorkspace, "Chrs/ada.tem"));
+    for (const { path, bytes } of geometryProofFiles()) {
+      const target = resolve(proofWorkspace, path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, bytes);
+    }
   }
   const boardPath = "Boards/village.brd";
   const otherBoardPath = "Boards/other.brd";
@@ -438,6 +445,8 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
         },
       });
       console.log("vscode.dev board import review, cancel, one scene and authorized first-build history proof passed");
+      await runVscodeNativeGeometryProof(page, expect, readBacking);
+      console.log("vscode.dev shared native tile and pack geometry, move, copy, delete and board rebuild proof passed");
     } else if (nativeClipProof) {
       await proveNativeClip();
     } else if (designProof) {
