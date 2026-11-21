@@ -3,7 +3,7 @@ title: 'Demo board rendering misses display rate after repeated surface work'
 type: 'bugfix'
 ticket: 14
 created: '2026-11-19'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '7a717c73d68e9e03ffda97d8523af12caab36f73'
 route: 'oneshot'
 route_source: 'pinned'
