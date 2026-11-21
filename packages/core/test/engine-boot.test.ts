@@ -73,6 +73,7 @@ import type { MainFileAudioSettings } from "../src/formats/main-file/model.ts";
 import type { AudioCue } from "../src/ports/audio.ts";
 import { BUILTIN_TRACKS } from "../src/audio/model.ts";
 import { createAudioRuntime } from "../src/audio/runtime.ts";
+import { encodeSurfaceBytes, readSurfacePixels } from "../src/raster/surfaces.ts";
 import { queueNativeEvent } from "../src/events/emitter.ts";
 import { BUNDLED as stockMenuAssets, catalogue as stockMenuCatalogue } from "./stock-menu-rig.ts";
 
@@ -3147,12 +3148,13 @@ test("main-file movement settings survive boot and reset, then change with MainF
   })));
   let request: "reset" | "mainFile" | null = null;
   let resets = 0;
+  const resetStates: GameState[] = [];
   const host = audioBoot(game, (_state, postEffect) => {
     if (request === null) return;
     const name = request;
     request = null;
     postEffect?.("engine", { thread: 0, name, kind: "state-write", args: name === "mainFile" ? [null, "replacement.gam"] : [], out: {}, result: null, patch: null, wait: null, request: null });
-  }, () => { resets += 1; }, createAssetIndex([...files.keys()]));
+  }, (state) => { resets += 1; resetStates.push(state); }, createAssetIndex([...files.keys()]));
   const initial = run(host.engine, files, 2);
   equal(initial.ticksRun, 2);
   const key = (code: string, name: string): string[] => {
@@ -3169,6 +3171,12 @@ test("main-file movement settings survive boot and reset, then change with MainF
   request = "reset";
   equal(run(host.engine, files, 3).ticksRun, 3);
   equal(resets, 1);
+  const resetState = resetStates.at(-1);
+  if (resetState === undefined) throw new Error("expected retained reset state");
+  const screen = resetState.surfaces.entries["0"]!;
+  const pixels = readSurfacePixels(resetState.surfaces, screen.id, screen.rev);
+  if (pixels === null) throw new Error("expected reset screen pixels");
+  equal(screen.bitmap.b64, encodeSurfaceBytes(pixels.rgba));
   deepEqual(key("KeyL", "L"), ["right"]);
   request = "mainFile";
   equal(run(host.engine, files, 4).ticksRun, 4);

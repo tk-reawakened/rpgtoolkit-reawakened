@@ -53,6 +53,7 @@
  */
 
 import { canon, reviveNonFinite, tagNonFinite } from "../canon/index.ts";
+import { materializePresentedSurfaces } from "../raster/surfaces.ts";
 import { cellIdOfRef, cellNumber, eachRootValue, isRecord } from "../script/cells.ts";
 import { parseObjectRef } from "../script/objects.ts";
 import {
@@ -97,6 +98,7 @@ function migrateBattle(record: Record<string, unknown>, schema: Record<string, u
 
 /** The canonical form of a whole game state (AD-10/AD-11). */
 export function snapshot(state: GameState): string {
+  materializePresentedSurfaces(state.surfaces);
   return canon(tagNonFinite(state) as never);
 }
 

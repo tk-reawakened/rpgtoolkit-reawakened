@@ -20,6 +20,8 @@ import {
   inputResetRegistration,
   movementPhaseRegistration,
   triggerPhaseRegistration,
+  markInternalPhaseRegistration,
+  markInternalResetRegistration,
   PACKAGE_ROOT,
   readMainFile,
   writeMainFile,
@@ -35,6 +37,10 @@ import {
   type InputRecord,
   type RunnerRequest,
   type SurfaceId,
+  type EnginePhaseRegistration,
+  type EngineResetRegistration,
+  type TriggerProgramResolver,
+  type InputPhaseOptions,
 } from "@tk-reawakened/core";
 import { catalogueEntry, parseClosingPlan, parsePackageManifest, type ClosingFiles } from "@tk-reawakened/runner-harness";
 import { createWebgl2Renderer, type RenderStats } from "@tk-reawakened/render-webgl2";
@@ -47,6 +53,36 @@ import { createSessionAssets, packageOrigin, type AssetLoadState } from "./sessi
 import { dispatchRequests } from "./dispatch-requests.ts";
 import { interactiveMenuBinding } from "./input-bindings.ts";
 
+/** Mark the exact runner-owned phase callbacks as safe for deferred presentation state. */
+export function markLivePhaseRegistrations<T extends readonly EnginePhaseRegistration[]>(registrations: T): T {
+  for (const registration of registrations) markInternalPhaseRegistration(registration);
+  return registrations;
+}
+
+/** Build the exact trusted phase list installed by the live runner. */
+export function livePhaseRegistrations(options: {
+  readonly interactive: boolean;
+  readonly menuKey: NonNullable<InputPhaseOptions["menuKey"]>;
+  readonly pixelMovement: number;
+  readonly programRef: TriggerProgramResolver;
+  readonly audioRun: EnginePhaseRegistration["run"];
+}): readonly EnginePhaseRegistration[] {
+  const registrations: EnginePhaseRegistration[] = options.interactive
+    ? [
+      inputPhaseRegistration({ menuKey: options.menuKey, pixelMovement: options.pixelMovement }),
+      movementPhaseRegistration({ pixelMovement: options.pixelMovement }),
+      triggerPhaseRegistration({ programRef: options.programRef }),
+      { phase: "audio", rank: 0, run: options.audioRun },
+    ]
+    : [{ phase: "audio", run: options.audioRun }];
+  return markLivePhaseRegistrations(registrations);
+}
+
+/** Mark the runner-owned input reset callback as safe for deferred presentation state. */
+export function markLiveResetRegistrations<T extends readonly EngineResetRegistration[]>(registrations: T): T {
+  for (const registration of registrations) markInternalResetRegistration(registration);
+  return registrations;
+}
 /** Resolve the shipped package manifests before boot; core never reads package files (G2). */
 function bundledPackageCatalogue(bundled: ReadonlyMap<AssetKey, Uint8Array>) {
   const decoder = new TextDecoder();
@@ -255,27 +291,25 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     dialect: mainInput.ok ? projectScriptDialect(mainInput.value) : "tk3" as const,
     read: (key: AssetKey) => files.get(key),
   };
-  const phaseRegistrations = interactive
-    ? [
-      inputPhaseRegistration({ menuKey: interactiveInput.menuKey, pixelMovement: mainInput.ok ? mainInput.value.pixelMovement : 0 }),
-      movementPhaseRegistration({ pixelMovement: mainInput.ok ? mainInput.value.pixelMovement : 0 }),
-      triggerPhaseRegistration({
-        programRef: (name) => resolveProgram(triggerProgramLoader, name) === undefined
-          ? null
-          : fileProgramRef(triggerProgramLoader, name),
-      }),
-      { phase: "audio" as const, rank: 0, run: (state: GameState) => {
-        latest = state;
-        const battle = state.battle;
-        if (battle?.id !== lastBattle?.id || battle?.outcome !== lastBattle?.outcome) {
-          lastBattle = battle;
-          options.onBattleChange?.(battle === null ? null : {
-            id: battle.id, boardKey: battle.boardKey, outcome: battle.outcome,
-          }, state.time.tick);
-        }
-      } },
-    ]
-    : [{ phase: "audio" as const, run: (state: GameState) => { latest = state; } }];
+  const phaseRegistrations = livePhaseRegistrations({
+    interactive,
+    menuKey: interactiveInput.menuKey,
+    pixelMovement: mainInput.ok ? mainInput.value.pixelMovement : 0,
+    programRef: (name) => resolveProgram(triggerProgramLoader, name) === undefined
+      ? null
+      : fileProgramRef(triggerProgramLoader, name),
+    audioRun: (state) => {
+      latest = state;
+      if (!interactive) return;
+      const battle = state.battle;
+      if (battle?.id !== lastBattle?.id || battle?.outcome !== lastBattle?.outcome) {
+        lastBattle = battle;
+        options.onBattleChange?.(battle === null ? null : {
+          id: battle.id, boardKey: battle.boardKey, outcome: battle.outcome,
+        }, state.time.tick);
+      }
+    },
+  });
   // The window and its resolution are the runner's job (`docs/spec/engine/main-loop-and-startup.md` steps 4-5): a
   // packaged game plays at the resolution its main file asks for, never at a fixed 640×480 of the runner's choosing.
   const viewport = interactive
@@ -336,7 +370,7 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
     },
     ...(interactive ? {
       input: { bindings: interactiveInput.bindings },
-      resetRegistrations: [inputResetRegistration()],
+      resetRegistrations: markLiveResetRegistrations([inputResetRegistration()]),
     } : {}),
     ...(spriteRuntime === undefined ? {} : { spriteRuntime }),
     ...(options.debug === undefined ? {} : { debug: options.debug }),

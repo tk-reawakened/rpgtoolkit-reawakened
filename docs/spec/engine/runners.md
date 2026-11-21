@@ -134,6 +134,19 @@ the state hash or save data, or change future diagnostics, regardless of host po
 Refreshing the screen for script-visible `getpixel`, `canvasgetscreen` or `savescreen` is a deterministic core
 operation, separate from host presentation reads. A runner cannot trigger that operation by polling.
 
+For whole-state snapshots, game saves and scene checkpoints, the core materializes the latest presented pixels into the
+canonical surface record immediately before serialization. Before an external phase or reset registration, script
+observer, external plugin command or host-object hook receives state it may inspect, the core flushes script edits and
+materializes pending presented pixels. If a callback can retain mutable `GameState`, the core also materializes every
+subsequently committed frame before another engine callback can observe it, and again when `advance` returns, so retained
+references remain canonical throughout the exposed interval. When mutable state has escaped, completed-tick observers run
+only after any newly presented pixels are materialized. A synchronous external effect posted by a phase registration is
+materialized before control returns to that callback. An external plugin's `refreshScreen` port materializes again after
+refreshing and before returning to plugin code. Trusted core-owned phase and reset registrations that do not inspect screen pixels may use the deferred state path; the runner's retained state is private to its implementation and does not expose a host observation boundary.
+Ordinary presentation retains the rasterizer-owned decoded frame and updates its revision/cache record without scanning, copying
+or encoding the pixels (constant metadata work per frame). A pending frame incurs one O(width × height) base64 encoding
+only when it crosses a canonical state boundary; script reads still use the current decoded pixels.
+
 **Enforcement by type/API rather than convention (answering the open question on #1048):**
 Host accessor purity is guaranteed structurally rather than by trusting runners or developers to follow convention:
 1. **Type signature:** `surfacePixels(id: SurfaceId, rev: number): SurfacePixels | null` is typed as a read-only query taking primitive values and returning `{ readonly w: number, readonly h: number, readonly rgba: Bytes } | null`. It accepts no callbacks, configuration flags, or mutable contexts.

@@ -1,4 +1,5 @@
 import { canon, reviveNonFinite, tagNonFinite } from "../canon/index.ts";
+import { materializePresentedSurfaces } from "../raster/surfaces.ts";
 import type { AssertPlainData } from "../ports/plain-data.ts";
 import { isRecord } from "../script/cells.ts";
 import { ScriptError } from "../script/errors.ts";
@@ -24,6 +25,7 @@ type SceneCheckpoint = {
 export type SceneCheckpointIsPlainData = AssertPlainData<SceneCheckpoint>;
 
 export function snapshotSceneCheckpoint(state: GameState, presentation: ScenePresentation): string {
+  materializePresentedSurfaces(state.surfaces);
   return canon(tagNonFinite({ version: 1, state, presentation }) as never);
 }
 

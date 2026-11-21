@@ -28,14 +28,22 @@ type Dirty = PixelBounds | "full" | null;
  * A surface edited inside a batch. `rgba` is the live working buffer; `baseline` holds the
  * pixels that `bitmap` (the entry's snapshot) encodes, so a flush re-encodes only the dirty span.
  */
-type BatchEntry = { entry: SurfaceState; bitmap: RgbaSnapshot; b64: string; rev: number; w: number; h: number; rgba: Uint8Array; baseline: Uint8Array; canonical: boolean; dirty: Dirty };
+type EditorRollback = { baseline: Uint8Array; pixels: Uint8Array; first: number; restore: boolean };
+type BatchEntry = { entry: SurfaceState; bitmap: RgbaSnapshot; b64: string; rev: number; w: number; h: number; rgba: Uint8Array; baseline: Uint8Array; canonical: boolean; dirty: Dirty; editing: number; editorCommit: Uint8Array | null; rollbacks: EditorRollback[] };
 type SurfaceBatch = { depth: number; entries: Map<SurfaceState, BatchEntry> };
 const decodedRecords = new WeakMap<SurfaceState, DecodedRecord>();
 const pendingEntries = new WeakMap<SurfaceState, BatchEntry>();
+const activeBatchEntries = new WeakMap<SurfaceState, Set<BatchEntry>>();
 const batches = new WeakMap<SurfacesSection, SurfaceBatch>();
+const pendingPresentedSurfaces = new WeakSet<SurfaceState>();
 const BASE64_CODES = Uint8Array.from(BASE64, (c) => c.charCodeAt(0));
 const ENCODE_SLICE = 8192;
 
+/** Total bytes encoded as surface base64 since module load (deterministic work counter). */
+let surfaceBytesEncoded = 0;
+export function surfaceBytesEncodedForDiagnostics(): number {
+  return surfaceBytesEncoded;
+}
 /** A decoded-pixel cache owned by a runner/core facade, never by save state. */
 export type SurfacePixelCache = Map<string, Uint8Array>;
 
@@ -62,6 +70,7 @@ function byteCount(width: number, height: number): number {
  */
 export function encodeSurfaceBytes(bytes: Uint8Array): string {
   const length = bytes.length;
+  surfaceBytesEncoded += bytes.length;
   const out = new Uint8Array(((length + 2) / 3 | 0) * 4);
   const limit = length - (length % 3);
   let i = 0;
@@ -267,6 +276,34 @@ function mergeDirty(a: Dirty, b: Dirty): Dirty {
   return { first: Math.min(a.first, b.first), last: Math.max(a.last, b.last) };
 }
 
+function dirtyBetween(before: Uint8Array, after: Uint8Array): Dirty {
+  if (before.length !== after.length) return "full";
+  const beforeWords = new Uint32Array(before.buffer, before.byteOffset, before.byteLength / 4);
+  const afterWords = new Uint32Array(after.buffer, after.byteOffset, after.byteLength / 4);
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < afterWords.length; i += 1) {
+    if (beforeWords[i] === afterWords[i]) continue;
+    if (first === -1) first = i;
+    last = i;
+  }
+  return first === -1 ? null : { first, last };
+}
+
+function applyPixelChanges(target: Uint8Array, before: Uint8Array, after: Uint8Array): Dirty {
+  const changes = dirtyBetween(before, after);
+  if (changes === null) return null;
+  const beforeWords = new Uint32Array(before.buffer, before.byteOffset, before.byteLength / 4);
+  const afterWords = new Uint32Array(after.buffer, after.byteOffset, after.byteLength / 4);
+  const targetWords = new Uint32Array(target.buffer, target.byteOffset, target.byteLength / 4);
+  const first = changes === "full" ? 0 : changes.first;
+  const last = changes === "full" ? afterWords.length - 1 : changes.last;
+  for (let i = first; i <= last; i += 1) {
+    if (beforeWords[i] !== afterWords[i]) targetWords[i] = afterWords[i]!;
+  }
+  return changes;
+}
+
 /** Re-encode only the three-byte-aligned span of `after` that differs from `before` inside `bounds`. */
 function editedSnapshot(bitmap: RgbaSnapshot, before: Uint8Array, after: Uint8Array, bounds?: PixelBounds): RgbaSnapshot {
   const oldWords = new Uint32Array(before.buffer, before.byteOffset, before.byteLength / 4);
@@ -299,7 +336,28 @@ function pendingValid(pending: BatchEntry): boolean {
  * reference one surface), so a closing older batch must not unindex the newer buffer.
  */
 function dropPending(pending: BatchEntry): void {
-  if (pendingEntries.get(pending.entry) === pending) pendingEntries.delete(pending.entry);
+  const current = pending.entry;
+  const indexed = pendingEntries.get(current) === pending;
+  const active = activeBatchEntries.get(current);
+  active?.delete(pending);
+  if (active?.size === 0) activeBatchEntries.delete(current);
+  if (!indexed) return;
+  pendingEntries.delete(current);
+  let replacement: BatchEntry | undefined;
+  if (active !== undefined) {
+    for (const candidate of active) if (pendingValid(candidate)) replacement = candidate;
+  }
+  if (replacement !== undefined) pendingEntries.set(current, replacement);
+}
+
+function decodeBitmap(entry: SurfaceState): Uint8Array {
+  const record = decodedRecords.get(entry);
+  const bitmap = entry.bitmap;
+  if (record !== undefined && record.bitmap === bitmap && record.b64 === bitmap.b64 && record.w === bitmap.w && record.h === bitmap.h) return record.rgba;
+  const rgba = decodeSurfaceBytes(bitmap.b64);
+  if (rgba.length !== byteCount(bitmap.w, bitmap.h)) throw new TypeError("surface pixel length does not match dimensions");
+  decodedRecords.set(entry, { rev: entry.rev, bitmap, b64: bitmap.b64, w: bitmap.w, h: bitmap.h, rgba, canonical: false });
+  return rgba;
 }
 
 function decode(entry: SurfaceState, cache?: SurfacePixelCache): Uint8Array {
@@ -308,13 +366,69 @@ function decode(entry: SurfaceState, cache?: SurfacePixelCache): Uint8Array {
   void cache;
   const pending = pendingEntries.get(entry);
   if (pending !== undefined && pendingValid(pending)) return pending.rgba;
-  const record = decodedRecords.get(entry);
-  const bitmap = entry.bitmap;
-  if (record !== undefined && record.rev === entry.rev && record.bitmap === bitmap && record.b64 === bitmap.b64 && record.w === bitmap.w && record.h === bitmap.h) return record.rgba;
-  const rgba = decodeSurfaceBytes(bitmap.b64);
-  if (rgba.length !== byteCount(bitmap.w, bitmap.h)) throw new TypeError("surface pixel length does not match dimensions");
-  decodedRecords.set(entry, { rev: entry.rev, bitmap, b64: bitmap.b64, w: bitmap.w, h: bitmap.h, rgba, canonical: false });
-  return rgba;
+  return decodeBitmap(entry);
+}
+
+function commitPixelChangesToRollbacks(pending: BatchEntry, before: Uint8Array, after: Uint8Array, changes: Dirty): void {
+  if (changes === null) return;
+  const beforeWords = new Uint32Array(before.buffer, before.byteOffset, before.byteLength / 4);
+  const afterWords = new Uint32Array(after.buffer, after.byteOffset, after.byteLength / 4);
+  const first = changes === "full" ? 0 : changes.first;
+  const last = changes === "full" ? afterWords.length - 1 : changes.last;
+  for (let pixel = first; pixel <= last; pixel += 1) {
+    if (beforeWords[pixel] === afterWords[pixel]) continue;
+    const source = pixel * 4;
+    for (const rollback of pending.rollbacks) {
+      if (!rollback.restore) continue;
+      const offset = pixel - rollback.first;
+      if (offset < 0 || offset >= rollback.pixels.length / 4) continue;
+      const target = offset * 4;
+      rollback.pixels[target] = after[source]!;
+      rollback.pixels[target + 1] = after[source + 1]!;
+      rollback.pixels[target + 2] = after[source + 2]!;
+      rollback.pixels[target + 3] = after[source + 3]!;
+    }
+  }
+}
+
+function commitNestedRollbackChanges(pending: BatchEntry, rollback: EditorRollback, committed: Uint8Array, after: Uint8Array): Dirty {
+  const rollbackWords = new Uint32Array(rollback.pixels.buffer, rollback.pixels.byteOffset, rollback.pixels.byteLength / 4);
+  const afterWords = new Uint32Array(after.buffer, after.byteOffset, after.byteLength / 4);
+  const committedWords = new Uint32Array(committed.buffer, committed.byteOffset, committed.byteLength / 4);
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < rollbackWords.length; i += 1) {
+    const pixel = rollback.first + i;
+    if (rollbackWords[i] === afterWords[pixel]) continue;
+    committedWords[pixel] = afterWords[pixel]!;
+    const source = pixel * 4;
+    for (const parent of pending.rollbacks) {
+      if (!parent.restore) continue;
+      const offset = pixel - parent.first;
+      if (offset < 0 || offset >= parent.pixels.length / 4) continue;
+      const target = offset * 4;
+      parent.pixels[target] = after[source]!;
+      parent.pixels[target + 1] = after[source + 1]!;
+      parent.pixels[target + 2] = after[source + 2]!;
+      parent.pixels[target + 3] = after[source + 3]!;
+    }
+    if (first === -1) first = pixel;
+    last = pixel;
+  }
+  return first === -1 ? null : { first, last };
+}
+
+function committedPixels(pending: BatchEntry): Uint8Array {
+  if (pending.editing === 0) return pending.rgba;
+  const rollback = pending.rollbacks[0];
+  if (rollback === undefined) return pending.editorCommit ?? pending.baseline;
+  if (!rollback.restore) return pending.editorCommit ?? rollback.baseline;
+  const pixels = new Uint8Array(pending.rgba);
+  for (let i = pending.rollbacks.length - 1; i >= 0; i -= 1) {
+    const activeRollback = pending.rollbacks[i]!;
+    if (activeRollback.restore) pixels.set(activeRollback.pixels, activeRollback.first * 4);
+  }
+  return pixels;
 }
 
 /**
@@ -326,18 +440,35 @@ function materialize(state: SurfacesSection, pending: BatchEntry): void {
   const current = pending.entry;
   if (state.entries[String(current.id)] !== current || !pendingValid(pending)) return;
   if (pending.dirty !== null) {
+    const pixels = committedPixels(pending);
     current.bitmap = pending.canonical
-      ? editedSnapshot(pending.bitmap, pending.baseline, pending.rgba, pending.dirty === "full" ? undefined : pending.dirty)
-      : snapshot(pending.w, pending.h, pending.rgba);
-    pending.baseline = new Uint8Array(pending.rgba);
+      ? editedSnapshot(pending.bitmap, pending.baseline, pixels, pending.dirty === "full" ? undefined : pending.dirty)
+      : snapshot(pending.w, pending.h, pixels);
+    pendingPresentedSurfaces.delete(current);
+    pending.baseline = new Uint8Array(pixels);
     pending.canonical = true;
     pending.dirty = null;
+    if (pending.editing > 0 && pending.editorCommit !== null) pending.editorCommit = new Uint8Array(pending.baseline);
     pending.bitmap = current.bitmap;
     pending.b64 = current.bitmap.b64;
   }
   const record = decodedRecords.get(current);
   if (record !== undefined && record.rev === current.rev && record.bitmap === current.bitmap && record.rgba === pending.baseline) return;
   decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: pending.w, h: pending.h, rgba: pending.baseline, canonical: pending.canonical });
+}
+
+function materializeCurrentPending(state: SurfacesSection, current: SurfaceState): void {
+  const pending = pendingEntries.get(current);
+  if (pending !== undefined && pending.editing === 0 && pending.dirty !== null && pendingValid(pending)) materialize(state, pending);
+}
+
+function canonicalSurfacePixels(state: SurfacesSection, current: SurfaceState): Uint8Array {
+  const pending = pendingEntries.get(current);
+  if (pending !== undefined && pendingValid(pending)) {
+    if (pending.editing === 0 && pending.dirty !== null) materialize(state, pending);
+    return pending.editing > 0 ? committedPixels(pending) : pending.baseline;
+  }
+  return decode(current);
 }
 
 /** Internal synchronous batch: script drawing is held in working buffers until a flush or the batch end. */
@@ -460,8 +591,11 @@ export function resetScriptScreen(state: SurfacesSection): void {
   const frame = entry(state, 0 as SurfaceId);
   const width = frame?.bitmap.w ?? current.bitmap.w;
   const height = frame?.bitmap.h ?? current.bitmap.h;
-  const pixels = new Uint8Array(byteCount(width, height));
-  replaceSurface(state, SCRIPT_SCREEN, width, height, pixels);
+  if (current.bitmap.w === width && current.bitmap.h === height) {
+    editSurfaceWithBounds(state, SCRIPT_SCREEN, (rgba) => { rgba.fill(0); });
+    return;
+  }
+  replaceSurface(state, SCRIPT_SCREEN, width, height, new Uint8Array(byteCount(width, height)));
 }
 
 /** Allocate a monotonically increasing surface id. Ids are never reused. */
@@ -482,15 +616,161 @@ export function replaceSurface(state: SurfacesSection, id: SurfaceId, width: num
   if (current === null) return null;
   const pixels = new Uint8Array(rgba);
   checkedRgba(width, height, pixels);
-  for (const colour of Object.keys(state.colours)) {
-    if (state.colours[colour] === id) delete state.colours[colour];
-  }
+  releaseColourSurface(state, id);
+  pendingPresentedSurfaces.delete(current);
   current.rev += 1;
   current.bitmap = snapshot(width, height, pixels);
   pendingEntries.delete(current);
+  activeBatchEntries.delete(current);
   batches.get(state)?.entries.delete(current);
   decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba: pixels, canonical: true });
   return current.rev;
+}
+
+/**
+ * Install the rasterizer-owned frame without encoding it into save-state
+ * base64. Canonical state boundaries materialize this derived cache on demand.
+ */
+export function presentSurfaceFrame(state: SurfacesSection, width: number, height: number, rgba: Uint8Array): number | null {
+  const current = entry(state, 0 as SurfaceId);
+  if (current === null) return null;
+  checkedRgba(width, height, rgba);
+  releaseColourSurface(state, current.id);
+  current.rev += 1;
+  pendingEntries.delete(current);
+  activeBatchEntries.delete(current);
+  batches.get(state)?.entries.delete(current);
+  if (current.bitmap.w !== width || current.bitmap.h !== height) {
+    current.bitmap = { t: "rgba", w: width, h: height, b64: current.bitmap.b64 };
+  }
+  const record = decodedRecords.get(current);
+  if (record === undefined) {
+    decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: width, h: height, rgba, canonical: false });
+  } else {
+    record.rev = current.rev;
+    record.bitmap = current.bitmap;
+    record.b64 = current.bitmap.b64;
+    record.w = width;
+    record.h = height;
+    record.rgba = rgba;
+    record.canonical = false;
+  }
+  pendingPresentedSurfaces.add(current);
+  return current.rev;
+}
+
+/** Materialize the pending screen cache before producing a canonical state view. */
+export function materializePresentedSurfaces(state: SurfacesSection | null | undefined): void {
+  if (state === undefined || state === null) return;
+  const entries = state.entries;
+  if (entries === undefined || entries === null || typeof entries !== "object") return;
+  const current = entries["0"];
+  if (current === undefined || current === null || typeof current !== "object") return;
+  const batchEntry = pendingEntries.get(current);
+  if (batchEntry !== undefined) materialize(state, batchEntry);
+  const record = decodedRecords.get(current);
+  if (!pendingPresentedSurfaces.has(current)) {
+    if (record !== undefined && record.rev === current.rev && record.bitmap === current.bitmap && record.b64 === current.bitmap.b64
+      && record.w === current.bitmap.w && record.h === current.bitmap.h && record.canonical) {
+      rebaseActiveBatchEntries(state, current, record);
+    }
+    return;
+  }
+  if (record === undefined || record.rev !== current.rev || record.bitmap !== current.bitmap || record.b64 !== current.bitmap.b64
+    || record.w !== current.bitmap.w || record.h !== current.bitmap.h) {
+    pendingPresentedSurfaces.delete(current);
+    return;
+  }
+  if (record.canonical) {
+    pendingPresentedSurfaces.delete(current);
+    rebaseActiveBatchEntries(state, current, record);
+    return;
+  }
+  current.bitmap = snapshot(record.w, record.h, record.rgba);
+  record.bitmap = current.bitmap;
+  record.b64 = current.bitmap.b64;
+  record.canonical = true;
+  pendingPresentedSurfaces.delete(current);
+  rebaseActiveBatchEntries(state, current, record);
+}
+
+function rebaseActiveBatchEntries(state: SurfacesSection, current: SurfaceState, record: DecodedRecord, invalidateEditing = false): void {
+  const active = activeBatchEntries.get(current);
+  if (active === undefined || active.size === 0) return;
+  const baseline = new Uint8Array(record.rgba);
+  let latest: BatchEntry | undefined;
+  let committed: BatchEntry | undefined;
+  for (const pending of active) {
+    if (invalidateEditing && pending.editing > 0) {
+      dropPending(pending);
+      continue;
+    }
+    pending.bitmap = current.bitmap;
+    pending.b64 = current.bitmap.b64;
+    pending.rev = current.rev;
+    pending.w = record.w;
+    pending.h = record.h;
+    if (pending.editing === 0) {
+      const previousBaseline = new Uint32Array(pending.baseline.buffer, pending.baseline.byteOffset, pending.baseline.byteLength / 4);
+      const live = new Uint32Array(pending.rgba.buffer, pending.rgba.byteOffset, pending.rgba.byteLength / 4);
+      const nextBytes = new Uint8Array(baseline);
+      const next = new Uint32Array(nextBytes.buffer);
+      for (let i = 0; i < live.length; i += 1) {
+        if (live[i] !== previousBaseline[i] && next[i] === previousBaseline[i]) next[i] = live[i]!;
+      }
+      pending.rgba = nextBytes;
+      pending.dirty = dirtyBetween(baseline, nextBytes);
+    } else {
+      const previousBaseline = new Uint32Array(pending.baseline.buffer, pending.baseline.byteOffset, pending.baseline.byteLength / 4);
+      const live = new Uint32Array(pending.rgba.buffer, pending.rgba.byteOffset, pending.rgba.byteLength / 4);
+      const oldCommit = pending.editorCommit === null
+        ? previousBaseline
+        : new Uint32Array(pending.editorCommit.buffer, pending.editorCommit.byteOffset, pending.editorCommit.byteLength / 4);
+      let nextCommitBytes: Uint8Array | null = null;
+      if (pending.editorCommit !== null) {
+        nextCommitBytes = new Uint8Array(baseline);
+        const nextCommit = new Uint32Array(nextCommitBytes.buffer);
+        const nextBaseline = new Uint32Array(baseline.buffer, baseline.byteOffset, baseline.byteLength / 4);
+        for (let i = 0; i < oldCommit.length; i += 1) {
+          if (oldCommit[i] !== previousBaseline[i] && nextBaseline[i] === previousBaseline[i]) nextCommit[i] = oldCommit[i]!;
+        }
+      }
+      const commitBaseline = nextCommitBytes ?? baseline;
+      const mergedBytes = new Uint8Array(commitBaseline);
+      const merged = new Uint32Array(mergedBytes.buffer);
+      for (let i = 0; i < live.length; i += 1) if (live[i] !== oldCommit[i]) merged[i] = live[i]!;
+      pending.rgba.set(mergedBytes);
+      for (const rollback of pending.rollbacks) {
+        const oldRollbackBaseline = new Uint32Array(rollback.baseline.buffer, rollback.baseline.byteOffset, rollback.baseline.byteLength / 4);
+        const nextBaseline = new Uint32Array(commitBaseline.buffer, commitBaseline.byteOffset, commitBaseline.byteLength / 4);
+        if (rollback.restore) {
+          const rollbackPixels = new Uint32Array(rollback.pixels.buffer, rollback.pixels.byteOffset, rollback.pixels.byteLength / 4);
+          for (let i = 0; i < rollbackPixels.length; i += 1) {
+            const pixel = rollback.first + i;
+            if (oldRollbackBaseline[pixel] !== nextBaseline[pixel] && rollbackPixels[i] === oldRollbackBaseline[pixel]) rollbackPixels[i] = nextBaseline[pixel]!;
+          }
+        }
+        rollback.baseline = new Uint8Array(commitBaseline);
+      }
+      pending.editorCommit = nextCommitBytes;
+      pending.dirty = nextCommitBytes === null ? null : dirtyBetween(baseline, nextCommitBytes);
+    }
+    pending.baseline = baseline;
+    pending.canonical = true;
+    latest = pending;
+    if (pending.dirty !== null) committed = pending;
+  }
+  const indexed = committed ?? latest;
+  if (indexed !== undefined) {
+    pendingEntries.set(current, indexed);
+    if (committed !== undefined) {
+      materialize(state, committed);
+      committed.editorCommit = null;
+      committed.dirty = null;
+      const canonical = decodedRecords.get(current);
+      if (canonical !== undefined) rebaseActiveBatchEntries(state, current, canonical);
+    }
+  }
 }
 
 /** The live reserved render-now canvas, or null when none was created or the script killed it (E-57). Handle 0 is the screen, never a canvas. */
@@ -510,7 +790,7 @@ export function killSurface(state: SurfacesSection, id: SurfaceId): boolean {
   if (id === (0 as SurfaceId) || id === SCRIPT_SCREEN || !Object.hasOwn(state.entries, String(id))) return false;
   delete state.entries[String(id)];
   for (const slot of Object.keys(state.slots)) if (state.slots[slot] === id) delete state.slots[slot];
-  for (const colour of Object.keys(state.colours)) if (state.colours[colour] === id) delete state.colours[colour];
+  releaseColourSurface(state, id);
   return true;
 }
 
@@ -542,8 +822,8 @@ export function colourSurface(state: SurfacesSection, rgb: Rgb): SurfaceId {
   const id = createSurface(state, 1, 1, new Uint8Array([r, g, b, 255]));
   state.colours[colour] = id;
   return id;
-}
 
+}
 function copyRegion(state: SurfacesSection, source: SurfaceId, rect: { x: number; y: number; w: number; h: number }, cache?: SurfacePixelCache): { w: number; h: number; rgba: Uint8Array } | null {
   const sourceEntry = entry(state, source);
   if (sourceEntry === null || !validDimension(rect.w) || !validDimension(rect.h) || !Number.isInteger(rect.x) || !Number.isInteger(rect.y)) return null;
@@ -631,16 +911,18 @@ function livePending(batch: SurfaceBatch, current: SurfaceState): BatchEntry | u
 
 /** Register `rgba` as the live buffer for `current`; `baseline` must hold the pixels `current.bitmap` encodes. */
 function takePending(batch: SurfaceBatch, current: SurfaceState, rgba: Uint8Array, baseline: Uint8Array, canonical: boolean, dirty: Dirty): BatchEntry {
-  const created: BatchEntry = { entry: current, bitmap: current.bitmap, b64: current.bitmap.b64, rev: current.rev, w: current.bitmap.w, h: current.bitmap.h, rgba, baseline, canonical, dirty };
+  const created: BatchEntry = { entry: current, bitmap: current.bitmap, b64: current.bitmap.b64, rev: current.rev, w: current.bitmap.w, h: current.bitmap.h, rgba, baseline, canonical, dirty, editing: 0, editorCommit: null, rollbacks: [] };
   pendingEntries.set(current, created);
   batch.entries.set(current, created);
+  const active = activeBatchEntries.get(current);
+  if (active === undefined) activeBatchEntries.set(current, new Set([created]));
+  else active.add(created);
   return created;
 }
 
+
 function releaseColourSurface(state: SurfacesSection, id: SurfaceId): void {
-  for (const colour of Object.keys(state.colours)) {
-    if (state.colours[colour] === id) delete state.colours[colour];
-  }
+  for (const colour of Object.keys(state.colours)) if (state.colours[colour] === id) delete state.colours[colour];
 }
 
 /**
@@ -654,15 +936,39 @@ export function editSurface(state: SurfacesSection, id: SurfaceId, editor: Surfa
   const batch = batches.get(state);
   if (batch === undefined) return editSurfaceWithBounds(state, id, editor);
   let pending = livePending(batch, current);
+  const created = pending === undefined;
   if (pending === undefined) {
-    const baseline = decode(current);
-    pending = takePending(batch, current, new Uint8Array(baseline), baseline, decodedRecords.get(current)?.canonical === true, null);
+    materializeCurrentPending(state, current);
+    const authoritative = pendingEntries.get(current);
+    const bitmapBaseline = decodeBitmap(current);
+    const inherited = authoritative !== undefined && authoritative.editing > 0 && pendingValid(authoritative);
+    const initial = authoritative !== undefined && inherited ? committedPixels(authoritative) : bitmapBaseline;
+    const inheritedDirty = inherited ? dirtyBetween(bitmapBaseline, initial) : null;
+    const canonical = inheritedDirty === null && decodedRecords.get(current)?.canonical === true;
+    pending = takePending(batch, current, new Uint8Array(initial), bitmapBaseline, canonical, inheritedDirty);
   }
   const before = new Uint8Array(pending.rgba);
   const userBuffer = new Uint8Array(before);
-  editor(userBuffer, pending.w, pending.h);
+  const rollback: EditorRollback = { baseline: new Uint8Array(committedPixels(pending)), pixels: new Uint8Array(), first: 0, restore: false };
+  pending.editing += 1;
+  pending.rollbacks.push(rollback);
+  try {
+    editor(userBuffer, pending.w, pending.h);
+  } catch (error) {
+    pending.editing -= 1;
+    pending.rollbacks.pop();
+    if (created) {
+      if (batch.entries.get(current) === pending) batch.entries.delete(current);
+      dropPending(pending);
+    }
+    throw error;
+  }
+  pending.editing -= 1;
+  pending.rollbacks.pop();
+  if (batch.entries.get(current) !== pending || !pendingValid(pending)) return true;
   current.rev += 1;
   pending.rev = current.rev;
+  pendingEntries.set(current, pending);
   const beforeWords = new Uint32Array(before.buffer, before.byteOffset, before.byteLength / 4);
   const userWords = new Uint32Array(userBuffer.buffer, userBuffer.byteOffset, userBuffer.byteLength / 4);
   const liveWords = new Uint32Array(pending.rgba.buffer, pending.rgba.byteOffset, pending.rgba.byteLength / 4);
@@ -670,11 +976,24 @@ export function editSurface(state: SurfacesSection, id: SurfaceId, editor: Surfa
   let last = -1;
   for (let i = 0; i < userWords.length; i += 1) {
     if (userWords[i] === beforeWords[i]) continue;
-    liveWords[i] = userWords[i]!;
     if (first === -1) first = i;
     last = i;
+    if (pending.editing === 0) liveWords[i] = userWords[i]!;
   }
-  pending.dirty = mergeDirty(pending.dirty, first === -1 ? null : { first, last });
+  if (pending.editing > 0 && first !== -1) {
+    const committed = pending.editorCommit ?? new Uint8Array(committedPixels(pending));
+    pending.editorCommit = committed;
+    const committedWords = new Uint32Array(committed.buffer, committed.byteOffset, committed.byteLength / 4);
+    for (let i = first; i <= last; i += 1) {
+      if (userWords[i] === beforeWords[i]) continue;
+      liveWords[i] = userWords[i]!;
+      committedWords[i] = userWords[i]!;
+    }
+  }
+  const changes = first === -1 ? null : { first, last };
+  pending.dirty = mergeDirty(pending.dirty, changes);
+  if (pending.editing > 0) commitPixelChangesToRollbacks(pending, before, userBuffer, changes);
+  else pending.editorCommit = null;
   releaseColourSurface(state, id);
   return true;
 }
@@ -690,41 +1009,103 @@ export function editSurfaceWithBounds(state: SurfacesSection, id: SurfaceId, edi
   if (current === null) return false;
   const batch = batches.get(state);
   if (batch === undefined) {
-    const before = decode(current);
-    const canonical = decodedRecords.get(current)?.canonical === true;
+    const rev = current.rev;
+    const before = canonicalSurfacePixels(state, current);
+    const activePending = pendingEntries.get(current);
+    const activeBatchEdit = activePending !== undefined && activePending.editing > 0 && pendingValid(activePending);
     const rgba = new Uint8Array(before);
     editor(rgba, current.bitmap.w, current.bitmap.h);
+    if (current.rev !== rev) return true;
     current.rev += 1;
     const dirty = dirtyOf(bounds, rgba.length / 4);
-    current.bitmap = canonical
+    const canonical = decodedRecords.get(current)?.canonical === true;
+    current.bitmap = !activeBatchEdit && canonical
       ? editedSnapshot(current.bitmap, before, rgba, dirty === "full" ? undefined : dirty ?? emptyBounds())
       : snapshot(current.bitmap.w, current.bitmap.h, rgba);
-    before.set(rgba);
-    decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: current.bitmap.w, h: current.bitmap.h, rgba: before, canonical: true });
+    const cached = new Uint8Array(rgba);
+    const record = { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: current.bitmap.w, h: current.bitmap.h, rgba: cached, canonical: true };
+    decodedRecords.set(current, record);
+    rebaseActiveBatchEntries(state, current, record, true);
     releaseColourSurface(state, id);
     return true;
   }
   const pending = livePending(batch, current);
   if (pending === undefined) {
-    const baseline = decode(current);
-    const canonical = decodedRecords.get(current)?.canonical === true;
-    const rgba = new Uint8Array(baseline);
-    editor(rgba, current.bitmap.w, current.bitmap.h);
+    materializeCurrentPending(state, current);
+    const authoritative = pendingEntries.get(current);
+    const bitmapBaseline = decodeBitmap(current);
+    const inherited = authoritative !== undefined && authoritative.editing > 0 && pendingValid(authoritative);
+    const initial = authoritative !== undefined && inherited ? committedPixels(authoritative) : bitmapBaseline;
+    const inheritedDirty = inherited ? dirtyBetween(bitmapBaseline, initial) : null;
+    const canonical = inheritedDirty === null && decodedRecords.get(current)?.canonical === true;
+    const created = takePending(batch, current, new Uint8Array(initial), bitmapBaseline, canonical, inheritedDirty);
+    const rollback: EditorRollback = { baseline: new Uint8Array(created.rgba), pixels: new Uint8Array(), first: 0, restore: false };
+    created.editing += 1;
+    created.rollbacks.push(rollback);
+    try {
+      editor(created.rgba, created.w, created.h);
+    } catch (error) {
+      created.editing -= 1;
+      const committed = created.editorCommit;
+      created.rgba.set(committed ?? rollback.baseline);
+      created.dirty = committed === null ? null : dirtyBetween(created.baseline, committed);
+      created.editorCommit = null;
+      created.rollbacks.pop();
+      if (committed === null) {
+        if (batch.entries.get(current) === created) batch.entries.delete(current);
+        dropPending(created);
+      }
+      throw error;
+    }
+    created.editing -= 1;
+    created.rollbacks.pop();
+    if (batch.entries.get(current) !== created || !pendingValid(created)) return true;
     current.rev += 1;
-    takePending(batch, current, rgba, baseline, canonical, dirtyOf(bounds, rgba.length / 4));
+    created.rev = current.rev;
+    created.dirty = mergeDirty(created.dirty, dirtyOf(bounds, created.rgba.length / 4));
+    created.editorCommit = null;
+    pendingEntries.set(current, created);
   } else {
+    const nested = pending.editing > 0;
     const dirty = dirtyOf(bounds, pending.rgba.length / 4);
-    const start = dirty === null ? 0 : dirty === "full" ? 0 : dirty.first * 4;
-    const backup = dirty === null ? undefined : dirty === "full" ? pending.rgba.slice() : pending.rgba.slice(start, (dirty.last + 1) * 4);
+    const first = dirty === null || dirty === "full" ? 0 : dirty.first;
+    const last = dirty === null ? first - 1 : dirty === "full" ? pending.rgba.length / 4 - 1 : dirty.last;
+    const rollback: EditorRollback = {
+      baseline: nested ? new Uint8Array(committedPixels(pending)) : pending.baseline,
+      pixels: dirty === null ? new Uint8Array() : pending.rgba.slice(first * 4, (last + 1) * 4),
+      first,
+      restore: true,
+    };
+    if (!nested) pending.editorCommit = null;
+    pending.editing += 1;
+    pending.rollbacks.push(rollback);
     try {
       editor(pending.rgba, pending.w, pending.h);
     } catch (error) {
-      if (backup !== undefined) pending.rgba.set(backup, start);
+      pending.editing -= 1;
+      pending.rgba.set(rollback.pixels, rollback.first * 4);
+      pending.dirty = dirtyBetween(pending.baseline, committedPixels(pending));
+      if (!nested) pending.editorCommit = null;
+      pending.rollbacks.pop();
       throw error;
     }
+    pending.editing -= 1;
+    pending.rollbacks.pop();
+    if (batch.entries.get(current) !== pending || !pendingValid(pending)) return true;
     current.rev += 1;
     pending.rev = current.rev;
-    pending.dirty = mergeDirty(pending.dirty, dirty);
+    if (nested) {
+      const committed = pending.editorCommit ?? new Uint8Array(committedPixels(pending));
+      const changes = commitNestedRollbackChanges(pending, rollback, committed, pending.rgba);
+      if (changes !== null) {
+        pending.editorCommit = committed;
+        pending.dirty = mergeDirty(pending.dirty, changes);
+      }
+    } else {
+      pending.dirty = mergeDirty(pending.dirty, dirty);
+      pending.editorCommit = null;
+    }
+    pendingEntries.set(current, pending);
   }
   releaseColourSurface(state, id);
   return true;
