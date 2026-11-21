@@ -64,6 +64,9 @@ export type ClosingGamePlan = {
 };
 
 export type ClosingKeyPress = { readonly tick: number; readonly name: string; readonly code: string };
+/** Deterministic pointer sample delivered after the frame at its tick. */
+export type ClosingPointerInput = { readonly tick: number; readonly x: number; readonly y: number; readonly buttons: number };
+
 
 export type ClosingPlan = {
   readonly schema: 1;
@@ -166,6 +169,7 @@ export type ClosingRunOptions = {
   readonly trace?: boolean;
   readonly captureAudio?: boolean;
   readonly syntheticBattle?: boolean;
+  readonly pointers?: readonly ClosingPointerInput[];
 };
 
 function createBootDoubles(options: ClosingRunOptions = {}) {
@@ -341,7 +345,7 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
     throw new Error("the host loop did not settle");
   }
 
-  const points = [...new Set([...plan.frames.map((frame) => frame.tick), ...plan.keys.map((key) => key.tick)])].sort((a, b) => a - b);
+  const points = [...new Set([...plan.frames.map((frame) => frame.tick), ...plan.keys.map((key) => key.tick), ...(options.pointers ?? []).map((pointer) => pointer.tick)])].sort((a, b) => a - b);
   const last = Math.max(...plan.frames.map((frame) => frame.tick));
   const checkpoints: { tick: number; stateHash: string }[] = [];
   const captures: Capture[] = [];
@@ -357,6 +361,9 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
     for (const key of plan.keys) {
       if (key.tick !== tick) continue;
       for (const down of [true, false]) queued.push({ tick, event: { kind: "key", name: key.name, code: key.code, char: null, down } });
+    }
+    for (const pointer of options.pointers ?? []) {
+      if (pointer.tick === tick) queued.push({ tick, event: { kind: "pointer", x: pointer.x, y: pointer.y, buttons: pointer.buttons } });
     }
   }
   // Report whatever the last frame read queued (a frame that could not be replayed is a diagnostic, not a blank image).
