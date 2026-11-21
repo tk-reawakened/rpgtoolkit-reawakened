@@ -310,6 +310,11 @@ export function boot(options: GameOptions): Session {
   });
 }
 
+/** Rig key names and the host physical code each stands for, so a press and its action binding name one control. */
+const KEY_CODES: Readonly<Record<string, string>> = {
+  ENTER: "Enter", ESC: "Escape", UP: "ArrowUp", DOWN: "ArrowDown", LEFT: "ArrowLeft", RIGHT: "ArrowRight", M: "KeyM",
+};
+
 /** Boot any authored game on the headless host: the same request answering, save area and key delivery for every suite. */
 export function bootHost(config: HostConfig): Session {
   const game = config.game;
@@ -381,7 +386,7 @@ export function bootHost(config: HostConfig): Session {
     for (let step = 0; step < limit; step += 1) {
       if (queued !== undefined && latest !== null) {
         const tick = state().time.tick;
-        const code = queued === "ENTER" ? "Enter" : queued === "ESC" ? "Escape" : queued === "UP" ? "ArrowUp" : queued === "DOWN" ? "ArrowDown" : queued === "LEFT" ? "ArrowLeft" : queued === "RIGHT" ? "ArrowRight" : queued === "M" ? "KeyM" : queued;
+        const code = KEY_CODES[queued] ?? queued;
         pending.push(
           { tick, event: { kind: "key", code, char: null, vk: null, down: true } },
           { tick: tick + 1, event: { kind: "key", code, char: null, vk: null, down: false } },
@@ -413,14 +418,14 @@ export function press(session: Session, key: string): GameState {
   return session.pump((current) => current.time.tick > tick, key);
 }
 
-/** Send Enter with extra ACT-4 actions bound to its physical control for this one press. */
-export function pressWithActions(session: Session, actions: readonly string[]): GameState {
-  const control = "key:Enter";
+/** Send one key (Enter by default) with extra ACT-4 actions bound to its physical control for this one press. */
+export function pressWithActions(session: Session, actions: readonly string[], key = "ENTER"): GameState {
+  const control = `key:${KEY_CODES[key] ?? key}`;
   const controls = session.state().input.controlActions;
   const previous = controls[control];
   controls[control] = [...actions];
   try {
-    return press(session, "ENTER");
+    return press(session, key);
   } finally {
     if (previous === undefined) delete controls[control];
     else controls[control] = previous;

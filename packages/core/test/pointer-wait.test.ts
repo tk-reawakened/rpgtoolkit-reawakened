@@ -47,7 +47,7 @@ function step(state: GameState, services: ScriptServices, events: Event[] = []):
 
 const press = (x: number, y: number): Event => ({ kind: "pointer", x, y, buttons: 1 });
 const release = (x: number, y: number): Event => ({ kind: "pointer", x, y, buttons: 0 });
-const enter = (down: boolean): Event => ({ kind: "key", name: "Enter", code: "Enter", char: null, down });
+const enter = (down: boolean): Event => ({ kind: "key", code: "Enter", char: null, vk: null, down });
 
 test("waitInput hands a script the press and release that arrived together, then waits again", () => {
   const state = makeState();
@@ -91,7 +91,7 @@ test("waitInput delivers a key first and reports the pointer change that came wi
   const services = createScriptServices(state);
   runThreadsPhase(state.vm, services, 100);
   step(state, services, [press(9, 9), enter(true)]);
-  deepEqual([state.vm.globals.k1, state.vm.globals.n1, state.vm.globals.a1, state.vm.globals.act1], ["key", "Enter", "confirm", "confirm"], "the compatibility name and action are both retained");
+  deepEqual([state.vm.globals.k1, state.vm.globals.n1, state.vm.globals.a1, state.vm.globals.act1], ["key", "ENTER", "confirm", "confirm"], "the physical key name and bound action list are both retained");
   step(state, services);
   deepEqual([state.vm.globals.k2, state.vm.globals.d2], ["pointer", 1], "the pointer press was not lost behind the key");
   equal(thread.status, "finished");

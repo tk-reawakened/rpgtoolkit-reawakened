@@ -1041,7 +1041,7 @@ test("the engine reports a custom request whose program is not in the game as pr
   equal(booted.state().engine.boot?.stage, "running");
 });
 
-test("an item-thread victory erases its NPC and a fresh Enter opens the board menu", () => {
+test("an item-thread victory erases its NPC and a fresh menu key opens the board menu", () => {
   const booted = bootGame("record", "fight.prg", {
     "item-win.prg": 'mwin("Victory!")\nwait()\nmwincls()\neraseitem("source")\nwinProgramRan = 1',
   }, { assets: { "enemy/slime.ene": stanceEnemyBytes("Challenger", "item-win.prg") } });
@@ -1055,7 +1055,10 @@ test("an item-thread victory erases its NPC and a fresh Enter opens the board me
   });
   state.sprites.items = [{ ...item, multitaskThread: itemThread.id }];
   const confirm = (): InputRecord[] => [true, false].map((down) => ({
-    tick: state.time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down },
+    tick: state.time.tick, event: { kind: "key", code: "Enter", char: null, vk: null, down },
+  }));
+  const menu = (): InputRecord[] => [true, false].map((down) => ({
+    tick: state.time.tick, event: { kind: "key", code: "KeyM", char: "m", vk: null, down },
   }));
   const shows = (text: string): boolean => booted.engine.drawList().commands.some((command) => command.kind === "text" && command.text === text);
   play(booted, (state) => state.vm.block?.kind === "input.key");
@@ -1073,8 +1076,8 @@ test("an item-thread victory erases its NPC and a fresh Enter opens the board me
   equal(state.vm.globals.itemcontinued, undefined);
   equal(shows("Victory!"), false);
   equal(state.menu.screens.length, 0, "the victory dismissal is not also a menu press");
-  play(booted, () => true, confirm());
-  equal(state.menu.screens[0]?.screen, "main", "a fresh Enter opens the menu with the settled battle record still present");
+  play(booted, () => true, menu());
+  equal(state.menu.screens[0]?.screen, "main", "a fresh menu key opens the menu with the settled battle record still present");
 });
 
 test("the engine hands a custom program's FightEnemy call to the stock loop with the BAT-9 setup and no draw before the loop seeds", () => {
@@ -1119,9 +1122,9 @@ type MainFileApiRun = {
   readonly enemyDefeatedDetailKeys: readonly (readonly string[])[];
 };
 
-const ARROW_RIGHT = { kind: "key" as const, name: "ArrowRight", code: "ArrowRight", char: "", down: true };
+const ARROW_RIGHT = { kind: "key" as const, code: "ArrowRight", char: null, vk: null, down: true };
 const ARROW_RIGHT_UP = { ...ARROW_RIGHT, down: false };
-const ENTER = { kind: "key" as const, name: "Enter", code: "Enter", char: "", down: true };
+const ENTER = { kind: "key" as const, code: "Enter", char: null, vk: null, down: true };
 
 /**
  * Boot a game whose main file names the all-API program as its custom fight program and whose fight settings and board

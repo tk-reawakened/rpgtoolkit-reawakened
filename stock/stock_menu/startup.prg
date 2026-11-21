@@ -380,7 +380,8 @@ stockMenu = {
         return 0
     },
     // A key's complete ACT-4 list remains on the `ui` that claimed it. A screen must drain it before it waits again,
-    // and a parent must not hand any remainder to a nested provider.
+    // and before it returns on a close intent: a later `menu` in the same batch still closes the outermost menu.
+    // A parent must not hand any remainder to a nested provider.
     hasBuffered: (ui) => {
         return ui.actionIndex < ui.actionCount
     },
@@ -763,8 +764,8 @@ stockMenu = {
         local(selection) = 0
         local(parent) = stockMenu.begin(context, "main")
         local(ui) = stockMenu.newUi(context)
-        while (done == 0) {
-            if (ui.dirty == 1) {
+        while (done == 0 || stockMenu.hasBuffered(ui) == 1) {
+            if (ui.dirty == 1 && done == 0) {
                 stockMenu.drawMain(context, ui)
                 ui.dirty = 0
             }
@@ -934,8 +935,8 @@ stockMenu = {
         local(actorId) = 0
         local(parent) = stockMenu.begin(context, "items")
         local(ui) = stockMenu.newUi(context)
-        while (done == 0) {
-            if (ui.dirty == 1) {
+        while (done == 0 || stockMenu.hasBuffered(ui) == 1) {
+            if (ui.dirty == 1 && done == 0) {
                 stockMenu.drawItems(context, ui)
                 ui.dirty = 0
             }
@@ -1155,8 +1156,8 @@ stockMenu = {
         local(ui) = stockMenu.newUi(context)
         ui.mode = "member"
         ui.follow = 1
-        while (done == 0) {
-            if (ui.dirty == 1) {
+        while (done == 0 || stockMenu.hasBuffered(ui) == 1) {
+            if (ui.dirty == 1 && done == 0) {
                 stockMenu.drawEquipment(context, ui)
                 ui.dirty = 0
             }
@@ -1358,8 +1359,8 @@ stockMenu = {
         local(ui) = stockMenu.newUi(context)
         ui.mode = "member"
         ui.follow = 1
-        while (done == 0) {
-            if (ui.dirty == 1) {
+        while (done == 0 || stockMenu.hasBuffered(ui) == 1) {
+            if (ui.dirty == 1 && done == 0) {
                 stockMenu.drawAbilities(context, ui)
                 ui.dirty = 0
             }
@@ -1599,8 +1600,8 @@ stockMenu = {
         // recorded state changes when the shop screen exists (golden/epic8/acceptance.json).
         ui.amount = 1
         ui.action = "buy"
-        while (done == 0) {
-            if (ui.dirty == 1) {
+        while (done == 0 || stockMenu.hasBuffered(ui) == 1) {
+            if (ui.dirty == 1 && done == 0) {
                 stockMenu.drawShop(context, ui)
                 ui.dirty = 0
             }
@@ -1759,8 +1760,8 @@ stockMenu = {
             values[stockMenu.saveCount] = ""
             dims[stockMenu.saveCount] = 0
         }
-        while (done == 0) {
-            if (ui.dirty == 1) {
+        while (done == 0 || stockMenu.hasBuffered(ui) == 1) {
+            if (ui.dirty == 1 && done == 0) {
                 stockMenu.list(ui, title, labels, values, dims, count, "No saves")
                 ui.dirty = 0
             }

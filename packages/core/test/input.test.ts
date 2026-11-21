@@ -18,6 +18,7 @@ import { createGameState, hashGameState, restoreGameState, snapshot, snapshotGam
 import { applyInputEffect } from "../src/script/packs/movement.ts";
 import { pollInputKey, pollMenuScreen } from "../src/script/waits.ts";
 import { validateInputEvent } from "../src/validate/input-event.ts";
+import type { InputRecordV1, InputRecordV2 } from "../src/ports/input.ts";
 
 test("input records have monotonic sequences and claims deliver each key once", () => {
   const state = createInputSection();
@@ -34,6 +35,57 @@ test("input records have monotonic sequences and claims deliver each key once", 
   pruneClaimed(state, [first.claim ?? -1, second.claim ?? -1]);
   equal(pollInputKey({ tick: 1, input: inputView(state), claims: [] }, { kind: "input.key", global: true, key: null, parkSeq: 1 }), null);
 });
+
+test("historical v1/v2 Enter replay keeps confirm and menu while active Enter only confirms", () => {
+  const v1: InputRecordV1 = {
+    tick: 0,
+    event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true },
+  };
+  const v2: InputRecordV2 = {
+    tick: 0,
+    event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true },
+  };
+  for (const [schema, record] of [[1, v1], [2, v2]] as const) {
+    const state = createInputSection({ bindings: { keys: { Enter: "confirm" } } });
+    applyInputEvent(state, record.event);
+    deepEqual(state.keys[0]?.resolvedActions, ["confirm", "menu"], `v${schema} preserves historical Enter action order`);
+    deepEqual(state.keys.map(({ name }) => name), ["confirm"], `v${schema} retains its recorded compatibility key`);
+    deepEqual(state.pendingActions, ["confirm", "menu"], `v${schema} replays the historical menu press`);
+  }
+
+  const active = createInputSection({ bindings: { keys: { Enter: "confirm" } } });
+  applyInputEvent(active, { kind: "key", code: "Enter", char: null, vk: null, down: true });
+  deepEqual(active.keys[0]?.resolvedActions, ["confirm"]);
+  deepEqual(active.keys.map(({ name }) => name), ["ENTER"], "active input keeps the E-110 physical key name");
+  deepEqual(active.pendingActions, ["confirm"]);
+});
+
+test("E-110 virtual-key fallback preserves F1, PgUp, and Delete names", () => {
+  const state = createInputSection();
+  applyInputEvent(state, { kind: "key", code: "F1", char: null, vk: 112, down: true });
+  applyInputEvent(state, { kind: "key", code: "PageUp", char: null, vk: 33, down: true });
+  applyInputEvent(state, { kind: "key", code: "Delete", char: null, vk: 46, down: true });
+  deepEqual(state.keys.map(({ name }) => name), ["P", "!", "."]);
+});
+
+test("physical held state releases when key-up has no legacy name", () => {
+  const named = createInputSection();
+  applyInputEvent(named, { kind: "key", code: "Unidentified", char: "a", vk: null, down: true });
+  equal(named.held.Unidentified, true);
+  equal(named.held.a, true);
+  applyInputEvent(named, { kind: "key", code: "Unidentified", char: null, vk: null, down: false });
+  equal(named.held.Unidentified, false);
+  equal(named.held.a, false);
+
+  const unnameable = createInputSection();
+  applyInputEvent(unnameable, { kind: "key", code: "F1", char: null, vk: null, down: true });
+  equal(unnameable.held.F1, true);
+  equal(unnameable.keys.length, 0, "a key with no code alias, char, or vk has no compatibility name");
+  applyInputEvent(unnameable, { kind: "key", code: "F1", char: null, vk: null, down: false });
+  equal(unnameable.held.F1, false);
+  equal(unnameable.keys.length, 0);
+});
+
 
 test("configured keyboard edges and disabled diagonals are deterministic", () => {
   const state = createInputSection({
@@ -505,25 +557,43 @@ test("focus loss leaves an action a connected gamepad holds held; it follows the
   equal(state.actions.right, false, "the pad's own release ends it");
 });
 
-test("a host auto-repeat of a key core does not hold is not a press and marks nothing held", () => {
+test("host auto-repeat queues its physical key without pressing or holding an action", () => {
   const state = steeringSection();
-  applyInputEvent(state, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true });
+  const right = (repeat = false) => ({
+    kind: "key" as const,
+    code: "ArrowRight",
+    char: null,
+    vk: null,
+    down: true,
+    ...(repeat ? { repeat: true } : {}),
+  });
+  applyInputEvent(state, right());
   applyInputEvent(state, { kind: "focus", state: "lost" });
   applyInputEvent(state, { kind: "focus", state: "gained" });
   const before: InputView = JSON.parse(JSON.stringify(state));
 
-  // The key is still physically down, so the host keeps repeating it into the refocused window.
-  applyInputEvent(state, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true, repeat: true });
-  deepEqual(state, before);
+  // A repeat after refocus is still a physical key-down queue entry, but cannot resurrect a key core released on blur.
+  applyInputEvent(state, right(true));
+  equal(state.held.ArrowRight, false);
+  equal(state.held.RIGHT, false);
+  equal(state.actions.right, false);
+  equal(state.keys.length, before.keys.length + 1);
+  equal(state.keys.at(-1)?.name, "RIGHT");
+  equal(state.nextSeq, before.nextSeq + 1);
+  deepEqual(state.pendingKeySequences, before.pendingKeySequences, "the repeat creates no new consumable press edge");
+  deepEqual(state.pendingActions, before.pendingActions, "the repeat creates no action transition");
+
   // A later device record recomputes every action from its sources; it must not resurrect the repeated key.
   applyInputEvent(state, { ...GAMEPAD_RIGHT, buttons: 0 });
   processGamepadEvents(state);
   equal(state.actions.right, false);
 
-  // A repeat of a key core does hold stays a no-op, as before.
-  applyInputEvent(state, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true });
+  // A repeat of a key core does hold appends one compatibility record but no new edge.
+  applyInputEvent(state, right());
   const edges = state.pendingActions.length;
-  applyInputEvent(state, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true, repeat: true });
+  const keyCount = state.keys.length;
+  applyInputEvent(state, right(true));
+  equal(state.keys.length, keyCount + 1);
   equal(state.pendingActions.length, edges);
   equal(state.actions.right, true);
 });
@@ -683,7 +753,7 @@ test("a native menu wait wakes for a pointer change against its parked baseline"
   applyInputEvent(state, { kind: "pointer", x: 3, y: 4, buttons: 0 });
   const moved = pollMenuScreen({ tick: 1, input: inputView(state), claims: [] }, wait(baseline));
   deepEqual(moved?.record, { x: 3, y: 4, buttons: 0, downs: 0, ups: 0, downx: 0, downy: 0, button: 0, moved: 1, newdowns: 0, newups: 0 });
-  applyInputEvent(state, { kind: "key", name: "ENTER", code: "Enter", char: null, down: true });
+  applyInputEvent(state, { kind: "key", code: "Enter", char: null, vk: null, down: true });
   const tie = pollMenuScreen({ tick: 1, input: inputView(state), claims: [] }, wait(baseline));
   deepEqual(tie?.record, { kind: "key", key: "confirm", actions: ["confirm"] }, "a key wins a same-tick tie");
 });

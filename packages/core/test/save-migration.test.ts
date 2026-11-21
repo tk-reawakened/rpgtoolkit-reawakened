@@ -28,6 +28,8 @@ import {
   type ScriptError,
 } from "../src/index.ts";
 import { applyInputEvent, processGamepadEvents } from "../src/input/input.ts";
+import type { InputRecord, InputRecordV1, InputRecordV2 } from "../src/ports/input.ts";
+import { boot } from "./stock-menu-rig.ts";
 
 function errorOf(run: () => unknown): { code: string; message: string } {
   try {
@@ -631,7 +633,7 @@ test("restore refuses malformed shared readiness before exposing the saved conti
     ok(error.message.includes("engine.cacheKeys"));
   }
 });
-test("schema 10 migration preserves v1/v2 replay hashes and separates action-only records", () => {
+test("schema 10 migration separates action-only records from physical keys", () => {
   const state = createGameState({ seed: 5 });
   applyInputEvent(state.input, { kind: "key", name: "recorded-name", code: "noncanonical-code", char: null, down: true });
   state.input.actionKeys.push({
@@ -659,4 +661,47 @@ test("schema 10 migration preserves v1/v2 replay hashes and separates action-onl
   deepEqual(restored.input.actionKeys.map(({ seq, name, resolvedActions }) => [seq, name, resolvedActions]), [
     [2, null, ["game.fireball"]],
   ]);
+});
+const PINNED_HISTORICAL_ENTER_REPLAY_HASH = "d8811003f01b4e3c";
+
+function assertHistoricalEnterReplayMigration(schema: 1 | 2): void {
+  const session = boot({ startup: "end()\n" });
+  const tick = session.state().time.tick;
+  const events = [
+    { tick, event: { kind: "key" as const, name: "ENTER", code: "Enter", char: null, down: true } },
+    { tick: tick + 1, event: { kind: "key" as const, name: "ENTER", code: "Enter", char: null, down: false } },
+  ];
+  const v1Records: InputRecordV1[] = events;
+  const v2Records: InputRecordV2[] = events;
+  const records = schema === 1 ? v1Records : v2Records;
+  const state = session.pump(
+    (current) => current.menu.screens.length === 1,
+    undefined,
+    20,
+    records as unknown as InputRecord[],
+  );
+  deepEqual(state.menu.screens.map(({ screen }) => screen), ["main"], `v${schema} Enter opens only the Main menu`);
+  equal(state.menu.screens[0]?.selection, 0, `v${schema} Enter does not confirm into Items`);
+  equal(hashGameState(state), PINNED_HISTORICAL_ENTER_REPLAY_HASH, `v${schema} replay retains its pinned state hash`);
+
+  const raw = JSON.parse(snapshot(state)) as { schema: { input: number }; input: Record<string, unknown> };
+  raw.schema.input = 10;
+  raw.input.version = 10;
+  raw.input.keys = [
+    ...(raw.input.keys as Record<string, unknown>[]),
+    ...(raw.input.actionKeys as Record<string, unknown>[]).map((key) => ({ ...key, actionOnly: true })),
+  ];
+  delete raw.input.actionKeys;
+  const restored = restoreGameState(JSON.stringify(raw));
+  equal(hashGameState(restored), PINNED_HISTORICAL_ENTER_REPLAY_HASH, `v${schema} schema-10 restore preserves the pinned replay hash`);
+  deepEqual(restored.menu.screens.map(({ screen }) => screen), ["main"], `v${schema} schema-10 restore keeps the menu outcome`);
+  equal(restored.menu.screens[0]?.selection, 0, `v${schema} schema-10 restore keeps Main selection`);
+}
+
+test("schema 10 migration preserves the pinned v1 Enter replay hash and menu result", () => {
+  assertHistoricalEnterReplayMigration(1);
+});
+
+test("schema 10 migration preserves the pinned v2 Enter replay hash and menu result", () => {
+  assertHistoricalEnterReplayMigration(2);
 });

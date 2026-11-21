@@ -389,7 +389,7 @@ test("boot reports physical movement collisions and preserves ACT-4 dispatch", (
     [game.main, "physical key Escape is shared by left, cancel"],
   ]);
   const state = doubles.state();
-  engine.advance(1, [{ tick: state.time.tick, event: { kind: "key", code: "Space", name: " ", char: " ", down: true } }]);
+  engine.advance(1, [{ tick: state.time.tick, event: { kind: "key", code: "Space", char: " ", vk: null, down: true } }]);
   deepEqual(state.input.keys.at(-1)?.resolvedActions, ["down", "right", "confirm"]);
 });
 
@@ -454,7 +454,7 @@ for (const [pixelMovement, expectedDistance] of [[0, 64], [1, 64], [2, 16]] as c
     runtime.section.items = [item];
     const pressed = run(engine, game.files, 1, [{
       tick: runningState.time.tick,
-      event: { kind: "key", name: "A", code: "KeyA", char: "a", down: true },
+      event: { kind: "key", code: "KeyA", char: "a", vk: null, down: true },
     }]);
     deepEqual(pressed.diagnostics, []);
     const player = runningState.sprites.players[0];
@@ -507,7 +507,7 @@ function pushFixture(program: string, pixelMovement: number) {
     const current = currentState();
     return run(engine, game.files, 1, [{
       tick: current.time.tick,
-      event: { kind: "key", name: "A", code: "KeyA", char: "a", down: true },
+      event: { kind: "key", code: "KeyA", char: "a", vk: null, down: true },
     }]);
   };
   return { game, engine, runtime, state: currentState, pressA };
@@ -1285,7 +1285,7 @@ test("a Toolkit 2 system module pauses the board script before its deliberate qu
 
   const tick = doubles.state().time.tick;
   const continued = run(engine, game.files, 2, [
-    { tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } },
+    { tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } },
   ]);
   deepEqual(continued.diagnostics, []);
   equal(doubles.state().vm.globals.acknowledged, 1);
@@ -1307,7 +1307,7 @@ test("blocking MouseClick writes the coordinates of a fresh pointer press", () =
   });
   run(engine, game.files, 1, [
     pointer(12, 34, 1),
-    { tick: state.time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } },
+    { tick: state.time.tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } },
   ]);
   equal(state.vm.globals.pollx, 12);
   equal(state.vm.globals.polly, 34);
@@ -1608,7 +1608,7 @@ test("wait captures its floor while the queue is empty and accepts the first lat
 
   run(engine, game.files, 1, [{
     tick: state.time.tick,
-    event: { kind: "key", name: "A", code: "KeyA", char: "a", down: true },
+    event: { kind: "key", code: "KeyA", char: "a", vk: null, down: true },
   }]);
   equal(doubles.state().vm.globals.pressed, "a", "the first key appended after the park is eligible");
 });
@@ -1827,7 +1827,7 @@ test("engine-backed dialogue displays through the message window and resumes on 
 
   engine.advance(1, [{
     tick: state.time.tick,
-    event: { kind: "key", name: "Enter", code: "Enter", char: null, down: true },
+    event: { kind: "key", code: "Enter", char: null, vk: null, down: true },
   }]);
   equal(thread.status, "finished");
 });
@@ -2220,7 +2220,7 @@ test("public game-action registrations survive same-game reset and load", () => 
   ok(engine.registeredActionNames().includes("game.resetproof"));
   engine.advance(1, [{
     tick: doubles.state().time.tick,
-    event: { kind: "key", name: "F", code: "KeyF", char: "f", down: true },
+    event: { kind: "key", code: "KeyF", char: "f", vk: null, down: true },
   }]);
   equal(doubles.state().input.actions["game.resetproof"], true, "the external action is held before the save projection is captured");
   doubles.state().inventory.gold = 1234;
@@ -2248,7 +2248,7 @@ test("public game-action registrations survive same-game reset and load", () => 
   equal(doubles.state().input.actions["game.resetproof"], true, "loading restores the held claim for an externally registered action");
   engine.advance(1, [{
     tick: doubles.state().time.tick,
-    event: { kind: "key", name: "F", code: "KeyF", char: "f", down: false },
+    event: { kind: "key", code: "KeyF", char: "f", vk: null, down: false },
   }]);
   equal(doubles.state().input.actions["game.resetproof"], false, "the loaded action claim releases on the matching physical key-up");
   ok(engine.registeredActionNames().includes("game.resetproof"), "loading preserves public API registrations omitted from the game-save projection");
@@ -2269,7 +2269,7 @@ test("loading reconciles the keyboard claim index before releasing removed game 
     hidden: false,
   };
   equal(registerGameAction(doubles.state().input, action), true);
-  applyInputEvent(doubles.state().input, { kind: "key", name: "F", code: "KeyF", char: "f", down: true });
+  applyInputEvent(doubles.state().input, { kind: "key", code: "KeyF", char: "f", vk: null, down: true });
   equal(doubles.state().input.actions["game.removed"], true);
   const savedBytes = encoder.encode(snapshotGameSave(doubles.state()));
   startThread(doubles.state().vm, { ref: { kind: "inline", text: 'load("slot")\nend()', ir: IR_VERSION }, kind: "persistent", owner: "script" });
@@ -2295,7 +2295,7 @@ test("loading reconciles the keyboard claim index before releasing removed game 
   equal(Object.hasOwn(loaded.input.actionRegistry, "game.removed"), false);
   equal(Object.hasOwn(loaded.input.keyboardActionSources, "game.removed"), false);
   const replay = restoreGameState(snapshot(loaded));
-  const keyUp = { kind: "key", name: "F", code: "KeyF", char: "f", down: false } as const;
+  const keyUp = { kind: "key", code: "KeyF", char: "f", vk: null, down: false } as const;
   applyInputEvent(loaded.input, keyUp);
   applyInputEvent(replay.input, keyUp);
   equal(Object.hasOwn(loaded.input.keyboardActionSources, "game.removed"), false, "stale held claims were not reconstructed on key-up");
@@ -2821,7 +2821,7 @@ for (const obstructed of [false, true]) test(`demo oldman follows its linked pat
     ],
   });
   const current = (): GameState => { if (latest === null) throw new Error("demo has not advanced"); return latest; };
-  const key = (down: boolean): void => { run(engine, sample.files, 1, [{ tick: current().time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down } }]); };
+  const key = (down: boolean): void => { run(engine, sample.files, 1, [{ tick: current().time.tick, event: { kind: "key", code: "Enter", char: null, vk: null, down } }]); };
   deepEqual(run(engine, sample.files, 30).diagnostics, []);
   key(true); key(false); run(engine, sample.files, 5); key(true); key(false);
   // This fixture exercises the full patrol rather than just the first few steps.
@@ -2961,7 +2961,7 @@ test("demo start region responds to the held title key on its first free-roam fr
   run(engine, sample.files, 5);
   let state = current();
   ok(state.vm.threads.some((thread) => thread.wait?.kind === "input.key"));
-  run(engine, sample.files, 1, [{ tick: state.time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } }]);
+  run(engine, sample.files, 1, [{ tick: state.time.tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }]);
   for (let guard = 0; state.world.board == null && guard < 100; guard += 1) {
     run(engine, sample.files, 1);
     state = current();
@@ -3032,7 +3032,7 @@ test("a region naming an absent .prg reports one located program.missing and the
   const state = stateRef.current;
   if (state === null) throw new Error("no tick ran");
   ok(state.world.board !== null, "boot reached its board");
-  const pressed = play(2, [{ tick: state.time.tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } }]);
+  const pressed = play(2, [{ tick: state.time.tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } }]);
   // The region's trigger starts, reports the missing program once through the engine's own
   // diagnostic routing, and the game keeps running afterwards.
   const missing = (pressed as { readonly diagnostics: RunResult["diagnostics"] }).diagnostics.filter((diagnostic) => diagnostic.code === "program.missing");
@@ -3078,7 +3078,7 @@ for (const name of ["demo", "Basic"]) {
     equal(blocking[0]?.wait?.kind, "input.key");
     deepEqual(result.diagnostics.filter((diagnostic) => diagnostic.code.startsWith("asset.") || diagnostic.code.startsWith("startup.") || diagnostic.code.startsWith("program.")), []);
     // Releasing the wait with a key moves the program on without a script error.
-    const key = { tick: result.report.tickAfter, event: { kind: "key" as const, name: "ENTER", code: "Enter", char: null, down: true } };
+    const key = { tick: result.report.tickAfter, event: { kind: "key" as const, code: "Enter", char: null, vk: null, down: true } };
     const after = run(engine, sample.files, 5, [key]);
     deepEqual(after.diagnostics.filter((diagnostic) => diagnostic.code.startsWith("asset.") || diagnostic.code.startsWith("startup.")), []);
   });

@@ -16,7 +16,7 @@
   "cases": [
     {
       "name": "keyboard-diagonal-and-repeat",
-      "note": "E-24: two orthogonal keys give a diagonal only when diagonals are allowed; OS auto-repeat appends no queue entry; an unnamed unbound key appends nothing; sequence numbers rise monotonically. Enter confirms only; menu is KeyM.",
+      "note": "E-24: two orthogonal keys give a diagonal only when diagonals are allowed; OS auto-repeat appends one physical queue entry but no action edge; an unnamed unbound key appends nothing; sequence numbers rise monotonically. Enter confirms only; menu is KeyM.",
       "setup": {
         "bindings": {
           "keys": {"ArrowUp":"up","ArrowDown":"down","ArrowLeft":"left","ArrowRight":"right","Enter":"confirm","Escape":"cancel"}
@@ -115,7 +115,7 @@
         {"t":1,"held":[],"intent":null,"slots":["attack","back"]},
         {"t":2,"held":["right"],"intent":"E","queue":[{"seq":1,"key":"right"}],"slots":["attack","back"]},
         {"t":3,"held":["up","right","confirm"],"intent":"NE","queue":[{"seq":2,"key":"confirm"},{"seq":3,"key":"up"}],"slots":["attack","back"]},
-        {"t":4,"held":["up","right","confirm"],"intent":"NE","queue":[{"seq":4,"key":"right"}],"slots":["attack","back"]},
+        {"t":4,"held":["up","right","confirm"],"intent":"NE","queue":[{"seq":4,"key":"RIGHT"}],"slots":["attack","back"]},
         {"t":5,"held":["right"],"intent":"E","slots":["attack","back"]},
         {"t":6,"held":[],"intent":null,"slots":["attack","back"]},
         {"t":7,"held":["menu"],"intent":null,"queue":[{"seq":5,"key":"menu"}],"slots":["attack","back"]},

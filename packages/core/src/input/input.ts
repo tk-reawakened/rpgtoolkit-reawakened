@@ -35,7 +35,7 @@ const DEFAULT_KEY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
 };
 const HISTORICAL_DEFAULT_KEY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   ArrowUp: ["up"], ArrowDown: ["down"], ArrowLeft: ["left"], ArrowRight: ["right"],
-  Enter: ["confirm"], Space: ["confirm"], Escape: ["cancel"],
+  Enter: ["confirm", "menu"], Space: ["confirm"], Escape: ["cancel"],
 };
 // Game configuration is derived from the active main file. Only held state and press order are saved.
 const movementSettings = new WeakMap<InputSection, MainFileMovementSettings>();
@@ -247,29 +247,31 @@ function keyboardHeldClaimsIndex(state: InputSection): HeldClaimsIndex {
   return index;
 }
 
-function updateHeldClaims(state: InputSection, control: string, name: string, down: boolean): void {
+function updateHeldClaims(state: InputSection, control: string, name: string | null, down: boolean): void {
   const index = keyboardHeldClaimsIndex(state);
   if (down) {
     let names = index.byControl.get(control);
     if (names === undefined) index.byControl.set(control, names = new Set());
-    names.add(name);
     names.add(control);
+    if (name !== null) names.add(name);
 
-    let controlsForName = index.byName.get(name);
-    if (controlsForName === undefined) index.byName.set(name, controlsForName = new Set());
-    controlsForName.add(control);
+    if (name !== null) {
+      let controlsForName = index.byName.get(name);
+      if (controlsForName === undefined) index.byName.set(name, controlsForName = new Set());
+      controlsForName.add(control);
+    }
 
     let controlsForCode = index.byName.get(control);
     if (controlsForCode === undefined) index.byName.set(control, controlsForCode = new Set());
     controlsForCode.add(control);
 
-    state.held[name] = true;
-    if (control !== name) state.held[control] = true;
+    if (name !== null) state.held[name] = true;
+    state.held[control] = true;
     return;
   }
 
   const claimed = new Set<string>(index.byControl.get(control) ?? []);
-  claimed.add(name);
+  if (name !== null) claimed.add(name);
   claimed.add(control);
   index.byControl.delete(control);
 
@@ -425,12 +427,8 @@ function physicalKeyName(event: KeyInput | HistoricalKeyInput): string | null {
   }
   const vk = "vk" in event ? event.vk : null;
   if (typeof vk !== "number" || !Number.isInteger(vk) || vk < 0 || vk > 0xffff || (vk >= 0xd800 && vk <= 0xdfff)) return null;
-  if (vk >= 0x30 && vk <= 0x39) return String.fromCharCode(vk);
-  if (vk >= 0x41 && vk <= 0x5a) return String.fromCharCode(vk);
-  if (vk === 13) return "ENTER";
-  if (vk === 27) return "ESC";
-  if (vk === 32) return " ";
-  return null;
+  if (vk >= 0x61 && vk <= 0x7a) return String.fromCharCode(vk - 0x20);
+  return String.fromCharCode(vk);
 }
 
 /** Register an action definition and index its canonical controls for constant-time event resolution. */
@@ -618,8 +616,7 @@ function applyKey(state: InputSection, event: KeyInput | HistoricalKeyInput, onU
   const physicalName = recordedName ?? physicalKeyName(event);
   const physicalControl = event.code.length > 0 ? event.code : physicalName ?? "";
   const priorRaw = state.held[physicalControl] === true;
-  if (event.down && event.repeat === true && !priorRaw) return;
-  if (physicalName !== null) updateHeldClaims(state, physicalControl, physicalName, event.down);
+  if (physicalControl.length > 0 && !(event.down && event.repeat === true)) updateHeldClaims(state, physicalControl, physicalName, event.down);
   const control = `key:${event.code}`;
   const configured = mappedAction(state, event);
   const defaultActions = (recordedName === undefined ? DEFAULT_KEY_ACTIONS : HISTORICAL_DEFAULT_KEY_ACTIONS)[event.code] ?? [];
@@ -645,8 +642,11 @@ function applyKey(state: InputSection, event: KeyInput | HistoricalKeyInput, onU
     ])].sort((a, b) => state.actionOrder[a]! - state.actionOrder[b]!),
   ];
   if (event.down) {
-    const arrowName = recordedName === undefined && event.code.startsWith("Arrow") ? PHYSICAL_KEY_ALIASES[event.code]?.[0] : undefined;
-    const keyName = recordedName ?? arrowName ?? physicalName;
+    const arrowName = event.code.startsWith("Arrow") ? PHYSICAL_KEY_ALIASES[event.code]?.[0] : undefined;
+    const semanticGameBinding = mapped !== undefined && mapped.startsWith("game.");
+    const keyName = recordedName === undefined
+      ? arrowName ?? physicalName
+      : arrowName ?? (semanticGameBinding ? recordedName : configured ?? recordedName);
     if (keyName !== null) appendKey(state, keyName, event.code, event.char, configured ?? null, ordered, target ?? null, !event.repeat && !priorRaw);
     else if (ordered.length > 0) appendKey(state, null, event.code, event.char, ordered[0] ?? null, ordered, target ?? null, false);
   }

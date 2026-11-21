@@ -28,11 +28,16 @@ test("three separately delivered keys move the selection in order", () => {
 });
 
 test("a main confirm followed by a custom menu action closes without opening Items", () => {
-  const session = boot({ startup: "mainmenu()\n" });
+  const session = boot({ startup: "mainmenu()\n", sounds: true });
   session.pump((state) => state.menu.screens.length === 1);
 
   // Enter has its default confirm plus this custom ACT-4 action. The later menu action belongs to Main, not Items.
-  equal(pressWithActions(session, ["menu"]).menu.screens.length, 0);
+  const state = pressWithActions(session, ["menu"]);
+  equal(state.menu.screens.length, 0);
+  ok(
+    session.cues.some((cue) => cue.kind === "media.play" && cue.asset === assetKey("media/confirm.wav")),
+    "Main handled its confirm action before the menu action closed the stack",
+  );
 });
 
 test("a custom menu action closes the existing Items stack", () => {
@@ -43,6 +48,18 @@ test("a custom menu action closes the existing Items stack", () => {
 
   // The default confirm changes Items locally; the custom menu action from the same key then closes its whole stack.
   equal(pressWithActions(session, ["menu"]).menu.screens.length, 0);
+});
+
+test("a cancel then menu in one Escape batch closes Items and then the whole stack", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  press(session, "ENTER");
+  equal(session.state().menu.screens.at(-1)?.screen, "items");
+  equal(session.state().menu.screens.length, 2);
+
+  // Escape resolves to its default cancel plus this custom ACT-4 menu action. Both belong to Items, so Items drains
+  // its batch before returning: the later menu closes the outermost menu instead of being dropped with the screen.
+  equal(pressWithActions(session, ["menu"], "ESC").menu.screens.length, 0);
 });
 
 test("the menu key opens the main screen and the menu key closes it", () => {

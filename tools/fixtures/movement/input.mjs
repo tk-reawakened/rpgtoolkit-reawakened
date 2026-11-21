@@ -10,10 +10,26 @@
 const DIR_ACTIONS = ["up", "down", "left", "right"];
 const BIT_ACTIONS = ["up", "down", "left", "right", "confirm", "cancel", "menu"]; // normalized internal action order
 const DEAD_ZONE = 250;
-const DEFAULT_KEY_ACTIONS = { ArrowUp: ["up"], ArrowDown: ["down"], ArrowLeft: ["left"], ArrowRight: ["right"], Enter: ["confirm"], Space: ["confirm"], Escape: ["cancel"], KeyM: ["menu"] };
-const LEGACY_ACTION_ALIASES = { ENTER: "menu", ESC: "cancel", " ": "confirm", SPACE: "confirm" };
+const DEFAULT_KEY_ACTIONS = { ArrowUp: ["up"], ArrowDown: ["down"], ArrowLeft: ["left"], ArrowRight: ["right"], Enter: ["confirm"], NumpadEnter: ["confirm"], Space: ["confirm"], Escape: ["cancel"], KeyM: ["menu"] };
+const LEGACY_ACTION_ALIASES = { ENTER: "confirm", ESC: "cancel", " ": "confirm", SPACE: "confirm" };
+const PHYSICAL_KEY_NAMES = { Enter: "ENTER", NumpadEnter: "ENTER", Escape: "ESC", ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT", Space: " " };
 
 const PAD_BIT_ACTIONS = { 0: "confirm", 1: "cancel", 9: "menu", 12: "up", 13: "down", 14: "left", 15: "right", 17: "left", 18: "right", 19: "up", 20: "down" };
+
+/** The script-facing name of a physical key (E-110): code aliases first, then `char`, then the `vk` fallback. */
+function physicalKeyName(event) {
+  const alias = PHYSICAL_KEY_NAMES[event.code];
+  if (alias !== undefined) return alias;
+  if (typeof event.char === "string" && event.char.length > 0) return event.char;
+  const vk = event.vk;
+  if (typeof vk !== "number" || !Number.isInteger(vk) || vk < 0 || vk > 0xffff || (vk >= 0xd800 && vk <= 0xdfff)) return null;
+  if ((vk >= 0x30 && vk <= 0x39) || (vk >= 0x41 && vk <= 0x5a)) return String.fromCharCode(vk);
+  if (vk >= 0x61 && vk <= 0x7a) return String.fromCharCode(vk - 0x20);
+  if (vk === 13) return "ENTER";
+  if (vk === 27) return "ESC";
+  if (vk === 32) return " ";
+  return String.fromCharCode(vk);
+}
 
 function physicalPadMask(event) {
   let mask = event.buttons & 0x1ffff;
@@ -81,9 +97,13 @@ export function runInput(setup, events, ticks) {
         const mapped = configured === undefined ? undefined : LEGACY_ACTION_ALIASES[configured] ?? configured;
         if (ev.down) {
           rawKeys.add(code);
-          if (configured === undefined && DEFAULT_KEY_ACTIONS[code] === undefined) notes.push(`ignored:unbound:${code}`);
-          queue.push({ seq, key: mapped?.startsWith("game.") === true ? code : configured ?? code });
-          seq += 1;
+          // E-110: every nameable key-down appends its derived physical name; binding an action never replaces it.
+          const legacyName = physicalKeyName(ev);
+          if (legacyName === null && configured === undefined && DEFAULT_KEY_ACTIONS[code] === undefined) notes.push(`ignored:unbound:${code}`);
+          if (legacyName !== null) {
+            queue.push({ seq, key: legacyName });
+            seq += 1;
+          }
           queueActionEdges = false; // A keyboard event has one raw compatibility entry, not one per resolved action.
           if (!ev.repeat && !priorRaw) {
             const actions = [...new Set([...(DEFAULT_KEY_ACTIONS[code] ?? []), ...(mapped === undefined ? [] : [mapped])])];

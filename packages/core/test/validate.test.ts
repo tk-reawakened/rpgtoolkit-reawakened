@@ -14,8 +14,9 @@ import { decodeLog, encodeLog } from "../src/canon/log.ts";
 
 test("validateInputEvent accepts one valid event of each kind", () => {
   const valid: readonly (readonly [string, unknown])[] = [
-    ["key with char", { kind: "key", name: "A", code: "KeyA", char: "a", down: true }],
-    ["key with null char", { kind: "key", name: "ENTER", code: "Enter", char: null, down: false }],
+    ["key with char", { kind: "key", code: "KeyA", char: "a", vk: null, down: true }],
+    ["key with null char", { kind: "key", code: "Enter", char: null, vk: null, down: false }],
+    ["key with virtual-key fallback", { kind: "key", code: "F1", char: null, vk: 112, down: true }],
     ["pointer", { kind: "pointer", x: 10, y: -20, buttons: 0 }],
     ["pointer.cancel", { kind: "pointer.cancel" }],
     ["semantic action", { kind: "action", action: "game.fireball", down: true, source: "runner.fallback", modalId: null }],
@@ -51,19 +52,21 @@ test("validateInputEvent accepts one valid event of each kind", () => {
 
 test("validateInputEvent names the path of the first failure", () => {
   const rejected: readonly (readonly [string, unknown, string])[] = [
-    ["absent char", { kind: "key", name: "A", code: "KeyA", down: true }, "char"],
+    ["absent char", { kind: "key", code: "KeyA", vk: null, down: true }, "char"],
     [
       "undefined char",
-      { kind: "key", name: "A", code: "KeyA", char: undefined, down: true },
+      { kind: "key", code: "KeyA", char: undefined, vk: null, down: true },
       "char",
     ],
     ["undefined bytes", { kind: "asset", reqId: 1, bytes: undefined }, "bytes"],
     ["undefined reqId", { kind: "asset", reqId: undefined, bytes: null }, "reqId"],
+    ["absent vk", { kind: "key", code: "KeyA", char: null, down: true }, "vk"],
     [
-      "undefined name",
-      { kind: "key", name: undefined, code: "KeyA", char: null, down: true },
-      "name",
+      "undefined vk",
+      { kind: "key", code: "KeyA", char: null, vk: undefined, down: true },
+      "vk",
     ],
+    ["negative vk", { kind: "key", code: "KeyA", char: null, vk: -1, down: true }, "vk"],
     ["fractional vk", { kind: "key", code: "KeyA", char: null, vk: 1.5, down: true }, "vk"],
     ["string x", { kind: "pointer", x: "10", y: 0, buttons: 0 }, "x"],
     ["fractional x", { kind: "pointer", x: 1.5, y: 0, buttons: 0 }, "x"],
@@ -91,14 +94,14 @@ test("validateInputEvent names the path of the first failure", () => {
       { kind: "blob.loaded", reqId: 1, bytes: new Uint8Array(), missing: true },
       "missing",
     ],
-    ["empty name", { kind: "key", name: "", code: "KeyA", char: null, down: true }, "name"],
-    ["empty code", { kind: "key", name: "A", code: "", char: null, down: true }, "code"],
-    ["two code points", { kind: "key", name: "A", code: "KeyA", char: "AB", down: true }, "char"],
+    ["empty code", { kind: "key", code: "", char: null, vk: null, down: true }, "code"],
+    ["two code points", { kind: "key", code: "KeyA", char: "AB", vk: null, down: true }, "char"],
     [
       "lone surrogate char",
-      { kind: "key", name: "A", code: "KeyA", char: "\ud800", down: true },
+      { kind: "key", code: "KeyA", char: "\ud800", vk: null, down: true },
       "char",
     ],
+    ["virtual key above the 16-bit range", { kind: "key", code: "KeyA", char: null, vk: 0x10000, down: true }, "vk"],
     ["non-string name in list", { kind: "blob.listed", reqId: 1, names: ["a", 2] }, "names"],
     ["non-boolean ok", { kind: "blob.saved", reqId: 1, ok: "yes" }, "ok"],
     ["bad focus state", { kind: "focus", state: "maybe" }, "state"],
@@ -125,9 +128,10 @@ test("validateInputEvent names the path of the first failure", () => {
     ["unsorted host gamepad snapshot", { kind: "host.gamepads", devices: [{ device: 1, axes: { x: 0, y: 0 }, buttons: 0 }, { device: 0, axes: { x: 0, y: 0 }, buttons: 0 }] }, "devices[1].device"],
     [
       "extra key on a key event",
-      { kind: "key", name: "A", code: "KeyA", char: null, down: true, extra: 1 },
+      { kind: "key", code: "KeyA", char: null, vk: null, down: true, extra: 1 },
       "extra",
     ],
+    ["non-boolean repeat", { kind: "key", code: "KeyA", char: null, vk: null, down: true, repeat: "yes" }, "repeat"],
   ];
 
   for (const [label, event, path] of rejected) {
