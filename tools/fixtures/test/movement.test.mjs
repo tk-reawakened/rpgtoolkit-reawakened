@@ -251,6 +251,22 @@ test("tile-step-precheck-events: a counted blocked step is processed at its inte
   const repeat = theCase(sc, "blocked-counted-step-does-not-leak-into-repeat-distance");
   deepEqual(repeat.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "trail"]]);
   deepEqual(events(repeat, "blocked").map((e) => e.t), [0, 8]);
+  // R-63 item 2 with R-64: the step is stopped after its first advance by an item that walked into the
+  // destination's collision area, so it is not the counted step and the step region over the destination
+  // never fires. The item finishes its own step at the end of the run.
+  const midStep = theCase(sc, "blocked-mid-step-is-not-counted");
+  deepEqual(midStep.expect.filter((r) => r.fired), []);
+  deepEqual(actorAt(midStep, 1, "hero"), ["hero", 50.828125, 60.171875, 0, "waiting", "NE"]);
+  deepEqual(events(midStep, "blocked").map((e) => [e.t, e.by]), [[1, "cart"]]);
+  deepEqual(events(midStep, "step-complete").map((e) => e.actor), ["cart"]);
+  deepEqual(events(midStep, "movement-complete").map((e) => [e.t, e.actor, e.blocked === true]), [[1, "hero", true], [7, "cart", false]]);
+  // R-64 item 3: a non-selected party player keeps and retries its blocked entry every update, so it never
+  // completes the step and never emits a counted or completed-step event.
+  const ally = theCase(sc, "non-selected-player-blocked-step-retries");
+  deepEqual(actorAt(ally, 5, "ally"), ["ally", 48, 127, 0, "moving", "E"]);
+  equal(events(ally, "blocked").length, ally.ticks);
+  equal(events(ally, "movement-complete").length, 0);
+  equal(events(ally, "step-complete").length, 0);
 });
 
 test("actor-hydration-item-multitask: compacted order, hidden items and thread ownership", () => {

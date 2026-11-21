@@ -93,7 +93,9 @@
       "cases": [
         "blocked-counted-step-fires-the-step-region-at-the-destination",
         "blocked-counted-step-checks-battles-at-the-destination",
-        "blocked-counted-step-does-not-leak-into-repeat-distance"
+        "blocked-counted-step-does-not-leak-into-repeat-distance",
+        "blocked-mid-step-is-not-counted",
+        "non-selected-player-blocked-step-retries"
       ],
       "proposed": ["P-6","P-10","P-19"]
     },

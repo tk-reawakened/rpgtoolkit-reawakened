@@ -575,14 +575,17 @@ export class World {
     };
 
     // R-63 (docs/spec/engine/movement-and-collision.md#r-63): a tile direction step checks its whole
-    // destination before the first advance. R-64: the player consumes and counts it; other actors retry.
+    // destination before the first advance. R-64: the controlled (input-selected) player consumes and
+    // counts it, but only when the precheck stops the step at its start; other actors — including a
+    // non-selected party player — and a block that appears mid-step keep the entry and retry it.
     if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
       const solid = this.boardHit(a, c.tx, c.ty);
       const other = solid === null ? this.spriteHit(a, c.tx, c.ty) : null;
       if (solid !== null || other !== null) {
         if (dirIdx >= 0) a.facing = dirIdx;
-        if (a.kind === "player") this.countBlockedStep(a, c);
-        else a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+        if (a.kind === "player" && a.controlled) {
+          if (a.x === c.sx && a.y === c.sy) this.countBlockedStep(a, c);
+        } else a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
         this.emit("blocked", { actor: a.id, by: (solid ?? other).id });
         finish(true);
         return;
@@ -604,7 +607,7 @@ export class World {
     if (hit !== null) {
       if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
         if (dirIdx >= 0) a.facing = dirIdx;
-        if (a.kind !== "player") a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+        if (!(a.kind === "player" && a.controlled)) a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
         this.emit("blocked", { actor: a.id, by: hit.id });
         finish(true);
         return;
@@ -700,7 +703,7 @@ export class World {
     // no sprite is frozen and the direction step is never resolved as a point-style collision.
     if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
       if (c.dir !== null) a.facing = c.dir;
-      if (a.kind !== "player") a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+      if (!(a.kind === "player" && a.controlled)) a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
       this.emit("blocked", { actor: a.id, by: blocker.id });
       finish(true);
       return;
@@ -850,15 +853,24 @@ export class World {
 
   evaluate(kind, suppressed = false, dest = null) {
     const p = this.player;
-    // R-64 item 2: step processing (including the E-40 re-arm test) runs where the step was headed; a key
-    // press (E-41) always tests the base at the player's own position.
-    const base = dest === null ? translate(p.base, p.x, p.y) : translate(p.base, dest.x, dest.y);
+    const playerBase = translate(p.base, p.x, p.y);
+    // R-64 item 2: step processing runs where the step was headed; a key press (E-41) always tests the
+    // base at the player's own position.
+    const base = dest === null ? playerBase : translate(p.base, dest.x, dest.y);
     const regions = this.board.programs.filter((r) => r.layer === p.layer && !this.gone.has(r.id));
     const items = this.items.filter((i) => i.visible && i.trigger !== null && i.layer === p.layer && !this.gone.has(`item:${i.id}`));
     // Re-arm on leaving (E-40, E-42): a trigger whose area the player is no longer in forgets its state.
+    // The area is the one the candidate is eligible in: a key-press candidate only re-arms against the
+    // player's standing shape, a step/repeat candidate against the step's tested shape (R-64 item 2).
     if (kind === "step") {
-      for (const r of this.board.programs) if (!(r.layer === p.layer && overlaps(base, r.points))) { this.fired.delete(r.id); this.repeat.delete(r.id); }
-      for (const i of this.items) if (!(i.visible && i.layer === p.layer && i.trigger !== null && overlaps(base, translate(i.act, i.x, i.y)))) { this.fired.delete(`item:${i.id}`); this.repeat.delete(`item:${i.id}`); }
+      for (const r of this.board.programs) {
+        const area = r.type === "key" ? playerBase : base;
+        if (!(r.layer === p.layer && overlaps(area, r.points))) { this.fired.delete(r.id); this.repeat.delete(r.id); }
+      }
+      for (const i of this.items) {
+        const area = i.trigger?.type === "key" ? playerBase : base;
+        if (!(i.visible && i.layer === p.layer && i.trigger !== null && overlaps(area, translate(i.act, i.x, i.y)))) { this.fired.delete(`item:${i.id}`); this.repeat.delete(`item:${i.id}`); }
+      }
     }
     const typeOk = (t) => (kind === "step" ? t === "step" || t === "repeat" : t === "key");
     const qualifies = (id, trig) => {

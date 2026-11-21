@@ -168,6 +168,98 @@
         {"t":18,"a":[["hero",48,63,0,"waiting","E"]]},
         {"t":19,"a":[["hero",48,63,0,"waiting","E"]]}
       ]
+    },
+    {
+      "name": "blocked-mid-step-is-not-counted",
+      "note": "R-63 item 2 and R-64: an item that walks into the destination's collision area after the step began ends the player's step at its last safe position with no successful-step distance and no counted-step processing. The step region over the destination (x 68..100, away from the player's base at x 35.8..65.8) therefore never fires; all movement here is tile movement (speed 0.02 is one 4 px advance per tick).",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [{"id":"door","type":"step","layer":0,"points":[[68,16],[100,16],[100,50],[68,50]],"program":"door.prg"}],
+            "items": [{"id":"cart","x":48,"y":31,"layer":0,"speed":0,"facing":"S"}],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"NE"},
+        {"t":0,"op":"push","actor":"cart","dirs":"E"}
+      ],
+      "ticks": 12,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"hydrate","id":"cart","drawId":1,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",50.828125,60.171875,0,"moving","NE"],["cart",52,31,0,"moving","E"]]},
+        {"t":1,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",56,31,0,"moving","E"]],"ev":[{"e":"blocked","actor":"hero","by":"cart"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":2,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",60,31,0,"moving","E"]]},
+        {"t":3,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",64,31,0,"moving","E"]]},
+        {"t":4,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",68,31,0,"moving","E"]]},
+        {"t":5,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",72,31,0,"moving","E"]]},
+        {"t":6,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",76,31,0,"moving","E"]]},
+        {"t":7,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",80,31,0,"waiting","E"]],"ev":[{"e":"step-complete","actor":"cart"},{"e":"movement-complete","actor":"cart"}]},
+        {"t":8,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",80,31,0,"waiting","E"]]},
+        {"t":9,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",80,31,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",80,31,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",50.828125,60.171875,0,"waiting","NE"],["cart",80,31,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "non-selected-player-blocked-step-retries",
+      "note": "R-64 item 3: a party player that is not the selected (controlled) player is an other actor for a blocked direction step — the entry is kept and retried every update, the sprite never moves and never emits a completed or counted step. The wall (x 76..84) blocks the ally's whole destination (x 64..96).",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"wall","type":"solid","layer":0,"closed":true,"points":[[76,32],[84,32],[84,224],[76,224]]}],
+            "programs": [],
+            "items": [],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [
+          {"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true},
+          {"id":"ally","x":48,"y":127,"layer":0,"speed":0.02,"facing":"E","controlled":false}
+        ]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"ally","dirs":"E"}
+      ],
+      "ticks": 6,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"hydrate","id":"ally","drawId":1,"index":1,"slot":1,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","S"],["ally",48,127,0,"moving","E"]],"ev":[{"e":"blocked","actor":"ally","by":"wall"}]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","S"],["ally",48,127,0,"moving","E"]],"ev":[{"e":"blocked","actor":"ally","by":"wall"}]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","S"],["ally",48,127,0,"moving","E"]],"ev":[{"e":"blocked","actor":"ally","by":"wall"}]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","S"],["ally",48,127,0,"moving","E"]],"ev":[{"e":"blocked","actor":"ally","by":"wall"}]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","S"],["ally",48,127,0,"moving","E"]],"ev":[{"e":"blocked","actor":"ally","by":"wall"}]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","S"],["ally",48,127,0,"moving","E"]],"ev":[{"e":"blocked","actor":"ally","by":"wall"}]}
+      ]
     }
   ]
 }
