@@ -46,7 +46,7 @@ function fixtureText(name: string): string {
 test("a v2 save (no effect log) restores cleanly as the current vm schema", () => {
   const restored = restoreGameState(fixtureText("v2-vm.json"));
 
-  equal(SCHEMA_VERSIONS.vm, 8);
+  equal(SCHEMA_VERSIONS.vm, 9);
   equal(restored.schema.vm, SCHEMA_VERSIONS.vm);
   deepEqual(restored.vm.effects, []);
   equal(restored.vm.effectSeq, 0);
@@ -73,10 +73,10 @@ test("a v3 save restores with its thread and sleep wait migrated to the v4 shape
   equal(canon(restoreGameState(snapshot(restored))), canon(restored));
 });
 
-test("a v4 save (no module fields) restores unchanged apart from the v8 section version", () => {
+test("a v4 save (no module fields) restores unchanged apart from the v9 section version", () => {
   const restored = restoreGameState(fixtureText("v4-vm.json"));
 
-  equal(SCHEMA_VERSIONS.vm, 8);
+  equal(SCHEMA_VERSIONS.vm, 9);
   equal(restored.schema.vm, SCHEMA_VERSIONS.vm);
   const frame = restored.vm.threads[0]!.frames[0]!;
   // The module fields are optional and stay absent: the ref is the v4 ref.
@@ -92,7 +92,7 @@ test("vm schema 6 saves, out of and mid battle, migrate to vm 9 changing only th
     equal(saved.schema.vm, 6, `${previous} is a real vm-6 save`);
     const restored = restoreGameState(fixtureText(previous));
     equal(restored.schema.vm, 9);
-    equal(snapshot(restored), snapshot(restoreGameState(fixtureText(current))), `${previous} restores to its vm-8 counterpart`);
+    equal(snapshot(restored), snapshot(restoreGameState(fixtureText(current))), `${previous} restores to its vm-9 counterpart`);
     equal(snapshot(restoreGameState(snapshot(restored))), snapshot(restored), "migration is idempotent");
   }
 });

@@ -352,16 +352,20 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     }
     section.deactivateAt = null;
   }
-  let completedTriggerMovement = false;
-  if (section.active !== null) {
-    if (!currentThreadFinished(state, section.active)) return events;
+  const step = stepTick(player) === state.time.tick;
+  let completedTriggerThread: number | null = null;
+  if (section.active !== null && currentThreadFinished(state, section.active)) {
     const active = section.active;
-    const lastStep = player.movement.lastStepProvenance;
-    completedTriggerMovement = lastStep.kind === "trigger" && lastStep.thread === active.thread;
+    completedTriggerThread = active.thread;
     if (active.setVar !== "") state.vm.globals[active.setVar] = active.setValue;
     emit(events, options, { type: "trigger-complete", tick: state.time.tick, key: active.key, source: active.source });
     section.active = null;
   }
+  const lastStepProvenance = player.movement.lastStepProvenance;
+  const completedTriggerMovement = step
+    && completedTriggerThread !== null
+    && lastStepProvenance.kind === "trigger"
+    && lastStepProvenance.thread === completedTriggerThread;
   // docs/spec/engine/main-loop-and-startup.md#reawakened-boot-held-activation
   // A boot poll is deferred until the enter program has released the blocking thread.
   const bootPoll = section.lastKeySeq === -1;
@@ -371,7 +375,6 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     || (Object.keys(state.input.bindings.keys).length === 0
       && (state.input.held.ENTER === true || state.input.held.Enter === true
         || state.input.held.Space === true || state.input.held[" "] === true));
-  const step = stepTick(player) === state.time.tick;
   const unbound = Object.keys(state.input.bindings.keys).length === 0;
   const activationEntries = state.input.keys.filter((entry) => entry.seq > section.lastKeySeq && isActivationKey(entry.name, entry.action, entry.resolvedActions, unbound));
   const pointerTarget = activationEntries[0]?.target;
@@ -380,8 +383,8 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   if (activationEntries.length > 0) section.lastKeySeq = activationEntries[0]!.seq;
   else for (const entry of state.input.keys) if (entry.seq > section.lastKeySeq) section.lastKeySeq = entry.seq;
   const moving = player.state === "moving" && player.movement.active !== null && player.movement.active.provenance?.kind !== "trigger";
-  const triggerStep = step && player.movement.lastStepProvenance.kind === "trigger";
-  const suppressedStep = !key && (triggerStep || completedTriggerMovement);
+  const triggerStep = step && lastStepProvenance.kind === "trigger";
+  const suppressedStep = triggerStep || completedTriggerMovement;
   const stepEligible = step && !triggerStep;
   const movementEvent = stepEligible || moving;
   const kind = key ? "key" : "step";
@@ -419,36 +422,45 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   // E-40 rearming observes trigger-owned travel, but a winning candidate is
   // consumed so the same entry cannot fire on a later unrelated step.
   if (!movementEvent && !key && !suppressedStep) return events;
-  const qualifying = all.filter((candidate) => {
-    if (!triggerTypeMatches(candidate, kind) || section.suppressed.includes(candidate.key) || section.deactivated.includes(candidate.key)) return false;
+  const repeatDistanceAdvanced = new Set<string>();
+  const qualifyingFor = (eventKind: "key" | "step") => all.filter((candidate) => {
+    if (!triggerTypeMatches(candidate, eventKind) || section.suppressed.includes(candidate.key) || section.deactivated.includes(candidate.key)) return false;
     // A trigger belongs to the layer it was authored on: only the player's own layer may fire it
     // (docs/spec/engine/movement-and-collision.md#triggers). Regions are collected from every layer,
     // so the comparison has to be here as well as in the item list above.
     const inArea = candidate.layer === player.layer
       && (candidate.source === "item" ? overlaps(shape, itemShape(candidate)) : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
     if (!inArea || !conditionMatches(state, candidate) || candidate.program === "") return false;
-    if (kind === "key") return pointerTarget === undefined || candidate.key === pointerTarget;
+    if (eventKind === "key") return pointerTarget === undefined || candidate.key === pointerTarget;
     const fired = section.fired[candidate.key] === true;
     if (!fired) return true;
     if ((candidate.activationType & 3) !== 2) return false;
     const distance = candidate.repeatDistance;
     if (distance <= 0) return false;
-    const next = (section.repeat[candidate.key] ?? 0) + stepDistance(player);
-    section.repeat[candidate.key] = next;
+    const next = repeatDistanceAdvanced.has(candidate.key)
+      ? section.repeat[candidate.key] ?? 0
+      : (section.repeat[candidate.key] ?? 0) + stepDistance(player);
+    if (!repeatDistanceAdvanced.has(candidate.key)) {
+      section.repeat[candidate.key] = next;
+      repeatDistanceAdvanced.add(candidate.key);
+    }
     return next >= distance;
   });
-  let winner: Candidate | undefined;
-  if (kind === "key") {
+  const selectWinner = (qualifying: Candidate[]): Candidate | undefined => {
     const itemCandidates = qualifying.filter((candidate) => candidate.source === "item");
     orderItemCandidates(player, itemCandidates);
-    winner = itemCandidates[0] ?? qualifying.filter((candidate) => candidate.source === "region").at(-1);
-  } else {
-    const itemCandidates = qualifying.filter((candidate) => candidate.source === "item");
-    orderItemCandidates(player, itemCandidates);
-    winner = itemCandidates[0] ?? qualifying.filter((candidate) => candidate.source === "region").at(-1);
+    return itemCandidates[0] ?? qualifying.filter((candidate) => candidate.source === "region").at(-1);
+  };
+  const winner = selectWinner(qualifyingFor(kind));
+  if (suppressedStep && key) {
+    const suppressedWinner = selectWinner(qualifyingFor("step"));
+    if (suppressedWinner !== undefined) {
+      section.fired[suppressedWinner.key] = true;
+      if ((suppressedWinner.activationType & 3) === 2) section.repeat[suppressedWinner.key] = 0;
+    }
   }
   if (winner === undefined) return events;
-  if (suppressedStep) {
+  if (suppressedStep && !key) {
     section.fired[winner.key] = true;
     if ((winner.activationType & 3) === 2) section.repeat[winner.key] = 0;
     return events;

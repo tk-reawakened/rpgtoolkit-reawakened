@@ -148,8 +148,8 @@ function routePoints(board: WorldBoard, sprites: SpritesSection, actorValue: Spr
   }
   return points;
 }
-function requestsTravel(actorValue: SpriteActor, points: readonly SpritePoint[]): boolean {
-  const origin = actorValue.movement.active?.target ?? actorValue;
+function requestsTravel(actorValue: SpriteActor, points: readonly SpritePoint[], clear = false, queuedTail?: SpritePoint): boolean {
+  const origin = clear ? actorValue : queuedTail ?? actorValue.movement.active?.target ?? actorValue;
   return points.some((point) => point.x !== origin.x || point.y !== origin.y);
 }
 
@@ -520,12 +520,18 @@ export function applySpriteEffect(state: GameState, name: string, args: readonly
       ? state.world.board?.vectors?.find((value) => String(value.handle) === String(args[2]))?.points ?? []
       : pointsFromValues(args.slice(2));
     if (waypoint) {
-      if (points.length > 0 && name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+      const thread = state.vm.threads.find((value) => value.id === threadId);
+      const queuedTail = thread?.takeover.includes(actor!.id)
+        ? actor!.queue.moves.at(-1)?.target ?? actor!.movement.active?.target
+        : undefined;
+      const travels = requestsTravel(actor!, points, clear, queuedTail);
+      if (travels && name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
       if (clear) replaceActor(state, actor!.id, {
         queue: { moves: [], waypoint: null },
         movement: { ...actor!.movement, active: null, waitTicks: 0 },
         prev: null,
       });
+      if (!travels && name === "playerpath" && points.length > 0) return true;
       return setWaypoint(state.sprites, actor!.id, points, numberValue(args[3]), (flags & WAYPOINT_LINK) !== 0, provenance);
     }
     if ((flags & PATHFIND) !== 0) {
@@ -555,7 +561,7 @@ export function applySpriteEffect(state: GameState, name: string, args: readonly
       movement: { ...actor!.movement, active: null, waitTicks: 0 },
       prev: null,
     });
-    if (requestsTravel(actor!, points) && name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+    if (requestsTravel(actor!, points, clear) && name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
     return enqueuePointPathMove(state.sprites, actor!.id, points, false, undefined, provenance);
   }
   if (name === "playerdirection" || name === "itemdirection") { const facing = direction(String(args[1] ?? args[0] ?? "S")); replaceActor(state, actor!.id, { facing }); return true; }

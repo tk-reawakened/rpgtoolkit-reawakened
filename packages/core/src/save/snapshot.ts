@@ -95,12 +95,39 @@ function migrateBattle(record: Record<string, unknown>, schema: Record<string, u
     schema.battle = BATTLE_SCHEMA_VERSION;
   }
 }
+function normalizeSnapshotSpriteProvenance(state: GameState): GameState {
+  const unknown = { kind: "unknown" as const };
+  const missing = (actor: GameState["sprites"]["players"][number]): boolean =>
+    actor.queue.moves.some((move) => move.provenance === undefined)
+    || (actor.queue.waypoint != null && actor.queue.waypoint.provenance === undefined)
+    || (actor.movement.active != null && actor.movement.active.provenance === undefined);
+  const normalize = (actor: GameState["sprites"]["players"][number]) => {
+    if (!missing(actor)) return actor;
+    return {
+      ...actor,
+      queue: {
+        ...actor.queue,
+        moves: actor.queue.moves.map((move) => ({ ...move, provenance: move.provenance ?? unknown })),
+        waypoint: actor.queue.waypoint == null ? actor.queue.waypoint : { ...actor.queue.waypoint, provenance: actor.queue.waypoint.provenance ?? unknown },
+      },
+      movement: {
+        ...actor.movement,
+        active: actor.movement.active == null ? actor.movement.active : { ...actor.movement.active, provenance: actor.movement.active.provenance ?? unknown },
+      },
+    };
+  };
+  const players = state.sprites.players.some(missing) ? state.sprites.players.map(normalize) : state.sprites.players;
+  const items = state.sprites.items.some(missing) ? state.sprites.items.map(normalize) : state.sprites.items;
+  return players === state.sprites.players && items === state.sprites.items
+    ? state
+    : { ...state, sprites: { ...state.sprites, players, items } };
+}
 
 /** The canonical form of a whole game state (AD-10/AD-11). */
 export function snapshot(state: GameState): string {
   flushSurfaceBatch(state.surfaces);
   materializePresentedSurfaces(state.surfaces);
-  return canon(tagNonFinite(state) as never);
+  return canon(tagNonFinite(normalizeSnapshotSpriteProvenance(state)) as never);
 }
 
 /** Rename one saved program reference's legacy `compiler` to `ir` (v5 → v6). */

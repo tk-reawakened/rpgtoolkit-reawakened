@@ -26,6 +26,7 @@ import {
   type SpriteRuntime,
   type TickReport,
 } from "../src/index.ts";
+import { applySpriteEffect } from "../src/script/packs/movement.ts";
 
 type Files = Map<string, Uint8Array>;
 type RunResult = {
@@ -280,17 +281,225 @@ for (const [targetKind, pushing, expectedDistance] of [
   });
 }
 
-test("runtime pixelmovement keeps pre-existing destinations and appends the next push using the new mode (#1298)", () => {
-  const fixture = makeFixture({ pixelMovement: 2, enter: 'pixelmovement(1, 0)\npush("E")\nend()' });
-  const player = fixture.state().sprites.players[0];
+test("a player's first script push takes over inherited destinations and later pushes append (#1643)", () => {
+  const fixture = makeFixture({ pixelMovement: 2, enter: "end()" });
+  const state = fixture.state();
+  const player = state.sprites.players[0];
   ok(player !== undefined);
-  const queuedTarget = player.x + 20;
-  player.queue.moves = [{ source: "direction", target: { x: queuedTarget, y: player.y }, facing: "E" }];
-  deepEqual(fixture.pressA().diagnostics, []);
-  const after = fixture.state().sprites.players[0];
+  player.queue.moves = [{ source: "direction", target: { x: player.x + 20, y: player.y }, facing: "E" }];
+  const thread = startThread(state.vm, {
+    ref: { kind: "inline", text: "end()", ir: IR_VERSION },
+    kind: "persistent",
+    owner: "script",
+  });
+
+  equal(applySpriteEffect(state, "push", ["E", player.id, 0], thread.id), true);
+  equal(applySpriteEffect(state, "push", ["N", player.id, 0], thread.id), true);
+
+  const after = state.sprites.players[0];
   ok(after !== undefined);
-  ok(after.movement.active?.target.x === queuedTarget || after.queue.moves.some(({ target }) => target.x === queuedTarget));
-  ok(after.movement.active?.target.x === queuedTarget + 32 || after.queue.moves.some(({ target }) => target.x === queuedTarget + 32));
+  deepEqual(after.queue.moves.map(({ target }) => target), [
+    { x: player.x + 8, y: player.y },
+    { x: player.x + 8, y: player.y - 8 },
+  ]);
+});
+
+test("playerpath CLEAR_QUEUE cancels active travel before calculating the next route (#1643)", () => {
+  const fixture = makeFixture({ enter: "end()" });
+  const state = fixture.state();
+  const initial = state.sprites.players[0];
+  ok(initial !== undefined);
+  const player = {
+    ...initial,
+    x: 32,
+    state: "moving" as const,
+    movement: {
+      ...initial.movement,
+      active: {
+        source: "direction" as const,
+        start: { x: 32, y: 64 },
+        target: { x: 64, y: 64 },
+        facing: "E" as const,
+        cadence: 1,
+        ignoreBoard: false,
+        tried: false,
+        provenance: { kind: "input" as const },
+      },
+    },
+  };
+  state.sprites.players = state.sprites.players.map((actor) => actor.id === player.id ? player : actor);
+  const thread = startThread(state.vm, {
+    ref: { kind: "inline", text: "end()", ir: IR_VERSION },
+    kind: "persistent",
+    owner: "script",
+  });
+
+  equal(applySpriteEffect(state, "playerpath", [player.id, 2, 64, 64], thread.id), true);
+  equal(applySpriteEffect(state, "playerpath", [player.id, 0, 96, 64], thread.id), true);
+
+  const after = state.sprites.players.find((actor) => actor.id === player.id);
+  ok(after !== undefined);
+  equal(after.movement.active, null);
+  deepEqual(after.queue.moves.map(({ target }) => target), [{ x: 64, y: 64 }, { x: 96, y: 64 }]);
+});
+
+test("same-position waypoint does not take over a queued click route (#1643)", () => {
+  const fixture = makeFixture({ enter: "end()" });
+  const state = fixture.state();
+  const initial = state.sprites.players[0];
+  ok(initial !== undefined);
+  const pointerMove = {
+    source: "path" as const,
+    target: { x: initial.x + 32, y: initial.y },
+    facing: "E" as const,
+    pointer: true as const,
+  };
+  state.sprites.players = state.sprites.players.map((actor) => actor.id === initial.id
+    ? { ...actor, queue: { ...actor.queue, moves: [pointerMove] } }
+    : actor);
+  const board = state.world.board;
+  ok(board !== null && board !== undefined);
+  state.world = {
+    ...state.world,
+    board: {
+      ...board,
+      vectors: [{
+        handle: "stay",
+        type: 0,
+        points: [{ x: initial.x, y: initial.y }],
+        attributes: 0,
+        closed: 1,
+        layer: 1,
+      }],
+    },
+  };
+  const thread = startThread(state.vm, {
+    ref: { kind: "inline", text: "end()", ir: IR_VERSION },
+    kind: "persistent",
+    owner: "script",
+  });
+
+  equal(applySpriteEffect(state, "playerpath", [initial.id, 8, "stay", 1], thread.id), true);
+  ok(!thread.takeover.includes(initial.id));
+  deepEqual(state.sprites.players[0]?.queue.moves, [pointerMove]);
+  equal(state.sprites.players[0]?.queue.waypoint, null);
+});
+
+test("a first traveling waypoint takes over inherited click movement (#1643)", () => {
+  const fixture = makeFixture({ enter: "end()" });
+  const state = fixture.state();
+  const initial = state.sprites.players[0];
+  ok(initial !== undefined);
+  const pointerMove = {
+    source: "path" as const,
+    target: { x: initial.x + 32, y: initial.y },
+    facing: "E" as const,
+    pointer: true as const,
+  };
+  state.sprites.players = state.sprites.players.map((actor) => actor.id === initial.id
+    ? { ...actor, queue: { ...actor.queue, moves: [pointerMove] } }
+    : actor);
+  const board = state.world.board;
+  ok(board !== null && board !== undefined);
+  state.world = {
+    ...state.world,
+    board: {
+      ...board,
+      vectors: [{
+        handle: "depart",
+        type: 0,
+        points: [{ x: initial.x + 64, y: initial.y }],
+        attributes: 0,
+        closed: 1,
+        layer: 1,
+      }],
+    },
+  };
+  const thread = startThread(state.vm, {
+    ref: { kind: "inline", text: "end()", ir: IR_VERSION },
+    kind: "persistent",
+    owner: "script",
+  });
+
+  equal(applySpriteEffect(state, "playerpath", [initial.id, 8, "depart", 1], thread.id), true);
+  ok(thread.takeover.includes(initial.id));
+  deepEqual(state.sprites.players[0]?.queue.moves, []);
+  deepEqual(state.sprites.players[0]?.queue.waypoint?.points, [{ x: initial.x + 64, y: initial.y }]);
+});
+
+test("itempath preserves a waypoint after queued item movement", () => {
+  const fixture = makeFixture({ enter: "end()" });
+  const state = fixture.state();
+  const initial = actorFromSource({
+    id: "item:0",
+    kind: "item",
+    source: "crate",
+    x: 160,
+    y: 160,
+    layer: 1,
+    handle: 0,
+    item: createEmptyItem(),
+  }, state.world.board ?? null, 0, 0);
+  state.sprites.items = [initial];
+  const board = state.world.board;
+  ok(board !== null && board !== undefined);
+  state.world = {
+    ...state.world,
+    board: {
+      ...board,
+      vectors: [{
+        handle: "home",
+        type: 0,
+        points: [{ x: initial.x, y: initial.y }],
+        attributes: 0,
+        closed: 1,
+        layer: 1,
+      }],
+    },
+  };
+  const thread = startThread(state.vm, {
+    ref: { kind: "inline", text: "end()", ir: IR_VERSION },
+    kind: "persistent",
+    owner: "script",
+  });
+
+  equal(applySpriteEffect(state, "pushitem", [0, "E", 0], thread.id), true);
+  equal(applySpriteEffect(state, "itempath", [0, 8, "home", 1], thread.id), true);
+  deepEqual(state.sprites.items[0]?.queue.moves.map(({ target }) => target), [{ x: initial.x + 32, y: initial.y }]);
+  deepEqual(state.sprites.items[0]?.queue.waypoint?.points, [{ x: initial.x, y: initial.y }]);
+});
+
+test("a waypoint after scripted travel compares against the queued destination (#1643)", () => {
+  const fixture = makeFixture({ enter: "end()" });
+  const state = fixture.state();
+  const player = state.sprites.players[0];
+  ok(player !== undefined);
+  const board = state.world.board;
+  ok(board !== null && board !== undefined);
+  state.world = {
+    ...state.world,
+    board: {
+      ...board,
+      vectors: [{
+        handle: "home",
+        type: 0,
+        points: [{ x: player.x, y: player.y }],
+        attributes: 0,
+        closed: 1,
+        layer: 1,
+      }],
+    },
+  };
+  const thread = startThread(state.vm, {
+    ref: { kind: "inline", text: "end()", ir: IR_VERSION },
+    kind: "persistent",
+    owner: "script",
+  });
+
+  equal(applySpriteEffect(state, "playerpath", [player.id, 0, player.x + 32, player.y], thread.id), true);
+  equal(applySpriteEffect(state, "playerpath", [player.id, 8, "home", 1], thread.id), true);
+  deepEqual(state.sprites.players[0]?.queue.moves.map(({ target }) => target), [{ x: player.x + 32, y: player.y }]);
+  deepEqual(state.sprites.players[0]?.queue.waypoint?.points, [{ x: player.x, y: player.y }]);
 });
 
 test("runtime pixelmovement settings survive board changes and reset from the main file (#1298)", () => {
