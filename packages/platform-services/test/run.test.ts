@@ -48,7 +48,7 @@ test("a game run records its kind, the main file's SHA-256 and a manifest over t
 
 test("game, board and program launches are distinct: each records its own kind, targets and start", async () => {
   const host = createMemoryPlatformServices({ files: FILES, capabilities: ALL_RUNS });
-  const board = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "boards/START.brd", x: 3, y: 4, layer: 1 }, party: ["Chrs/hero.tem"], seed: 7 });
+  const board = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "boards/START.brd", x: 3, y: 4, layer: 1 }, party: ["Chrs/hero.tem"], seed: 7, expectedFiles: null });
   ok(board.ok);
   equal(board.value.snapshot.kind, "board");
   deepEqual(board.value.snapshot.targets.map((target) => target.path), ["Main/game.gam", "Boards/start.brd"], "paths are reported as stored");
@@ -106,6 +106,7 @@ test("a board scene uses only ordered character additions and the board's pixel-
     projectFolder: "Game/demo/",
     start: { board: "Game/demo/Boards/village.brd", x: 0, y: 0, layer: 1 },
     party: ["Game/demo/Chrs/lead.tem", "Game/demo/Chrs/companion.tem"],
+    expectedFiles: null,
   };
   const prepared = prepareBoardLaunch(launch);
   ok(prepared.ok);
@@ -134,6 +135,7 @@ test("run preparation refuses an empty, duplicate, oversized or non-character bo
     projectFolder: "",
     start: { board: "Boards/start.brd", x: 1, y: 1, layer: 1 },
     party: ["Chrs/hero.tem"],
+    expectedFiles: null,
   };
   const invalid: BoardLaunch[] = [
     { ...base, party: [] },
@@ -161,14 +163,14 @@ test("a launch the host does not declare is refused with its reason, and nothing
 
 test("a file the launch names that the project lacks is refused by name", async () => {
   const host = createMemoryPlatformServices({ files: FILES, capabilities: ALL_RUNS });
-  const missingBoard = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/gone.brd", x: 1, y: 1, layer: 1 }, party: ["Chrs/hero.tem"] });
+  const missingBoard = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/gone.brd", x: 1, y: 1, layer: 1 }, party: ["Chrs/hero.tem"], expectedFiles: null });
   ok(!missingBoard.ok);
   equal(missingBoard.error.code, "not-found");
   equal(missingBoard.error.message, "The run needs the board Boards/gone.brd, which the project does not have.");
   const missingGraphic = await host.run!.startProgram({ ...program, fixture: { ...program.fixture, windowGraphic: "Bitmap/none.png" } });
   ok(!missingGraphic.ok);
   equal(missingGraphic.error.message, "The run needs the fixture window graphic Bitmap/none.png, which the project does not have.");
-  const badStart = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/start.brd", x: -1, y: 1, layer: 1 }, party: ["Chrs/hero.tem"] });
+  const badStart = await host.run!.startGame({ kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/start.brd", x: -1, y: 1, layer: 1 }, party: ["Chrs/hero.tem"], expectedFiles: null });
   ok(!badStart.ok);
   equal(badStart.error.code, "invalid-request");
   equal(host.runs.length, 0);
@@ -193,7 +195,7 @@ test("a start position follows its board's coordinate unit: 0 is refused on tile
     capabilities: ALL_RUNS,
     startUnit: (bytes) => units[String.fromCharCode(...bytes)] ?? null,
   });
-  const board = (start: BoardLaunch["start"]): BoardLaunch => ({ kind: "board", main: "Main/game.gam", projectFolder: "", start, party: ["Chrs/hero.tem"] });
+  const board = (start: BoardLaunch["start"]): BoardLaunch => ({ kind: "board", main: "Main/game.gam", projectFolder: "", start, party: ["Chrs/hero.tem"], expectedFiles: null });
   const tileZero = await host.run!.startGame(board({ board: "Boards/start.brd", x: 0, y: 1, layer: 1 }));
   ok(!tileZero.ok);
   equal(tileZero.error.code, "invalid-request");
@@ -214,7 +216,7 @@ test("a start position follows its board's coordinate unit: 0 is refused on tile
 test("a board party of five distinct characters starts in order, and a missing member is refused by name", async () => {
   const members = ["Chrs/e.tem", "Chrs/a.tem", "Chrs/d.tem", "Chrs/b.tem", "Chrs/c.tem"];
   const host = createMemoryPlatformServices({ files: { ...FILES, ...Object.fromEntries(members.map((path) => [path, text(path)])) }, capabilities: ALL_RUNS });
-  const launch: BoardLaunch = { kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/start.brd", x: 1, y: 1, layer: 1 }, party: members };
+  const launch: BoardLaunch = { kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/start.brd", x: 1, y: 1, layer: 1 }, party: members, expectedFiles: null };
   const five = await host.run!.startGame(launch);
   ok(five.ok);
   deepEqual(five.value.snapshot.party, members, "the party keeps the chosen order; the first member leads");
@@ -232,6 +234,29 @@ test("the manifest is SHA-256 over sorted, length-prefixed (path, hash) records"
   const field = (value: string): string => `${value.length}:${value}`;
   const records = [`${field("b")}${field(sha(text("B")))}`, `${field("a/c")}${field(sha(text("C")))}`].sort();
   equal(prepared.value.snapshot.manifest, sha(text(records.map(field).join(""))));
+});
+
+test("board Play refuses a changed or removed generated artifact in the frozen run copy", async () => {
+  const path = "Tiles/pond.tst";
+  const original = text("tiles from the verified build");
+  const host = createMemoryPlatformServices({ files: { ...FILES, [path]: original }, capabilities: ALL_RUNS });
+  const launch: BoardLaunch = {
+    kind: "board", main: "Main/game.gam", projectFolder: "", start: { board: "Boards/start.brd", x: 1, y: 1, layer: 1 }, party: ["Chrs/hero.tem"],
+    expectedFiles: [{ path, sha256: sha(original) }, { path: "Boards/start.brd", sha256: sha(FILES["Boards/start.brd"]) }],
+  };
+  ok((await host.run!.startGame(launch)).ok);
+  await host.fs.write(path, text("new tiles that were not verified"));
+  const stale = await host.run!.startGame(launch);
+  ok(!stale.ok);
+  equal(stale.error.message, `${path} changed after the scene build. Save the scene and try Play again.`);
+  await host.fs.delete(path);
+  ok(!(await host.run!.startGame(launch)).ok);
+  await host.fs.write(path, original);
+  await host.fs.write("Boards/start.brd", text("different but readable board"));
+  const changedBoard = await host.run!.startGame(launch);
+  ok(!changedBoard.ok);
+  equal(changedBoard.error.message, "Boards/start.brd changed after the scene build. Save the scene and try Play again.");
+  equal(host.runs.length, 1, "no unverified run was opened");
 });
 
 test("a handle reports status changes until the run finishes, and stopping it ends it once", async () => {

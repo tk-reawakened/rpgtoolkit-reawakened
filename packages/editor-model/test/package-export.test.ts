@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { exampleBoard } from "./fixtures.ts";
-import { createCheckpointGroups, createDocumentWorkspace, prepareGamePackage } from "../src/index.ts";
+import { createCheckpointGroups, createDocumentWorkspace, createSceneBuildOwnership, createSceneBuildOwnershipStorage, encodeScenePng, prepareGamePackage, prepareTerrainSceneProject, writePreparedTerrainSceneProject } from "../src/index.ts";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { platformOk } from "@tk-reawakened/platform-services";
 import { PACKAGE_LIMITS, loadPackage, newProjectMainFile, readDistributionManifest, utf8Decode, utf8Encode, writeMainFile } from "@tk-reawakened/core";
@@ -36,7 +36,7 @@ function authoredFiles(startupPrg = "start.prg", initBoard = "start.brd", script
     "Saved/save.sav": utf8Encode("save"),
     "Prg/smoke.spec.prg": utf8Encode("test only"),
     [scriptSpecPath]: utf8Encode("test-only library"),
-    "Boards/editor.tkrscn": utf8Encode("editor scene"),
+    "Notes/editor.tkrscn": utf8Encode("editor scene outside the game's Boards folder"),
     "Tiles/editor.tkrTst": utf8Encode("editor tiles"),
     "Packs/editor.tkrpack": utf8Encode("editor package"),
     ".tkr-history/snapshot.bin": utf8Encode("history"),
@@ -61,7 +61,7 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   ok(prepared.excludedFiles.some((path) => path.startsWith(".tkr-history/progress/")));
 
   deepEqual([...prepared.includedFiles].sort(), ["Boards/start.brd", "Main/demo.gam", "Media/Prg/script-spec/startup.prg", "Prg/script-spec-extra/startup.prg", "Prg/start.prg"]);
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Boards/editor.tkrscn", "Tiles/editor.tkrTst", "Packs/editor.tkrpack", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", "Tiles/editor.tkrTst", "Packs/editor.tkrpack", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
     ok(prepared.excludedFiles.includes(path), `${path} should be reported as excluded`);
   }
 
@@ -86,6 +86,67 @@ test("preflight creates a readable playable TPK and exact sibling install descri
   equal(descriptor["size"], prepared.package.bytes.byteLength);
   equal(descriptor["title"], "A Test Game");
   equal(descriptor["version"], "1.2.3");
+  workspace.dispose();
+});
+
+const nativeScene = (width: number): Uint8Array => utf8Encode(`contract: scene
+version: 1.0.0-pre.2
+projection: 2d
+size: {width: ${width}, height: 1}
+floors: [{id: ground}]
+start: {x: 16, y: 31, floor: ground}
+`);
+
+for (const root of ["", "Game/Example/"]) {
+  test(`packaging refuses a stale board under ${root}Boards/ after the scene source was saved and closed`, async () => {
+    const scenePath = `${root}Boards/start.tkrscn`;
+    const { host, workspace, services } = packageHost({
+      "Main/demo.gam": authoredMain(""),
+      ...(root === "" ? {} : { "Boards/start.brd": exampleBoard(4) }),
+      [scenePath]: nativeScene(1),
+    });
+    const ownership = createSceneBuildOwnership({ fs: host.fs, history: workspace.history, storage: createSceneBuildOwnershipStorage(host.fs) });
+    const saveBuild = async () => {
+      const result = await prepareTerrainSceneProject({ fs: host.fs, scenePath, ownership });
+      ok(result.ok);
+      ok((await writePreparedTerrainSceneProject(result, ownership)).ok);
+    };
+    const prepare = () => prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1" });
+    const boardPath = `${root}Boards/start.brd`;
+    await saveBuild();
+    const fresh = await prepare();
+    ok(fresh.ok);
+    ok(fresh.value.includedFiles.includes(boardPath));
+    await host.fs.write(scenePath, nativeScene(2));
+    const stale = await prepare();
+    ok(!stale.ok, `The package would ship stale bytes for ${boardPath}`);
+    ok(stale.message.includes(`${boardPath} is missing or out of date`));
+    await saveBuild();
+    ok((await prepare()).ok);
+    workspace.dispose();
+  });
+}
+
+test("a changed tileset declaration makes a reviewed scene build stale before any output is written", async () => {
+  const scenePath = "Boards/start.tkrscn";
+  const tilesetPath = "Tiles/bank.tkrtst";
+  const tilePath = "Tiles/bank.tkrtle";
+  const tileset = `contract: tileset\nversion: 1.0.0-pre.2\nname: Bank\nexpects: {projection: 2d, cellSize: [32, 32]}\ntiles: [{tile: ${tilePath}}]\noutputBinding: {target: Tiles/bank.tst, detail: 1, slots: [{slot: 1, tile: ${tilePath}}]}\n`;
+  const scene = utf8Decode(nativeScene(1)).replace("floors: [{id: ground}]", `floors: [{id: ground, tiles: [[1, 1]]}]\ntilePalette: [{}, {tile: ${tilePath}}]`);
+  const { host, workspace } = packageHost({
+    [scenePath]: utf8Encode(scene),
+    [tilesetPath]: utf8Encode(tileset),
+    [tilePath]: utf8Encode(`contract: tile\nversion: 1.0.0-pre.1\nname: Bank\nprojection: 2d\nrole: floor\nvisual: {transparent: {mode: alpha}, sample: {file: Tiles/sheet.png, rect: [0, 0, 32, 32]}}\n`),
+    "Tiles/sheet.png": encodeScenePng({ w: 32, h: 32, rgba: new Uint8Array(32 * 32 * 4).fill(255) }),
+  });
+  const ownership = createSceneBuildOwnership({ fs: host.fs, history: workspace.history, storage: createSceneBuildOwnershipStorage(host.fs) });
+  const prepared = await prepareTerrainSceneProject({ fs: host.fs, scenePath, ownership });
+  ok(prepared.ok, prepared.ok ? "" : JSON.stringify(prepared.problems));
+  await host.fs.write(tilesetPath, utf8Encode(`${tileset}# Changed after review\n`));
+  const written = await writePreparedTerrainSceneProject(prepared, ownership);
+  ok(!written.ok);
+  match(written.message, /Tiles\/bank\.tkrtst changed on disk/);
+  ok(!(await host.fs.read("Boards/start.brd")).ok && !(await host.fs.read("Tiles/bank.tst")).ok, "a stale input never published output");
   workspace.dispose();
 });
 
@@ -271,7 +332,7 @@ test("a leaky inventory cannot hand the author an archive holding an excluded fi
   // Every excluded class is really present in the project and really reaches the inventory, as a broken filter would let it.
   const outcome = await prepareGamePackage({ workspace, services, mainPath: "Main/demo.gam", version: "1.2.3", inventoryFilter: () => false });
   ok(!outcome.ok, "the export is refused");
-  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Boards/editor.tkrscn", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
+  for (const path of ["Main/other.gam", "Saved/save.sav", "Prg/smoke.spec.prg", "Prg/Script-Spec/startup.prg", "Notes/editor.tkrscn", ".tkr-history/snapshot.bin", ".TKR-Tests/Boards/wall.brd", ".TKR-Tests/Prg/helper.prg"]) {
     ok(outcome.message.includes(path), `${path} is named in the refusal: ${outcome.message}`);
   }
   match(outcome.message, /archive it produced holds files that must never be packaged/);

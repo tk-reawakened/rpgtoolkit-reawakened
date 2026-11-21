@@ -50,11 +50,14 @@ their places as .NAME.tkr-rename-TOKEN-N.bak. Folders left empty by a move are l
 in place.
 
 Usage:
-  tkr-native-rename [options] FOLDER OLD=NEW [OLD=NEW ...]
+  tkr-native-rename [options] FOLDER [OLD=NEW ...]
 
 Options:
   --ref-field NAME      top-level field holding an ID or list of IDs to keep up to
                         date; repeat for several
+  --terrain-rename DOC:FROM:TO
+                        rename a terrain-local ID inside the tileset document DOC,
+                        keeping its output slots; repeat for several
   --ext .EXT            read files with this extension as documents instead; repeat
                         for several (default: ${REGISTERED})
   --dry-run             print what would change and write nothing
@@ -77,10 +80,11 @@ type Parsed =
     }
   | { readonly ok: false; readonly help: boolean; readonly message: string };
 
-const VALUE_OPTIONS: readonly string[] = ["--ref-field", "--ext"];
+const VALUE_OPTIONS: readonly string[] = ["--ref-field", "--terrain-rename", "--ext"];
 
 function parse(argv: readonly string[]): Parsed {
   const referenceFields: string[] = [];
+  const terrainRenames: { document: string; from: string; to: string }[] = [];
   const extensions: string[] = [];
   let dryRun = false;
   let json = false;
@@ -95,13 +99,18 @@ function parse(argv: readonly string[]): Parsed {
       if (value === undefined || value.startsWith("--")) return { ok: false, help: false, message: `${argument} needs a value` };
       index += 1;
       if (argument === "--ref-field") referenceFields.push(value);
-      else extensions.push(value);
+      else if (argument === "--terrain-rename") {
+        const last = value.lastIndexOf(":");
+        const first = last <= 0 ? -1 : value.lastIndexOf(":", last - 1);
+        if (first <= 0 || last <= first + 1) return { ok: false, help: false, message: `${JSON.stringify(value)} is not a terrain rename: write DOCUMENT:FROM:TO` };
+        terrainRenames.push({ document: value.slice(0, first), from: value.slice(first + 1, last), to: value.slice(last + 1) });
+      } else extensions.push(value);
     } else if (argument.startsWith("-")) return { ok: false, help: false, message: `unknown option ${argument}` };
     else positional.push(argument);
   }
   const [folder, ...renames] = positional;
   if (folder === undefined) return { ok: false, help: false, message: "give the folder to rename in" };
-  if (renames.length === 0) return { ok: false, help: false, message: "give at least one rename, written OLD=NEW" };
+  if (renames.length === 0 && terrainRenames.length === 0) return { ok: false, help: false, message: "give at least one rename, written OLD=NEW" };
   const pairs: RenamePair[] = [];
   for (const rename of renames) {
     const at = rename.indexOf("=");
@@ -111,6 +120,7 @@ function parse(argv: readonly string[]): Parsed {
   const config: RenameConfig = {
     ...(extensions.length === 0 ? {} : { documentExtensions: extensions }),
     ...(referenceFields.length === 0 ? {} : { referenceFields }),
+    ...(terrainRenames.length === 0 ? {} : { terrainRenames }),
   };
   try {
     validateRenameConfig(config);

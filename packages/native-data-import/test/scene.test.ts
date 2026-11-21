@@ -265,7 +265,7 @@ void test("the header and the run encoding are normalised, and noted: N6 (major,
 /** What the contract page's sample holds of the board's own data. The sample's scene-only data (native tile, boundary sources, pack placement, plugin block, ids, labels) cannot come from a board. */
 const COTTAGE_SCENE: ImportedScene = {
   contract: "scene",
-  version: "1.0.0-pre.1",
+  version: "1.0.0-pre.2",
   tags: ["imported"],
   metadata: { source: "Boards/Cottage.brd" },
   projection: "2d",
@@ -699,7 +699,7 @@ void test("the most a shading record can carry past the end is 32,766 cells", ()
 
 void test("a board of defaults imports to the stamp and the required keys alone, threads and constants kept as stored", () => {
   const { scene, findings } = imported(bare());
-  equal(JSON.stringify(scene), JSON.stringify({ contract: "scene", version: "1.0.0-pre.1", tags: ["imported"], metadata: { source: NAME }, projection: "2d", size: { width: 1, height: 1 }, floors: [{ id: "layer-1" }], threads: [], constants: [] }));
+  equal(JSON.stringify(scene), JSON.stringify({ contract: "scene", version: "1.0.0-pre.2", tags: ["imported"], metadata: { source: NAME }, projection: "2d", size: { width: 1, height: 1 }, floors: [{ id: "layer-1" }], threads: [], constants: [] }));
   deepEqual(findings, []);
   // The editor's own board holds one empty thread and one empty constant; a stored -1 is an empty list. They stay different.
   const editor = imported(bare({ threads: [""], constants: [""] })).scene;

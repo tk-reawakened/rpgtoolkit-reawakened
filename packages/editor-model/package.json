@@ -20,6 +20,7 @@
   "dependencies": {
     "@tk-reawakened/core": "workspace:*",
     "@tk-reawakened/native-data": "workspace:*",
+    "@tk-reawakened/native-data-import": "workspace:*",
     "@tk-reawakened/platform-services": "workspace:*"
   },
   "devDependencies": {

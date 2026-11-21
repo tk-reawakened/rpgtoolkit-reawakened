@@ -191,20 +191,43 @@ function bmp(width: number, height: number): Buffer {
   return bytes;
 }
 
-const ART_TILESET = `contract: tileset
+const ART_TILE = `contract: tile
 version: 1.0.0-pre.1
-name: Village
+name: Tile
 projection: 2d
-cellSize: [32, 32]
+role: floor
+visual:
+  transparent: {mode: alpha}
+  sample: {file: Bitmap/sheet.bmp, rect: [0, 0, 32, 32]}
+`;
+
+const ART_TILESET = `contract: tileset
+version: 1.0.0-pre.2
+name: Village
+expects: {projection: 2d, cellSize: [32, 32]}
+tiles:
+  - {tile: Tiles/grass.tkrtle}
+  - {tile: Tiles/wall.tkrtle}
 sources:
   - id: sheet
     file: Bitmap/sheet.bmp
     grid: {width: 32, height: 32, marginX: 0, marginY: 0, gapX: 0, gapY: 0}
     transparent: {mode: alpha}
-tiles:
-  - {id: grass, name: Grass, source: sheet, cell: [0, 0], role: floor, collision: walkable}
-  - {id: wall, name: Wall, source: sheet, cell: [1, 0], role: wall, collision: solid}
-outputBinding: {target: Tiles/village.tst, detail: 1}
+isoBlocks:
+  - id: stone
+    name: Stone
+    heightPixels: 32
+    faces:
+      top: {source: sheet, cell: [0, 0]}
+      left: {source: sheet, cell: [1, 0]}
+      right: {source: sheet, cell: [0, 0]}
+    collision: solid
+outputBinding:
+  target: Tiles/village.tst
+  detail: 1
+  slots:
+    - {slot: 1, tile: Tiles/grass.tkrtle}
+    - {slot: 2, tile: Tiles/wall.tkrtle}
 `;
 
 type ArtRunReport = { readonly class: string; readonly path: string; readonly field: string };
@@ -214,6 +237,9 @@ function checkArtProject(image: Buffer | null, imagePath = "Bitmap/sheet.bmp"): 
   const folder = mkdtempSync(join(tmpdir(), "tkr-native-check-"));
   try {
     writeFileSync(join(folder, "village.tkrtst"), ART_TILESET);
+    mkdirSync(join(folder, "Tiles"), { recursive: true });
+    writeFileSync(join(folder, "Tiles/grass.tkrtle"), ART_TILE);
+    writeFileSync(join(folder, "Tiles/wall.tkrtle"), ART_TILE);
     if (image !== null) {
       mkdirSync(join(folder, dirname(imagePath)), { recursive: true });
       writeFileSync(join(folder, imagePath), image);

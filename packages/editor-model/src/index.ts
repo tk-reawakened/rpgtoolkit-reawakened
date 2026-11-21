@@ -228,6 +228,16 @@ export {
 export { previewTileBitmap, type TileBitmapPicture } from "./tile-bitmap-preview.ts";
 export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePreview, type TileSourcePreviewResult } from "./tile-source-preview.ts";
 export { asAnimationDocument, asBoardDocument, asMainDocument, asNativeClipDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
+export { asTerrainSceneDocument } from "./kinds.ts";
+export type { Scene, SceneTerrainCellTile } from "@tk-reawakened/native-data";
+export { setSceneTerrain, readScene } from "@tk-reawakened/native-data";
+export type { TerrainSceneDocument } from "./terrain-scene-document.ts";
+export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, previewTerrainSceneProject, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
+export { buildTerrainSceneLaunch } from "./terrain-scene-launch.ts";
+export { createSceneBuildOwnership, createSceneBuildOwnershipStorage, type SceneBuildCheck, type SceneBuildConflictKind } from "./scene-build-ownership.ts";
+export { registerTerrainSceneConflictReview } from "./terrain-scene-save.ts";
+export { reviewTerrainSceneConflicts, terrainSceneBoardPath, type TerrainSceneConflictDialogs, type TerrainSceneConflictChoice, type TerrainSceneRecoveryReview } from "./terrain-scene-conflicts.ts";
+export { encodeScenePng } from "./scene-png.ts";
 export {
   createProgramDocument,
   openProgramDocument,

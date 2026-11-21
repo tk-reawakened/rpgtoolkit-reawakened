@@ -16,6 +16,7 @@
     "onCustomEditor:tkr.tileBitmap",
     "onCustomEditor:tkr.animation",
     "onCustomEditor:tkr.nativeClip",
+    "onCustomEditor:tkr.nativeScene",
     "onView:tkr.game",
     "onStartupFinished",
     "onCommand:tkr.newProject",
@@ -207,6 +208,16 @@
         "selector": [
           {
             "filenamePattern": "*.tkranm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.nativeScene",
+        "displayName": "RPG Toolkit Native Scene Terrain",
+        "selector": [
+          {
+            "filenamePattern": "*.tkrscn"
           }
         ],
         "priority": "default"

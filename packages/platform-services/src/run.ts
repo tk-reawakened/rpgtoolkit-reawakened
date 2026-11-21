@@ -58,6 +58,8 @@ export interface BoardLaunch extends LaunchBase {
   readonly start: BoardStart;
   /** One to five distinct project-relative `.tem` character files, in leader-first order. */
   readonly party: readonly string[];
+  /** Exact saved files a generated-board launch was prepared from; null for a direct board test. */
+  readonly expectedFiles: readonly RunDocument[] | null;
 }
 
 
@@ -488,16 +490,38 @@ export async function prepareRun(
     }
   }
 
+  const expectedFiles = launch.kind === "board" ? launch.expectedFiles : null;
+  const expected = expectedFiles === null ? null : new Map<string, string>();
+  const stale = (path: string): PlatformResult<never> => platformError("invalid-request", `${path} changed after the scene build. Save the scene and try Play again.`);
+  if (expected !== null && expectedFiles !== null) {
+    for (const { path, sha256: digest } of expectedFiles) {
+      if (expected.has(path) || !/^[0-9a-f]{64}$/.test(digest)) return platformError("invalid-request", `Invalid run file receipt for ${path}.`);
+      if (byKey.get(fold(path)) !== path) return stale(path);
+      expected.set(path, digest);
+    }
+    for (const path of files.keys()) {
+      const canonical = byKey.get(fold(path))!;
+      if (path !== canonical && expected.has(canonical)) return stale(path);
+    }
+  }
+  const changed = (path: string, digest: string): boolean => {
+    const wanted = expected?.get(path);
+    return wanted !== undefined && wanted !== digest;
+  };
   const records: string[] = [];
   let manifest: string;
   try {
     for (let index = 0; index < targets.length; index += 1) {
       const target = targets[index]!;
-      targets[index] = { path: target.path, sha256: await sha256(files.get(target.path)!) };
+      const digest = await sha256(files.get(target.path)!);
+      if (changed(target.path, digest)) return stale(target.path);
+      targets[index] = { path: target.path, sha256: digest };
     }
     for (const [path, bytes] of files) {
       if (targeted.has(path)) continue;
-      records.push(`${field(path)}${field(await sha256(bytes))}`);
+      const digest = await sha256(bytes);
+      if (changed(path, digest)) return stale(path);
+      records.push(`${field(path)}${field(digest)}`);
     }
     records.sort();
     manifest = await sha256(utf8(records.map(field).join("")));

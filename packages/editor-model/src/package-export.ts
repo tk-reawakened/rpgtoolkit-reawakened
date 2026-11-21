@@ -13,13 +13,14 @@ import {
   writeDistributionPackage,
 } from "@tk-reawakened/core";
 import type { FileSystemService, PackageExportService, PlatformServices } from "@tk-reawakened/platform-services";
+import { compileSceneProject, sameSceneBuildBytes } from "./terrain-scene-project.ts";
 import type { DocumentWorkspace } from "./workspace.ts";
 
 const RESERVED_HISTORY_FOLDER = ".tkr-history";
 const RESERVED_EXPORT_FOLDER = ".tkr-exports";
 const RESERVED_TESTS_FOLDER = ".tkr-tests";
 const RESERVED_SCRIPT_SPEC_PATH = "prg/script-spec";
-const EDITOR_ONLY_EXTENSIONS = new Set([".tkrscn", ".tkrtst", ".tkrpack"]);
+const EDITOR_ONLY_EXTENSIONS = new Set([".tkrscn", ".tkrtst", ".tkrtle", ".tkrpack"]);
 
 /**
  * Every entry of a produced archive that the packaging rules exclude (`packaging-and-paths.md`): under `Saved/`, the
@@ -189,6 +190,30 @@ export async function prepareGamePackage(options: PrepareGamePackageOptions): Pr
 
   const collected = await collectFiles(options.services.fs, options.mainPath, options.inventoryFilter ?? isExcluded);
   if (!collected.ok) return collected;
+  // The archive writer uses these captured bytes, not a second filesystem read of the generated files.
+  const scenes = collected.excludedFiles.filter((path) => {
+    const key = foldPath(path);
+    return key.endsWith(".tkrscn") && /^(?:game\/[^/]+\/)?boards\//.test(key);
+  });
+  if (scenes.length > 0) {
+    const archiveFiles = new Map(collected.files.map(({ path, bytes }) => [foldPath(path), bytes]));
+    for (const scenePath of scenes) {
+      const build = await compileSceneProject({ fs: options.services.fs, scenePath });
+      if (!build.ok) return failure(`Cannot verify the build for ${scenePath}: ${build.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")}`);
+      const current = await build.verifyInputs();
+      if (!current.ok) return failure(`Cannot verify the build for ${scenePath}: ${current.message}`);
+      for (const [path, bytes] of build.inputs) {
+        const captured = archiveFiles.get(foldPath(path));
+        if (captured !== undefined && !sameSceneBuildBytes(bytes, captured)) return failure(`${path} changed during package preflight. Try again.`);
+      }
+      for (const { path, bytes } of build.built.outputs) {
+        const captured = archiveFiles.get(foldPath(path));
+        if (captured === undefined || !sameSceneBuildBytes(bytes, captured)) {
+          return failure(`${path} is missing or out of date in the package inventory. Build ${scenePath} before packaging.`);
+        }
+      }
+    }
+  }
   const mainFile = collected.files.find(({ path }) => foldPath(path) === foldPath(options.mainPath));
   if (mainFile === undefined) return failure(`The selected main file ${options.mainPath} is missing or excluded.`);
   const mainResult = readMainFile(new BinaryReader(mainFile.bytes, options.mainPath));

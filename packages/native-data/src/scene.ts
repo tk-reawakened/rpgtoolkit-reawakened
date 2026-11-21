@@ -2,7 +2,7 @@
  * The native scene (docs/spec/formats/native-scene.md): the typed model, the reader, the writer,
  * the model check and the in-place edit.
  *
- * Reference reader, writer and editor for contract `scene`, version `1.0.0-pre.1`. It follows the
+ * Reference reader, writer and editor for contract `scene`, version `1.0.0-pre.2`. It follows the
  * conventions of the animation clip, the tileset and the asset pack (`clip.ts`, `tileset.ts`,
  * `asset-pack.ts`): results are `{ ok, ... }` values, problems are located and never repaired, a
  * document that holds a plugin block is only ever written back from its own source, and an edit
@@ -25,11 +25,12 @@ import { formatClipPath, formatClipProblems, type ClipJson, type ClipPath, type 
 import { readDocument } from "./document.ts";
 import { validatePluginData } from "./plugin-data.ts";
 import { extensionOf, lookupExtension, REGISTRY } from "./registry.ts";
+import { checkSceneTerrainFields, type SceneTerrainCellTile, type SceneTerrainRegion, type SceneTileOverride } from "./scene-terrain.ts";
 import { applySplices, rangeOf, scalarText, type Splice } from "./splice.ts";
 import { parseVersion } from "./version.ts";
 
 export const SCENE_CONTRACT = "scene";
-export const SCENE_VERSION = "1.0.0-pre.1";
+export const SCENE_VERSION = "1.0.0-pre.2";
 
 // ---------------------------------------------------------------- model
 
@@ -51,13 +52,13 @@ export type SceneRun = readonly [count: number, index: number];
 export type SceneShadeRun = readonly [count: number, red: number, green: number, blue: number];
 
 /** A legacy tile reference, carried exactly as stored (`village.tst12`, `water.tan`). */
-export type SceneLegacyTile = { readonly legacy: string; readonly tileset?: never; readonly tile?: never };
+export type SceneLegacyTile = { readonly legacy: string; readonly tile?: never };
 
-/** A tile of a native tileset: the path of the `.tkrtst` and the tile's local id. */
-export type SceneNativeTile = { readonly tileset: string; readonly tile: string; readonly legacy?: never };
+/** A standalone native tile: the path of the `.tkrtle` document. */
+export type SceneNativeTile = { readonly tile: string; readonly legacy?: never };
 
 /** An empty palette slot, `{}`: it keeps later indices where they were. */
-export type SceneEmptyTile = { readonly legacy?: never; readonly tileset?: never; readonly tile?: never };
+export type SceneEmptyTile = { readonly legacy?: never; readonly tile?: never };
 
 export type SceneTileReference = SceneLegacyTile | SceneNativeTile;
 export type ScenePaletteEntry = SceneEmptyTile | SceneLegacyTile | SceneNativeTile;
@@ -193,6 +194,8 @@ export type Scene = {
   readonly size: { readonly width: number; readonly height: number };
   readonly floors: readonly SceneFloor[];
   readonly tilePalette?: readonly ScenePaletteEntry[];
+  readonly terrainRegions?: readonly SceneTerrainRegion[];
+  readonly tileOverrides?: readonly SceneTileOverride[];
   readonly shading?: readonly SceneShading[];
   readonly lights?: readonly SceneLight[];
   readonly vectors?: readonly SceneVector[];
@@ -264,9 +267,18 @@ type Shape = {
 };
 
 const SIZE: Shape = { keys: ["width", "height"], flow: true };
-const TILE_REF: Shape = { keys: ["legacy", "tileset", "tile"], flow: true };
+const TILE_REF: Shape = { keys: ["tile", "legacy"], flow: true };
 const BOUNDARY: Shape = { keys: ["walkableTiles", "autoWallCaps"], lists: { walkableTiles: TILE_REF } };
 const FLOOR: Shape = { keys: ["id", "title", "tiles", "boundarySources"], maps: { boundarySources: BOUNDARY } };
+const TERRAIN_REF: Shape = { keys: ["tileset", "terrain"], flow: true };
+const TERRAIN_REGION: Shape = {
+  keys: ["id", "label", "floor", "terrain", "coverage"],
+  maps: { terrain: TERRAIN_REF, coverage: { keys: ["shape", "spans"] } },
+};
+const TILE_OVERRIDE: Shape = {
+  keys: ["id", "floor", "cell", "tile"],
+  maps: { tile: { keys: ["tile", "legacy"], flow: true } },
+};
 const CONDITION: Shape = { keys: ["mode", "variable", "value"], flow: true };
 const VARIABLE_VALUE: Shape = { keys: ["variable", "value"], flow: true };
 const TRIGGER_ACTIVATION: Shape = { keys: ["keyPress", "repeat", "stopsMovement", "repeatDistance"], flow: true };
@@ -322,6 +334,8 @@ const ROOT: Shape = {
     "size",
     "floors",
     "tilePalette",
+    "terrainRegions",
+    "tileOverrides",
     "shading",
     "lights",
     "vectors",
@@ -344,6 +358,8 @@ const ROOT: Shape = {
   lists: {
     floors: FLOOR,
     tilePalette: TILE_REF,
+    terrainRegions: TERRAIN_REGION,
+    tileOverrides: TILE_OVERRIDE,
     shading: SHADING,
     lights: LIGHT,
     vectors: VECTOR,
@@ -699,21 +715,20 @@ function checkRecords(
 
 // ---- the tile references and the palette
 
-const TILE_WANTED = "a tile reference: `{legacy: <text>}` or `{tileset: <path of a .tkrtst>, tile: <local tile id>}`";
+const TILE_WANTED = "a tile reference: `{legacy: <text>}` or `{tile: <path of a .tkrtle>}`";
 
 /** A native or legacy tile reference; an empty `{}` is accepted only where `allowEmpty` (a palette slot). */
 function checkTileReference(value: unknown, path: ClipPath, allowEmpty: boolean, out: Raw[]): void {
   if (!isObject(value)) return wrongType(path, allowEmpty ? `${TILE_WANTED}, or \`{}\` for an empty slot` : TILE_WANTED, value, out);
   checkKeys(value, TILE_REF, path, "a tile reference", out);
   const hasLegacy = Object.hasOwn(value, "legacy");
-  const hasNative = Object.hasOwn(value, "tileset") || Object.hasOwn(value, "tile");
+  const hasNative = Object.hasOwn(value, "tile");
   if (hasLegacy && hasNative) {
-    out.push({ path, message: "mixes `legacy` with `tileset` and `tile`; a tile reference is a legacy tile or a native tile, not both" });
+    out.push({ path, message: "mixes `legacy` with `tile`; a tile reference is a legacy tile or a native tile, not both" });
   } else if (hasLegacy) {
     checkText(value.legacy, [...path, "legacy"], "a legacy tile reference, as stored (for example `village.tst12`)", out);
   } else if (hasNative) {
-    if (required(value, "tileset", path, out)) checkDocumentPath(value.tileset, [...path, "tileset"], "tileset", "the path of a tileset document", out);
-    if (required(value, "tile", path, out)) checkLocalName(value.tile, [...path, "tile"], "the local id of a tile of that tileset", out);
+    checkDocumentPath(value.tile, [...path, "tile"], "tile", "the path of a standalone tile document", out);
   } else if (Object.keys(value).length === 0 && !allowEmpty) {
     out.push({ path, message: `is an empty mapping, which is not a tile here; name ${TILE_WANTED}` });
   }
@@ -1046,7 +1061,7 @@ function validateValue(value: unknown): Raw[] {
     const parsed = typeof version === "string" ? parseVersion(version) : null;
     if (typeof version !== "string") wrongType(["version"], "text in the version form", version, out);
     else if (parsed === null || !parsed.ok) out.push({ path: ["version"], message: parsed !== null && !parsed.ok ? parsed.reason : "is not a version" });
-    else if (parsed.major !== "1" || parsed.minor !== "0" || parsed.patch !== "0" || parsed.pre !== "1") {
+    else if (parsed.major !== "1" || parsed.minor !== "0" || parsed.patch !== "0" || parsed.pre !== "2") {
       out.push({ path: ["version"], message: `\`${version}\` is not a version this reader knows; it reads ${SCENE_VERSION} (a \`+build\` suffix is allowed)` });
     }
   }
@@ -1100,6 +1115,15 @@ function validateValue(value: unknown): Raw[] {
       path: ["size"],
       message: `${gridWords(env)} on ${env.floorCount} floor${env.floorCount === 1 ? "" : "s"} is ${env.cells * env.floorCount} cells; a board has at most 4,194,304`,
     });
+  }
+  if (Object.hasOwn(value, "terrainRegions") || Object.hasOwn(value, "tileOverrides")) {
+    const rotated = env.projection === "iso-rotated" && env.size !== null ? env.size[0] + env.size[1] : null;
+    out.push(...checkSceneTerrainFields(
+      value,
+      env.floorIds === null ? null : new Set(env.floorIds.filter((id) => id !== null)),
+      rotated ?? env.size?.[0] ?? null,
+      rotated ?? env.size?.[1] ?? null,
+    ));
   }
 
   if (Object.hasOwn(value, "shading")) {
@@ -1169,28 +1193,24 @@ export function sceneFindings(scene: unknown): readonly SceneFinding[] {
 // ---------------------------------------------------------------- what a project checker needs
 
 /** A native reference the scene makes, for a project checker to resolve (V15, V16) and a rename to rewrite. */
-export type SceneNativeReference = {
-  /** The mapping that holds it, for example `tilePalette[2]`; its keys are `tileset` and `tile`, or `pack` and `asset`. */
-  readonly path: string;
-  /** `tile`: a tile of a `.tkrtst`; `asset`: an asset of a `.tkrpack`. */
-  readonly kind: "tile" | "asset";
-  /** The path of the native document, as written. */
-  readonly document: string;
-  /** The local id inside that document. */
-  readonly id: string;
-};
+export type SceneNativeReference =
+  | { readonly path: string; readonly kind: "tile"; readonly document: string }
+  | { readonly path: string; readonly kind: "asset" | "terrain"; readonly document: string; readonly id: string };
 
 /**
- * Every native reference of a scene, in document order: the palette, each floor's walkable tiles
- * and the pack placements. A legacy tile reference is not a native document and is not listed.
+ * Every native reference of a scene, in document order: the palette, each floor's walkable tiles,
+ * the terrain regions, the manual tile overrides and the pack placements. Legacy tile references
+ * are not native documents and are not listed.
  */
 export function sceneNativeReferences(scene: Scene): readonly SceneNativeReference[] {
   const found: SceneNativeReference[] = [];
-  const tile = (path: string, reference: ScenePaletteEntry): void => {
-    if (reference.tileset !== undefined) found.push({ path, kind: "tile", document: reference.tileset, id: reference.tile });
+  const tile = (path: string, reference: ScenePaletteEntry | SceneTerrainCellTile): void => {
+    if (reference.tile !== undefined) found.push({ path, kind: "tile", document: reference.tile });
   };
   scene.tilePalette?.forEach((entry, index) => tile(`tilePalette[${index}]`, entry));
   scene.floors.forEach((floor, index) => floor.boundarySources?.walkableTiles?.forEach((entry, at) => tile(`floors[${index}].boundarySources.walkableTiles[${at}]`, entry)));
+  scene.terrainRegions?.forEach((region, index) => found.push({ path: `terrainRegions[${index}]`, kind: "terrain", document: region.terrain.tileset, id: region.terrain.terrain }));
+  scene.tileOverrides?.forEach((override, index) => tile(`tileOverrides[${index}].tile`, override.tile));
   scene.placedPacks?.forEach((placement, index) => found.push({ path: `placedPacks[${index}]`, kind: "asset", document: placement.pack, id: placement.asset }));
   return found;
 }
@@ -1572,5 +1592,49 @@ export function setSceneProperty(text: string, path: ScenePath, value: SceneEdit
   if (after.scene.pluginSource !== before.scene.pluginSource) {
     return { ok: false, problems: [{ kind: "edit", path: formatClipPath(path), message: "the edit would change a plugin block, which this writer never changes", line: null }] };
   }
+  return { ok: true, text: edited };
+}
+
+/** Edit only the authored terrain fields; never reprint the rest of the scene. */
+export function setSceneTerrain(text: string, scene: Pick<Scene, "terrainRegions" | "tileOverrides">): SceneEditResult {
+  const before = readScene(text);
+  if (!before.ok) return before;
+  const document = parseDocument(text, { version: "1.2", schema: "core" });
+  const root = document.contents;
+  const splices: Splice[] = [];
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const refused = (path: string, message: string): SceneEditResult => ({ ok: false, problems: [{ kind: "edit", path, message, line: null }] });
+  if (!isMap(root) || root.flow) return refused("(document)", "Terrain editing needs a block scene mapping.");
+  for (const key of ["terrainRegions", "tileOverrides"] as const) {
+    const next = scene[key] ?? [];
+    if (sameValue(before.scene[key] ?? [], next)) continue;
+    const pair = root.items.find((entry) => isScalar(entry.key) && entry.key.value === key);
+    const value = JSON.stringify(next);
+    if (pair !== undefined) {
+      const node = pair.value;
+      if (!isSeq(node)) return refused(key, "Terrain edits require an unshared YAML sequence.");
+      let unsafe = false;
+      visit(node, (_key, entry) => {
+        if (typeof entry === "object" && entry !== null && ("anchor" in entry && entry.anchor != null || "comment" in entry && entry.comment != null || "commentBefore" in entry && entry.commentBefore != null)) unsafe = true;
+      });
+      if (unsafe) return refused(key, "This terrain list contains comments or anchors that cannot be preserved by this edit.");
+      const [start, end] = rangeOf(node);
+      splices.push({ start, end, text: value + (text.slice(start, end).endsWith("\n") ? newline : "") });
+    } else {
+      const later = root.items.find((entry) => isScalar(entry.key) && typeof entry.key.value === "string" && ROOT_KEYS.indexOf(entry.key.value) > ROOT_KEYS.indexOf(key));
+      const offset = later !== undefined && isScalar(later.key) ? rangeOf(later.key)[0] : text.length;
+      const prior = splices.find((splice) => splice.start === offset && splice.end === offset);
+      const insertion = `${key}: ${value}${newline}`;
+      if (prior !== undefined) {
+        splices.splice(splices.indexOf(prior), 1, { start: offset, end: offset, text: prior.text + insertion });
+      } else {
+        splices.push({ start: offset, end: offset, text: (offset > 0 && text[offset - 1] !== "\n" ? newline : "") + insertion });
+      }
+    }
+  }
+  const edited = applySplices(text, splices);
+  const after = readScene(edited);
+  if (!after.ok) return after;
+  if (after.scene.pluginSource !== before.scene.pluginSource) return refused("pluginData", "The edit would modify the opaque plugin block.");
   return { ok: true, text: edited };
 }

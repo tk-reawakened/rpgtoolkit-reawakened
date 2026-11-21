@@ -61,7 +61,7 @@ Consequences, all proposed:
 
 ## The tile document (`.tkrtle`)
 
-A proposed contract name `tile`, one document per tile. Closed top-level fields: the stamp, `name`, `projection`, `role`, `collision`, `wallCapUnder` (optional), `kitbash` (optional, carried over unchanged from the [tileset contract](../spec/formats/native-tileset.md#tiles)), `visual`, and the shared optional `tags`, `metadata`, `pluginData`. `role` and `collision` keep the vocabularies of the existing tile record.
+A proposed contract name `tile`, one document per tile. Closed top-level fields: the stamp, `name`, `projection`, `role`, `collision`, `wallCapUnder` (optional), `kitbash` (optional, carried over unchanged from the [tileset contract](../spec/formats/native-tileset.md#tile-art-operations)), `visual`, and the shared optional `tags`, `metadata`, `pluginData`. `role` and `collision` keep the vocabularies of the existing tile record.
 
 A still tile, one rectangle of a sheet:
 
@@ -128,7 +128,7 @@ Rules, all proposed:
 2. There is **no `size` field and no sheet grid.** A tile's pixel size is the size of its rectangle; every cel of one tile has the same size, or the tile is an error. A tileset that expects `cellSize` verifies it; it does not own it.
 3. All coordinates are exact non-negative integers. Every rectangle has width and height of at least 1; a zero-width or zero-height rectangle is `tile-rect-invalid`. A rectangle must lie inside the image after decoding, or the tile is reported `tile-art-out-of-bounds`. Partial or implied cells do not exist, because no grid exists.
 4. `cels` is a non-empty ordered list with unique local ids (lowercase kebab-case). Every `timeline.frames[].cel` must name one; every cel need not be used (an unused cel is a note, not an error).
-5. `wallCapUnder` reuses the spelling and meaning of the [isometric-block field](../spec/formats/native-tileset.md#isometric-blocks): an under region for the tile footprint, independent of `collision`. Today that contract defines it only for iso blocks and has an open owner question about its geometry ([owner review 3](../spec/formats/native-tileset.md#owner-review-consequential-choices)); extending it to tiles is a proposal that needs that answer first. Isometric tiles generally are **not** designed here.
+5. `wallCapUnder` reuses the spelling and meaning of the [isometric-block field](../spec/formats/native-tileset.md#isometric-blocks): an under region for the tile footprint, independent of `collision`. At the time of this proposal, geometry for standalone isometric tiles was not designed. See the [current raised-art limits](../spec/formats/native-tileset.md#not-decided-here).
 6. A tile with an `.tkrtle` extension whose stamp is not `tile`, or the reverse, is the existing extension/contract mismatch problem.
 
 ### Managed artwork and pixel representability
@@ -453,7 +453,7 @@ Entries below retain their design history; decisions explicitly marked approved 
 8. **Plugin-supplied tools and a capability model.** Needs a separate ADR; this page proposes only the document and informational `requests`.
 9. **Variation hash function and weight semantics.** Needs a specified integer function and golden values before a recipe's variation is called reproducible.
 10. **Overlapping terrains and floor interplay**, and what a `same` neighbour means across regions. Owned by the scene proposal; this page reads the scene's resolved ownership, compared by the full `{tileset, terrain}` reference ([recipe reading](#how-a-terrain-recipe-is-read), item 1).
-11. **`wallCapUnder` and iso geometry on tiles.** Depends on [owner review 3](../spec/formats/native-tileset.md#owner-review-consequential-choices) and a design for isometric tiles.
+11. **`wallCapUnder` and iso geometry on tiles.** Depend on a design for isometric tiles and the [raised-art limits](../spec/formats/native-tileset.md#not-decided-here).
 12. **Shape of the checker classes** (`native-art` and `native-scene` exist; whether these codes live under new classes or existing ones).
 13. **Raised isometric blocks (approved boundary).** Preserve authors' face and geometry data and refuse affected builds until the projected overlay is proven. Flat terrain does not wait for that proof.
 14. **Binding a tile to managed artwork.** Needs a source-owner reference and frame selector from the artwork contract ([13.21](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2320)); until then tiles use standalone rasters only and nothing is inferred from file names.

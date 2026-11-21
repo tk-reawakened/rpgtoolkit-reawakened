@@ -1,31 +1,13 @@
-/**
- * The native tileset (docs/spec/formats/native-tileset.md): the typed model, the reader, the
- * writer, the model check and the in-place edit.
- *
- * Reference reader, writer and editor for contract `tileset`, version `1.0.0-pre.1`. It follows
- * the animation clip's conventions (`clip.ts`): results are `{ ok, ... }` values, problems are
- * located and never repaired, a document that holds a plugin block is only ever written back
- * from its own source, and an edit is a list of splices into the original text (G2: nothing but
- * text in memory is touched). The contract page is a draft pending the owner's approval; this
- * module implements it as written and records no approval.
- *
- * What this module cannot judge is whatever needs the project: whether a source image exists,
- * how big it is (so whether a cell lies inside it), and whether a path collides with another
- * document. {@link tilesetAssetPaths}, {@link tilesetCellReferences} and
- * {@link tilesetCellBounds} give a project checker what it needs to do that.
- */
-
-import { Document, isMap, isScalar, isSeq, LineCounter, parseDocument, visit, type Node, type YAMLMap } from "yaml";
+/** Closed standalone-tile palette, terrain recipes and output slots: docs/spec/formats/native-tileset.md. */
+import { Document, isMap, isScalar, isSeq, LineCounter, parseDocument, type Node } from "yaml";
 import { formatClipPath, formatClipProblems, type ClipJson, type ClipPath, type ClipProblem } from "./clip.ts";
 import { readDocument } from "./document.ts";
 import { foldId } from "./fold.ts";
 import { validatePluginData } from "./plugin-data.ts";
-import { classifyExtension, extensionOf } from "./registry.ts";
-import { applySplices, rangeOf, scalarText, type Splice } from "./splice.ts";
 import { parseVersion } from "./version.ts";
 
 export const TILESET_CONTRACT = "tileset";
-export const TILESET_VERSION = "1.0.0-pre.1";
+export const TILESET_VERSION = "1.0.0-pre.2";
 
 /** `[column, row]`, zero-based. */
 export type TilesetCell = readonly [column: number, row: number];
@@ -50,7 +32,6 @@ export type TilesetTransparent = { readonly mode: "alpha" } | { readonly mode: "
 
 export type TilesetSource = {
   readonly id: string;
-  /** A project-relative `/` path of the source image. */
   readonly file: string;
   readonly grid: TilesetGrid;
   readonly transparent: TilesetTransparent;
@@ -61,21 +42,9 @@ export type TilesetDiagonal = "north-west" | "north-east" | "south-east" | "sout
 /** The only kitbash operation the contract defines. */
 export type TilesetKitbashOp = { readonly op: "cutCorner"; readonly diagonal: TilesetDiagonal; readonly clearHalf: boolean };
 
-export type TilesetTile = {
-  readonly id: string;
-  readonly name: string;
-  /** The `id` of a source of this document. */
-  readonly source: string;
-  readonly cell: TilesetCell;
-  readonly role: TilesetRole;
-  readonly collision: TilesetCollision;
-  readonly kitbash?: readonly TilesetKitbashOp[];
-};
-
 export type TilesetIsoFace = {
   readonly source: string;
   readonly cell: TilesetCell;
-  /** Absent means `[0, 0, 0]`. */
   readonly tint?: TilesetRgb;
 };
 
@@ -85,64 +54,55 @@ export type TilesetIsoBlock = {
   readonly heightPixels: number;
   readonly faces: { readonly top: TilesetIsoFace; readonly left: TilesetIsoFace; readonly right: TilesetIsoFace };
   readonly collision: TilesetCollision;
-  /** Absent means `false`. */
   readonly wallCapUnder?: boolean;
 };
 
 export type TilesetSourceCell = { readonly source: string; readonly cell: TilesetCell };
 
-export type TilesetAutotile = {
+export type TilesetTileReference = { readonly tile: string };
+export type TilesetSlot =
+  | { readonly slot: number; readonly reserved: true }
+  | { readonly slot: number; readonly tile: string; readonly cel?: string };
+export type TilesetRule = {
+  readonly id: string;
+  readonly when: Readonly<Partial<Record<"n" | "e" | "s" | "w" | "nw" | "ne" | "se" | "sw", "same" | "other">>>;
+} & (
+  | { readonly use: TilesetTileReference; readonly variants?: never }
+  | { readonly use?: never; readonly variants: readonly { readonly tile: string; readonly weight: number }[] }
+);
+export type TilesetTerrain = {
   readonly id: string;
   readonly name: string;
-  readonly mode: "blob-47";
-  readonly base: TilesetSourceCell;
-  readonly border: TilesetSourceCell;
-  readonly innerCorner: TilesetSourceCell;
-  readonly exportOrder: "t25-canonical";
+  readonly resolver: { readonly provider: string; readonly id: string; readonly version: string };
+  readonly neighbours: "cardinal-4" | "blob-8";
+  readonly coverage: "complete" | "partial";
+  readonly sync: "lockstep" | "independent";
+  readonly outside?: "same" | "other";
+  readonly seed?: number;
+  readonly rules: readonly TilesetRule[];
 };
-
-export type TilesetOutputBinding = {
-  /** A project-relative `/` path of the generated `.tst`. */
-  readonly target: string;
-  readonly detail: number;
-};
-
 export type TilesetJson = ClipJson;
 
 export type Tileset = {
   readonly contract: typeof TILESET_CONTRACT;
-  /** The stamp's version as written, with any `+build` suffix. */
   readonly version: string;
   readonly tags?: readonly string[];
-  readonly metadata?: { readonly [key: string]: TilesetJson };
+  readonly metadata?: { readonly [key: string]: ClipJson };
   readonly name: string;
-  readonly projection: TilesetProjection;
-  readonly cellSize: readonly [width: number, height: number];
-  readonly sources: readonly TilesetSource[];
-  readonly tiles: readonly TilesetTile[];
+  readonly expects: { readonly projection: TilesetProjection; readonly cellSize: readonly [number, number] };
+  readonly tiles: readonly TilesetTileReference[];
+  readonly terrains?: readonly TilesetTerrain[];
+  readonly sources?: readonly TilesetSource[];
   readonly isoBlocks?: readonly TilesetIsoBlock[];
-  readonly autotiles?: readonly TilesetAutotile[];
-  readonly outputBinding: TilesetOutputBinding;
-  /** Exact source of the `pluginData` entry, up to the next top-level key or the end of the text; used only to verify opaque block preservation. */
+  readonly outputBinding: { readonly target: string; readonly detail: number; readonly slots: readonly TilesetSlot[] };
+  readonly pluginData?: { readonly [id: string]: { readonly version: string; readonly data: { readonly [key: string]: ClipJson } } };
   readonly pluginSource?: string;
-  /** Opaque plugin envelopes; never regenerated from these parsed values. */
-  readonly pluginData?: {
-    readonly [pluginId: string]: {
-      readonly version: string;
-      readonly data: { readonly [key: string]: TilesetJson };
-    };
-  };
 };
 
-/** Why a document, model or edit is refused; the shape is the clip's (`ClipProblem`). */
 export type TilesetProblem = ClipProblem;
-
-export type TilesetPath = ClipPath;
-
 export type TilesetReadResult =
   | { readonly ok: true; readonly tileset: Tileset; readonly source: string }
   | { readonly ok: false; readonly problems: readonly TilesetProblem[] };
-
 export type TilesetWriteResult =
   | { readonly ok: true; readonly text: string }
   | { readonly ok: false; readonly problems: readonly TilesetProblem[] };
@@ -150,729 +110,385 @@ export type TilesetWriteResult =
 export const formatTilesetPath = formatClipPath;
 export const formatTilesetProblems = formatClipProblems;
 
-// ---------------------------------------------------------------- validation
-
 type Raw = { readonly path: ClipPath; readonly message: string };
+const ROOT = ["contract", "version", "tags", "metadata", "name", "expects", "tiles", "terrains", "sources", "isoBlocks", "outputBinding", "pluginData"] as const;
+const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const object = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const whole = (v: unknown, min: number, max = Number.MAX_SAFE_INTEGER): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= min && v <= max;
+const identity = (s: string): string => foldId(s.split("/").filter((part) => part !== "" && part !== ".").join("/"));
 
-/** `lowercase-kebab-case`, the shared authoring convention for local ids. */
-const LOCAL_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-const ROOT_KEYS = [
-  "contract",
-  "version",
-  "tags",
-  "metadata",
-  "name",
-  "projection",
-  "cellSize",
-  "sources",
-  "tiles",
-  "isoBlocks",
-  "autotiles",
-  "outputBinding",
-  "pluginData",
-] as const;
-const SOURCE_KEYS = ["id", "file", "grid", "transparent"] as const;
-const GRID_KEYS = ["width", "height", "marginX", "marginY", "gapX", "gapY"] as const;
-const TILE_KEYS = ["id", "name", "source", "cell", "role", "collision", "kitbash"] as const;
-const CUT_CORNER_KEYS = ["op", "diagonal", "clearHalf"] as const;
-const BLOCK_KEYS = ["id", "name", "heightPixels", "faces", "collision", "wallCapUnder"] as const;
-const FACE_NAMES = ["top", "left", "right"] as const;
-const FACE_KEYS = ["source", "cell", "tint"] as const;
-const AUTOTILE_KEYS = ["id", "name", "mode", "base", "border", "innerCorner", "exportOrder"] as const;
-const SOURCE_CELL_KEYS = ["source", "cell"] as const;
-const OUTPUT_KEYS = ["target", "detail"] as const;
-
-const PROJECTIONS: readonly string[] = ["2d", "iso-stacked", "iso-rotated"];
-const ROLES: readonly string[] = ["floor", "wall", "wall-cap", "decorative"];
-const COLLISIONS: readonly string[] = ["walkable", "solid"];
-const DIAGONALS: readonly string[] = ["north-west", "north-east", "south-east", "south-west"];
-
-const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-
-function describe(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (Array.isArray(value)) return "a list";
-  if (typeof value === "object") return "a mapping";
-  if (typeof value === "string") return "text";
-  return typeof value === "number" ? `the number ${value}` : `a ${typeof value}`;
-}
-
-/** The contract allows no `null`: an absent value is written by leaving the key out. */
-function wrongType(path: ClipPath, wanted: string, value: unknown, out: Raw[]): void {
-  const extra = value === null || value === undefined ? `; it is ${describe(value)}, and no key accepts that: leave the key out` : `; it is ${describe(value)}`;
-  out.push({ path, message: `must be ${wanted}${extra}` });
-}
-
-function checkKeys(value: Record<string, unknown>, known: readonly string[], path: ClipPath, owner: string, out: Raw[]): void {
-  for (const key of Object.keys(value)) {
-    if (!known.includes(key)) out.push({ path: [...path, key], message: `\`${key}\` is not a key of ${owner}; the contract is closed` });
-  }
-}
-
-function required(value: Record<string, unknown>, key: string, path: ClipPath, out: Raw[]): boolean {
-  if (Object.hasOwn(value, key)) return true;
-  out.push({ path, message: `\`${key}\` is required` });
-  return false;
-}
-
-const isWhole = (value: unknown, min: number, max = Number.POSITIVE_INFINITY): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
-
-function checkWhole(value: unknown, path: ClipPath, min: number, max: number | undefined, out: Raw[]): void {
-  if (isWhole(value, min, max)) return;
-  const range = max === undefined ? (min === 0 ? "zero or more" : `at least ${min}`) : `from ${min} to ${max}`;
-  wrongType(path, `a whole number, ${range}`, value, out);
-}
-
-function checkWholeList(value: unknown, path: ClipPath, count: number, min: number, max: number | undefined, wanted: string, out: Raw[]): void {
-  if (!Array.isArray(value) || value.length !== count) return wrongType(path, wanted, value, out);
-  value.forEach((part: unknown, index) => checkWhole(part, [...path, index], min, max, out));
-}
-
-const CELL_WANTED = "a cell: a list of two whole numbers, [column, row], zero or more";
-
-function checkText(value: unknown, path: ClipPath, what: string, out: Raw[]): void {
-  if (typeof value !== "string") return wrongType(path, `text: ${what}`, value, out);
-  if (value === "") out.push({ path, message: "is empty text, which is not accepted" });
-}
-
-function checkEnum(value: unknown, path: ClipPath, allowed: readonly string[], out: Raw[]): void {
-  if (typeof value === "string" && allowed.includes(value)) return;
-  wrongType(path, `one of ${allowed.map((word) => `\`${word}\``).join(", ")}`, value, out);
-}
-
-function checkLiteral(value: unknown, path: ClipPath, word: string, out: Raw[]): void {
-  if (value !== word) out.push({ path, message: `must be \`${word}\`, the only value the contract defines${typeof value === "string" ? `; it is \`${value}\`` : ""}` });
-}
-
-/** The reason `value` is not a project-relative `/` path to a file, or `null` when it is one. */
-function pathProblem(value: string): string | null {
+/** The reason `value` is not a project-relative `/` file path, or `null` when it is one. */
+function pathOf(value: string): string | null {
   if (value === "") return "is empty text";
-  if (/[\u0000-\u001f\u007f]/.test(value)) return "must be one line without control characters";
   if (value.trim() !== value) return "must have no space at either end";
-  if (value.includes("\\")) return "must use `/` as the separator; `\\` is not one";
+  if (/[\u0000-\u001f\u007f\\]/.test(value)) return "must be one line without control characters or `\\`";
   if (value.startsWith("/") || /^[A-Za-z]:/.test(value)) return "must be relative to the project root, not absolute";
-  const parts = value.split("/");
-  if (parts.includes("..")) return "must not contain a `..` part, which is not resolved";
   if (value.endsWith("/")) return "names a folder, not a file";
-  if (parts.every((part) => part === "" || part === ".")) return "names no file";
+  if (value.split("/").includes("..")) return "must not contain a `..` part, which is not resolved";
+  if (value.split("/").every((part) => part === "" || part === ".")) return "names no file";
   return null;
 }
 
-/** A path as identity compares it: empty and `.` parts dropped, ASCII-folded. */
-const comparable = (path: string): string => foldId(path.split("/").filter((part) => part !== "" && part !== ".").join("/"));
-
-function checkPath(value: unknown, path: ClipPath, what: string, out: Raw[]): string | null {
-  if (typeof value !== "string") {
-    wrongType(path, `text: ${what}`, value, out);
-    return null;
-  }
-  const problem = pathProblem(value);
-  if (problem !== null) {
-    out.push({ path, message: `${problem} (a project-relative \`/\` path)` });
-    return null;
-  }
-  return value;
-}
-
-/** Checks a local id and records it in `seen`; a repeated id names the entry that has it. */
-function checkLocalId(value: unknown, path: ClipPath, listName: string, seen: Map<string, number>, index: number, out: Raw[]): string | null {
-  if (typeof value !== "string") {
-    wrongType(path, "text: a lowercase kebab-case id", value, out);
-    return null;
-  }
-  if (!LOCAL_ID.test(value)) {
-    out.push({ path, message: `\`${value}\` is not a lowercase kebab-case id (letters a to z and digits, joined by single hyphens)` });
-    return null;
-  }
-  const first = seen.get(value);
-  if (first !== undefined) {
-    out.push({ path, message: `\`${value}\` is already the id of ${listName}[${first}]; ids are unique within their list` });
-    return null;
-  }
-  seen.set(value, index);
-  return value;
-}
-
-function checkSourceName(value: unknown, path: ClipPath, sourceIds: ReadonlySet<string> | null, out: Raw[]): void {
-  if (typeof value !== "string") return wrongType(path, "text: the id of a source of this document", value, out);
-  if (sourceIds !== null && !sourceIds.has(value)) out.push({ path, message: `\`${value}\` names no source of this document` });
-}
-
-function checkSourceCell(value: unknown, path: ClipPath, keys: readonly string[], owner: string, sourceIds: ReadonlySet<string> | null, out: Raw[]): void {
-  if (!isObject(value)) return wrongType(path, `${owner}: a mapping of source and cell`, value, out);
-  checkKeys(value, keys, path, owner, out);
-  if (required(value, "source", path, out)) checkSourceName(value.source, [...path, "source"], sourceIds, out);
-  if (required(value, "cell", path, out)) checkWholeList(value.cell, [...path, "cell"], 2, 0, undefined, CELL_WANTED, out);
-  if (keys.includes("tint") && Object.hasOwn(value, "tint")) {
-    checkWholeList(value.tint, [...path, "tint"], 3, -255, 255, "a tint: a list of three whole numbers from -255 to 255", out);
-  }
-}
-
-function checkSources(value: unknown, out: Raw[]): ReadonlySet<string> | null {
-  if (!Array.isArray(value)) {
-    wrongType(["sources"], "a list of sources", value, out);
-    return null;
-  }
-  if (value.length === 0) out.push({ path: ["sources"], message: "must list at least one source" });
-  const seen = new Map<string, number>();
-  value.forEach((source: unknown, index) => {
-    const path: ClipPath = ["sources", index];
-    if (!isObject(source)) return wrongType(path, "a source: a mapping with an id, file, grid and transparent", source, out);
-    checkKeys(source, SOURCE_KEYS, path, "a source", out);
-    if (required(source, "id", path, out)) checkLocalId(source.id, [...path, "id"], "sources", seen, index, out);
-    if (required(source, "file", path, out)) checkPath(source.file, [...path, "file"], "a project-relative path of the source image", out);
-    if (required(source, "grid", path, out)) {
-      const grid = source.grid;
-      const gridPath = [...path, "grid"];
-      if (!isObject(grid)) wrongType(gridPath, "a grid: a mapping of width, height, marginX, marginY, gapX and gapY", grid, out);
-      else {
-        checkKeys(grid, GRID_KEYS, gridPath, "a grid", out);
-        for (const key of GRID_KEYS) {
-          if (!required(grid, key, gridPath, out)) continue;
-          checkWhole(grid[key], [...gridPath, key], key === "width" || key === "height" ? 1 : 0, undefined, out);
-        }
-      }
-    }
-    if (required(source, "transparent", path, out)) {
-      const transparent = source.transparent;
-      const transparentPath = [...path, "transparent"];
-      if (!isObject(transparent)) wrongType(transparentPath, "a mapping: `{mode: alpha}` or `{mode: colorKey, color: [r, g, b]}`", transparent, out);
-      else if (transparent.mode === "alpha") checkKeys(transparent, ["mode"], transparentPath, "the alpha transparency mode", out);
-      else if (transparent.mode === "colorKey") {
-        checkKeys(transparent, ["mode", "color"], transparentPath, "the colorKey transparency mode", out);
-        if (required(transparent, "color", transparentPath, out)) {
-          checkWholeList(transparent.color, [...transparentPath, "color"], 3, 0, 255, "a colour: a list of three whole numbers from 0 to 255", out);
-        }
-      } else if (!Object.hasOwn(transparent, "mode")) out.push({ path: transparentPath, message: "`mode` is required" });
-      else wrongType([...transparentPath, "mode"], "`alpha` or `colorKey`", transparent.mode, out);
-    }
-  });
-  return new Set(seen.keys());
-}
-
-function checkKitbash(value: unknown, path: ClipPath, out: Raw[]): void {
-  if (!Array.isArray(value)) return wrongType(path, "a list of kitbash operations", value, out);
-  value.forEach((operation: unknown, index) => {
-    const opPath = [...path, index];
-    if (!isObject(operation)) return wrongType(opPath, "an operation: a mapping with an op", operation, out);
-    if (!required(operation, "op", opPath, out)) return;
-    if (operation.op !== "cutCorner") {
-      out.push({ path: [...opPath, "op"], message: `${typeof operation.op === "string" ? `\`${operation.op}\` is` : "it is"} not a kitbash operation the contract defines; the only one is \`cutCorner\`` });
-      return;
-    }
-    checkKeys(operation, CUT_CORNER_KEYS, opPath, "the cutCorner operation", out);
-    if (required(operation, "diagonal", opPath, out)) checkEnum(operation.diagonal, [...opPath, "diagonal"], DIAGONALS, out);
-    if (required(operation, "clearHalf", opPath, out) && typeof operation.clearHalf !== "boolean") wrongType([...opPath, "clearHalf"], "true or false", operation.clearHalf, out);
-  });
-}
-
-function checkTiles(value: unknown, sourceIds: ReadonlySet<string> | null, out: Raw[]): void {
-  if (!Array.isArray(value)) return wrongType(["tiles"], "a list of tiles", value, out);
-  if (value.length === 0) out.push({ path: ["tiles"], message: "must list at least one tile" });
-  const seen = new Map<string, number>();
-  value.forEach((tile: unknown, index) => {
-    const path: ClipPath = ["tiles", index];
-    if (!isObject(tile)) return wrongType(path, "a tile: a mapping with an id, name, source, cell, role and collision", tile, out);
-    checkKeys(tile, TILE_KEYS, path, "a tile", out);
-    if (required(tile, "id", path, out)) checkLocalId(tile.id, [...path, "id"], "tiles", seen, index, out);
-    if (required(tile, "name", path, out)) checkText(tile.name, [...path, "name"], "a display name", out);
-    if (required(tile, "source", path, out)) checkSourceName(tile.source, [...path, "source"], sourceIds, out);
-    if (required(tile, "cell", path, out)) checkWholeList(tile.cell, [...path, "cell"], 2, 0, undefined, CELL_WANTED, out);
-    if (required(tile, "role", path, out)) checkEnum(tile.role, [...path, "role"], ROLES, out);
-    if (required(tile, "collision", path, out)) checkEnum(tile.collision, [...path, "collision"], COLLISIONS, out);
-    if (Object.hasOwn(tile, "kitbash")) checkKitbash(tile.kitbash, [...path, "kitbash"], out);
-  });
-}
-
-function checkIsoBlocks(value: unknown, sourceIds: ReadonlySet<string> | null, out: Raw[]): void {
-  if (!Array.isArray(value)) return wrongType(["isoBlocks"], "a list of isometric blocks", value, out);
-  const seen = new Map<string, number>();
-  value.forEach((block: unknown, index) => {
-    const path: ClipPath = ["isoBlocks", index];
-    if (!isObject(block)) return wrongType(path, "a block: a mapping with an id, name, heightPixels, faces and collision", block, out);
-    checkKeys(block, BLOCK_KEYS, path, "an isometric block", out);
-    if (required(block, "id", path, out)) checkLocalId(block.id, [...path, "id"], "isoBlocks", seen, index, out);
-    if (required(block, "name", path, out)) checkText(block.name, [...path, "name"], "a display name", out);
-    if (required(block, "heightPixels", path, out)) checkWhole(block.heightPixels, [...path, "heightPixels"], 1, undefined, out);
-    if (required(block, "faces", path, out)) {
-      const faces = block.faces;
-      const facesPath = [...path, "faces"];
-      if (!isObject(faces)) wrongType(facesPath, "a mapping of exactly top, left and right", faces, out);
-      else {
-        checkKeys(faces, FACE_NAMES, facesPath, "the faces of a block", out);
-        for (const face of FACE_NAMES) {
-          if (required(faces, face, facesPath, out)) checkSourceCell(faces[face], [...facesPath, face], FACE_KEYS, "a face", sourceIds, out);
-        }
-      }
-    }
-    if (required(block, "collision", path, out)) checkEnum(block.collision, [...path, "collision"], COLLISIONS, out);
-    if (Object.hasOwn(block, "wallCapUnder") && typeof block.wallCapUnder !== "boolean") wrongType([...path, "wallCapUnder"], "true or false", block.wallCapUnder, out);
-  });
-}
-
-function checkAutotiles(value: unknown, sourceIds: ReadonlySet<string> | null, out: Raw[]): void {
-  if (!Array.isArray(value)) return wrongType(["autotiles"], "a list of autotiles", value, out);
-  const seen = new Map<string, number>();
-  value.forEach((autotile: unknown, index) => {
-    const path: ClipPath = ["autotiles", index];
-    if (!isObject(autotile)) return wrongType(path, "an autotile: a mapping with an id, name, mode, base, border, innerCorner and exportOrder", autotile, out);
-    checkKeys(autotile, AUTOTILE_KEYS, path, "an autotile", out);
-    if (required(autotile, "id", path, out)) checkLocalId(autotile.id, [...path, "id"], "autotiles", seen, index, out);
-    if (required(autotile, "name", path, out)) checkText(autotile.name, [...path, "name"], "a display name", out);
-    if (required(autotile, "mode", path, out)) checkLiteral(autotile.mode, [...path, "mode"], "blob-47", out);
-    for (const part of ["base", "border", "innerCorner"] as const) {
-      if (required(autotile, part, path, out)) checkSourceCell(autotile[part], [...path, part], SOURCE_CELL_KEYS, `the ${part} reference`, sourceIds, out);
-    }
-    if (required(autotile, "exportOrder", path, out)) checkLiteral(autotile.exportOrder, [...path, "exportOrder"], "t25-canonical", out);
-  });
-}
-
-function checkOutputBinding(value: unknown, sourceFiles: readonly string[], out: Raw[]): void {
-  if (!isObject(value)) return wrongType(["outputBinding"], "a mapping of target and detail", value, out);
-  checkKeys(value, OUTPUT_KEYS, ["outputBinding"], "the output binding", out);
-  if (required(value, "target", ["outputBinding"], out)) {
-    const target = checkPath(value.target, ["outputBinding", "target"], "the project-relative path of the generated .tst", out);
-    if (target !== null) {
-      const extension = extensionOf(target);
-      if (extension === null || foldId(extension) !== ".tst") out.push({ path: ["outputBinding", "target"], message: "must name the generated `.tst` output" });
-      else if (classifyExtension(extension) === "native-registered") out.push({ path: ["outputBinding", "target"], message: "must not be a native document" });
-      else if (sourceFiles.includes(comparable(target))) out.push({ path: ["outputBinding", "target"], message: "must not be a source file of this document; the build would overwrite it" });
-    }
-  }
-  if (required(value, "detail", ["outputBinding"], out)) checkWhole(value.detail, ["outputBinding", "detail"], 1, undefined, out);
-}
-
-/** Whether `value` is something the free-form `metadata` may hold. */
-function isJson(value: unknown): boolean {
-  if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number") return true;
-  if (Array.isArray(value)) return value.every(isJson);
-  if (!isObject(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) return false;
-  return Object.values(value).every(isJson);
-}
-
-/** Every rule the contract page gives for the document's content, on the JSON form of a document. */
-function validateValue(value: unknown): Raw[] {
+function validate(value: unknown): Raw[] {
   const out: Raw[] = [];
-  if (!isObject(value)) {
-    wrongType([], "a mapping of keys to values", value, out);
-    return out;
-  }
-  checkKeys(value, ROOT_KEYS, [], "the tileset contract", out);
+  const fail = (path: ClipPath, message: string): void => { out.push({ path, message }); };
+  const map = (v: unknown, p: ClipPath, keys: readonly string[], required: readonly string[] = keys): v is Record<string, unknown> => {
+    if (!object(v)) { fail(p, "must be a mapping"); return false; }
+    for (const key of Object.keys(v)) if (!keys.includes(key)) fail([...p, key], "is not allowed in this mapping");
+    for (const key of required) if (!Object.hasOwn(v, key)) fail([...p, key], "is required");
+    return true;
+  };
+  const text = (v: unknown, p: ClipPath): void => { if (typeof v !== "string" || v.trim().length === 0) fail(p, "must be non-empty text"); };
+  const id = (v: unknown, p: ClipPath): void => { if (typeof v !== "string" || !ID.test(v)) fail(p, "must be a lowercase kebab-case local ID"); };
+  const choice = (v: unknown, p: ClipPath, choices: readonly string[]): void => { if (typeof v !== "string" || !choices.includes(v)) fail(p, `must be one of ${choices.join(", ")}`); };
+  const number = (v: unknown, p: ClipPath, min: number, max?: number): void => { if (!whole(v, min, max)) fail(p, "must be an exact integer in range"); };
+  const list = (v: unknown, p: ClipPath, each: (item: unknown, path: ClipPath) => void, min = 0): void => {
+    if (!Array.isArray(v)) { fail(p, "must be a list"); return; }
+    if (v.length < min) fail(p, `must contain at least ${min} entries`);
+    v.forEach((entry: unknown, i: number) => each(entry, [...p, i]));
+  };
+  const path = (v: unknown, p: ClipPath, extension?: string): string | null => {
+    if (typeof v !== "string") { fail(p, "must be a project-relative / file path"); return null; }
+    const problem = pathOf(v);
+    if (problem !== null) { fail(p, `must be a safe project-relative / file path; it ${problem}`); return null; }
+    const key = identity(v);
+    if (extension !== undefined && !key.endsWith(extension)) fail(p, `must name a ${extension} file`);
+    return key;
+  };
+  const pair = (v: unknown, p: ClipPath, min: number, length = 2, max?: number): void => { if (!Array.isArray(v) || v.length !== length) fail(p, `must be a list of ${length} integers`); else v.forEach((n: unknown, i: number) => number(n, [...p, i], min, max)); };
+  const unique = (v: unknown, p: ClipPath, seen: Set<string>): void => { id(v, p); if (typeof v === "string") { if (seen.has(v)) fail(p, "duplicate local ID"); seen.add(v); } };
+  const json = (v: unknown, seen = new Set<object>()): boolean => {
+    if (v === null || typeof v === "string" || typeof v === "boolean") return true;
+    if (typeof v === "number") return Number.isFinite(v);
+    if (typeof v !== "object" || seen.has(v) || (!Array.isArray(v) && Object.getPrototypeOf(v) !== Object.prototype && Object.getPrototypeOf(v) !== null)) return false;
+    seen.add(v);
+    const valid = Object.values(v).every((item) => json(item, seen));
+    seen.delete(v);
+    return valid;
+  };
 
-  if (required(value, "contract", [], out) && value.contract !== TILESET_CONTRACT) {
-    out.push({ path: ["contract"], message: `must be \`${TILESET_CONTRACT}\`` });
+  if (!map(value, [], ROOT, ["contract", "version", "name", "expects", "tiles", "outputBinding"])) return out;
+  choice(value.contract, ["contract"], [TILESET_CONTRACT]);
+  const version = typeof value.version === "string" ? parseVersion(value.version) : null;
+  if (version === null || !version.ok || version.major !== "1" || version.minor !== "0" || version.patch !== "0" || version.pre !== "2") {
+    fail(["version"], `must be ${TILESET_VERSION} with an optional build suffix`);
   }
-  if (required(value, "version", [], out)) {
-    const version = value.version;
-    const parsed = typeof version === "string" ? parseVersion(version) : null;
-    if (typeof version !== "string") wrongType(["version"], "text in the version form", version, out);
-    else if (parsed === null || !parsed.ok) out.push({ path: ["version"], message: parsed !== null && !parsed.ok ? parsed.reason : "is not a version" });
-    else if (parsed.major !== "1" || parsed.minor !== "0" || parsed.patch !== "0" || parsed.pre !== "1") {
-      out.push({ path: ["version"], message: `\`${version}\` is not a version this reader knows; it reads ${TILESET_VERSION} (a \`+build\` suffix is allowed)` });
+  if (Object.hasOwn(value, "tags")) list(value.tags, ["tags"], text);
+  if (Object.hasOwn(value, "metadata") && (!object(value.metadata) || !json(value.metadata))) fail(["metadata"], "must be a JSON mapping");
+  text(value.name, ["name"]);
+  if (map(value.expects, ["expects"], ["projection", "cellSize"])) {
+    choice(value.expects.projection, ["expects", "projection"], ["2d", "iso-stacked", "iso-rotated"]);
+    pair(value.expects.cellSize, ["expects", "cellSize"], 1);
+  }
+
+  const members = new Set<string>();
+  list(value.tiles, ["tiles"], (row, p) => {
+    if (!map(row, p, ["tile"])) return;
+    const key = path(row.tile, [...p, "tile"], ".tkrtle");
+    if (key !== null) {
+      if (members.has(key)) fail([...p, "tile"], "duplicate normalized tile identity");
+      members.add(key);
     }
-  }
+  }, 1);
+  const member = (v: unknown, p: ClipPath): string | null => {
+    const key = path(v, p, ".tkrtle");
+    if (key !== null && !members.has(key)) fail(p, "tile is not a member of this palette");
+    return key;
+  };
 
-  if (Object.hasOwn(value, "tags")) {
-    const tags = value.tags;
-    if (!Array.isArray(tags)) wrongType(["tags"], "a list of non-empty text", tags, out);
-    else {
-      tags.forEach((tag: unknown, index) => {
-        if (typeof tag !== "string" || tag === "") wrongType(["tags", index], "non-empty text", tag, out);
+  if (Object.hasOwn(value, "terrains")) {
+    const ids = new Set<string>();
+    list(value.terrains, ["terrains"], (terrain, p) => {
+      if (!map(terrain, p, ["id", "name", "resolver", "neighbours", "coverage", "sync", "outside", "seed", "rules"], ["id", "name", "resolver", "neighbours", "coverage", "sync", "rules"])) return;
+      unique(terrain.id, [...p, "id"], ids);
+      text(terrain.name, [...p, "name"]);
+      if (map(terrain.resolver, [...p, "resolver"], ["provider", "id", "version"])) {
+        if (terrain.resolver.provider !== "builtin" || terrain.resolver.id !== "neighbour-match" || terrain.resolver.version !== "1.0.0") fail([...p, "resolver"], "must pin builtin/neighbour-match@1.0.0");
+      }
+      choice(terrain.neighbours, [...p, "neighbours"], ["cardinal-4", "blob-8"]);
+      choice(terrain.coverage, [...p, "coverage"], ["complete", "partial"]);
+      choice(terrain.sync, [...p, "sync"], ["lockstep", "independent"]);
+      if (Object.hasOwn(terrain, "outside")) choice(terrain.outside, [...p, "outside"], ["same", "other"]);
+      if (Object.hasOwn(terrain, "seed")) number(terrain.seed, [...p, "seed"], -2147483648, 2147483647);
+      const rules = new Set<string>();
+      list(terrain.rules, [...p, "rules"], (rule, rp) => {
+        if (!object(rule)) { fail(rp, "must be a mapping"); return; }
+        const use = Object.hasOwn(rule, "use");
+        if (!map(rule, rp, ["id", "when", ...(use ? ["use"] : ["variants"])], ["id", "when", ...(use ? ["use"] : ["variants"])])) return;
+        unique(rule.id, [...rp, "id"], rules);
+        const dirs = ["n", "e", "s", "w", "nw", "ne", "se", "sw"];
+        if (map(rule.when, [...rp, "when"], dirs, [])) for (const [key, val] of Object.entries(rule.when)) choice(val, [...rp, "when", key], ["same", "other"]);
+        if (use) {
+          if (map(rule.use, [...rp, "use"], ["tile"])) member(rule.use.tile, [...rp, "use", "tile"]);
+        } else {
+          let total = 0;
+          list(rule.variants, [...rp, "variants"], (variant, vp) => {
+            if (!map(variant, vp, ["tile", "weight"])) return;
+            member(variant.tile, [...vp, "tile"]);
+            number(variant.weight, [...vp, "weight"], 1, 4294967295);
+            if (whole(variant.weight, 1, 4294967295)) total += variant.weight;
+          }, 1);
+          if (total > 4294967295) fail([...rp, "variants"], "total weight exceeds 4294967295");
+        }
       });
+    });
+  }
+
+  const sources = new Set<string>();
+  if (Object.hasOwn(value, "sources")) list(value.sources, ["sources"], (source, p) => {
+    if (!map(source, p, ["id", "file", "grid", "transparent"])) return;
+    unique(source.id, [...p, "id"], sources);
+    path(source.file, [...p, "file"]);
+    if (map(source.grid, [...p, "grid"], ["width", "height", "marginX", "marginY", "gapX", "gapY"])) {
+      for (const key of ["width", "height", "marginX", "marginY", "gapX", "gapY"]) number(source.grid[key], [...p, "grid", key], key === "width" || key === "height" ? 1 : 0);
     }
-  }
-  if (Object.hasOwn(value, "metadata")) {
-    const metadata = value.metadata;
-    if (!isObject(metadata)) wrongType(["metadata"], "a mapping", metadata, out);
-    else if (!isJson(metadata)) out.push({ path: ["metadata"], message: "may hold only text, numbers, booleans, null, lists and mappings" });
+    if (object(source.transparent)) {
+      const color = source.transparent.mode === "colorKey";
+      if (map(source.transparent, [...p, "transparent"], color ? ["mode", "color"] : ["mode"])) {
+        choice(source.transparent.mode, [...p, "transparent", "mode"], ["alpha", "colorKey"]);
+        if (color) pair(source.transparent.color, [...p, "transparent", "color"], 0, 3, 255);
+      }
+    } else fail([...p, "transparent"], "must be a mapping");
+  });
+
+  if (Object.hasOwn(value, "isoBlocks")) {
+    const ids = new Set<string>();
+    list(value.isoBlocks, ["isoBlocks"], (block, p) => {
+      if (!map(block, p, ["id", "name", "heightPixels", "faces", "collision", "wallCapUnder"], ["id", "name", "heightPixels", "faces", "collision"])) return;
+      unique(block.id, [...p, "id"], ids);
+      text(block.name, [...p, "name"]);
+      number(block.heightPixels, [...p, "heightPixels"], 1);
+      choice(block.collision, [...p, "collision"], ["walkable", "solid"]);
+      if (Object.hasOwn(block, "wallCapUnder") && typeof block.wallCapUnder !== "boolean") fail([...p, "wallCapUnder"], "must be boolean");
+      if (map(block.faces, [...p, "faces"], ["top", "left", "right"])) {
+        for (const face of ["top", "left", "right"]) {
+          const fp = [...p, "faces", face];
+          const item = block.faces[face];
+          if (map(item, fp, ["source", "cell", "tint"], ["source", "cell"])) {
+            id(item.source, [...fp, "source"]);
+            if (typeof item.source === "string" && !sources.has(item.source)) fail([...fp, "source"], "names no source in this document");
+            pair(item.cell, [...fp, "cell"], 0);
+            if (Object.hasOwn(item, "tint")) pair(item.tint, [...fp, "tint"], -255, 3, 255);
+          }
+        }
+      }
+    });
   }
 
-  if (required(value, "name", [], out)) checkText(value.name, ["name"], "a display name", out);
-  if (required(value, "projection", [], out)) checkEnum(value.projection, ["projection"], PROJECTIONS, out);
-  if (required(value, "cellSize", [], out)) {
-    checkWholeList(value.cellSize, ["cellSize"], 2, 1, undefined, "a cell size: a list of two whole numbers of pixels, [width, height], at least 1", out);
+  if (map(value.outputBinding, ["outputBinding"], ["target", "detail", "slots"])) {
+    const target = path(value.outputBinding.target, ["outputBinding", "target"], ".tst");
+    if (target !== null && !target.startsWith("tiles/")) fail(["outputBinding", "target"], "must be under Tiles/");
+    number(value.outputBinding.detail, ["outputBinding", "detail"], 1);
+    const slots = new Set<number>();
+    const allocations = new Set<string>();
+    let max = 0;
+    list(value.outputBinding.slots, ["outputBinding", "slots"], (slot, p) => {
+      if (!object(slot)) { fail(p, "must be a mapping"); return; }
+      if (Object.hasOwn(slot, "reserved")) {
+        map(slot, p, ["slot", "reserved"]);
+        if (slot.reserved !== true) fail([...p, "reserved"], "must be true");
+      } else {
+        map(slot, p, ["slot", "tile", "cel"], ["slot", "tile"]);
+        const key = member(slot.tile, [...p, "tile"]);
+        if (Object.hasOwn(slot, "cel")) id(slot.cel, [...p, "cel"]);
+        if (key !== null && (!Object.hasOwn(slot, "cel") || typeof slot.cel === "string")) {
+          const allocation = `${key}\0${typeof slot.cel === "string" ? slot.cel : ""}`;
+          if (allocations.has(allocation)) fail(p, "duplicate tile/cel allocation");
+          allocations.add(allocation);
+        }
+      }
+      number(slot.slot, [...p, "slot"], 1, 32767);
+      if (whole(slot.slot, 1, 32767)) {
+        if (slots.has(slot.slot)) fail([...p, "slot"], "duplicate slot");
+        slots.add(slot.slot);
+        max = Math.max(max, slot.slot);
+      }
+    });
+    for (let i = 1; i <= max; i++) if (!slots.has(i)) fail(["outputBinding", "slots"], `missing slot ${i}`);
   }
-
-  const sourceIds = required(value, "sources", [], out) ? checkSources(value.sources, out) : null;
-  if (required(value, "tiles", [], out)) checkTiles(value.tiles, sourceIds, out);
-  if (Object.hasOwn(value, "isoBlocks")) checkIsoBlocks(value.isoBlocks, sourceIds, out);
-  if (Object.hasOwn(value, "autotiles")) checkAutotiles(value.autotiles, sourceIds, out);
-
-  const sourceFiles = Array.isArray(value.sources)
-    ? value.sources.flatMap((source: unknown) => (isObject(source) && typeof source.file === "string" ? [comparable(source.file)] : []))
-    : [];
-  if (required(value, "outputBinding", [], out)) checkOutputBinding(value.outputBinding, sourceFiles, out);
-
-  if (Object.hasOwn(value, "pluginData") && !isObject(value.pluginData)) {
-    wrongType(["pluginData"], "a mapping of plugin ids to opaque plugin blocks", value.pluginData, out);
-  }
+  if (Object.hasOwn(value, "pluginData") && !object(value.pluginData)) fail(["pluginData"], "must be a mapping");
   return out;
 }
 
-function toProblems(raw: readonly Raw[], lineOf: (path: ClipPath) => number | null): TilesetProblem[] {
-  return raw.map((problem) => ({ kind: "shape", path: formatClipPath(problem.path), message: problem.message, line: lineOf(problem.path) }));
+function problems(raw: readonly Raw[], line: (path: ClipPath) => number | null): TilesetProblem[] {
+  return raw.map((p) => ({ kind: "shape", path: formatClipPath(p.path), message: p.message, line: line(p.path) }));
 }
 
-/** Check a tileset model, for example one an importer made, against every rule of the contract; nothing is written. */
+/** Check a tileset model, for example one a project loaded, against every rule of the contract. */
 export function checkTileset(tileset: unknown): readonly TilesetProblem[] {
-  if (!isObject(tileset) || !Object.hasOwn(tileset, "pluginSource")) return toProblems(validateValue(tileset), () => null);
-  const contract = { ...tileset };
-  delete contract.pluginSource;
-  return toProblems(validateValue(contract), () => null);
+  if (!object(tileset) || !Object.hasOwn(tileset, "pluginSource")) return problems(validate(tileset), () => null);
+  const copy = { ...tileset };
+  delete copy.pluginSource;
+  return problems(validate(copy), () => null);
 }
-
-// ---------------------------------------------------------------- what a project checker needs
 
 /** A path the document names, for a project checker to resolve: where it is written and what it says. */
-export type TilesetAssetPath = {
-  /** For example `sources[0].file`. */
-  readonly path: string;
-  /** `source`: a source image that must exist; `output`: the generated `.tst`, which is not read. */
-  readonly role: "source" | "output";
-  readonly value: string;
-};
+export type TilesetAssetPath = { readonly path: ClipPath; readonly file: string };
 
-/** The project paths of a tileset: each source image, then the output target. */
+/** The project paths of a tileset: each authored source image, then the generated target. */
 export function tilesetAssetPaths(tileset: Tileset): readonly TilesetAssetPath[] {
-  return [
-    ...tileset.sources.map((source, index): TilesetAssetPath => ({ path: `sources[${index}].file`, role: "source", value: source.file })),
-    { path: "outputBinding.target", role: "output", value: tileset.outputBinding.target },
-  ];
+  const found: TilesetAssetPath[] = (tileset.sources ?? []).map((source, index) => ({ path: ["sources", index, "file"], file: source.file }));
+  found.push({ path: ["outputBinding", "target"], file: tileset.outputBinding.target });
+  return found;
 }
 
 /** A source cell the document uses, for a project checker to test against the source image's size. */
 export type TilesetCellReference = { readonly path: string; readonly source: string; readonly cell: TilesetCell };
 
-/** Every source cell a tileset uses: tiles, block faces and autotile references, in document order. */
+/** Every source cell an iso block uses: faces only; standalone tiles carry their own artwork. */
 export function tilesetCellReferences(tileset: Tileset): readonly TilesetCellReference[] {
   const found: TilesetCellReference[] = [];
-  tileset.tiles.forEach((tile, index) => found.push({ path: `tiles[${index}].cell`, source: tile.source, cell: tile.cell }));
-  tileset.isoBlocks?.forEach((block, index) => {
-    for (const face of FACE_NAMES) found.push({ path: `isoBlocks[${index}].faces.${face}.cell`, source: block.faces[face].source, cell: block.faces[face].cell });
-  });
-  tileset.autotiles?.forEach((autotile, index) => {
-    for (const part of ["base", "border", "innerCorner"] as const) found.push({ path: `autotiles[${index}].${part}.cell`, source: autotile[part].source, cell: autotile[part].cell });
+  tileset.isoBlocks?.forEach((block, blockIndex) => {
+    for (const face of ["top", "left", "right"] as const) {
+      const item = block.faces[face];
+      found.push({ path: formatClipPath(["isoBlocks", blockIndex, "faces", face, "cell"]), source: item.source, cell: item.cell });
+    }
   });
   return found;
 }
 
-/**
- * How many whole cells a grid addresses in an image of `width` by `height` pixels: after the
- * margin, each cell takes its size and a gap follows every cell but the last, and a partial final
- * cell is not addressable. A cell `[column, row]` lies inside the image when
- * `column < columns` and `row < rows`.
- */
+/** How many whole cells a grid addresses in an image of `width` by `height` pixels. */
 export function tilesetCellBounds(grid: TilesetGrid, width: number, height: number): { readonly columns: number; readonly rows: number } {
-  const count = (size: number, margin: number, cell: number, gap: number): number => Math.max(0, Math.floor((size - margin + gap) / (cell + gap)));
-  return { columns: count(width, grid.marginX, grid.width, grid.gapX), rows: count(height, grid.marginY, grid.height, grid.gapY) };
+  const columns = grid.width + grid.gapX === 0 ? 0 : Math.max(0, Math.floor((width - grid.marginX + grid.gapX) / (grid.width + grid.gapX)));
+  const rows = grid.height + grid.gapY === 0 ? 0 : Math.max(0, Math.floor((height - grid.marginY + grid.gapY) / (grid.height + grid.gapY)));
+  return { columns, rows };
 }
 
-// ---------------------------------------------------------------- reading
-
-/** 1-based line of the place `path` names in a parsed document, or `null` when it cannot be found. */
-function lineLocator(document: Document.Parsed, lines: LineCounter): (path: ClipPath) => number | null {
-  return (path) => {
-    let node: unknown = document.contents;
-    let anchor: number | null = null;
-    for (const segment of path) {
-      if (isMap(node)) {
-        const pair = node.items.find((candidate) => isScalar(candidate.key) && candidate.key.value === segment);
-        if (pair === undefined) break;
-        const key = pair.key as Node;
-        anchor = key.range === undefined || key.range === null ? anchor : key.range[0];
-        node = pair.value;
-      } else if (isSeq(node) && typeof segment === "number") {
-        node = node.items[segment];
-        const range = (node as Node | undefined)?.range;
-        anchor = range === undefined || range === null ? anchor : range[0];
-      } else break;
-    }
-    return anchor === null ? null : lines.linePos(anchor).line;
-  };
-}
-
-/**
- * Read a tileset document and retain its original source. A missing, repeated, malformed or
- * not-first stamp is refused first, by the stamp rules of `readDocument`; then every rule of the
- * contract is checked, local references included. A document that holds plugin blocks also
- * carries an exact source token so a writer can refuse stale source.
- */
+/** Read a tileset document and retain its original source. */
 export function readTileset(text: string): TilesetReadResult {
   const stamp = readDocument({ path: "(tileset)", text }, []);
   if (stamp.stampReports.length > 0) {
-    return {
-      ok: false,
-      problems: stamp.stampReports.map((report) => ({
-        kind: "stamp",
-        path: report.key ?? "(document)",
-        message: report.problem === "unreadable" ? `document unreadable: ${report.reason}` : `stamp ${report.problem}: ${report.reason}`,
-        line: report.line,
-      })),
-    };
+    return { ok: false, problems: stamp.stampReports.map((report) => ({ kind: "stamp", path: report.key ?? "(document)", message: `stamp ${report.problem}: ${report.reason}`, line: report.line })) };
   }
-
   const lines = new LineCounter();
   const document = parseDocument(text, { version: "1.2", schema: "core", lineCounter: lines });
-  const pluginProblems = validatePluginData(document, text, lines, ROOT_KEYS);
-  const yamlProblems: TilesetProblem[] = document.errors.map((error) => ({
-    kind: "shape",
-    path: "(document)",
-    message: `YAML error: ${error.message.split("\n")[0]!.replace(/:$/, "")}`,
-    line: error.linePos?.[0]?.line ?? null,
-  }));
-  if (yamlProblems.length > 0 || pluginProblems.length > 0) {
+  const plugin = validatePluginData(document, text, lines, ROOT);
+  const yaml: TilesetProblem[] = document.errors.map((error) => ({ kind: "shape", path: "(document)", message: `YAML error: ${error.message.split("\n")[0]!.replace(/:$/, "")}`, line: error.linePos?.[0]?.line ?? null }));
+  if (plugin.length || yaml.length) {
     return {
       ok: false,
       problems: [
-        ...pluginProblems.map((problem) => ({
-          kind: "plugin-block" as const,
-          pluginKind: problem.kind,
-          path: problem.pluginId === null ? "pluginData" : `pluginData.${problem.pluginId}`,
-          message: `${problem.kind}: ${problem.reason} (found ${JSON.stringify(problem.found)})`,
-          line: problem.line,
-        })),
-        ...yamlProblems,
+        ...plugin.map((item): TilesetProblem => ({ kind: "plugin-block", pluginKind: item.kind, path: item.pluginId === null ? "pluginData" : `pluginData.${item.pluginId}`, message: `${item.kind}: ${item.reason} (found ${JSON.stringify(item.found)})`, line: item.line })),
+        ...yaml,
       ],
     };
   }
-  const value: unknown = document.toJS();
-  const raw = validateValue(value);
-  if (raw.length > 0) return { ok: false, problems: toProblems(raw, lineLocator(document, lines)) };
+  let value: unknown;
+  try { value = document.toJS(); } catch (error) {
+    return { ok: false, problems: [{ kind: "shape", path: "(document)", message: `cannot read YAML values: ${error instanceof Error ? error.message : String(error)}`, line: null }] };
+  }
+  const raw = validate(value);
+  if (raw.length) {
+    return {
+      ok: false,
+      problems: problems(raw, (path) => {
+        let node: unknown = document.contents;
+        let anchor: number | null = null;
+        for (const part of path) {
+          if (isMap(node)) {
+            const entry = node.items.find((item) => isScalar(item.key) && item.key.value === part);
+            if (entry === undefined) break;
+            anchor = (entry.key as Node).range?.[0] ?? anchor;
+            node = entry.value;
+          } else if (isSeq(node) && typeof part === "number") {
+            node = node.items[part];
+            anchor = (node as Node | undefined)?.range?.[0] ?? anchor;
+          } else break;
+        }
+        return anchor === null ? null : lines.linePos(anchor).line;
+      }),
+    };
+  }
   const tileset = value as Tileset;
   const entries = isMap(document.contents) ? document.contents.items : [];
-  const pluginIndex = entries.findIndex((pair) => isScalar(pair.key) && pair.key.value === "pluginData");
-  const pluginStart = pluginIndex < 0 ? undefined : (entries[pluginIndex]!.key as Node).range?.[0];
-  // The block runs to the next top-level key, or to the end of the text when it is the last entry.
-  const nextKey = pluginIndex < 0 ? undefined : (entries[pluginIndex + 1]?.key as Node | undefined)?.range?.[0];
-  return {
-    ok: true,
-    tileset: pluginStart === undefined ? tileset : { ...tileset, pluginSource: text.slice(pluginStart, nextKey ?? text.length) },
-    source: text,
-  };
-}
-
-// ---------------------------------------------------------------- writing
-
-const sourceCellOf = (reference: TilesetSourceCell): Record<string, unknown> => ({ source: reference.source, cell: [...reference.cell] });
-
-function ordered(tileset: Tileset): Record<string, unknown> {
-  const faceOf = (face: TilesetIsoFace): Record<string, unknown> => ({
-    source: face.source,
-    cell: [...face.cell],
-    ...(face.tint === undefined ? {} : { tint: [...face.tint] }),
-  });
-  return {
-    contract: tileset.contract,
-    version: tileset.version,
-    ...(tileset.tags === undefined ? {} : { tags: [...tileset.tags] }),
-    ...(tileset.metadata === undefined ? {} : { metadata: tileset.metadata }),
-    name: tileset.name,
-    projection: tileset.projection,
-    cellSize: [...tileset.cellSize],
-    sources: tileset.sources.map((source) => ({
-      id: source.id,
-      file: source.file,
-      grid: {
-        width: source.grid.width,
-        height: source.grid.height,
-        marginX: source.grid.marginX,
-        marginY: source.grid.marginY,
-        gapX: source.grid.gapX,
-        gapY: source.grid.gapY,
-      },
-      transparent: source.transparent.mode === "alpha" ? { mode: "alpha" } : { mode: "colorKey", color: [...source.transparent.color] },
-    })),
-    tiles: tileset.tiles.map((tile) => ({
-      id: tile.id,
-      name: tile.name,
-      source: tile.source,
-      cell: [...tile.cell],
-      role: tile.role,
-      collision: tile.collision,
-      ...(tile.kitbash === undefined ? {} : { kitbash: tile.kitbash.map((operation) => ({ op: operation.op, diagonal: operation.diagonal, clearHalf: operation.clearHalf })) }),
-    })),
-    ...(tileset.isoBlocks === undefined
-      ? {}
-      : {
-          isoBlocks: tileset.isoBlocks.map((block) => ({
-            id: block.id,
-            name: block.name,
-            heightPixels: block.heightPixels,
-            faces: { top: faceOf(block.faces.top), left: faceOf(block.faces.left), right: faceOf(block.faces.right) },
-            collision: block.collision,
-            ...(block.wallCapUnder === undefined ? {} : { wallCapUnder: block.wallCapUnder }),
-          })),
-        }),
-    ...(tileset.autotiles === undefined
-      ? {}
-      : {
-          autotiles: tileset.autotiles.map((autotile) => ({
-            id: autotile.id,
-            name: autotile.name,
-            mode: autotile.mode,
-            base: sourceCellOf(autotile.base),
-            border: sourceCellOf(autotile.border),
-            innerCorner: sourceCellOf(autotile.innerCorner),
-            exportOrder: autotile.exportOrder,
-          })),
-        }),
-    outputBinding: { target: tileset.outputBinding.target, detail: tileset.outputBinding.detail },
-  };
+  const index = entries.findIndex((entry) => isScalar(entry.key) && entry.key.value === "pluginData");
+  const start = index < 0 ? undefined : (entries[index]!.key as Node).range?.[0];
+  const end = index < 0 ? undefined : (entries[index + 1]?.key as Node | undefined)?.range?.[0];
+  return { ok: true, tileset: start === undefined ? tileset : { ...tileset, pluginSource: text.slice(start, end ?? text.length) }, source: text };
 }
 
 function sameValue(left: unknown, right: unknown, seen = new WeakMap<object, WeakSet<object>>()): boolean {
   if (left === right) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
     if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
-    if (seen.get(left)?.has(right)) return true;
-    const peers = seen.get(left) ?? new WeakSet<object>();
-    peers.add(right);
-    seen.set(left, peers);
     return left.every((item, index) => sameValue(item, right[index], seen));
   }
-  if (!isObject(left) || !isObject(right)) return false;
-  if (seen.get(left)?.has(right)) return true;
-  const peers = seen.get(left) ?? new WeakSet<object>();
-  peers.add(right);
-  seen.set(left, peers);
-  const leftKeys = Object.keys(left);
-  const rightKeys = Object.keys(right);
-  return leftKeys.length === rightKeys.length && leftKeys.every((key) => Object.hasOwn(right, key) && sameValue(left[key], right[key], seen));
+  if (!object(left) || !object(right)) return false;
+  const known = seen.get(left);
+  if (known?.has(right) === true) return true;
+  if (known === undefined) seen.set(left, new WeakSet([right]));
+  else known.add(right);
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && sameValue(left[key], right[key], seen));
 }
 
-/** The small mappings the layout writes on one line. */
-const FLOW_MAPS: readonly unknown[] = ["transparent", "top", "left", "right", "base", "border", "innerCorner"];
+function ordered(tileset: Tileset): Record<string, unknown> {
+  const out: Record<string, unknown> = { contract: tileset.contract, version: tileset.version };
+  if (tileset.tags !== undefined) out.tags = [...tileset.tags];
+  if (tileset.metadata !== undefined) out.metadata = tileset.metadata;
+  out.name = tileset.name;
+  out.expects = { projection: tileset.expects.projection, cellSize: [...tileset.expects.cellSize] };
+  out.tiles = tileset.tiles.map((member) => ({ tile: member.tile }));
+  if (tileset.terrains !== undefined) {
+    out.terrains = tileset.terrains.map((terrain) => ({
+      id: terrain.id,
+      name: terrain.name,
+      resolver: { provider: terrain.resolver.provider, id: terrain.resolver.id, version: terrain.resolver.version },
+      neighbours: terrain.neighbours,
+      coverage: terrain.coverage,
+      sync: terrain.sync,
+      ...(terrain.outside === undefined ? {} : { outside: terrain.outside }),
+      ...(terrain.seed === undefined ? {} : { seed: terrain.seed }),
+      rules: terrain.rules.map((rule) => ({
+        id: rule.id,
+        when: { ...rule.when },
+        ...(rule.use === undefined ? { variants: rule.variants.map((variant) => ({ tile: variant.tile, weight: variant.weight })) } : { use: { tile: rule.use.tile } }),
+      })),
+    }));
+  }
+  if (tileset.sources !== undefined) {
+    out.sources = tileset.sources.map((source) => ({
+      id: source.id,
+      file: source.file,
+      grid: { width: source.grid.width, height: source.grid.height, marginX: source.grid.marginX, marginY: source.grid.marginY, gapX: source.grid.gapX, gapY: source.grid.gapY },
+      transparent: source.transparent.mode === "alpha" ? { mode: "alpha" } : { mode: "colorKey", color: [...source.transparent.color] },
+    }));
+  }
+  if (tileset.isoBlocks !== undefined) {
+    out.isoBlocks = tileset.isoBlocks.map((block) => ({
+      id: block.id,
+      name: block.name,
+      heightPixels: block.heightPixels,
+      faces: {
+        top: { source: block.faces.top.source, cell: [...block.faces.top.cell], ...(block.faces.top.tint === undefined ? {} : { tint: [...block.faces.top.tint] }) },
+        left: { source: block.faces.left.source, cell: [...block.faces.left.cell], ...(block.faces.left.tint === undefined ? {} : { tint: [...block.faces.left.tint] }) },
+        right: { source: block.faces.right.source, cell: [...block.faces.right.cell], ...(block.faces.right.tint === undefined ? {} : { tint: [...block.faces.right.tint] }) },
+      },
+      collision: block.collision,
+      ...(block.wallCapUnder === undefined ? {} : { wallCapUnder: block.wallCapUnder }),
+    }));
+  }
+  out.outputBinding = {
+    target: tileset.outputBinding.target,
+    detail: tileset.outputBinding.detail,
+    slots: tileset.outputBinding.slots.map((slot) => "reserved" in slot ? { slot: slot.slot, reserved: true } : { slot: slot.slot, tile: slot.tile, ...(slot.cel === undefined ? {} : { cel: slot.cel }) }),
+  };
+  if (tileset.pluginData !== undefined) out.pluginData = tileset.pluginData;
+  return out;
+}
 
-/**
- * Write a tileset as YAML text. With the original `source` the text is returned unchanged, and
- * only when it still reads as exactly this model: nothing is printed from a parsed tree, so
- * comments, quoting and plugin blocks stay as authored. A model that holds plugin blocks has no
- * other way to be written. Without a source, a new document is laid out in the contract's key
- * order: block mappings, two-space indent, and lists of numbers or text and the small mappings
- * (`transparent`, a face, a source-cell reference) in flow style. The layout is provisional, as
- * the clip's is.
- */
+/** Write a tileset as YAML text. With the original `source` the bytes are returned unchanged. */
 export function writeTileset(tileset: Tileset, source?: string): TilesetWriteResult {
-  const problems = checkTileset(tileset);
-  if (problems.length > 0) return { ok: false, problems };
-
+  const errors = checkTileset(tileset);
+  if (errors.length) return { ok: false, problems: errors };
   if ((tileset.pluginData !== undefined || tileset.pluginSource !== undefined) && source === undefined) {
     return { ok: false, problems: [{ kind: "edit", path: "pluginData", message: "cannot write plugin blocks without their original source document", line: null }] };
   }
   if (source !== undefined) {
     const parsed = readTileset(source);
-    if (!parsed.ok) return { ok: false, problems: parsed.problems };
-    if (!sameValue(parsed.tileset, tileset)) {
-      return { ok: false, problems: [{ kind: "edit", path: "(document)", message: "the original source document does not match the requested tileset", line: null }] };
-    }
+    if (!parsed.ok) return parsed;
+    if (!sameValue(parsed.tileset, tileset)) return { ok: false, problems: [{ kind: "edit", path: "(document)", message: "the original source document does not match the requested tileset", line: null }] };
     return { ok: true, text: source };
   }
-
-  const document = new Document(ordered(tileset), { version: "1.2", schema: "core" });
-  visit(document, {
-    Seq(_key, node) {
-      if (node.items.every((item) => isScalar(item))) node.flow = true;
-    },
-    Pair(_key, pair) {
-      if (isScalar(pair.key) && FLOW_MAPS.includes(pair.key.value) && isMap(pair.value)) pair.value.flow = true;
-    },
-  });
-  return { ok: true, text: document.toString({ lineWidth: 0, flowCollectionPadding: false }) };
-}
-
-// ---------------------------------------------------------------- editing
-
-/** A value an edit can set: text, a number or a boolean. Lists and mappings are not set whole. */
-export type TilesetEditValue = string | number | boolean;
-
-export type TilesetEditResult =
-  | { readonly ok: true; readonly text: string }
-  | { readonly ok: false; readonly problems: readonly TilesetProblem[] };
-
-/** What `plan*` return instead of splices when an edit cannot be made. */
-type EditError = { readonly error: string };
-
-type Context = { readonly text: string; readonly document: Document.Parsed; readonly lines: LineCounter };
-
-const editText = (value: TilesetEditValue, like: Node | null): string =>
-  typeof value === "boolean" ? String(value) : scalarText(value, isScalar(like) ? like : null);
-
-function planReplace(context: Context, node: unknown, value: TilesetEditValue): Splice[] | EditError {
-  if (!isScalar(node) || node.type === "BLOCK_FOLDED" || node.type === "BLOCK_LITERAL") return { error: "the value is not a one-line scalar, so it cannot be replaced in place" };
-  if (node.anchor !== undefined) return { error: "the value is anchored, so another place may share it; it cannot be replaced in place" };
-  const [start, end] = rangeOf(node);
-  if (context.text.slice(start, end).includes("\n")) return { error: "the value runs over more than one line, so it cannot be replaced in place" };
-  return [{ start, end, text: editText(value, node) }];
-}
-
-/**
- * The one key that may be absent and set: an isometric block's `wallCapUnder`, which follows
- * `collision`, the entry before it in the contract's key order.
- */
-function planInsert(context: Context, parent: YAMLMap, path: ClipPath, value: TilesetEditValue): Splice[] | EditError {
-  const isWallCap = path.length === 3 && path[0] === "isoBlocks" && typeof path[1] === "number" && path[2] === "wallCapUnder";
-  if (!isWallCap) return { error: "there is no such key; only an isometric block's `wallCapUnder` can be added to a document" };
-  if (typeof value !== "boolean") return { error: "`wallCapUnder` is true or false" };
-  const collision = parent.items.find((pair) => isScalar(pair.key) && pair.key.value === "collision");
-  if (collision === undefined || !isScalar(collision.value)) return { error: "there is no `collision` entry for `wallCapUnder` to follow" };
-  const { text, lines } = context;
-  const end = rangeOf(collision.value)[1];
-  const entry = `wallCapUnder: ${value}`;
-  if (parent.flow === true) return [{ start: end, end, text: `, ${entry}` }];
-  const first = parent.items[0]!.key as Node;
-  const indent = " ".repeat(lines.linePos(rangeOf(first)[0]).col - 1);
-  const newline = text.indexOf("\n", end);
-  const crlf = newline > 0 && text[newline - 1] === "\r";
-  const at = newline < 0 ? text.length : crlf ? newline - 1 : newline;
-  return [{ start: at, end: at, text: `${crlf ? "\r\n" : "\n"}${indent}${entry}` }];
-}
-
-function planSet(context: Context, path: ClipPath, value: TilesetEditValue): Splice[] | EditError {
-  const last = path.at(-1);
-  if (last === undefined) return { error: "an edit names a place in the document" };
-  if (typeof value === "number" && !Number.isFinite(value)) return { error: "a number must be finite" };
-  const parentPath = path.slice(0, -1);
-  const parent: unknown = context.document.getIn(parentPath, true);
-  if (isSeq(parent)) {
-    if (typeof last !== "number" || last < 0 || last >= parent.items.length) return { error: "there is no such list entry; adding or removing list entries is not an edit this reader makes" };
-    return planReplace(context, parent.items[last], value);
-  }
-  if (!isMap(parent) || typeof last !== "string") return { error: "there is no such place in the document" };
-  const pair = parent.items.find((candidate) => isScalar(candidate.key) && candidate.key.value === last);
-  if (pair === undefined) return planInsert(context, parent, path, value);
-  return planReplace(context, pair.value, value);
-}
-
-/**
- * Set one property of an existing tileset document in place, for example
- * `["tiles", 0, "collision"]` to `"solid"` or `["tiles", 0, "cell", 1]` to `2`. Only the text of
- * the value changes: a replaced value is a splice into the original text, so every other byte,
- * every comment, the quoting and the plugin blocks stay as written. A plugin block is opaque
- * here and cannot be edited. Setting an isometric block's absent `wallCapUnder` adds one line
- * (or one `, wallCapUnder: ...` in a flow mapping). A document the reader refuses is not edited,
- * and an edit that would leave one (an invalid value, a dangling local reference) is not made.
- */
-export function setTilesetProperty(text: string, path: TilesetPath, value: TilesetEditValue): TilesetEditResult {
-  if (path[0] === "pluginData") {
-    return { ok: false, problems: [{ kind: "edit", path: formatClipPath(path), message: "plugin blocks are opaque and cannot be edited by the tileset writer", line: null }] };
-  }
-  const before = readTileset(text);
-  if (!before.ok) return before;
-  const lines = new LineCounter();
-  const document = parseDocument(text, { version: "1.2", schema: "core", lineCounter: lines });
-  const splices = planSet({ text, document, lines }, path, value);
-  if (!Array.isArray(splices)) return { ok: false, problems: [{ kind: "edit", path: formatClipPath(path), message: (splices as EditError).error, line: null }] };
-
-  const edited = applySplices(text, splices);
-  const after = readTileset(edited);
-  if (!after.ok) {
-    return { ok: false, problems: after.problems.map((problem) => ({ ...problem, message: `the edit would leave a document the reader refuses: ${problem.message}` })) };
-  }
-  if (after.tileset.pluginSource !== before.tileset.pluginSource) {
-    return { ok: false, problems: [{ kind: "edit", path: formatClipPath(path), message: "the edit would change a plugin block, which this writer never changes", line: null }] };
-  }
-  return { ok: true, text: edited };
+  return { ok: true, text: new Document(ordered(tileset), { version: "1.2", schema: "core" }).toString({ lineWidth: 0, flowCollectionPadding: false }) };
 }

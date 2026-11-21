@@ -1,40 +1,36 @@
 import { isMap, isScalar, isSeq, parseDocument, type Scalar } from "yaml";
 
-/** Native art references in the scene's declared reference locations, excluding plugin data. */
-export type ArtReference = {
-  readonly kind: "tileset" | "pack";
+/** A pack placement's document reference and local asset id, with the source range of both. */
+export type PackReference = {
+  readonly kind: "pack";
   readonly path: Scalar<string>;
   readonly localId: string;
+  readonly localIdScalar: Scalar<string>;
 };
 
-export function sceneArtReferences(text: string): { references: ArtReference[]; problems: string[] } {
-  const root = parseDocument(text, { version: "1.2", schema: "core" }).contents;
+/** Pack references from docs/spec/formats/native-scene.md#pack-placements, excluding plugin data. */
+export function scenePackReferences(text: string): { references: PackReference[]; problems: string[] } {
+  const document = parseDocument(text, { version: "1.2", schema: "core", uniqueKeys: false });
+  if (document.errors.length) return { references: [], problems: [] };
+  const root = document.contents;
   if (!isMap(root)) return { references: [], problems: [] };
   const contract = root.get("contract", true);
   if (!isScalar(contract) || String(contract.value) !== "scene") return { references: [], problems: [] };
-  const result: ArtReference[] = [];
+  const references: PackReference[] = [];
   const problems: string[] = [];
-  const add = (node: unknown, kind: "tileset" | "pack", idKey: "tile" | "asset"): void => {
-    if (!isMap(node)) return;
-    const path = node.get(kind, true);
-    const localId = node.get(idKey, true);
-    if (isScalar(path) && typeof path.value === "string" && isScalar(localId) && typeof localId.value === "string" && path.value !== "" && localId.value !== "") {
-      result.push({ kind, path: path as Scalar<string>, localId: localId.value });
-    } else if (kind === "pack" || node.has("tileset") || node.has("tile")) {
-      problems.push(`expected ${kind} path and ${idKey} local ID`);
-    }
-  };
-  const palette = root.get("tilePalette", true);
-  if (isSeq(palette)) for (const entry of palette.items) add(entry, "tileset", "tile");
-  const floors = root.get("floors", true);
-  if (isSeq(floors)) for (const floor of floors.items) {
-    if (!isMap(floor)) continue;
-    const boundary = floor.get("boundarySources", true);
-    if (!isMap(boundary)) continue;
-    const tiles = boundary.get("walkableTiles", true);
-    if (isSeq(tiles)) for (const entry of tiles.items) add(entry, "tileset", "tile");
-  }
   const placements = root.get("placedPacks", true);
-  if (isSeq(placements)) for (const entry of placements.items) add(entry, "pack", "asset");
-  return { references: result, problems };
+  if (placements === undefined) return { references, problems };
+  if (!isSeq(placements)) return { references, problems: ["placedPacks: expected sequence"] };
+  placements.items.forEach((entry, index) => {
+    if (!isMap(entry)) { problems.push(`placedPacks[${index}]: expected mapping`); return; }
+    const path = entry.get("pack", true);
+    const asset = entry.get("asset", true);
+    if (!isScalar(path) || typeof path.value !== "string" || path.value.trim() === "" || path.range === undefined
+      || !isScalar(asset) || typeof asset.value !== "string" || asset.value === "" || asset.range === undefined) {
+      problems.push(`placedPacks[${index}]: expected pack path and asset local ID`);
+      return;
+    }
+    references.push({ kind: "pack", path: path as Scalar<string>, localId: asset.value, localIdScalar: asset as Scalar<string> });
+  });
+  return { references, problems };
 }

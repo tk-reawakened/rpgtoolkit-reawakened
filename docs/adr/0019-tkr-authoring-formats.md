@@ -70,3 +70,17 @@ Use `.tkrtst` for the native tileset. The shorter name leaves `.tkrtle` availabl
 This replaces the tileset naming and packaging portions of the original decision and the previous amendment. The `tileset` stamp and current YAML shape do not change in this filename cutover. The native registry, declared scene references, project checks, rename and packaging use only `.tkrtst`. The former `.tkrtile` extension is not an alias and no migrator is provided. This does not change legacy `.tst`, `.iso` or `.tan` files.
 
 See the [approved terrain decisions](../design/terrain-scene-formats.md#approved-cutover-decisions) for the subsequent slots, geometry and artwork work; those wire changes are not part of the filename amendment.
+
+## Amendment: retained terrain and standalone tiles
+
+These decisions are the current pre-release rule. The [terrain design](../design/terrain-scene-formats.md#approved-cutover-decisions) records the approved choices.
+
+1. A `.tkrtle` is a `tile` document whose path is its identity. A `.tkrtst` is a `tileset` document containing standalone tile paths, terrain recipes and explicit output allocations; it does not embed tile definitions. A scene refers to tiles with `{tile: <.tkrtle path>}` and terrain with `{tileset: <.tkrtst path>, terrain: <local terrain id>}`. The previous embedded-tile reference is rejected.
+2. The scene keeps authored terrain spans and per-cell manual overrides separately from base tiles. The resolved board contains only chosen tiles. A `.tkrtol` is declarative, not executable code or permission to load a plugin.
+3. The tileset alone owns persistent 1-based output slots. Palette reorder does not change output indices. A retired slot encodes a transparent tombstone; builders never allocate or recycle slots. Raised isometric recipes remain authored; a target that uses them refuses until their visual, collision and draw-order lowering is proven.
+4. Tiles can select ordinary raster rectangles or stable frame/region IDs from managed artwork. Artwork owns pixels and region coordinates. A tile's solid and walk-behind geometry are independent, explicit and anchor-relative. Reusable tiles or pack assets may offer named activation areas; only explicit scene bindings lower them to program triggers.
+5. The reader, writer, reference inventory, rename, schema, registry, compiler and packaging change together. The runtime still consumes compiled legacy files, not YAML. Opening or saving a legacy board directly still does not import it.
+
+At this cutover, writers emit scene and tileset `1.0.0-pre.2`; standalone tile remains `1.0.0-pre.1`.
+
+**Rejected:** retaining embedded tile IDs beside paths creates two authorities for one tile. Deriving slots from palette order makes reorganization alter game output. Baking terrain into direct tile runs discards authored shape. No art codec or raised-isometric lowering is implied.
