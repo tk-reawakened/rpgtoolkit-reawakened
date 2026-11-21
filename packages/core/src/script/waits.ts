@@ -137,7 +137,7 @@ function pollInputPointer(view: WaitView, wait: InputKeyWait, baseline: NonNulla
   if (view.input !== undefined) {
     for (const key of view.input.keys) {
       if (key.seq < floor || claimed.has(key.seq)) continue;
-      return { value: null, ok: true, record: keyRecord(key.name, key.action), claim: key.seq, discardBefore: floor };
+      return { value: null, ok: true, record: keyRecord(key.name, engineLabel(key.action)), claim: key.seq, discardBefore: floor };
     }
   }
   if (wait.key !== null) return { value: null, ok: true, record: keyRecord(wait.key), discardBefore: floor };
@@ -154,6 +154,12 @@ function pollInputPointer(view: WaitView, wait: InputKeyWait, baseline: NonNulla
   return null;
 }
 /** `menu.screen`: resolve provider input, or wait for the active shop context to close. */
+export /** Only an engine action is a semantic label a screen can act on; a game-defined `game.*` binding or legacy alias is not (#1091). */
+const ENGINE_LABELS: ReadonlySet<string> = new Set(["up", "down", "left", "right", "confirm", "cancel", "menu"]);
+function engineLabel(action: string | null | undefined): string | null {
+  return action !== null && action !== undefined && ENGINE_LABELS.has(action) ? action : null;
+}
+
 export function pollMenuScreen(view: WaitView, wait: Wait): WaitResult | null {
   if (wait.kind !== "menu.screen") return null;
   const saved = wait.payload[0];
@@ -163,7 +169,7 @@ export function pollMenuScreen(view: WaitView, wait: Wait): WaitResult | null {
     const claimed = new Set(view.claims ?? []);
     for (const key of view.input?.keys ?? []) {
       if (key.seq < floor || claimed.has(key.seq)) continue;
-      return { value: key.action ?? key.name, ok: true, claim: key.seq };
+      return { value: engineLabel(key.action) ?? key.name, ok: true, claim: key.seq };
     }
     const base = saved.pointer;
     const now = view.input?.pointer;

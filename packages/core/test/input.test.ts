@@ -781,3 +781,9 @@ test("#1091: bound keys queue the legacy key name while the semantic action is s
   equal(state.keys[2]?.name, "ENTER");
   equal(state.keys[2]?.action, "confirm");
 });
+
+test("#1091: a letter key is named by the character typed, so a non-QWERTY layout keeps its label", () => {
+  const state = createInputSection({ bindings: { keys: { Enter: "confirm" } } });
+  applyInputEvent(state, { kind: "key", name: "a", code: "KeyQ", char: "a", down: true });
+  equal(state.keys[0]?.name, "A", "AZERTY: the key labelled A sits at code KeyQ");
+});

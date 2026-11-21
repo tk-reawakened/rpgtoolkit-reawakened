@@ -573,6 +573,8 @@ function updatePadActions(
 /** E-110: Enter, Escape and the arrows are ENTER, ESC, LEFT...; a letter key is its capital letter; any other key keeps the name the host sent. */
 function legacyKeyName(event: KeyInput): string {
   if (event.code === "Enter" || event.code === "Escape" || event.code.startsWith("Arrow")) return PHYSICAL_KEY_ALIASES[event.code]?.[0] ?? event.name;
+  // A letter is the capital of the character typed, so a non-QWERTY layout names the key by its label (E-110: key names).
+  if (event.char !== null && /^[A-Za-z]$/.test(event.char)) return event.char.toUpperCase();
   return /^Key[A-Z]$/.test(event.code) ? event.code.slice(3) : event.name;
 }
 

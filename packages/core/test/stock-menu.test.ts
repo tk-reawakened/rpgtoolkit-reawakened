@@ -819,3 +819,10 @@ test("#1091: a key the game file binds to a movement action navigates the menu, 
   const after = session.pump((state) => state.menu.screens[0]?.selection === 1);
   equal(after.menu.screens[0]!.selection, 1, "KeyS, bound to down, moved the cursor one row");
 });
+
+test("#1091: a key the game binds to its own game.* action still navigates by its key name", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  session.state().input.bindings.keys.ArrowDown = "game.jump";
+  equal(press(session, "DOWN").menu.screens[0]!.selection, 1, "the game.* label is not mistaken for a menu action");
+});
