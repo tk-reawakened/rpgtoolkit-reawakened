@@ -1599,3 +1599,47 @@ export function setSceneProperty(text: string, path: ScenePath, value: SceneEdit
   }
   return { ok: true, text: edited };
 }
+
+/** Edit only the authored terrain fields; never reprint the rest of the scene. */
+export function setSceneTerrain(text: string, scene: Pick<Scene, "terrainRegions" | "tileOverrides">): SceneEditResult {
+  const before = readScene(text);
+  if (!before.ok) return before;
+  const document = parseDocument(text, { version: "1.2", schema: "core" });
+  const root = document.contents;
+  const splices: Splice[] = [];
+  const newline = text.includes("\r\n") ? "\r\n" : "\n";
+  const refused = (path: string, message: string): SceneEditResult => ({ ok: false, problems: [{ kind: "edit", path, message, line: null }] });
+  if (!isMap(root) || root.flow) return refused("(document)", "Terrain editing needs a block scene mapping.");
+  for (const key of ["terrainRegions", "tileOverrides"] as const) {
+    const next = scene[key] ?? [];
+    if (sameValue(before.scene[key] ?? [], next)) continue;
+    const pair = root.items.find((entry) => isScalar(entry.key) && entry.key.value === key);
+    const value = JSON.stringify(next);
+    if (pair !== undefined) {
+      const node = pair.value;
+      if (!isSeq(node)) return refused(key, "Terrain edits require an unshared YAML sequence.");
+      let unsafe = false;
+      visit(node, (_key, entry) => {
+        if (typeof entry === "object" && entry !== null && ("anchor" in entry && entry.anchor != null || "comment" in entry && entry.comment != null || "commentBefore" in entry && entry.commentBefore != null)) unsafe = true;
+      });
+      if (unsafe) return refused(key, "This terrain list contains comments or anchors that cannot be preserved by this edit.");
+      const [start, end] = rangeOf(node);
+      splices.push({ start, end, text: value + (text.slice(start, end).endsWith("\n") ? newline : "") });
+    } else {
+      const later = root.items.find((entry) => isScalar(entry.key) && typeof entry.key.value === "string" && ROOT_KEYS.indexOf(entry.key.value) > ROOT_KEYS.indexOf(key));
+      const offset = later !== undefined && isScalar(later.key) ? rangeOf(later.key)[0] : text.length;
+      const prior = splices.find((splice) => splice.start === offset && splice.end === offset);
+      const insertion = `${key}: ${value}${newline}`;
+      if (prior !== undefined) {
+        splices.splice(splices.indexOf(prior), 1, { start: offset, end: offset, text: prior.text + insertion });
+      } else {
+        splices.push({ start: offset, end: offset, text: (offset > 0 && text[offset - 1] !== "\n" ? newline : "") + insertion });
+      }
+    }
+  }
+  const edited = applySplices(text, splices);
+  const after = readScene(edited);
+  if (!after.ok) return after;
+  if (after.scene.pluginSource !== before.scene.pluginSource) return refused("pluginData", "The edit would modify the opaque plugin block.");
+  return { ok: true, text: edited };
+}

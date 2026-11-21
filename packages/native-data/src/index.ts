@@ -83,7 +83,7 @@ export {
 export { checkProjectArtAssets } from "./project-art-assets.ts";
 export {
   SCENE_CONTRACT, SCENE_VERSION,
-  readScene, writeScene, checkScene, setSceneProperty, sceneFindings,
+  readScene, writeScene, checkScene, setSceneProperty, setSceneTerrain, sceneFindings,
   sceneNativeReferences, sceneCellCount, formatScenePath, formatSceneProblems,
   type Scene, type SceneProblem, type SceneReadResult, type SceneWriteResult,
   type SceneEditResult, type SceneEditValue, type ScenePath,

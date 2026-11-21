@@ -4,6 +4,8 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { BinaryReader, createEmptyCharacter, createEmptyMainFile, readBoard, writeCharacter, writeMainFile } from "@tk-reawakened/core";
+import { encodeScenePng } from "@tk-reawakened/editor-model";
 import {
   CONNECTED_BOARD,
   CONNECTED_ITEM,
@@ -225,4 +227,75 @@ test("browser connected authoring follows shared graphics and local programs int
   }, expect);
   await openFile(CONNECTED_BOARD);
   await page.screenshot({ path: test.info().outputPath("connected-authoring.png") });
+});
+
+test("paint, touch up, reshape, save, reopen and play a native terrain scene", async ({ page }) => {
+  const unwrap = <T,>(r: {ok: true; value: T} | {ok: false}): T => { expect(r.ok).toBe(true); if (!r.ok) throw new Error("Fixture could not be encoded"); return r.value; };
+  const input = (path: string, value: string | Uint8Array) => ({ path, bytes: [...(typeof value === "string" ? new TextEncoder().encode(value) : value)] });
+  const scenePath = "Boards/pond.tkrscn";
+  const tile = (name: string, visual: string) => `contract: tile\nversion: 1.0.0-pre.1\nname: ${name}\nprojection: 2d\nrole: floor\nvisual:\n  transparent: {mode: alpha}\n${visual}\n`;
+  const rgba = new Uint8Array(96 * 32 * 4);
+  for (let y = 0; y < 32; y++) for (let x = 0; x < 96; x++) rgba.set(x < 32 ? [20,80,160,255] : x < 64 ? [20,120,220,255] : [140,90,30,255], (96*y+x)*4);
+  await installFolderPicker(page, [
+    input("Main/test.gam", unwrap(writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, initBoard: "pond.brd", initChar: "hero.tem", startupPrg: "" }))),
+    input("Chrs/hero.tem", unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: Array(6).fill("") }))),
+    input(scenePath, "contract: scene\nversion: 1.0.0-pre.1\n# Keep this comment\nprojection: 2d\nsize: {width: 4, height: 3}\nfloors:\n  - id: ground\nstart: {x: 16, y: 31, floor: ground}\n"),
+    input("Tiles/water.tkrtle", tile("Water", "  cels:\n    - {id: a, sample: {file: Tiles/sheet.png, rect: [0,0,32,32]}}\n    - {id: b, sample: {file: Tiles/sheet.png, rect: [32,0,32,32]}}\n  timeline:\n    frames: [{cel: a, ms: 200}, {cel: b, ms: 200}]")),
+    input("Tiles/bank.tkrtle", tile("Bank", "  sample: {file: Tiles/sheet.png, rect: [64,0,32,32]}")),
+    input("Tiles/sheet.png", encodeScenePng({ w: 96, h: 32, rgba })),
+    input("Tiles/pond.tkrtst", "contract: tileset\nversion: 1.0.0-pre.1\nname: Pond\nexpects: {projection: 2d, cellSize: [32,32]}\ntiles: [{tile: Tiles/water.tkrtle}, {tile: Tiles/bank.tkrtle}]\nterrains:\n  - id: water\n    name: Water\n    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}\n    neighbours: cardinal-4\n    coverage: complete\n    sync: lockstep\n    rules: [{id: water, when: {}, use: {tile: Tiles/water.tkrtle}}]\noutputBinding:\n  target: Tiles/pond.tst\n  detail: 1\n  slots: [{slot: 1, tile: Tiles/water.tkrtle, cel: a}, {slot: 2, tile: Tiles/water.tkrtle, cel: b}, {slot: 3, tile: Tiles/bank.tkrtle}]\n"),
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "__tkrPickerReady"))).toBe(true);
+  await page.getByRole("button", { name: "Open project folder", exact: true }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  const openScene = async () => {
+    const row = page.getByRole("treeitem", { name: /^Boards, folder/ });
+    if (await row.getAttribute("aria-expanded") !== "true") await row.dblclick();
+    await page.getByRole("treeitem", { name: /^pond\.tkrscn,/ }).dblclick();
+  };
+  await openScene();
+  const editor = page.getByRole("region", { name: "Scene terrain editor" });
+  await editor.getByRole("combobox", { name: "Tileset", exact: true }).selectOption("Tiles/pond.tkrtst");
+  const cell = (x: number, y: number) => editor.getByRole("button", { name: new RegExp(`^Cell ${x}, ${y}:`) });
+  await editor.getByRole("radio", { name: "Paint rectangle" }).check();
+  await cell(0, 0).click();
+  await cell(2, 1).click();
+  await editor.getByRole("combobox", { name: "Manual tile", exact: true }).selectOption({ label: "Tiles/bank.tkrtle" });
+  await editor.getByRole("radio", { name: "Manual tile" }).check();
+  await cell(0, 0).click();
+  await editor.getByRole("radio", { name: "Reshape region" }).check();
+  await cell(1, 0).click();
+  await cell(2, 1).click();
+  await expect(cell(0, 0)).toHaveAccessibleName(/bank\.tkrtle/);
+  await expect(cell(0, 1)).toHaveAccessibleName(/base/);
+  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Scene saved and board built.", { exact: true })).toBeVisible();
+  const bytes = async (path: string) => new Uint8Array(await page.evaluate(async (path) => {
+    let dir = (window as ProofWindow).__tkrTestFolder!;
+    const parts = path.split("/");
+    for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part);
+    return [...new Uint8Array(await (await (await dir.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
+  }, path));
+  expect(new TextDecoder().decode(await bytes(scenePath))).toContain("# Keep this comment");
+  const board = unwrap(readBoard(new BinaryReader(await bytes("Boards/pond.brd"))));
+  expect(board.tileMatrix.slice(0, 8).map((i) => board.lut[i])).toEqual(["pond.tst3", expect.stringMatching(/\.tan$/), expect.stringMatching(/\.tan$/), "", "", expect.stringMatching(/\.tan$/), expect.stringMatching(/\.tan$/), ""]);
+  await page.getByRole("button", { name: `Close ${scenePath}`, exact: true }).click();
+  await expect(editor).not.toBeVisible();
+  await openScene();
+  await expect(cell(0, 0)).toHaveAccessibleName(/bank\.tkrtle/);
+  await expect(cell(1, 0)).toHaveAccessibleName(/terrain water/);
+  await editor.getByRole("button", { name: "Play", exact: true }).click();
+  const player = page.frameLocator('iframe[title="Running game"]');
+  await expect(player.locator("#screen")).toBeVisible();
+  await expect.poll(async () => player.locator("#screen").evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine?: { drawList(): { commands: readonly { kind: string; source?: { asset?: string; tile?: number } }[] } } } | undefined;
+    return session?.engine?.drawList().commands.flatMap(({ kind, source }) => kind === "blit" && source?.asset?.endsWith("/pond.tst") && typeof source.tile === "number" ? [source.tile] : []) ?? [];
+  }), { timeout: 10_000 }).toContain(3);
+  for (const frame of [1, 2]) {
+    await expect.poll(async () => player.locator("#screen").evaluate(() => {
+      const session = Reflect.get(window, "__session") as { engine?: { drawList(): { commands: readonly { kind: string; source?: { asset?: string; tile?: number } }[] } } } | undefined;
+      return session?.engine?.drawList().commands.flatMap(({ kind, source }) => kind === "blit" && source?.asset?.endsWith("/pond.tst") && typeof source.tile === "number" ? [source.tile] : []) ?? [];
+    }), { timeout: 10_000 }).toContain(frame);
+  }
 });
