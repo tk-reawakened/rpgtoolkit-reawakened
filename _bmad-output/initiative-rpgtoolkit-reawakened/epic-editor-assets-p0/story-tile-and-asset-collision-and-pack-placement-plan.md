@@ -15,10 +15,10 @@ Follow [ADR 0019](../../../docs/adr/0019-tkr-authoring-formats.md) amendment of 
 
 ## Acceptance and verification
 
-In both hosts: marking a tile solid changes one line of its tileset document; after painting it in a scene and saving, the built board stops the player there in a board test; an asset's under shape hides the player behind it; a placed asset moves, copies and deletes as one object and its board records go with it; on a `.brd` these controls are unavailable with the reason of 12.16.
+In both hosts: marking a tile solid changes one line of its owner document; painting it in a native scene and building stops the player there; an asset's under shape hides the player behind it; a placed asset moves, copies and deletes as one object and its board records go with it. These authoring controls belong to native scenes.
 
 Use the shared document lifecycle and preserve same-version unknown data; exercise the cancel, save/reopen and empty-selection paths rather than relying on preview alone. Follow `discovery/inception-proposal.md`, `docs/editor-features.md` and G2/G7; do not claim checks passed without executing them.
 
 ## Dependencies and decision gate
 
-Prerequisites: 12.2, 12.16. 12.2 supplies the shared tileset and asset browser these controls live in, and 12.16 supplies the board-versus-scene adapter that decides when the controls are available. Nothing here needs a T-ID: the sources are the ADR 0019 amendment and the contract pages of 27.11 and 27.12.
+Prerequisites: 12.2, 12.16. 12.2 supplies the shared tileset and asset browser; 12.16 supplies explicit import from a legacy board into the native scene. The format sources are ADR 0019 and the contract pages of 27.11 and 27.12.

@@ -27,14 +27,14 @@ A candidate becomes a contract page only when it can answer all six. The page re
 | 5 | **What refers to it and what does it refer to?** | The project index and safe rename need the answer. |
 | 6 | **Which editor does it get first?** A form, a Database list, or a specialist view, and which story builds it. | "Build only what a real caller needs." |
 
-## 1. Toolkit 3 kinds, edited in place
+## 1. Toolkit 3 kinds
 
-First-class editable for the first release (ADR 0005 amendment). All are legacy binary except programs. The formats are specified under [spec/formats](../spec/formats/README.md).
+First-class editable where specified by [ADR 0005](../adr/0005-independent-product-v1-and-native-format.md#amendment-2026-11-21-native-scene-authoring). Boards are previewed, played, or imported into the native scene editor; the legacy tools remain during the transition. Formats are specified under [spec/formats](../spec/formats/README.md).
 
 | Kind | Files | Editor | Planned in |
 |---|---|---|---|
 | Main game file | `.gam` | Project and game settings | 11.2, 11.6 |
-| Board | `.brd` | Board editor | 12.1, 12.3, 12.10, 12.11 |
+| Board | `.brd` | Preview and **Import as Scene**; legacy tools during transition | 12.16; legacy tools in 12.1, 12.3, 12.10, 12.11 |
 | Program | `.prg`, `*.spec.prg` | Code editor; later visual events | 11.7, 11.9, 14.2 |
 | Character | `.tem` | Character editor | 12.5 |
 | Item | `.itm` | Item editor | 29.7 |

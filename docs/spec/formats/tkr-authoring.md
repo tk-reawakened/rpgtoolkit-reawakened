@@ -27,7 +27,7 @@ These files are created and maintained in the authoring workspace (`editor-model
 
 ## 2. Scene Document (`.tkrscn`)
 
-A `.tkrscn` file is the source of truth for one board/scene. When saved, the editor builds the paired `.brd` file (plus auxiliary stamps/tiles if needed). A `.brd` that has no scene is still opened and saved directly; making a scene from it is an explicit conversion ([ADR 0019](../../adr/0019-tkr-authoring-formats.md), amendment of 2026-11-11).
+A `.tkrscn` file is the source of truth for one board/scene. When saved, the editor builds the paired `.brd` file and auxiliary assets. Preview or play a standalone `.brd` unchanged, or explicitly [import it as a scene](native-scene.md#import-from-a-board-to-a-scene) before editing it in the scene editor.
 
 > **Not normative.** The authoritative scene definition is [native-scene.md](native-scene.md). The example below is the earlier draft, kept for context only: its document-level `id`, its `<pack id>:<asset id>` references and its field names are superseded by the scene contract, where a document is identified by its path and a tile or pack is referenced by path plus local ID. Where the two differ, the scene contract governs.
 
