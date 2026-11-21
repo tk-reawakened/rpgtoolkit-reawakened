@@ -8,6 +8,8 @@ A tile says what to draw and how to move around it. It can take a picture from a
 
 The shared [stamp and preservation rules](native-contracts.md#stamp) apply. The extension `.tkrtle` agrees with `contract: tile`, at version `1.0.0-pre.1` in this cutover. Its project-relative path is its only document identity. A tileset member, scene palette entry or manual override refers to the document with `{tile: <path>}`; see [scene references](native-scene.md#resolving-painted-terrain). It does not refer to a local ID in a tileset.
 
+The [tile schema](../schemas/tkr-tile.schema.json) checks the structure of the parsed values. Local ID uniqueness, reference targets, cycle length and source bounds are checked by the reader or project build, not by the schema.
+
 Top-level keys are closed. After the stamp and optional shared `tags` and `metadata`, the core keys in order are:
 
 | Field | Required | Meaning |
