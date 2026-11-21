@@ -21,7 +21,7 @@ risk: high
 
 ## Decision
 
-The owner approved drawing the supplied image at the slot's pixel coordinates while retaining the independently sized click rectangle. Replacing a numeric slot replaces both its image and hit rectangle; clearing selected slots removes both, and clearing without arguments removes all. A missing or undecodable image contributes no pixels but leaves the hit rectangle enabled. The full contract is recorded in `docs/spec/engine/rpgcode-functions.md#reawakened-setbutton-images`.
+The owner approved drawing the supplied image at the slot's pixel coordinates while retaining the independently sized click rectangle. The `file` reference uses the existing resolver rules under the game's `Bitmap/` folder and the canonical asset key on success; an unresolved or undecodable image contributes no pixels but leaves the hit rectangle enabled. Replacing a numeric slot replaces both its image and hit rectangle; clearing selected slots removes both, and clearing without arguments removes all. The full contract is recorded in `docs/spec/engine/rpgcode-functions.md#reawakened-setbutton-images`.
 
 The existing UI renderer already composes image-backed buttons as keyed blits, while `setbutton` previously created only the click slot. The unchanged Final Destiny fixture's observed title draw list contains text and no button-image blits. The authored UI test also demonstrates the existing image-button overlay path. This evidence supports the implementation without reading or changing legacy game source.
 
