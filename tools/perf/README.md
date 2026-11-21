@@ -89,30 +89,30 @@ The remaining surface/rendering performance is tracked separately in #2795; this
 ## Surface presentation encoding follow-up (#2795, 2026-11-19)
 
 Apple M1 Pro, 16 GiB RAM, Darwin 27.2.0 arm64, Node 26.13.0, headed Playwright Chromium with default GPU, eight-second
-requested runs. Both profiles reached `boards/start.brd`; the baseline is current main `4340727b0` after #2796, and the
-candidate defers canonical screen-surface encoding until a whole-state snapshot or an external state-observation boundary.
+requested runs. Both profiles reached `boards/start.brd`; the baseline is current main `368bb7e72e0918e56915ae8913c3508c2a71ef2e`,
+and the candidate defers canonical screen encoding while preserving nested alias commits through snapshots and rollback.
 These are single-run advisory observations, not CI thresholds.
 
-| Measurement | Current main | Deferred screen encoding |
+| Measurement | Current main | Final candidate |
 |---|---:|---:|
-| Frame rate | 110.2 fps | 120.5 fps (display cap) |
-| Frame p50 / p90 / p99 | 8.4 / 10.3 / 17.6 ms | 8.3 / 9.7 / 10.3 ms |
-| Maximum frame | 116.8 ms | 82.2 ms |
+| Frame rate | 101.5 fps | 120.5 fps (display cap) |
+| Frame p50 / p90 / p99 | 8.4 / 16.6 / 17.5 ms | 8.3 / 9.0 / 9.3 ms |
+| Maximum frame | 116.5 ms | 100.2 ms |
 | Long tasks | 0 | 0 |
-| Ticks per second | 60.9 | 60.7 |
-| Measured duration | 8.182 s | 8.116 s |
-| `encodeSurfaceBytes` self CPU | 27.2% (2263 ms) | not among sampled self-CPU rows |
+| Ticks per second | 60.9 | 60.9 |
+| Measured duration | 8.226 s | 8.107 s |
+| `encodeSurfaceBytes` self CPU | 28.0% (2337 ms) | not among sampled self-CPU rows |
 
-The current-main trace is `.perf/issue-2795-before-pnpm/demo.cpuprofile`; the final candidate trace is
-`.perf/issue-2795-release/demo.cpuprofile`. `refreshFrame` now hands the rasterizer-owned frame to surface 0 without
-encoding a full-screen base64 snapshot per frame. Whole-state snapshots, saves and scene checkpoints materialize the
-derived surface; external phase/reset registrations, script observers and plugin/host-object state access flush and
-materialize before callbacks, and external plugin `refreshScreen` calls materialize after refreshing. When mutable state
-has escaped, completed-tick observers run after new presentation pixels are canonical, and `advance` returns with retained
-references canonical. Trusted core-owned phase and reset registrations that do not inspect surface pixels use the deferred path.
-Presentation does constant metadata work without scanning or copying pixels. Deterministic regressions cover the player
-registration wiring's zero-byte changed-frame budget (and a single fresh-screen encoding on reset), canonical external
-callback, edit, reset, plugin, save and checkpoint boundaries.
+The current-main trace is `.perf/issue-2795-before-latest/demo.cpuprofile`; the final candidate trace is
+`.perf/issue-2795-final/demo.cpuprofile`. `refreshFrame` hands the rasterizer-owned frame to surface 0 without encoding
+a full-screen base64 snapshot per frame. Whole-state snapshots, saves and scene checkpoints materialize the derived
+surface; external phase/reset registrations, script observers and plugin/host-object state access flush and materialize
+before callbacks, and external plugin `refreshScreen` calls materialize after refreshing. When mutable state has escaped,
+completed-tick observers run after new presentation pixels are canonical, and `advance` returns with retained references
+canonical. Trusted core-owned phase and reset registrations that do not inspect surface pixels use the deferred path.
+Presentation does constant metadata work without scanning or copying pixels. Deterministic regressions cover the
+player registration wiring's zero-byte changed-frame budget, canonical external callback, edit, reset, plugin, save and
+checkpoint boundaries, and nested alias commits through snapshot and rollback.
 
 ## Sprite colour-key correction (#3029)
 

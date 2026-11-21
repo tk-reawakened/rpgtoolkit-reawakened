@@ -329,6 +329,121 @@ test("a failed editor rollback keeps pixels committed by an alias", () => {
   equal(primary.entries["0"]?.bitmap.b64, encodeSurfaceBytes(new Uint8Array([10, 0, 0, 0, 210, 0, 0, 0])));
 });
 
+test("a snapshot inside a bounded editor exposes only nested unbounded commits", () => {
+  const game = createGameState({ seed: 1, width: 2, height: 1 });
+  const surfaces = createSurfacesSection(2, 1);
+  game.surfaces = surfaces;
+  const expectedGame = createGameState({ seed: 1, width: 2, height: 1 });
+  const expectedSurfaces = createSurfacesSection(2, 1);
+  expectedGame.surfaces = expectedSurfaces;
+  editSurface(expectedSurfaces, 0 as SurfaceId, (pixels) => { pixels[4] = 200; });
+  const expectedSnapshot = snapshot(expectedGame);
+  beginSurfaceBatch(surfaces);
+  let intermediate = "";
+  let threw = false;
+  try {
+    try {
+      editSurfaceWithBounds(surfaces, 0 as SurfaceId, (outer) => {
+        outer[0] = 100;
+        editSurface(surfaces, 0 as SurfaceId, (nested) => { nested[4] = 200; });
+        intermediate = snapshot(game);
+        throw new Error("rollback outer editor");
+      }, { first: 0, last: 0 });
+    } catch {
+      threw = true;
+    }
+  } finally {
+    endSurfaceBatch(surfaces);
+  }
+  equal(threw, true);
+  equal(intermediate, expectedSnapshot);
+  const expected = encodeSurfaceBytes(new Uint8Array([0, 0, 0, 0, 200, 0, 0, 0]));
+  equal(surfaces.entries["0"]?.bitmap.b64, expected);
+});
+
+test("a failed nested bounded editor preserves successful deeper edits", () => {
+  const surfaces = createSurfacesSection(3, 1);
+  beginSurfaceBatch(surfaces);
+  try {
+    editSurfaceWithBounds(surfaces, 0 as SurfaceId, (outer) => {
+      outer[0] = 10;
+      try {
+        editSurfaceWithBounds(surfaces, 0 as SurfaceId, (nested) => {
+          nested[4] = 20;
+          editSurfaceWithBounds(surfaces, 0 as SurfaceId, (deeper) => { deeper[8] = 30; });
+          throw new Error("rollback nested editor");
+        }, { first: 1, last: 1 });
+      } catch {}
+    }, { first: 0, last: 0 });
+  } finally {
+    endSurfaceBatch(surfaces);
+  }
+  equal(surfaces.entries["0"]?.bitmap.b64, encodeSurfaceBytes(new Uint8Array([10, 0, 0, 0, 0, 0, 0, 0, 30, 0, 0, 0])));
+});
+
+test("snapshot rebasing keeps an overlapping nested commit after its parent rolls back", () => {
+  const game = createGameState({ seed: 1, width: 1, height: 1 });
+  const surfaces = createSurfacesSection(1, 1);
+  game.surfaces = surfaces;
+  const expectedGame = createGameState({ seed: 1, width: 1, height: 1 });
+  const expectedSurfaces = createSurfacesSection(1, 1);
+  expectedGame.surfaces = expectedSurfaces;
+  editSurface(expectedSurfaces, 0 as SurfaceId, (pixels) => { pixels[0] = 30; });
+  const expectedSnapshot = snapshot(expectedGame);
+  beginSurfaceBatch(surfaces);
+  let intermediate = "";
+  try {
+    editSurfaceWithBounds(surfaces, 0 as SurfaceId, (outer) => {
+      outer[0] = 10;
+      try {
+        editSurfaceWithBounds(surfaces, 0 as SurfaceId, (middle) => {
+          middle[0] = 20;
+          editSurfaceWithBounds(surfaces, 0 as SurfaceId, (deeper) => { deeper[0] = 30; });
+          intermediate = snapshot(game);
+          throw new Error("rollback middle editor");
+        }, { first: 0, last: 0 });
+      } catch {}
+    }, { first: 0, last: 0 });
+  } finally {
+    endSurfaceBatch(surfaces);
+  }
+  equal(intermediate, expectedSnapshot);
+  equal(surfaces.entries["0"]?.bitmap.b64, encodeSurfaceBytes(new Uint8Array([30, 0, 0, 0])));
+});
+
+test("an alias snapshot keeps outer writes rebased over an earlier nested commit", () => {
+  const game = createGameState({ seed: 1, width: 2, height: 1 });
+  const primary = createSurfacesSection(2, 1);
+  const alias = { ...primary, entries: { ...primary.entries } };
+  game.surfaces = alias;
+  const expectedSnapshotB64 = encodeSurfaceBytes(new Uint8Array([10, 0, 0, 0, 30, 0, 0, 0]));
+  beginSurfaceBatch(primary);
+  let intermediateB64 = "";
+  try {
+    editSurfaceWithBounds(primary, 0 as SurfaceId, (outer) => {
+      editSurfaceWithBounds(primary, 0 as SurfaceId, (child) => { child[0] = 10; });
+      outer[0] = 20;
+      try {
+        editSurfaceWithBounds(primary, 0 as SurfaceId, () => {
+          beginSurfaceBatch(alias);
+          try {
+            editSurface(alias, 0 as SurfaceId, (pixels) => { pixels[4] = 30; });
+            snapshot(game);
+            intermediateB64 = alias.entries["0"]?.bitmap.b64 ?? "";
+          } finally {
+            endSurfaceBatch(alias);
+          }
+          throw new Error("rollback after alias snapshot");
+        }, { first: 0, last: 0 });
+      } catch {}
+    }, { first: 0, last: 0 });
+  } finally {
+    endSurfaceBatch(primary);
+  }
+  equal(intermediateB64, expectedSnapshotB64);
+  equal(primary.entries["0"]?.bitmap.b64, encodeSurfaceBytes(new Uint8Array([20, 0, 0, 0, 30, 0, 0, 0])));
+});
+
 test("a failed outer bounded edit preserves nested committed pixels but not its own", () => {
   const game = createGameState({ seed: 1, width: 3, height: 1 });
   const surfaces = createSurfacesSection(3, 1);

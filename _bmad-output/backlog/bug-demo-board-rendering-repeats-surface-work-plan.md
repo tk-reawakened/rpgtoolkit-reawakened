@@ -36,13 +36,11 @@ context:
 ## Verification
 
 **Commands:**
-- `node --test packages/core/test/presentation-surface-encoding.test.ts` -- PASS (23 tests; each body <1 ms), including shared alias conflicts, open-batch snapshots and transaction rollback cases.
-- `node --test --test-name-pattern='engine-rendered changed frames|input phase callbacks observe and retain canonical pixels|package code that reads the state mid-thread sees exactly what the eager engine shows' packages/core/test/engine.test.ts` -- PASS (3 tests); the retained-state regression checks visibly changed canonical pixels in the movement callback before completed-tick observation.
-- `node --test --test-name-pattern='main-file movement settings survive boot and reset' packages/core/test/engine-boot.test.ts` -- PASS (1 test); retained state from reset registrations is canonical after reset redraw.
-- `node --test packages/runner-web/test/live-phase-presentation.test.ts` -- PASS (2 tests); production live-phase wiring has zero encoded bytes across ordinary frames; a single actual reset dispatch uses one 1,024-byte fresh screen and confirms built-in input reset registration behavior.
-- `node --test packages/core/test/surface-batch.test.ts` -- PASS (14 tests, 510 ms); `raster-presentation.test.ts` -- PASS (8 tests); `engine-surface-read.test.ts` -- PASS (15 tests); `surface-hash.test.ts` -- PASS (19 tests); `save-load.test.ts` -- PASS (25 tests).
-- `pnpm build && pnpm browser:build`, both core/runner-web test typechecks -- PASS.
-- `pnpm perf:player --headed --out .perf/issue-2795-release` -- PASS on `boards/start.brd`; current main 110.2 fps, candidate 120.5 fps, p99 17.6 → 10.3 ms, zero long tasks; `encodeSurfaceBytes` absent from sampled self CPU.
+- `node --test packages/core/test/presentation-surface-encoding.test.ts packages/core/test/surface-batch.test.ts` -- PASS (43 deterministic tests, 535 ms; individual tests remain below one second), including alias snapshots, nested rollback and randomized batch parity.
+- `pnpm --filter @tk-reawakened/core typecheck:tests` -- PASS.
+- `pnpm build && pnpm browser:build` -- PASS.
+- `pnpm perf:player --headed --out .perf/issue-2795-before-latest` and `pnpm perf:player --headed --out .perf/issue-2795-final` -- PASS on `boards/start.brd`; current main `368bb7e72e0918e56915ae8913c3508c2a71ef2e` measured 101.5 fps / p99 17.5 ms, final candidate 120.5 fps / p99 9.3 ms; zero long tasks in both; `encodeSurfaceBytes` was 28.0% of baseline sampled self CPU and absent from candidate sampled self CPU.
+- Independent review: all alias rollback and snapshot-rebase findings resolved; no remaining actionable findings.
 
 ## Review Triage Log
 
@@ -59,3 +57,5 @@ context:
 - **Keep alias batch edits across canonicalization and replacement frames** — Fixed. Commits make the current pending buffer authoritative; starting a replacement alias batch materializes any dirty authoritative buffer first. Bounded editors retain their live buffer through same-frame canonicalization, and both edit paths reject stale callback commits after a newly presented frame invalidates the batch. Three deterministic regressions cover these contracts.
 
 - **Keep reentrant bounded edits isolated from snapshots and alias changes** — Fixed. Active callbacks no longer mark their uncommitted pixels dirty during canonicalization; rebases merge only callback changes over newly committed canonical pixels. Eager edits copy canonical pixels, and a throwing stale editor removes only its own batch entry. Regressions cover repeated snapshots then throw, committed alias pixels during an editor, replacement batch preservation, and decoded-cache isolation.
+
+- **Keep nested alias commits and outer writes across snapshot rollback** — Fixed. Nested unbounded edits update the committed pixel buffer, failed nested bounded editors restore only their own writes, and active rollback frames rebase against the effective committed baseline while preserving unrelated outer edits. Deterministic tests cover overlapping and disjoint commits, alias snapshots and intentional rollback.
