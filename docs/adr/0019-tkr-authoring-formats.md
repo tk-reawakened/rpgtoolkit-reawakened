@@ -62,3 +62,11 @@ In plain terms: the scene editor is one editor. It can open and save an old boar
 6. **Timing.** These three formats come forward into the first release for the scene editor ([ADR 0005](0005-independent-product-v1-and-native-format.md), second amendment). Every other native contract stays deferred.
 
 **Still to prove before the scene save path is built:** ADR 0022 D2 makes the host's text document the authority for a native text file. A canvas that edits YAML through structured commands is first proved on the animation clip (story 27.6).
+
+## Amendment (2026-11-20): native tileset filename
+
+Use `.tkrtst` for the native tileset. The shorter name leaves `.tkrtle` available for the separate tile document, which is not registered by this amendment.
+
+This replaces the tileset naming and packaging portions of the original decision and the previous amendment. The `tileset` stamp and current YAML shape do not change in this filename cutover. The native registry, declared scene references, project checks, rename and packaging use only `.tkrtst`. The former `.tkrtile` extension is not an alias and no migrator is provided. This does not change legacy `.tst`, `.iso` or `.tan` files.
+
+See the [approved terrain decisions](../design/terrain-scene-formats.md#approved-cutover-decisions) for the subsequent slots, geometry and artwork work; those wire changes are not part of the filename amendment.

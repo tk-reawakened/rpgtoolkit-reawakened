@@ -182,6 +182,45 @@ hitl = false
 risk = "high"
 
 [[entry]]
+id = 15
+tracker_id = "#3233"
+type = "story"
+title = "Assemble the connected native authoring format design"
+description = "Design the project root, document presentation ownership, graphics and definition families together from the connected-editor experience. Distinguish current contracts from recommended shapes and preserve explicit import, generated output and existing direct legacy paths."
+verify = "Publish the source-grounded design set with one authoritative home for each field, import/build and plugin/reference boundaries, graphics proof obligations, and linked delivery owners. Links, provenance and ticket-store checks pass. No new extension or implementation is claimed."
+covers = ["E8"]
+after = [1]
+hitl = false
+risk = "medium"
+references = ["docs/design/native-authoring-format-set.md", "docs/adr/0005-independent-product-v1-and-native-format.md direction 2026-11-18"]
+
+[[entry]]
+id = 16
+tracker_id = "#3234"
+type = "story"
+title = "Specify the native project and document presentation contracts"
+description = "Specify the recommended .tkrproj and common presentation ownership with exact field accounting, schemas, examples, closed-field reader/writer cutover and migration rules. Reconcile project build output with scene-save and packaging rules before implementation. This does not remove direct legacy editing."
+verify = "Account for every .gam field/version/default and native tagged extension; define root identity, references, package order, group and external-resource presentation, clearing and invalid-input behavior; migrate display-only fields without changing gameplay names. Publish schema examples and rejection probes, import preservation and build mappings including runtime plugin data, with explicit ADR/spec amendments for output layout and recovery. Register only with the contract and update validators/fixtures together; examples, links, provenance and store checks pass."
+covers = ["E1", "E2", "E8"]
+after = [1, 15]
+hitl = true
+risk = "high"
+references = ["docs/design/native-authoring-format-set.md", "Consumer: 11.25 / #3183", "Existing family owners: 27.7 / #1808 and 27.11 / #1846"]
+
+[[entry]]
+id = 17
+tracker_id = "#3235"
+type = "story"
+title = "Prove a native project import edit build and run journey"
+description = "Implement the approved project and presentation contract through shared editor/platform-services and the existing scene/graphics providers. Import a small authored game without overwriting originals; save, build, run and package it with observable recovery and no change to direct legacy paths."
+verify = "In browser and VS Code, reopen the root, edit startup/settings, group a program without moving it and follow separately named scene interactions to shared RPGCode. Prove generated .gam semantics including native extensions, native friendly-name edits with unchanged runtime behavior, shared-image edits versus unique copies, slot/transparency/projection preservation and headless playback. Preserve unknown plugin data and original bytes, report unavailable required behavior, include required runtime data but exclude editor-only metadata from packages, and prove interrupted saves/build publication cannot masquerade as a successful output."
+covers = ["E2", "E5", "E7", "E8"]
+after = [16, 13, 14, "11.26", "11.27", "11.28", "11.29", "12.15", "12.16", "12.17"]
+hitl = false
+risk = "high"
+references = ["docs/design/native-authoring-format-set.md#first-connected-proof", "docs/design/native-graphics-authoring.md"]
+
+[[entry]]
 id = 9
 tracker_id = "#1810"
 type = "story"
@@ -189,6 +228,6 @@ title = "Refactor sweep"
 description = "Cleans up what the epic's plans and review findings deferred; its scope is set when it starts."
 verify = "Every deferred finding it takes is closed or recorded as a new story, and the full suite passes."
 covers = []
-after = [2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14]
+after = [2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 16, 17]
 hitl = false
 risk = "low"

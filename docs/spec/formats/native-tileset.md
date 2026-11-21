@@ -1,10 +1,10 @@
-# Native tileset contract (`.tkrtile`)
+# Native tileset contract (`.tkrtst`)
 
 **Status: draft, pre-release; Jensen's approval is pending.** This page is the proposed normative contract for native tileset documents, derived from section 3 of [tkr-authoring.md](tkr-authoring.md#3-tile-recipe-document-tkrtile), [native-contracts.md](native-contracts.md), [ADR 0019](../../adr/0019-tkr-authoring-formats.md) and [ADR 0005](../../adr/0005-independent-product-v1-and-native-format.md). It is reviewable, not an assertion that the owner approved its detailed choices. The proposed registry row appears below.
 
 ## In plain words
 
-A `.tkrtile` file describes one reusable tileset: where its source images are, which cells become named tiles, how optional isometric blocks and autotile recipes are assembled, and what output target the editor builds. Its path names the document. A scene refers to the document by that path and to a tile by a local tile id. Collision and wall-cap walk-behind intent are stored with the tile recipe, so a generated tile does not lose these authoring properties.
+A `.tkrtst` file describes one reusable tileset: where its source images are, which cells become named tiles, how optional isometric blocks and autotile recipes are assembled, and what output target the editor builds. Its path names the document. A scene refers to the document by that path and to a tile by a local tile id. Collision and wall-cap walk-behind intent are stored with the tile recipe, so a generated tile does not lose these authoring properties.
 
 The document uses the shared native stamp and plugin-block rules. Its own top-level fields are closed: a misspelled key is an error. No top-level `id` is used; identity is the normalized project-relative path, extension included.
 
@@ -119,7 +119,7 @@ All pixel and grid values are exact integers. Coordinates and cell indices are z
 
 A tileset document's identity is its path, extension included, under the shared native identity rules (ASCII-only case folding and path normalization). The path is stable until an explicit rename updates references. No document-level `id` is present.
 
-A reference to a tile is a mapping with a `tileset` document path and a `tile` local ID, for example `{tileset: tiles/village.tkrtile, tile: grass-main}`. The document path must resolve to a registered `.tkrtile` whose stamp says `tileset`; the local ID must name exactly one tile in that document. A document rename updates the path field; renaming a tile updates its local-ID references. Source IDs and isometric/autotile IDs are local to their recipe and are not cross-document references. This two-field recommendation matches the proposed asset-pack reference and avoids introducing fragment parsing and escaping rules.
+A reference to a tile is a mapping with a `tileset` document path and a `tile` local ID, for example `{tileset: tiles/village.tkrtst, tile: grass-main}`. The document path must resolve to a registered `.tkrtst` whose stamp says `tileset`; the local ID must name exactly one tile in that document. A document rename updates the path field; renaming a tile updates its local-ID references. Source IDs and isometric/autotile IDs are local to their recipe and are not cross-document references. This two-field recommendation matches the proposed asset-pack reference and avoids introducing fragment parsing and escaping rules.
 
 ## Plugin data
 
@@ -127,7 +127,7 @@ A reference to a tile is a mapping with a `tileset` document path and a `tile` l
 
 ## Lowering and preservation
 
-A tileset is source authoring data; the runtime continues to consume generated `.tst`, `.iso` and related legacy outputs, not `.tkrtile`. Building follows the source order and the deterministic recipe ordering above. Tile collision and `wallCapUnder` are carried into the generated scene/board collision and under-vector output where representable. If a legacy target cannot encode a selected field, the build must report it as unavailable rather than silently discarding or changing it. A writer changing one field preserves comments, unknown plugin payload, quoting, order, and all other unowned bytes under the shared in-place editing rules.
+A tileset is source authoring data; the runtime continues to consume generated `.tst`, `.iso` and related legacy outputs, not `.tkrtst`. Building follows the source order and the deterministic recipe ordering above. Tile collision and `wallCapUnder` are carried into the generated scene/board collision and under-vector output where representable. If a legacy target cannot encode a selected field, the build must report it as unavailable rather than silently discarding or changing it. A writer changing one field preserves comments, unknown plugin payload, quoting, order, and all other unowned bytes under the shared in-place editing rules.
 
 ## Draft-key disposition
 
@@ -173,7 +173,7 @@ Add this row to [the native contract registry](native-contracts.md#the-registry)
 
 | Extension | Contract | Contract page |
 |---|---|---|
-| `.tkrtile` | `tileset` | [native-tileset.md](native-tileset.md) |
+| `.tkrtst` | `tileset` | [native-tileset.md](native-tileset.md) |
 
 ## Owner review: consequential choices
 

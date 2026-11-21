@@ -1,10 +1,12 @@
-# TK Reawakened Authoring Formats (`.tkrscn`, `.tkrtile`, `.tkrpack`)
+# TK Reawakened Authoring Formats (`.tkrscn`, `.tkrtst`, `.tkrpack`)
 
 This specification defines the normative structure of TK Reawakened's native YAML authoring documents ([ADR 0019](../../adr/0019-tkr-authoring-formats.md)).
 
 These files are created and maintained in the authoring workspace (`editor-model` / `editor-ui`) and **compile/lower** deterministically into legacy runtime targets (`.brd`, `.tst`, `.iso`, `.tbm`, `.tan`) so the `@tk-reawakened/core` runtime engine can play them without requiring immediate changes to its runtime format decoders.
 
 > **Status: draft, pre-release** (amendment of 2026-11-11, [#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839)). These formats follow [native-contracts.md](native-contracts.md). The separate [scene](native-scene.md), [tileset](native-tileset.md), and [asset-pack](native-asset-pack.md) contract pages supersede the corresponding historical sketches below where they differ. Jensen reviewed and merged the scene and asset-pack pages; the tileset page remains proposed. All three extensions are registered. The examples below retain historical document IDs and other spellings for context and are not contract definitions.
+
+**Broader design direction (2026-11-18):** the [connected native authoring format set](../../design/native-authoring-format-set.md) brings the project root, definitions, graphics and presentation ownership together. It is a design proposal, not an extension of these closed schemas. [ADR 0005's new direction](../../adr/0005-independent-product-v1-and-native-format.md#direction-2026-11-18-design-a-connected-native-authoring-project) retains current release and direct-editing commitments until an explicit contract cutover.
 
 ---
 
@@ -114,9 +116,10 @@ placedPacks:
 
 ---
 
-## 3. Tile Recipe Document (`.tkrtile`)
+<a id="3-tile-recipe-document-tkrtile"></a>
+## 3. Tile Recipe Document (`.tkrtst`)
 
-A `.tkrtile` manages a cohesive tileset palette, including source sheets, non-destructive transformations, procedural 3-plane isometric blocks, and autotile transition sets.
+A `.tkrtst` manages a cohesive tileset palette, including source sheets, non-destructive transformations, procedural 3-plane isometric blocks, and autotile transition sets.
 
 ```yaml
 contract: tileset

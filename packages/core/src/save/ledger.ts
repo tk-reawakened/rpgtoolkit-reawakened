@@ -204,7 +204,7 @@ export type LedgerTile = {
   readonly width: number | null;
   readonly height: number | null;
   readonly tint: LedgerTint | null;
-  readonly animation: { readonly ticksPerFrame: number; readonly frames: LedgerTile[] } | null;
+  readonly animation: { readonly ticksPerFrame: number; readonly frames: (LedgerTile | null)[] } | null;
 };
 
 /** One authored board item slot, including empty holes and authored coordinates. */
@@ -857,15 +857,11 @@ function projectTile(value: unknown, path: string): LedgerTile | null {
   };
 }
 
-function projectTileAnimation(value: unknown, path: string): { ticksPerFrame: number; frames: LedgerTile[] } {
+function projectTileAnimation(value: unknown, path: string): { ticksPerFrame: number; frames: (LedgerTile | null)[] } {
   const animation = ledgerRecord(value, path);
   return {
     ticksPerFrame: ledgerInteger(animation.ticksPerFrame, `${path}.ticksPerFrame`, 0),
-    frames: ledgerList(animation.frames, `${path}.frames`).map((entry, index) => {
-      const tile = projectTile(entry, `${path}.frames[${index}]`);
-      if (tile === null) failLedger(LEDGER_SHAPE, `${path}.frames[${index}]`, "expected a tile, not null");
-      return tile;
-    }),
+    frames: ledgerList(animation.frames, `${path}.frames`).map((entry, index) => projectTile(entry, `${path}.frames[${index}]`)),
   };
 }
 

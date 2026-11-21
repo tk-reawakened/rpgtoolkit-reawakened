@@ -53,7 +53,7 @@ export type SceneShadeRun = readonly [count: number, red: number, green: number,
 /** A legacy tile reference, carried exactly as stored (`village.tst12`, `water.tan`). */
 export type SceneLegacyTile = { readonly legacy: string; readonly tileset?: never; readonly tile?: never };
 
-/** A tile of a native tileset: the path of the `.tkrtile` and the tile's local id. */
+/** A tile of a native tileset: the path of the `.tkrtst` and the tile's local id. */
 export type SceneNativeTile = { readonly tileset: string; readonly tile: string; readonly legacy?: never };
 
 /** An empty palette slot, `{}`: it keeps later indices where they were. */
@@ -699,7 +699,7 @@ function checkRecords(
 
 // ---- the tile references and the palette
 
-const TILE_WANTED = "a tile reference: `{legacy: <text>}` or `{tileset: <path of a .tkrtile>, tile: <local tile id>}`";
+const TILE_WANTED = "a tile reference: `{legacy: <text>}` or `{tileset: <path of a .tkrtst>, tile: <local tile id>}`";
 
 /** A native or legacy tile reference; an empty `{}` is accepted only where `allowEmpty` (a palette slot). */
 function checkTileReference(value: unknown, path: ClipPath, allowEmpty: boolean, out: Raw[]): void {
@@ -1172,7 +1172,7 @@ export function sceneFindings(scene: unknown): readonly SceneFinding[] {
 export type SceneNativeReference = {
   /** The mapping that holds it, for example `tilePalette[2]`; its keys are `tileset` and `tile`, or `pack` and `asset`. */
   readonly path: string;
-  /** `tile`: a tile of a `.tkrtile`; `asset`: an asset of a `.tkrpack`. */
+  /** `tile`: a tile of a `.tkrtst`; `asset`: an asset of a `.tkrpack`. */
   readonly kind: "tile" | "asset";
   /** The path of the native document, as written. */
   readonly document: string;
