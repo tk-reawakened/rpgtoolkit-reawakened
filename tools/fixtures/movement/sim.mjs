@@ -56,6 +56,7 @@ export class World {
     this.repeat = new Map();
     this.gone = new Set();
     this.walked = 0;
+    this.battleDest = null;
     this.pendingSend = null;
     this.threads = [];
     this.tick = -1;
@@ -99,6 +100,7 @@ export class World {
       idleCount: 0,
       stepDone: false,
       stepDoneOrigin: false,
+      stepDest: null,
       anims: def.anims ?? null,
       idleMs: def.idleMs ?? 3000,
       anim: null,
@@ -130,7 +132,10 @@ export class World {
     return (a) => ticksPerAdvance(a.speed, this.board.gameSpeed ?? 0);
   }
   cellOf(a) {
-    return [Math.floor(a.x / FP / 32), Math.floor(a.y / FP / 32)];
+    return this.cellOfPoint(a);
+  }
+  cellOfPoint(point) {
+    return [Math.floor(point.x / FP / 32), Math.floor(point.y / FP / 32)];
   }
   emit(type, data = {}) {
     this.ev.push({ e: type, ...data });
@@ -576,7 +581,7 @@ export class World {
       const other = solid === null ? this.spriteHit(a, c.tx, c.ty) : null;
       if (solid !== null || other !== null) {
         if (dirIdx >= 0) a.facing = dirIdx;
-        if (a.kind === "player") this.walked += c.sx === a.x && c.sy === a.y ? 32 * FP : 0;
+        if (a.kind === "player") this.countBlockedStep(a, c);
         else a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
         this.emit("blocked", { actor: a.id, by: (solid ?? other).id });
         finish(true);
@@ -662,6 +667,19 @@ export class World {
     for (const id of nowUnder) if (!a.under.has(id)) this.emit("under-enter", { actor: a.id, vector: id });
     for (const id of a.under) if (!nowUnder.has(id)) this.emit("under-leave", { actor: a.id, vector: id });
     a.under = nowUnder;
+  }
+
+  /**
+   * R-64 item 2: the player's consumed blocked direction-style tile step is processed as a step event.
+   * Step-triggered programs and items and the random-battle check run at the step's intended destination
+   * (`c.tx`/`c.ty`). The step contributes no repeat-distance travel; R-64 names no repeat contribution and
+   * PROPOSED P-19 records the open point. The party remainder's one-tile rule is not modelled here: these
+   * scenes record positions, trigger facts and events, never the party step counter.
+   */
+  countBlockedStep(a, c) {
+    a.stepDone = true;
+    a.stepDoneOrigin = c.triggerOrigin ?? false;
+    a.stepDest = { x: c.tx, y: c.ty };
   }
 
   afterAdvance(a, c, nx, ny, reach, tpa, finish) {
@@ -808,13 +826,17 @@ export class World {
     const p = this.player;
     const stepEvent = p.stepDone;
     const stepOrigin = p.stepDoneOrigin;
+    // R-64 item 2: a counted blocked step is evaluated at the tile the player pressed into.
+    const stepDest = p.stepDest;
     p.stepDone = false;
     p.stepDoneOrigin = false;
+    p.stepDest = null;
+    this.battleDest = stepDest;
     const keyEvent = Boolean(this.activateKey);
     this.activateKey = false;
     let stepped = false;
     if (stepEvent) {
-      this.evaluate("step", stepOrigin);
+      this.evaluate("step", stepOrigin, stepDest);
       stepped = true;
     }
     if (keyEvent) this.evaluate("key");
@@ -826,9 +848,11 @@ export class World {
     return c === null || c === undefined || this.vars[c.var] === c.value;
   }
 
-  evaluate(kind, suppressed = false) {
+  evaluate(kind, suppressed = false, dest = null) {
     const p = this.player;
-    const base = translate(p.base, p.x, p.y);
+    // R-64 item 2: step processing (including the E-40 re-arm test) runs where the step was headed; a key
+    // press (E-41) always tests the base at the player's own position.
+    const base = dest === null ? translate(p.base, p.x, p.y) : translate(p.base, dest.x, dest.y);
     const regions = this.board.programs.filter((r) => r.layer === p.layer && !this.gone.has(r.id));
     const items = this.items.filter((i) => i.visible && i.trigger !== null && i.layer === p.layer && !this.gone.has(`item:${i.id}`));
     // Re-arm on leaving (E-40, E-42): a trigger whose area the player is no longer in forgets its state.
@@ -914,9 +938,11 @@ export class World {
     const b = this.board.battle;
     const p = this.player;
     if (!stepped || !b || !this.setup.fightEnabled) return;
-    const cell = this.cellOf(p);
+    // R-64 item 2: a counted blocked step runs the battle check at its intended destination. Progress
+    // still records the actor's real tile, so the following tick does not re-check the tile it stands on.
+    const cell = this.battleDest === null ? this.cellOf(p) : this.cellOfPoint(this.battleDest);
     if (cell[0] === this.lastCell[0] && cell[1] === this.lastCell[1]) return;
-    this.lastCell = cell;
+    this.lastCell = this.cellOf(p);
     this.emit("tile-moved", { cell });
     if (!b.allowed) return;
     let fight = false;

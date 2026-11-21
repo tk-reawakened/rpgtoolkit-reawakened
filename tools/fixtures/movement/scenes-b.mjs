@@ -36,6 +36,24 @@ export function triggersPrecedence() {
   };
 }
 
+export function tileStepPrecheckEvents() {
+  // R-63/R-64: a direction-style tile step that is blocked at its destination never advances, but the
+  // player consumes it, counts it, and runs end-of-step processing at the tile it pressed into.
+  const wall = solid("wall", 76, 32, 84, 224);
+  const door = region("door", "step", 64, 47, 96, 79);
+  const trail = region("trail", "repeat", 64, 47, 160, 79, { distanceRepeat: 40 });
+  const battlefield = { allowed: true, type: 1, chances: 1, skill: 1, background: "cave.bkg" };
+  const press = (dirs, t = 0) => ({ t, op: "push", actor: "hero", dirs });
+  return {
+    spec: ["movement-and-collision.md#r-63", "movement-and-collision.md#r-64", "movement-and-collision.md#e-40", "movement-and-collision.md#e-42", "plugins-and-battle.md#random-encounters"],
+    cases: [
+      makeCase("blocked-counted-step-fires-the-step-region-at-the-destination", "R-63 makes the step into the wall never advance; R-64 item 2 makes the consumed step a step event, so the step region on the tile the player pressed into (x 64..96) fires on that tick even though the player still stands at x 48.", { board: "field", boards: { field: board({ vectors: [wall], programs: [door] }) }, players: [hero({ x: 48, y: 63, speed: 0.02 })] }, [press("E")], 12),
+      makeCase("blocked-counted-step-checks-battles-at-the-destination", "R-64 item 2 runs the random-battle check at the intended destination: one tile is counted (tile x 1 to x 2) even though the player never leaves its tile. PROPOSED P-10 fixes the draws.", { board: "field", boards: { field: board({ vectors: [wall], battle: battlefield }) }, players: [hero({ x: 48, y: 63, speed: 0.02 })], fightEnabled: true, encounterTable: [{ enemy: "rat.ene", skill: 1 }], rng: [0, 0] }, [press("E")], 8),
+      makeCase("blocked-counted-step-does-not-leak-into-repeat-distance", "R-64 item 2 gives the consumed step the party remainder and end-of-step processing, and names no repeat-distance contribution: two presses into the wall therefore add 0 px to the repeat counter. The second press must not fire the 40 px repeat region (PROPOSED P-19).", { board: "field", boards: { field: board({ vectors: [wall], programs: [trail] }) }, players: [hero({ x: 48, y: 63, speed: 0.02 })] }, [press("E"), press("E", 8)], 20),
+    ],
+  };
+}
+
 export function actorHydrationItemMultitask() {
   const hall = board({
     threads: [{ id: "hall.ambience", kind: "board" }],

@@ -1,0 +1,173 @@
+{
+  "scene": "tile-step-precheck-events",
+  "schema": 1,
+  "note": "Authored from docs/spec; expected facts are derived by tools/fixtures/movement, not by packages/core. No state or draw hashes: later entries assert those.",
+  "tick": "60 Hz fixed; phases input, waits, threads, events, movement, edges, triggers, animation, audio, time (AD-26); random encounters hand off from triggers.",
+  "units": "board pixels; fractions are exact multiples of 1/256",
+  "spec": [
+    "movement-and-collision.md#r-63",
+    "movement-and-collision.md#r-64",
+    "movement-and-collision.md#e-40",
+    "movement-and-collision.md#e-42",
+    "plugins-and-battle.md#random-encounters"
+  ],
+  "proposed": ["P-6","P-10","P-19"],
+  "cases": [
+    {
+      "name": "blocked-counted-step-fires-the-step-region-at-the-destination",
+      "note": "R-63 makes the step into the wall never advance; R-64 item 2 makes the consumed step a step event, so the step region on the tile the player pressed into (x 64..96) fires on that tick even though the player still stands at x 48.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"wall","type":"solid","layer":0,"closed":true,"points":[[76,32],[84,32],[84,224],[76,224]]}],
+            "programs": [{"id":"door","type":"step","layer":0,"points":[[64,47],[96,47],[96,79],[64,79]],"program":"door.prg"}],
+            "items": [],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 12,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"door","program":"door.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":9,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",48,63,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "blocked-counted-step-checks-battles-at-the-destination",
+      "note": "R-64 item 2 runs the random-battle check at the intended destination: one tile is counted (tile x 1 to x 2) even though the player never leaves its tile. PROPOSED P-10 fixes the draws.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"wall","type":"solid","layer":0,"closed":true,"points":[[76,32],[84,32],[84,224],[76,224]]}],
+            "programs": [],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "battle": {"allowed":true,"type":1,"chances":1,"skill":1,"background":"cave.bkg"}
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}],
+        "fightEnabled": true,
+        "encounterTable": [{"enemy":"rat.ene","skill":1}],
+        "rng": [0,0]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 8,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","E"]],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true},{"e":"tile-moved","cell":[2,1]},{"e":"rng-draw","n":4,"value":0},{"e":"rng-draw","n":1,"value":0},{"e":"fight-handoff","board":"field","player":"hero","x":48,"y":63,"layer":0,"enemies":["rat.ene"],"background":"cave.bkg"}]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",48,63,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "blocked-counted-step-does-not-leak-into-repeat-distance",
+      "note": "R-64 item 2 gives the consumed step the party remainder and end-of-step processing, and names no repeat-distance contribution: two presses into the wall therefore add 0 px to the repeat counter. The second press must not fire the 40 px repeat region (PROPOSED P-19).",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"wall","type":"solid","layer":0,"closed":true,"points":[[76,32],[84,32],[84,224],[76,224]]}],
+            "programs": [
+              {
+                "id": "trail",
+                "type": "repeat",
+                "layer": 0,
+                "points": [[64,47],[160,47],[160,79],[64,79]],
+                "program": "trail.prg",
+                "distanceRepeat": 40
+              }
+            ],
+            "items": [],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"},
+        {"t":8,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 20,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"trail","program":"trail.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",48,63,0,"waiting","E"]],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":9,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":12,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":13,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":14,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":15,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":16,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":17,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":18,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":19,"a":[["hero",48,63,0,"waiting","E"]]}
+      ]
+    }
+  ]
+}

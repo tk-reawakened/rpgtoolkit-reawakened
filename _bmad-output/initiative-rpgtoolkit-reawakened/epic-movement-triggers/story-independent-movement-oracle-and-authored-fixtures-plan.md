@@ -29,10 +29,10 @@ Generator/check mode reproduces all committed fixtures; static import scan prove
 
 ## Scope
 
-The producer is limited to authored JSON movement scenes, a core-independent reference tick machine, deterministic generation/checking, and fixture-tool tests. It does not implement runtime movement, alter state/draw hash contracts, or copy corpus files. The fourteen scene names are the stable downstream contract:
+The producer is limited to authored JSON movement scenes, a core-independent reference tick machine, deterministic generation/checking, and fixture-tool tests. It does not implement runtime movement, alter state/draw hash contracts, or copy corpus files. The fifteen scene names are the stable downstream contract:
 `movement-tile-pixel`, `collision-solid-stairs-under`, `collision-sprite-blocking`,
 `edges-board-link-program`, `board-entry-thread-lifecycle`, `triggers-precedence`,
-`actor-hydration-item-multitask`, `pathfinding-axial-diagonal-vector`,
+`tile-step-precheck-events`, `actor-hydration-item-multitask`, `pathfinding-axial-diagonal-vector`,
 `input-replay-button-slots`, `movement-waits`, `animation-fallback-stance`,
 `random-encounter`, `demo-npc-pathfinding`, and `demo-npc-battle-trigger`.
 
@@ -66,7 +66,7 @@ contracts.
 - `tools/fixtures/movement/input.mjs` — keyboard/gamepad/pointer replay and
   button-slot facts for E-112.
 - `tools/fixtures/movement/common.mjs`, `scenes-a.mjs`, `scenes-b.mjs`,
-  `scenes-c.mjs` — authored boards/actors and the fourteen named scene cases.
+  `scenes-c.mjs` — authored boards/actors and the fifteen named scene cases.
 - `tools/fixtures/movement/index.mjs` — stable scene manifest, proposed-ruling
   registry, corpus digest checks and static workspace-import scan.
 - `tools/fixtures/author/generate.mjs` — writes/checks movement fixtures beside
@@ -112,10 +112,17 @@ the scene records the observable consequence and the rejected alternative:
 - P-14/P-15/P-16: animation delay rounding, waits-phase wake-up, path diversion
   and 120-tick retests are explicit. Evidence: E-21, R-51 and AD-26. Rejected
   wall-clock waits, immediate wake-up, or unbounded diversion search.
+- P-19: a counted blocked player step adds 0 px to a repeat region's distance
+  counter. R-64 item 2 grants the tile to the party remainder and names only
+  the step-triggered programs, item activations and the random-battle check as
+  end-of-step processing; it does not state a repeat-distance contribution.
+  Evidence: R-64 item 2, E-42. Rejected: counting the tile twice, once in the
+  party remainder and again in repeat distance. The ambiguity is recorded on
+  #3311 for owner review.
 
 ## Acceptance mapping
 
-1. `movementFixtureFiles()` and `fixtures:author --check` reproduce all fourteen
+1. `movementFixtureFiles()` and `fixtures:author --check` reproduce all fifteen
    committed scene files and `manifest.json` byte-for-byte.
 2. `checkMovementImports()` statically rejects core/workspace imports in every
    movement module and the author generator.

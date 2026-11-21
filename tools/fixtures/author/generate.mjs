@@ -38,7 +38,7 @@
 //   * four GIFs (docs/spec/formats/images.md#gif) — still GIF87a, animated
 //     three-page GIF89a with sub-rectangles and disposal, interlaced GIF89a,
 //     and a 128×64 page that exercises the deferred clear code.
-//   * the movement oracle's fourteen named scenes (ticket 5.2,
+//   * the movement oracle's fifteen named scenes (ticket 5.2,
 //     `tools/fixtures/movement/`): authored boards, actors and fixed-tick recorded
 //     inputs with expected per-tick outcome facts (positions, layers, fired
 //     triggers, events) derived by that directory's own reference simulation.

@@ -19,7 +19,7 @@ const repoRoot = resolve(here, "..", "..", "..");
 
 const NAMED = [
   "movement-tile-pixel", "collision-solid-stairs-under", "collision-sprite-blocking", "edges-board-link-program",
-  "board-entry-thread-lifecycle", "triggers-precedence", "actor-hydration-item-multitask", "pathfinding-axial-diagonal-vector",
+  "board-entry-thread-lifecycle", "triggers-precedence", "tile-step-precheck-events", "actor-hydration-item-multitask", "pathfinding-axial-diagonal-vector",
   "input-replay-button-slots", "movement-waits", "animation-fallback-stance", "random-encounter",
   "demo-npc-pathfinding", "demo-npc-battle-trigger",
 ];
@@ -227,6 +227,30 @@ test("triggers-precedence: once-per-entry, repeat distance, precedence, conditio
   deepEqual(fired(appended), [[7, "shove"], [39, "later"]]);
   deepEqual(actorAt(appended, 99, "hero").slice(1, 3), [208, 63]);
   deepEqual(fired(theCase(sc, "hidden-item-is-not-a-candidate")), [[39, "secret"]]);
+});
+
+test("tile-step-precheck-events: a counted blocked step is processed at its intended destination", () => {
+  const sc = "tile-step-precheck-events";
+  // R-63: the step into the wall (x 76..84) never advances, so the player stays at x 48 and only turns.
+  const door = theCase(sc, "blocked-counted-step-fires-the-step-region-at-the-destination");
+  deepEqual(door.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "door"]]);
+  deepEqual(actorAt(door, 0, "hero").slice(1, 3), [48, 63]);
+  equal(actorAt(door, 0, "hero")[5], "E");
+  deepEqual(events(door, "blocked").map((e) => [e.t, e.by]), [[0, "wall"]]);
+  deepEqual(events(door, "movement-complete").map((e) => [e.t, e.blocked]), [[0, true]]);
+  equal(events(door, "step-complete").length, 0);
+  // R-64 item 2: the battle check runs at the intended destination tile (x 48 is tile 1, x 80 is tile 2).
+  const battle = theCase(sc, "blocked-counted-step-checks-battles-at-the-destination");
+  deepEqual(events(battle, "tile-moved").map((e) => [e.t, e.cell]), [[0, [2, 1]]]);
+  deepEqual(events(battle, "rng-draw").map((e) => [e.n, e.value]), [[4, 0], [1, 0]]);
+  const handoff = events(battle, "fight-handoff")[0];
+  equal(handoff.t, 0);
+  deepEqual(handoff.enemies, ["rat.ene"]);
+  deepEqual([handoff.x, handoff.y], [48, 63]);
+  // P-19: the counted step adds 0 px to repeat distance, so the second 40 px pass never fires.
+  const repeat = theCase(sc, "blocked-counted-step-does-not-leak-into-repeat-distance");
+  deepEqual(repeat.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "trail"]]);
+  deepEqual(events(repeat, "blocked").map((e) => e.t), [0, 8]);
 });
 
 test("actor-hydration-item-multitask: compacted order, hidden items and thread ownership", () => {

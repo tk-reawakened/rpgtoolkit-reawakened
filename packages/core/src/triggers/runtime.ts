@@ -388,12 +388,15 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   const stepEligible = step && !triggerStep;
   const movementEvent = stepEligible || moving;
   const kind = key ? "key" : "step";
-  // R-64: a blocked player tile step is processed at the step's intended destination.
+  // R-64 item 2: a blocked player tile step's end-of-step processing (step triggers, item activations and
+  // the random-battle check) runs at the step's intended destination. Only STEP processing moves there:
+  // a key activation (E-41) still tests the player's own collision base where the player stands.
   const stepDestination = step && player.movement.lastStepBlocked && player.movement.lastStepTarget !== null
     ? player.movement.lastStepTarget
     : null;
+  const playerBase = playerShape(player);
   const shape = stepDestination === null
-    ? playerShape(player)
+    ? playerBase
     : translate(player.collisionBase.points as WorldPoint[], stepDestination.x, stepDestination.y);
   const regions = (board.programs ?? []).map(regionCandidate);
   const items: Candidate[] = [];
@@ -434,8 +437,10 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     // A trigger belongs to the layer it was authored on: only the player's own layer may fire it
     // (docs/spec/engine/movement-and-collision.md#triggers). Regions are collected from every layer,
     // so the comparison has to be here as well as in the item list above.
+    // R-64 item 2: a step is tested where it was headed; a key press is tested where the player stands.
+    const testShape = eventKind === "step" ? shape : playerBase;
     const inArea = candidate.layer === player.layer
-      && (candidate.source === "item" ? overlaps(shape, itemShape(candidate)) : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
+      && (candidate.source === "item" ? overlaps(testShape, itemShape(candidate)) : overlaps(testShape, polygon(candidate.points), candidate.closed !== 0));
     if (!inArea || !conditionMatches(state, candidate) || candidate.program === "") return false;
     if (eventKind === "key") return pointerTarget === undefined || candidate.key === pointerTarget;
     const fired = section.fired[candidate.key] === true;

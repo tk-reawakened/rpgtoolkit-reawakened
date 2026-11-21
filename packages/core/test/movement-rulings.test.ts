@@ -62,8 +62,8 @@ function stateWith(currentBoard: WorldBoard, players = sprites(currentBoard).pla
   return state;
 }
 
-function region(points: WorldProgram["points"]): WorldProgram {
-  return { program: "region-0", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "", activate: 0, activationType: 0, repeatDistance: 0, layer: 1, points, closed: 1, handle: "r0" };
+function region(points: WorldProgram["points"], activationType = 0): WorldProgram {
+  return { program: "region-0", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "", activate: 0, activationType, repeatDistance: 0, layer: 1, points, closed: 1, handle: "r0" };
 }
 
 const programRef = (name: string) => ({ kind: "inline" as const, text: `mark("${name}")\nend()`, ir: IR_VERSION, dialect: "tk3" as const });
@@ -137,6 +137,23 @@ test("R-64 suppresses blocked-step processing while a program owns input", () =>
   equal(current.party.steps, 0, "end-of-step processing is suppressed");
   equal(current.party.stepRemainder, 0);
   equal(current.sprites.players[0]?.movement.lastStepTarget, null, "no destination processing is recorded");
+});
+
+test("R-64 keeps a key activation on the player's own shape when the blocked step is processed at its destination", () => {
+  const destination = { x: 64, y: 47 };
+  const keyRegion = region([{ x: destination.x, y: destination.y }, { x: destination.x + TILE, y: destination.y }, { x: destination.x + TILE, y: destination.y + TILE }, { x: destination.x, y: destination.y + TILE }], 1);
+  const current = stateWith(board([wall(76, 84)], [keyRegion]));
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  movementPhaseRegistration().run(current);
+  equal(current.sprites.players[0]?.x, 48, "the blocked east step never moves the player");
+  equal(current.sprites.players[0]?.movement.lastStepBlocked, true, "the step is the counted blocked step");
+  equal(current.party.steps, 1, "the blocked step counts one tile");
+  // E-41: the key region fires only while the player is inside it. The player stands at (48, 63), whose
+  // collision base spans x 33..63; the region starts at x 64, so only the destination shape could reach it.
+  current.input.keys.push({ seq: 1, name: "ENTER", code: "Enter", char: "\n", action: null, resolvedActions: [] });
+  const events = runTriggersPhase(current, { programRef });
+  equal(current.triggers.active, null, "the key region on the tile the player pressed into does not fire");
+  equal(events.some((record) => record.type === "trigger-start" && record.key === "region:0"), false);
 });
 
 test("R-64 runs the battle check at the blocked step's destination", () => {
