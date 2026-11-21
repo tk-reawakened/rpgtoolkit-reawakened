@@ -145,7 +145,20 @@ A floor's cells are written as **runs** `[count, index]`: `count` consecutive ce
 
 ### Resolving painted terrain
 
-This defines the cell resolver for the [painted terrain proposal](../../design/terrain-scene-contract-proposal.md#resolution). It does not register new scene fields or change legacy import.
+This section applies at the [pre-release terrain cutover](../../adr/0019-tkr-authoring-formats.md#amendment-retained-terrain-and-standalone-tiles). It changes neither legacy import nor the meaning of a base tile run.
+
+The closed top-level mapping gains two optional lists immediately after `tilePalette`. An absent list is empty:
+
+| List | Closed record in writer key order |
+|---|---|
+| `terrainRegions` | Required `id`, optional `label`, required `floor`, `terrain` and `coverage`. `id` is a unique local ID, `label` is non-empty editor text and `floor` names an existing floor. `terrain` has exactly `tileset` (path of a `.tkrtst`) and `terrain` (its local terrain ID). `coverage` has exactly `shape: tile-grid` and `spans`, a possibly empty list of `[x, y, length]` cell spans. |
+| `tileOverrides` | Optional unique local `id`, required `floor`, `cell` and `tile`. `floor` names an existing floor; `cell` is `[x, y]`. `tile` is `{tile: <.tkrtle path>}`, `{legacy: <legacy tile reference>}` or `{}`. The empty mapping means deliberately no tile, not a missing override. |
+
+Addresses are zero-based integers on the same effective grid as `tiles`. A span's positive length must stay within its row. Spans are ordered by `y` then `x` without overlap; a reader accepts adjacent spans, and an editor rewriting coverage writes maximal spans. Region order is paint order and is never normalized. An override must be unique by floor and cell. Override order affects nothing; a writer inserting one places it in floor, row and column order.
+
+The palette and `boundarySources.walkableTiles` use the same native tile path form, replacing `{tileset, tile: <local id>}`. The boundary list still does not accept `{}`. Inventory and rename include `tilePalette[].tile`, `floors[].boundarySources.walkableTiles[].tile`, `tileOverrides[].tile.tile` and both fields of `terrainRegions[].terrain`. Only the final field is a terrain-local ID; the others are native document paths. A project check locates an unresolved document or terrain at its reference; it does not substitute a tile.
+
+#### Cell precedence
 
 1. On each floor, mark the runs of every region in paint order on the effective cell grid described above. A later region replaces the owner of each shared cell without clipping the earlier region's authored spans. Floors are independent.
 2. At an owned cell, `same` means the neighbouring cell's final owner names the same normalized tileset document and exact terrain ID, regardless of region ID. Outside the effective grid, use the recipe's `outside` value (default `other`). Base tiles and manual overrides never enter this comparison.
