@@ -809,3 +809,13 @@ test("the main screen keeps every command visible with five party members", () =
   ok(dim(44), "the first party line is drawn");
   ok(dim(62), "and a `+k more` line follows it instead of four more lines that would run into the commands");
 });
+
+test("#1091: a key the game file binds to a movement action navigates the menu, and the menu names no key", () => {
+  const session = boot({ startup: "mainmenu()\n" });
+  session.pump((state) => state.menu.screens.length === 1);
+  session.state().input.bindings.keys.KeyS = "down";
+  const tick = session.state().time.tick;
+  session.engine.advance(1, [{ tick, event: { kind: "key", name: "S", code: "KeyS", char: "s", down: true } }]);
+  const after = session.pump((state) => state.menu.screens[0]?.selection === 1);
+  equal(after.menu.screens[0]!.selection, 1, "KeyS, bound to down, moved the cursor one row");
+});
