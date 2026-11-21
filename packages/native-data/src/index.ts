@@ -67,6 +67,10 @@ export {
   type Tileset, type TilesetProblem, type TilesetReadResult,
 } from "./tileset.ts";
 export {
+  readTerrainTileset, writeTerrainTileset, checkTerrainTileset,
+  type TerrainTileset, type TerrainTilesetReadResult, type TerrainSlot,
+} from "./terrain-tileset.ts";
+export {
   TILE_CONTRACT, TILE_VERSION, checkTile, readTile, writeTile,
   type NativeTile, type NativeTileSample, type TileProblem, type TileReadResult, type TileWriteResult,
 } from "./tile.ts";
