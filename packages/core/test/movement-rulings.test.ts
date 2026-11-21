@@ -8,6 +8,7 @@ import {
   actorFromSource,
   createEmptyBoard,
   createGameState,
+  createScriptServices,
   enqueueDirectionMove,
   hydrateSprites,
   IR_VERSION,
@@ -17,13 +18,14 @@ import {
   runTriggersPhase,
   snapshot,
   startThread,
+  type Arg,
   type GameState,
   type MovementEvent,
   type WorldBoard,
   type WorldProgram,
 } from "../src/index.ts";
 import { runRandomEncounterPhase } from "../src/sprites/encounters.ts";
-import { applySpriteEffect } from "../src/script/packs/movement.ts";
+import { applySpriteEffect, MOVEMENT_PLUGIN } from "../src/script/packs/movement.ts";
 import { enqueueMove } from "../src/sprites/runtime.ts";
 import { pixelToTile, coordLayout } from "../src/world/coords.ts";
 
@@ -283,4 +285,75 @@ test("R-65 keeps one FIFO across kinds; a direction after a point starts where t
   enqueueDirectionMove(current, "hero", "E", 0);
   for (let tick = 0; tick <= 60; tick += 1) runMovementPhase(current, currentBoard, tick);
   equal(current.players[0]?.x, 96, "the direction starts from the point's actual end");
+});
+
+// R-65 item 5 / owner ruling on ambiguity 4 ---------------------------
+
+/** Call one movement built-in directly and read its by-reference outputs. */
+function getPath(
+  command: "playergetpath" | "itemgetpath",
+  state: GameState,
+  handle: number,
+  index: number,
+): { value: unknown; out: readonly (readonly [number, unknown])[] } {
+  const services = createScriptServices(state, [{ definition: MOVEMENT_PLUGIN }]);
+  const spec = services.commands.get(command)?.spec;
+  if (spec === undefined) throw new Error(`missing ${command}`);
+  const args: Arg[] = [
+    { value: handle, ref: null },
+    { value: index, ref: null },
+    { value: 0, ref: "x" as never },
+    { value: 0, ref: "y" as never },
+  ];
+  return spec.call(services.view, args, () => ({ value: null })) as { value: unknown; out: readonly (readonly [number, unknown])[] };
+}
+
+test("playergetpath reports where each queued entry would end, including a direction entry", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueMove(current.sprites, "hero", { source: "points", target: { x: 200, y: 100 }, facing: null });
+  const first = getPath("playergetpath", current, 0, 0);
+  deepEqual([first.value, first.out], [1, [[2, 80], [3, 63]]], "the direction entry reports its computed pixel point");
+  const second = getPath("playergetpath", current, 0, 1);
+  deepEqual([second.value, second.out], [1, [[2, 200], [3, 100]]], "the point entry keeps its absolute target");
+});
+
+test("itemgetpath reports where each queued entry would end, including a direction entry", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
+  current.sprites.items = [npc];
+  enqueueDirectionMove(current.sprites, "npc", "E", 0);
+  enqueueMove(current.sprites, "npc", { source: "points", target: { x: 200, y: 100 }, facing: null });
+  const first = getPath("itemgetpath", current, 0, 0);
+  deepEqual([first.value, first.out], [1, [[2, 80], [3, 63]]], "the direction entry reports its computed pixel point");
+  const second = getPath("itemgetpath", current, 0, 1);
+  deepEqual([second.value, second.out], [1, [[2, 200], [3, 100]]], "the point entry keeps its absolute target");
+});
+
+test("playergetpath recomputes a direction after a blocked step from the last safe position", () => {
+  const clearBoard = board();
+  const current = stateWith(clearBoard);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  runMovementPhase(current.sprites, clearBoard, 0);
+  equal(current.sprites.players[0]?.x, 52, "the first advance is safe");
+  const blockedBoard = board([wall(70, 74)]);
+  current.world = { ...current.world, board: blockedBoard };
+  for (let tick = 1; tick <= 5; tick += 1) {
+    current.time = { ...current.time, tick };
+    movementPhaseRegistration().run(current);
+  }
+  equal(current.sprites.players[0]?.x, 52, "the blocked step stops at the last safe position");
+  equal(current.sprites.players[0]?.movement.lastStepBlocked, true, "the step that was aimed at 80 is blocked");
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const point = getPath("playergetpath", current, 0, 0);
+  deepEqual([point.value, point.out], [1, [[2, 84], [3, 63]]], "the next direction starts from 52, not the blocked target 80");
+});
+
+test("playergetpath still returns 0 when the player has no queued entries", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const empty = getPath("playergetpath", current, 0, 0);
+  deepEqual([empty.value, empty.out], [0, [[2, 0], [3, 0]]], "no entry reports no point");
 });
