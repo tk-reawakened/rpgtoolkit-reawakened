@@ -134,11 +134,17 @@ test("R-64 suppresses blocked-step processing while a program owns input", () =>
   const current = stateWith(currentBoard);
   startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
   enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueDirectionMove(current.sprites, "hero", "N", 0);
   movementPhaseRegistration().run(current);
-  equal(current.sprites.players[0]?.queue.moves.length, 0, "the entry is still consumed");
+  equal(current.sprites.players[0]?.queue.moves.length, 1, "the blocked entry is still consumed");
   equal(current.party.steps, 0, "end-of-step processing is suppressed");
   equal(current.party.stepRemainder, 0);
   equal(current.sprites.players[0]?.movement.lastStepTarget, null, "no destination processing is recorded");
+  // R-64 item 1 applies to an uncounted block too: the script-owned east block still leaves the queued north
+  // entry to start on the following update, not one advance cadence later.
+  current.time = { ...current.time, tick: current.time.tick + 1 };
+  movementPhaseRegistration().run(current);
+  equal(current.sprites.players[0]?.y, 63 - TILE / 8, "north advances one 4 px step on the update after the block");
 });
 
 test("R-64 keeps a key activation on the player's own shape when the blocked step is processed at its destination", () => {
