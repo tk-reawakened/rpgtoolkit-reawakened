@@ -113,6 +113,14 @@ A flat `.tst` binding emits only the `tiles` rows. An unreferenced block recipe 
 
 `autotiles`, when present, is an ordered list of unique ids. Each entry has a non-empty `name`, `mode` (`blob-47`), `base`, `border`, and `innerCorner` source-cell references, and `exportOrder` (`t25-canonical`). Each reference has exactly `source` and `cell`, names a source in this document and a valid cell. `blob-47` denotes the 8-neighbour 47-variant blob mask family; `t25-canonical` selects its fixed canonical output ordering. Unsupported modes or orderings are errors, not best-effort fallbacks.
 
+### Built-in terrain matcher
+
+This defines how `builtin/neighbour-match@1.0.0` chooses a tile for the [terrain recipe proposal](../../design/tile-tool-contract-proposal.md#how-a-terrain-recipe-is-read). It does not register the proposed recipe or scene fields or define the legacy `t25-canonical` export order.
+
+1. The scene supplies the eight `same` bits after resolving region ownership and the outside-grid rule. Bits 0 through 7 are `n`, `e`, `s`, `w`, `nw`, `ne`, `se`, `sw`. `cardinal-4` discards all diagonal bits. In `blob-8`, a diagonal is present only when both adjacent cardinal bits are set. Its value then comes from the supplied mask. Reduce the input by clearing every absent bit.
+2. A rule matches only when all of its named neighbours are present and have their stated values. Omitting a neighbour makes no test of it. A recipe with overlapping rules or a rule that can match no reduced situation is invalid. `complete` requires exactly one match for every reduced situation. `partial` reports the count of missing situations; encountering one during a build is a located error, not a fallback.
+3. A matched `use` selects one tile. A matched `variants` list has positive integer weights with total at most 4,294,967,295. Take the unsigned 32-bit FNV-1a hash (offset 2,166,136,261; multiplier 16,777,619) of the ASCII floor ID followed by a zero byte, the seed (default zero, signed 32-bit), cell `x` and `y` (unsigned 32-bit), and the one-byte reduced mask. The three four-byte values are little-endian. Take the hash modulo total weight and choose the first variant whose cumulative weight is strictly greater. Labels, path spellings, input rule order and unrelated scene cells do not enter the hash.
+
 ### Output binding
 
 `outputBinding` is required and has exactly `target` and `detail`. `target` is a project-relative destination path for the generated `.tst` output; it must not be a native-document identity or overwrite a source. `detail` is a positive integer legacy tile detail value. The build is deterministic for the same document and source bytes. The output is generated, not a second authoring document.
