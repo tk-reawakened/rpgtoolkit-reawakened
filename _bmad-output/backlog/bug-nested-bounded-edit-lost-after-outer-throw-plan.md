@@ -10,7 +10,7 @@ route_source: 'auto'
 risk: 'medium'
 review: 'quick'
 review_source: 'pinned'
-lenses_ran: ['quick', 'quick', 'quick']
+lenses_ran: ['quick', 'quick', 'quick', 'quick']
 review_loop_iteration: 0
 context: []
 ---
@@ -68,7 +68,7 @@ context: []
 
 - Nested rollback bookkeeping now copies only changed RGBA channels, including commits made through a public `editSurface` child. A failed newly-created parent keeps a valid committed child in the open batch without eagerly encoding it.
 - Alias rebase now compares active provisional writes against rollback-aware committed pixels from frame entry, preserving prior unmaterialized writes on disjoint alias commits while newer canonical values win overlapping pixels. Empty bounded edits return without revision bumps.
-- Canonical materialization flushes dirty entries from the active surface batch before serialization, so pending script-screen resets are included.
+- Canonical serializers flush dirty entries from the active surface batch before serialization; frame presentation only materializes the presented cache, preserving deferred script-screen edits.
 
 ## Design Notes
 
@@ -83,6 +83,9 @@ Rollback snapshots are RGBA bytes, but transaction ownership is per changed chan
 - `node --test --test-name-pattern="issue #3281" packages/core/test/surface-batch.test.ts` — executes and passes same-pixel conflict, disjoint-pixel preservation, and a prior-batch edit across an alias snapshot.
 - `node --test --test-name-pattern="issue #3282" packages/core/test/surface-batch.test.ts` — executes and passes the script-screen snapshot regression.
 - `node --test --test-name-pattern="bounded eager edits keep b64 equal to a full re-encode and to a plain-buffer model" packages/core/test/surface-batch.test.ts` — verifies revision expectations for both empty and non-empty bounded operations while retaining seeded pixel/canonical checks.
+- `node --test --test-name-pattern="a heavy tick of script drawing materialises one snapshot" packages/core/test/engine.test.ts` — keeps the heavy-tick materialization count at one.
+- `node --test --test-name-pattern="batching stays on for a main-file game with a package catalogue and phase registrations" packages/core/test/engine.test.ts` — confirms batching stays enabled with package and phase registrations.
+- `pnpm editor-ui-toolchain:check` — generated help is current and bundle scanning passes.
 - Real-board performance profile: final follow-up code remains unverified; no headed Chromium session was started.
 - `pnpm --filter @tk-reawakened/core run typecheck:tests` — succeeds for core sources and tests.
 ## Review Triage Log
@@ -91,4 +94,5 @@ Rollback snapshots are RGBA bytes, but transaction ownership is per changed chan
 |---------|---------------------|-------|
 | Seeded eager-edit revision assertion | **medium** — the existing randomized test assumed every bounded draw advances `rev`; `SIZES` includes `0×0`, and the targeted run failed at line 218 (`actual: 1`, `expected: 2`) for empty bounds. The test now increments from the pre-edit revision only when bounds are nonempty; pixel-model and canonical checks remain, and the targeted rerun passed. | patch |
 | Rebase compares active draft with stale bitmap baseline | **medium** — a concrete same-batch sequence showed the frame's red-10 committed value was compared against the stale zero bitmap baseline, dropping its active red-200 edit when an alias snapshot changed only pixel 1. The rebase now uses rollback-aware committed pixels, and the added #3281 control preserves red 200 plus the alias pixel; both #3281 cases pass. | patch |
+| Frame publication flushed a live script batch | **medium** — required CI's unit shard 6 caught two engine assertions at `engine.test.ts:1581` and `:1703` (actual 2, expected 1). A focused trace showed `refreshFrame`'s script `refreshScreen` path flushed the active batch, followed by the normal end-of-batch write. The presentation path no longer flushes unrelated script edits; canonical snapshots, saves, and checkpoints now flush explicitly. Both protected engine tests and #3282 pass locally. | patch |
 

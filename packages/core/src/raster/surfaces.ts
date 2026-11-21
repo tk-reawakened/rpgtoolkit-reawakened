@@ -653,12 +653,11 @@ export function presentSurfaceFrame(state: SurfacesSection, width: number, heigh
   return current.rev;
 }
 
-/** Materialize pending surface-batch edits and the presented cache before a canonical state view. */
+/** Materialize pending presented-frame pixels; leaves unrelated active script-edit batches deferred. */
 export function materializePresentedSurfaces(state: SurfacesSection | null | undefined): void {
   if (state === undefined || state === null) return;
   const entries = state.entries;
   if (entries === undefined || entries === null || typeof entries !== "object") return;
-  flushSurfaceBatch(state);
   const current = entries["0"];
   if (current === undefined || current === null || typeof current !== "object") return;
   const batchEntry = pendingEntries.get(current);
