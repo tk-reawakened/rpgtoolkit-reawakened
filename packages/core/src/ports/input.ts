@@ -175,3 +175,5 @@ export type InputEventV1 = Exclude<HistoricalEvent, ActionInput | HostGamepadsIn
 /** Frozen v2 event union, including historical named-key records. */
 export type InputEventV2 = HistoricalEvent;
 export type InputRecordV1 = { readonly tick: number; readonly event: InputEventV1 };
+/** Frozen v2 runner input record, including historical named-key events. */
+export type InputRecordV2 = { readonly tick: number; readonly event: InputEventV2 };

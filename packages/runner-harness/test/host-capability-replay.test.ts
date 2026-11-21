@@ -11,11 +11,12 @@ import {
   writeBoard,
   type DrawCommand,
   type HostDisplayGeometry,
-  type InputRecord,
+  type InputEventV2,
   type NormalizedHostFeatures,
   type WorldItem,
 } from "@tk-reawakened/core";
 import { createNullAudio, runLog, type ActiveRun, type TickObservation, type TickRecord } from "../src/index.ts";
+import type { InputRecordV2 } from "../src/golden.ts";
 
 const INITIAL_GEOMETRY: HostDisplayGeometry = {
   content: { width: 1280, height: 720 },
@@ -31,8 +32,8 @@ const UPDATED_GEOMETRY: HostDisplayGeometry = {
 type Profile = {
   readonly name: string;
   readonly features: NormalizedHostFeatures;
-  readonly activeInput: InputRecord["event"];
-  readonly releaseInput: InputRecord["event"];
+  readonly activeInput: InputEventV2;
+  readonly releaseInput: InputEventV2;
 };
 
 const PROFILES: readonly Profile[] = [
@@ -91,7 +92,7 @@ type Replay = {
   readonly records: readonly TickRecord[];
   readonly ticks: readonly TickObservation[];
   readonly observations: readonly InputObservation[];
-  readonly consumed: readonly InputRecord[];
+  readonly consumed: readonly InputRecordV2[];
   readonly observationsAfterInput: ReadonlyMap<number, number>;
   readonly postInput: ReadonlyMap<number, PostInputObservation>;
   readonly renderedMargins: readonly RenderedMarginSnapshot[];
@@ -231,7 +232,7 @@ function replay(
       firstPixel: pixels === null ? null : Array.from(pixels.rgba.slice(0, 4)),
     });
   });
-  const consumed = ticks.flatMap(({ consumed: recordsForTick }) => recordsForTick);
+  const consumed = ticks.flatMap(({ consumed: recordsForTick }) => recordsForTick) as unknown as InputRecordV2[];
   return { records, ticks, observations, consumed, observationsAfterInput, postInput, marginDrawCounts, renderedMargins };
 }
 

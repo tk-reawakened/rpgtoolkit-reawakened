@@ -383,8 +383,8 @@ export function bootHost(config: HostConfig): Session {
         const tick = state().time.tick;
         const code = queued === "ENTER" ? "Enter" : queued === "ESC" ? "Escape" : queued === "UP" ? "ArrowUp" : queued === "DOWN" ? "ArrowDown" : queued === "LEFT" ? "ArrowLeft" : queued === "RIGHT" ? "ArrowRight" : queued === "M" ? "KeyM" : queued;
         pending.push(
-          { tick, event: { kind: "key", name: queued, code, char: null, down: true } },
-          { tick: tick + 1, event: { kind: "key", name: queued, code, char: null, down: false } },
+          { tick, event: { kind: "key", code, char: null, vk: null, down: true } },
+          { tick: tick + 1, event: { kind: "key", code, char: null, vk: null, down: false } },
         );
         keyEndTick = tick + 1;
         queued = undefined;

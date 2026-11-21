@@ -555,8 +555,8 @@ async function runParity(session: LiveSession, report: HTMLPreElement, game: str
     await session.advance(tick - session.tick(), inputs);
     inputs = [];
     if (tick < 120) {
-      inputs.push({ tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: true } });
-      inputs.push({ tick, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down: false } });
+      inputs.push({ tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: true } });
+      inputs.push({ tick, event: { kind: "key", code: "Enter", char: null, vk: null, down: false } });
     }
   }
   await session.cuesSettled();

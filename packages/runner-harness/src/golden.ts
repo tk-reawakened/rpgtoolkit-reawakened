@@ -118,7 +118,7 @@ export function parseEvent(raw: unknown, recordIndex: number): InputEventV1 {
         : `${prefix}${result.path}: ${result.message}`,
     );
   }
-  if (result.value.kind === "action" || result.value.kind === "host.gamepads") {
+  if (result.value.kind === "action" || result.value.kind === "host.gamepads" || result.value.kind === "key") {
     throw new Error(`run.json: record ${recordIndex}: kind: unknown input event`);
   }
   if (result.value.kind === "gamepad" && result.value.buttons > 0x7f) {

@@ -28,6 +28,7 @@ import {
   PACKAGE_ROOT,
   writeBoard,
   type Engine,
+  type InputEvent,
   type GameState,
   type PluginDefinition,
   type WorldBoard,
@@ -52,7 +53,7 @@ function makeBoard(): WorldBoard {
   } as unknown as WorldBoard;
 }
 
-type InputEv = Parameters<typeof applyInputEvent>[1];
+type InputEv = InputEvent;
 
 /** A v3 physical key event; core derives the script-facing name from its code, character or virtual-key fallback. */
 function key(code: "ArrowRight" | "ArrowLeft" | "ArrowDown", down: boolean, repeat = false): InputEv {
@@ -361,7 +362,7 @@ test("opposing held direction keys cancel out and produce no movement", () => {
 });
 
 /** The player's position after each tick, so a test can tell where each step went. */
-function walk(state: GameState, from: number, to: number, events: Record<number, Parameters<typeof applyInputEvent>[1][]> = {}): { x: number; y: number }[] {
+function walk(state: GameState, from: number, to: number, events: Record<number, InputEv[]> = {}): { x: number; y: number }[] {
   const trail: { x: number; y: number }[] = [];
   for (let t = from; t < to; t += 1) {
     tick(state, t, events[t] ?? []);

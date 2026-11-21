@@ -108,7 +108,7 @@ export function engineBoot(files: Readonly<Record<string, Uint8Array>>, mainPath
     throw new Error("the host loop did not settle");
   };
   run(pressAt, []);
-  const press = (down: boolean): InputRecord => ({ tick: pressAt, event: { kind: "key", name: "ENTER", code: "Enter", char: null, down } });
+  const press = (down: boolean): InputRecord => ({ tick: pressAt, event: { kind: "key", code: "Enter", char: null, vk: null, down } });
   run(ticks - pressAt, [press(true), press(false)]);
   return { stage: latest?.engine.boot?.stage ?? null, board: latest?.world.board?.key ?? null, diagnostics };
 }

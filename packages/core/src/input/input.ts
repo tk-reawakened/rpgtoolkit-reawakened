@@ -1,6 +1,6 @@
 /** Deterministic input owner for keyboard, pointer and normalized gamepad data. */
 import type { HistoricalKeyInput, InputEvent, GamepadInput, KeyInput, PointerInput } from "../ports/input.ts";
-import { INPUT_SCHEMA_VERSION, type InputBindings, type InputButton, type InputButtonSlot, type InputGamepad, type InputKeyState, type InputSection, type RegisteredAction } from "../save/sections/input.ts";
+import { INPUT_SCHEMA_VERSION, type InputActionKeyState, type InputBindings, type InputButton, type InputButtonSlot, type InputGamepad, type InputKeyState, type InputSection, type RegisteredAction } from "../save/sections/input.ts";
 
 import type { MainFileMovementSettings } from "./movement-settings.ts";
 import { canon } from "../canon/canon.ts";
@@ -17,6 +17,7 @@ export type InputConfig = {
   readonly pointerPlane?: { readonly width: number; readonly height: number };
 };
 
+const GAME_ACTION_NAME = /^game\.[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$/;
 const ENGINE_ACTIONS = new Set(["up", "down", "left", "right", "confirm", "cancel", "menu"]);
 const ENGINE_PAD_ACTIONS: Readonly<Record<number, string>> = {
   0: "confirm", 1: "cancel", 9: "menu", 12: "up", 13: "down", 14: "left", 15: "right",
@@ -328,6 +329,7 @@ export function createInputSection(config: InputConfig = {}): InputSection {
     version: INPUT_SCHEMA_VERSION,
     nextSeq: 1,
     keys: [],
+    actionKeys: [],
     pendingKeySequences: [],
     held: {},
     pointer: { x: 0, y: 0, buttons: 0, downs: 0, ups: 0, downX: 0, downY: 0, button: 0 },
@@ -394,8 +396,8 @@ export function inputView(state: InputSection): InputView {
 }
 
 
-function mappedAction(state: InputSection, event: KeyInput): string | undefined {
-  return state.bindings.keys[event.code];
+function mappedAction(state: InputSection, event: KeyInput | HistoricalKeyInput): string | undefined {
+  return state.bindings.keys[event.code] ?? ("name" in event ? state.bindings.keys[event.name] : undefined);
 }
 
 function physicalKeyName(event: KeyInput | HistoricalKeyInput): string | null {
@@ -512,9 +514,14 @@ function appendKey(
 ): void {
   const seq = state.nextSeq;
   state.nextSeq += 1;
-  const record: InputKeyState = { seq, name, code, char, action, resolvedActions: [...resolvedActions], ...(name === null ? { actionOnly: true } : {}), ...(target === null ? {} : { target }) };
-  if (name === null) state.actionKeys.push(record);
-  else state.keys.push(record);
+  const orderedActions = [...resolvedActions];
+  if (name === null) {
+    state.actionKeys.push({
+      seq, name, code, char, action, resolvedActions: orderedActions, actionOnly: true, ...(target === null ? {} : { target }),
+    });
+  } else {
+    state.keys.push({ seq, name, code, char, action, resolvedActions: orderedActions, ...(target === null ? {} : { target }) });
+  }
   if (pendingKeySequence) state.pendingKeySequences.push(seq);
 }
 

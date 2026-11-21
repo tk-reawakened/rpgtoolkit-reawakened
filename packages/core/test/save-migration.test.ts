@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  hashGameState,
   canon,
   createAudioSection,
   createGameState,
@@ -630,14 +631,32 @@ test("restore refuses malformed shared readiness before exposing the saved conti
     ok(error.message.includes("engine.cacheKeys"));
   }
 });
-test("input schema 10 migrates action-only records into their separate queue", () => {
-  const raw = JSON.parse(snapshot(createGameState())) as { schema: { input: number }; input: Record<string, unknown> };
+test("schema 10 migration preserves v1/v2 replay hashes and separates action-only records", () => {
+  const state = createGameState({ seed: 5 });
+  applyInputEvent(state.input, { kind: "key", name: "recorded-name", code: "noncanonical-code", char: null, down: true });
+  state.input.actionKeys.push({
+    seq: state.input.nextSeq++,
+    name: null,
+    code: "action",
+    char: null,
+    action: "game.fireball",
+    resolvedActions: ["game.fireball"],
+    actionOnly: true,
+  });
+  const expectedHash = hashGameState(state);
+  const raw = JSON.parse(snapshot(state)) as { schema: { input: number }; input: Record<string, unknown> };
   raw.schema.input = 10;
   raw.input.version = 10;
-  raw.input.nextSeq = 2;
-  raw.input.keys = [{ seq: 1, name: null, code: "action", char: null, action: "game.fireball", resolvedActions: ["game.fireball"], actionOnly: true }];
+  raw.input.keys = [
+    ...(raw.input.keys as Record<string, unknown>[]),
+    ...(raw.input.actionKeys as Record<string, unknown>[]).map((key) => ({ ...key, actionOnly: true })),
+  ];
   delete raw.input.actionKeys;
+
   const restored = restoreGameState(JSON.stringify(raw));
-  deepEqual(restored.input.keys, []);
-  deepEqual(restored.input.actionKeys.map((key) => [key.seq, key.name, key.resolvedActions]), [[1, null, ["game.fireball"]]]);
+  equal(hashGameState(restored), expectedHash, "v1/v2 replay input hashes survive input migration");
+  deepEqual(restored.input.keys.map(({ name, code }) => [name, code]), [["recorded-name", "noncanonical-code"]]);
+  deepEqual(restored.input.actionKeys.map(({ seq, name, resolvedActions }) => [seq, name, resolvedActions]), [
+    [2, null, ["game.fireball"]],
+  ]);
 });

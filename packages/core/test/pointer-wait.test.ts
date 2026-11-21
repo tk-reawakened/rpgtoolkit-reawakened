@@ -86,12 +86,12 @@ test("waitInput hands a script the press and release that arrived together, then
 
 test("waitInput delivers a key first and reports the pointer change that came with it on the next call", () => {
   const state = makeState();
-  const program = "first = waitinput()\nk1 = first.kind\nn1 = first.key\nsecond = waitinput(first)\nk2 = second.kind\nd2 = second.newdowns\nend()";
+  const program = "first = waitinput()\nk1 = first.kind\nn1 = first.key\na1 = first.action\nact1 = first.actions[0]\nsecond = waitinput(first)\nk2 = second.kind\nd2 = second.newdowns\nend()";
   const thread = startProgram(state.vm, { kind: "inline", ir: "1", text: program });
   const services = createScriptServices(state);
   runThreadsPhase(state.vm, services, 100);
   step(state, services, [press(9, 9), enter(true)]);
-  deepEqual([state.vm.globals.k1, state.vm.globals.n1], ["key", "confirm"], "a key wins the same-tick tie");
+  deepEqual([state.vm.globals.k1, state.vm.globals.n1, state.vm.globals.a1, state.vm.globals.act1], ["key", "Enter", "confirm", "confirm"], "the compatibility name and action are both retained");
   step(state, services);
   deepEqual([state.vm.globals.k2, state.vm.globals.d2], ["pointer", 1], "the pointer press was not lost behind the key");
   equal(thread.status, "finished");
@@ -106,17 +106,26 @@ test("legacy wait() and get() never wake for the pointer", () => {
   equal(thread.status, "waiting");
 });
 
-test("waitinput receives action-only keys with ordered actions while wait/get ignore them", () => {
+test("waitInput receives action-only keys while legacy wait ignores them", () => {
+  const action = { name: "game.fireball", label: "Fireball", icon: null, group: null, controls: ["key:Unidentified"], locked: false, hidden: false };
   const state = makeState();
-  registerGameAction(state.input, { name: "game.fireball", label: "Fireball", icon: null, group: null, controls: ["key:Unidentified"], locked: false, hidden: false });
+  registerGameAction(state.input, action);
+  const legacyState = makeState();
+  registerGameAction(legacyState.input, action);
   const thread = startProgram(state.vm, { kind: "inline", ir: "1", text: "record = waitinput()\nk = record.key\na = record.action\nfirst = record.actions[0]\ncount = record.actions.length\nend()" });
-  const legacyWait = startProgram(state.vm, { kind: "inline", ir: "2", text: "wait()\nend()" });
+  const legacyWait = startProgram(legacyState.vm, { kind: "inline", ir: "2", text: "wait()\nend()" });
   const services = createScriptServices(state);
+  const legacyServices = createScriptServices(legacyState);
   runThreadsPhase(state.vm, services, 100);
-  applyInputEvent(state.input, { kind: "key", code: "Unidentified", char: null, vk: null, down: true });
+  runThreadsPhase(legacyState.vm, legacyServices, 100);
+  const event = { kind: "key", code: "Unidentified", char: null, vk: null, down: true } as const;
+  applyInputEvent(state.input, event);
+  applyInputEvent(legacyState.input, event);
   equal(state.input.keys.length, 0);
+  equal(legacyState.input.keys.length, 0);
   step(state, services);
-  deepEqual([state.vm.globals.k, state.vm.globals.a, state.vm.globals.first, state.vm.globals.count], [null, "game.fireball", "game.fireball", 1]);
+  step(legacyState, legacyServices);
+  deepEqual([state.vm.globals.k, state.vm.globals.a, state.vm.globals.first, state.vm.globals.count], [0, "game.fireball", "game.fireball", 1]);
   equal(thread.status, "finished");
   equal(legacyWait.status, "waiting", "action-only key records do not wake legacy wait()");
 });

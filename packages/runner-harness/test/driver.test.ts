@@ -147,7 +147,8 @@ test("runLog preserves historical key names and codes for v1 and v2 replay", () 
       ? { schema: 1, ticks: 1, log: [{ tick: 0, event }] }
       : { schema: 2, ticks: 1, log: [{ tick: 0, event }] };
     runLog(engine, run, 1, createNullAudio());
-    equal(base.drawList(0).commands.length, 2, `schema ${schema} retains one physical key state`);
+    deepEqual(received, [{ tick: 0, event }], `schema ${schema} preserves the historical name and noncanonical code`);
+    equal(base.drawList(0).commands.length, 3, `schema ${schema} retains one historical physical key state`);
   }
 });
 

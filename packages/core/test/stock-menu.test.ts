@@ -139,8 +139,8 @@ test("a direction pressed on the tick the menu key opens the menu queues no move
   const before = session.state().sprites.players[0]!;
   const tick = session.state().time.tick;
   session.engine.advance(1, [
-    { tick, event: { kind: "key", name: "M", code: "KeyM", char: null, down: true } },
-    { tick, event: { kind: "key", name: "ArrowRight", code: "ArrowRight", char: null, down: true } },
+    { tick, event: { kind: "key", code: "KeyM", char: null, vk: null, down: true } },
+    { tick, event: { kind: "key", code: "ArrowRight", char: null, vk: null, down: true } },
   ]);
   const after = session.state().sprites.players[0]!;
   ok(session.state().vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"), "the menu key started the menu thread");

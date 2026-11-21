@@ -218,6 +218,8 @@ export function typeProblems(schema, { sources = {}, drawAlias, inputAlias = "In
           if (attempt.length === 0) {
             matched.add(leaf);
             foundZero = true;
+            // TypeScript cannot express schema-only bounds or string refinements.
+            if (member.k === "number" || member.k === "string") continue;
             break;
           }
           if (best === null || attempt.length < best.length) {

@@ -249,6 +249,7 @@ test("validated physical pad 9 dispatches its registered action after JSON trans
   if (!validated.ok) throw new Error("pad:9 must pass input validation");
   applyInputEvent(state, validated.value);
   processGamepadEvents(state);
+  equal(state.actions["game.fireball"], true);
   equal(state.keys.some((entry) => entry.name === "game.fireball"), true);
   const release = validateInputEvent({ ...event, buttons: 0 });
   if (!release.ok) throw new Error("gamepad release must validate");
@@ -445,7 +446,7 @@ const GAMEPAD_RIGHT = { kind: "gamepad", device: 0, connected: true, axes: { x: 
 
 function steeringSection(): InputView {
   return createInputSection({
-    bindings: { keys: { ArrowRight: "right", ArrowDown: "down", Enter: "confirm" } },
+    bindings: { keys: { ArrowRight: "right", ArrowDown: "down", Enter: "confirm", KeyM: "menu" } },
     allowDiagonals: false,
   });
 }
@@ -457,15 +458,16 @@ test("focus loss releases every held keyboard key exactly as its key-up would, a
     applyInputEvent(state, { kind: "key", name: "RIGHT", code: "ArrowRight", char: null, down: true });
     applyInputEvent(state, { kind: "key", name: "DOWN", code: "ArrowDown", char: null, down: true });
     applyInputEvent(state, { kind: "key", name: "ENTER", code: "Enter", char: null, down: true });
+    applyInputEvent(state, { kind: "key", name: "M", code: "KeyM", char: "m", down: true });
     deepEqual(state.directionOrder, ["right", "down"]);
   }
-  for (const [name, code] of [["RIGHT", "ArrowRight"], ["DOWN", "ArrowDown"], ["ENTER", "Enter"]] as const) {
+  for (const [name, code] of [["RIGHT", "ArrowRight"], ["DOWN", "ArrowDown"], ["ENTER", "Enter"], ["M", "KeyM"]] as const) {
     applyInputEvent(released, { kind: "key", name, code, char: null, down: false });
   }
   applyInputEvent(blurred, { kind: "focus", state: "lost" });
 
   equal(blurred.focused, false);
-  deepEqual({ ...blurred, focused: true }, released, "the only difference from three key-ups is the focus flag");
+  deepEqual({ ...blurred, focused: true }, released, "the only difference from four key-ups is the focus flag");
   deepEqual(blurred.actions, { right: false, down: false, confirm: false, menu: false });
   deepEqual(blurred.keyboardActions, { right: false, down: false, confirm: false, menu: false });
   deepEqual(blurred.directionOrder, []);
@@ -534,7 +536,7 @@ test("a focus loss changes values only: the saved input section keeps its shape 
   applyInputEvent(state.input, { kind: "focus", state: "lost" });
 
   deepEqual(Object.keys(state.input).sort(), fresh);
-  equal(state.input.version, 10);
+  equal(state.input.version, 11);
   const restored = restoreGameState(snapshot(state));
   deepEqual(restored.input, state.input);
   deepEqual(Object.keys(restored.input).sort(), fresh);
@@ -588,7 +590,7 @@ test("the pointer record round-trips a snapshot and a version-2 section migrates
   equal(migrated.nextPointerGestureId, 1);
   applyInputEvent(migrated, { kind: "pointer", x: 9, y: 8, buttons: 0 });
   deepEqual(migrated.pendingPointerUps, [{ gestureId: 0, x: 9, y: 8 }]);
-  equal(migrated.version, 10);
+  equal(migrated.version, 11);
   deepEqual(migrated.bindings, state.input.bindings, "a version-2 section keeps every other field");
 });
 
@@ -665,7 +667,7 @@ test("waitInput wakes for a key before the pointer and reports the baseline so t
   applyInputEvent(state, { kind: "pointer", x: 7, y: 9, buttons: 1 });
   applyInputEvent(state, { kind: "key", name: "A", code: "KeyA", char: "a", down: true });
   const key = pollInputKey({ tick: 1, input: inputView(state), claims: [] }, wait);
-  deepEqual(key?.record, { kind: "key", key: "A", ...BASE, downx: 7, downy: 9, button: 1, moved: 0, newdowns: 0, newups: 0 });
+  deepEqual(key?.record, { kind: "key", key: "A", ...BASE, downx: 7, downy: 9, button: 1, moved: 0, newdowns: 0, newups: 0, action: null, actions: [] });
   equal(key?.claim, 1, "the key is claimed like wait() claims it");
   const pointer = pollInputKey({ tick: 1, input: inputView(state), claims: [1] }, wait);
   deepEqual(pointer?.record, { kind: "pointer", key: "", x: 7, y: 9, buttons: 1, downs: 1, ups: 0, downx: 7, downy: 9, button: 1, moved: 1, newdowns: 1, newups: 0 });
@@ -683,8 +685,7 @@ test("a native menu wait wakes for a pointer change against its parked baseline"
   deepEqual(moved?.record, { x: 3, y: 4, buttons: 0, downs: 0, ups: 0, downx: 0, downy: 0, button: 0, moved: 1, newdowns: 0, newups: 0 });
   applyInputEvent(state, { kind: "key", name: "ENTER", code: "Enter", char: null, down: true });
   const tie = pollMenuScreen({ tick: 1, input: inputView(state), claims: [] }, wait(baseline));
-  equal(tie?.value, "ENTER", "a key wins a same-tick tie");
-  equal(tie?.record, undefined);
+  deepEqual(tie?.record, { kind: "key", key: "confirm", actions: ["confirm"] }, "a key wins a same-tick tie");
 });
 
 test("shift release before physical key-up clears logical held alias (#1646)", () => {
@@ -759,7 +760,7 @@ test("focus loss clears held aliases and resets ownership claims (#1646)", () =>
 });
 test("v3 virtual keys reject surrogate code units and never derive lone-surrogate names", () => {
   for (const vk of [0xd800, 0xdfff]) {
-    const event = { kind: "key", code: "Unidentified", char: null, vk, down: true };
+    const event = { kind: "key" as const, code: "Unidentified", char: null, vk, down: true };
     equal(validateInputEvent(event).ok, false);
     const state = createInputSection();
     applyInputEvent(state, event);
@@ -788,7 +789,7 @@ test("action-only keys are isolated per input state and survive save restore", (
   deepEqual(menuResult?.record, { kind: "key", key: "game.fireball", actions: ["game.fireball"] });
   deepEqual(second.actionKeys, [], "a separate input instance has an independent action queue");
 
-  const state = createGameState();
+  const state = createGameState({ seed: 1 });
   registerGameAction(state.input, action);
   applyInputEvent(state.input, { kind: "key", code: "Unidentified", char: null, vk: null, down: true });
   const restored = restoreGameState(snapshot(state));

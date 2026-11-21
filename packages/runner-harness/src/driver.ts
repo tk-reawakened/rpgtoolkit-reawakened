@@ -135,7 +135,7 @@ export function runLog(
       }
       // A historical record reaches the engine unchanged. Core's `applyInputEvent`
       // accepts the named-key event, but `advance` is typed with the active union.
-      fedInputs.push(run.schema === 1 ? upgradeV1Record(rec) : rec as unknown as InputRecord);
+      fedInputs.push(run.schema === 1 ? upgradeV1Record(rec as InputRecordV1) : rec as unknown as InputRecord);
       inputIndex++;
     }
 

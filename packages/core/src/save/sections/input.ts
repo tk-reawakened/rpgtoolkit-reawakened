@@ -5,12 +5,23 @@ export const INPUT_SCHEMA_VERSION = 11;
 
 export type InputKeyState = {
   readonly seq: number;
-  readonly name: string | null;
+  readonly name: string;
   readonly code: string;
   readonly char: string | null;
   readonly action: string | null;
   readonly resolvedActions: string[];
-  readonly actionOnly?: boolean;
+  readonly target?: string;
+};
+
+export type InputActionKeyState = {
+  readonly seq: number;
+  readonly name: null;
+  readonly code: string;
+  readonly char: string | null;
+  readonly action: string | null;
+  readonly resolvedActions: string[];
+  readonly actionOnly: true;
+  readonly target?: string;
 };
 
 export type InputButtonSlot = {
@@ -70,7 +81,7 @@ export type InputSection = {
   version: number;
   nextSeq: number;
   keys: InputKeyState[];
-  actionKeys: InputKeyState[];
+  actionKeys: InputActionKeyState[];
   held: { [name: string]: boolean };
   /**
    * The last pointer position and pressed-button bitmask, plus the monotonic press/release edge counters

@@ -253,7 +253,7 @@ export function pollRenderMsgBox(view: WaitView, wait: Wait): WaitResult | null 
       return { value: wait.id === "prompt" ? "" : modal.style === 1 ? 6 : 1, ok: true, claim: entry.seq };
     }
     const { key } = entry;
-    const normalized = (key.action ?? key.name).toLowerCase();
+    const normalized = (key.action ?? key.name ?? "").toLowerCase();
     const resolvedConfirm = key.resolvedActions?.includes("confirm") ?? false;
     if (wait.id === "prompt") {
       if (resolvedConfirm || normalized === "confirm" || normalized === "enter" || normalized === "return" || normalized === "space") return { value: key.char ?? "", ok: true, claim: key.seq };

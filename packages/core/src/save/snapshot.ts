@@ -521,6 +521,7 @@ function migrateInput(record: Record<string, unknown>, schema: Record<string, un
     input.keys = normalizeKeys(input.keys);
     if (!Array.isArray(input.actionKeys)) input.actionKeys = [];
     else input.actionKeys = normalizeKeys(input.actionKeys);
+    if (typeof input.nextPointerGestureId !== "number" || !Number.isSafeInteger(input.nextPointerGestureId) || input.nextPointerGestureId < 1) input.nextPointerGestureId = 1;
     if (typeof input.pointerGestureId !== "number" || !Number.isSafeInteger(input.pointerGestureId)) input.pointerGestureId = null;
     if (!Array.isArray(input.pendingClicks)) input.pendingClicks = [];
     else input.pendingClicks = input.pendingClicks.map((value) => typeof value === "object" && value !== null && typeof (value as Record<string, unknown>).x === "number" && typeof (value as Record<string, unknown>).y === "number"
@@ -612,6 +613,7 @@ function migrateInput(record: Record<string, unknown>, schema: Record<string, un
     const nextGestureId = typeof savedNextGestureId === "number" && Number.isSafeInteger(savedNextGestureId) && savedNextGestureId >= 1 ? savedNextGestureId : 1;
     const migrated: Record<string, unknown> = {
       ...oldRecord,
+      gamepads: pads,
       version: INPUT_SCHEMA_VERSION,
       pointer: { ...fresh.pointer, ...pointer },
       pressedButtonSlot: version >= 4 ? oldRecord.pressedButtonSlot ?? null : null,

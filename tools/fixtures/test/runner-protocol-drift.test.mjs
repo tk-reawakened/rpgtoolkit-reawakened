@@ -90,13 +90,13 @@ test("vector-only change that breaks reproducibility is caught", async () => {
   });
   ok(problems.some((problem) => problem.includes("differs")));
 });
-test("v2 action drift uses the active v2 input union while v1 stays historical", async () => {
+test("v2 action drift is checked against the frozen v2 input union", async () => {
   const problems = await checkV2({
     schema: loadSchema(),
     vectors: loadVectors(),
     sources: { [inputPath]: (text) => text.replace("  | ActionInput\n", "") },
   });
-  ok(problems.some((problem) => problem.includes("InputRecord.event: the schema allows object")));
+  ok(problems.some((problem) => problem.includes("InputRecordV2.event")));
 });
 
 test("published ordering refusals catch removal of the schema ordering guard", async () => {

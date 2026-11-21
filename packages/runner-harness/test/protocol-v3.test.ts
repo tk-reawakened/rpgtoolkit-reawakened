@@ -30,7 +30,9 @@ test("exported historical command unions remain frozen while v3 has an explicit 
 });
 
 test("v3 draw hashes are explicitly frozen", () => {
-  equal(hashDrawList(vectors.hashDrawList[0]!.input), "f66cea8e09d1901f");
+  const base = vectors.hashDrawList[0];
+  if (base === undefined || !("input" in base)) throw new Error("missing frozen base hash vector");
+  equal(hashDrawList(base.input), "f66cea8e09d1901f");
   const margin = vectors.hashDrawList[1]!;
   if ("a" in margin) {
     equal(hashDrawList(margin.a), "f66cea8e09d1901f");
