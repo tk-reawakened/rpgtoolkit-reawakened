@@ -758,3 +758,26 @@ test("focus loss clears held aliases and resets ownership claims (#1646)", () =>
   equal(state.held["+"], false);
   equal(state.held.Equal, false);
 });
+
+test("#1091: with bindings configured, an unbound key still reaches the key queue under its legacy name", () => {
+  const state = createInputSection({ bindings: { keys: { Enter: "confirm", ArrowUp: "up", KeyW: "up" } } });
+  applyInputEvent(state, { kind: "key", name: "KeyZ", code: "KeyZ", char: "z", down: true });
+  deepEqual(state.keys.map(({ name, action }) => [name, action]), [["Z", null]]);
+  const hit = pollInputKey({ tick: 0, input: inputView(state), claims: [] }, { kind: "input.key", global: true, key: null, parkSeq: 1 });
+  equal(hit?.value, "Z");
+});
+
+test("#1091: bound keys queue the legacy key name while the semantic action is still dispatched", () => {
+  const state = createInputSection({ bindings: { keys: { Enter: "confirm", ArrowLeft: "left", KeyA: "left" } } });
+  applyInputEvent(state, { kind: "key", name: "KeyA", code: "KeyA", char: "a", down: true });
+  equal(state.keys[0]?.name, "A");
+  equal(state.keys[0]?.action, "left");
+  deepEqual(state.keys[0]?.resolvedActions, ["left"]);
+  equal(state.actions.left, true);
+  applyInputEvent(state, { kind: "key", name: "KeyA", code: "KeyA", char: "a", down: false });
+  applyInputEvent(state, { kind: "key", name: "ArrowLeft", code: "ArrowLeft", char: null, down: true });
+  equal(state.keys[1]?.name, "LEFT");
+  applyInputEvent(state, { kind: "key", name: "Enter", code: "Enter", char: null, down: true });
+  equal(state.keys[2]?.name, "ENTER");
+  equal(state.keys[2]?.action, "confirm");
+});
