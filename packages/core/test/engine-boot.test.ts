@@ -3570,7 +3570,19 @@ test("recovery defaults each missing movement setting from its associated main f
 });
 
 test("recovery boots startup first, stages durable state paused, and resumes entry exactly once", () => {
-  const { game, candidate, savedTick } = recoveryCandidateWithDurableState();
+  const { game, candidate, savedTick } = recoveryCandidateWithDurableState(PAUSED_RECOVERY_GAME, [], (candidateState) => {
+    const playerId = candidateState.sprites.players[0]!.id;
+    enqueueDirectionMove(candidateState.sprites, playerId, "E", 0, false, false, { kind: "input" });
+    runMovementPhase(candidateState.sprites, candidateState.world.board!, candidateState.time.tick + 1);
+    enqueueDirectionMove(candidateState.sprites, playerId, "E", 0, false, false, { kind: "input" });
+    candidateState.sprites.players = candidateState.sprites.players.map((player) => ({
+      ...player,
+      x: 123,
+      movement: { ...player.movement, waitTicks: 1 },
+    }));
+    equal(candidateState.sprites.players[0]?.movement.active?.provenance?.kind, "input");
+    equal(candidateState.sprites.players[0]?.queue.moves.length, 1);
+  });
   const doubles = makeDoubles();
   const engine = bootEngine(game, doubles, undefined, undefined, candidate);
   equal(engine.recoveryStatus(), "loading");
@@ -3598,6 +3610,8 @@ test("recovery boots startup first, stages durable state paused, and resumes ent
   deepEqual(state.triggers.suppressed, ["suppressed-trigger"]);
   deepEqual(state.triggers.deactivated, ["deactivated-trigger"]);
   deepEqual(state.triggers.deactivateAt, { x: 7, y: 8, layer: 1 });
+  equal(state.sprites.players[0]?.movement.active, null, "recovery discards the candidate active move");
+  deepEqual(state.sprites.players[0]?.queue.moves, [], "recovery discards candidate queued movement");
   equal(state.sprites.items[0]?.multitaskThread, null, "item multitask waits for explicit Resume");
   equal(state.vm.globals.entrycount, 0);
   equal(state.vm.globals.boardcount, 0);

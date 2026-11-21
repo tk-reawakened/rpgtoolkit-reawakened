@@ -184,7 +184,7 @@ test("board-entry-thread-lifecycle: board and item threads stop, persistent surv
   deepEqual(events(theCase(sc, "second-send-replaces-first"), "send-swap").map((e) => e.board), ["inn"]);
 });
 
-test("triggers-precedence: once-per-entry, repeat distance, precedence, conditions, gone, silent movement", () => {
+test("triggers-precedence: once-per-entry, repeat distance, precedence, conditions, gone and per-move suppression", () => {
   const sc = "triggers-precedence";
   const fired = (c) => c.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]);
   deepEqual(fired(theCase(sc, "step-on-once-per-entry-and-rearm")), [[15, "mat"], [55, "mat"]]);
@@ -203,9 +203,15 @@ test("triggers-precedence: once-per-entry, repeat distance, precedence, conditio
   const stop = theCase(sc, "stop-movement-clears-queue");
   deepEqual(actorAt(stop, 70, "hero").slice(1, 3), [112, 63]);
   deepEqual(fired(theCase(sc, "gone-suppresses-until-board-left")), [[15, "once-only"]]);
-  const silent = theCase(sc, "movement-inside-a-trigger-is-silent");
-  deepEqual(fired(silent), [[7, "shove"]]);
-  deepEqual(actorAt(silent, 79, "hero").slice(1, 3), [176, 63]);
+  const triggerOrigin = theCase(sc, "trigger-origin-movement-does-not-recurse");
+  deepEqual(fired(triggerOrigin), [[7, "shove"]]);
+  deepEqual(actorAt(triggerOrigin, 79, "hero").slice(1, 3), [176, 63]);
+  const inherited = theCase(sc, "unrelated-queued-step-remains-eligible");
+  deepEqual(fired(inherited), [[7, "shove"], [23, "beyond"]]);
+  deepEqual(actorAt(inherited, 99, "hero").slice(1, 3), [240, 63]);
+  const appended = theCase(sc, "new-unrelated-step-remains-eligible");
+  deepEqual(fired(appended), [[7, "shove"], [39, "later"]]);
+  deepEqual(actorAt(appended, 99, "hero").slice(1, 3), [208, 63]);
   deepEqual(fired(theCase(sc, "hidden-item-is-not-a-candidate")), [[39, "secret"]]);
 });
 

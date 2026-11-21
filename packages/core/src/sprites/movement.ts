@@ -14,6 +14,7 @@ import {
   type SpritePoint,
   type SpritesSection,
   type WaypointLink,
+  type MovementProvenance,
 } from "./model.ts";
 import { findPath } from "./pathfinding.ts";
 
@@ -84,6 +85,7 @@ function cloneMovement(movement: SpriteMovement): SpriteMovement {
     under: [...movement.under],
     lastStepTick: movement.lastStepTick,
     lastStepDistance: movement.lastStepDistance,
+    lastStepProvenance: movement.lastStepProvenance,
   };
 }
 function event(
@@ -303,7 +305,7 @@ function finishActor(actor: SpriteActor, active: SpriteActiveMove, blocked: bool
   const dx256 = fixed(dx);
   const dy256 = fixed(dy);
   const partyDistance256 = blocked ? 0 : Math.floor(Math.sqrt(dx256 * dx256 + dy256 * dy256) + 0.5);
-  const movement = { ...cloneMovement(actor.movement), active: null, waitTicks: 0, lastStepTick: tick, lastStepDistance: distance };
+  const movement = { ...cloneMovement(actor.movement), active: null, waitTicks: 0, lastStepTick: tick, lastStepDistance: distance, lastStepProvenance: active.provenance ?? { kind: "unknown" as const } };
   if (!blocked) event(tick, "step-complete", { actor: actor.id, distance, partyDistance256 }, sink);
   const state = queue ? "moving" : "waiting";
   if (!queue) event(tick, "movement-complete", { actor: actor.id, blocked }, sink);
@@ -361,7 +363,7 @@ function waypointMove(actor: SpriteActor): { readonly move: SpriteMove; readonly
   if (point === undefined) return null;
   const nextWaypoint = { ...waypoint, cycle, cursor: cursor + 1 };
   return {
-    move: { source: waypoint.live ? "waypoint-link" : "waypoint-path", target: { ...point }, facing: null },
+    move: { source: waypoint.live ? "waypoint-link" : "waypoint-path", target: { ...point }, facing: null, provenance: waypoint.provenance ?? { kind: "unknown" } },
     waypoint: nextWaypoint,
   };
 }
@@ -400,7 +402,7 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
     const move = next;
     const dx = move.target.x - actor.x;
     const dy = move.target.y - actor.y;
-    const active: SpriteActiveMove = { source: move.source, start: { x: actor.x, y: actor.y }, target: { ...move.target }, facing: move.facing, cadence: actor.prev !== null ? Math.max(0, ticksPerAdvance(actor.speed, gameSpeed) - 1) : 0, ignoreBoard: move.source === "points", tried: false, ...(move.pathMode === undefined ? {} : { pathMode: move.pathMode }), ...(move.deferredComplete === true ? { deferredComplete: true } : {}), ...(move.pointer === true ? { pointer: true as const } : {}) };
+    const active: SpriteActiveMove = { source: move.source, start: { x: actor.x, y: actor.y }, target: { ...move.target }, facing: move.facing, cadence: actor.prev !== null ? Math.max(0, ticksPerAdvance(actor.speed, gameSpeed) - 1) : 0, ignoreBoard: move.source === "points", tried: false, provenance: move.provenance ?? { kind: "unknown" }, ...(move.pathMode === undefined ? {} : { pathMode: move.pathMode }), ...(move.deferredComplete === true ? { deferredComplete: true } : {}), ...(move.pointer === true ? { pointer: true as const } : {}) };
     movement = { ...movement, active };
     const moves = actor.queue.moves.length > 0 ? actor.queue.moves.slice(1) : actor.queue.moves;
     const nextActor: SpriteActor = { ...actor, state: "moving", queue: { ...queue, moves }, movement };
@@ -465,7 +467,7 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
     if (following && movement.waitTicks === 0 && !active.tried) {
       const diversion = findPath(board, section, actor, active.target, active.pathMode ?? 1);
       if (diversion.reached && diversion.points.length > 0) {
-        const moves: SpriteMove[] = diversion.points.map((point) => ({ source: "path", target: { ...point }, facing: null, pathMode: active.pathMode ?? 1, deferredComplete: true, ...(active.pointer === true ? { pointer: true as const } : {}) }));
+        const moves: SpriteMove[] = diversion.points.map((point) => ({ source: "path", target: { ...point }, facing: null, pathMode: active.pathMode ?? 1, deferredComplete: true, provenance: active.provenance ?? { kind: "unknown" }, ...(active.pointer === true ? { pointer: true as const } : {}) }));
         replaceActor(section, {
           ...actor,
           state: "moving",
@@ -513,15 +515,15 @@ const STEP_TILE = 32;
 const STEP_PIXEL = 4;
 
 /** Convert a direction command to one deterministic target and enqueue it. */
-export function enqueueDirectionMove(section: SpritesSection, id: string, facing: Facing, pixelMovement = 0, clear = false, preserveCadence = false): boolean {
+export function enqueueDirectionMove(section: SpritesSection, id: string, facing: Facing, pixelMovement = 0, clear = false, preserveCadence = false, provenance: MovementProvenance = { kind: "input" }): boolean {
   const distance = pixelMovement === 0 ? STEP_TILE : STEP_PIXEL;
-  return enqueueDirectionDistanceMove(section, id, facing, distance, clear, preserveCadence);
+  return enqueueDirectionDistanceMove(section, id, facing, distance, clear, preserveCadence, provenance);
 }
 /** Scripted direction strings use whole tiles or quarter tiles, independently of keyboard step size. */
-export function enqueueScriptDirectionMove(section: SpritesSection, id: string, facing: Facing, distance: number, clear = false): boolean {
-  return enqueueDirectionDistanceMove(section, id, facing, distance, clear);
+export function enqueueScriptDirectionMove(section: SpritesSection, id: string, facing: Facing, distance: number, clear = false, provenance: MovementProvenance = { kind: "script", thread: 0 }): boolean {
+  return enqueueDirectionDistanceMove(section, id, facing, distance, clear, false, provenance);
 }
-function enqueueDirectionDistanceMove(section: SpritesSection, id: string, facing: Facing, distance: number, clear: boolean, preserveCadence = false): boolean {
+function enqueueDirectionDistanceMove(section: SpritesSection, id: string, facing: Facing, distance: number, clear: boolean, preserveCadence = false, provenance: MovementProvenance = { kind: "input" }): boolean {
   const actor = allActors(section).find((value) => value.id === id);
   if (actor === undefined) return false;
   const vector = directionVector(facing);
@@ -536,7 +538,7 @@ function enqueueDirectionDistanceMove(section: SpritesSection, id: string, facin
       queue: {
         ...value.queue,
         waypoint: clear ? null : value.queue.waypoint,
-        moves: [...(clear ? [] : value.queue.moves), { source: "direction", target: { x: origin.x + vector[0] * distance, y: origin.y + vector[1] * distance }, facing }],
+        moves: [...(clear ? [] : value.queue.moves), { source: "direction", target: { x: origin.x + vector[0] * distance, y: origin.y + vector[1] * distance }, facing, provenance }],
       },
     };
   }) !== null;
@@ -619,7 +621,7 @@ export { ticksPerAdvance };
 export function directionMove(actor: SpriteActor, facing: Facing, pixelMovement = 0): SpriteMove {
   const vector = directionVector(facing);
   const distance = pixelMovement === 0 ? STEP_TILE : STEP_PIXEL;
-  return { source: "direction", target: { x: actor.x + vector[0] * distance, y: actor.y + vector[1] * distance }, facing };
+  return { source: "direction", target: { x: actor.x + vector[0] * distance, y: actor.y + vector[1] * distance }, facing, provenance: { kind: "input" } };
 }
 
 /** Return the distance cadence used by the active actor. */
@@ -636,6 +638,7 @@ export function ensureMovementState(actor: SpriteActor): SpriteMovement {
     under: actor.movement?.under ?? [],
     lastStepTick: actor.movement?.lastStepTick ?? null,
     lastStepDistance: actor.movement?.lastStepDistance ?? 0,
+    lastStepProvenance: actor.movement?.lastStepProvenance ?? { kind: "unknown" },
   };
 }
 

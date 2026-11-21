@@ -11,14 +11,17 @@ import type { VmState } from "../script/state.ts";
 import { foldAscii } from "../script/values.ts";
 import type { WorldBoard, WorldItem } from "../world/model.ts";
 
-export const SPRITES_SCHEMA_VERSION = 2;
-
-
+export const SPRITES_SCHEMA_VERSION = 3;
 export const FACING = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"] as const;
 export type Facing = (typeof FACING)[number];
 export type SpriteKind = "player" | "item";
 export type SpriteState = "waiting" | "idling" | "moving" | "done" | "stance" | "frozen" | "hidden";
 export type QueueSource = "keyboard" | "direction" | "points" | "path" | "waypoint-path" | "waypoint-link";
+export type MovementProvenance =
+  | { readonly kind: "trigger"; readonly thread: number }
+  | { readonly kind: "script"; readonly thread: number }
+  | { readonly kind: "input" }
+  | { readonly kind: "unknown" };
 
 export type SpritePoint = { readonly x: number; readonly y: number };
 export type SpriteBase = { points: SpritePoint[] };
@@ -44,6 +47,7 @@ export type SpriteMove = {
   readonly facing: Facing | null;
   readonly pathMode?: 1 | 2 | 3;
   readonly deferredComplete?: boolean;
+  readonly provenance?: MovementProvenance;
   /** Queued by a pointer click or held button; such moves pause while a script owns the key queue. */
   readonly pointer?: true;
 };
@@ -53,6 +57,7 @@ export type WaypointLink = {
   cycle: number;
   cursor: number;
   live: boolean;
+  provenance?: MovementProvenance;
 };
 /** The actor's FIFO and its optional waypoint source. */
 export type SpriteQueue = {
@@ -71,6 +76,7 @@ export type SpriteActiveMove = {
   readonly tried: boolean;
   readonly pathMode?: 1 | 2 | 3;
   readonly deferredComplete?: boolean;
+  readonly provenance?: MovementProvenance;
   readonly pointer?: true;
 };
 
@@ -84,10 +90,12 @@ export type SpriteMovement = {
   readonly lastStepTick: number | null;
   /** Euclidean distance of the most recent completed target, in pixels. */
   readonly lastStepDistance: number;
+  /** Provenance of the most recently completed step, including blocked attempts. */
+  readonly lastStepProvenance: MovementProvenance;
 };
 
 export function createSpriteMovement(): SpriteMovement {
-  return { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0 };
+  return { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: { kind: "unknown" } };
 }
 
 /** Persisted progress for movement-owned random encounters. */
@@ -133,7 +141,7 @@ export type SpriteActor = {
   readonly multitaskThread: number | null;
 };
 
-/** The AD-10 `sprites` section, schema version 2 with movement-aware actors and optional encounter progress. */
+/** The AD-10 `sprites` section, schema version 3 with movement provenance and optional encounter progress. */
 export type SpritesSection = {
   version: number;
   players: SpriteActor[];

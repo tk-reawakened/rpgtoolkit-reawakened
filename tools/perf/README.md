@@ -157,3 +157,8 @@ speedup.
 The sampled profiles were 8.642 s (baseline) and 8.601 s (implementation). The added per-tick work is one null
 selection check per rendered board tile (no new per-tick allocation or frame-list traversal); static tile selection
 still returns immediately. Rasterization and surface encoding remain the dominant measured work.
+
+## Trigger-provenance profile (#1643, 2026-11-21)
+
+The headless `pnpm perf:player` run (without `--headed`) timed out after 120 seconds before producing a profile. No
+before/after metrics are available; performance remains unverified.

@@ -392,6 +392,7 @@ export function evaluateExpression(
     pending: null,
     detached: [],
     collect: null,
+    takeover: [...thread.takeover],
   };
   const copiedVm: VmState = {
     ...state.vm,

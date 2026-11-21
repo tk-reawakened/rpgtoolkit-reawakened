@@ -1,6 +1,6 @@
 /** Saveable trigger state (E-40..E-45, R-52; AD-10). */
 
-export const TRIGGERS_SCHEMA_VERSION = 2;
+export const TRIGGERS_SCHEMA_VERSION = 3;
 
 export type TriggerActive = {
   key: string;
@@ -8,8 +8,6 @@ export type TriggerActive = {
   setVar: string;
   setValue: string;
   source: "item" | "region";
-  /** A trigger program can enqueue movement that must not retrigger anything. */
-  silentMovement: boolean;
 };
 
 /** Runtime state for board activation dispatch. Every field is plain JSON data. */
@@ -28,7 +26,6 @@ export type TriggersSection = {
   active: TriggerActive | null;
   /** Highest processed key sequence; -1 marks the first free-roam frame after boot. */
   lastKeySeq: number;
-  silentUntilIdle: boolean;
 };
 
 export function createTriggersSection(): TriggersSection {
@@ -42,7 +39,6 @@ export function createTriggersSection(): TriggersSection {
     deactivateAt: null,
     active: null,
     lastKeySeq: 0,
-    silentUntilIdle: false,
   };
 }
 
@@ -57,5 +53,4 @@ export function resetTriggersSection(section: TriggersSection): void {
   section.deactivateAt = fresh.deactivateAt;
   section.active = fresh.active;
   section.lastKeySeq = fresh.lastKeySeq;
-  section.silentUntilIdle = fresh.silentUntilIdle;
 }

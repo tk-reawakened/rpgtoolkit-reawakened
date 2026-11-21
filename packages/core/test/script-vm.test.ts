@@ -67,6 +67,7 @@ function waitingThread(id: number, until: number): Thread {
     queue: [],
     pending: null,
     detached: [],
+    takeover: [],
     collect: null,
   };
 }
@@ -93,6 +94,7 @@ function readyThread(id: number, text: string): Thread {
     queue: [],
     pending: null,
     detached: [],
+    takeover: [],
     collect: null,
   };
 }

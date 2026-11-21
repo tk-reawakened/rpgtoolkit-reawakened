@@ -159,7 +159,7 @@ function sprite(init: Partial<SpriteActor> & { readonly id: string; readonly kin
       stanceComplete: false,
     },
     queue: { moves: [], waypoint: null },
-    movement: { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0 },
+    movement: { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: { kind: "unknown" } },
     prev: null,
     frozenUntil: null,
     multitaskProgram: null,
@@ -224,9 +224,8 @@ function fixture(): GameState {
   state.triggers.suppressed.push("shop");
   state.triggers.deactivated.push("arrival");
   state.triggers.deactivateAt = { x: 10, y: 20, layer: 1 };
-  state.triggers.active = { key: "door", thread: 1, setVar: "opened", setValue: "1", source: "region", silentMovement: false };
+  state.triggers.active = { key: "door", thread: 1, setVar: "opened", setValue: "1", source: "region" };
   state.triggers.lastKeySeq = 4;
-  state.triggers.silentUntilIdle = true;
 
   // Party is an object the globals keep; 9 and 7 are reachable only from a
   // listener and a frame local, so they stay out of the ledger graph.
@@ -273,6 +272,7 @@ function fixture(): GameState {
     queue: [],
     pending: null,
     detached: [],
+    takeover: [],
     collect: null,
   };
   state.vm.threads = [thread];
@@ -418,7 +418,7 @@ test("the v1 projection maps exactly the accepted fields and keeps their order",
   });
   const raw = ledger as unknown as Record<string, unknown>;
   const triggers = raw.triggers as Record<string, unknown>;
-  for (const key of ["active", "lastKeySeq", "silentUntilIdle", "version"]) equal(key in triggers, false);
+  for (const key of ["active", "lastKeySeq", "version"]) equal(key in triggers, false);
 
   deepEqual(ledger.rng, state.rng);
   deepEqual(ledger.time, { tick: 0 });
@@ -504,7 +504,7 @@ test("each excluded continuation and metadata field changes the full save but no
     ["surface", (state) => { state.surfaces = { shots: [{ rev: 1 }] } as never; }],
     ["sprite state", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, state: "moving" }; }],
     ["sprite queue", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, queue: { moves: [{ source: "keyboard", target: { x: 1, y: 1 }, facing: "E" }], waypoint: null } }; }],
-    ["sprite movement", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, movement: { active: null, waitTicks: 3, pendingExit: null, under: [], lastStepTick: 2, lastStepDistance: 1 } }; }],
+    ["sprite movement", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, movement: { active: null, waitTicks: 3, pendingExit: null, under: [], lastStepTick: 2, lastStepDistance: 1, lastStepProvenance: { kind: "unknown" } } }; }],
     ["sprite prev", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, prev: { x: 1, y: 2 } }; }],
     ["sprite frozen", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, frozenUntil: 12 }; }],
     ["sprite multitask thread", (state) => { state.sprites.items[0] = { ...state.sprites.items[0]!, multitaskThread: 1 }; }],

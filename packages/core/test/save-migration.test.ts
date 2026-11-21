@@ -86,13 +86,13 @@ test("a v4 save (no module fields) restores unchanged apart from the v8 section 
   equal(canon(restoreGameState(snapshot(restored))), canon(restored));
 });
 
-test("vm schema 6 saves, out of and mid battle, migrate to vm 8 changing only the schema version", () => {
+test("vm schema 6 saves, out of and mid battle, migrate to vm 9 changing only the schema version", () => {
   for (const [previous, current] of [["vm6-battle-out.json", "engine1-battle-v2-out.json"], ["vm6-battle-mid.json", "engine1-battle-v2-mid.json"]] as const) {
     const saved = JSON.parse(fixtureText(previous)) as { schema: { vm: number } };
     equal(saved.schema.vm, 6, `${previous} is a real vm-6 save`);
     const restored = restoreGameState(fixtureText(previous));
-    equal(restored.schema.vm, 8);
-    equal(snapshot(restored), snapshot(restoreGameState(fixtureText(current))), `${previous} restores to its vm-7 counterpart`);
+    equal(restored.schema.vm, 9);
+    equal(snapshot(restored), snapshot(restoreGameState(fixtureText(current))), `${previous} restores to its vm-8 counterpart`);
     equal(snapshot(restoreGameState(snapshot(restored))), snapshot(restored), "migration is idempotent");
   }
 });

@@ -328,7 +328,7 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   const player = selectedPlayer(state);
   if (board === null || player === null) return events;
   const section = state.triggers;
-  if (section.version !== 2) resetTriggersSection(section);
+  if (section.version !== 3) resetTriggersSection(section);
   if (section.boardKey !== board.key) {
     section.boardKey = board.key;
     section.fired = {};
@@ -337,7 +337,7 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     section.deactivated = [];
     section.deactivateAt = null;
     section.active = null;
-    section.silentUntilIdle = false;
+    
   }
   if (section.deactivateAt !== null) {
     const arrival = section.deactivateAt;
@@ -352,18 +352,15 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     }
     section.deactivateAt = null;
   }
+  let completedTriggerMovement = false;
   if (section.active !== null) {
     if (!currentThreadFinished(state, section.active)) return events;
     const active = section.active;
+    const lastStep = player.movement.lastStepProvenance;
+    completedTriggerMovement = lastStep.kind === "trigger" && lastStep.thread === active.thread;
     if (active.setVar !== "") state.vm.globals[active.setVar] = active.setValue;
     emit(events, options, { type: "trigger-complete", tick: state.time.tick, key: active.key, source: active.source });
     section.active = null;
-    if (active.silentMovement && (player.movement.active !== null || player.queue.moves.length > 0 || player.queue.waypoint !== null)) section.silentUntilIdle = true;
-  }
-  if (section.silentUntilIdle) {
-    if (player.movement.active !== null || player.queue.moves.length > 0 || player.queue.waypoint !== null) return events;
-    section.silentUntilIdle = false;
-    return events;
   }
   // docs/spec/engine/main-loop-and-startup.md#reawakened-boot-held-activation
   // A boot poll is deferred until the enter program has released the blocking thread.
@@ -382,8 +379,11 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   if (bootPoll) section.lastKeySeq = 0;
   if (activationEntries.length > 0) section.lastKeySeq = activationEntries[0]!.seq;
   else for (const entry of state.input.keys) if (entry.seq > section.lastKeySeq) section.lastKeySeq = entry.seq;
-  const moving = player.state === "moving";
-  if (!step && !key && !moving) return events;
+  const moving = player.state === "moving" && player.movement.active !== null && player.movement.active.provenance?.kind !== "trigger";
+  const triggerStep = step && player.movement.lastStepProvenance.kind === "trigger";
+  const suppressedStep = !key && (triggerStep || completedTriggerMovement);
+  const stepEligible = step && !triggerStep;
+  const movementEvent = stepEligible || moving;
   const kind = key ? "key" : "step";
   const shape = playerShape(player);
   const regions = (board.programs ?? []).map(regionCandidate);
@@ -399,11 +399,11 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     rearmPool.push(candidate);
     if (actor.visible && item.layer === player.layer) items.push(candidate);
   }
-  const all = [...(step || key ? regions : []), ...items];
+  const all = [...(step || key || completedTriggerMovement ? regions : []), ...items];
   for (const candidate of rearmPool) {
     // Mid-step polling exists for item contact only; regions retain the original
-    // step/key polling cadence for both activation and re-arming.
-    if (candidate.source === "region" && !step && !key) continue;
+    // step/key cadence, plus delayed consumption after a trigger-owned movement.
+    if (candidate.source === "region" && !step && !key && !completedTriggerMovement) continue;
     const overlapsArea = candidate.layer === player.layer
       && (candidate.source === "item"
         ? candidate.actor !== undefined && candidate.actor.visible && overlaps(shape, itemShape(candidate))
@@ -416,6 +416,9 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
       }
     }
   }
+  // E-40 rearming observes trigger-owned travel, but a winning candidate is
+  // consumed so the same entry cannot fire on a later unrelated step.
+  if (!movementEvent && !key && !suppressedStep) return events;
   const qualifying = all.filter((candidate) => {
     if (!triggerTypeMatches(candidate, kind) || section.suppressed.includes(candidate.key) || section.deactivated.includes(candidate.key)) return false;
     // A trigger belongs to the layer it was authored on: only the player's own layer may fire it
@@ -444,7 +447,13 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     orderItemCandidates(player, itemCandidates);
     winner = itemCandidates[0] ?? qualifying.filter((candidate) => candidate.source === "region").at(-1);
   }
-  if (winner === undefined || hasLiveBlockingThread(state.vm)) return events;
+  if (winner === undefined) return events;
+  if (suppressedStep) {
+    section.fired[winner.key] = true;
+    if ((winner.activationType & 3) === 2) section.repeat[winner.key] = 0;
+    return events;
+  }
+  if (hasLiveBlockingThread(state.vm)) return events;
   const ref = resolveTriggerProgramRef(winner.program, options, board.key);
   // The `null` fall-through is the reported missing-program branch (empty names never reach here).
   if (ref === null) {
@@ -464,7 +473,6 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     setVar: winner.finalVar,
     setValue: winner.finalValue,
     source: winner.source,
-    silentMovement: true,
   };
   section.active = active;
   section.fired[winner.key] = true;

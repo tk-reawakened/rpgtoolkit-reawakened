@@ -189,6 +189,32 @@ for (const [label, activationType, held, resumes] of [
   });
 }
 
+test("a click route crosses consecutive non-stopping regions after each program returns", () => {
+  const first = { ...region(0), points: rectangle(64, 31, 96, 95) };
+  const second = { ...region(0), program: "region-1", handle: "r1", points: rectangle(96, 31, 128, 95) };
+  const state = makeState({ programs: [first, second] });
+  const tracker = movement();
+  const services = createScriptServices(state);
+  const started: string[] = [];
+  const resolver = () => ({ kind: "inline" as const, text: "end()", ir: "1", dialect: "tk3" as const });
+
+  for (let t = 0; t < 600; t += 1) {
+    state.time.tick = t;
+    if (t === 0) applyInputEvent(state.input, down(GOAL.x, GOAL.y));
+    if (t === 1) applyInputEvent(state.input, up(GOAL.x, GOAL.y));
+    inputPhase(state);
+    runThreadsPhase(state.vm, services, 100);
+    tracker.run(state);
+    for (const event of runTriggersPhase(state, { programRef: resolver })) {
+      if (event.type === "trigger-start") started.push(event.key);
+    }
+    if (hero(state).x === GOAL.x && hero(state).queue.moves.length === 0 && hero(state).movement.active === null) break;
+  }
+
+  deepEqual(started, ["region:0", "region:1"]);
+  equal(hero(state).x, GOAL.x, "the click route resumed after both non-stopping programs returned");
+});
+
 test("a script's own movement is never paused by the block: a wait on it still finishes", () => {
   const state = makeState();
   park(state);

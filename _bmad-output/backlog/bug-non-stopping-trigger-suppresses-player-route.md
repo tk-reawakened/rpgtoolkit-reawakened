@@ -55,11 +55,11 @@ The trigger runtime stores a blanket silence flag and activates it when any play
 6. **Save migration is explicit and does not invent ownership**
    **Given** a current save or a pre-provenance save
    **When** it is restored
-   **Then** current saves preserve per-move provenance and per-execution takeover progress; absent legacy move provenance becomes unknown and eligible, and absent legacy takeover progress becomes empty
+   **Then** current saves preserve per-move provenance and per-execution takeover progress; absent legacy move provenance becomes unknown and eligible, and absent legacy takeover progress becomes empty. Recovery captured while a trigger-origin move is active continues to discard candidate queues and VM continuations per the existing contract, so it never resumes that candidate movement
 7. **Deterministic regressions cover the contract**
    **Given** the focused movement and trigger suites
    **When** they run
-   **Then** tests cover the click-route reproduction, trigger and unrelated movement, mixed/new queue entries, clear/push, rejected/no-travel commands, nested calls/waits/separate executions, active-step continuation, waypoints/diversions, E-40 rearming, save/restore mid-active, and the P-8 model, manifest, and generated fixture aligned to per-move provenance; the tests fail for both queue-wide suppression and missing trigger-origin suppression
+   **Then** tests cover the click-route reproduction, trigger and unrelated movement, mixed/new queue entries, clear/push, rejected/no-travel commands, nested calls/waits/separate executions, active-step continuation, waypoints/diversions, E-40 rearming, save/restore mid-active, recovery mid-active with its existing discard semantics, and the P-8 model, manifest, and generated fixture aligned to per-move provenance; the tests fail for both queue-wide suppression and missing trigger-origin suppression
 8. **Or: no change is needed, with proof**
    **Given** the reproduction
    **When** it is run on the current implementation

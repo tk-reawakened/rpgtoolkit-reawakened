@@ -156,6 +156,12 @@ function migrateVm(record: Record<string, unknown>, schema: Record<string, unkno
     throw new ScriptError("restore.shape", "the snapshot's `vm` section is not an object");
   }
   const vmRecord = vm as Record<string, unknown>;
+  if (version < SCHEMA_VERSIONS.vm && Array.isArray(vmRecord.threads)) {
+    for (const entry of vmRecord.threads) {
+      if (!isRecord(entry)) shapeError("a thread in the snapshot is not an object");
+      entry.takeover = [];
+    }
+  }
   if (version < 3) {
     if (!Array.isArray(vmRecord.effects)) vmRecord.effects = [];
     if (typeof vmRecord.effectSeq !== "number") vmRecord.effectSeq = 0;
@@ -278,27 +284,35 @@ function migrateWorld(record: Record<string, unknown>, schema: Record<string, un
 function migrateSprites(record: Record<string, unknown>, schema: Record<string, unknown>): void {
   const version = schema.sprites;
   if (typeof version !== "number") shapeError("the snapshot's `schema` has no numeric `sprites` version");
+  if (version > SPRITES_SCHEMA_VERSION) return;
   const current = asSpritesSection(record.sprites);
+  if (version === SPRITES_SCHEMA_VERSION && current === null) return;
   const section = current === null ? createSpritesSection() : current;
-  const movement = { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0 };
+  const unknownProvenance = { kind: "unknown" as const };
+  const movement = { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: unknownProvenance };
   const normalise = (actor: (typeof section.players)[number]) => ({
     ...actor,
+    queue: {
+      ...actor.queue,
+      moves: actor.queue.moves.map((move) => ({ ...move, provenance: move.provenance ?? unknownProvenance })),
+      waypoint: actor.queue.waypoint === null ? null : { ...actor.queue.waypoint, provenance: actor.queue.waypoint.provenance ?? unknownProvenance },
+    },
     movement: {
       ...movement,
       ...(actor.movement ?? {}),
+      active: actor.movement?.active === null || actor.movement?.active === undefined
+        ? null
+        : { ...actor.movement.active, provenance: actor.movement.active.provenance ?? unknownProvenance },
       lastStepTick: actor.movement?.lastStepTick ?? null,
       lastStepDistance: actor.movement?.lastStepDistance ?? 0,
+      lastStepProvenance: actor.movement?.lastStepProvenance ?? unknownProvenance,
     },
   });
   section.players = section.players.map(normalise);
   section.items = section.items.map(normalise);
-  if (version < SPRITES_SCHEMA_VERSION) {
-    section.version = SPRITES_SCHEMA_VERSION;
-    record.sprites = section;
-    schema.sprites = SPRITES_SCHEMA_VERSION;
-  } else if (current !== null) {
-    record.sprites = section;
-  }
+  section.version = SPRITES_SCHEMA_VERSION;
+  record.sprites = section;
+  schema.sprites = SPRITES_SCHEMA_VERSION;
 }
 
 function migrationInteger(value: unknown, field: string): number {
@@ -372,7 +386,14 @@ function migrateTriggers(record: Record<string, unknown>, schema: Record<string,
   if (typeof current !== "object" || current === null || Array.isArray(current) || Object.keys(current).length === 0) {
     record.triggers = createTriggersSection();
   } else {
-    record.triggers = { ...createTriggersSection(), ...(current as Record<string, unknown>), version: TRIGGERS_SCHEMA_VERSION };
+    const migrated = { ...createTriggersSection(), ...(current as Record<string, unknown>), version: TRIGGERS_SCHEMA_VERSION } as Record<string, unknown>;
+    delete migrated.silentUntilIdle;
+    if (isRecord(migrated.active)) {
+      const active = { ...migrated.active };
+      delete active.silentMovement;
+      migrated.active = active;
+    }
+    record.triggers = migrated;
   }
   schema.triggers = TRIGGERS_SCHEMA_VERSION;
 }
@@ -811,6 +832,12 @@ function validateVmShape(vm: Record<string, unknown>): ReadonlyMap<number, strin
     arrayAt(thread.queue, `vm.threads[${index}].queue`);
     nullableRecord(thread.pending, `vm.threads[${index}].pending`);
     arrayAt(thread.detached, `vm.threads[${index}].detached`);
+    const takeover = arrayAt(thread.takeover, `vm.threads[${index}].takeover`);
+    for (const [takeoverIndex, playerId] of takeover.entries()) {
+      if (typeof playerId !== "string" || playerId === "") {
+        shapeError(`the snapshot's vm.threads[${index}].takeover[${takeoverIndex}] must be a non-empty player id`);
+      }
+    }
     if (thread.collect !== null) arrayAt(thread.collect, `vm.threads[${index}].collect`);
     for (const [frameIndex, frameValue] of arrayAt(thread.frames, `vm.threads[${index}].frames`).entries()) {
       const frame = recordAt(frameValue, `vm.threads[${index}].frames[${frameIndex}]`);
@@ -1214,9 +1241,38 @@ function validateSurfacesShape(value: unknown): void {
   for (const colour of Object.keys(colours)) numberAt(colours[colour], `surfaces.colours.${colour}`);
 }
 
+function validateMovementProvenance(value: unknown, path: string): void {
+  const provenance = recordAt(value, path);
+  if (provenance.kind === "unknown" || provenance.kind === "input") return;
+  if (provenance.kind === "script" || provenance.kind === "trigger") {
+    const thread = numberAt(provenance.thread, `${path}.thread`);
+    if (!Number.isSafeInteger(thread) || thread < 0) shapeError(`the snapshot's ${path}.thread must be a non-negative safe integer`);
+    return;
+  }
+  shapeError(`the snapshot's ${path}.kind is invalid`);
+}
+
 function validateSpritesShape(value: unknown): void {
   const sprites = asSpritesSection(value);
   if (sprites === null || sprites.version !== SPRITES_SCHEMA_VERSION) shapeError("the snapshot's `sprites` section has an invalid schema");
+  for (const [kind, actors] of [["players", sprites.players], ["items", sprites.items]] as const) {
+    for (const [index, actorValue] of actors.entries()) {
+      const path = `sprites.${kind}[${index}]`;
+      const actor = recordAt(actorValue, path);
+      const queue = recordAt(actor.queue, `${path}.queue`);
+      for (const [moveIndex, moveValue] of arrayAt(queue.moves, `${path}.queue.moves`).entries()) {
+        validateMovementProvenance(recordAt(moveValue, `${path}.queue.moves[${moveIndex}]`).provenance, `${path}.queue.moves[${moveIndex}].provenance`);
+      }
+      if (queue.waypoint !== null) {
+        validateMovementProvenance(recordAt(queue.waypoint, `${path}.queue.waypoint`).provenance, `${path}.queue.waypoint.provenance`);
+      }
+      const movement = recordAt(actor.movement, `${path}.movement`);
+      if (movement.active !== null) {
+        validateMovementProvenance(recordAt(movement.active, `${path}.movement.active`).provenance, `${path}.movement.active.provenance`);
+      }
+      validateMovementProvenance(movement.lastStepProvenance, `${path}.movement.lastStepProvenance`);
+    }
+  }
   const itemSlots = new Set<number>();
   for (const [index, item] of sprites.items.entries()) {
     if (item.sourceSlot === null) continue;
