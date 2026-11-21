@@ -60,15 +60,15 @@ void test("scene core fields cannot be used as plugin ids", () => {
 });
 
 void test("scene checker reports invalid core fields", () => {
-  const text = "contract: scene\nversion: 1.0.0-pre.1\nprojection: 2d\nsize: {width: 0, height: 1}\nfloors: [{id: ground}]\n";
+  const text = "contract: scene\nversion: 1.0.0-pre.2\nprojection: 2d\nsize: {width: 0, height: 1}\nfloors: [{id: ground}]\n";
   const reports = checkDocuments([{ path: "map.tkrscn", text }], shipped);
   equal(reports.some((report) => report.class === "native-scene" && report.field === "size.width"), true);
 });
 
 void test("an unresolved scene alias does not prevent checking other scenes", () => {
   const reports = checkDocuments([
-    { path: "bad.tkrscn", text: "contract: scene\nversion: 1.0.0-pre.1\nprojection: 2d\nsize: {width: 1, height: 1}\nfloors: [{id: ground}]\ntitle: *missing\n" },
-    { path: "other.tkrscn", text: "contract: scene\nversion: 1.0.0-pre.1\nprojection: 2d\nsize: {width: -1, height: 1}\nfloors: [{id: ground}]\n" },
+    { path: "bad.tkrscn", text: "contract: scene\nversion: 1.0.0-pre.2\nprojection: 2d\nsize: {width: 1, height: 1}\nfloors: [{id: ground}]\ntitle: *missing\n" },
+    { path: "other.tkrscn", text: "contract: scene\nversion: 1.0.0-pre.2\nprojection: 2d\nsize: {width: -1, height: 1}\nfloors: [{id: ground}]\n" },
   ], shipped);
   equal(reports.some((report) => report.class === "native-scene" && report.path === "bad.tkrscn" && report.message.includes("alias") && report.line === 6), true);
   equal(reports.some((report) => report.class === "native-scene" && report.path === "other.tkrscn" && report.field === "size.width"), true);

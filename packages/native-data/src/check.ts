@@ -9,8 +9,10 @@ import { classifyExtension, extensionOf, lookupExtension, REGISTRY, validateRegi
 import type { PluginBlockProblemKind } from "./plugin-data.ts";
 import { readTileset, type TilesetReadResult } from "./tileset.ts";
 import { readAssetPack, type AssetPackReadResult } from "./asset-pack.ts";
-import { sceneArtReferences } from "./art-references.ts";
+import { scenePackReferences } from "./art-references.ts";
 import { readScene, type SceneReadResult } from "./scene.ts";
+import { readTile } from "./tile.ts";
+import { sceneTerrainArtReferences, tilesetTerrainArtReferences } from "./terrain-art-references.ts";
 
 export type CheckConfig = {
   /** Extensions that mark a native document; absent means the shipped registry. */
@@ -90,9 +92,10 @@ export const REPORT_CLASSES: readonly ReportClass[] = [
 
 const RESERVED_KEYS: Readonly<Record<string, readonly string[]>> = {
   "animation-clip": ["canvas", "delay", "colourKey", "frames"],
-  tileset: ["name", "projection", "cellSize", "sources", "tiles", "isoBlocks", "autotiles", "outputBinding"],
+  tile: ["name", "projection", "role", "visual", "solid", "under", "activationAreas", "kitbash"],
+  tileset: ["name", "expects", "tiles", "terrains", "sources", "isoBlocks", "outputBinding"],
   "asset-pack": ["name", "projection", "grid", "sources", "assets"],
-  scene: ["name", "projection", "pixelCoordinates", "size", "floors", "tilePalette", "shading", "lights", "vectors", "triggers", "items", "images", "placedPacks", "atmosphere", "start", "links", "enterProgram", "battle", "savingDisabled", "threads", "constants", "legacy"],
+  scene: ["name", "projection", "pixelCoordinates", "size", "floors", "tilePalette", "terrainRegions", "tileOverrides", "shading", "lights", "vectors", "triggers", "items", "images", "placedPacks", "atmosphere", "start", "links", "enterProgram", "battle", "savingDisabled", "threads", "constants", "legacy"],
 };
 
 /**
@@ -167,7 +170,8 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
     if ("text" in doc.input) {
       const contract = lookupExtension(extensionOf(doc.path) ?? "", registry)?.contract;
       const result = contract === "tileset" ? readTileset(doc.input.text)
-        : contract === "asset-pack" ? readAssetPack(doc.input.text) : null;
+        : contract === "asset-pack" ? readAssetPack(doc.input.text)
+        : contract === "tile" ? readTile(doc.input.text) : null;
       if (result !== null && !result.ok) {
         for (const problem of result.problems) {
           if (problem.kind === "shape") {
@@ -189,42 +193,64 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
     }
   }
 
-  // Scene art references name a native document plus a local ID. Check both
-  // parts after collecting all documents so moved files can be resolved.
+  // Scene references name a native document, and sometimes a local ID. Resolve both after all
+  // documents are known, so a missing document and an ambiguous case-folded match differ.
   const artTargets = group(reads, (doc) => foldId(doc.id));
-  const artModels = new Map<string, TilesetReadResult | AssetPackReadResult>();
+  const terrainModels = new Map<string, TilesetReadResult>();
+  const packModels = new Map<string, AssetPackReadResult>();
   for (const doc of reads) {
     if (!("text" in doc.input)) continue;
-    const scan = sceneArtReferences(doc.input.text);
-    for (const message of scan.problems) {
+    const terrainScan = sceneTerrainArtReferences(doc.input.text);
+    const tilesetScan = tilesetTerrainArtReferences(doc.input.text);
+    const packScan = scenePackReferences(doc.input.text);
+    for (const message of [...terrainScan.problems, ...tilesetScan.problems, ...packScan.problems]) {
       reports.push({ class: "native-art", path: doc.path, field: "reference", message, line: null });
     }
-    for (const reference of scan.references) {
-      const id = foldId(documentId(reference.path.value));
-      const targets = artTargets.get(id) ?? [];
-      const target = targets.length === 1 ? targets[0] : undefined;
-      const expected = reference.kind === "tileset" ? "tileset" : "asset-pack";
+    const references = [
+      ...terrainScan.references.map((reference) => reference.kind === "tile"
+        ? { kind: "tile" as const, written: reference.path.value, localId: null as string | null }
+        : { kind: "terrain" as const, written: reference.path.value, localId: reference.localId }),
+      ...tilesetScan.references.map((reference) => ({ kind: "tile" as const, written: reference.path.value, localId: null as string | null })),
+      ...packScan.references.map((reference) => ({ kind: "asset" as const, written: reference.path.value, localId: reference.localId })),
+    ];
+    for (const reference of references) {
+      const targets = artTargets.get(foldId(documentId(reference.written))) ?? [];
+      if (targets.length > 1) {
+        reports.push({
+          class: "native-art", path: doc.path, field: reference.kind,
+          message: `ambiguous ${reference.kind} ${reference.written}: ${targets.map((target) => target.path).join(", ")}`,
+          line: null,
+        });
+        continue;
+      }
+      const target = targets[0];
+      const expected = reference.kind === "tile" ? "tile" : reference.kind === "terrain" ? "tileset" : "asset-pack";
       const contract = target === undefined ? undefined : lookupExtension(extensionOf(target.path) ?? "", registry)?.contract;
       let exists = false;
       if (target !== undefined && contract === expected && "text" in target.input) {
-        if (reference.kind === "tileset") {
-          const result = artModels.get(target.path) ?? readTileset(target.input.text);
-          artModels.set(target.path, result);
-          exists = result.ok && "tileset" in result && result.tileset.tiles.some((tile) => tile.id === reference.localId);
-        } else {
-          const result = artModels.get(target.path) ?? readAssetPack(target.input.text);
-          artModels.set(target.path, result);
-          exists = result.ok && "assetPack" in result && result.assetPack.assets.some((asset) => asset.id === reference.localId);
+        if (reference.kind === "terrain") {
+          const result = terrainModels.get(target.path) ?? readTileset(target.input.text);
+          terrainModels.set(target.path, result);
+          exists = result.ok && result.tileset.terrains?.some((terrain) => terrain.id === reference.localId) === true;
+        } else if (reference.kind === "asset") {
+          const result = packModels.get(target.path) ?? readAssetPack(target.input.text);
+          packModels.set(target.path, result);
+          exists = result.ok && result.assetPack.assets.some((asset) => asset.id === reference.localId);
           const scene = sceneModels.get(doc.path);
-          if (exists && result.ok && "assetPack" in result && scene?.ok && result.assetPack.projection !== scene.scene.projection) {
-            reports.push({ class: "native-scene", path: doc.path, field: "placedPacks", message: `pack ${reference.path.value} projection does not match the scene`, line: null });
+          if (exists && result.ok && scene?.ok && result.assetPack.projection !== scene.scene.projection) {
+            reports.push({ class: "native-scene", path: doc.path, field: "placedPacks", message: `pack ${reference.written} projection does not match the scene`, line: null });
           }
+        } else {
+          exists = true;
         }
       }
       if (!exists) {
         reports.push({
           class: "native-art", path: doc.path, field: reference.kind,
-          message: `cannot resolve ${reference.kind} ${reference.path.value} and local ID ${reference.localId}`, line: null,
+          message: reference.localId === null
+            ? `cannot resolve ${reference.kind} ${reference.written}`
+            : `cannot resolve ${reference.kind} ${reference.written} and local ID ${reference.localId}`,
+          line: null,
         });
       }
     }

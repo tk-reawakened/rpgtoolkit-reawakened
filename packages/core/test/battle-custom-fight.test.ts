@@ -1236,7 +1236,7 @@ test("one main-file all-API custom fight program runs the real path identically 
     equal(seen.apienemy2defeatedsource, run.heroActorId);
     equal(seen.apigamedefeatedcount, 0, `${label}: no stock package re-emits the custom loop's defeated event on the game`);
     equal(typeof seen.apiseededroll, "number");
-    equal(seen.apipressed, "Enter", `${label}: the program read the delivered key`);
+    equal(seen.apipressed, "ENTER", `${label}: the program read the delivered key`);
     equal(run.outcome, 2, `${label}: the program's finish(2) took the BAT-8 outcome path`);
     equal(run.gold, 6, `${label}: the adapter paid both enemies' gold once`);
     ok(run.drewCustomText, `${label}: the program's drawing reached the UI`);

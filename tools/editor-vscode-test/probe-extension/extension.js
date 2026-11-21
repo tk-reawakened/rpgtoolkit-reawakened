@@ -106,6 +106,7 @@ function activate(context) {
       kind: "board", main: "Main/example.gam", projectFolder: "Game/Example", seed: 23,
       party: ["Game/Example/Chrs/ada.tem"],
       start: { board: "Game/Example/Boards/village.brd", x: 2, y: 2, layer: 1 },
+      expectedFiles: null,
     });
     if (result?.ok) {
       publishRunHandle(result.value);

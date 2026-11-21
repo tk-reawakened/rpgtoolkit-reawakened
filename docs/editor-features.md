@@ -116,6 +116,22 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 **T-35 Sprite/image placeholders.** Objects with no graphic draw as 32×32 placeholder squares. Items with graphics show their south-facing rest frame.
 
+### Import a legacy board as a native scene (story 12.16)
+
+To edit a legacy board as a native scene, choose **Import as Scene…** in the board editor. For an older board that the legacy editor cannot open, select the `.brd` in the browser editor’s Files panel and choose **Import board as scene…**, or use **RPG Toolkit: Import board as scene…** in VS Code’s Command Palette.
+
+Save or discard any pending board edits first. Review what the converter found and where it will write the scene. Import creates and opens a new `.tkrscn` beside the board; it does not change the original `.brd` or the game’s links. Edit the scene normally. The first build that would replace the board asks separately and keeps the preceding board in history before writing.
+
+See [the native scene import contract](spec/formats/native-scene.md#import-from-a-board-to-a-scene) for supported locations and refusal cases.
+
+### Edit reusable collision and place pack assets (story 12.17)
+
+Use **Open tile source** or **Open pack source** from the native scene editor to edit the original asset. An open solid barrier can stop a player at a fence rail without blocking the whole tile. A closed walk-behind region lets the player pass behind the artwork but does not stop movement. A tile's points are relative to its top-left corner; a pack asset's points are relative to its anchor. The source editor shows both kinds of shape over the artwork.
+
+Choose a pack asset and place it on the scene. Move, copy or delete it as one object, or use **Open placement source** to edit its shared asset. A copy gets its own placement ID but keeps its link to the pack. Saving the source changes the linked placements the next time the scene is built; it does not rewrite the scene. The `.brd` output is generated, not the place to edit these records.
+
+See [tile geometry](spec/formats/native-tile.md#geometry-and-program-activation) and [pack placements](spec/formats/native-scene.md#pack-placements).
+
 ### Reawakened rules for the P0 board canvas and tile tools (story 12.10)
 
 These rules settle what T-20 to T-24, T-28 and T-33 leave open for the first editable board canvas. They apply to the three coordinate layouts of [board.md](spec/formats/board.md#coordinates): top-down (`coordType` 0), iso-stacked (1) and iso-rotated (2), each with or without the pixel-coordinate flag 4, which changes no tile geometry.

@@ -12,6 +12,7 @@ import type { NativeArtReport } from "./check.ts";
 import type { DocumentInput } from "./document.ts";
 import { compareText } from "./fold.ts";
 import { extensionOf, lookupExtension } from "./registry.ts";
+import { readTile, type NativeTileSample } from "./tile.ts";
 import { readTileset, tilesetCellBounds, tilesetCellReferences } from "./tileset.ts";
 
 export type ImageSize = { readonly width: number; readonly height: number };
@@ -36,6 +37,7 @@ export function checkProjectArtAssets(inputs: readonly DocumentInput[], lookup: 
     if (!("text" in input)) continue;
     const contract = lookupExtension(extensionOf(input.path) ?? "")?.contract;
     if (contract === "tileset") checkTilesetArt(input.path, input.text, sizeOf, reports);
+    else if (contract === "tile") checkTileArt(input.path, input.text, sizeOf, reports);
     else if (contract === "asset-pack") checkAssetPackArt(input.path, input.text, sizeOf, reports);
   }
   return reports;
@@ -45,17 +47,46 @@ function missing(path: string, field: string, file: string): NativeArtReport {
   return { class: "native-art", path, field, message: `source image ${file} is missing or unreadable`, line: null };
 }
 
+/** A tile's ordinary raster samples: each file must exist and contain the authored rectangle. */
+function checkTileArt(path: string, text: string, sizeOf: Lookup, reports: NativeArtReport[]): void {
+  const result = readTile(text);
+  if (!result.ok) return;
+  const { tile } = result;
+  const samples: { readonly sample: NativeTileSample; readonly field: string }[] =
+    tile.visual.sample !== undefined
+      ? [{ sample: tile.visual.sample, field: "visual.sample" }]
+      : tile.visual.cels.map((cel, index) => ({ sample: cel.sample, field: `visual.cels[${index}].sample` }));
+  for (const { sample, field } of samples) {
+    if (!("file" in sample)) continue;
+    const size = sizeOf(sample.file);
+    if (size === null) {
+      reports.push(missing(path, `${field}.file`, sample.file));
+      continue;
+    }
+    const [x, y, width, height] = sample.rect;
+    if (x + width > size.width || y + height > size.height) {
+      reports.push({
+        class: "native-art",
+        path,
+        field: `${field}.rect`,
+        message: `rectangle [${x}, ${y}, ${width}, ${height}] is outside ${sample.file}: its ${size.width}x${size.height} pixels do not contain it`,
+        line: null,
+      });
+    }
+  }
+}
+
 function checkTilesetArt(path: string, text: string, sizeOf: Lookup, reports: NativeArtReport[]): void {
   const result = readTileset(text);
   if (!result.ok) return;
   const { tileset } = result;
 
-  tileset.sources.forEach((source, index) => {
+  tileset.sources?.forEach((source, index) => {
     if (sizeOf(source.file) === null) reports.push(missing(path, `sources[${index}].file`, source.file));
   });
 
   for (const reference of tilesetCellReferences(tileset)) {
-    const source = tileset.sources.find((candidate) => candidate.id === reference.source);
+    const source = tileset.sources?.find((candidate) => candidate.id === reference.source);
     if (source === undefined) continue;
     const size = sizeOf(source.file);
     if (size === null) continue;

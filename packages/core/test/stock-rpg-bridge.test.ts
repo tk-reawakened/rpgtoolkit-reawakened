@@ -221,6 +221,69 @@ function prepareTalkedRun(withSource = true, withTarget = true): TalkedRun {
 const acceptEnter: WaitPoll = (_view, wait) =>
   wait.kind === "input.key" ? { value: "Enter", ok: true } : null;
 
+test("stock_rpg bridges a script-emitted dialogue with no target", () => {
+  const run = prepareTalkedRun();
+  killThread(run.state.vm, run.thread.id);
+  run.state.vm.globals.specactorid = run.speakerId;
+  startProgram(run.state.vm, {
+    kind: "inline",
+    text: 'game.emit("dialogue.completed", { actorId: specactorid, targetId: 0, text: "Hello" })\nend()\n',
+    ir: IR_VERSION,
+  });
+  advanceScriptTick(run.state, run.services);
+  deepEqual(run.heard.map(({ emitter, detail }) => ({ emitter, detail })), [{
+    emitter: actorEmitterKey(run.speakerId),
+    detail: { actorId: run.speakerId, targetId: null, text: "Hello" },
+  }]);
+});
+test("stock_rpg bridges a script-emitted dialogue with a target", () => {
+  const run = prepareTalkedRun();
+  killThread(run.state.vm, run.thread.id);
+  run.state.vm.globals.specactorid = run.speakerId;
+  run.state.vm.globals.spectargetid = run.targetId;
+  startProgram(run.state.vm, {
+    kind: "inline",
+    text: 'game.emit("dialogue.completed", { actorId: specactorid, targetId: spectargetid, text: "Hello" })\nend()\n',
+    ir: IR_VERSION,
+  });
+  advanceScriptTick(run.state, run.services);
+  deepEqual(run.heard.map(({ emitter, detail }) => ({ emitter, detail })), [{
+    emitter: actorEmitterKey(run.speakerId),
+    detail: { actorId: run.speakerId, targetId: run.targetId, text: "Hello" },
+  }]);
+});
+
+test("stock_rpg does not forward a retained script event again after dispatch", () => {
+  const run = prepareTalkedRun();
+  killThread(run.state.vm, run.thread.id);
+  run.state.vm.globals.specactorid = run.speakerId;
+  startProgram(run.state.vm, {
+    kind: "inline",
+    text: 'game.on("dialogue.completed", (event) => { retainedevent = event })\ngame.emit("dialogue.completed", { actorId: specactorid, targetId: 0, text: "No target" })\nend()\n',
+    ir: IR_VERSION,
+  });
+  advanceScriptTick(run.state, run.services);
+  equal(run.heard.length, 1, "the event was bridged during its dispatch");
+  const retainedEvent = run.state.vm.globals.retainedevent;
+  if (retainedEvent === null || retainedEvent === undefined || typeof retainedEvent !== "object" || !("kind" in retainedEvent) || retainedEvent.kind !== "object") {
+    throw new Error("script listener did not retain the event object");
+  }
+  const handle = retainedEvent.handle;
+  ok(run.state.vm.objects.some(({ handle: objectHandle }) => objectHandle === handle), "the event remained live through its VM root");
+  equal(run.state.events.nativeDetails?.[String(handle)], undefined, "script events have no native detail sidecar");
+  const command = STOCK_RPG_PLUGIN.commands.find(({ name }) => name === "bridgetalked");
+  if (command === undefined) throw new Error("stock_rpg must expose bridgetalked");
+  const result = command.call(
+    { state: run.state, actors: run.services.actors } as CommandView,
+    [{ value: retainedEvent, ref: null }],
+    () => ({ value: null }),
+  );
+  equal(result.value, 0);
+  deepEqual(result.effects ?? [], []);
+  equal(run.heard.length, 1, "the stale event was not forwarded a second time");
+});
+
+
 test("stock_rpg forwards completed dialogue to the speaker with exact details", () => {
   const run = prepareTalkedRun();
   advanceScriptTick(run.state, run.services);
@@ -333,6 +396,7 @@ test("stock_rpg rejects malformed dialogue details and unknown actor IDs at its 
   if (command === undefined) throw new Error("stock_rpg must expose bridgetalked");
   for (const { emitter, type, detail } of [
     { emitter: "game", type: "dialogue.completed", detail: { actorId: 999, targetId: null, text: "unknown actor" } },
+    { emitter: "game", type: "dialogue.completed", detail: { actorId: 1, targetId: 0, text: "invalid target sentinel" } },
     { emitter: "game", type: "dialogue.completed", detail: { actorId: 1, targetId: "not-an-actor", text: "malformed target" } },
     { emitter: "game", type: "unrelated.event", detail: { actorId: 1, targetId: null, text: "wrong event type" } },
     { emitter: actorEmitterKey(1), type: "dialogue.completed", detail: { actorId: 1, targetId: null, text: "wrong emitter" } },

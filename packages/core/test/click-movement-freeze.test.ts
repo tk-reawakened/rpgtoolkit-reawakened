@@ -11,6 +11,7 @@ import {
   inputPhaseRegistration,
   killThread,
   movementPhaseRegistration,
+  pointMoveTarget,
   runThreadsPhase,
   scriptOwnsInput,
   startProgram,
@@ -189,6 +190,32 @@ for (const [label, activationType, held, resumes] of [
   });
 }
 
+test("a click route crosses consecutive non-stopping regions after each program returns", () => {
+  const first = { ...region(0), points: rectangle(64, 31, 96, 95) };
+  const second = { ...region(0), program: "region-1", handle: "r1", points: rectangle(96, 31, 128, 95) };
+  const state = makeState({ programs: [first, second] });
+  const tracker = movement();
+  const services = createScriptServices(state);
+  const started: string[] = [];
+  const resolver = () => ({ kind: "inline" as const, text: "end()", ir: "1", dialect: "tk3" as const });
+
+  for (let t = 0; t < 600; t += 1) {
+    state.time.tick = t;
+    if (t === 0) applyInputEvent(state.input, down(GOAL.x, GOAL.y));
+    if (t === 1) applyInputEvent(state.input, up(GOAL.x, GOAL.y));
+    inputPhase(state);
+    runThreadsPhase(state.vm, services, 100);
+    tracker.run(state);
+    for (const event of runTriggersPhase(state, { programRef: resolver })) {
+      if (event.type === "trigger-start") started.push(event.key);
+    }
+    if (hero(state).x === GOAL.x && hero(state).queue.moves.length === 0 && hero(state).movement.active === null) break;
+  }
+
+  deepEqual(started, ["region:0", "region:1"]);
+  equal(hero(state).x, GOAL.x, "the click route resumed after both non-stopping programs returned");
+});
+
 test("a script's own movement is never paused by the block: a wait on it still finishes", () => {
   const state = makeState();
   park(state);
@@ -293,7 +320,7 @@ test("a held pointer repaths with the current simulation camera rather than the 
   inputPhase(state);
   const route = hero(state).queue.moves;
   ok(route.length > 0, "the held pointer starts a route");
-  deepEqual(route[route.length - 1]!.target, { x: 167, y: 63 }, "current camera and shake locate the board goal");
+  deepEqual(pointMoveTarget(route[route.length - 1]), { x: 167, y: 63 }, "current camera and shake locate the board goal");
 });
 
 test("a click on a centred board renders the player's feet at the clicked viewport point", () => {
@@ -326,7 +353,7 @@ test("a queued click keeps its captured world point after the camera moves", () 
   inputPhase(state);
   const route = hero(state).queue.moves;
   ok(route.length > 0, "the eligible click still routes");
-  deepEqual(route[route.length - 1]!.target, { x: 154, y: 63 });
+  deepEqual(pointMoveTarget(route[route.length - 1]), { x: 154, y: 63 });
   ticks(state, 1, 200);
   deepEqual({ x: hero(state).x, y: hero(state).y }, { x: 154, y: 63 });
 
@@ -362,7 +389,7 @@ test("queued clicks, releases and held-pointer repaths survive save and determin
     inputPhase(state);
     const route = hero(state).queue.moves;
     ok(route.length > 0);
-    deepEqual(route[route.length - 1]!.target, { x: 144, y: 63 }, "the held gesture's captured goal is preserved");
+    deepEqual(pointMoveTarget(route[route.length - 1]), { x: 144, y: 63 }, "the held gesture's captured goal is preserved");
     state.camera.x = 80;
     state.camera.prevX = 80;
     ticks(state, 1, 200);

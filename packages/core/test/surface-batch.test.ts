@@ -4,6 +4,7 @@ import {
   blitSurface,
   blitTexture,
   colourSurface,
+  createGameState,
   createSurface,
   createSurfacesSection,
   decodeSurfaceBytes,
@@ -15,6 +16,7 @@ import {
   getPixel,
   readSurfacePixels,
   replaceSurface,
+  snapshot,
   type SurfaceId,
 } from "../src/index.ts";
 import {
@@ -23,10 +25,12 @@ import {
   circleBounds,
   editSurfaceWithBounds,
   endSurfaceBatch,
+  ensureScriptScreen,
   flushSurfaceBatch,
   lineBounds,
   pixelBounds,
   rectBounds,
+  resetScriptScreen,
   surfaceCircleBounds,
   surfaceLineBounds,
   surfacePixelBounds,
@@ -207,11 +211,13 @@ test("bounded eager edits keep b64 equal to a full re-encode and to a plain-buff
     const model = new Uint8Array(live(state, SCREEN));
     for (let step = 0; step < 1 + Math.floor(next() * 6); step += 1) {
       const op = randomDraw(next, w, h);
+      const bounds = op.bounds(w, h);
+      const revision = state.entries["0"]!.rev;
       op.draw(model, w, h);
-      equal(editSurfaceWithBounds(state, SCREEN, (rgba, cw, ch) => op.draw(rgba, cw, ch), op.bounds(w, h)), true);
+      equal(editSurfaceWithBounds(state, SCREEN, (rgba, cw, ch) => op.draw(rgba, cw, ch), bounds), true);
       deepEqual(live(state, SCREEN), model, `trial ${trial} ${op.name}: pixels differ from the plain-buffer model`);
       assertCanonical(state, SCREEN, `trial ${trial} ${op.name}`);
-      equal(state.entries["0"]!.rev, 1 + step + 1);
+      equal(state.entries["0"]!.rev, revision + (bounds.first <= bounds.last ? 1 : 0));
     }
   }
 });
@@ -440,4 +446,126 @@ test("closing one batch keeps a newer buffer indexed when two sections share an 
   endSurfaceBatch(second);
   deepEqual([...live(second, SCREEN)], [20, 0, 0, 255]);
   assertCanonical(second, SCREEN, "shared entry");
+});
+
+test("issue #3278 preserves a bounded child commit when its new unbounded parent throws", () => {
+  const state = createSurfacesSection(2, 1);
+  beginSurfaceBatch(state);
+  throws(() => editSurface(state, SCREEN, (rgba) => {
+    rgba[0] = 33;
+    editSurfaceWithBounds(state, SCREEN, (child) => { child[5] = 55; }, { first: 1, last: 1 });
+    throw new Error("parent failed");
+  }), /parent failed/);
+  endSurfaceBatch(state);
+  deepEqual([...live(state, SCREEN)], [0, 0, 0, 0, 0, 55, 0, 0]);
+});
+
+test("issue #3279 rolls back parent channels while retaining a bounded child write", () => {
+  const state = createSurfacesSection(1, 1);
+  beginSurfaceBatch(state);
+  throws(() => editSurfaceWithBounds(state, SCREEN, (rgba) => {
+    rgba[0] = 11;
+    editSurfaceWithBounds(state, SCREEN, (child) => { child[1] = 22; }, { first: 0, last: 0 });
+    throw new Error("parent failed");
+  }, { first: 0, last: 0 }), /parent failed/);
+  endSurfaceBatch(state);
+  deepEqual([...live(state, SCREEN)], [0, 22, 0, 0]);
+});
+
+test("issue #3279 keeps a child write to the bitmap baseline after parent rollback", () => {
+  const state = createSurfacesSection(1, 1);
+  beginSurfaceBatch(state);
+  editSurfaceWithBounds(state, SCREEN, (rgba) => { rgba[0] = 11; }, { first: 0, last: 0 });
+  throws(() => editSurfaceWithBounds(state, SCREEN, (parent) => {
+    parent[1] = 33;
+    editSurfaceWithBounds(state, SCREEN, (child) => { child[0] = 0; }, { first: 0, last: 0 });
+    throw new Error("parent failed");
+  }, { first: 0, last: 0 }), /parent failed/);
+  endSurfaceBatch(state);
+  deepEqual([...live(state, SCREEN)], [0, 0, 0, 0]);
+});
+
+test("issue #3279 keeps public child channels and committed descendants after parent rollback", () => {
+  const state = createSurfacesSection(1, 1);
+  beginSurfaceBatch(state);
+  throws(() => editSurfaceWithBounds(state, SCREEN, (parent) => {
+    parent[0] = 11;
+    editSurface(state, SCREEN, (child) => {
+      child[1] = 22;
+      editSurfaceWithBounds(state, SCREEN, (descendant) => { descendant[2] = 33; }, { first: 0, last: 0 });
+    });
+    throw new Error("parent failed");
+  }, { first: 0, last: 0 }), /parent failed/);
+  endSurfaceBatch(state);
+  deepEqual([...live(state, SCREEN)], [0, 22, 33, 0]);
+});
+
+test("issue #3280 keeps an outer eager edit across an empty nested bounded edit", () => {
+  const state = createSurfacesSection(1, 1);
+  editSurfaceWithBounds(state, SCREEN, (rgba) => {
+    rgba[0] = 42;
+    editSurfaceWithBounds(state, SCREEN, () => {}, { first: 1, last: 0 });
+  }, { first: 0, last: 0 });
+  deepEqual([...live(state, SCREEN)], [42, 0, 0, 0]);
+});
+
+test("issue #3281 rebases overlapping alias commits and preserves independent pixels", () => {
+  for (const disjoint of [false, true]) {
+    const game = createGameState({ seed: 1, width: 2, height: 1 });
+    const surfaces = createSurfacesSection(2, 1);
+    game.surfaces = surfaces;
+    const alias: Surfaces = { ...surfaces, entries: { ...surfaces.entries } };
+    const aliasGame = { ...game, surfaces: alias };
+    beginSurfaceBatch(surfaces);
+    editSurfaceWithBounds(surfaces, SCREEN, (parent) => {
+      parent[0] = 10;
+      beginSurfaceBatch(alias);
+      editSurfaceWithBounds(alias, SCREEN, (child) => {
+        if (disjoint) child[5] = 20;
+        else child[0] = 20;
+      }, disjoint ? { first: 1, last: 1 } : { first: 0, last: 0 });
+      snapshot(aliasGame);
+      endSurfaceBatch(alias);
+    }, { first: 0, last: 0 });
+    endSurfaceBatch(surfaces);
+    const expected = disjoint ? [10, 0, 0, 0, 0, 20, 0, 0] : [20, 0, 0, 0, 0, 0, 0, 0];
+    deepEqual([...live(surfaces, SCREEN)], expected);
+    assertCanonical(surfaces, SCREEN, disjoint ? "disjoint alias edits" : "overlapping alias edits");
+  }
+});
+
+test("issue #3281 keeps an active bounded edit over a disjoint alias commit and snapshot", () => {
+  const game = createGameState({ seed: 1, width: 2, height: 1 });
+  const surfaces = createSurfacesSection(2, 1);
+  game.surfaces = surfaces;
+  const alias: Surfaces = { ...surfaces, entries: { ...surfaces.entries } };
+  const aliasGame = { ...game, surfaces: alias };
+  beginSurfaceBatch(surfaces);
+  editSurfaceWithBounds(surfaces, SCREEN, (rgba) => { rgba[0] = 10; }, { first: 0, last: 0 });
+  editSurfaceWithBounds(surfaces, SCREEN, (rgba) => {
+    rgba[0] = 200;
+    beginSurfaceBatch(alias);
+    editSurfaceWithBounds(alias, SCREEN, (pixels) => {
+      pixels.set([30, 40, 50, 60], 4);
+    }, { first: 1, last: 1 });
+    snapshot(aliasGame);
+    endSurfaceBatch(alias);
+  }, { first: 0, last: 0 });
+  endSurfaceBatch(surfaces);
+  deepEqual([...live(surfaces, SCREEN)], [200, 0, 0, 0, 30, 40, 50, 60]);
+  assertCanonical(surfaces, SCREEN, "active edit with alias snapshot");
+});
+
+test("issue #3282 snapshots a script-screen reset before the open surface batch ends", () => {
+  const game = createGameState({ seed: 1, width: 1, height: 1 });
+  const surfaces = createSurfacesSection(1, 1);
+  game.surfaces = surfaces;
+  const scriptScreen = ensureScriptScreen(surfaces);
+  replaceSurface(surfaces, scriptScreen, 1, 1, Uint8Array.from([90, 80, 70, 255]));
+  beginSurfaceBatch(surfaces);
+  resetScriptScreen(surfaces);
+  deepEqual([...live(surfaces, scriptScreen)], [0, 0, 0, 0]);
+  const saved = JSON.parse(snapshot(game)) as { surfaces: Surfaces };
+  deepEqual([...decodeSurfaceBytes(saved.surfaces.entries[String(scriptScreen)]!.bitmap.b64)], [0, 0, 0, 0]);
+  endSurfaceBatch(surfaces);
 });

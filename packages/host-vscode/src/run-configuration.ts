@@ -104,7 +104,7 @@ async function resolve(config: Readonly<Record<string, unknown>>, roots: readonl
   if (kind === "board") {
     const start = await boardStart("start", config.start, "board");
     const party = await partyList("party", config.party, true);
-    return { kind: "board", ...base, start, party };
+    return { kind: "board", ...base, start, party, expectedFiles: null };
   }
   const program = config.program === undefined ? answer(await prompts.program(projectFolder)) : workspacePath("program", config.program);
   return { kind: "program", ...base, program, fixture: await fixtureOf(program) };

@@ -13,9 +13,16 @@
 
 The extensions for tiles and tools are owner direction, not registered formats yet. The existing `.tkrtile` registry and implementation mean a tileset. Replace that pre-release name with `.tkrtst` in a coordinated cutover of the specification, registry, readers, writers, checks, references, packaging and repository fixtures. Do not retain an alias or build a migration tool for the old definition. This is not evidence that all private projects have been inventoried. Do not alter private files without an explicit operation.
 
-The [scene proposal](terrain-scene-contract-proposal.md) describes saved coverage, overrides and cell precedence. The [tile, tileset and tool proposal](tile-tool-contract-proposal.md) describes tile references, terrain rules and declarative tools. These are the baseline for the cutover, not reader conformance claims. Exact managed artwork references, stable output slots, isometric behavior and animated playback still require their own evidence.
+The [scene proposal](terrain-scene-contract-proposal.md) describes saved coverage, overrides and cell precedence. The [tile, tileset and tool proposal](tile-tool-contract-proposal.md) describes tile references, terrain rules and declarative tools. Both are draft wire contracts; the approved decisions below take precedence where they differ.
 
 A tile need not imply an image file per tile: several `.tkrtle` definitions may refer to regions in one source sheet. Conversely, one tile may have its own artwork source. An editable artwork source owns layers, frames and pixels; a generated image is not another editable authority. The detailed source contract and interchange rules remain with [story 13.21](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2320).
+
+## Approved cutover decisions
+
+- **Stable output slots.** Give each generated tile or animation cel an explicit 1-based slot within its output tileset. Reordering authoring entries never changes slots. A deleted allocation remains reserved and is emitted as transparent; builds never compact or reuse it automatically.
+- **Raised isometric blocks do not block flat terrain.** Keep authored faces and polygons intact. A build that uses a raised block refuses with a located diagnostic until projected artwork, draw order, solid collision and walk-behind are specified and proven on both isometric layouts. Do not flatten or silently drop the block.
+- **Artwork references.** A managed sample is `{source, frame, region}`; the project-relative source owns stable frame and region IDs and the crop. A plain raster sample is `{file, rect}`. Reordering source frames does not change references. This approves neither an artwork codec nor the rest of the interchange contract.
+- **Programmable placeholders.** A reusable tile or prop may offer a named activation area. The scene binds a program explicitly per placement. An unbound placeholder generates no trigger or activation polygon; clearing its binding leaves artwork, collision and walk-behind unchanged. Imported legacy trigger slots are not subject to this rule.
 
 ## The pond
 

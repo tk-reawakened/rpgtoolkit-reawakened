@@ -2,7 +2,7 @@ import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
@@ -10,6 +10,8 @@ import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 import { createWebRunService, type RunPresenter } from "./run.ts";
 import { historyPolicyFrom, type HistoryPolicy } from "@tk-reawakened/editor-model";
+import { asTerrainSceneDocument } from "@tk-reawakened/editor-model";
+import { mountWebTerrainScene } from "./terrain-scene.ts";
 
 /**
  * A project open in the browser host. Its `workspace` is the host's workbench: one model per document, undo by `editId`,
@@ -291,11 +293,12 @@ export const openGameSettings = openEditor;
  * project's files by the one board compositor (AD-29). The workspace types a document by its lifecycle only, so the
  * kind is what says which command and snapshot types it has.
  */
-function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContext["document"] {
+function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
   if (document.kind === "native-clip") return document as unknown as NativeClipViewDocument;
+  if (document.kind === "native-tile" || document.kind === "native-asset-pack") return document as unknown as NativeGeometryViewDocument;
   if (document.kind === "animation") {
     const animation = asAnimationDocument(document);
     const view: AnimationViewDocument = {
@@ -359,6 +362,8 @@ function viewDocumentFor(project: WebProject, document: AnyDocument): ViewContex
     // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
     undo: () => board.undo(),
     redo: () => board.redo(),
+    // Live board tabs and the Files panel use the same workbench import route; previews do not offer it.
+    ...(importBoard === undefined ? {} : { importAsScene: () => importBoard(document.identity.path) }),
   };
   return view;
 }
@@ -413,8 +418,9 @@ export function mountDocumentView(
   navigation?: ViewContext["navigation"],
   /** The running project's main file (`.gam`), which the language server reads the project from; `null` when none. */
   main: string | null = null,
+  /** Only live editors may import; history and snapshot mounts do not pass this action. */
+  importBoard?: (path: string) => Promise<PlatformResult<void>>,
 ): DocumentView {
-  const viewDocument = viewDocumentFor(project, document);
   const documentLayout = projectLayoutForDocumentPath(document.identity.path);
   const browserLayout = documentLayout.projectFolder === "" ? projectLayout : documentLayout;
   let mounted: ViewHandle | null = null;
@@ -434,8 +440,10 @@ export function mountDocumentView(
   };
   const show = (container: HTMLElement): void => {
     if (disposed || mounted !== null) throw new Error("Cannot show a disposed or already mounted editor view.");
-    mounted = mount(container, {
-      document: viewDocument,
+    mounted = document.kind === "terrain-scene"
+      ? mountWebTerrainScene(container, project, asTerrainSceneDocument(document), main, browserLayout.projectFolder, openSource)
+      : mount(container, {
+      document: viewDocumentFor(project, document, importBoard),
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),

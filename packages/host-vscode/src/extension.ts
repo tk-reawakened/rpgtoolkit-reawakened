@@ -3,6 +3,8 @@ import * as vscode from "vscode";
 import { createBrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { vscodeCapabilities } from "./capabilities.ts";
 import { createNativeClipTextEditorProvider } from "./native-clip-text-editor.ts";
+import { createNativeTerrainTextEditorProvider } from "./native-terrain-text-editor.ts";
+import { createNativeGeometryTextEditorProvider } from "./native-geometry-text-editor.ts";
 import { createGameEditorProvider, DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
@@ -12,6 +14,7 @@ import { registerRunDebugger } from "./run-debug.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
+import { registerImportBoardAsScene } from "./import-board-scene.ts";
 import { boardPreviewRootForPath, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { registerPackageGameCommand } from "./package-game-command.ts";
@@ -48,6 +51,13 @@ function html(webview: vscode.Webview, context: vscode.ExtensionContext): string
   const stylesheet = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "tileset-browser.css"));
   return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${stylesheet}"><title>RPG Toolkit editor</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
 }
+function terrainHtml(webview: vscode.Webview, context: vscode.ExtensionContext): string {
+  const nonce = [...crypto.getRandomValues(new Uint8Array(18))].map((value) => value.toString(16).padStart(2, "0")).join("");
+  const bundle = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "terrain-scene.js"));
+  const stylesheet = webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "dist", "terrain-scene.css"));
+  return `<!doctype html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource}; script-src 'nonce-${nonce}'; style-src 'self' ${webview.cspSource} 'nonce-${nonce}';"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${stylesheet}"><title>RPG Toolkit Scene Terrain</title></head><body><div id="root"></div><script nonce="${nonce}" src="${bundle}"></script></body></html>`;
+}
+
 
 
 
@@ -70,6 +80,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   const findTextDocument = (uri: vscode.Uri) => vscode.workspace.textDocuments.find((document) => !document.isClosed
     && document.uri.scheme === uri.scheme && document.uri.authority === uri.authority
     && createDocumentIdentity("", document.uri.path).key === createDocumentIdentity("", uri.path).key);
+  const hasDirtyTextDocument = (uri: vscode.Uri): boolean => findTextDocument(uri)?.isDirty === true;
   const port: GameEditorPort<vscode.Uri> = {
     capabilities: vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop),
     dialogs: (folder) => createVscodeDialogs(folder.uri),
@@ -85,6 +96,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
     isTextDocumentOpen: (uri) => findTextDocument(uri) !== undefined,
+    hasDirtyTextDocument,
     nativeTextDocument: async (uri) => {
       const document = findTextDocument(uri);
       if (document === undefined) return null;
@@ -166,6 +178,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     generation += 1;
     changes.fire(event);
   });
+  registerImportBoardAsScene(context, core, hasDirtyTextDocument);
   context.subscriptions.push(vscode.commands.registerCommand("tkr.returnFromBoard", async () => {
     const uri = vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri();
     if (uri === undefined) {
@@ -352,6 +365,16 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
   context.subscriptions.push(vscode.window.registerCustomEditorProvider(
     "tkr.nativeClip",
     createNativeClipTextEditorProvider(context, html, vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop)),
+    { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true },
+  ));
+  context.subscriptions.push(vscode.window.registerCustomEditorProvider(
+    "tkr.nativeGeometry",
+    createNativeGeometryTextEditorProvider(context, html, vscodeCapabilities(vscode.env.uiKind === vscode.UIKind.Desktop)),
+    { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true },
+  ));
+  context.subscriptions.push(vscode.window.registerCustomEditorProvider(
+    "tkr.nativeScene",
+    createNativeTerrainTextEditorProvider(context, terrainHtml, (folder) => core.workspaceFor({ uri: folder.uri, key: folder.uri.toString() }).workspace.history, runForProject),
     { webviewOptions: { retainContextWhenHidden: true }, supportsMultipleEditorsPerDocument: true },
   ));
   return () => generation;

@@ -1,54 +1,89 @@
 <!-- Owner-relayed fact sheet, clean-room extraction round 18 (ADR 0006). Facts are not rulings; specification changes follow separately (G7). -->
 
-# Clean-room extraction, round 18 — repeat distance, queue reporting, queue readers (owner-relayed)
+# Clean-room extraction, round 18 — movement queue and blocked steps (owner-relayed)
 
-- **Source consulted:** the answerer read the original program's logic; the behavior was not observed by running it.
+- **Source consulted:** the answerer read the original program's logic; the behaviour was not observed by running it.
 - **Answerer:** TK engineer, relayed by Jensen.
 - **Date:** 2026-11-21.
-- **Versions:** released 3.1.0 and the final unreleased source; no difference between them except where noted in S3. 3.0.x is covered for the queue-reporting question only.
-- **Confidence:** from source unless marked *certain*. Timing-related parts are not measured.
-- **Questions:** how blocked steps feed repeat-distance programs; what the path-query commands report during a step; what else reads the queue, and what a save keeps of it.
+- **Versions:** "3.1.x" covers the shipped 3.1.0 release and the final unreleased source. Nothing in this area behaves differently between them, except one rare case in Q1c (thread wake-up while a custom stance plays). That case is noted there.
+- **Confidence:** the answers use three labels: **certain** means every branch was traced; **from source** means read in the source but not run; **guess** is inference.
+- **Questions:** [questions-round-18.md](questions-round-18.md), R18-Q1 to R18-Q3: repeat-distance programs and blocked steps; what the queue reports during a step; other readers of the queue and save/load.
+- **Drafting:** written to the glass-door rule: no code, identifiers, file names, line numbers or quoted wording.
+- **Review:** Owner-relayed; has NOT had the two independent reviews (copied-expression review and fact-check at both revisions) a full round gets; decisions resting on it may proceed but a review pass should follow.
+- **Correction to round 17:** [facts-round-17.md](facts-round-17.md) says a blocked step's entry is dropped for "the player". That is true only for the selected (user-controlled) player; Q2b below records how items and other players behave.
 
-Terms: a **step** is one queued movement (32 pixels in tile mode, a small pixel-mode distance otherwise). **Distance** is the running counter kept for each step-activated program.
+Terms
+- A step is one queued movement.
+- A tile-mode step is 32 pixels.
+- A pixel-mode step is a small distance of 1 pixel or more, set by the movement speed.
+- Distance is the running counter kept for each step-activated program.
 
-## Repeat-distance programs and blocked steps (3.1)
+## Q1: repeat-distance programs and blocked steps (3.1.x)
 
-**S1. A blocked step still counts as a finished move.** Pressing into a blocked tile ends the step at once, the player does not move, and the queued entry is removed. The normal finished-move processing runs: the step counter rises by one step's worth, and the program and encounter tests run. Those tests use the position the player *tried* to reach, not where the player stands.
+How a blocked step is handled. When the player presses into a blocked tile, the step ends immediately. The player does not move, and the queued entry is removed. The step still counts as finished, so the normal "player finished a move" processing runs: the step counter goes up by one step's worth, and the program and encounter tests run. Those tests use the position the player tried to reach, not where the player is standing. (from source)
 
-**S2. A blocked step adds one step's worth of distance, never the pixels moved.** This applies only when the blocked destination's base touches the program's area (any contact counts, not full containment). Tile mode adds 32; pixel mode adds the pixel-step size. If the blocked destination is outside the area, the counter is reset instead: a repeat program becomes "ready to fire on entry", a non-repeat program is set to 0.
+a. How much distance is added? One step's worth, whatever the number of pixels actually moved. (from source)
+- Tile mode adds 32. Pixel mode adds the pixel-step size.
+- This happens only if the blocked destination overlaps the program's area. The overlap test is any contact with the area, not full containment.
+- If the blocked destination is outside the area, the counter is reset, not increased. A repeat program is set to "ready to fire on entry". A non-repeat program is set to 0.
 
-**S3. Pressing into a wall can re-fire a repeat program.** After a repeat program fires its distance is 0. Each blocked press whose destination touches the area adds one step's worth, and the program fires when the total reaches the repeat distance. In tile mode a repeat distance of 32 or less fires on every blocked press; 64 fires on every second press. A held key repeats the press every frame, because a blocked step returns the game to accepting input immediately. Separately, a press toward a destination outside the area leaves the program ready, and the next press whose destination touches the area fires it with no walking in between.
+b. Can pressing into a wall re-fire a repeat program? Yes. (from source)
+- After a repeat program fires, its distance resets to 0.
+- Every blocked press whose destination overlaps the area adds one step's worth. The program fires again when the total reaches the repeat distance.
+- In tile mode, a repeat distance of 32 or less fires on every blocked press. A distance of 64 fires on every second press.
+- A held key repeats the press every frame, because a blocked step returns the game to accepting input at once. A wall-pressing player can therefore fire the program once per frame.
+- A second route also exists. A press toward a destination outside the area leaves the program "ready to fire". The next press whose destination overlaps the area then fires it, with no walking in between.
 
-**S4. Program-driven movement.**
+c. Does it change when a program drives the player? It depends on how the movement is run.
 
-| Movement source | Behavior |
+| Movement source | Behaviour |
 |---|---|
-| Ordinary (non-thread) program, blocking movement commands | Finished-move processing never runs; distances are untouched and no programs fire, blocked or not. |
-| Thread or multitask program, with or without the pause-thread flag | Same as free-roaming, including S3. Thread-driven player movement triggers programs and encounters. |
-| Pathfinding moves (mouse click, step-towards, pathfound path) handled by the frame loop | Only other sprites can block them, not board vectors. The program and encounter tests also run every frame of the walk, each adding a whole step's worth, so repeat programs and encounters fire much sooner than the real walked distance suggests. |
+| Ordinary (non-thread) program, blocking movement commands | The finished-move processing never runs. Distances are not touched and no programs fire, whether blocked or not. (from source) |
+| Thread or multitask program, with or without the pause-thread flag | Same as free-roaming, including the re-firing in 1b. Thread-driven player movement triggers programs and encounters. (from source) |
+| Pathfinding moves (mouse click, step-towards, pathfound path), handled by the main loop | Only other sprites can block these, not board vectors. The program and encounter tests also run on every frame of the walk. Each frame adds a whole step's worth, so repeat programs and encounters fire much sooner than the real walked distance suggests. (from source) |
 
-One version note: the final source does not release a thread's movement-wait while a custom stance is playing; 3.1.0 does. This matters only to threads paused on a movement.
+One version note: the final source stops a thread's movement-wait from being released while a custom stance plays. 3.1.0 releases it. This only matters to threads paused on a movement.
 
-## What the path-query commands report (3.1 and 3.0)
+## Q2: what the queue reports (3.1.x and 3.0.x)
 
-**S5. What the commands return.** With only a handle they return the number of queued entries. With an index and two variables they write that entry's x and y, rounded to whole pixels. An index past the end writes nothing.
+PlayerGetPath and ItemGetPath copy the pending queue.
+- With only a handle, they return the number of entries.
+- With an index and two variables, they write the entry's x and y, rounded to whole pixels.
+- An index past the end writes nothing. (from source)
 
-**S6. Entry 0 during a step is the point currently being walked toward** (*certain*), and the count includes it. An entry is removed only when its step ends. Two exceptions: in pixel mode, sliding along a wall changes the real walking target but not the stored entry, so the reported point can differ from where the sprite is heading; and waypoint-link board paths are not in this queue, so they report a count of 0.
+a. Entry 0 during a step. Entry 0 is the point currently being walked toward, and the count includes it. (certain)
+- The entry is removed only when its step ends, so the next queued entry is index 1 until then.
+- Two exceptions: in pixel mode, sliding along a wall changes the real walking target but not the stored entry, so the reported point can differ from where the sprite is heading. Waypoint-link board paths are not in this queue, so they report a count of 0. (from source)
 
-**S7. A reported point does not change when an earlier step is blocked** (*certain*). A queued direction is converted to an absolute point when queued: the last queued point (or the current position if the queue is empty) plus one step. Nothing rewrites existing entries afterward; a blocked step removes only its own entry. The *walk* does change, because each step's direction is recalculated from the current position when the step starts, so a later entry may be approached on a diagonal. The one exception is collision avoidance on pathfinding moves, which can replace the front of the queue with a detour and keep the rest.
+b. Does a reported point change if an earlier step was blocked? No. The reported point stays as first computed. (certain)
+- When a direction is queued, it is converted to an absolute point. The point is the last queued point (or the current position if the queue is empty) plus one step.
+- Nothing rewrites existing entries afterward. A blocked step only removes its own entry.
+- The walk does change. The direction of each step is recalculated from the current position when the step starts. After a blocked step, a later entry is approached from where the sprite actually is, possibly on a diagonal. The reported point is unchanged.
+- The one exception is collision avoidance for pathfinding moves. It can replace the front of the queue with a detour and keep the rest.
 
-**S8. Correction to round 17: "a blocked entry is dropped" holds only for the selected (user-controlled) player.** For items and other players a blocked step is not treated as finished: the entry stays at the front and is retried every frame, and a thread waiting on that movement is not released while it is blocked. For pathfinding moves, a failed detour clears the whole queue instead.
+Corrected from Round 17. The statement "a blocked entry is dropped" is true only for the selected (user-controlled) player. For items and other players, a blocked step is not treated as finished. The entry stays at the front and is retried every frame. A thread waiting on that movement is not released while it is blocked. For pathfinding moves, a failed detour clears the whole queue instead. (from source)
 
-**S9. 3.0.x reports nothing; the commands do not exist** (*certain*; the whole 3.0.x source was searched). The 3.0.x queue holds relative direction codes, one per step, each removed as its step *starts*, so the step in progress is never in it. Pixel-push mode expands each tile-sized move into several small steps. No script command reads the queue; the 3.0.x PathFind command returns a freshly computed route.
+c. 3.0.x. Nothing is reported, because these commands do not exist in 3.0.x. (certain, searched the whole 3.0.x source)
+- The 3.0.x queue holds relative direction codes, one per step.
+- A code is removed as its step starts, so the step in progress is never in the queue.
+- Pixel-push mode expands each tile-sized move into several small steps.
+- No script command reads the queue. The 3.0.x PathFind command returns a freshly computed route, not the pending one.
 
-## Other readers of the queue, and saving (3.1)
+## Q3: other readers of the queue (3.1.x)
 
-**S10. Nothing treats entries as directions.** Every reader uses entries as absolute pixel points or only checks whether the queue is empty. Direction of travel and facing come from the difference between the sprite's position and its target. Readers: starting and ending a step; waking a thread waiting on movement (emptiness only); idle-animation timing (emptiness only); sprite-collision priority (whether the other sprite has movements); Wander (emptiness, and the last queued point as the starting spot); collision avoidance (entries as goals); the path overlay (lines between absolute points, selected player only, pathfinding moves only, so pushed direction queues draw nothing); the destination circle (last entry). Push and the path commands only add entries. Clearing happens through MultiRun start, programs and items flagged to stop movement, item activation, and setting a sprite's position.
+a. Does anything else read entries as directions? No. (from source) Every reader treats entries as absolute pixel points or checks only whether the queue is empty. Direction of travel and facing are derived from the difference between the sprite's position and its target. The readers are:
+- Starting and ending a step.
+- Waking a thread that is waiting on movement. This checks emptiness only.
+- Idle-animation timing, which checks emptiness only.
+- Sprite-collision priority, which checks whether the other sprite has movements.
+- Wander, which checks whether the item is already moving. It also uses the last queued point as the starting spot.
+- Collision avoidance, which uses entries as goals.
+- The path overlay, which draws lines between absolute points. It shows only for the selected player and only for pathfinding moves, so pushed (direction) queues draw nothing.
+- The destination circle, which uses the last entry.
 
-**S11. A save does not keep the queue, so entries are neither restored nor recomputed** (*certain*). A save stores each sprite's position, layer, active flag and waypoint board-path settings, but not the queue, the current target or any in-progress step. Loading sets each sprite's position, which empties its queue. Items are rebuilt with empty queues. Player positions load truncated to whole pixels.
+Push and the path commands only add entries. Clearing happens through MultiRun start, programs and items flagged to stop movement, item activation, and setting a sprite's position. (from source)
 
-**S12. A movement-wait does not survive a save and load.** A thread paused while waiting on a movement is saved with an indefinite sleep. Loading treats an indefinite sleep as "not sleeping", so that thread resumes immediately and the sprite no longer remembers it.
-
-## Not verified by running
-
-All answers were read from the source and none were run. Frame-rate and held-key timing are from source, not measured. The per-frame program firing during pathfinding walks is from source and consistent with earlier rounds.
+b. Saving and loading with entries queued. The queue is not saved, so the entries are neither restored nor recomputed. They are lost. (certain)
+- A save stores each sprite's position, layer and active flag, plus its waypoint board-path settings. It does not store the queue, the current target, or any in-progress step.
+- Loading sets each sprite's position, which empties its queue. Items are rebuilt with empty queues. Player positions load truncated to whole pixels.
+- A thread paused while waiting on a movement is saved with an indefinite sleep. Loading treats an indefinite sleep as "not sleeping". That thread resumes immediately, and the sprite no longer remembers the thread. A movement-wait does not survive a save and load. (from source)

@@ -242,7 +242,7 @@ test("Test board requires a party and preserves selection order with the first m
   await choose(party, "Chrs/hero.tem", "Chrs/second.tem");
   equal(runButton.disabled, false);
   await click(runButton, finishLaunch);
-  deepEqual(host.runs[0]!.launch, { kind: "board", main: MAIN, projectFolder: "", start: { board: "Boards/village.brd", x: 4, y: 7, layer: 1 }, party: ["Chrs/second.tem", "Chrs/hero.tem"] });
+  deepEqual(host.runs[0]!.launch, { kind: "board", main: MAIN, projectFolder: "", start: { board: "Boards/village.brd", x: 4, y: 7, layer: 1 }, party: ["Chrs/second.tem", "Chrs/hero.tem"], expectedFiles: null });
   equal((await statusOf(host.runs[0]!.handle)).querySelector('[aria-label="Run snapshot"] dd')?.textContent, "Board test at Boards/village.brd (4, 7, layer 1)");
 });
 
@@ -336,7 +336,7 @@ test("the Run control runs the game by default, lists saved setups, marks a bad 
   deepEqual(remembered, ["Village"], "the choice is remembered per user");
   await act(() => { run.click(); });
   await until(() => shown.length === 2);
-  deepEqual(host.runs[1]!.launch, { kind: "board", main: MAIN, projectFolder: "", seed: 5, start: { board: "Boards/village.brd", x: 2, y: 3, layer: 1 }, party: ["Chrs/hero.tem"] });
+  deepEqual(host.runs[1]!.launch, { kind: "board", main: MAIN, projectFolder: "", seed: 5, start: { board: "Boards/village.brd", x: 2, y: 3, layer: 1 }, party: ["Chrs/hero.tem"], expectedFiles: null });
   ok(host.runs[0]!.stopped(), "the earlier run is stopped");
   deepEqual(shown, [host.runs[0]!.handle, host.runs[1]!.handle], "each run is handed to the host to show");
   // Unmount inside act so no effect is left scheduled after the DOM shim is removed.

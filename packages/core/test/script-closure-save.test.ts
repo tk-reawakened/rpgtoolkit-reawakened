@@ -276,8 +276,8 @@ test("a state with no callable and no cell is not checked and compiles nothing",
 
 test("closures add optional fields only: the instruction version does not move for them and the vm schema carries the item-action shape", () => {
   const plain = createGameState({ seed: 0 });
-  equal(SCHEMA_VERSIONS.vm, 8);
-  equal(plain.schema.vm, 8);
+  equal(SCHEMA_VERSIONS.vm, 9);
+  equal(plain.schema.vm, 9);
   equal(plain.schema.ir, "1");
   deepEqual(Object.keys(plain.vm).sort(), [
     "block",

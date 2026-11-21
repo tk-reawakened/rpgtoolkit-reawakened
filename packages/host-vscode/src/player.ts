@@ -219,6 +219,11 @@ function isBoardLaunch(value: unknown): value is BoardLaunch {
   if (launch.kind !== "board" || typeof launch.main !== "string" || typeof launch.projectFolder !== "string"
     || (launch.seed !== undefined && typeof launch.seed !== "number") || !Array.isArray(launch.party)
     || !launch.party.every((path) => typeof path === "string")) return false;
+  const expectedFiles = launch.expectedFiles;
+  if (expectedFiles !== null && (!Array.isArray(expectedFiles) || !expectedFiles.every((entry: unknown) => (
+    typeof entry === "object" && entry !== null && "path" in entry && typeof entry.path === "string"
+    && "sha256" in entry && typeof entry.sha256 === "string" && /^[0-9a-f]{64}$/.test(entry.sha256)
+  )))) return false;
   const start = launch.start;
   if (typeof start !== "object" || start === null || Array.isArray(start)) return false;
   const position = start as Record<string, unknown>;

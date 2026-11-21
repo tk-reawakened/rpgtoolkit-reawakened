@@ -159,6 +159,8 @@ export type Thread = {
   detached: number[];
   /** The moves collected since `multiRun` began, or `null` outside a `multiRun`. */
   collect: CollectedMove[] | null;
+  /** Player ids whose inherited movement this execution has already taken over. */
+  takeover: string[];
 };
 
 /**
@@ -353,6 +355,7 @@ export function startThread(state: VmState, init: ThreadInit): Thread {
     queue: [],
     pending: null,
     detached: [],
+    takeover: [],
     collect: null,
   };
   state.threads.push(thread);

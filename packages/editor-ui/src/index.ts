@@ -1,6 +1,7 @@
 // The editor's views (ADR 0025). A view is handed to a host as `mount(el, ctx) -> { dispose }`; the host owns the
 // element and the document, the view owns only what it renders into `el`.
 export { mountCreatorTests, mountCheckpoints, mount, mountAssetPicker, mountEmptyExplorer, mountNewBoard, mountNewProject, mountPreferences, mountRun, mountRunControl, mountRunStatus, mountShell, type BoardPreferencesSource, type BoardViewDocument, type CodeEditorContext, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "./mount.ts";
+export { mountTerrainScene } from "./mount.ts";
 export type { AssetPickerViewProps } from "./asset-picker-view.tsx";
 export { EmptyExplorerView, type EmptyExplorerRecentProject, type EmptyExplorerViewProps } from "./empty-explorer-view.tsx";
 export { WorkbenchCommandBar, type CommandPaletteProps } from "./command-palette.tsx";
@@ -9,6 +10,7 @@ export type { NewProjectViewProps } from "./new-project-view.tsx";
 export { SpriteView, type SpriteViewDocument, type SpriteViewProps } from "./sprite-view.tsx";
 export { AnimationView, type AnimationViewDocument, type AnimationViewProps } from "./animation-view.tsx";
 export { NativeClipView, type NativeClipViewDocument, type NativeClipViewProps } from "./native-clip-view.tsx";
+export { NativeGeometryView, type NativeGeometryViewDocument, type NativeGeometryViewProps } from "./native-geometry-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
 export type { RunSetupOutcome, RunSetupStore, RunViewProps } from "./run-view.tsx";
 export type { RunControlProps, RunSetupMemory } from "./run-control.tsx";

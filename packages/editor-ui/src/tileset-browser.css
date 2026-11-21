@@ -3027,6 +3027,10 @@ fieldset.tkr-web-project-controls {
   border-block-end: 1px solid var(--tkr-border-subtle);
 }
 .tkr-board-properties > summary { cursor: pointer; font-weight: 600; }
+.tkr-terrain-grid { overflow: auto; max-block-size: 60vh; }
+.tkr-terrain-grid button { min-inline-size: 2em; min-block-size: 2em; }
+.tkr-scene-preview { margin: 0; overflow: auto; }
+.tkr-scene-preview canvas { max-inline-size: 100%; height: auto; image-rendering: pixelated; }
 .tkr-board-properties fieldset { display: flex; flex-wrap: wrap; align-items: end; gap: 0.5rem; min-inline-size: 0; }
 .tkr-board-properties fieldset > legend { font-size: var(--tkr-text-sm); font-weight: 600; }
 .tkr-board-property { display: grid; gap: 0.25rem; min-inline-size: 8rem; }
@@ -3044,3 +3048,6 @@ fieldset.tkr-web-project-controls {
 @media (forced-colors: active) {
   :is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) :disabled { opacity: 1; }
 }
+
+.tkr-geometry-picture { display: grid; justify-content: start; overflow: auto; }
+.tkr-geometry-picture > :is(canvas, svg) { grid-area: 1 / 1; }

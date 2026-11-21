@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/tk-reawakened/rpgtoolkit-reawakened/docs/spec/schemas/tkr-tile.schema.json",
+  "title": "Standalone native tile (tile 1.0.0-pre.1)",
+  "description": "Structure of a .tkrtle file after the terrain cutover. The reader checks source bounds, local ID uniqueness, cel references, and the cycle and phase. The build checks projection, target representability, and source resolution.",
+  "type": "object",
+  "required": ["contract", "version", "name", "projection", "role", "visual"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": { "const": "tile" },
+    "version": { "type": "string", "pattern": "^1\\.0\\.0-pre\\.1(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" },
+    "tags": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "metadata": { "type": "object" },
+    "name": { "$ref": "#/$defs/text" },
+    "projection": { "enum": ["2d", "iso-stacked", "iso-rotated"] },
+    "role": { "enum": ["floor", "wall", "wall-cap", "decorative"] },
+    "visual": { "oneOf": [{ "$ref": "#/$defs/still" }, { "$ref": "#/$defs/animated" }] },
+    "solid": { "type": "array", "items": { "$ref": "#/$defs/solid" } },
+    "under": { "type": "array", "items": { "$ref": "#/$defs/under" } },
+    "activationAreas": { "type": "array", "items": { "$ref": "#/$defs/activationArea" } },
+    "kitbash": { "type": "array", "items": { "$ref": "#/$defs/kitbashOperation" } },
+    "pluginData": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*(?:\\.[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*)*$",
+        "not": { "enum": ["contract", "version", "tags", "metadata", "pluginData", "name", "projection", "role", "visual", "solid", "under", "activationAreas", "kitbash"] }
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["version", "data"],
+        "properties": {
+          "version": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?:-pre\\.(?:0|[1-9][0-9]*))?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$" },
+          "data": { "type": "object" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "path": { "type": "string", "pattern": "^\\S(?:[^\\r\\n]*\\S)?$" },
+    "localId": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "positive": { "type": "integer", "minimum": 1 },
+    "nonnegative": { "type": "integer", "minimum": 0 },
+    "point": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 }
+    },
+    "rect": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "prefixItems": [{ "$ref": "#/$defs/nonnegative" }, { "$ref": "#/$defs/nonnegative" }, { "$ref": "#/$defs/positive" }, { "$ref": "#/$defs/positive" }]
+    },
+    "sample": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "rect"],
+          "properties": { "file": { "$ref": "#/$defs/path" }, "rect": { "$ref": "#/$defs/rect" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "frame", "region"],
+          "properties": { "source": { "$ref": "#/$defs/path" }, "frame": { "$ref": "#/$defs/localId" }, "region": { "$ref": "#/$defs/localId" } }
+        }
+      ]
+    },
+    "transparency": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["mode"], "properties": { "mode": { "const": "alpha" } } },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "color"],
+          "properties": {
+            "mode": { "const": "colorKey" },
+            "color": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "integer", "minimum": 0, "maximum": 255 } }
+          }
+        }
+      ]
+    },
+    "still": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transparent", "sample"],
+      "properties": { "transparent": { "$ref": "#/$defs/transparency" }, "sample": { "$ref": "#/$defs/sample" } }
+    },
+    "animated": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transparent", "cels", "timeline"],
+      "properties": {
+        "transparent": { "$ref": "#/$defs/transparency" },
+        "cels": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "sample"],
+            "properties": { "id": { "$ref": "#/$defs/localId" }, "sample": { "$ref": "#/$defs/sample" } }
+          }
+        },
+        "timeline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frames"],
+          "properties": {
+            "phaseMs": { "$ref": "#/$defs/nonnegative" },
+            "frames": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["cel", "ms"],
+                "properties": { "cel": { "$ref": "#/$defs/localId" }, "ms": { "$ref": "#/$defs/positive" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "solid": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "closed", "points"],
+      "properties": {
+        "label": { "$ref": "#/$defs/text" },
+        "closed": { "type": "boolean" },
+        "points": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/point" } }
+      },
+      "if": { "properties": { "closed": { "const": true } }, "required": ["closed"] },
+      "then": { "properties": { "points": { "type": "array", "minItems": 3 } } }
+    },
+    "under": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "closed", "points", "attributes"],
+      "properties": {
+        "label": { "$ref": "#/$defs/text" },
+        "closed": { "const": true },
+        "points": { "type": "array", "minItems": 3, "items": { "$ref": "#/$defs/point" } },
+        "attributes": { "type": "integer", "minimum": 0, "maximum": 7 }
+      }
+    },
+    "activationArea": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "closed", "points"],
+      "properties": {
+        "id": { "$ref": "#/$defs/localId" },
+        "label": { "$ref": "#/$defs/text" },
+        "closed": { "type": "boolean" },
+        "points": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/point" } }
+      },
+      "if": { "properties": { "closed": { "const": true } }, "required": ["closed"] },
+      "then": { "properties": { "points": { "type": "array", "minItems": 3 } } }
+    },
+    "kitbashOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op", "diagonal", "clearHalf"],
+      "properties": {
+        "op": { "const": "cutCorner" },
+        "diagonal": { "enum": ["north-west", "north-east", "south-east", "south-west"] },
+        "clearHalf": { "type": "boolean" }
+      }
+    }
+  }
+}

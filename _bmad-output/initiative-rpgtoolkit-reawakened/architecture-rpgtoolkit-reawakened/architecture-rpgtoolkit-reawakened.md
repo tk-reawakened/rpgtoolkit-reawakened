@@ -69,6 +69,7 @@ graph LR
   core --> dap
   core --> editorui
   core --> nativedatacli[native-data-cli]
+  nativedataimport[native-data-import] --> editormodel
   runnerharness --> dap
   runnerweb --> runnerdesktop
   runnerweb --> runnermobile[runner-mobile]
@@ -92,7 +93,7 @@ graph LR
   plugintk2compat --> runnerharness
   nativedata[native-data] --> nativedatacli
   nativedata --> editormodel
-  core --> nativedataimport[native-data-import]
+  core --> nativedataimport
   nativedata --> nativedataimport
   nativedata --> nativedatarename[native-data-rename]
   nativedatacli --> nativedatarename

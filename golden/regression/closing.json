@@ -12,30 +12,30 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "7ff377fd4bd14d5c"
+          "stateHash": "0c232f00db5960f6"
         },
         {
           "tick": 60,
-          "stateHash": "83fb0bf0fa5470e7"
+          "stateHash": "f5e90e0d2e1325fb"
         },
         {
           "tick": 90,
-          "stateHash": "ad8e4de5c412fbb9"
+          "stateHash": "b8a5497100a5c04c"
         },
         {
           "tick": 120,
-          "stateHash": "35ce4110cdd5d397"
+          "stateHash": "4e636928dd0a198e"
         },
         {
           "tick": 600,
-          "stateHash": "462991f63bb73eff"
+          "stateHash": "d29e7b8fac4672b6"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "7ff377fd4bd14d5c",
+          "stateHash": "0c232f00db5960f6",
           "drawHash": "9da8a4d1e2f7aa4d",
           "pixelHash": "bb17412324fb0ed4",
           "commands": 6,
@@ -46,7 +46,7 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "35ce4110cdd5d397",
+          "stateHash": "4e636928dd0a198e",
           "drawHash": "14c6e0bb0baf079f",
           "pixelHash": "6c73cee8a39bb49d",
           "commands": 171,
@@ -57,7 +57,7 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "462991f63bb73eff",
+          "stateHash": "d29e7b8fac4672b6",
           "drawHash": "9a8843df61625dce",
           "pixelHash": "6c73cee8a39bb49d",
           "commands": 171,
@@ -77,30 +77,30 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "111e106ee4517848"
+          "stateHash": "416b34f25481e1ce"
         },
         {
           "tick": 60,
-          "stateHash": "27f15dca7f8a9149"
+          "stateHash": "46177e489634a1f1"
         },
         {
           "tick": 90,
-          "stateHash": "3613c561ee87d713"
+          "stateHash": "8b15158f64d34785"
         },
         {
           "tick": 120,
-          "stateHash": "2c46e00eb1d5ed1a"
+          "stateHash": "f350c75789662150"
         },
         {
           "tick": 600,
-          "stateHash": "5ef96f4f6948c229"
+          "stateHash": "6282a6c659df7023"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "111e106ee4517848",
+          "stateHash": "416b34f25481e1ce",
           "drawHash": "6505e6a70b761aa1",
           "pixelHash": "1cc782d3dcb721b9",
           "commands": 6,
@@ -111,7 +111,7 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "2c46e00eb1d5ed1a",
+          "stateHash": "f350c75789662150",
           "drawHash": "4ef009c80bf1f685",
           "pixelHash": "0a31791bdaaf1e65",
           "commands": 301,
@@ -122,7 +122,7 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "5ef96f4f6948c229",
+          "stateHash": "6282a6c659df7023",
           "drawHash": "2aa704ea5209ec14",
           "pixelHash": "0a31791bdaaf1e65",
           "commands": 301,
@@ -155,30 +155,30 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "7da308aa1aa9c589"
+          "stateHash": "5c1be4c024569999"
         },
         {
           "tick": 60,
-          "stateHash": "ce9a42b96a455962"
+          "stateHash": "47d7af1c2b257f24"
         },
         {
           "tick": 90,
-          "stateHash": "eae497644876fa72"
+          "stateHash": "26c09df4f22c323c"
         },
         {
           "tick": 120,
-          "stateHash": "5e477ba4ddbf7b93"
+          "stateHash": "daf865421b04036b"
         },
         {
           "tick": 600,
-          "stateHash": "f57de6c5ca4f13f0"
+          "stateHash": "049cef5b3ec2d25c"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "7da308aa1aa9c589",
+          "stateHash": "5c1be4c024569999",
           "drawHash": "6913ac45abc4c407",
           "pixelHash": "34c22af21ba36325",
           "commands": 4,
@@ -189,10 +189,10 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "5e477ba4ddbf7b93",
-          "drawHash": "4543b3265db1d2a2",
-          "pixelHash": "a4fcd86d174c87ea",
-          "commands": 1,
+          "stateHash": "daf865421b04036b",
+          "drawHash": "b18c1d76eabba7f8",
+          "pixelHash": "9a55f74103b94da4",
+          "commands": 4,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/Caoquest-board.png"
@@ -200,10 +200,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "f57de6c5ca4f13f0",
-          "drawHash": "cbbde517e518a95f",
-          "pixelHash": "a4fcd86d174c87ea",
-          "commands": 1,
+          "stateHash": "049cef5b3ec2d25c",
+          "drawHash": "70131acdf78de5dd",
+          "pixelHash": "9a55f74103b94da4",
+          "commands": 4,
           "width": 640,
           "height": 480,
           "sameAs": "board"
@@ -233,30 +233,30 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "eec6db689def8710"
+          "stateHash": "10a375e43b6770ae"
         },
         {
           "tick": 60,
-          "stateHash": "bee7c9d562dd5b6f"
+          "stateHash": "b42f98833eb6d261"
         },
         {
           "tick": 90,
-          "stateHash": "dd44efd6fc7f14c3"
+          "stateHash": "4aba793eabf0896d"
         },
         {
           "tick": 120,
-          "stateHash": "4d1e9892ac6e6dee"
+          "stateHash": "193f625e8b3489c4"
         },
         {
           "tick": 600,
-          "stateHash": "49fc60a6c82bec8b"
+          "stateHash": "4a21b390ee4bf951"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "eec6db689def8710",
+          "stateHash": "10a375e43b6770ae",
           "drawHash": "6913ac45abc4c407",
           "pixelHash": "34c22af21ba36325",
           "commands": 4,
@@ -267,7 +267,7 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "4d1e9892ac6e6dee",
+          "stateHash": "193f625e8b3489c4",
           "drawHash": "b47ddba002d8f004",
           "pixelHash": "a4e30d2d66fc8569",
           "commands": 1,
@@ -278,10 +278,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "49fc60a6c82bec8b",
-          "drawHash": "929b59d032f5e23c",
-          "pixelHash": "01a9d12e8e982921",
-          "commands": 1,
+          "stateHash": "4a21b390ee4bf951",
+          "drawHash": "7c4f576d6f82d3d4",
+          "pixelHash": "ded79b9639eb247d",
+          "commands": 4,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/ChimeranEmpire-later.png"
@@ -311,30 +311,30 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "c6073109147025ab"
+          "stateHash": "0d738880957b4b9d"
         },
         {
           "tick": 60,
-          "stateHash": "156d6196912be536"
+          "stateHash": "dcfe2c14548e6186"
         },
         {
           "tick": 90,
-          "stateHash": "7690ef624858fe36"
+          "stateHash": "93d55d4b92f98d1e"
         },
         {
           "tick": 120,
-          "stateHash": "8949be8c1010d67f"
+          "stateHash": "87383198805b8da9"
         },
         {
           "tick": 600,
-          "stateHash": "404525e9743f8fce"
+          "stateHash": "a0bf5df43ff9d588"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "c6073109147025ab",
+          "stateHash": "0d738880957b4b9d",
           "drawHash": "6913ac45abc4c407",
           "pixelHash": "34c22af21ba36325",
           "commands": 4,
@@ -345,7 +345,7 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "8949be8c1010d67f",
+          "stateHash": "87383198805b8da9",
           "drawHash": "ee7d36c77a013bc2",
           "pixelHash": "34c22af21ba36325",
           "commands": 5,
@@ -356,10 +356,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "404525e9743f8fce",
-          "drawHash": "5369ad48b27d6e8d",
-          "pixelHash": "fb889ece99ba5019",
-          "commands": 2,
+          "stateHash": "a0bf5df43ff9d588",
+          "drawHash": "ff1b02cd0fe2c0b3",
+          "pixelHash": "8c25ace88f142219",
+          "commands": 5,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/FinalDestiny-later.png"
@@ -395,30 +395,30 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "02882d89f02147c2"
+          "stateHash": "1cca3872485b5134"
         },
         {
           "tick": 60,
-          "stateHash": "4cf8f0c82fb3411d"
+          "stateHash": "76d3cbe9a00916ed"
         },
         {
           "tick": 90,
-          "stateHash": "90e366d82caba28d"
+          "stateHash": "7ab795f7a6f3bea5"
         },
         {
           "tick": 120,
-          "stateHash": "8eed334a8180fd8a"
+          "stateHash": "1da2155e71b43c08"
         },
         {
           "tick": 600,
-          "stateHash": "a6ba4b3e147f3a5c"
+          "stateHash": "ac0f32cd653fb1b8"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "02882d89f02147c2",
+          "stateHash": "1cca3872485b5134",
           "drawHash": "6913ac45abc4c407",
           "pixelHash": "34c22af21ba36325",
           "commands": 4,
@@ -429,7 +429,7 @@
         {
           "label": "board",
           "tick": 120,
-          "stateHash": "8eed334a8180fd8a",
+          "stateHash": "1da2155e71b43c08",
           "drawHash": "ee7d36c77a013bc2",
           "pixelHash": "34c22af21ba36325",
           "commands": 5,
@@ -440,10 +440,10 @@
         {
           "label": "later",
           "tick": 600,
-          "stateHash": "a6ba4b3e147f3a5c",
-          "drawHash": "29240653a58e8f84",
-          "pixelHash": "8ea518b81fcece35",
-          "commands": 2,
+          "stateHash": "ac0f32cd653fb1b8",
+          "drawHash": "aa6b8201d20c017c",
+          "pixelHash": "57df83a7156f2ffd",
+          "commands": 5,
           "width": 640,
           "height": 480,
           "png": "golden/regression/closing/School2Demo-later.png"
@@ -473,14 +473,14 @@
       "checkpoints": [
         {
           "tick": 30,
-          "stateHash": "3964752981e79110"
+          "stateHash": "960f41039af56de0"
         }
       ],
       "frames": [
         {
           "label": "title",
           "tick": 30,
-          "stateHash": "3964752981e79110",
+          "stateHash": "960f41039af56de0",
           "drawHash": "b82859db51c73ceb",
           "pixelHash": "1f4e5b59d0f74325",
           "commands": 6,

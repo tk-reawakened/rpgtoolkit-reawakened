@@ -1,10 +1,11 @@
 /** Movement and input built-ins (E-22, E-32, E-60; ticket 5.7). */
 import type { Value } from "../../ports/value.ts";
 import type { Wait } from "../../ports/wait.ts";
-import type { InputSection } from "../../save/sections/input.ts";
+import type { InputButtonSlot, InputSection } from "../../save/sections/input.ts";
 import { configureInput } from "../../input/input.ts";
 import type { GameState } from "../../save/state.ts";
-import type { SpriteActor, SpritePoint, Facing, SpritesSection } from "../../sprites/model.ts";
+import type { SpriteActor, SpritePoint, Facing, MovementProvenance, SpritesSection } from "../../sprites/model.ts";
+import { isDirectionMove, moveDestination } from "../../sprites/model.ts";
 import { enqueueDirectionMove, enqueueScriptDirectionMove } from "../../sprites/movement.ts";
 import { enqueueMove, enqueuePointPathMove, setWaypoint, itemKey } from "../../sprites/runtime.ts";
 import type { Character } from "../../formats/actor/index.ts";
@@ -25,6 +26,27 @@ const PATHFIND = 4;
 const WAYPOINT = 8;
 const WAYPOINT_LINK = 16;
 const DIRECTIONS: readonly Facing[] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+/** Where the actor's queue ends: the active step's target, then relative directions in order (R-65). */
+function queueEnd(actorValue: SpriteActor): SpritePoint {
+  let point: SpritePoint = actorValue.movement.active?.target ?? { x: actorValue.x, y: actorValue.y };
+  for (const move of actorValue.queue.moves) point = moveDestination(move, point);
+  return point;
+}
+/**
+ * Where queue entry `index` would end (owner ruling on ambiguity 4): walk the queue in order from the
+ * active step's target, else the actor's position, expanding relative direction entries. Point entries
+ * keep their absolute target. Undefined means the index is outside the queue.
+ */
+function queuedDestination(actorValue: SpriteActor, index: number): SpritePoint | undefined {
+  if (index < 0 || index >= actorValue.queue.moves.length) return undefined;
+  let point: SpritePoint = actorValue.movement.active?.target ?? { x: actorValue.x, y: actorValue.y };
+  for (let cursor = 0; cursor <= index; cursor += 1) {
+    const move = actorValue.queue.moves[cursor];
+    if (move === undefined) return undefined;
+    point = moveDestination(move, point);
+  }
+  return point;
+}
 
 function number(args: readonly Arg[], index: number, fallback = 0): number {
   const value = args[index]?.value;
@@ -138,7 +160,7 @@ function vector(view: CommandView, id: string): WorldVector | null {
   return view.state?.world.board?.vectors?.find((value) => value.handle === id || String(value.handle) === id) ?? null;
 }
 function routePoints(board: WorldBoard, sprites: SpritesSection, actorValue: SpriteActor, goals: readonly SpritePoint[], clear: boolean): SpritePoint[] {
-  let start = clear ? actorValue : actorValue.queue.moves.at(-1)?.target ?? actorValue.movement.active?.target ?? actorValue;
+  let start = clear ? actorValue : queueEnd(actorValue);
   const points: SpritePoint[] = [];
   for (const goal of goals) {
     if (goal.x === start.x && goal.y === start.y) continue;
@@ -147,6 +169,10 @@ function routePoints(board: WorldBoard, sprites: SpritesSection, actorValue: Spr
     start = path.points.at(-1) ?? start;
   }
   return points;
+}
+function requestsTravel(actorValue: SpriteActor, points: readonly SpritePoint[], clear = false, queuedTail?: SpritePoint): boolean {
+  const origin = clear ? actorValue : queuedTail ?? actorValue.movement.active?.target ?? actorValue;
+  return points.some((point) => point.x !== origin.x || point.y !== origin.y);
 }
 
 function moveEffect(_name: string, args: readonly Arg[]): CommandEffect { return { kind: "state-write", section: "sprites", args: args.map((arg) => arg.value as never) }; }
@@ -297,8 +323,8 @@ const PLAYER_SPEED: BuiltinSpec = { name: "playerspeed", aliases: [], params: mo
 const ITEM_DIRECTION: BuiltinSpec = { ...PLAYER_DIRECTION, name: "itemdirection", doc: docs("Get or set an item's facing.", "Returns the current facing index, or emits an effect to set it when a direction is supplied."), call: (view, args) => { const value = actor(view, itemId(view, args[0]?.value as number | string ?? ""), "item"); if (args.length < 2) return { value: value === null ? 0 : DIRECTIONS.indexOf(value.facing) }; return { value: null, effects: [moveEffect("itemdirection", args)] }; } };
 const ITEM_SPEED: BuiltinSpec = { ...PLAYER_SPEED, name: "itemspeed", doc: docs("Set an item's walking speed.", "Emits an effect changing the item's deterministic step delay."), call: (_view, args) => ({ value: null, effects: [moveEffect("itemspeed", args)] }) };
 const SPRITE_TRANSLUCENCY: BuiltinSpec = { name: "spritetranslucency", aliases: [], params: [{ name: "percent", optional: true, byRef: false, variadic: false }], doc: docs("Set how visible characters stay when they walk behind tiles that cover them, such as trees and roofs. With no value it returns the current setting.", "Sets one global percentage for players and items (default 50; stored as given, drawn clamped to 0 to 100); with no argument it returns the current percentage. The part of a sprite covered by a higher-layer tile is drawn again over that tile at this opacity: 0 hides it, 100 shows it fully. It is a presentation setting saved with the sprites section; it does not wait and takes effect on the next frame (E-31)."), call: (view, args) => args.length === 0 ? { value: view.state?.sprites.translucency ?? 50 } : { value: null, effects: [moveEffect("spritetranslucency", args)] } };
-const PLAYER_GET_PATH: BuiltinSpec = { name: "playergetpath", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "index", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }], doc: docs("Read one queued player path point.", "Returns whether the point exists and writes its pixel coordinates to x and y."), call: (view, args) => { const point = actor(view, playerId(view, args[0]?.value as number | string ?? ""), "player")?.queue.moves[number(args, 1)]?.target; return { value: point === undefined ? 0 : 1, out: [...output(args, 2, point?.x ?? 0), ...output(args, 3, point?.y ?? 0)] }; } };
-const ITEM_GET_PATH: BuiltinSpec = { ...PLAYER_GET_PATH, name: "itemgetpath", doc: docs("Read one queued item path point.", "Returns whether the point exists and writes its pixel coordinates to x and y."), call: (view, args) => { const point = actor(view, itemId(view, args[0]?.value as number | string ?? ""), "item")?.queue.moves[number(args, 1)]?.target; return { value: point === undefined ? 0 : 1, out: [...output(args, 2, point?.x ?? 0), ...output(args, 3, point?.y ?? 0)] }; } };
+const PLAYER_GET_PATH: BuiltinSpec = { name: "playergetpath", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "index", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }], doc: docs("Show where each queued player destination would end, including a step that only says which way to walk. Technically, the queue is walked in order from the active step's target (or the player's position when it is standing still), so a direction entry reports the pixel point its direction and distance reach and a point entry reports its stored target; index 0 is the first queued entry. Returns 1 and writes x and y when the index exists, otherwise 0.", "Walks the queue in order from the active step's target, else the player's position, with the same relative expansion the movement phase uses, and writes the pixel point at the requested index; an index outside the queue returns 0 and writes 0 to x and y."), call: (view, args) => { const value = actor(view, playerId(view, args[0]?.value as number | string ?? ""), "player"); const point = value === null ? undefined : queuedDestination(value, number(args, 1)); return { value: point === undefined ? 0 : 1, out: [...output(args, 2, point?.x ?? 0), ...output(args, 3, point?.y ?? 0)] }; } };
+const ITEM_GET_PATH: BuiltinSpec = { ...PLAYER_GET_PATH, name: "itemgetpath", doc: docs("Show where each queued item destination would end, including a step that only says which way to walk. Technically, the queue is walked in order from the active step's target (or the item's position when it is standing still), so a direction entry reports the pixel point its direction and distance reach and a point entry reports its stored target; index 0 is the first queued entry. Returns 1 and writes x and y when the index exists, otherwise 0.", "Walks the queue in order from the active step's target, else the item's position, with the same relative expansion the movement phase uses, and writes the pixel point at the requested index; an index outside the queue returns 0 and writes 0 to x and y."), call: (view, args) => { const value = actor(view, itemId(view, args[0]?.value as number | string ?? ""), "item"); const point = value === null ? undefined : queuedDestination(value, number(args, 1)); return { value: point === undefined ? 0 : 1, out: [...output(args, 2, point?.x ?? 0), ...output(args, 3, point?.y ?? 0)] }; } };
 const WANDER: BuiltinSpec = { name: "wander", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "restrict", optional: true, byRef: false, variadic: false }], doc: docs("Take a deterministic random step.", "Draws one direction from the injected seedable RNG and emits a one-step item movement effect."), call: (view, args) => { const id = itemId(view, args[0]?.value as number | string ?? ""); const draw = view.rng.nextUint32(); const dir = DIRECTIONS[draw % DIRECTIONS.length] ?? "S"; return { value: null, effects: [moveEffect("wander", [{ value: id, ref: null }, { value: dir, ref: null }, ...args])] }; } };
 const WAIT: BuiltinSpec = { name: "wait", aliases: [], params: [{ name: "dest", optional: true, byRef: true, variadic: false }], doc: docs("Wait for a key press.", "Parks the script until the lowest unclaimed key in the input queue is available, then returns it and optionally writes it by reference.", { kind: "until-input", summary: "Waits for a key press." }), call: (_view, args) => ({ value: null, wait: { kind: "input.key", global: true, key: null, resumeRefs: args.flatMap((arg) => arg.ref === null ? [] : [arg.ref]) } as Wait }) };
 const POINTER_FIELDS = ["x", "y", "buttons", "downs", "ups"] as const;
@@ -333,9 +359,9 @@ const WAIT_INPUT: BuiltinSpec = {
 };
 const GET: BuiltinSpec = { name: "get", aliases: [], params: [{ name: "dest", optional: true, byRef: true, variadic: false }], doc: docs("Get the next buffered key.", "Returns and claims the lowest unclaimed key immediately, or returns an empty string when the buffer has no eligible key.") , call: (view, args) => { const key = view.state?.input.keys.find((candidate) => !(view.state?.engine.claims ?? []).includes(candidate.seq)); if (key === undefined) return { value: "", out: output(args, 0, "") }; return { value: key.name, out: output(args, 0, key.name), effects: [{ kind: "state-write", section: "input", args: [key.seq] }] }; } };
 const CLEAR_BUFFER: BuiltinSpec = { name: "clearbuffer", aliases: [], params: [], doc: docs("Clear all buffered keys.", "Claims every currently buffered key through the engine sequence protocol and removes only those claimed records immediately."), call: (_view) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: [] }] }) };
-const SET_BUTTON: BuiltinSpec = { name: "setbutton", aliases: [], params: [{ name: "file", optional: false, byRef: false, variadic: false }, { name: "slot", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "width", optional: false, byRef: false, variadic: false }, { name: "height", optional: false, byRef: false, variadic: false }], doc: docs("Create a clickable button.", "Creates or replaces a button slot at pixel x,y with the supplied dimensions until clearButtons removes it."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
-const CHECK_BUTTON: BuiltinSpec = { name: "checkbutton", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }], doc: docs("Check whether a button was clicked.", "Returns 1 when the pixel is inside an enabled button slot, otherwise 0; it does not wait."), call: (view, args) => { const input = view.state?.input; const x = number(args, 0); const y = number(args, 1); return { value: input?.buttons.some((button) => "id" in button && button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h) ? 1 : 0 }; } };
-const CLEAR_BUTTONS: BuiltinSpec = { name: "clearbuttons", aliases: [], params: [{ name: "slots", optional: true, byRef: false, variadic: true }], doc: docs("Clear clickable buttons.", "Removes every button, or only the numeric slots supplied, immediately and without waiting."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
+const SET_BUTTON: BuiltinSpec = { name: "setbutton", aliases: [], params: [{ name: "file", optional: false, byRef: false, variadic: false }, { name: "slot", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "width", optional: false, byRef: false, variadic: false }, { name: "height", optional: false, byRef: false, variadic: false }], doc: docs("Create a clickable button.", "Creates or replaces a button image and its independently clickable slot at pixel x,y with the supplied dimensions until clearButtons removes them."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
+const CHECK_BUTTON: BuiltinSpec = { name: "checkbutton", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "slot", optional: true, byRef: true, variadic: false }], doc: docs("Check whether a button was clicked.", "Returns 1 when the pixel is inside an enabled button slot, otherwise 0; it does not wait. Optionally writes the numeric slot number on a hit or 0 on a miss."), call: (view, args) => { const input = view.state?.input; const x = number(args, 0); const y = number(args, 1); const hit = input?.buttons.find((button): button is InputButtonSlot => "id" in button && button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h); const slot = hit === undefined ? 0 : Number(hit.id); return { value: hit === undefined ? 0 : 1, out: output(args, 2, Number.isFinite(slot) ? slot : 0) }; } };
+const CLEAR_BUTTONS: BuiltinSpec = { name: "clearbuttons", aliases: [], params: [{ name: "slots", optional: true, byRef: false, variadic: true }], doc: docs("Clear clickable buttons.", "Removes every button image and slot, or only the numeric slots supplied, immediately and without waiting."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
 const MOUSE_MOVE: BuiltinSpec = { name: "mousemove", aliases: [], params: [{ name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }], doc: docs("Read the pointer position.", "Returns the current window-relative pointer x and y through by-reference outputs without waiting."), call: (view, args) => ({ value: null, out: [...output(args, 0, view.state?.input.pointer.x ?? 0), ...output(args, 1, view.state?.input.pointer.y ?? 0)] }) };
 const MOUSE_CLICK: BuiltinSpec = {
   name: "mouseclick", aliases: [],
@@ -383,17 +409,45 @@ export function applyInputEffect(state: GameState, name: string, args: readonly 
     return;
   }
   if (name === "setbutton") {
-    const [, slot, x, y, width, height] = args;
-    const id = String(slot ?? "");
-    configureInput(state.input, { buttons: [...state.input.buttons.filter((button) => !("id" in button && button.id === id)), { id, x: numberValue(x), y: numberValue(y), w: numberValue(width), h: numberValue(height), action: id, enabled: true }] });
+    const [file, slot, x, y, width, height] = args;
+    const numericSlot = numberValue(slot);
+    const id = String(numericSlot);
+    const buttons = state.input.buttons.filter((button) => !("id" in button && button.id === id) && !("asset" in button && button.slot === numericSlot));
+    configureInput(state.input, { buttons });
+    configureInput(state.input, { buttons: [...buttons, { id, x: numberValue(x), y: numberValue(y), w: numberValue(width), h: numberValue(height), action: id, enabled: true }] });
+    state.input.buttons.push({ slot: numericSlot, asset: typeof file === "string" ? file : "", x: numberValue(x), y: numberValue(y), width: numberValue(width), height: numberValue(height) });
     return;
   }
   if (name === "clearbuttons") {
-    const slots = args.map((value) => String(value));
-    configureInput(state.input, { buttons: slots.length === 0 ? [] : state.input.buttons.filter((button) => !("id" in button && slots.includes(button.id))) });
+    const numericSlots = args.map((value) => numberValue(value));
+    const slots = numericSlots.map(String);
+    if (slots.length === 0) {
+      configureInput(state.input, { buttons: [] });
+      return;
+    }
+    configureInput(state.input, { buttons: state.input.buttons.filter((button) => !("id" in button && slots.includes(button.id)) && !("asset" in button && numericSlots.includes(button.slot))) });
   }
 }
 function numberValue(value: Value | undefined): number { return typeof value === "number" && Number.isFinite(value) ? Math.trunc(value) : 0; }
+function movementProvenance(state: GameState, threadId: number): MovementProvenance {
+  return state.triggers.active?.thread === threadId
+    ? { kind: "trigger", thread: threadId }
+    : { kind: "script", thread: threadId };
+}
+function takeOverPlayerMovement(state: GameState, threadId: number, playerId: string): void {
+  const thread = state.vm.threads.find((value) => value.id === threadId);
+  if (thread === undefined || thread.takeover.includes(playerId)) return;
+  const player = state.sprites.players.find((value) => value.id === playerId);
+  if (player === undefined) return;
+  replaceActor(state, playerId, { queue: { ...player.queue, moves: [], waypoint: null } });
+  thread.takeover = [...thread.takeover, playerId];
+}
+function afterTakeover(actor: SpriteActor, state: GameState, threadId: number): SpriteActor {
+  const thread = state.vm.threads.find((value) => value.id === threadId);
+  return thread !== undefined && !thread.takeover.includes(actor.id)
+    ? { ...actor, queue: { ...actor.queue, moves: [], waypoint: null } }
+    : actor;
+}
 export function applySpriteEffect(state: GameState, name: string, args: readonly Value[], threadId = 0): boolean {
   if (name === "spritetranslucency") {
     // E-31: the percentage of a sprite shown through the higher board content that covers it. 0 hides it, 100 is opaque.
@@ -456,8 +510,11 @@ export function applySpriteEffect(state: GameState, name: string, args: readonly
       : [...state.sprites.players, ...state.sprites.items].find((value) => value.id === id || String(value.handle) === id);
   if (actor === undefined && name !== "activeplayer") return playerCommand || itemCommand;
   if (name === "activeplayer") { const target = String(args[0] ?? ""); state.sprites.selectedPlayer = state.sprites.players.find((value) => value.id === target || String(value.index) === target)?.id ?? state.sprites.selectedPlayer; return true; }
+  const provenance = movementProvenance(state, threadId);
   if (name === "push" || name === "pushitem") {
     const dirs = directions(String(args[name === "push" ? 0 : 1] ?? ""));
+    if (dirs.length === 0) return true;
+    if (name === "push" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
     if (name === "push" && args[3] === 1) {
       actor!.queue.moves = actor!.queue.moves.filter((move) => move.pointer !== true);
       const active = actor!.movement.active;
@@ -467,21 +524,24 @@ export function applySpriteEffect(state: GameState, name: string, args: readonly
       }
     }
     const distance = state.world.movement.pushing === 1 ? 8 : 32;
-    for (const [index, facing] of dirs.entries()) enqueueScriptDirectionMove(state.sprites, actor!.id, facing, distance, index === 0 && (numberValue(args[2]) & 2) !== 0);
+    for (const [index, facing] of dirs.entries()) enqueueScriptDirectionMove(state.sprites, actor!.id, facing, distance, index === 0 && (numberValue(args[2]) & 2) !== 0, provenance);
     return true;
   }
   if (name === "playerstep" || name === "itemstep") {
     const board = state.world.board;
     if (board == null) return false;
     const clear = (numberValue(args[3]) & 2) !== 0;
+    const movementActor = name === "playerstep" && !clear ? afterTakeover(actor!, state, threadId) : actor!;
+    const points = routePoints(board, state.sprites, movementActor, [{ x: numberValue(args[1]), y: numberValue(args[2]) }], clear);
     if (clear) replaceActor(state, actor!.id, {
       queue: { moves: [], waypoint: null },
       movement: { ...actor!.movement, active: null, waitTicks: 0 },
       prev: null,
     });
-    const points = routePoints(board, state.sprites, actor!, [{ x: numberValue(args[1]), y: numberValue(args[2]) }], clear);
-    for (const point of points) enqueueMove(state.sprites, actor!.id, { source: "path", target: point, facing: null, pathMode: 1 });
-    return points.length > 0;
+    if (points.length === 0) return false;
+    if (name === "playerstep" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+    for (const point of points) enqueueMove(state.sprites, actor!.id, { source: "path", target: point, facing: null, pathMode: 1, provenance });
+    return true;
   }
   if (name === "playerpath" || name === "itempath") {
     const flags = numberValue(args[1]);
@@ -490,23 +550,52 @@ export function applySpriteEffect(state: GameState, name: string, args: readonly
     const points = waypoint
       ? state.world.board?.vectors?.find((value) => String(value.handle) === String(args[2]))?.points ?? []
       : pointsFromValues(args.slice(2));
+    if (waypoint) {
+      const thread = state.vm.threads.find((value) => value.id === threadId);
+      const queuedTail = thread?.takeover.includes(actor!.id) ? queueEnd(actor!) : undefined;
+      const travels = requestsTravel(actor!, points, clear, queuedTail);
+      if (travels && name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+      if (clear) replaceActor(state, actor!.id, {
+        queue: { moves: [], waypoint: null },
+        movement: { ...actor!.movement, active: null, waitTicks: 0 },
+        prev: null,
+      });
+      if (!travels && name === "playerpath" && points.length > 0) return true;
+      return setWaypoint(state.sprites, actor!.id, points, numberValue(args[3]), (flags & WAYPOINT_LINK) !== 0, provenance);
+    }
+    if ((flags & PATHFIND) !== 0) {
+      const board = state.world.board;
+      if (board == null) {
+        if (clear) replaceActor(state, actor!.id, {
+          queue: { moves: [], waypoint: null },
+          movement: { ...actor!.movement, active: null, waitTicks: 0 },
+          prev: null,
+        });
+        return false;
+      }
+      const movementActor = name === "playerpath" && !clear ? afterTakeover(actor!, state, threadId) : actor!;
+      const route = routePoints(board, state.sprites, movementActor, points, clear);
+      if (clear) replaceActor(state, actor!.id, {
+        queue: { moves: [], waypoint: null },
+        movement: { ...actor!.movement, active: null, waitTicks: 0 },
+        prev: null,
+      });
+      if (route.length === 0) return false;
+      if (name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+      for (const point of route) enqueueMove(state.sprites, actor!.id, { source: "path", target: point, facing: null, pathMode: 1, provenance });
+      return true;
+    }
     if (clear) replaceActor(state, actor!.id, {
       queue: { moves: [], waypoint: null },
       movement: { ...actor!.movement, active: null, waitTicks: 0 },
       prev: null,
     });
-    if (waypoint) return setWaypoint(state.sprites, actor!.id, points, numberValue(args[3]), (flags & WAYPOINT_LINK) !== 0);
-    if ((flags & PATHFIND) !== 0) {
-      if (state.world.board == null) return false;
-      const route = routePoints(state.world.board, state.sprites, actor!, points, clear);
-      for (const point of route) enqueueMove(state.sprites, actor!.id, { source: "path", target: point, facing: null, pathMode: 1 });
-      return route.length > 0;
-    }
-    return enqueuePointPathMove(state.sprites, actor!.id, points, false);
+    if (requestsTravel(actor!, points, clear) && name === "playerpath" && actor!.kind === "player") takeOverPlayerMovement(state, threadId, actor!.id);
+    return enqueuePointPathMove(state.sprites, actor!.id, points, false, undefined, provenance);
   }
   if (name === "playerdirection" || name === "itemdirection") { const facing = direction(String(args[1] ?? args[0] ?? "S")); replaceActor(state, actor!.id, { facing }); return true; }
   if (name === "playerspeed" || name === "itemspeed") { replaceActor(state, actor!.id, { speed: numberValue(args[1] ?? args[0]) }); return true; }
-  if (name === "wander") { enqueueDirectionMove(state.sprites, actor!.id, direction(String(args[1] ?? "S")), 0, false); return true; }
+  if (name === "wander") { enqueueDirectionMove(state.sprites, actor!.id, direction(String(args[1] ?? "S")), 0, false, false, provenance); return true; }
   if (name === "playerstance" || name === "itemstance") { return playStance(state.sprites, actor!.id, String(args[1] ?? ""), state.time.tick) !== null; }
   return false;
 }

@@ -18,7 +18,7 @@ import {
   type MovementEvent,
   type WorldBoard,
 } from "../src/index.ts";
-import { enqueuePathMove, setWaypoint } from "../src/sprites/runtime.ts";
+import { enqueueMove, enqueuePathMove, setWaypoint } from "../src/sprites/runtime.ts";
 
 function board(vectors: WorldBoard["vectors"] = [], items: WorldBoard["items"] = []): WorldBoard {
   const empty = createEmptyBoard();
@@ -145,17 +145,20 @@ test("solid vectors block a tile step without moving the actor", () => {
   equal(events.some((record) => record.type === "blocked" && record.vector === "wall"), true);
 });
 
-test("direct sprite collision freezes the stationary loser for 120 ticks", () => {
+test("a direction step blocked by a sprite is consumed while the blocker stays put", () => {
   const currentBoard = board([], [npcItem()]);
   const sprites = playerState(currentBoard);
   enqueueDirectionMove(sprites, "hero", "E", 0);
   enqueueDirectionMove(sprites, "hero", "E", 0);
   const events = [];
   for (let tick = 0; tick <= 30; tick += 1) events.push(...runMovementPhase(sprites, currentBoard, tick));
-  equal(sprites.items[0]?.state, "frozen");
-  equal(sprites.items[0]?.frozenUntil, 144);
+  // R-64: the player's blocked entry is consumed and dropped; the blocking sprite is unaffected.
+  equal(sprites.items[0]?.state === "frozen", false);
+  equal(sprites.items[0]?.frozenUntil, null);
   equal(sprites.players[0]?.x, 80);
-  equal(events.some((record) => record.type === "sprite-collision" && record.winner === "hero" && record.loser === "npc.itm"), true);
+  equal(sprites.players[0]?.queue.moves.length, 0, "the blocked entry was consumed");
+  equal(events.some((record) => record.type === "sprite-collision"), false, "a direction block is not a point-style collision");
+  equal(events.some((record) => record.type === "blocked" && record.blocker === "npc.itm"), true);
 });
 
 test("a newly solid wall, item or actor ends the active step and allows retreat", () => {
@@ -242,8 +245,9 @@ test("owned authored movement scenes reproduce every in-scope case through core"
     "diversion-around-blocker": true, // 5.5 path-following
     "no-route-waits-then-continues": true, // 5.5 path-following
     "no-route-wait-expires-and-stops": true, // 5.5 path-following
+    "blocked-counted-step-checks-battles-at-the-destination": true, // triggers and battle phases only; movement-rulings.test.ts covers it
   };
-  for (const name of ["movement-tile-pixel", "collision-solid-stairs-under", "collision-sprite-blocking"]) {
+  for (const name of ["movement-tile-pixel", "collision-solid-stairs-under", "collision-sprite-blocking", "tile-step-precheck-events"]) {
     const document = JSON.parse(readFileSync(join(root, `${name}.json`), "utf8")) as { readonly cases: readonly MovementFixtureCase[] };
     for (const scene of document.cases) {
       if (deferred[scene.name] === true) continue;
@@ -362,8 +366,9 @@ test("equal-speed moving collisions use controlled-player then drawId total orde
       { id: "second", kind: "player", source: "second.tem", x: 112, y: 63, layer: 1, controlled: false },
     ],
   });
-  enqueueDirectionMove(sprites, "first", "E", 0);
-  enqueueDirectionMove(sprites, "second", "W", 0);
+  // R-51 item 2 stays the rule for a direct (non-path) point step; R-64 replaces it for direction-style tile steps.
+  equal(enqueueMove(sprites, "first", { source: "keyboard", target: { x: 144, y: 63 }, facing: "E" }), true);
+  equal(enqueueMove(sprites, "second", { source: "keyboard", target: { x: 16, y: 63 }, facing: "W" }), true);
   const events = [];
   for (let tick = 0; tick < 40; tick += 1) events.push(...runMovementPhase(sprites, currentBoard, tick));
   equal(events.some((record) => record.type === "sprite-collision" && record.winner === "first" && record.loser === "second"), true);

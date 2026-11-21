@@ -10,7 +10,7 @@ Everything about the 3.1 editors on this page comes from [editor-features.md](..
 
 The 3.1 editor was a set of about twenty tools, each built around one file type and each built by hand. Every tool had its own window, its own form and its own idea of undo. Most limits an author met were limits of the file, not of the tool: a fixed number of slots, a name typed as text where a choice was meant, a setting stored in the wrong file.
 
-For each tool this page says three things: what it edited, what held it back, and what it becomes here. "Becomes" always has two parts. The **first release** keeps the tool and its file, because Toolkit 3 files stay first-class editable. **Beyond** is what the same editor can do once it is written against a contract and not against the file ([architecture](architecture.md#one-contract-more-than-one-kind)).
+For each tool this page says what it edited, what held it back, and what it becomes here. Legacy files still work where specified; scene authoring is the exception, with legacy board import instead of a second save path. **Beyond** is what an editor can do when it is written against a contract and not the original file ([architecture](architecture.md#one-contract-more-than-one-kind)).
 
 ## Editor by editor
 
@@ -19,7 +19,7 @@ For each tool this page says three things: what it edited, what held it back, an
 | 3.1 editor | Features | File | What held it back | First release | Beyond the Toolkit 3 file |
 |---|---|---|---|---|---|
 | **Main file editor** | T-10 to T-14 | `.gam` | Five tabs of settings; fixed tables (50 key slots, an enemy pool); a flag stored inverted; kept outside the project folder | Game settings, edited in the `.gam` (11.6) | A **project definition**: conventions first, effective value and its source shown, plugins and contributions listed in one place |
-| **Board editor** | T-20 to T-35 | `.brd` | No stable identity for a floor or an object; a pasted building forgets it was one thing; walls are redrawn by hand; one undo model of its own | The scene editor, opening and saving `.brd` directly; and, in the first release, saving a **scene** | A **scene**: named floors, stable object identities, placed packs that stay packs, traced boundaries (ADR 0019). Imports from Tiled and LDtk land here |
+| **Board editor** | T-20 to T-35 | `.brd` | No stable identity for a floor or an object; a pasted building forgets it was one thing; walls are redrawn by hand; one undo model of its own | Preview or play old boards, or explicitly import them. The scene editor edits `.tkrscn` and builds the board. Existing legacy tools remain during transition. | A **scene**: named floors, stable object identities, placed packs that stay packs, traced boundaries (ADR 0019). Imports from Tiled and LDtk land here |
 | **Tile editor** | T-36 | tile in a `.tst` | 32 by 32 only; single undo; effects are destructive | Pixel editor (13.3) | **Tile recipes**: the steps that made a tile are kept and can be changed (ADR 0019) |
 | **Tile grabber** | T-37 | image to `.tst` | One-shot: the grid and choices are lost after the grab | Reviewed extraction (13.4) | An **import with a saved recipe** that can be run again when the picture changes |
 | **Tileset editor** | T-38 | `.tst`, `.iso` | Reordering breaks every board that uses the set, with only a warning | Curation (13.5) | Tiles referred to by identity, so reordering is safe; the project index shows every use first |

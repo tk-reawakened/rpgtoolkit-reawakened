@@ -8,7 +8,7 @@ after: ["spike-setbutton-image-semantics"]
 assignee: ""
 tracker_id: "#2153"
 remote: "https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2153"
-refined: false
+refined: true
 hitl: false
 risk: medium
 severity: P2
@@ -40,7 +40,7 @@ The current `setbutton` contract specifies a clickable slot but does not specify
 2. **Tests cover the reported screen and the button lifecycle**
    **Given** the title-screen regression suite
    **When** it runs against the unchanged fixture
-   **Then** it proves title text and button images are visible, the slot can be replaced and cleared, and the image draw matches the approved missing-asset behavior.
+   **Then** it proves the title image blit, New Game click reaching the board, same-slot replacement, paired clearing, and the image behavior when an asset is unavailable.
 3. **Or: no change is needed, with proof**
    **Given** the unchanged fixture and approved rule
    **When** the title screen is rendered
@@ -55,6 +55,4 @@ The current `setbutton` contract specifies a clickable slot but does not specify
 
 ## Notes
 
-- Open question: the issue comment corrects the original all-black description; the remaining image behavior depends on the unresolved SetButton contract in the prerequisite ticket.
-
-- Risk: medium — the title screen's controls are clickable but invisible, impairing users' ability to identify them.
+- Decision: The owner approved the `setbutton` image and slot lifecycle in `docs/spec/engine/rpgcode-functions.md#reawakened-setbutton-images` (2026-11-21); the prerequisite spike records its evidence.

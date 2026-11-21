@@ -17,6 +17,7 @@ import {
   type SpriteActor,
   type SpriteActorSource,
   type SpriteHydrationInput,
+  type MovementProvenance,
   type SpriteMove,
   type SpritePoint,
   type SpriteQueue,
@@ -224,10 +225,11 @@ function actorFor(section: SpritesSection, id: string): SpriteActor | null {
 
 /** Append a move to an actor's FIFO queue. */
 export function enqueueMove(section: SpritesSection, id: string, move: SpriteMove, clear = false): boolean {
+  const stamped = { ...move, provenance: move.provenance ?? { kind: "unknown" as const } };
   const update = (actor: SpriteActor): SpriteActor => ({
     ...actor,
     state: actor.visible ? "moving" : actor.state,
-    queue: { ...actor.queue, moves: clear ? [move] : [...actor.queue.moves, move] },
+    queue: { ...actor.queue, moves: clear ? [stamped] : [...actor.queue.moves, stamped] },
   });
   const playerIndex = section.players.findIndex((actor) => actor.id === id);
   if (playerIndex >= 0) {
@@ -251,12 +253,13 @@ export function enqueuePathMove(
   mode: PathMode = 1,
   clear = true,
   pointer = false,
+  provenance: MovementProvenance = { kind: "input" },
 ): PathResult | null {
   const actor = actorFor(section, id);
   if (actor === null) return null;
   const result = findPath(board, section, actor, goal, mode);
   if (result.points.length === 0) return result;
-  const moves = result.points.map((point): SpriteMove => ({ source: "path", target: clonePoint(point), facing: null, pathMode: mode, ...(pointer ? { pointer: true as const } : {}) }));
+  const moves = result.points.map((point): SpriteMove => ({ source: "path", target: clonePoint(point), facing: null, pathMode: mode, provenance, ...(pointer ? { pointer: true as const } : {}) }));
   const playerIndex = section.players.findIndex((value) => value.id === id);
   const itemIndex = section.items.findIndex((value) => value.id === id);
   const update = (value: SpriteActor): SpriteActor => ({
@@ -270,19 +273,19 @@ export function enqueuePathMove(
 }
 
 /** Append a straight point path, preserving the existing `points` movement semantics. */
-export function enqueuePointPathMove(section: SpritesSection, id: string, points: readonly SpritePoint[], clear = true, pathMode?: PathMode): boolean {
+export function enqueuePointPathMove(section: SpritesSection, id: string, points: readonly SpritePoint[], clear = true, pathMode?: PathMode, provenance: MovementProvenance = { kind: "input" }): boolean {
   let changed = false;
   points.forEach((point, index) => {
-    changed = enqueueMove(section, id, { source: "points", target: clonePoint(point), facing: null, ...(pathMode === undefined ? {} : { pathMode }) }, clear && index === 0) || changed;
+    changed = enqueueMove(section, id, { source: "points", target: clonePoint(point), facing: null, provenance, ...(pathMode === undefined ? {} : { pathMode }) }, clear && index === 0) || changed;
   });
   return changed;
 }
 
 /** Copy a waypoint vector into an actor's queue or link it for live edits. */
-export function setWaypoint(section: SpritesSection, id: string, points: readonly SpritePoint[], cycles: number, link: boolean): boolean {
+export function setWaypoint(section: SpritesSection, id: string, points: readonly SpritePoint[], cycles: number, link: boolean, provenance: MovementProvenance = { kind: "input" }): boolean {
   const actor = actorFor(section, id);
   if (actor === null) return false;
-  const waypoint: WaypointLink = { points: points.map(clonePoint), cycles: Math.max(0, Math.trunc(cycles)), cycle: 0, cursor: 0, live: link };
+  const waypoint: WaypointLink = { points: points.map(clonePoint), cycles: Math.max(0, Math.trunc(cycles)), cycle: 0, cursor: 0, live: link, provenance };
   const queue: SpriteQueue = { ...actor.queue, waypoint };
   const update = (value: SpriteActor): SpriteActor => ({ ...value, state: value.visible ? "moving" : value.state, queue });
   const playerIndex = section.players.findIndex((value) => value.id === id);

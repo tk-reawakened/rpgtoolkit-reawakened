@@ -15,7 +15,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collisionSolidStairsUnder, collisionSpriteBlocking, edgesBoardLinkProgram, boardEntryThreadLifecycle, movementTilePixel } from "./scenes-a.mjs";
-import { actorHydrationItemMultitask, pathfindingAxialDiagonalVector, triggersPrecedence } from "./scenes-b.mjs";
+import { actorHydrationItemMultitask, pathfindingAxialDiagonalVector, tileStepPrecheckEvents, triggersPrecedence } from "./scenes-b.mjs";
 import { animationFallbackStance, demoNpcBattleTrigger, demoNpcPathfinding, inputReplayButtonSlots, movementWaits, randomEncounter } from "./scenes-c.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -31,7 +31,7 @@ export const PROPOSED = {
   "P-5": "R-54 slide: select the hit edge by canonically ordered endpoints independently of vertex order; the turned step has the same length, and the facing is the octant of its vector.",
   "P-6": "Triggers are evaluated when a player step completes and when the activation key is pressed; a repeat region fires on entry then every distanceRepeat px; losing candidates are not marked fired; re-arming is evaluated at step completion.",
   "P-7": "Item activation turns the item to face the player and clears the player's queue (E-43).",
-  "P-8": "Trigger programs are modelled as ops (set, gone, abort, silentMove); silent movement locks trigger evaluation until the player's queue drains and evaluates nothing at the end.",
+  "P-8": "Trigger programs can issue triggerMove; each resulting step carries triggerOrigin and cannot start another trigger. Unrelated inherited or newly queued steps remain eligible even in the same queue; suppression never waits for queue drain, and a suppressed step consumes its E-40 entry until the player leaves.",
   "P-9": "An item hidden by its loading condition starts no thread; showing it later starts the thread and hiding or removing it stops the thread.",
   "P-10": "Random encounter: type 0 draws one integer in [0, chances) per tile moved and fights on 0; type 1 counts tiles; a fight draws a count 1 + [0, 4) then one index into the skill-level pool per enemy.",
   "P-11": "Edge arrival keeps the player's remaining queue on refusal and clears it on success; send() names a position in the destination board's own coordinate mode - one-based tiles at the tile's bottom-centre on a plain board, board pixels on a board that sets the pixel-coordinate flag; the layer is one-based.",
@@ -42,6 +42,7 @@ export const PROPOSED = {
   "P-16": "Diversion and the pathfinder treat every other visible sprite on the layer as an obstacle; a route counts only if it reaches the goal; the 120-tick wait retests each tick.",
   "P-17": "Pathfinder conventions: step costs 10 (4-way) and 10 / 14 (8-way), Manhattan and octile heuristics, ties by (f, x, y, insertion); nearest free node by squared distance then (x, y); the capped search approaches the expanded node nearest the goal; vector mode handles axis-aligned solids and keeps the whole base on the board.",
   "P-18": "Gamepad edges are computed on the merged held state: an action already held by another source appends no queue entry.",
+  "P-19": "A counted blocked player step adds 0 px to a repeat region's distance counter: R-64 item 2 grants the tile to the party remainder and to end-of-step processing and states no repeat contribution.",
 };
 
 const SCENES = [
@@ -51,6 +52,7 @@ const SCENES = [
   ["edges-board-link-program", edgesBoardLinkProgram, ["P-11"]],
   ["board-entry-thread-lifecycle", boardEntryThreadLifecycle, ["P-11"]],
   ["triggers-precedence", triggersPrecedence, ["P-6", "P-7", "P-8"]],
+  ["tile-step-precheck-events", tileStepPrecheckEvents, ["P-6", "P-10", "P-19"]],
   ["actor-hydration-item-multitask", actorHydrationItemMultitask, ["P-9"]],
   ["pathfinding-axial-diagonal-vector", pathfindingAxialDiagonalVector, ["P-2", "P-17"]],
   ["input-replay-button-slots", inputReplayButtonSlots, ["P-12", "P-13", "P-18"]],

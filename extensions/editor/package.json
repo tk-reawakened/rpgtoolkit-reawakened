@@ -16,9 +16,12 @@
     "onCustomEditor:tkr.tileBitmap",
     "onCustomEditor:tkr.animation",
     "onCustomEditor:tkr.nativeClip",
+    "onCustomEditor:tkr.nativeScene",
+    "onCustomEditor:tkr.nativeGeometry",
     "onView:tkr.game",
     "onStartupFinished",
     "onCommand:tkr.newProject",
+    "onCommand:tkr.importBoardAsScene",
     "onCommand:tkr.packageGame",
     "onCommand:tkr.returnFromBoard",
     "onCommand:tkr.newProgram",
@@ -73,6 +76,10 @@
       {
         "command": "tkr.newBoard",
         "title": "RPG Toolkit: New board"
+      },
+      {
+        "command": "tkr.importBoardAsScene",
+        "title": "RPG Toolkit: Import board as scene…"
       },
       {
         "command": "tkr.newProject",
@@ -207,6 +214,29 @@
         "selector": [
           {
             "filenamePattern": "*.tkranm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.nativeScene",
+        "displayName": "RPG Toolkit Native Scene Terrain",
+        "selector": [
+          {
+            "filenamePattern": "*.tkrscn"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.nativeGeometry",
+        "displayName": "RPG Toolkit Native Collision and Walk-behind",
+        "selector": [
+          {
+            "filenamePattern": "*.tkrtle"
+          },
+          {
+            "filenamePattern": "*.tkrpack"
           }
         ],
         "priority": "default"

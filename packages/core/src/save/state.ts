@@ -46,7 +46,7 @@ import {
   type WorldSection,
 } from "./sections.ts";
 import { createTriggersSection } from "../triggers/model.ts";
-import { createSpritesSection } from "../sprites/model.ts";
+import { createSpritesSection, SPRITES_SCHEMA_VERSION } from "../sprites/model.ts";
 import { createActorsSection } from "../actors/model.ts";
 import { createInputSection } from "../input/input.ts";
 import { createAudioSection } from "../audio/model.ts";
@@ -64,12 +64,12 @@ import { DISPLAY_SCHEMA_VERSION, HOST_FEATURES_SCHEMA_VERSION, createDisplaySect
 export const SCHEMA_VERSIONS = {
   schema: 2,
   world: 3,
-  sprites: 2,
+  sprites: SPRITES_SCHEMA_VERSION,
   actors: 2,
   party: PARTY_SCHEMA_VERSION,
   inventory: INVENTORY_SCHEMA_VERSION,
-  triggers: 2,
-  vm: 8,
+  triggers: 3,
+  vm: 9,
   battle: BATTLE_SCHEMA_VERSION,
   menu: MENU_SCHEMA_VERSION,
   input: INPUT_SCHEMA_VERSION,

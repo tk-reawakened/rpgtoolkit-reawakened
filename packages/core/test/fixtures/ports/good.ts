@@ -100,6 +100,7 @@ export const pinThread: Thread = {
   queue: [],
   pending: null,
   detached: [],
+  takeover: [],
   collect: null,
 };
 

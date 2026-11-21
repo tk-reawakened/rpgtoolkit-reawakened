@@ -204,7 +204,7 @@ Notifications use past-tense lowerCamelCase names. Core actor and board events a
 | `entered` | actor/board | no | board transition |
 | `left` | actor/board | no | board transition |
 | `talked` | actor | no | `stock_rpg` bridge after `dialogue.completed`; detail `{ actorId, targetId (actor id or null), text }` |
-| `beforeEnter` | board | yes | board transition; canceled step does not happen |
+| `beforeEnter` | board | yes | board transition preflight; a cancel refuses the crossing and the step does not happen ([R-66](movement-and-collision.md#r-66)) |
 | `beforeDamage` | actor/battle operation | yes | battle RPGCode thread, not a core actor rule |
 
 `fallen` detail contains `cause` (`damage`, `status`, or `script`) and `source` (an actor id or `null`). `revived` carries the same `cause` and `source` fields; the revival cause is the operation that raised HP above zero. `statusChanged` detail is `{ status, previousRounds, rounds, expired, source }`, where `rounds` is the post-operation counter (zero when the status expires), `expired` is true only when the status is removed, and `source` is the actor id supplied by the caller when it attributes the operation, otherwise `null`; a countdown has no implicit source. Core hook result patches are not event details: `equipmentChanged` and `statsChanged` are hook names only. These are plain transition records returned by core operations; the core does not dispatch an event bus. `defeated` belongs to the stock battle package and is not a core actor event. Package events re-emitted on shared emitters receive the package namespace prefix.

@@ -135,8 +135,20 @@ export function readEvent(state: GameState, value: Value | undefined): EventView
   const record = typeof detail === "object" && detail !== null && "handle" in detail ? findObject(state.vm, detail.handle) : undefined;
   const nativeDetail = state.events.nativeDetails?.[String(event.handle)];
   for (const name of record?.keys ?? []) {
-    const value = nativeDetail !== undefined && Object.hasOwn(nativeDetail, name) ? nativeDetail[name]! : plainValue(state, record?.members[name]);
-    Object.defineProperty(fields, publicDetailName(type, name), { value, writable: true, enumerable: true, configurable: true });
+    const rawValue = nativeDetail !== undefined && Object.hasOwn(nativeDetail, name)
+      ? nativeDetail[name]!
+      : plainValue(state, record?.members[name]);
+    // Only restore absence while a script-emitted event is being delivered.
+    // Native events retain their original details through `nativeDetails`; after
+    // delivery, the event object may still be held by a script and must stay unchanged.
+    const publicValue = nativeDetail === undefined
+      && state.events.dispatch?.event === event.handle
+      && type === "dialogue.completed"
+      && name === "targetid"
+      && rawValue === 0
+      ? null
+      : rawValue;
+    Object.defineProperty(fields, publicDetailName(type, name), { value: publicValue, writable: true, enumerable: true, configurable: true });
   }
   return {
     type,

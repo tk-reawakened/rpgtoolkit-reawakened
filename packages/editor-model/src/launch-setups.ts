@@ -241,7 +241,7 @@ export function deleteLaunchSetup(fs: Pick<FileSystemService, "read" | "write">,
 /** The launch a setup makes, with D8.7's defaults: the open game's main file and folder, seed `0`, fixture id = name. */
 export function launchOfSetup(setup: LaunchSetup, open: { readonly main: string; readonly projectFolder: string }): Launch {
   const base = { main: setup.main ?? open.main, projectFolder: setup.projectFolder ?? open.projectFolder, seed: setup.seed ?? 0 };
-  if (setup.kind === "board") return { ...base, kind: "board", start: { ...setup.start }, party: [...setup.party] };
+  if (setup.kind === "board") return { ...base, kind: "board", start: { ...setup.start }, party: [...setup.party], expectedFiles: null };
   if (setup.kind === "program") return { ...base, kind: "program", program: setup.program, fixture: { ...setup.fixture, id: setup.fixture.id ?? setup.name, party: [...setup.fixture.party] } };
   return { ...base, kind: "game" };
 }

@@ -217,7 +217,7 @@ const SCENE_ONLY_FEATURES: readonly (readonly [field: string, path: string, mess
   ["U2", "id", "a record's id (shading, lights, vectors, triggers, items, images): the board identifies a record by slot index only; any id the scene had cannot be restored"],
   ["U3", "vectors[].label", "a vector's label: the board has the script-visible handle only; any label the scene had cannot be restored"],
   ["U4", "floors[].boundarySources", "a floor's boundarySources: the board stores the traced vectors, not the recipe they came from; the recipe cannot be restored"],
-  ["U5", "tilePalette[]", "a native tile reference {tileset, tile}: the board stores a legacy tile reference and no link to a recipe; recovered palette entries are legacy references"],
+  ["U5", "tilePalette[]", "a native tile reference {tile}: the board stores a legacy tile reference and no link to a standalone tile; recovered palette entries are legacy references"],
   ["U6", "placedPacks", "placedPacks and which generated records came from which placement: the board stores the expanded images, cells and vectors, not where they came from"],
   ["U7", "name", "the scene's display name: the board has no name; its file name is its name"],
   ["U8", "tags, metadata", "the scene's tags and metadata: a .brd has no stamp; recovery writes only tags [imported] and metadata.source"],

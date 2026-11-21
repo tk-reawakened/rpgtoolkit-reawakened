@@ -86,15 +86,22 @@ export function runRandomEncounterPhase(state: GameState, config: RandomEncounte
   const board = state.world.board ?? null;
   const actor = state.sprites.players.find((value) => value.id === state.sprites.selectedPlayer) ?? null;
   if (board === null || actor === null) return;
-  const tile = pixelToTile(coordLayout(board.coordType), board.sizeX, actor.x, actor.y);
+  // R-64: a blocked player tile step runs its battle check at the intended destination. The saved
+  // progress keeps the actor's real tile so the next tick does not re-check the source tile.
+  const blockedDestination = actor.movement.lastStepBlocked && actor.movement.lastStepTick === state.time.tick
+    ? actor.movement.lastStepTarget
+    : null;
+  const position = blockedDestination ?? actor;
+  const tile = pixelToTile(coordLayout(board.coordType), board.sizeX, position.x, position.y);
+  const actualTile = blockedDestination === null ? tile : pixelToTile(coordLayout(board.coordType), board.sizeX, actor.x, actor.y);
   if (config === null || config.fightingDisabled !== 0 || board.allowBattles === undefined || board.allowBattles === 0) return;
   const previous = state.sprites.randomEncounter;
   if (previous === null || previous === undefined || previous.boardKey !== board.key) {
-    state.sprites.randomEncounter = { boardKey: board.key, tile, tiles: 0 };
+    state.sprites.randomEncounter = { boardKey: board.key, tile: actualTile, tiles: 0 };
     return;
   }
   if (previous.tile.x === tile.x && previous.tile.y === tile.y) return;
-  const progress = { boardKey: board.key, tile, tiles: previous.tiles };
+  const progress = { boardKey: board.key, tile: actualTile, tiles: previous.tiles };
   state.sprites.randomEncounter = progress;
   const chances = Math.trunc(config.chances);
   const rng = createRngPort(state.rng);

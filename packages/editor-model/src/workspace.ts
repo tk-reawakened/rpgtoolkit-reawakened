@@ -2,12 +2,13 @@ import { foldPath, toSlashes } from "@tk-reawakened/core";
 import { platformError, platformOk, type Disposable, type DocumentService, type FileSystemService, type PlatformError, type PlatformServices } from "@tk-reawakened/platform-services";
 import { createDocumentIdentity } from "./identity.ts";
 import type { DocumentHistorySink, DocumentSnapshot, DocumentStorage, HistoryResult, OpenError, RevertFailure, SaveFailure, SaveResult } from "./binary-document.ts";
-import { kindById, kindForPath, type AnyDocument } from "./kinds.ts";
+import { asTerrainSceneDocument, kindById, kindForPath, type AnyDocument } from "./kinds.ts";
 import { createPendingEdits, type PendingEdits } from "./pending-edits.ts";
 import { createDocumentHistoryStore, createMemoryHistoryStorage, sha256Hex, type DocumentHistoryOptions, type DocumentHistoryStore, type GroupRestoreReport, type HistoryPolicy, type HistoryReason, type HistoryRestorer } from "./document-history.ts";
 import { createCheckpointGroups, type CheckpointGroup, type CheckpointGroups, type CheckpointTarget, type CheckpointUncovered } from "./checkpoint-groups.ts";
 import { DEFAULT_HISTORY_POLICY } from "./history-policy.ts";
 import { openHistoryPreview, type HistoryPreviewOpen } from "./history-support.ts";
+import { connectTerrainSceneSave } from "./terrain-scene-save.ts";
 
 /**
  * The documents a host has open in one project, and the lifecycle around them that ADR 0022 D3 promises in every host:
@@ -209,7 +210,8 @@ interface HostHistory {
 /** Where this workspace keeps history and under which rules (ADR 0022 D12.10 item 8). */
 function historyOptions(options: WorkspaceOptions): DocumentHistoryOptions {
   const { fs, capabilities } = options.services;
-  const base = { project: fs, policy: options.historyPolicy ?? (() => DEFAULT_HISTORY_POLICY), coveredType: (path: string) => kindForPath(path) !== null };
+  const base = { project: fs, policy: options.historyPolicy ?? (() => DEFAULT_HISTORY_POLICY), coveredType: (path: string) =>
+    kindForPath(path) !== null || /(^|\/)bitmap\/\.tkr-generated\/.*\.png$/i.test(path) || /\.tile-[a-f0-9]{64}\.tan$/i.test(path) };
   if (options.historyStorage !== undefined) return { ...base, storage: options.historyStorage.fs, location: { kind: "host-storage", description: options.historyStorage.description } };
   if (capabilities.has("folderWrite")) return { ...base, storage: fs, location: { kind: "project-folder", description: "Kept in the project's .tkr-history folder, so it travels with the project." } };
   return { ...base, storage: createMemoryHistoryStorage(), location: { kind: "session-memory", description: "History for this session copy is kept only in this page and is lost when the page closes or the browser clears it." } };
@@ -242,6 +244,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
   };
   const documentStorage: DocumentStorage = { readProject: fs.readProject.bind(fs), writeProject: fs.writeProject.bind(fs), history: sink };
   const documents = new Map<string, AnyDocument>();
+  const register = (document: AnyDocument): void => {
+    if (document.kind === "terrain-scene") connectTerrainSceneSave(asTerrainSceneDocument(document), fs, historyStore, projectId);
+    documents.set(document.identity.key, document);
+  };
   const opening = new Map<string, Promise<WorkspaceOpenResult>>();
   const savingAs = new Map<string, Promise<void>>();
   const histories = new Map<string, HostHistory>();
@@ -312,7 +318,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     const reading = kind.open(documentStorage, identity).then((opened): WorkspaceOpenResult => {
       opening.delete(identity.key);
       if (!opened.ok || disposed) return opened;
-      documents.set(identity.key, opened.document);
+      register(opened.document);
       startWatching();
       return opened;
     });
@@ -742,7 +748,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         if (disposed || documents.has(identity.key) || opening.has(identity.key)) {
           return failed(resolved.path, `${resolved.path} was written but is already open or opening; ${source} remains open.`);
         }
-        documents.set(identity.key, reopened.document);
+        register(reopened.document);
         startWatching();
         // Other views still own the source. Otherwise this view replaces it with the newly opened copy (D1.3).
         if ((views.get(document)?.size ?? 0) <= 1) release(document);

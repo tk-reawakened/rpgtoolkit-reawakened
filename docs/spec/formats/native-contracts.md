@@ -102,7 +102,7 @@ A plugin block carries a version of its own, the version of that plugin's data o
 
 An extension that is registered below (each one starts with `tkr`) marks a native document of the registered kind, and a classic extension (`.anm`, `.brd`, `.tem`, `.itm`, `.ene`, `.tst` and the rest) marks a legacy file that is read through the compatibility layer ([ADR 0009](../../adr/0009-compatibility-layer-not-the-model.md)); the two families are told apart by extension alone. A legacy file and a native document with the same stem, such as `walk.anm` and `walk.tkranm`, can sit in the same folder, because they never share an extension.
 
-1. **One extension per kind.** Each contract has one extension and each extension belongs to one contract. An extension is `.tkr` and a short kind code of three or more lowercase ASCII letters (`.tkranm`, `.tkrscn`, `.tkrtile`). **Owner ruling of 2026-11-11** ([#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839), [#1843](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1843)): the code was exactly three letters before; the length is not fixed. A new kind, such as a future actor or scene contract, takes `.tkr` and its own kind code when its contract is written.
+1. **One extension per kind.** Each contract has one extension and each extension belongs to one contract. An extension is `.tkr` and a short kind code of three or more lowercase ASCII letters (`.tkranm`, `.tkrscn`, `.tkrtst`). **Owner ruling of 2026-11-11** ([#1839](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1839), [#1843](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/1843)): the code was exactly three letters before; the length is not fixed. A new kind, such as a future actor or scene contract, takes `.tkr` and its own kind code when its contract is written.
 2. **New names, not the legacy ones.** A native extension is never a legacy one. A project can therefore hold `walk.anm` and `walk.tkranm` together, and no tool that goes by extension takes a legacy binary for native YAML, or the reverse.
 3. **The content is YAML,** the authored notation ([research #1799](../../findings/native-data-notations/README.md)). The extension names the kind; it says nothing about the version.
 4. **The stamp stays authoritative.** A loader chooses the rules for a document from its stamp ([stamp rule 4](#stamp)); the extension serves people, file managers and tools that must decide before they open the file. The extension and the stamp's `contract` MUST agree, and a mismatch is an error: no reader trusts one over the other, and the [checker](#checker) reports it.
@@ -114,7 +114,8 @@ An extension that is registered below (each one starts with `tkr`) marks a nativ
 | Extension | Contract | Contract page |
 |---|---|---|
 | `.tkranm` | `animation-clip` | [native-animation-clip.md](native-animation-clip.md) |
-| `.tkrtile` | `tileset` | [native-tileset.md](native-tileset.md) |
+| `.tkrtst` | `tileset` | [native-tileset.md](native-tileset.md) |
+| `.tkrtle` | `tile` | [native-tile.md](native-tile.md) |
 | `.tkrpack` | `asset-pack` | [native-asset-pack.md](native-asset-pack.md) |
 | `.tkrscn` | `scene` | [native-scene.md](native-scene.md) |
 
@@ -278,7 +279,7 @@ A top-level `bloom: 0.4` is not a `plugin-block` problem. It is the closed-contr
 
 ## Checker
 
-A checker reads a folder of native documents and reports problems. It **reports and never repairs**. It treats only files whose extension the [registry](#the-registry) holds as native documents; other files, including legacy files, are not checked as native documents. Project-level art checks also read the source images named by tilesets and asset packs to verify their existence and dimensions. The checker reports every class below, each with the content shown.
+A checker reads a folder of native documents and reports problems. It **reports and never repairs**. It treats only files whose extension the [registry](#the-registry) holds as native documents; other files, including legacy files, are not checked as native documents. Project-level art checks also read the source images named by standalone tiles, tilesets and asset packs to verify their existence and dimensions. The checker reports every class below, each with the content shown.
 
 | Class | Report names | Meaning |
 |---|---|---|
@@ -287,7 +288,7 @@ A checker reads a folder of native documents and reports problems. It **reports 
 | Two paths fold to one ID | both paths and the folded ID | The [identity rule](#identity), item 4 failed. |
 | Plugin block (`plugin-block`) | the document path, the problem kind, the plugin id where there is one, and the text found | A block's [envelope](#the-envelope) failed. The problem kinds are in the next table. |
 | Extension and contract disagree (**proposed, needs the owner's confirmation**) | the path, the extension, the registered contract, and the contract the stamp names | The [file name rule](#file-names), item 4 failed: the extension is registered for one contract and the stamp names another. |
-| Native art (`native-art`) | the document path, field and explanation, with the line when available | A tileset or asset-pack field or local source reference is invalid, a referenced image is missing or unreadable, a source cell or crop lies outside its image, or a scene's native art reference cannot resolve its document and local ID. |
+| Native art (`native-art`) | the document path, field and explanation, with the line when available | A tile, tileset or asset-pack field or local source reference is invalid, a referenced image is missing or unreadable, a source cell or crop lies outside its image, or a scene's native art reference cannot resolve its document and, where required, its local ID. |
 | Native scene (`native-scene`) | the document path, field and explanation, with the line when available | A scene field violates the closed scene contract or a scene-local reference is invalid. |
 
 The first four rows are the classes the owner ruled. The `plugin-block` class replaces the three link classes the 2026-11-08 ruling had (a plugin document with no owner, an owner link with no back-link, a mismatched link): they are **retired** (owner ruling of 2026-11-09), because plugin data has no document of its own to link. The fifth is an addition made with the file name rule and is not yet confirmed. It is judged only for a document whose extension is registered and whose stamp names one contract as text; any other stamp is already a stamp report.

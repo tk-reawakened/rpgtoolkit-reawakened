@@ -2,10 +2,13 @@ import { deepEqual, equal } from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { test } from "node:test";
 import { addActor, applyEmitterOp, assetKey, IR_VERSION, createAssetIndex, createEmptyBoard, createEmptyCharacter, createEmptyMainFile, createEngine, decodeSurfaceBytes, ENGINE_DEFAULT_MANIFEST, ENGINE_PHASES, ENGINE_PLUGIN_TABLE, encodeSurfaceBytes, hashDrawList, hashGameState, PACKAGE_ROOT, rasterizePresentation, readSurfacePixels, snapshotGameSave, TILE_BITMAP_MAGIC, writeBoard, writeCharacter, writeMainFile, writeTileBitmap, writeTileset, type Board, type CommandView, type DrawCommand, type DrawList, type EffectRecord, type Engine, type EnginePhaseRegistration, type GameState, type PackageCatalogueEntry, type PluginDefinition, type RasterSurfaces, type ResolvedPlugin, type SurfaceId } from "../src/index.ts";
+import { inputPhaseRegistration } from "../src/input/registration.ts";
+import { markInternalPhaseRegistration } from "../src/engine/internal-phase-registration.ts";
 import { applyUiEffect } from "../src/script/packs/ui.ts";
 import { resetUiForProgramStart } from "../src/save/sections/ui.ts";
 import { resolveManifestPlugins } from "../src/engine/boot.ts";
-import { ensureScriptScreen, SCRIPT_SCREEN } from "../src/raster/surfaces.ts";
+import { ensureScriptScreen, SCRIPT_SCREEN, surfaceBytesEncodedForDiagnostics } from "../src/raster/surfaces.ts";
+import { snapshot } from "../src/save/snapshot.ts";
 
 function boardBytes(board: Board): Uint8Array {
   const encoded = writeBoard(board);
@@ -1465,8 +1468,99 @@ function bootAndAdvance(extra: EngineExtras, program: string, ticks = 1) {
   return { engine, report };
 }
 
-/** After the threads phase every snapshot must be exactly the canonical encoding of the pixels a reader sees. */
+test("engine-rendered changed frames do not encode full surfaces across advances", () => {
+  const debug = { drawVectorsFlags: 4, path: [{ x: 0, y: 0 }, { x: 2, y: 2 }] };
+  const engine = createEngine({
+    seed: 7, assetIndex: createAssetIndex(["Boards/test.brd"]), assetRoot: PACKAGE_ROOT,
+    initialBoard: "test.brd", width: 16, height: 16, maxTicks: 1, program: "end()\n", debug,
+    phaseRegistrations: [markInternalPhaseRegistration(inputPhaseRegistration())],
+  });
+  const before = surfaceBytesEncodedForDiagnostics();
+  const request = engine.advance(0, []).requests[0];
+  if (request?.kind !== "asset") throw new Error("expected board request");
+  const loaded = engine.advance(1, [{ tick: 0, event: { kind: "asset", reqId: request.reqId, bytes: boardBytes(createEmptyBoard()) } }]);
+  equal(loaded.ticksRun, 1);
+  if (engine.surfacePixels(0 as SurfaceId, 2) === null) throw new Error("expected first rendered screen revision");
+
+  debug.path[1]!.x += 1;
+  const next = engine.advance(1, []);
+  equal(next.ticksRun, 1);
+  if (engine.surfacePixels(0 as SurfaceId, 3) === null) throw new Error("expected distinct redraw revision");
+  equal(surfaceBytesEncodedForDiagnostics() - before, 0);
+});
+
+test("input phase callbacks observe and retain canonical pixels for the current presented frame", () => {
+  const observed: { b64: string; rgba: Uint8Array }[] = [];
+  const retainedStates: GameState[] = [];
+  const registration: EnginePhaseRegistration = {
+    phase: "input",
+    run: (state) => {
+      retainedStates.push(state);
+      const screen = state.surfaces.entries["0"]!;
+      const pixels = readSurfacePixels(state.surfaces, screen.id, screen.rev);
+      if (pixels === null) throw new Error("expected current screen pixels");
+      observed.push({ b64: screen.bitmap.b64, rgba: pixels.rgba });
+    },
+  };
+  const completedTickCanonical: boolean[] = [];
+  const completedTickB64: string[] = [];
+  const movementObservation: { canonical: boolean; b64: string }[] = [];
+  const engine = createEngine({
+    seed: 7, assetIndex: createAssetIndex(["Boards/test.brd"]), assetRoot: PACKAGE_ROOT,
+    initialBoard: "test.brd", width: 16, height: 16, maxTicks: 1, program: "setpixel(0, 0)\nend()\n",
+    phaseRegistrations: [registration],
+    cameraTarget: {
+      getPlayerPosition: () => {
+        const state = retainedStates.at(-1);
+        if (state === undefined) return null;
+        const screen = state.surfaces.entries["0"]!;
+        const pixels = readSurfacePixels(state.surfaces, screen.id, screen.rev);
+        if (pixels === null) return null;
+        movementObservation.push({ canonical: screen.bitmap.b64 === encodeSurfaceBytes(pixels.rgba), b64: screen.bitmap.b64 });
+        return null;
+      },
+      getEntityPosition: () => null,
+    },
+    tickObserver: () => {
+      const state = retainedStates.at(-1);
+      if (state === undefined) return;
+      const screen = state.surfaces.entries["0"]!;
+      const pixels = readSurfacePixels(state.surfaces, screen.id, screen.rev);
+      if (pixels !== null) {
+        completedTickCanonical.push(screen.bitmap.b64 === encodeSurfaceBytes(pixels.rgba));
+        completedTickB64.push(screen.bitmap.b64);
+      }
+    },
+  });
+  const request = engine.advance(0, []).requests[0];
+  if (request?.kind !== "asset") throw new Error("expected board request");
+  const loaded = engine.advance(1, [{ tick: 0, event: { kind: "asset", reqId: request.reqId, bytes: boardBytes(createEmptyBoard()) } }]);
+  equal(loaded.ticksRun, 1);
+  equal(completedTickCanonical.at(-1), true);
+  const inputFrame = observed.at(-1);
+  if (inputFrame === undefined) throw new Error("expected input frame before the program's final redraw");
+  if (completedTickB64.at(-1) === inputFrame.b64) throw new Error("expected the completed tick to commit a different program frame");
+  const movement = movementObservation.at(-1);
+  if (movement === undefined) throw new Error("expected movement callback to observe the retained state");
+  equal(movement.canonical, true);
+  if (movement.b64 === inputFrame.b64) throw new Error("expected movement to observe the committed final frame");
+  const next = engine.advance(1, []);
+  equal(next.ticksRun, 1);
+  const current = observed[observed.length - 1];
+  if (current === undefined) throw new Error("expected input phase observation");
+  equal(current.b64, encodeSurfaceBytes(current.rgba));
+  const retainedState = retainedStates.at(-1);
+  if (retainedState === undefined) throw new Error("expected retained state");
+  equal(completedTickCanonical.at(-1), true);
+  const screen = retainedState.surfaces.entries["0"]!;
+  const pixels = readSurfacePixels(retainedState.surfaces, screen.id, screen.rev);
+  if (pixels === null) throw new Error("expected retained screen pixels");
+  equal(screen.bitmap.b64, encodeSurfaceBytes(pixels.rgba));
+});
+
+/** Once a canonical snapshot is requested, every saved surface matches the pixels a reader sees. */
 function assertStateSnapshotsCanonical(state: GameState): void {
+  snapshot(state);
   for (const entry of Object.values(state.surfaces.entries)) {
     const pixels = readSurfacePixels(state.surfaces, entry.id, entry.rev);
     if (pixels === null) throw new Error(`expected pixels for surface ${entry.id}`);
@@ -1512,6 +1606,7 @@ function observingPackage(log: Observation[], plain: <T>(read: () => T) => T): R
   const observe = (view: CommandView, label: string): void => {
     const state = view.state;
     if (state === undefined) throw new Error("expected command state");
+    view.refreshScreen?.();
     log.push({
       label,
       hash: plain(() => hashGameState(state)),

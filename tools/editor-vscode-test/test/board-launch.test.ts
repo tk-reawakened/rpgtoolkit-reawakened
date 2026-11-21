@@ -34,7 +34,7 @@ function startBoard(coordType: number, x: number, y: number): { state: GameState
   }
   const launch: BoardLaunch = {
     kind: "board", main: "Main/test.gam", projectFolder: "", seed: 23,
-    start: { board: "Boards/test.brd", x, y, layer: 1 }, party: characters.map((character) => character.path),
+    start: { board: "Boards/test.brd", x, y, layer: 1 }, party: characters.map((character) => character.path), expectedFiles: null,
   };
   const prepared = prepareBoardLaunch(launch);
   ok(prepared.ok);

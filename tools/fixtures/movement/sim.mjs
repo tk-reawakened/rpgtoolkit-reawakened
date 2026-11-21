@@ -56,7 +56,7 @@ export class World {
     this.repeat = new Map();
     this.gone = new Set();
     this.walked = 0;
-    this.lock = false;
+    this.battleDest = null;
     this.pendingSend = null;
     this.threads = [];
     this.tick = -1;
@@ -99,6 +99,8 @@ export class World {
       wp: null,
       idleCount: 0,
       stepDone: false,
+      stepDoneOrigin: false,
+      stepDest: null,
       anims: def.anims ?? null,
       idleMs: def.idleMs ?? 3000,
       anim: null,
@@ -130,7 +132,10 @@ export class World {
     return (a) => ticksPerAdvance(a.speed, this.board.gameSpeed ?? 0);
   }
   cellOf(a) {
-    return [Math.floor(a.x / FP / 32), Math.floor(a.y / FP / 32)];
+    return this.cellOfPoint(a);
+  }
+  cellOfPoint(point) {
+    return [Math.floor(point.x / FP / 32), Math.floor(point.y / FP / 32)];
   }
   emit(type, data = {}) {
     this.ev.push({ e: type, ...data });
@@ -276,9 +281,11 @@ export class World {
   // ---------------------------------------------------------------- commands (input phase)
 
   enqueue(a, step) {
+    if (step.triggerOrigin === undefined) step.triggerOrigin = false;
     a.queue.push(step);
   }
   issue(a, flags, points, extra = {}) {
+    const triggerOrigin = extra.triggerOrigin ?? false;
     if (flags & FLAGS.CLEAR_QUEUE) {
       a.queue.length = 0;
       a.cur = null;
@@ -289,18 +296,18 @@ export class World {
       const goal = points[points.length - 1];
       const { result, cache, mode } = this.route(a, goal);
       this.emit("path", { actor: a.id, mode, goal, route: result.points, expansions: result.expansions, capped: result.capped, reached: result.reached, goalAdjusted: result.goalAdjusted, cache });
-      for (const [x, y] of result.points) this.enqueue(a, { src: "path", tx: Math.round(x * FP), ty: Math.round(y * FP) });
+      for (const [x, y] of result.points) this.enqueue(a, { src: "path", tx: Math.round(x * FP), ty: Math.round(y * FP), triggerOrigin });
     } else if (flags & (FLAGS.WAYPOINT_PATH | FLAGS.WAYPOINT_LINK)) {
       const v = this.board.vectors.find((vec) => vec.id === extra.vector);
-      a.wp = { vector: v.id, link: Boolean(flags & FLAGS.WAYPOINT_LINK), cycles: extra.cycles ?? 1, done: 0, idx: 0, copy: v.points.map((p) => [...p]) };
+      a.wp = { vector: v.id, link: Boolean(flags & FLAGS.WAYPOINT_LINK), cycles: extra.cycles ?? 1, done: 0, idx: 0, copy: v.points.map((p) => [...p]), triggerOrigin };
       this.emit("waypoint-start", { actor: a.id, vector: v.id, link: a.wp.link, cycles: a.wp.cycles });
     } else {
-      for (const [x, y] of points) this.enqueue(a, { src: "point", tx: Math.round(x * FP), ty: Math.round(y * FP), ignoreBoard: true });
+      for (const [x, y] of points) this.enqueue(a, { src: "point", tx: Math.round(x * FP), ty: Math.round(y * FP), ignoreBoard: true, triggerOrigin });
     }
   }
-  pushDirs(a, dirs, clear) {
+  pushDirs(a, dirs, clear, triggerOrigin = false) {
     if (clear) this.issue(a, FLAGS.CLEAR_QUEUE, []);
-    for (const d of dirs.split(",").map((s) => s.trim()).filter(Boolean)) this.enqueue(a, { src: "dir", dir: FACINGS.indexOf(d), size: this.moveSize() });
+    for (const d of dirs.split(",").map((s) => s.trim()).filter(Boolean)) this.enqueue(a, { src: "dir", dir: FACINGS.indexOf(d), size: this.moveSize(), triggerOrigin });
   }
 
   applyScript(op) {
@@ -476,7 +483,7 @@ export class World {
     const dir = s.src === "dir";
     const tx = dir ? a.x + DIRV[s.dir][0] * s.size * FP : s.tx;
     const ty = dir ? a.y + DIRV[s.dir][1] * s.size * FP : s.ty;
-    a.cur = { src: s.src, dir: dir ? s.dir : null, tx, ty, sx: a.x, sy: a.y, ignoreBoard: Boolean(s.ignoreBoard), tried: false };
+    a.cur = { src: s.src, dir: dir ? s.dir : null, size: dir ? s.size : null, tx, ty, sx: a.x, sy: a.y, ignoreBoard: Boolean(s.ignoreBoard), tried: false, triggerOrigin: s.triggerOrigin ?? false };
     a.state = "moving";
     return true;
   }
@@ -499,7 +506,7 @@ export class World {
     }
     const [x, y] = pts[w.idx];
     w.idx += 1;
-    a.queue.push({ src: "waypoint", tx: x, ty: y });
+    a.queue.push({ src: "waypoint", tx: x, ty: y, triggerOrigin: a.wp.triggerOrigin ?? false });
   }
 
   advanceVec(a) {
@@ -564,8 +571,26 @@ export class World {
         a.state = "waiting";
         a.cadence = 0;
         this.emit("movement-complete", blocked ? { actor: a.id, blocked: true } : { actor: a.id });
-      } else a.cadence = tpa - 1;
+      } else a.cadence = blocked ? 0 : tpa - 1;
     };
+
+    // R-63 (docs/spec/engine/movement-and-collision.md#r-63): a tile direction step checks its whole
+    // destination before the first advance. R-64: the controlled (input-selected) player consumes and
+    // counts it, but only when the precheck stops the step at its start; other actors — including a
+    // non-selected party player — and a block that appears mid-step keep the entry and retry it.
+    if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
+      const solid = this.boardHit(a, c.tx, c.ty);
+      const other = solid === null ? this.spriteHit(a, c.tx, c.ty) : null;
+      if (solid !== null || other !== null) {
+        if (dirIdx >= 0) a.facing = dirIdx;
+        if (a.kind === "player" && a.controlled) {
+          if (a.x === c.sx && a.y === c.sy) this.countBlockedStep(a, c);
+        } else a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+        this.emit("blocked", { actor: a.id, by: (solid ?? other).id });
+        finish(true);
+        return;
+      }
+    }
 
     // The player cannot leave the board except over a link (E-28); items are not limited.
     if (a.kind === "player") {
@@ -580,6 +605,13 @@ export class World {
 
     const hit = c.ignoreBoard ? null : this.boardHit(a, nx, ny);
     if (hit !== null) {
+      if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
+        if (dirIdx >= 0) a.facing = dirIdx;
+        if (!(a.kind === "player" && a.controlled)) a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+        this.emit("blocked", { actor: a.id, by: hit.id });
+        finish(true);
+        return;
+      }
       const slid = (this.board.pixelMovement ?? 0) >= 1 ? this.slide(a, hit, nx, ny) : null;
       if (slid === null) {
         this.emit("blocked", { actor: a.id, by: hit.id });
@@ -640,17 +672,42 @@ export class World {
     a.under = nowUnder;
   }
 
+  /**
+   * R-64 item 2: the player's consumed blocked direction-style tile step is processed as a step event.
+   * Step-triggered programs and items and the random-battle check run at the step's intended destination
+   * (`c.tx`/`c.ty`). The step contributes no repeat-distance travel; R-64 names no repeat contribution and
+   * PROPOSED P-19 records the open point. The party remainder's one-tile rule is not modelled here: these
+   * scenes record positions, trigger facts and events, never the party step counter.
+   */
+  countBlockedStep(a, c) {
+    a.stepDone = true;
+    a.stepDoneOrigin = c.triggerOrigin ?? false;
+    a.stepDest = { x: c.tx, y: c.ty };
+  }
+
   afterAdvance(a, c, nx, ny, reach, tpa, finish) {
     const vx = c.tx - c.sx;
     const vy = c.ty - c.sy;
     const passed = (c.tx - a.x) * vx + (c.ty - a.y) * vy <= 0;
     if (reach || passed) {
-      if (a.kind === "player") a.stepDone = true;
+      if (a.kind === "player") {
+        a.stepDone = true;
+        a.stepDoneOrigin = c.triggerOrigin ?? false;
+      }
       finish(false);
     } else a.cadence = tpa - 1;
   }
 
   spriteCollision(a, c, blocker, tpa, finish) {
+    // R-64 item 2: a direction-style tile block is consumed by the player and retried by other actors;
+    // no sprite is frozen and the direction step is never resolved as a point-style collision.
+    if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
+      if (c.dir !== null) a.facing = c.dir;
+      if (!(a.kind === "player" && a.controlled)) a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
+      this.emit("blocked", { actor: a.id, by: blocker.id });
+      finish(true);
+      return;
+    }
     const following = c.src === "point" || c.src === "path" || c.src === "waypoint";
     if (following && a.waitLeft === 0 && !c.tried) {
       c.tried = true;
@@ -658,8 +715,8 @@ export class World {
       const { result } = this.route(a, [Math.round(c.tx / FP), Math.round(c.ty / FP)]);
       if (result.reached && result.points.length > 0) {
         const via = result.points;
-        const rest = { src: c.src, tx: c.tx, ty: c.ty, ignoreBoard: c.ignoreBoard };
-        a.queue.unshift(...via.map(([x, y]) => ({ src: "path", tx: Math.round(x * FP), ty: Math.round(y * FP) })), rest);
+        const rest = { src: c.src, tx: c.tx, ty: c.ty, ignoreBoard: c.ignoreBoard, triggerOrigin: c.triggerOrigin };
+        a.queue.unshift(...via.map(([x, y]) => ({ src: "path", tx: Math.round(x * FP), ty: Math.round(y * FP), triggerOrigin: c.triggerOrigin })), rest);
         a.cur = null;
         a.cadence = tpa - 1;
         this.emit("diversion", { actor: a.id, blocker: blocker.id, via });
@@ -771,20 +828,18 @@ export class World {
   triggersPhase() {
     const p = this.player;
     const stepEvent = p.stepDone;
+    const stepOrigin = p.stepDoneOrigin;
+    // R-64 item 2: a counted blocked step is evaluated at the tile the player pressed into.
+    const stepDest = p.stepDest;
     p.stepDone = false;
+    p.stepDoneOrigin = false;
+    p.stepDest = null;
+    this.battleDest = stepDest;
     const keyEvent = Boolean(this.activateKey);
     this.activateKey = false;
-    if (this.lock) {
-      if (p.cur === null && p.queue.length === 0) {
-        this.lock = false;
-        this.walked = 0;
-        this.lastCell = this.cellOf(p);
-      }
-      return false;
-    }
     let stepped = false;
     if (stepEvent) {
-      this.evaluate("step");
+      this.evaluate("step", stepOrigin, stepDest);
       stepped = true;
     }
     if (keyEvent) this.evaluate("key");
@@ -796,15 +851,26 @@ export class World {
     return c === null || c === undefined || this.vars[c.var] === c.value;
   }
 
-  evaluate(kind) {
+  evaluate(kind, suppressed = false, dest = null) {
     const p = this.player;
-    const base = translate(p.base, p.x, p.y);
+    const playerBase = translate(p.base, p.x, p.y);
+    // R-64 item 2: step processing runs where the step was headed; a key press (E-41) always tests the
+    // base at the player's own position.
+    const base = dest === null ? playerBase : translate(p.base, dest.x, dest.y);
     const regions = this.board.programs.filter((r) => r.layer === p.layer && !this.gone.has(r.id));
     const items = this.items.filter((i) => i.visible && i.trigger !== null && i.layer === p.layer && !this.gone.has(`item:${i.id}`));
     // Re-arm on leaving (E-40, E-42): a trigger whose area the player is no longer in forgets its state.
+    // The area is the one the candidate is eligible in: a key-press candidate only re-arms against the
+    // player's standing shape, a step/repeat candidate against the step's tested shape (R-64 item 2).
     if (kind === "step") {
-      for (const r of this.board.programs) if (!(r.layer === p.layer && overlaps(base, r.points))) { this.fired.delete(r.id); this.repeat.delete(r.id); }
-      for (const i of this.items) if (!(i.visible && i.layer === p.layer && i.trigger !== null && overlaps(base, translate(i.act, i.x, i.y)))) { this.fired.delete(`item:${i.id}`); this.repeat.delete(`item:${i.id}`); }
+      for (const r of this.board.programs) {
+        const area = r.type === "key" ? playerBase : base;
+        if (!(r.layer === p.layer && overlaps(area, r.points))) { this.fired.delete(r.id); this.repeat.delete(r.id); }
+      }
+      for (const i of this.items) {
+        const area = i.trigger?.type === "key" ? playerBase : base;
+        if (!(i.visible && i.layer === p.layer && i.trigger !== null && overlaps(area, translate(i.act, i.x, i.y)))) { this.fired.delete(`item:${i.id}`); this.repeat.delete(`item:${i.id}`); }
+      }
     }
     const typeOk = (t) => (kind === "step" ? t === "step" || t === "repeat" : t === "key");
     const qualifies = (id, trig) => {
@@ -826,6 +892,11 @@ export class World {
     });
     if (itemQ.length > 0) {
       const item = itemQ[0];
+      if (suppressed) {
+        this.fired.add(`item:${item.id}`);
+        this.repeat.set(`item:${item.id}`, 0);
+        return;
+      }
       item.facing = facingOf(p.x - item.x, p.y - item.y);
       this.emit("item-faces-player", { item: item.id });
       this.clearQueue(p, item.id);
@@ -835,6 +906,11 @@ export class World {
     const regionQ = regions.filter((r) => overlaps(base, r.points) && qualifies(r.id, r));
     if (regionQ.length > 0) {
       const region = regionQ[regionQ.length - 1]; // last in stored board order wins
+      if (suppressed) {
+        this.fired.add(region.id);
+        this.repeat.set(region.id, 0);
+        return;
+      }
       if (region.stopMovement) this.clearQueue(p, region.id);
       this.fire(region.id, "region", region.id, region);
     }
@@ -859,10 +935,9 @@ export class World {
       if (op.op === "set") this.setVar(op.var, op.value);
       else if (op.op === "gone") { this.gone.add(key); this.emit("gone", { trigger: id }); }
       else if (op.op === "abort") aborted = true;
-      else if (op.op === "silentMove") {
-        this.pushDirs(this.player, op.dirs, false);
-        this.lock = true;
-        this.emit("silent-move", { dirs: op.dirs });
+      else if (op.op === "triggerMove") {
+        this.pushDirs(this.player, op.dirs, false, true);
+        this.emit("trigger-move", { dirs: op.dirs });
       }
     }
     if (!aborted && trig.set) this.setVar(trig.set.var, trig.set.value); // set only after the program completes
@@ -875,9 +950,11 @@ export class World {
     const b = this.board.battle;
     const p = this.player;
     if (!stepped || !b || !this.setup.fightEnabled) return;
-    const cell = this.cellOf(p);
+    // R-64 item 2: a counted blocked step runs the battle check at its intended destination. Progress
+    // still records the actor's real tile, so the following tick does not re-check the tile it stands on.
+    const cell = this.battleDest === null ? this.cellOf(p) : this.cellOfPoint(this.battleDest);
     if (cell[0] === this.lastCell[0] && cell[1] === this.lastCell[1]) return;
-    this.lastCell = cell;
+    this.lastCell = this.cellOf(p);
     this.emit("tile-moved", { cell });
     if (!b.allowed) return;
     let fight = false;

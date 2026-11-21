@@ -114,6 +114,27 @@ const CASES: readonly KindCase[] = [
     accepted: { type: "set-native-clip-property", path: ["delay"], value: 0.2 },
     rejected: { type: "set-native-clip-property", path: ["delay"], value: -1 },
   },
+  {
+    kind: "native-tile",
+    path: "Tiles/fence.tkrtle",
+    bytes: utf8Encode("contract: tile\nversion: 1.0.0-pre.1\nname: Fence\nprojection: 2d\nrole: wall\nvisual: {transparent: {mode: alpha}, sample: {file: Bitmap/fence.png, rect: [0, 0, 32, 32]}}\n"),
+    accepted: { type: "set-native-geometry", solid: [{ label: "Rail", closed: false, points: [[16, 5], [16, 12]] }], under: [] },
+    rejected: { type: "set-native-geometry", solid: [{ label: "Rail", closed: true, points: [[16, 5], [16, 12]] }], under: [] },
+  },
+  {
+    kind: "native-asset-pack",
+    path: "Packs/garden.tkrpack",
+    bytes: utf8Encode("contract: asset-pack\nversion: 1.0.0-pre.1\nname: Garden\nprojection: 2d\ngrid: {tileWidth: 32, tileHeight: 32}\nsources: [{id: atlas, file: Bitmap/arch.png}]\nassets:\n  - id: arch\n    name: Arch\n    kind: prop\n    anchor: {x: 16, y: 32, snap: bottom-center}\n    visuals: [{source: atlas, rect: [0, 0, 32, 32]}]\n"),
+    accepted: { type: "set-native-geometry", asset: "arch", solid: [], under: [{ label: "Lintel", closed: true, attributes: 4, points: [[-8, -16], [8, -16], [8, -8]] }] },
+    rejected: { type: "set-native-geometry", asset: "missing", solid: [], under: [] },
+  },
+  {
+    kind: "terrain-scene",
+    path: "Boards/pond.tkrscn",
+    bytes: utf8Encode("contract: scene\nversion: 1.0.0-pre.2\n# Keep the pond editable\nprojection: 2d\nsize: {width: 1, height: 1}\nfloors: [{id: ground}]\n"),
+    accepted: { type: "edit-scene-terrain", terrain: { tileOverrides: [{ floor: "ground", cell: [0, 0], tile: { legacy: "bank.tst1" } }] } },
+    rejected: { type: "edit-scene-terrain", terrain: { tileOverrides: [{ floor: "ground", cell: [1, 0], tile: { legacy: "bank.tst1" } }] } },
+  },
 ];
 
 async function open(entry: KindCase): Promise<{ readonly host: ReturnType<typeof createMemoryPlatformServices>; readonly doc: AnyDocument }> {

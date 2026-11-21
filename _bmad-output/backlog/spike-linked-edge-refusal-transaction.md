@@ -45,7 +45,8 @@ A linked edge step can complete before the edges phase refuses its destination u
 
 ## Notes
 
-- Open question: should arrival refusal be preflighted before a linked-edge step or roll back the full set of observable effects after the step?
-- Assumption: a refusal must not leave a partially committed movement transaction; the owner must confirm the exact boundary and event ordering.
+- Resolved 2026-11-21 by an approved owner ruling (owner: Jensen; [R-66](../../docs/spec/engine/movement-and-collision.md#r-66), [ADR 0040](../../docs/adr/0040-tile-step-precheck-queues-and-linked-edge-preflight.md)): the arrival is preflighted before movement commits (bounds, layers, board vectors, `beforeEnter`); a refusal leaves the player on the source board at the last safe position with its queue kept, and produces no step-complete or party-step side effects. Complete-then-roll-back was rejected. The dated ruling satisfies criterion 4 and records the boundary and event ordering for criterion 3.
+- The assumption below is now the rule: a refusal must not leave a partially committed movement transaction; the boundary is the preflight.
+- Evidence: [Round 17 facts](../../docs/provenance/facts-round-17.md), R17-Q3/Q4 (`:99-110`, `:123`, `:132`).
 
 - Risk: high — a refused transition can leave movement state and events partially committed; outside this ticket's criteria, verify the selected rule in Epic 5's entry 12 replay and snapshot sweep.

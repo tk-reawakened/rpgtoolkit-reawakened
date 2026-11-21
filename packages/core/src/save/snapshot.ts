@@ -53,6 +53,7 @@
  */
 
 import { canon, reviveNonFinite, tagNonFinite } from "../canon/index.ts";
+import { flushSurfaceBatch, materializePresentedSurfaces } from "../raster/surfaces.ts";
 import { cellIdOfRef, cellNumber, eachRootValue, isRecord } from "../script/cells.ts";
 import { parseObjectRef } from "../script/objects.ts";
 import {
@@ -66,7 +67,7 @@ import { itemActionRecordIssue, ITEM_ACTION_COMPLETE_COMMAND } from "../script/i
 import { IR_VERSION } from "../script/program.ts";
 import { SCHEMA_VERSIONS, type GameState } from "./state.ts";
 import { asActorsSection, createActorsSection, ACTORS_SCHEMA_VERSION, validateActorProgression, type ActorProgression, type ActorStats } from "../actors/model.ts";
-import { asSpritesSection, createSpritesSection, SPRITES_SCHEMA_VERSION } from "../sprites/model.ts";
+import { asSpritesSection, createSpritesSection, FACING, SPRITES_SCHEMA_VERSION, type Facing, type MovementProvenance, type SpriteMove, type SpritePoint } from "../sprites/model.ts";
 import { createInputSection, rebuildKeyboardActionClaimIndex } from "../input/input.ts";
 import { createTriggersSection, TRIGGERS_SCHEMA_VERSION } from "../triggers/model.ts";
 import { INPUT_SCHEMA_VERSION } from "./sections/input.ts";
@@ -94,10 +95,39 @@ function migrateBattle(record: Record<string, unknown>, schema: Record<string, u
     schema.battle = BATTLE_SCHEMA_VERSION;
   }
 }
+function normalizeSnapshotSpriteProvenance(state: GameState): GameState {
+  const unknown = { kind: "unknown" as const };
+  const missing = (actor: GameState["sprites"]["players"][number]): boolean =>
+    actor.queue.moves.some((move) => move.provenance === undefined)
+    || (actor.queue.waypoint != null && actor.queue.waypoint.provenance === undefined)
+    || (actor.movement.active != null && actor.movement.active.provenance === undefined);
+  const normalize = (actor: GameState["sprites"]["players"][number]) => {
+    if (!missing(actor)) return actor;
+    return {
+      ...actor,
+      queue: {
+        ...actor.queue,
+        moves: actor.queue.moves.map((move) => ({ ...move, provenance: move.provenance ?? unknown })),
+        waypoint: actor.queue.waypoint == null ? actor.queue.waypoint : { ...actor.queue.waypoint, provenance: actor.queue.waypoint.provenance ?? unknown },
+      },
+      movement: {
+        ...actor.movement,
+        active: actor.movement.active == null ? actor.movement.active : { ...actor.movement.active, provenance: actor.movement.active.provenance ?? unknown },
+      },
+    };
+  };
+  const players = state.sprites.players.some(missing) ? state.sprites.players.map(normalize) : state.sprites.players;
+  const items = state.sprites.items.some(missing) ? state.sprites.items.map(normalize) : state.sprites.items;
+  return players === state.sprites.players && items === state.sprites.items
+    ? state
+    : { ...state, sprites: { ...state.sprites, players, items } };
+}
 
 /** The canonical form of a whole game state (AD-10/AD-11). */
 export function snapshot(state: GameState): string {
-  return canon(tagNonFinite(state) as never);
+  flushSurfaceBatch(state.surfaces);
+  materializePresentedSurfaces(state.surfaces);
+  return canon(tagNonFinite(normalizeSnapshotSpriteProvenance(state)) as never);
 }
 
 /** Rename one saved program reference's legacy `compiler` to `ir` (v5 → v6). */
@@ -153,6 +183,12 @@ function migrateVm(record: Record<string, unknown>, schema: Record<string, unkno
     throw new ScriptError("restore.shape", "the snapshot's `vm` section is not an object");
   }
   const vmRecord = vm as Record<string, unknown>;
+  if (version < SCHEMA_VERSIONS.vm && Array.isArray(vmRecord.threads)) {
+    for (const entry of vmRecord.threads) {
+      if (!isRecord(entry)) shapeError("a thread in the snapshot is not an object");
+      entry.takeover = [];
+    }
+  }
   if (version < 3) {
     if (!Array.isArray(vmRecord.effects)) vmRecord.effects = [];
     if (typeof vmRecord.effectSeq !== "number") vmRecord.effectSeq = 0;
@@ -271,31 +307,83 @@ function migrateWorld(record: Record<string, unknown>, schema: Record<string, un
   schema.world = SCHEMA_VERSIONS.world;
 }
 
+function migratedFacing(dx: number, dy: number): Facing {
+  if (dy < 0) return dx === 0 ? "N" : dx > 0 ? "NE" : "NW";
+  if (dy > 0) return dx === 0 ? "S" : dx > 0 ? "SE" : "SW";
+  if (dx > 0) return "E";
+  if (dx < 0) return "W";
+  return "S";
+}
+/**
+ * R-65 (docs/spec/engine/movement-and-collision.md#r-65) migration: a pre-v4 save stored direction entries as
+ * absolute targets. Recompute each as relative intent from where the previous entry ends, so a restored queue
+ * cannot replay a stale target through an obstacle.
+ */
+function migrateAbsoluteDirectionMoves(moves: readonly SpriteMove[], origin: SpritePoint): SpriteMove[] {
+  let base = { x: origin.x, y: origin.y };
+  return moves.map((move): SpriteMove => {
+    const raw = move as unknown as Record<string, unknown>;
+    const target = isRecord(raw.target) ? raw.target : null;
+    if (raw.source !== "direction" || raw.direction !== undefined || target === null) {
+      if (target !== null && typeof target.x === "number" && typeof target.y === "number") base = { x: target.x, y: target.y };
+      return move;
+    }
+    if (typeof target.x !== "number" || typeof target.y !== "number") return move;
+    const dx = target.x - base.x;
+    const dy = target.y - base.y;
+    base = { x: target.x, y: target.y };
+    // The legacy entry stored its facing; that is authoritative when the target assumed a dropped step succeeded.
+    const direction = typeof raw.facing === "string" && FACING.includes(raw.facing as Facing)
+      ? raw.facing as Facing
+      : migratedFacing(dx, dy);
+    return {
+      source: "direction",
+      direction,
+      distance: Math.max(Math.abs(dx), Math.abs(dy)),
+      ...(raw.provenance === undefined ? {} : { provenance: raw.provenance as MovementProvenance }),
+      ...(raw.pointer === true ? { pointer: true as const } : {}),
+    };
+  });
+}
+
 /** Migrate the old empty sprites placeholder and v2 actors to the movement-aware section. */
 function migrateSprites(record: Record<string, unknown>, schema: Record<string, unknown>): void {
   const version = schema.sprites;
   if (typeof version !== "number") shapeError("the snapshot's `schema` has no numeric `sprites` version");
+  if (version > SPRITES_SCHEMA_VERSION) return;
   const current = asSpritesSection(record.sprites);
+  if (version === SPRITES_SCHEMA_VERSION && current === null) return;
   const section = current === null ? createSpritesSection() : current;
-  const movement = { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0 };
+  const unknownProvenance = { kind: "unknown" as const };
+  const movement = { active: null, waitTicks: 0, pendingExit: null, under: [], lastStepTick: null, lastStepDistance: 0, lastStepProvenance: unknownProvenance, lastStepTarget: null, lastStepBlocked: false };
   const normalise = (actor: (typeof section.players)[number]) => ({
     ...actor,
+    queue: {
+      ...actor.queue,
+      moves: (version < 4
+        ? migrateAbsoluteDirectionMoves(actor.queue.moves, actor.movement?.active?.target ?? { x: actor.x, y: actor.y })
+        : actor.queue.moves
+      ).map((move) => ({ ...move, provenance: move.provenance ?? unknownProvenance })),
+      waypoint: actor.queue.waypoint === null ? null : { ...actor.queue.waypoint, provenance: actor.queue.waypoint.provenance ?? unknownProvenance },
+    },
     movement: {
       ...movement,
       ...(actor.movement ?? {}),
+      active: actor.movement?.active === null || actor.movement?.active === undefined
+        ? null
+        : { ...actor.movement.active, provenance: actor.movement.active.provenance ?? unknownProvenance },
       lastStepTick: actor.movement?.lastStepTick ?? null,
       lastStepDistance: actor.movement?.lastStepDistance ?? 0,
+      lastStepProvenance: actor.movement?.lastStepProvenance ?? unknownProvenance,
+      lastStepTarget: actor.movement?.lastStepTarget ?? null,
+      lastStepBlocked: actor.movement?.lastStepBlocked ?? false,
     },
   });
   section.players = section.players.map(normalise);
   section.items = section.items.map(normalise);
-  if (version < SPRITES_SCHEMA_VERSION) {
-    section.version = SPRITES_SCHEMA_VERSION;
-    record.sprites = section;
-    schema.sprites = SPRITES_SCHEMA_VERSION;
-  } else if (current !== null) {
-    record.sprites = section;
-  }
+  section.version = SPRITES_SCHEMA_VERSION;
+  record.sprites = section;
+  schema.sprites = SPRITES_SCHEMA_VERSION;
 }
 
 function migrationInteger(value: unknown, field: string): number {
@@ -369,7 +457,14 @@ function migrateTriggers(record: Record<string, unknown>, schema: Record<string,
   if (typeof current !== "object" || current === null || Array.isArray(current) || Object.keys(current).length === 0) {
     record.triggers = createTriggersSection();
   } else {
-    record.triggers = { ...createTriggersSection(), ...(current as Record<string, unknown>), version: TRIGGERS_SCHEMA_VERSION };
+    const migrated = { ...createTriggersSection(), ...(current as Record<string, unknown>), version: TRIGGERS_SCHEMA_VERSION } as Record<string, unknown>;
+    delete migrated.silentUntilIdle;
+    if (isRecord(migrated.active)) {
+      const active = { ...migrated.active };
+      delete active.silentMovement;
+      migrated.active = active;
+    }
+    record.triggers = migrated;
   }
   schema.triggers = TRIGGERS_SCHEMA_VERSION;
 }
@@ -808,6 +903,12 @@ function validateVmShape(vm: Record<string, unknown>): ReadonlyMap<number, strin
     arrayAt(thread.queue, `vm.threads[${index}].queue`);
     nullableRecord(thread.pending, `vm.threads[${index}].pending`);
     arrayAt(thread.detached, `vm.threads[${index}].detached`);
+    const takeover = arrayAt(thread.takeover, `vm.threads[${index}].takeover`);
+    for (const [takeoverIndex, playerId] of takeover.entries()) {
+      if (typeof playerId !== "string" || playerId === "") {
+        shapeError(`the snapshot's vm.threads[${index}].takeover[${takeoverIndex}] must be a non-empty player id`);
+      }
+    }
     if (thread.collect !== null) arrayAt(thread.collect, `vm.threads[${index}].collect`);
     for (const [frameIndex, frameValue] of arrayAt(thread.frames, `vm.threads[${index}].frames`).entries()) {
       const frame = recordAt(frameValue, `vm.threads[${index}].frames[${frameIndex}]`);
@@ -1211,9 +1312,64 @@ function validateSurfacesShape(value: unknown): void {
   for (const colour of Object.keys(colours)) numberAt(colours[colour], `surfaces.colours.${colour}`);
 }
 
+function validateMovementProvenance(value: unknown, path: string): void {
+  const provenance = recordAt(value, path);
+  if (provenance.kind === "unknown" || provenance.kind === "input") return;
+  if (provenance.kind === "script" || provenance.kind === "trigger") {
+    const thread = numberAt(provenance.thread, `${path}.thread`);
+    if (!Number.isSafeInteger(thread) || thread < 0) shapeError(`the snapshot's ${path}.thread must be a non-negative safe integer`);
+    return;
+  }
+  shapeError(`the snapshot's ${path}.kind is invalid`);
+}
+
 function validateSpritesShape(value: unknown): void {
   const sprites = asSpritesSection(value);
   if (sprites === null || sprites.version !== SPRITES_SCHEMA_VERSION) shapeError("the snapshot's `sprites` section has an invalid schema");
+  for (const [kind, actors] of [["players", sprites.players], ["items", sprites.items]] as const) {
+    for (const [index, actorValue] of actors.entries()) {
+      const path = `sprites.${kind}[${index}]`;
+      const actor = recordAt(actorValue, path);
+      const queue = recordAt(actor.queue, `${path}.queue`);
+      for (const [moveIndex, moveValue] of arrayAt(queue.moves, `${path}.queue.moves`).entries()) {
+        const movePath = `${path}.queue.moves[${moveIndex}]`;
+        const move = recordAt(moveValue, movePath);
+        validateMovementProvenance(move.provenance, `${movePath}.provenance`);
+        if (move.source === "direction") {
+          if (typeof move.direction !== "string" || !FACING.includes(move.direction as Facing)) shapeError(`the snapshot's ${movePath}.direction is invalid`);
+          const distance = numberAt(move.distance, `${movePath}.distance`);
+          if (distance < 0) shapeError(`the snapshot's ${movePath}.distance must be non-negative`);
+          if (move.target !== undefined) shapeError(`the snapshot's ${movePath} must not serialize an expanded target for a direction entry`);
+        } else {
+          const target = recordAt(move.target, `${movePath}.target`);
+          numberAt(target.x, `${movePath}.target.x`);
+          numberAt(target.y, `${movePath}.target.y`);
+        }
+      }
+      if (queue.waypoint !== null) {
+        validateMovementProvenance(recordAt(queue.waypoint, `${path}.queue.waypoint`).provenance, `${path}.queue.waypoint.provenance`);
+      }
+      const movement = recordAt(actor.movement, `${path}.movement`);
+      if (movement.active !== null) {
+        validateMovementProvenance(recordAt(movement.active, `${path}.movement.active`).provenance, `${path}.movement.active.provenance`);
+      }
+      validateMovementProvenance(movement.lastStepProvenance, `${path}.movement.lastStepProvenance`);
+      if (movement.lastStepBlocked !== true && movement.lastStepBlocked !== false) shapeError(`the snapshot's ${path}.movement.lastStepBlocked must be a boolean`);
+      if (movement.lastStepTarget !== null) {
+        const target = recordAt(movement.lastStepTarget, `${path}.movement.lastStepTarget`);
+        numberAt(target.x, `${path}.movement.lastStepTarget.x`);
+        numberAt(target.y, `${path}.movement.lastStepTarget.y`);
+      }
+    }
+  }
+  const itemSlots = new Set<number>();
+  for (const [index, item] of sprites.items.entries()) {
+    if (item.sourceSlot === null) continue;
+    if (itemSlots.has(item.sourceSlot)) {
+      throw new ScriptError("restore.item-identity", `sprites.items[${index}].sourceSlot claims authored slot ${item.sourceSlot} more than once`);
+    }
+    itemSlots.add(item.sourceSlot);
+  }
 }
 
 function validateActorsShape(value: unknown): void {

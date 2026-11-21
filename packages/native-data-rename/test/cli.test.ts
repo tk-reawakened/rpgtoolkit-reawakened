@@ -108,6 +108,23 @@ void test("a case-only rename, Guard.tkract to guard.tkract, works from the comm
   );
 });
 
+const TERRAIN_PROJECT = {
+  "Tiles/grass.tkrtle": "contract: tile\nversion: 1.0.0-pre.1\nname: Grass\nprojection: 2d\nrole: floor\nvisual:\n  transparent: {mode: alpha}\n  sample: {source: art/field-managed, frame: field, region: whole}\n",
+  "Tiles/field.tkrtst": "contract: tileset\nversion: 1.0.0-pre.2\nname: Field\nexpects: {projection: 2d, cellSize: [32, 32]}\ntiles:\n  - {tile: Tiles/grass.tkrtle}\nterrains:\n  - id: meadow\n    name: Meadow\n    resolver: {provider: builtin, id: neighbour-match, version: 1.0.0}\n    neighbours: cardinal-4\n    coverage: partial\n    sync: independent\n    rules:\n      - id: plain\n        when: {}\n        use: {tile: Tiles/grass.tkrtle}\noutputBinding:\n  target: Tiles/field.tst\n  detail: 1\n  slots:\n    - {slot: 1, tile: Tiles/grass.tkrtle}\n",
+  "Boards/field.tkrscn": "contract: scene\nversion: 1.0.0-pre.2\nprojection: 2d\nsize: {width: 1, height: 1}\nfloors:\n  - id: ground\n    tiles: [[1, 1]]\ntilePalette:\n  - {}\n  - {tile: Tiles/grass.tkrtle}\nterrainRegions:\n  - id: paint\n    floor: ground\n    terrain: {tileset: Tiles/field.tkrtst, terrain: meadow}\n    coverage: {shape: tile-grid, spans: [[0, 0, 1]]}\n",
+};
+
+void test("--terrain-rename rewrites a local terrain ID and every scene reference, leaving the slot", () => {
+  withProject(TERRAIN_PROJECT, (root) => {
+    const result = runCli(["--terrain-rename", "Tiles/field.tkrtst:meadow:grass-meadow", root]);
+    equal(result.exitCode, 0, result.stderr);
+    ok(read(root, "Tiles/field.tkrtst").includes("id: grass-meadow"));
+    ok(read(root, "Tiles/field.tkrtst").includes("{slot: 1, tile: Tiles/grass.tkrtle}"));
+    ok(read(root, "Boards/field.tkrscn").includes("terrain: {tileset: Tiles/field.tkrtst, terrain: grass-meadow}"));
+    deepEqual(check([root]), { exitCode: 0, stdout: "3 documents checked, 0 problems found\n", stderr: "" });
+  });
+});
+
 void test("a further reference field is kept up to date when it is named with --ref-field", () => {
   const document = "contract: actor-weather\nversion: 1.0.0\nboss: actors/guard.tkract # the boss\ncast:\n  - actors/guard.tkract\n";
   withProject({ ...PROJECT, "scenes/town.tkrwth": document }, (root) => {

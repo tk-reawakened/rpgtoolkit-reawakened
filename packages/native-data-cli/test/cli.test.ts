@@ -191,20 +191,43 @@ function bmp(width: number, height: number): Buffer {
   return bytes;
 }
 
-const ART_TILESET = `contract: tileset
+const ART_TILE = `contract: tile
 version: 1.0.0-pre.1
-name: Village
+name: Tile
 projection: 2d
-cellSize: [32, 32]
+role: floor
+visual:
+  transparent: {mode: alpha}
+  sample: {file: Bitmap/sheet.bmp, rect: [0, 0, 32, 32]}
+`;
+
+const ART_TILESET = `contract: tileset
+version: 1.0.0-pre.2
+name: Village
+expects: {projection: 2d, cellSize: [32, 32]}
+tiles:
+  - {tile: Tiles/grass.tkrtle}
+  - {tile: Tiles/wall.tkrtle}
 sources:
   - id: sheet
     file: Bitmap/sheet.bmp
     grid: {width: 32, height: 32, marginX: 0, marginY: 0, gapX: 0, gapY: 0}
     transparent: {mode: alpha}
-tiles:
-  - {id: grass, name: Grass, source: sheet, cell: [0, 0], role: floor, collision: walkable}
-  - {id: wall, name: Wall, source: sheet, cell: [1, 0], role: wall, collision: solid}
-outputBinding: {target: Tiles/village.tst, detail: 1}
+isoBlocks:
+  - id: stone
+    name: Stone
+    heightPixels: 32
+    faces:
+      top: {source: sheet, cell: [0, 0]}
+      left: {source: sheet, cell: [1, 0]}
+      right: {source: sheet, cell: [0, 0]}
+    collision: solid
+outputBinding:
+  target: Tiles/village.tst
+  detail: 1
+  slots:
+    - {slot: 1, tile: Tiles/grass.tkrtle}
+    - {slot: 2, tile: Tiles/wall.tkrtle}
 `;
 
 type ArtRunReport = { readonly class: string; readonly path: string; readonly field: string };
@@ -213,7 +236,10 @@ type ArtRunReport = { readonly class: string; readonly path: string; readonly fi
 function checkArtProject(image: Buffer | null, imagePath = "Bitmap/sheet.bmp"): { readonly exitCode: number; readonly reports: ArtRunReport[] } {
   const folder = mkdtempSync(join(tmpdir(), "tkr-native-check-"));
   try {
-    writeFileSync(join(folder, "village.tkrtile"), ART_TILESET);
+    writeFileSync(join(folder, "village.tkrtst"), ART_TILESET);
+    mkdirSync(join(folder, "Tiles"), { recursive: true });
+    writeFileSync(join(folder, "Tiles/grass.tkrtle"), ART_TILE);
+    writeFileSync(join(folder, "Tiles/wall.tkrtle"), ART_TILE);
     if (image !== null) {
       mkdirSync(join(folder, dirname(imagePath)), { recursive: true });
       writeFileSync(join(folder, imagePath), image);
@@ -235,14 +261,14 @@ void test("a tileset whose source image is missing or not a readable image fails
   for (const image of [null, Buffer.from("not an image")]) {
     const { exitCode, reports } = checkArtProject(image);
     equal(exitCode, 1);
-    ok(reports.some((report) => report.class === "native-art" && report.path === "village.tkrtile" && report.field === "sources[0].file"));
+    ok(reports.some((report) => report.class === "native-art" && report.path === "village.tkrtst" && report.field === "sources[0].file"));
   }
 });
 
 void test("a tileset cell outside its source image fails", () => {
   const { exitCode, reports } = checkArtProject(bmp(32, 32));
   equal(exitCode, 1);
-  ok(reports.length > 0 && reports.every((report) => report.class === "native-art" && report.path === "village.tkrtile"));
+  ok(reports.length > 0 && reports.every((report) => report.class === "native-art" && report.path === "village.tkrtst"));
 });
 
 void test("a source image is found whatever the casing of its authored path, as project paths compare", () => {
@@ -257,7 +283,7 @@ void test("a source path that climbs out of the project is not satisfied by a re
     mkdirSync(project);
     mkdirSync(join(parent, "outside"));
     writeFileSync(join(parent, "outside", "sheet.bmp"), bmp(64, 32));
-    writeFileSync(join(project, "village.tkrtile"), ART_TILESET.replace("Bitmap/sheet.bmp", "../outside/sheet.bmp"));
+    writeFileSync(join(project, "village.tkrtst"), ART_TILESET.replace("Bitmap/sheet.bmp", "../outside/sheet.bmp"));
     const result = runCli(["--json", project]);
     const parsed = JSON.parse(result.stdout) as { reports: ArtRunReport[] };
     equal(result.exitCode, 1);

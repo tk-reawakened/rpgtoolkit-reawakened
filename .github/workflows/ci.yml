@@ -660,10 +660,16 @@ jobs:
           if [ "$(id -u)" -eq 0 ]; then
             set -- setpriv --bounding-set=-dac_override,-dac_read_search
           fi
-          "$@" xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
-            --extension extensions/editor \
-            --workspace "$workspace" \
-            --game Main/example.gam
+          proof() {
+            "$@" xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
+              --extension extensions/editor \
+              --workspace "$workspace" \
+              --game Main/example.gam
+          }
+          proof "$@"
+          if [ "$TKR_VSCODE_CREATOR_TESTS_PROOF" != 1 ]; then
+            TKR_VSCODE_NATIVE_SCENE_PROOF=1 proof "$@"
+          fi
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
           TKR_VSCODE_CREATOR_TESTS_PROOF: ${{ matrix.lane == 'editor-vscode-creator' && '1' || '0' }}

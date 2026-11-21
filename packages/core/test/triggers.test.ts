@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { assetKey } from "../src/formats/resolver/resolver.ts";
 import { createGameState, type GameState } from "../src/save/state.ts";
 import { restoreGameState, snapshot } from "../src/save/snapshot.ts";
-import { actorFromSource, type SpriteActor } from "../src/sprites/model.ts";
+import { actorFromSource, moveDestination, pointMoveTarget, type SpriteActor } from "../src/sprites/model.ts";
 import { applyTriggerEffect, runTriggersPhase, selectPointerActivationTarget, type TriggerEvent, type TriggerPhaseOptions } from "../src/triggers/runtime.ts";
 import { fileProgramRef } from "../src/script/program.ts";
 import { ScriptError } from "../src/script/errors.ts";
@@ -11,6 +11,8 @@ import { resolveProgram } from "../src/script/loader.ts";
 import { PACKAGE_ROOT } from "../src/formats/resolver/model.ts";
 import { createAssetIndex } from "../src/formats/resolver/resolver.ts";
 import { coordLayout, tileToPixel, boardPixelSize } from "../src/world/coords.ts";
+import { applySpriteEffect } from "../src/script/packs/movement.ts";
+import { enqueueDirectionMove, runMovementPhase } from "../src/sprites/movement.ts";
 import { placeSelectedPlayer } from "../src/sprites/runtime.ts";
 import type { EffectRecord } from "../src/script/effects.ts";
 import type { WorldBoard, WorldItem, WorldProgram } from "../src/world/model.ts";
@@ -205,7 +207,7 @@ test("an item gesture removes all its movement points without consuming the foll
   deepEqual(state.input.keys.map((key) => key.target), ["item:0"], "the first gesture confirms its item");
   const route = state.sprites.players[0]!.queue.moves;
   ok(route.length > 0, "the independent ground gesture starts a route");
-  deepEqual(route.at(-1)?.target, { x: 120, y: 0 }, "the route goes to the ground, not an item gesture point");
+  deepEqual(pointMoveTarget(route.at(-1)), { x: 120, y: 0 }, "the route goes to the ground, not an item gesture point");
 });
 
 test("pointer target selection refuses a non-key or unreachable item", () => {
@@ -266,7 +268,22 @@ test("mid-step item contact does not fire or re-arm regions", () => {
   // Leave the region and touch the item between completed steps.
   state.time.tick += 1;
   state.sprites.players = state.sprites.players.map((player) => ({
-    ...player, x: 128, state: "moving",
+    ...player,
+    x: 128,
+    state: "moving",
+    movement: {
+      ...player.movement,
+      active: {
+        source: "direction",
+        start: { x: 96, y: 0 },
+        target: { x: 160, y: 0 },
+        facing: "E",
+        cadence: 1,
+        ignoreBoard: false,
+        tried: false,
+        provenance: { kind: "input" },
+      },
+    },
   }));
   equal(poll()[0]?.key, "item:0", "item contact is polled before the next completed step");
   equal(state.triggers.fired["region:0"], true, "leaving mid-step does not re-arm the region");
@@ -280,6 +297,32 @@ test("mid-step item contact does not fire or re-arm regions", () => {
     ...player, x: 0, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 32 },
   }));
   equal(poll().length, 0, "the previously fired region remains suppressed on the next completed step");
+});
+
+test("a queued replacement path without an active move cannot trigger a step-on item", () => {
+  const world = board([], [item(0, 128, 0)]);
+  const state = stateWith(world, [itemActor(world, world.items![0]!, 0)]);
+  state.time.tick = 2;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    x: 128,
+    state: "moving",
+    queue: {
+      ...player.queue,
+      moves: [{ source: "path", target: { x: 160, y: 0 }, facing: null, pathMode: 1, pointer: true as const, provenance: { kind: "input" as const } }],
+    },
+    movement: {
+      ...player.movement,
+      active: null,
+      lastStepTick: 1,
+      lastStepDistance: 0,
+      lastStepProvenance: { kind: "input" },
+    },
+  }));
+
+  equal(runTriggersPhase(state, { programRef: (name) => ref(name) }).length, 0);
+  equal(state.triggers.active, null);
+  equal(state.triggers.fired["item:0"], undefined);
 });
 
 test("condition failure falls through and hidden items never become candidates", () => {
@@ -358,12 +401,255 @@ test("a finished trigger program applies its final variable", () => {
   equal(state.triggers.active, null);
 });
 
+test("a trigger-owned leave rearms regions before an unrelated step reaches a new region", () => {
+  const world = board([
+    { ...region(0), points: rectangle(-32, -32, 32, 32) },
+    { ...region(1), points: rectangle(96, -32, 160, 32) },
+  ]);
+  const state = stateWith(world);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 32, lastStepProvenance: { kind: "input" } },
+  }));
+  equal(runTriggersPhase(state, { programRef: (name) => ref(name) })[0]?.key, "region:0");
+  const triggerThread = state.triggers.active?.thread;
+  if (triggerThread === undefined) throw new Error("expected a running trigger");
+
+  state.time.tick = 2;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    x: 64,
+    movement: {
+      ...player.movement,
+      active: null,
+      lastStepTick: 2,
+      lastStepDistance: 32,
+      lastStepProvenance: { kind: "trigger", thread: triggerThread },
+    },
+  }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.fired["region:0"], undefined, "trigger-owned travel still re-arms an area it leaves");
+
+  state.vm.threads = state.vm.threads.map((thread) => thread.id === triggerThread ? { ...thread, status: "finished" } : thread);
+  state.time.tick = 3;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    x: 112,
+    state: "moving",
+    movement: {
+      ...player.movement,
+      active: {
+        source: "direction",
+        start: { x: 64, y: 0 },
+        target: { x: 128, y: 0 },
+        facing: "E",
+        cadence: 1,
+        ignoreBoard: false,
+        tried: false,
+        provenance: { kind: "input" },
+      },
+    },
+  }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.fired["region:1"], undefined, "partial unrelated travel does not consume an entry with stale trigger provenance");
+
+  state.time.tick = 4;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    x: 128,
+    state: "waiting",
+    movement: {
+      ...player.movement,
+      active: null,
+      lastStepTick: 4,
+      lastStepDistance: 32,
+      lastStepProvenance: { kind: "input" },
+    },
+  }));
+  equal(runTriggersPhase(state, { programRef: (name) => ref(name) })[0]?.key, "region:1");
+});
+
+test("a confirm edge cannot leave a trigger-owned step-on entry unconsumed (#1643)", () => {
+  const world = board([
+    { ...region(0), points: rectangle(-32, -32, 32, 32) },
+    { ...region(1), points: rectangle(96, -32, 160, 32) },
+  ]);
+  const state = stateWith(world);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    movement: {
+      ...player.movement,
+      lastStepTick: 1,
+      lastStepDistance: 32,
+      lastStepProvenance: { kind: "input" },
+    },
+  }));
+  equal(runTriggersPhase(state, { programRef: (name) => ref(name) })[0]?.key, "region:0");
+  const triggerThread = state.triggers.active?.thread;
+  if (triggerThread === undefined) throw new Error("expected a running trigger");
+  state.vm.threads = state.vm.threads.map((thread) => thread.id === triggerThread ? { ...thread, status: "finished" } : thread);
+
+  state.time.tick = 2;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    x: 128,
+    movement: {
+      ...player.movement,
+      active: null,
+      lastStepTick: 2,
+      lastStepDistance: 32,
+      lastStepProvenance: { kind: "trigger", thread: triggerThread },
+    },
+  }));
+  state.input.keys.push({ seq: 1, name: "Enter", code: "Enter", char: null, action: "confirm", resolvedActions: ["confirm"] });
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.active, null, "the unmatched confirm remains a no-op");
+  equal(state.triggers.fired["region:1"], true, "the trigger-owned arrival is consumed independently of confirm dispatch");
+
+  state.time.tick = 3;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    movement: {
+      ...player.movement,
+      lastStepTick: 3,
+      lastStepDistance: 32,
+      lastStepProvenance: { kind: "input" },
+    },
+  }));
+  equal(runTriggersPhase(state, { programRef: (name) => ref(name) }).length, 0, "a later unrelated step inside the same region must not refire the consumed entry");
+});
+
+test("trigger-owned movement entries stay suppressed, but unrelated queued steps remain eligible", () => {
+  const world = board([
+    { ...region(0), points: rectangle(0, 0, 64, 64) },
+    { ...region(1), points: rectangle(64, 0, 96, 64) },
+    { ...region(2), points: rectangle(112, 0, 176, 64) },
+    { ...region(3), points: rectangle(192, 0, 224, 64) },
+  ]);
+  const state = stateWith(world);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    x: 32,
+    y: 32,
+    queue: { ...player.queue, moves: [{ source: "path" as const, target: { x: 160, y: 32 }, facing: null, pathMode: 1 as const, pointer: true as const, provenance: { kind: "input" as const } }] },
+    movement: {
+      ...player.movement,
+      active: { source: "direction" as const, start: { x: 0, y: 32 }, target: { x: 32, y: 32 }, facing: "E" as const, cadence: 1, ignoreBoard: false, tried: false, provenance: { kind: "input" as const } },
+      lastStepTick: 1,
+      lastStepDistance: 32,
+      lastStepProvenance: { kind: "input" as const },
+    },
+  }));
+  equal(runTriggersPhase(state, { programRef: (name) => ref(name) })[0]?.key, "region:0");
+
+  const triggerThread = state.triggers.active?.thread;
+  ok(triggerThread !== undefined);
+  equal(applySpriteEffect(state, "push", ["E,E,E", "player", 0, 0], triggerThread), true);
+  deepEqual(state.sprites.players[0]?.movement.active?.target, { x: 32, y: 32 }, "takeover preserves the active input step");
+  deepEqual(state.sprites.players[0]?.queue.moves.map((move) => move.provenance?.kind), ["trigger", "trigger", "trigger"]);
+  deepEqual(state.vm.threads.find((thread) => thread.id === triggerThread)?.takeover, ["player"]);
+  enqueueDirectionMove(state.sprites, "player", "E");
+  enqueueDirectionMove(state.sprites, "player", "E");
+  deepEqual(state.sprites.players[0]?.queue.moves.map((move) => move.provenance?.kind), ["trigger", "trigger", "trigger", "input", "input"]);
+
+  const tick = (current: GameState) => {
+    current.time.tick += 1;
+    runMovementPhase(current.sprites, current.world.board!, current.time.tick);
+    return runTriggersPhase(current, { programRef: (name) => ref(name) });
+  };
+  for (let attempt = 0; attempt < 16 && state.sprites.players[0]?.movement.active?.provenance?.kind !== "trigger"; attempt += 1) tick(state);
+  equal(state.sprites.players[0]?.movement.active?.provenance?.kind, "trigger", "the save point is mid trigger-owned movement");
+  const restored = restoreGameState(snapshot(state));
+  equal(restored.sprites.players[0]?.movement.active?.provenance?.kind, "trigger");
+  deepEqual(restored.sprites.players[0]?.queue.moves.map((move) => move.provenance?.kind), ["trigger", "trigger", "input", "input"]);
+  deepEqual(restored.vm.threads.find((thread) => thread.id === triggerThread)?.takeover, ["player"]);
+
+  const missingCurrent = JSON.parse(snapshot(state)) as { sprites: Record<string, unknown> };
+  const currentPlayer = (missingCurrent.sprites.players as Record<string, unknown>[])[0]!;
+  const currentQueue = currentPlayer.queue as Record<string, unknown>;
+  delete ((currentQueue.moves as Record<string, unknown>[])[0]!).provenance;
+  const currentMovement = currentPlayer.movement as Record<string, unknown>;
+  delete (currentMovement.active as Record<string, unknown>).provenance;
+  delete currentMovement.lastStepProvenance;
+  const currentRestored = restoreGameState(JSON.stringify(missingCurrent));
+  equal(currentRestored.sprites.players[0]?.queue.moves[0]?.provenance?.kind, "unknown");
+  equal(currentRestored.sprites.players[0]?.movement.active?.provenance?.kind, "unknown");
+  equal(currentRestored.sprites.players[0]?.movement.lastStepProvenance.kind, "unknown");
+
+  const legacy = JSON.parse(snapshot(state)) as { schema: Record<string, number>; sprites: Record<string, unknown>; triggers: Record<string, unknown>; vm: { threads: Record<string, unknown>[] } };
+  legacy.schema.sprites = 2;
+  legacy.schema.triggers = 2;
+  legacy.schema.vm = 8;
+  legacy.sprites.version = 2;
+  legacy.triggers.version = 2;
+  legacy.triggers.silentUntilIdle = true;
+  (legacy.triggers.active as Record<string, unknown>).silentMovement = true;
+  const legacyPlayer = (legacy.sprites.players as Record<string, unknown>[])[0]!;
+  const legacyQueue = legacyPlayer.queue as Record<string, unknown>;
+  delete ((legacyQueue.moves as Record<string, unknown>[])[0]!).provenance;
+  const legacyMovement = legacyPlayer.movement as Record<string, unknown>;
+  delete (legacyMovement.active as Record<string, unknown>).provenance;
+  delete legacyMovement.lastStepProvenance;
+  delete legacy.vm.threads[0]!.takeover;
+  const migrated = restoreGameState(JSON.stringify(legacy));
+  equal(migrated.sprites.players[0]?.queue.moves[0]?.provenance?.kind, "unknown");
+  equal(migrated.sprites.players[0]?.movement.active?.provenance?.kind, "unknown");
+  equal(migrated.sprites.players[0]?.movement.lastStepProvenance.kind, "unknown");
+  deepEqual(migrated.vm.threads.find((thread) => thread.id === triggerThread)?.takeover, []);
+  equal("silentUntilIdle" in migrated.triggers, false);
+  equal("silentMovement" in (migrated.triggers.active ?? {}), false);
+
+  const startKeys = (events: TriggerEvent[]) => events.filter((event) => event.type === "trigger-start").map((event) => event.key);
+  const advanceStep = (current: GameState): string[] => {
+    const player = current.sprites.players[0];
+    if (player === undefined) throw new Error("expected a selected player");
+    const queued = player.queue.moves[0];
+    const target = player.movement.active?.target ?? (queued === undefined ? undefined : moveDestination(queued, player));
+    if (target === undefined) throw new Error("expected a queued movement step");
+    for (let attempt = 0; attempt < 512; attempt += 1) {
+      const events = tick(current);
+      const arrived = current.sprites.players[0];
+      if (arrived?.x === target.x && arrived.y === target.y) return startKeys(events);
+    }
+    throw new Error(`expected queued movement to reach ${target.x}, got x=${current.sprites.players[0]?.x} active=${current.sprites.players[0]?.movement.active?.target.x ?? "none"}`);
+  };
+
+  for (const current of [state, restored]) {
+    deepEqual([advanceStep(current), advanceStep(current), advanceStep(current)], [[], [], []], "trigger-owned steps do not recursively start regions");
+    finishActive(current);
+    equal(current.triggers.fired["region:2"], true, "the trigger-owned entry is consumed when its program finishes");
+    deepEqual(advanceStep(current), [], "an unrelated step inside the consumed area stays quiet");
+    deepEqual(advanceStep(current), ["region:3"], "a newly queued unrelated step can fire after entering a new region");
+  }
+});
+test("a no-travel playerpath does not take over a queued click route", () => {
+  const state = stateWith(board([region(0)]));
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    movement: { ...player.movement, lastStepTick: 1, lastStepDistance: 32, lastStepProvenance: { kind: "input" as const } },
+  }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  const triggerThread = state.triggers.active?.thread;
+  ok(triggerThread !== undefined);
+  state.sprites.players = state.sprites.players.map((player) => ({
+    ...player,
+    queue: { ...player.queue, moves: [{ source: "path" as const, target: { x: 64, y: 0 }, facing: null, pathMode: 1 as const, pointer: true as const, provenance: { kind: "input" as const } }] },
+  }));
+  applySpriteEffect(state, "playerpath", ["player", 0, 0, 0], triggerThread);
+  deepEqual(state.sprites.players[0]?.queue.moves[0]?.pointer, true);
+  deepEqual(state.vm.threads.find((thread) => thread.id === triggerThread)?.takeover, []);
+});
+
 test("snapshot trigger state is plain and resettable", () => {
   const state = createGameState({ seed: 2 });
   state.triggers.boardKey = "boards/test.brd";
   state.triggers.fired["region:0"] = true;
   state.triggers.suppressed = ["region:0"];
-  state.triggers.active = { key: "region:0", thread: 3, setVar: "done", setValue: "yes", source: "region", silentMovement: true };
+  state.triggers.active = { key: "region:0", thread: 3, setVar: "done", setValue: "yes", source: "region" };
   const before = JSON.stringify(state.triggers);
   state.triggers.boardKey = null;
   state.triggers.fired = {};
@@ -398,6 +684,40 @@ test("send-arrival deactivation suppresses the arrival frame only and re-arms wh
   state.sprites.players = state.sprites.players.map((player) => ({ ...player, x: 0, movement: { ...player.movement, lastStepTick: state.time.tick, lastStepDistance: 32 } }));
   const reentered = runTriggersPhase(state, { programRef: (name) => ref(name) });
   equal(reentered[0]?.key, "region:0", "the region re-arms after the player leaves and re-enters");
+});
+
+test("a blocked step never re-arms an arrival-deactivated key region the player still stands in", () => {
+  // E-19 deactivates the region under an arrival and E-40 re-arms it only when the player's base leaves.
+  // R-64 item 2 moves STEP processing to the blocked step's intended destination, but a key-press region
+  // (E-41) is still tested where the player stands, so a press into a wall must not forget the overlap.
+  const world: WorldBoard = {
+    ...board([{ ...region(0, 1), points: rectangle(-16, -16, 16, 1) }]),
+    vectors: [{ handle: "wall", attributes: 0, closed: 1, layer: 1, type: 1, points: rectangle(28, -40, 36, 40) }],
+  };
+  const state = stateWith(world);
+  // The engine sets the board key inside arrive() before it posts deactivateat; mirror that here.
+  state.triggers.boardKey = world.key;
+  applyTriggerEffect(state, { name: "deactivateat", args: [0, 0, 1, "pixel"] } as EffectRecord);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1 } }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  deepEqual(state.triggers.deactivated, ["region:0"], "the arrival deactivates the key region under it");
+
+  state.time.tick = 2;
+  enqueueDirectionMove(state.sprites, "player", "E", 0);
+  runMovementPhase(state.sprites, world, state.time.tick);
+  const player = state.sprites.players[0]!;
+  equal(player.x, 0, "the wall stops the whole-destination precheck before any advance");
+  equal(player.movement.lastStepBlocked, true);
+  deepEqual(player.movement.lastStepTarget, { x: 32, y: 0 }, "the counted blocked step records its destination");
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.deactivated.includes("region:0"), true, "destination step processing does not re-arm the key region the player still occupies");
+
+  state.time.tick = 3;
+  state.input.keys.push({ seq: 1, name: "ENTER", code: "Enter", char: "\n", action: null, resolvedActions: [] });
+  const events = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.active, null, "the suppressed key region does not fire");
+  equal(events.some((record) => record.type === "trigger-start"), false);
 });
 
 test("send-arrival tile placement and deactivation agree on stacked and rotated boards", () => {

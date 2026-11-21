@@ -4,7 +4,7 @@ export * from "./raster.ts";
 export { tintChannel } from "./tint.ts";
 export * from "./shapes.ts";
 export {
-  encodeSurfaceBytes, decodeSurfaceBytes, createSurfacesSection, createSurface,
+  encodeSurfaceBytes, decodeSurfaceBytes, surfaceBytesEncodedForDiagnostics, createSurfacesSection, createSurface,
   replaceSurface, killSurface, readSurfacePixels, surfaceTextures, colourSurface, renderNowCanvas, renderNowEnabled,
   saveScreen, getPixel, canvasGetScreen, restoreScreen, editSurface, surfaceSize,
   drawSurfaceLine, drawSurfaceRect, drawSurfaceCircle, blitSurface, blitTexture,

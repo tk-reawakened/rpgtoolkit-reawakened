@@ -86,6 +86,38 @@ scans after a cache lane is learned. The proposed 64 KiB warm re-hash work budge
 The game still misses display rate: `encodeSurfaceBytes` accounts for 31.4% of sampled self CPU in the candidate.
 The remaining surface/rendering performance is tracked separately in #2795; this integration does not claim to fix it.
 
+## Surface presentation encoding follow-up (#2795, 2026-11-19)
+
+Apple M1 Pro, 16 GiB RAM, Darwin 27.2.0 arm64, Node 26.13.0, headed Playwright Chromium with default GPU, eight-second
+requested runs. Both profiles reached `boards/start.brd`; the baseline is current main `368bb7e72e0918e56915ae8913c3508c2a71ef2e`,
+and the candidate defers canonical screen encoding while preserving nested alias commits through snapshots and rollback.
+These are single-run advisory observations, not CI thresholds.
+
+| Measurement | Current-main baseline | Pre-final candidate |
+|---|---:|---:|
+| Frame rate | 101.5 fps | 120.6 fps (display cap) |
+| Frame p50 / p90 / p99 | 8.4 / 16.6 / 17.5 ms | 8.3 / 9.0 / 9.3 ms |
+| Maximum frame | 116.5 ms | 108.1 ms |
+| Long tasks | 0 | 0 |
+| Ticks per second | 60.9 | 60.9 |
+| Measured duration | 8.226 s | 8.132 s |
+| `encodeSurfaceBytes` self CPU | 28.0% (2337 ms) | not among sampled self-CPU rows |
+
+The current-main trace is `.perf/issue-2795-before-latest/demo.cpuprofile`; the pre-final candidate trace is
+`.perf/issue-2795-final/demo.cpuprofile`. `refreshFrame` hands the rasterizer-owned frame to surface 0 without encoding
+a full-screen base64 snapshot per frame. Whole-state snapshots, saves and scene checkpoints materialize the derived
+surface; external phase/reset registrations, script observers and plugin/host-object state access flush and materialize
+before callbacks, and external plugin `refreshScreen` calls materialize after refreshing. When mutable state has escaped,
+completed-tick observers run after new presentation pixels are canonical, and `advance` returns with retained references
+canonical. Trusted core-owned phase and reset registrations that do not inspect surface pixels use the deferred path.
+
+The displayed candidate profile predates the final correctness refinements to surface batching. The final revision was not
+re-profiled, so these single-run values are context only and do not establish final-source performance.
+
+Presentation does constant metadata work without scanning or copying pixels. Deterministic regressions cover the
+player registration wiring's zero-byte changed-frame budget, canonical external callback, edit, reset, plugin, save and
+checkpoint boundaries, and nested alias commits through snapshot and rollback.
+
 ## Sprite colour-key correction (#3029)
 
 Apple M1 Pro, 16 GiB RAM, Darwin arm64, Node 24.21.0, headless Playwright Chromium with default GPU.
@@ -125,3 +157,27 @@ speedup.
 The sampled profiles were 8.642 s (baseline) and 8.601 s (implementation). The added per-tick work is one null
 selection check per rendered board tile (no new per-tick allocation or frame-list traversal); static tile selection
 still returns immediately. Rasterization and surface encoding remain the dominant measured work.
+
+## Trigger-provenance profile (#1643, 2026-11-21)
+
+The headless `pnpm perf:player` run (without `--headed`) timed out after 120 seconds before producing a profile. No
+before/after metrics are available; performance remains unverified.
+
+## Placed pack image walk-behind (#1852, #3312)
+
+Apple M1 Pro, 16 GiB, Darwin arm64, Node 24.21.0, headless Chromium with default GPU. Both `pnpm perf:player`
+runs reached `boards/start.brd` in the same demo package (`fd806539d1c3ed65adb53b1019f95c404e207aed2e9bbb7867c25adec636838b`).
+
+| Measurement | Baseline `bf348bf44` | Image redraw with lazy per-frame lookup |
+|---|---:|---:|
+| Frame rate | 51.8 fps | 29.0 fps |
+| Frame p50 / p99 | 16.7 / 33.4 ms | 33.3 / 100.0 ms |
+| Long tasks | 0 | 26 (1644 ms total) |
+| Ticks per second | 60.8 | 61.1 |
+| `currentDrawList` sampled self time | 12 ms | 10 ms |
+
+These single-run observations include concurrent workstation activity; they do not isolate the reported frame-rate
+difference. The first active under vector lazily resolves normal-position images once per draw. Each affected
+sprite row checks visible images on its promoted layers and emits only intersecting spans. The deterministic
+budget test limits each image to one ordinary lookup and one redraw lookup per frame across six covered actors.
+Transparency is checked only on the clipped spans and only for a translucent silhouette. No world state is copied.

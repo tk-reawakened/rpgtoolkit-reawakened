@@ -27,7 +27,8 @@ export type Registry = readonly RegistryEntry[];
  */
 export const REGISTRY: Registry = [
   { extension: ".tkranm", contract: "animation-clip" },
-  { extension: ".tkrtile", contract: "tileset" },
+  { extension: ".tkrtst", contract: "tileset" },
+  { extension: ".tkrtle", contract: "tile" },
   { extension: ".tkrpack", contract: "asset-pack" },
   { extension: ".tkrscn", contract: "scene" },
 ];
