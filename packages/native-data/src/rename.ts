@@ -457,7 +457,11 @@ export function planRename(documents: readonly DocumentInput[], pairs: readonly 
         continue;
       }
       const splices = spliced.get(doc)?.splices ?? [];
-      splices.push({ start, end, text: scalarText(newId, occurrence.node) });
+      // References can live in flow collections. Keep an existing quote style, but never splice
+      // a plain flow delimiter: it would turn part of the new path into another YAML entry.
+      const needsQuotes = /[,[\]{}]/.test(newId)
+        && occurrence.node.type !== "QUOTE_DOUBLE" && occurrence.node.type !== "QUOTE_SINGLE";
+      splices.push({ start, end, text: needsQuotes ? JSON.stringify(newId) : scalarText(newId, occurrence.node) });
       spliced.set(doc, { text, splices });
     }
     for (const occurrence of local) {

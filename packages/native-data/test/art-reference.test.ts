@@ -169,6 +169,19 @@ void test("renaming a standalone tile rewrites palette, boundary, override and t
   ok(scene.includes("tile: {tile: Tiles/edge.tkrtle}"));
 });
 
+void test("renaming a tile to a filename with flow punctuation preserves scene and tileset references", () => {
+  const original = "Tiles/grass.tkrtle";
+  const next = "Tiles/winter, [snow].tkrtle";
+  const scene = SCENE.replace(`walkableTiles: [{tile: ${original}}]`, `walkableTiles: [{tile: '${original}'}]`);
+  const project = PROJECT.map((input) => input.path === "Boards/field.tkrscn" ? { path: input.path, text: scene } : input);
+  const after = applyPlanToDocuments(project, renamed(project, original, next));
+  equal(text(after, "Tiles/field.tkrtst"), TILESET.replaceAll(original, `"${next}"`));
+  equal(text(after, "Boards/field.tkrscn"), scene
+    .replace(`walkableTiles: [{tile: '${original}'}]`, `walkableTiles: [{tile: '${next}'}]`)
+    .replace(`- {tile: ${original}}`, `- {tile: "${next}"}`));
+  deepEqual(checkDocuments(after), []);
+});
+
 void test("renaming a tileset rewrites a scene terrain document path and keeps its local terrain ID", () => {
   const result = renamed(PROJECT, "Tiles/field.tkrtst", "Tiles/field/field.tkrtst");
   const after = applyPlanToDocuments(PROJECT, result);
