@@ -11,6 +11,7 @@ import { readTileset, type TilesetReadResult } from "./tileset.ts";
 import { readAssetPack, type AssetPackReadResult } from "./asset-pack.ts";
 import { sceneArtReferences } from "./art-references.ts";
 import { readScene, type SceneReadResult } from "./scene.ts";
+import { readTile } from "./tile.ts";
 
 export type CheckConfig = {
   /** Extensions that mark a native document; absent means the shipped registry. */
@@ -90,9 +91,10 @@ export const REPORT_CLASSES: readonly ReportClass[] = [
 
 const RESERVED_KEYS: Readonly<Record<string, readonly string[]>> = {
   "animation-clip": ["canvas", "delay", "colourKey", "frames"],
+  tile: ["name", "projection", "role", "visual", "solid", "under", "activationAreas", "kitbash"],
   tileset: ["name", "projection", "cellSize", "sources", "tiles", "isoBlocks", "autotiles", "outputBinding"],
   "asset-pack": ["name", "projection", "grid", "sources", "assets"],
-  scene: ["name", "projection", "pixelCoordinates", "size", "floors", "tilePalette", "shading", "lights", "vectors", "triggers", "items", "images", "placedPacks", "atmosphere", "start", "links", "enterProgram", "battle", "savingDisabled", "threads", "constants", "legacy"],
+  scene: ["name", "projection", "pixelCoordinates", "size", "floors", "tilePalette", "terrainRegions", "tileOverrides", "shading", "lights", "vectors", "triggers", "items", "images", "placedPacks", "atmosphere", "start", "links", "enterProgram", "battle", "savingDisabled", "threads", "constants", "legacy"],
 };
 
 /**
@@ -167,7 +169,8 @@ export function checkDocuments(inputs: readonly DocumentInput[], config: CheckCo
     if ("text" in doc.input) {
       const contract = lookupExtension(extensionOf(doc.path) ?? "", registry)?.contract;
       const result = contract === "tileset" ? readTileset(doc.input.text)
-        : contract === "asset-pack" ? readAssetPack(doc.input.text) : null;
+        : contract === "asset-pack" ? readAssetPack(doc.input.text)
+        : contract === "tile" ? readTile(doc.input.text) : null;
       if (result !== null && !result.ok) {
         for (const problem of result.problems) {
           if (problem.kind === "shape") {

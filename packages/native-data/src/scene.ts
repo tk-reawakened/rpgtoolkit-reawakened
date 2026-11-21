@@ -25,6 +25,7 @@ import { formatClipPath, formatClipProblems, type ClipJson, type ClipPath, type 
 import { readDocument } from "./document.ts";
 import { validatePluginData } from "./plugin-data.ts";
 import { extensionOf, lookupExtension, REGISTRY } from "./registry.ts";
+import { checkSceneTerrainFields, type SceneTerrainRegion, type SceneTileOverride } from "./scene-terrain.ts";
 import { applySplices, rangeOf, scalarText, type Splice } from "./splice.ts";
 import { parseVersion } from "./version.ts";
 
@@ -193,6 +194,8 @@ export type Scene = {
   readonly size: { readonly width: number; readonly height: number };
   readonly floors: readonly SceneFloor[];
   readonly tilePalette?: readonly ScenePaletteEntry[];
+  readonly terrainRegions?: readonly SceneTerrainRegion[];
+  readonly tileOverrides?: readonly SceneTileOverride[];
   readonly shading?: readonly SceneShading[];
   readonly lights?: readonly SceneLight[];
   readonly vectors?: readonly SceneVector[];
@@ -267,6 +270,15 @@ const SIZE: Shape = { keys: ["width", "height"], flow: true };
 const TILE_REF: Shape = { keys: ["legacy", "tileset", "tile"], flow: true };
 const BOUNDARY: Shape = { keys: ["walkableTiles", "autoWallCaps"], lists: { walkableTiles: TILE_REF } };
 const FLOOR: Shape = { keys: ["id", "title", "tiles", "boundarySources"], maps: { boundarySources: BOUNDARY } };
+const TERRAIN_REF: Shape = { keys: ["tileset", "terrain"], flow: true };
+const TERRAIN_REGION: Shape = {
+  keys: ["id", "label", "floor", "terrain", "coverage"],
+  maps: { terrain: TERRAIN_REF, coverage: { keys: ["shape", "spans"] } },
+};
+const TILE_OVERRIDE: Shape = {
+  keys: ["id", "floor", "cell", "tile"],
+  maps: { tile: { keys: ["tile", "legacy"], flow: true } },
+};
 const CONDITION: Shape = { keys: ["mode", "variable", "value"], flow: true };
 const VARIABLE_VALUE: Shape = { keys: ["variable", "value"], flow: true };
 const TRIGGER_ACTIVATION: Shape = { keys: ["keyPress", "repeat", "stopsMovement", "repeatDistance"], flow: true };
@@ -322,6 +334,8 @@ const ROOT: Shape = {
     "size",
     "floors",
     "tilePalette",
+    "terrainRegions",
+    "tileOverrides",
     "shading",
     "lights",
     "vectors",
@@ -344,6 +358,8 @@ const ROOT: Shape = {
   lists: {
     floors: FLOOR,
     tilePalette: TILE_REF,
+    terrainRegions: TERRAIN_REGION,
+    tileOverrides: TILE_OVERRIDE,
     shading: SHADING,
     lights: LIGHT,
     vectors: VECTOR,
@@ -1100,6 +1116,15 @@ function validateValue(value: unknown): Raw[] {
       path: ["size"],
       message: `${gridWords(env)} on ${env.floorCount} floor${env.floorCount === 1 ? "" : "s"} is ${env.cells * env.floorCount} cells; a board has at most 4,194,304`,
     });
+  }
+  if (Object.hasOwn(value, "terrainRegions") || Object.hasOwn(value, "tileOverrides")) {
+    const rotated = env.projection === "iso-rotated" && env.size !== null ? env.size[0] + env.size[1] : null;
+    out.push(...checkSceneTerrainFields(
+      value,
+      env.floorIds === null ? null : new Set(env.floorIds.filter((id) => id !== null)),
+      rotated ?? env.size?.[0] ?? null,
+      rotated ?? env.size?.[1] ?? null,
+    ));
   }
 
   if (Object.hasOwn(value, "shading")) {

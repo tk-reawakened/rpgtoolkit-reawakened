@@ -115,6 +115,7 @@ An extension that is registered below (each one starts with `tkr`) marks a nativ
 |---|---|---|
 | `.tkranm` | `animation-clip` | [native-animation-clip.md](native-animation-clip.md) |
 | `.tkrtst` | `tileset` | [native-tileset.md](native-tileset.md) |
+| `.tkrtle` | `tile` | [native-tile.md](native-tile.md) |
 | `.tkrpack` | `asset-pack` | [native-asset-pack.md](native-asset-pack.md) |
 | `.tkrscn` | `scene` | [native-scene.md](native-scene.md) |
 

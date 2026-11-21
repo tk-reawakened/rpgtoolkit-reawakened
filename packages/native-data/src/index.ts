@@ -67,6 +67,11 @@ export {
   type Tileset, type TilesetProblem, type TilesetReadResult,
 } from "./tileset.ts";
 export {
+  TILE_CONTRACT, TILE_VERSION, checkTile, readTile, writeTile,
+  type NativeTile, type NativeTileSample, type TileProblem, type TileReadResult, type TileWriteResult,
+} from "./tile.ts";
+export type { SceneTerrainRegion, SceneTileOverride, SceneTerrainReference, SceneTerrainCellTile } from "./scene-terrain.ts";
+export {
   readAssetPack, writeAssetPack, checkAssetPack, setAssetPackProperty,
   ASSET_PACK_CONTRACT, ASSET_PACK_VERSION,
   type AssetPack, type AssetPackProblem, type AssetPackReadResult,
