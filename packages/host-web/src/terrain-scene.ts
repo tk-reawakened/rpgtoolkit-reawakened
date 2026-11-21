@@ -1,4 +1,4 @@
-import { createSceneBuildOwnership, createSceneBuildOwnershipStorage, loadTerrainSceneProjectInventory, prepareTerrainSceneProject, writePreparedTerrainSceneProject, type TerrainSceneDocument } from "@tk-reawakened/editor-model";
+import { buildTerrainSceneLaunch, loadTerrainSceneProjectInventory, type TerrainSceneDocument } from "@tk-reawakened/editor-model";
 import { mountTerrainScene, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { WebProject } from "./index.ts";
 
@@ -12,24 +12,13 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
   let disposed = false;
   let busy = false;
   const fs = project.services.fs;
-  const ownership = createSceneBuildOwnership({ fs, history: project.workspace.history, storage: createSceneBuildOwnershipStorage(fs) });
   const report = (message: string): void => { if (!disposed) status.textContent = message; };
   const save = async (): Promise<boolean> => {
     if (busy || disposed) return false;
     busy = true;
-    const snapshot = document.getSnapshot();
     try {
-      const prepared = await prepareTerrainSceneProject({ fs, scenePath: document.identity.path, sceneText: snapshot.text, ownership });
-      if (!prepared.ok) { report(prepared.problems.map(({ path, message }) => `${path}: ${message}`).join("; ")); return false; }
-      if (prepared.check.conflicts.length > 0) {
-        report(`Build refused: generated output changed or already exists: ${prepared.check.conflicts.map(({ path }) => path).join(", ")}.`);
-        return false;
-      }
-      if (disposed || document.getSnapshot().text !== snapshot.text) { report("Scene changed during build; save again."); return false; }
       const saved = await document.save();
       if (!saved.ok) { report(saved.failure.message); return false; }
-      const wrote = await writePreparedTerrainSceneProject(prepared, ownership);
-      if (!wrote.ok) { report("Scene saved, but generated outputs were not all written."); return false; }
       report("Scene saved and board built.");
       return true;
     } catch (error) { report(String(error)); return false; }
@@ -54,7 +43,10 @@ export function mountWebTerrainScene(container: HTMLElement, project: WebProject
       ...(main === null || run === undefined ? {} : { onRun: () => {
         void (async () => {
           if (!await save() || disposed) return;
-          const started = await run.startGame({ kind: "game", main, projectFolder });
+          const launch = await buildTerrainSceneLaunch({ fs, main, projectFolder, scenePath: document.identity.path });
+          if (disposed) return;
+          if (!launch.ok) { report(launch.error.message); return; }
+          const started = await run.startGame(launch.value);
           if (!started.ok) report(started.error.message);
         })().catch((error: unknown) => report(String(error)));
       } }),

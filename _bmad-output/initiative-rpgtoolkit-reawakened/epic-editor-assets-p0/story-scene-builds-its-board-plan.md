@@ -52,7 +52,12 @@ The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approv
 
 ## Plan Change Log
 
+- #3232 connects the terrain scene to the normal Save, keyboard Save and Save All paths, and uses a board-test launch for Play so the `.gam` file's startup board does not select the scene. Generating these derived assets is not a format conversion of the source document. A source write and a generated-output write can have different outcomes.
+
 ## Review Triage Log
+
+- Required unit shards found inline styles incompatible with strict host CSP (#3265) and a missing terrain-scene conformance case (#3266).
+- Keep #3232 in draft while the terrain build and preview do not use the same compiler, pack geometry and recovery are not wired through the host path, and checker/rename still need to cover the new reference model.
 
 ## Verification
 
@@ -60,5 +65,7 @@ The [terrain cutover rules](../../../docs/design/terrain-scene-formats.md#approv
 - Ownership, pack vectors, tile collision and PNG: 20 focused tests passed.
 - Tile encoding: 12 focused tests passed after correcting fixture assumptions (#3222). PNG fixture comparison is tracked in #3223.
 - 49 focused tests passed together; editor-model build and test typecheck, targeted lint, dependency graph and provenance passed. A subsequent engine-view and saved-output conflict integration test also passed; current changes require final verification after review.
+- Chromium's connected-authoring journey passed: paint, touch up, reshape, rebuild via the workbench Save button, keyboard Save and Save All, reopen, and play the compiled pond with the `.gam` startup board set elsewhere. The live draw list contained the manual bank and both water cels.
+- 42 focused document conformance and save tests and the strict-CSP source check passed after removing the inline styles and adding the terrain-scene lifecycle case.
 
 Run focused editor-model and native-data tests, package typechecks, targeted lint, dependency graph and provenance; run the smallest headless-engine proof that compares scene preview with the built board.

@@ -89,10 +89,10 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave
     }
   };
 
-  return <section class="tkr-board-properties" aria-label="Scene terrain editor">
+  return <section class="tkr-board-properties" aria-label="Scene terrain editor" data-tkr-editor="Scene terrain">
     <h2>Scene terrain</h2>
     <div>
-      {onSave !== undefined && <button type="button" disabled={disabled} onClick={onSave}>Save</button>}
+      {onSave !== undefined && <button type="button" data-editor-save="true" disabled={disabled} onClick={onSave}>Save</button>}
       {onRun !== undefined && <button type="button" disabled={disabled} onClick={onRun}>Play</button>}
     </div>
     <label>Floor <select value={activeFloor} disabled={disabled} onChange={(event) => { setFloorId(event.currentTarget.value); setSelectedId(""); setAnchor(null); }}>
@@ -120,14 +120,14 @@ export function TerrainSceneView({ scene, tilesets, assetTiles, onChange, onSave
       ] as const).map(([value, label]) => <label key={value}><input type="radio" name="scene-terrain-tool" checked={tool === value} onChange={() => chooseTool(value)} />{label}</label>)}
     </fieldset>
     <p role="status">{anchor === null ? (tool === "paint" || tool === "reshape" ? "Choose the first corner of a rectangle." : "Choose a cell.") : `First corner: ${anchor[0]}, ${anchor[1]}. Choose the opposite corner.`}</p>
-    <div style={{ overflow: "auto", maxHeight: "60vh" }}>
+    <div class="tkr-terrain-grid">
       <table role="grid" aria-label="Scene cells"><tbody>
         {Array.from({ length: height }, (_, y) => <tr key={y}>
           {Array.from({ length: width }, (_, x) => {
             const owner = [...regions].reverse().find((region) => region.floor === activeFloor && contains(region, x, y));
             const override = overrides.find((entry) => entry.floor === activeFloor && entry.cell[0] === x && entry.cell[1] === y);
             const description = override !== undefined ? ("tile" in override.tile ? `tile ${override.tile.tile}` : "legacy" in override.tile ? `tile ${override.tile.legacy}` : "empty override") : owner === undefined ? "base" : `terrain ${owner.terrain.terrain}, region ${owner.id}`;
-            return <td key={x} role="gridcell"><button type="button" disabled={disabled} aria-label={`Cell ${x}, ${y}: ${description}`} aria-pressed={selected !== undefined && owner?.id === selected.id} title={description} onClick={() => clickCell(x, y)} style={{ minWidth: "2em", minHeight: "2em" }}>{override !== undefined ? ("tile" in override.tile || "legacy" in override.tile ? "T" : "∅") : owner === undefined ? "·" : owner.id === selected?.id ? "■" : "▧"}</button></td>;
+            return <td key={x} role="gridcell"><button type="button" disabled={disabled} aria-label={`Cell ${x}, ${y}: ${description}`} aria-pressed={selected !== undefined && owner?.id === selected.id} title={description} onClick={() => clickCell(x, y)}>{override !== undefined ? ("tile" in override.tile || "legacy" in override.tile ? "T" : "∅") : owner === undefined ? "·" : owner.id === selected?.id ? "■" : "▧"}</button></td>;
           })}
         </tr>)}
       </tbody></table>

@@ -230,8 +230,10 @@ export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePrevi
 export { asAnimationDocument, asBoardDocument, asMainDocument, asNativeClipDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { asTerrainSceneDocument } from "./kinds.ts";
 export type { Scene, SceneTerrainCellTile } from "@tk-reawakened/native-data";
+export { setSceneTerrain, readScene } from "@tk-reawakened/native-data";
 export type { TerrainSceneDocument } from "./terrain-scene-document.ts";
 export { loadTerrainSceneProjectInventory, prepareTerrainSceneProject, writePreparedTerrainSceneProject } from "./terrain-scene-project.ts";
+export { buildTerrainSceneLaunch } from "./terrain-scene-launch.ts";
 export { createSceneBuildOwnership, createSceneBuildOwnershipStorage } from "./scene-build-ownership.ts";
 export { encodeScenePng } from "./scene-png.ts";
 export {

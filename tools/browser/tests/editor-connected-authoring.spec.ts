@@ -237,7 +237,7 @@ test("paint, touch up, reshape, save, reopen and play a native terrain scene", a
   const rgba = new Uint8Array(96 * 32 * 4);
   for (let y = 0; y < 32; y++) for (let x = 0; x < 96; x++) rgba.set(x < 32 ? [20,80,160,255] : x < 64 ? [20,120,220,255] : [140,90,30,255], (96*y+x)*4);
   await installFolderPicker(page, [
-    input("Main/test.gam", unwrap(writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, initBoard: "pond.brd", initChar: "hero.tem", startupPrg: "" }))),
+    input("Main/test.gam", unwrap(writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, initBoard: "configured-start.brd", initChar: "hero.tem", startupPrg: "" }))),
     input("Chrs/hero.tem", unwrap(writeCharacter({ ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: Array(6).fill("") }))),
     input(scenePath, "contract: scene\nversion: 1.0.0-pre.1\n# Keep this comment\nprojection: 2d\nsize: {width: 4, height: 3}\nfloors:\n  - id: ground\nstart: {x: 16, y: 31, floor: ground}\n"),
     input("Tiles/water.tkrtle", tile("Water", "  cels:\n    - {id: a, sample: {file: Tiles/sheet.png, rect: [0,0,32,32]}}\n    - {id: b, sample: {file: Tiles/sheet.png, rect: [32,0,32,32]}}\n  timeline:\n    frames: [{cel: a, ms: 200}, {cel: b, ms: 200}]")),
@@ -269,7 +269,8 @@ test("paint, touch up, reshape, save, reopen and play a native terrain scene", a
   await cell(2, 1).click();
   await expect(cell(0, 0)).toHaveAccessibleName(/bank\.tkrtle/);
   await expect(cell(0, 1)).toHaveAccessibleName(/base/);
-  await editor.getByRole("button", { name: "Save", exact: true }).click();
+  const saveActive = page.getByRole("button", { name: "Save active editor", exact: true });
+  await saveActive.click();
   await expect(page.getByText("Scene saved and board built.", { exact: true })).toBeVisible();
   const bytes = async (path: string) => new Uint8Array(await page.evaluate(async (path) => {
     let dir = (window as ProofWindow).__tkrTestFolder!;
@@ -280,12 +281,28 @@ test("paint, touch up, reshape, save, reopen and play a native terrain scene", a
   expect(new TextDecoder().decode(await bytes(scenePath))).toContain("# Keep this comment");
   const board = unwrap(readBoard(new BinaryReader(await bytes("Boards/pond.brd"))));
   expect(board.tileMatrix.slice(0, 8).map((i) => board.lut[i])).toEqual(["pond.tst3", expect.stringMatching(/\.tan$/), expect.stringMatching(/\.tan$/), "", "", expect.stringMatching(/\.tan$/), expect.stringMatching(/\.tan$/), ""]);
+  const savedTile = async (x: number, y: number) => {
+    const next = unwrap(readBoard(new BinaryReader(await bytes("Boards/pond.brd"))));
+    return next.lut[next.tileMatrix[y * 4 + x]!];
+  };
+  await editor.getByRole("radio", { name: "Manual tile" }).check();
+  await cell(3, 2).click();
+  await saveActive.click();
+  await expect.poll(() => savedTile(3, 2)).toBe("pond.tst3");
+  await cell(3, 1).click();
+  await page.keyboard.press("ControlOrMeta+s");
+  await expect.poll(() => savedTile(3, 1)).toBe("pond.tst3");
+  await cell(3, 0).click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Save All Open Documents" }).click();
+  await expect.poll(() => savedTile(3, 0)).toBe("pond.tst3");
   await page.getByRole("button", { name: `Close ${scenePath}`, exact: true }).click();
   await expect(editor).not.toBeVisible();
   await openScene();
   await expect(cell(0, 0)).toHaveAccessibleName(/bank\.tkrtle/);
   await expect(cell(1, 0)).toHaveAccessibleName(/terrain water/);
   await editor.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.locator(".tkr-run-current .tkr-run-snapshot")).toContainText("Board test at Boards/pond.brd");
   const player = page.frameLocator('iframe[title="Running game"]');
   await expect(player.locator("#screen")).toBeVisible();
   await expect.poll(async () => player.locator("#screen").evaluate(() => {

@@ -323,7 +323,9 @@ export function mountNewBoard(el: HTMLElement, props: NewBoardViewProps): ViewHa
   return mountElement(el, createElement(NewBoardView, props));
 }
 
-type TerrainDocumentProps = Omit<TerrainSceneViewProps, "scene"> & { readonly document: TerrainSceneDocument };
+type TerrainDocumentProps = Omit<TerrainSceneViewProps, "scene"> & {
+  readonly document: Pick<TerrainSceneDocument, "subscribe"> & { getSnapshot(): { readonly scene: TerrainSceneViewProps["scene"] } };
+};
 function TerrainDocumentView({ document, ...props }: TerrainDocumentProps) {
   return createElement(TerrainSceneView, { ...props, scene: useDocumentSnapshot(document).scene });
 }
