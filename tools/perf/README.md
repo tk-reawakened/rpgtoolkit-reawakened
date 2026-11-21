@@ -93,7 +93,7 @@ requested runs. Both profiles reached `boards/start.brd`; the baseline is curren
 and the candidate defers canonical screen encoding while preserving nested alias commits through snapshots and rollback.
 These are single-run advisory observations, not CI thresholds.
 
-| Measurement | Current main | Final candidate |
+| Measurement | Current-main baseline | Pre-final candidate |
 |---|---:|---:|
 | Frame rate | 101.5 fps | 120.6 fps (display cap) |
 | Frame p50 / p90 / p99 | 8.4 / 16.6 / 17.5 ms | 8.3 / 9.0 / 9.3 ms |
@@ -103,13 +103,17 @@ These are single-run advisory observations, not CI thresholds.
 | Measured duration | 8.226 s | 8.132 s |
 | `encodeSurfaceBytes` self CPU | 28.0% (2337 ms) | not among sampled self-CPU rows |
 
-The current-main trace is `.perf/issue-2795-before-latest/demo.cpuprofile`; the final candidate trace is
+The current-main trace is `.perf/issue-2795-before-latest/demo.cpuprofile`; the pre-final candidate trace is
 `.perf/issue-2795-final/demo.cpuprofile`. `refreshFrame` hands the rasterizer-owned frame to surface 0 without encoding
 a full-screen base64 snapshot per frame. Whole-state snapshots, saves and scene checkpoints materialize the derived
 surface; external phase/reset registrations, script observers and plugin/host-object state access flush and materialize
 before callbacks, and external plugin `refreshScreen` calls materialize after refreshing. When mutable state has escaped,
 completed-tick observers run after new presentation pixels are canonical, and `advance` returns with retained references
 canonical. Trusted core-owned phase and reset registrations that do not inspect surface pixels use the deferred path.
+
+The displayed candidate profile predates the final correctness refinements to surface batching. The final revision was not
+re-profiled, so these single-run values are context only and do not establish final-source performance.
+
 Presentation does constant metadata work without scanning or copying pixels. Deterministic regressions cover the
 player registration wiring's zero-byte changed-frame budget, canonical external callback, edit, reset, plugin, save and
 checkpoint boundaries, and nested alias commits through snapshot and rollback.

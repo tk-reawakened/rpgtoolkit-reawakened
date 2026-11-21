@@ -28,7 +28,7 @@ type Dirty = PixelBounds | "full" | null;
  * A surface edited inside a batch. `rgba` is the live working buffer; `baseline` holds the
  * pixels that `bitmap` (the entry's snapshot) encodes, so a flush re-encodes only the dirty span.
  */
-type EditorRollback = { baseline: Uint8Array; pixels: Uint8Array };
+type EditorRollback = { baseline: Uint8Array; pixels: Uint8Array; first: number; restore: boolean };
 type BatchEntry = { entry: SurfaceState; bitmap: RgbaSnapshot; b64: string; rev: number; w: number; h: number; rgba: Uint8Array; baseline: Uint8Array; canonical: boolean; dirty: Dirty; editing: number; editorCommit: Uint8Array | null; rollbacks: EditorRollback[] };
 type SurfaceBatch = { depth: number; entries: Map<SurfaceState, BatchEntry> };
 const decodedRecords = new WeakMap<SurfaceState, DecodedRecord>();
@@ -336,10 +336,28 @@ function pendingValid(pending: BatchEntry): boolean {
  * reference one surface), so a closing older batch must not unindex the newer buffer.
  */
 function dropPending(pending: BatchEntry): void {
-  if (pendingEntries.get(pending.entry) === pending) pendingEntries.delete(pending.entry);
-  const active = activeBatchEntries.get(pending.entry);
+  const current = pending.entry;
+  const indexed = pendingEntries.get(current) === pending;
+  const active = activeBatchEntries.get(current);
   active?.delete(pending);
-  if (active?.size === 0) activeBatchEntries.delete(pending.entry);
+  if (active?.size === 0) activeBatchEntries.delete(current);
+  if (!indexed) return;
+  pendingEntries.delete(current);
+  let replacement: BatchEntry | undefined;
+  if (active !== undefined) {
+    for (const candidate of active) if (pendingValid(candidate)) replacement = candidate;
+  }
+  if (replacement !== undefined) pendingEntries.set(current, replacement);
+}
+
+function decodeBitmap(entry: SurfaceState): Uint8Array {
+  const record = decodedRecords.get(entry);
+  const bitmap = entry.bitmap;
+  if (record !== undefined && record.bitmap === bitmap && record.b64 === bitmap.b64 && record.w === bitmap.w && record.h === bitmap.h) return record.rgba;
+  const rgba = decodeSurfaceBytes(bitmap.b64);
+  if (rgba.length !== byteCount(bitmap.w, bitmap.h)) throw new TypeError("surface pixel length does not match dimensions");
+  decodedRecords.set(entry, { rev: entry.rev, bitmap, b64: bitmap.b64, w: bitmap.w, h: bitmap.h, rgba, canonical: false });
+  return rgba;
 }
 
 function decode(entry: SurfaceState, cache?: SurfacePixelCache): Uint8Array {
@@ -348,13 +366,69 @@ function decode(entry: SurfaceState, cache?: SurfacePixelCache): Uint8Array {
   void cache;
   const pending = pendingEntries.get(entry);
   if (pending !== undefined && pendingValid(pending)) return pending.rgba;
-  const record = decodedRecords.get(entry);
-  const bitmap = entry.bitmap;
-  if (record !== undefined && record.rev === entry.rev && record.bitmap === bitmap && record.b64 === bitmap.b64 && record.w === bitmap.w && record.h === bitmap.h) return record.rgba;
-  const rgba = decodeSurfaceBytes(bitmap.b64);
-  if (rgba.length !== byteCount(bitmap.w, bitmap.h)) throw new TypeError("surface pixel length does not match dimensions");
-  decodedRecords.set(entry, { rev: entry.rev, bitmap, b64: bitmap.b64, w: bitmap.w, h: bitmap.h, rgba, canonical: false });
-  return rgba;
+  return decodeBitmap(entry);
+}
+
+function commitPixelChangesToRollbacks(pending: BatchEntry, before: Uint8Array, after: Uint8Array, changes: Dirty): void {
+  if (changes === null) return;
+  const beforeWords = new Uint32Array(before.buffer, before.byteOffset, before.byteLength / 4);
+  const afterWords = new Uint32Array(after.buffer, after.byteOffset, after.byteLength / 4);
+  const first = changes === "full" ? 0 : changes.first;
+  const last = changes === "full" ? afterWords.length - 1 : changes.last;
+  for (let pixel = first; pixel <= last; pixel += 1) {
+    if (beforeWords[pixel] === afterWords[pixel]) continue;
+    const source = pixel * 4;
+    for (const rollback of pending.rollbacks) {
+      if (!rollback.restore) continue;
+      const offset = pixel - rollback.first;
+      if (offset < 0 || offset >= rollback.pixels.length / 4) continue;
+      const target = offset * 4;
+      rollback.pixels[target] = after[source]!;
+      rollback.pixels[target + 1] = after[source + 1]!;
+      rollback.pixels[target + 2] = after[source + 2]!;
+      rollback.pixels[target + 3] = after[source + 3]!;
+    }
+  }
+}
+
+function commitNestedRollbackChanges(pending: BatchEntry, rollback: EditorRollback, committed: Uint8Array, after: Uint8Array): Dirty {
+  const rollbackWords = new Uint32Array(rollback.pixels.buffer, rollback.pixels.byteOffset, rollback.pixels.byteLength / 4);
+  const afterWords = new Uint32Array(after.buffer, after.byteOffset, after.byteLength / 4);
+  const committedWords = new Uint32Array(committed.buffer, committed.byteOffset, committed.byteLength / 4);
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < rollbackWords.length; i += 1) {
+    const pixel = rollback.first + i;
+    if (rollbackWords[i] === afterWords[pixel]) continue;
+    committedWords[pixel] = afterWords[pixel]!;
+    const source = pixel * 4;
+    for (const parent of pending.rollbacks) {
+      if (!parent.restore) continue;
+      const offset = pixel - parent.first;
+      if (offset < 0 || offset >= parent.pixels.length / 4) continue;
+      const target = offset * 4;
+      parent.pixels[target] = after[source]!;
+      parent.pixels[target + 1] = after[source + 1]!;
+      parent.pixels[target + 2] = after[source + 2]!;
+      parent.pixels[target + 3] = after[source + 3]!;
+    }
+    if (first === -1) first = pixel;
+    last = pixel;
+  }
+  return first === -1 ? null : { first, last };
+}
+
+function committedPixels(pending: BatchEntry): Uint8Array {
+  if (pending.editing === 0) return pending.rgba;
+  const rollback = pending.rollbacks[0];
+  if (rollback === undefined) return pending.editorCommit ?? pending.baseline;
+  if (!rollback.restore) return pending.editorCommit ?? rollback.baseline;
+  const pixels = new Uint8Array(pending.rgba);
+  for (let i = pending.rollbacks.length - 1; i >= 0; i -= 1) {
+    const activeRollback = pending.rollbacks[i]!;
+    if (activeRollback.restore) pixels.set(activeRollback.pixels, activeRollback.first * 4);
+  }
+  return pixels;
 }
 
 /**
@@ -366,12 +440,12 @@ function materialize(state: SurfacesSection, pending: BatchEntry): void {
   const current = pending.entry;
   if (state.entries[String(current.id)] !== current || !pendingValid(pending)) return;
   if (pending.dirty !== null) {
-    const pixels = pending.editing > 0 && pending.editorCommit !== null ? pending.editorCommit : pending.rgba;
+    const pixels = committedPixels(pending);
     current.bitmap = pending.canonical
       ? editedSnapshot(pending.bitmap, pending.baseline, pixels, pending.dirty === "full" ? undefined : pending.dirty)
       : snapshot(pending.w, pending.h, pixels);
     pendingPresentedSurfaces.delete(current);
-    pending.baseline = new Uint8Array(pending.editing > 0 && pending.editorCommit !== null ? pending.editorCommit : pending.rgba);
+    pending.baseline = new Uint8Array(pixels);
     pending.canonical = true;
     pending.dirty = null;
     if (pending.editing > 0 && pending.editorCommit !== null) pending.editorCommit = new Uint8Array(pending.baseline);
@@ -392,7 +466,7 @@ function canonicalSurfacePixels(state: SurfacesSection, current: SurfaceState): 
   const pending = pendingEntries.get(current);
   if (pending !== undefined && pendingValid(pending)) {
     if (pending.editing === 0 && pending.dirty !== null) materialize(state, pending);
-    return pending.baseline;
+    return pending.editing > 0 ? committedPixels(pending) : pending.baseline;
   }
   return decode(current);
 }
@@ -517,8 +591,11 @@ export function resetScriptScreen(state: SurfacesSection): void {
   const frame = entry(state, 0 as SurfaceId);
   const width = frame?.bitmap.w ?? current.bitmap.w;
   const height = frame?.bitmap.h ?? current.bitmap.h;
-  const pixels = new Uint8Array(byteCount(width, height));
-  replaceSurface(state, SCRIPT_SCREEN, width, height, pixels);
+  if (current.bitmap.w === width && current.bitmap.h === height) {
+    editSurfaceWithBounds(state, SCRIPT_SCREEN, (rgba) => { rgba.fill(0); });
+    return;
+  }
+  replaceSurface(state, SCRIPT_SCREEN, width, height, new Uint8Array(byteCount(width, height)));
 }
 
 /** Allocate a monotonically increasing surface id. Ids are never reused. */
@@ -617,13 +694,17 @@ export function materializePresentedSurfaces(state: SurfacesSection | null | und
   rebaseActiveBatchEntries(state, current, record);
 }
 
-function rebaseActiveBatchEntries(state: SurfacesSection, current: SurfaceState, record: DecodedRecord): void {
+function rebaseActiveBatchEntries(state: SurfacesSection, current: SurfaceState, record: DecodedRecord, invalidateEditing = false): void {
   const active = activeBatchEntries.get(current);
   if (active === undefined || active.size === 0) return;
   const baseline = new Uint8Array(record.rgba);
   let latest: BatchEntry | undefined;
   let committed: BatchEntry | undefined;
   for (const pending of active) {
+    if (invalidateEditing && pending.editing > 0) {
+      dropPending(pending);
+      continue;
+    }
     pending.bitmap = current.bitmap;
     pending.b64 = current.bitmap.b64;
     pending.rev = current.rev;
@@ -661,10 +742,13 @@ function rebaseActiveBatchEntries(state: SurfacesSection, current: SurfaceState,
       pending.rgba.set(mergedBytes);
       for (const rollback of pending.rollbacks) {
         const oldRollbackBaseline = new Uint32Array(rollback.baseline.buffer, rollback.baseline.byteOffset, rollback.baseline.byteLength / 4);
-        const rollbackPixels = new Uint32Array(rollback.pixels.buffer, rollback.pixels.byteOffset, rollback.pixels.byteLength / 4);
         const nextBaseline = new Uint32Array(commitBaseline.buffer, commitBaseline.byteOffset, commitBaseline.byteLength / 4);
-        for (let i = 0; i < oldRollbackBaseline.length; i += 1) {
-          if (oldRollbackBaseline[i] !== nextBaseline[i]) rollbackPixels[i] = nextBaseline[i]!;
+        if (rollback.restore) {
+          const rollbackPixels = new Uint32Array(rollback.pixels.buffer, rollback.pixels.byteOffset, rollback.pixels.byteLength / 4);
+          for (let i = 0; i < rollbackPixels.length; i += 1) {
+            const pixel = rollback.first + i;
+            if (oldRollbackBaseline[pixel] !== nextBaseline[pixel] && rollbackPixels[i] === oldRollbackBaseline[pixel]) rollbackPixels[i] = nextBaseline[pixel]!;
+          }
         }
         rollback.baseline = new Uint8Array(commitBaseline);
       }
@@ -852,17 +936,35 @@ export function editSurface(state: SurfacesSection, id: SurfaceId, editor: Surfa
   const batch = batches.get(state);
   if (batch === undefined) return editSurfaceWithBounds(state, id, editor);
   let pending = livePending(batch, current);
+  const created = pending === undefined;
   if (pending === undefined) {
     materializeCurrentPending(state, current);
     const authoritative = pendingEntries.get(current);
-    const baseline = authoritative !== undefined && authoritative.editing > 0 && pendingValid(authoritative)
-      ? authoritative.baseline
-      : decode(current);
-    pending = takePending(batch, current, new Uint8Array(baseline), baseline, decodedRecords.get(current)?.canonical === true, null);
+    const bitmapBaseline = decodeBitmap(current);
+    const inherited = authoritative !== undefined && authoritative.editing > 0 && pendingValid(authoritative);
+    const initial = authoritative !== undefined && inherited ? committedPixels(authoritative) : bitmapBaseline;
+    const inheritedDirty = inherited ? dirtyBetween(bitmapBaseline, initial) : null;
+    const canonical = inheritedDirty === null && decodedRecords.get(current)?.canonical === true;
+    pending = takePending(batch, current, new Uint8Array(initial), bitmapBaseline, canonical, inheritedDirty);
   }
   const before = new Uint8Array(pending.rgba);
   const userBuffer = new Uint8Array(before);
-  editor(userBuffer, pending.w, pending.h);
+  const rollback: EditorRollback = { baseline: new Uint8Array(committedPixels(pending)), pixels: new Uint8Array(), first: 0, restore: false };
+  pending.editing += 1;
+  pending.rollbacks.push(rollback);
+  try {
+    editor(userBuffer, pending.w, pending.h);
+  } catch (error) {
+    pending.editing -= 1;
+    pending.rollbacks.pop();
+    if (created) {
+      if (batch.entries.get(current) === pending) batch.entries.delete(current);
+      dropPending(pending);
+    }
+    throw error;
+  }
+  pending.editing -= 1;
+  pending.rollbacks.pop();
   if (batch.entries.get(current) !== pending || !pendingValid(pending)) return true;
   current.rev += 1;
   pending.rev = current.rev;
@@ -870,22 +972,28 @@ export function editSurface(state: SurfacesSection, id: SurfaceId, editor: Surfa
   const beforeWords = new Uint32Array(before.buffer, before.byteOffset, before.byteLength / 4);
   const userWords = new Uint32Array(userBuffer.buffer, userBuffer.byteOffset, userBuffer.byteLength / 4);
   const liveWords = new Uint32Array(pending.rgba.buffer, pending.rgba.byteOffset, pending.rgba.byteLength / 4);
-  let committedWords: Uint32Array | null = null;
   let first = -1;
   let last = -1;
   for (let i = 0; i < userWords.length; i += 1) {
     if (userWords[i] === beforeWords[i]) continue;
-    liveWords[i] = userWords[i]!;
-    if (pending.editing > 0) {
-      const committed = pending.editorCommit ?? new Uint8Array(pending.baseline);
-      pending.editorCommit = committed;
-      committedWords ??= new Uint32Array(committed.buffer, committed.byteOffset, committed.byteLength / 4);
-      committedWords[i] = userWords[i]!;
-    }
     if (first === -1) first = i;
     last = i;
+    if (pending.editing === 0) liveWords[i] = userWords[i]!;
   }
-  pending.dirty = mergeDirty(pending.dirty, first === -1 ? null : { first, last });
+  if (pending.editing > 0 && first !== -1) {
+    const committed = pending.editorCommit ?? new Uint8Array(committedPixels(pending));
+    pending.editorCommit = committed;
+    const committedWords = new Uint32Array(committed.buffer, committed.byteOffset, committed.byteLength / 4);
+    for (let i = first; i <= last; i += 1) {
+      if (userWords[i] === beforeWords[i]) continue;
+      liveWords[i] = userWords[i]!;
+      committedWords[i] = userWords[i]!;
+    }
+  }
+  const changes = first === -1 ? null : { first, last };
+  pending.dirty = mergeDirty(pending.dirty, changes);
+  if (pending.editing > 0) commitPixelChangesToRollbacks(pending, before, userBuffer, changes);
+  else pending.editorCommit = null;
   releaseColourSurface(state, id);
   return true;
 }
@@ -902,18 +1010,22 @@ export function editSurfaceWithBounds(state: SurfacesSection, id: SurfaceId, edi
   const batch = batches.get(state);
   if (batch === undefined) {
     const rev = current.rev;
-    const before = new Uint8Array(canonicalSurfacePixels(state, current));
+    const before = canonicalSurfacePixels(state, current);
+    const activePending = pendingEntries.get(current);
+    const activeBatchEdit = activePending !== undefined && activePending.editing > 0 && pendingValid(activePending);
     const rgba = new Uint8Array(before);
     editor(rgba, current.bitmap.w, current.bitmap.h);
     if (current.rev !== rev) return true;
     current.rev += 1;
     const dirty = dirtyOf(bounds, rgba.length / 4);
     const canonical = decodedRecords.get(current)?.canonical === true;
-    current.bitmap = canonical
+    current.bitmap = !activeBatchEdit && canonical
       ? editedSnapshot(current.bitmap, before, rgba, dirty === "full" ? undefined : dirty ?? emptyBounds())
       : snapshot(current.bitmap.w, current.bitmap.h, rgba);
-    before.set(rgba);
-    decodedRecords.set(current, { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: current.bitmap.w, h: current.bitmap.h, rgba: before, canonical: true });
+    const cached = new Uint8Array(rgba);
+    const record = { rev: current.rev, bitmap: current.bitmap, b64: current.bitmap.b64, w: current.bitmap.w, h: current.bitmap.h, rgba: cached, canonical: true };
+    decodedRecords.set(current, record);
+    rebaseActiveBatchEntries(state, current, record, true);
     releaseColourSurface(state, id);
     return true;
   }
@@ -921,27 +1033,32 @@ export function editSurfaceWithBounds(state: SurfacesSection, id: SurfaceId, edi
   if (pending === undefined) {
     materializeCurrentPending(state, current);
     const authoritative = pendingEntries.get(current);
-    const baseline = authoritative !== undefined && authoritative.editing > 0 && pendingValid(authoritative)
-      ? authoritative.baseline
-      : decode(current);
-    const canonical = decodedRecords.get(current)?.canonical === true;
-    const created = takePending(batch, current, new Uint8Array(baseline), baseline, canonical, null);
+    const bitmapBaseline = decodeBitmap(current);
+    const inherited = authoritative !== undefined && authoritative.editing > 0 && pendingValid(authoritative);
+    const initial = authoritative !== undefined && inherited ? committedPixels(authoritative) : bitmapBaseline;
+    const inheritedDirty = inherited ? dirtyBetween(bitmapBaseline, initial) : null;
+    const canonical = inheritedDirty === null && decodedRecords.get(current)?.canonical === true;
+    const created = takePending(batch, current, new Uint8Array(initial), bitmapBaseline, canonical, inheritedDirty);
+    const rollback: EditorRollback = { baseline: new Uint8Array(created.rgba), pixels: new Uint8Array(), first: 0, restore: false };
     created.editing += 1;
+    created.rollbacks.push(rollback);
     try {
       editor(created.rgba, created.w, created.h);
     } catch (error) {
       created.editing -= 1;
       const committed = created.editorCommit;
-      created.rgba.set(committed ?? created.baseline);
+      created.rgba.set(committed ?? rollback.baseline);
       created.dirty = committed === null ? null : dirtyBetween(created.baseline, committed);
       created.editorCommit = null;
-      if (created.dirty === null) {
+      created.rollbacks.pop();
+      if (committed === null) {
         if (batch.entries.get(current) === created) batch.entries.delete(current);
         dropPending(created);
       }
       throw error;
     }
     created.editing -= 1;
+    created.rollbacks.pop();
     if (batch.entries.get(current) !== created || !pendingValid(created)) return true;
     current.rev += 1;
     created.rev = current.rev;
@@ -950,39 +1067,36 @@ export function editSurfaceWithBounds(state: SurfacesSection, id: SurfaceId, edi
     pendingEntries.set(current, created);
   } else {
     const nested = pending.editing > 0;
-    if (!nested && pending.dirty !== null) materialize(state, pending);
     const dirty = dirtyOf(bounds, pending.rgba.length / 4);
-    const rollback: EditorRollback | null = nested ? { baseline: new Uint8Array(pending.editorCommit ?? pending.baseline), pixels: new Uint8Array(pending.rgba) } : null;
-    const before = nested ? new Uint8Array(pending.rgba) : null;
+    const first = dirty === null || dirty === "full" ? 0 : dirty.first;
+    const last = dirty === null ? first - 1 : dirty === "full" ? pending.rgba.length / 4 - 1 : dirty.last;
+    const rollback: EditorRollback = {
+      baseline: nested ? new Uint8Array(committedPixels(pending)) : pending.baseline,
+      pixels: dirty === null ? new Uint8Array() : pending.rgba.slice(first * 4, (last + 1) * 4),
+      first,
+      restore: true,
+    };
     if (!nested) pending.editorCommit = null;
     pending.editing += 1;
-    if (rollback !== null) pending.rollbacks.push(rollback);
+    pending.rollbacks.push(rollback);
     try {
       editor(pending.rgba, pending.w, pending.h);
     } catch (error) {
       pending.editing -= 1;
-      if (nested) {
-        if (rollback !== null) {
-          pending.rgba.set(rollback.pixels);
-          if (pending.editorCommit !== null) applyPixelChanges(pending.rgba, rollback.baseline, pending.editorCommit);
-        }
-      } else {
-        const committed = pending.editorCommit;
-        pending.rgba.set(committed ?? pending.baseline);
-        pending.dirty = committed === null ? null : dirtyBetween(pending.baseline, committed);
-        pending.editorCommit = null;
-      }
-      if (rollback !== null) pending.rollbacks.pop();
+      pending.rgba.set(rollback.pixels, rollback.first * 4);
+      pending.dirty = dirtyBetween(pending.baseline, committedPixels(pending));
+      if (!nested) pending.editorCommit = null;
+      pending.rollbacks.pop();
       throw error;
     }
     pending.editing -= 1;
-    if (rollback !== null) pending.rollbacks.pop();
+    pending.rollbacks.pop();
     if (batch.entries.get(current) !== pending || !pendingValid(pending)) return true;
     current.rev += 1;
     pending.rev = current.rev;
     if (nested) {
-      const committed = pending.editorCommit ?? new Uint8Array(pending.baseline);
-      const changes = applyPixelChanges(committed, before!, pending.rgba);
+      const committed = pending.editorCommit ?? new Uint8Array(committedPixels(pending));
+      const changes = commitNestedRollbackChanges(pending, rollback, committed, pending.rgba);
       if (changes !== null) {
         pending.editorCommit = committed;
         pending.dirty = mergeDirty(pending.dirty, changes);

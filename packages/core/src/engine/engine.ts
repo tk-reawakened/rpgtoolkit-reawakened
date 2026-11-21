@@ -5204,7 +5204,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     if (mode === "present") {
       presentSurfaceFrame(state.surfaces, rendered.width, rendered.height, rendered.rgba);
       // A retained mutable state reference can observe the next engine callback, so publish each committed frame to it.
-      if (externalStateExposed) flushSurfaces();
+      if (externalStateExposed) materializePresentedSurfaces(state.surfaces);
     }
     frameHash = nextHash;
   }
