@@ -105,7 +105,7 @@ test("movement-tile-pixel: a 32 px tile is 8 advances, 24 ticks, completing on t
 
 test("collision-solid-stairs-under: blocked, sliding, layers and under facts", () => {
   const solid = theCase("collision-solid-stairs-under", "tile-solid-blocks");
-  deepEqual(events(solid, "blocked").map((e) => e.t), [24, 27]); // the second E step blocks as well; the third never starts
+  deepEqual(events(solid, "blocked").map((e) => e.t), [24]); // E-135 blocks the second step; E-22's queued third step retains its clear destination.
   const slide = theCase("collision-solid-stairs-under", "pixel-glancing-slide");
   // R-54 item 3: the glancing SE step turns south, adopts the slid point and ends there, so x never moves.
   deepEqual(actorAt(slide, 0, "hero"), ["hero", 112, 67, 0, "waiting", "S"]);
