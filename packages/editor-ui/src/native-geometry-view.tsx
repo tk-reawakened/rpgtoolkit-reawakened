@@ -341,9 +341,9 @@ export function NativeGeometryView({ doc, pendingEdits, capabilities, onEdited, 
     <p role="status" data-tkr-geometry-status="true">{message ?? (draft === null
       ? "Choose New solid barrier or New walk-behind region, or pick a shape to edit."
       : "Click the drawing to add a point, or use the point fields. Nothing is written until you choose Apply shape.")}</p>
-    <div style={{ position: "relative", width: `${Math.round(view.width * scale)}px`, height: `${Math.round(view.height * scale)}px` }}>
-      <canvas ref={canvas} width={Math.round(view.width * scale)} height={Math.round(view.height * scale)} aria-hidden="true" style={{ position: "absolute", left: "0", top: "0" }} />
-      <svg data-tkr-geometry-canvas="true" role="img" style={{ position: "absolute", left: "0", top: "0" }}
+    <div class="tkr-geometry-picture">
+      <canvas ref={canvas} width={Math.round(view.width * scale)} height={Math.round(view.height * scale)} aria-hidden="true" />
+      <svg data-tkr-geometry-canvas="true" role="img"
         aria-label={`Drawing of ${owner.name}'s shapes. Coordinates are whole pixels from ${owner.origin}. Click to add a point to the open shape.`}
         width={Math.round(view.width * scale)} height={Math.round(view.height * scale)} viewBox={`${view.x} ${view.y} ${view.width} ${view.height}`}
         onClick={(event) => {

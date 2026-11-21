@@ -3048,3 +3048,6 @@ fieldset.tkr-web-project-controls {
 @media (forced-colors: active) {
   :is(.tkr-web-shell, .tkr-workbench, [class^="tkr-"]) :disabled { opacity: 1; }
 }
+
+.tkr-geometry-picture { display: grid; justify-content: start; overflow: auto; }
+.tkr-geometry-picture > :is(canvas, svg) { grid-area: 1 / 1; }
