@@ -686,6 +686,40 @@ test("send-arrival deactivation suppresses the arrival frame only and re-arms wh
   equal(reentered[0]?.key, "region:0", "the region re-arms after the player leaves and re-enters");
 });
 
+test("a blocked step never re-arms an arrival-deactivated key region the player still stands in", () => {
+  // E-19 deactivates the region under an arrival and E-40 re-arms it only when the player's base leaves.
+  // R-64 item 2 moves STEP processing to the blocked step's intended destination, but a key-press region
+  // (E-41) is still tested where the player stands, so a press into a wall must not forget the overlap.
+  const world: WorldBoard = {
+    ...board([{ ...region(0, 1), points: rectangle(-16, -16, 16, 1) }]),
+    vectors: [{ handle: "wall", attributes: 0, closed: 1, layer: 1, type: 1, points: rectangle(28, -40, 36, 40) }],
+  };
+  const state = stateWith(world);
+  // The engine sets the board key inside arrive() before it posts deactivateat; mirror that here.
+  state.triggers.boardKey = world.key;
+  applyTriggerEffect(state, { name: "deactivateat", args: [0, 0, 1, "pixel"] } as EffectRecord);
+  state.time.tick = 1;
+  state.sprites.players = state.sprites.players.map((player) => ({ ...player, movement: { ...player.movement, lastStepTick: 1 } }));
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  deepEqual(state.triggers.deactivated, ["region:0"], "the arrival deactivates the key region under it");
+
+  state.time.tick = 2;
+  enqueueDirectionMove(state.sprites, "player", "E", 0);
+  runMovementPhase(state.sprites, world, state.time.tick);
+  const player = state.sprites.players[0]!;
+  equal(player.x, 0, "the wall stops the whole-destination precheck before any advance");
+  equal(player.movement.lastStepBlocked, true);
+  deepEqual(player.movement.lastStepTarget, { x: 32, y: 0 }, "the counted blocked step records its destination");
+  runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.deactivated.includes("region:0"), true, "destination step processing does not re-arm the key region the player still occupies");
+
+  state.time.tick = 3;
+  state.input.keys.push({ seq: 1, name: "ENTER", code: "Enter", char: "\n", action: null, resolvedActions: [] });
+  const events = runTriggersPhase(state, { programRef: (name) => ref(name) });
+  equal(state.triggers.active, null, "the suppressed key region does not fire");
+  equal(events.some((record) => record.type === "trigger-start"), false);
+});
+
 test("send-arrival tile placement and deactivation agree on stacked and rotated boards", () => {
   // The destination region sits exactly on the arrival tile (3, 2) of each layout's own pixel conversion.
   for (const coordType of [0, 1, 2]) {

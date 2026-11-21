@@ -416,10 +416,14 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     // Mid-step polling exists for item contact only; regions retain the original
     // step/key cadence, plus delayed consumption after a trigger-owned movement.
     if (candidate.source === "region" && !step && !key && !completedTriggerMovement) continue;
+    // E-40/E-19 re-arming observes the area the candidate was eligible in: a key-press candidate only
+    // against the player's standing shape (E-41), a step/repeat candidate against the shape its step is
+    // tested with — the blocked step's destination while one is being processed (R-64 item 2).
+    const area = (candidate.activationType & 3) === 1 ? playerBase : shape;
     const overlapsArea = candidate.layer === player.layer
       && (candidate.source === "item"
-        ? candidate.actor !== undefined && candidate.actor.visible && overlaps(shape, itemShape(candidate))
-        : overlaps(shape, polygon(candidate.points), candidate.closed !== 0));
+        ? candidate.actor !== undefined && candidate.actor.visible && overlaps(area, itemShape(candidate))
+        : overlaps(area, polygon(candidate.points), candidate.closed !== 0));
     if (!overlapsArea) {
       delete section.fired[candidate.key];
       delete section.repeat[candidate.key];
