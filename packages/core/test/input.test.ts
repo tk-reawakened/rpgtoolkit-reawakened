@@ -787,3 +787,10 @@ test("#1091: a letter key is named by the character typed, so a non-QWERTY layou
   applyInputEvent(state, { kind: "key", name: "a", code: "KeyQ", char: "a", down: true });
   equal(state.keys[0]?.name, "A", "AZERTY: the key labelled A sits at code KeyQ");
 });
+
+test("#1091: Space is named a single space whatever the host sent", () => {
+  const state = createInputSection({ bindings: { keys: { Space: "confirm" } } });
+  applyInputEvent(state, { kind: "key", name: "Space", code: "Space", char: null, down: true });
+  equal(state.keys[0]?.name, " ");
+  equal(state.keys[0]?.action, "confirm");
+});
