@@ -402,7 +402,7 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
     const move = next;
     const dx = move.target.x - actor.x;
     const dy = move.target.y - actor.y;
-    const active: SpriteActiveMove = { source: move.source, start: { x: actor.x, y: actor.y }, target: { ...move.target }, facing: move.facing, cadence: actor.prev !== null ? Math.max(0, ticksPerAdvance(actor.speed, gameSpeed) - 1) : 0, ignoreBoard: move.source === "points", tried: false, provenance: move.provenance ?? { kind: "unknown" }, ...(move.pathMode === undefined ? {} : { pathMode: move.pathMode }), ...(move.deferredComplete === true ? { deferredComplete: true } : {}), ...(move.pointer === true ? { pointer: true as const } : {}) };
+    const active: SpriteActiveMove = { source: move.source, start: { x: actor.x, y: actor.y }, target: { ...move.target }, facing: move.facing, cadence: actor.prev !== null ? Math.max(0, ticksPerAdvance(actor.speed, gameSpeed) - 1) : 0, ignoreBoard: move.source === "points", tried: false, provenance: move.provenance ?? { kind: "unknown" }, ...(pixelMovement === 0 && move.source === "direction" ? { destinationChecked: false } : {}), ...(move.pathMode === undefined ? {} : { pathMode: move.pathMode }), ...(move.deferredComplete === true ? { deferredComplete: true } : {}), ...(move.pointer === true ? { pointer: true as const } : {}) };
     movement = { ...movement, active };
     const moves = actor.queue.moves.length > 0 ? actor.queue.moves.slice(1) : actor.queue.moves;
     const nextActor: SpriteActor = { ...actor, state: "moving", queue: { ...queue, moves }, movement };
@@ -415,12 +415,24 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
   }
   actor = allActors(section).find((value) => value.id === actor.id) ?? actor;
   movement = cloneMovement(actor.movement);
-  const active = movement.active;
+  let active = movement.active;
   if (active === null) return;
   const tpa = ticksPerAdvance(actor.speed, gameSpeed);
   if (active.cadence > 0) {
     replaceActor(section, { ...actor, movement: { ...movement, active: { ...active, cadence: active.cadence - 1 } } });
     return;
+  }
+  if (pixelMovement === 0 && active.source === "direction" && active.destinationChecked !== true) {
+    const hit = boardHit(actor, board, fixed(active.target.x), fixed(active.target.y));
+    if (hit !== null) {
+      event(tick, "blocked", { actor: actor.id, vector: hit.handle, blocked: true }, sink);
+      replaceActor(section, finishActor(actor, active, true, tpa, tick, sink));
+      return;
+    }
+    active = { ...active, destinationChecked: true };
+    movement = { ...movement, active };
+    actor = { ...actor, movement };
+    replaceActor(section, actor);
   }
   const next = advancePoint(actor, active, pixelMovement);
   const direction = active.facing ?? FACING[facingIndex(next.x - fixed(actor.x), next.y - fixed(actor.y))] ?? actor.facing;
@@ -433,7 +445,7 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
       return;
     }
   }
-  const hit = active.ignoreBoard ? null : boardHit(actor, board, next.x, next.y);
+  const hit = active.ignoreBoard || (pixelMovement === 0 && active.source === "direction") ? null : boardHit(actor, board, next.x, next.y);
   if (hit !== null) {
     const edge = hitEdge(translateBase(actor, next.x, next.y), hit);
     const movementVector: [number, number] = [next.x - fixed(actor.x), next.y - fixed(actor.y)];

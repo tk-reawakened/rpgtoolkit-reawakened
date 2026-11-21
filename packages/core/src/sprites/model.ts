@@ -73,7 +73,8 @@ export type SpriteActiveMove = {
   readonly facing: Facing | null;
   readonly cadence: number;
   readonly ignoreBoard: boolean;
-  readonly tried: boolean;
+  readonly destinationChecked?: boolean;
+  readonly tried?: boolean;
   readonly pathMode?: 1 | 2 | 3;
   readonly deferredComplete?: boolean;
   readonly provenance?: MovementProvenance;

@@ -302,7 +302,28 @@ export class World {
   }
   pushDirs(a, dirs, clear, triggerOrigin = false) {
     if (clear) this.issue(a, FLAGS.CLEAR_QUEUE, []);
-    for (const d of dirs.split(",").map((s) => s.trim()).filter(Boolean)) this.enqueue(a, { src: "dir", dir: FACINGS.indexOf(d), size: this.moveSize(), triggerOrigin });
+    let baseX = a.queue.at(-1)?.tx ?? a.cur?.tx ?? a.x;
+    let baseY = a.queue.at(-1)?.ty ?? a.cur?.ty ?? a.y;
+    const size = this.moveSize();
+    for (const name of dirs.split(",").map((s) => s.trim()).filter(Boolean)) {
+      const dir = FACINGS.indexOf(name);
+      const tx = baseX + DIRV[dir][0] * size * FP;
+      const ty = baseY + DIRV[dir][1] * size * FP;
+      this.enqueue(a, { src: "dir", dir, size, tx, ty, triggerOrigin });
+      baseX = tx;
+      baseY = ty;
+    }
+  }
+  rebaseDirections(a) {
+    let baseX = a.x;
+    let baseY = a.y;
+    for (const step of a.queue) {
+      if (step.src !== "dir") continue;
+      step.tx = baseX + DIRV[step.dir][0] * step.size * FP;
+      step.ty = baseY + DIRV[step.dir][1] * step.size * FP;
+      baseX = step.tx;
+      baseY = step.ty;
+    }
   }
 
   applyScript(op) {
@@ -476,9 +497,9 @@ export class World {
     if (a.queue.length === 0) return false;
     const s = a.queue.shift();
     const dir = s.src === "dir";
-    const tx = dir ? a.x + DIRV[s.dir][0] * s.size * FP : s.tx;
-    const ty = dir ? a.y + DIRV[s.dir][1] * s.size * FP : s.ty;
-    a.cur = { src: s.src, dir: dir ? s.dir : null, tx, ty, sx: a.x, sy: a.y, ignoreBoard: Boolean(s.ignoreBoard), tried: false, triggerOrigin: s.triggerOrigin ?? false };
+    const tx = dir ? (s.tx ?? a.x + DIRV[s.dir][0] * s.size * FP) : s.tx;
+    const ty = dir ? (s.ty ?? a.y + DIRV[s.dir][1] * s.size * FP) : s.ty;
+    a.cur = { src: s.src, dir: dir ? s.dir : null, tx, ty, sx: a.x, sy: a.y, ignoreBoard: Boolean(s.ignoreBoard), tried: false, triggerOrigin: s.triggerOrigin ?? false, ...(s.src === "dir" && (this.board.pixelMovement ?? 0) === 0 ? { destinationChecked: false } : {}) };
     a.state = "moving";
     return true;
   }
@@ -568,6 +589,15 @@ export class World {
         this.emit("movement-complete", blocked ? { actor: a.id, blocked: true } : { actor: a.id });
       } else a.cadence = tpa - 1;
     };
+    if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0 && c.destinationChecked !== true) {
+      const hit = c.ignoreBoard ? null : this.boardHit(a, c.tx, c.ty);
+      if (hit !== null) {
+        this.emit("blocked", { actor: a.id, by: hit.id });
+        finish(true);
+        return;
+      }
+      c.destinationChecked = true;
+    }
 
     // The player cannot leave the board except over a link (E-28); items are not limited.
     if (a.kind === "player") {
@@ -580,7 +610,7 @@ export class World {
       }
     }
 
-    const hit = c.ignoreBoard ? null : this.boardHit(a, nx, ny);
+    const hit = c.ignoreBoard || (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) ? null : this.boardHit(a, nx, ny);
     if (hit !== null) {
       const slid = (this.board.pixelMovement ?? 0) >= 1 ? this.slide(a, hit, nx, ny) : null;
       if (slid === null) {
@@ -748,6 +778,7 @@ export class World {
     }
     if (blocked) {
       this.emit("arrival-rejected", { dir, board: link.board, x: ax === null ? null : ax / FP, y: ay === null ? null : ay / FP });
+      this.rebaseDirections(p);
       return;
     }
     this.emit("board-link", { dir, from: this.boardId, to: link.board });

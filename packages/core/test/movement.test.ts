@@ -72,6 +72,30 @@ test("R-50 moves a tile in eight 4-pixel advances and completes at tick 21", () 
   equal(sprites.players[0]?.state, "waiting");
   equal(events.some((record) => record.type === "movement-complete" && record.tick === 21), true);
 });
+test("tile movement rejects a solid destination before any partial advance", () => {
+  const wall = { handle: "wall", attributes: 0, closed: 1, layer: 1, type: 1, points: [{ x: 76, y: 40 }, { x: 84, y: 40 }, { x: 84, y: 90 }, { x: 76, y: 90 }] };
+  const currentBoard = board([wall]);
+  const sprites = playerState(currentBoard);
+  enqueueDirectionMove(sprites, "hero", "E", 0);
+  const events = runMovementPhase(sprites, currentBoard, 0);
+  equal(sprites.players[0]?.x, 48);
+  equal(sprites.players[0]?.y, 63);
+  equal(sprites.players[0]?.movement.active, null);
+  equal(events.some((record) => record.type === "blocked"), true);
+});
+test("a tile step that passed its destination check completes despite a later wall", () => {
+  const clearBoard = board();
+  const sprites = playerState(clearBoard);
+  enqueueDirectionMove(sprites, "hero", "E", 0);
+  runMovementPhase(sprites, clearBoard, 0);
+  const wall = { handle: "late-wall", attributes: 0, closed: 1, layer: 1, type: 1, points: [{ x: 76, y: 40 }, { x: 84, y: 40 }, { x: 84, y: 90 }, { x: 76, y: 90 }] };
+  const blockedBoard = board([wall]);
+  const events = [];
+  for (let tick = 1; tick < 24; tick += 1) events.push(...runMovementPhase(sprites, blockedBoard, tick));
+  equal(sprites.players[0]?.x, 80);
+  equal(events.some((record) => record.type === "blocked"), false);
+  equal(events.filter((record) => record.type === "step-complete").length, 1);
+});
 
 test("diagonal pixel directions finish both axes in one advance in both modes", () => {
   const cases = [["NE", 52, 59], ["SE", 52, 67], ["SW", 44, 67], ["NW", 44, 59]] as const;
@@ -158,32 +182,32 @@ test("direct sprite collision freezes the stationary loser for 120 ticks", () =>
   equal(events.some((record) => record.type === "sprite-collision" && record.winner === "hero" && record.loser === "npc.itm"), true);
 });
 
-test("a newly solid wall, item or actor ends the active step and allows retreat", () => {
-  for (const obstacle of ["wall", "item", "actor"]) {
-    let currentBoard = board([], obstacle === "item" ? [npcItem()] : []);
-    const sprites = playerState(currentBoard);
+test("new board solids do not stop an active tile step; sprite collisions still apply", () => {
+  const currentBoard = board();
+  const wallSprites = playerState(currentBoard);
+  enqueueDirectionMove(wallSprites, "hero", "E", 0);
+  runMovementPhase(wallSprites, currentBoard, 0);
+  const wall = { handle: "closing-wall", attributes: 0, closed: 1, layer: 1, type: 1, points: [{ x: 70, y: 32 }, { x: 74, y: 32 }, { x: 74, y: 90 }, { x: 70, y: 90 }] };
+  const blockedBoard = board([wall]);
+  const wallEvents: MovementEvent[] = [];
+  for (let tick = 1; tick < 24; tick += 1) wallEvents.push(...runMovementPhase(wallSprites, blockedBoard, tick));
+  equal(wallSprites.players[0]?.x, 80, "wall added after tile step begins");
+  equal(wallEvents.filter((event) => event.type === "step-complete").length, 1);
+  equal(wallEvents.some((event) => event.type === "blocked"), false);
+
+  for (const obstacle of ["item", "actor"]) {
+    const sprites = playerState(board([], obstacle === "item" ? [npcItem()] : []));
     if (obstacle === "actor") sprites.players.push({ ...sprites.players[0]!, id: "other", index: 1, controlled: false, x: 112 });
     enqueueDirectionMove(sprites, "hero", "E", 0);
     runMovementPhase(sprites, currentBoard, 0);
-    equal(sprites.players[0]?.x, 52);
-    if (obstacle === "wall") currentBoard = board([{ handle: "closing-wall", attributes: 0, closed: 1, layer: 1, type: 1, points: [{ x: 70, y: 32 }, { x: 74, y: 32 }, { x: 74, y: 90 }, { x: 70, y: 90 }] }]);
-    else if (obstacle === "item") sprites.items[0] = { ...sprites.items[0]!, x: 84 };
+    if (obstacle === "item") sprites.items[0] = { ...sprites.items[0]!, x: 84 };
     else sprites.players[1] = { ...sprites.players[1]!, x: 84 };
     const events: MovementEvent[] = [];
     for (let tick = 1; tick <= 3; tick += 1) events.push(...runMovementPhase(sprites, currentBoard, tick));
     equal(sprites.players[0]?.x, 52, obstacle);
     equal(sprites.players[0]?.movement.active, null, obstacle);
     equal(events.some((event) => event.type === "step-complete"), false, obstacle);
-    equal(events.filter((event) => event.type === "movement-complete" && event.actor === "hero" && event.blocked === true).length, 1, obstacle);
-    enqueueDirectionMove(sprites, "hero", "W", 1, true);
-    for (let tick = 4; tick <= 6; tick += 1) runMovementPhase(sprites, currentBoard, tick, { pixelMovement: 1 });
-    equal(sprites.players[0]?.x, 48, `${obstacle}: retreat`);
-    if (obstacle === "item") {
-      setWaypoint(sprites, "npc.itm", [{ x: 120, y: 63 }], 0, true);
-      runMovementPhase(sprites, currentBoard, 123);
-      runMovementPhase(sprites, currentBoard, 124);
-      equal(sprites.items[0]?.x, 88, "the NPC patrol resumes after thaw");
-    }
+    equal(events.some((event) => event.type === "sprite-collision"), true, obstacle);
   }
 });
 
@@ -220,6 +244,30 @@ test("active movement survives snapshot restore with equal later behavior", () =
   deepEqual(right.sprites, left.sprites);
   equal(snapshot(right), snapshot(left));
 });
+test("active tile destination check survives save restore before a later obstacle", () => {
+  const clearBoard = board();
+  const left = createGameState({ seed: 7 });
+  left.world = { ...left.world, board: clearBoard };
+  left.sprites = playerState(clearBoard);
+  enqueueDirectionMove(left.sprites, "hero", "E", 0);
+  runMovementPhase(left.sprites, clearBoard, 0);
+  equal(left.sprites.players[0]?.movement.active?.destinationChecked, true);
+
+  const right = restoreGameState(snapshot(left));
+  const wall = { handle: "late-wall", attributes: 0, closed: 1, layer: 1, type: 1, points: [{ x: 76, y: 40 }, { x: 84, y: 40 }, { x: 84, y: 90 }, { x: 76, y: 90 }] };
+  const obstructedBoard = board([wall]);
+  const leftEvents = [];
+  const rightEvents = [];
+  for (let tick = 1; tick < 24; tick += 1) {
+    leftEvents.push(...runMovementPhase(left.sprites, obstructedBoard, tick));
+    rightEvents.push(...runMovementPhase(right.sprites, obstructedBoard, tick));
+  }
+  deepEqual(right.sprites, left.sprites);
+  equal(left.sprites.players[0]?.x, 80);
+  equal(leftEvents.some((record) => record.type === "blocked"), false);
+  deepEqual(rightEvents, leftEvents);
+});
+
 
 
 type MovementFixtureCase = {
