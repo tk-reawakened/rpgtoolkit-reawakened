@@ -21,7 +21,7 @@ Top-level keys are closed. After the stamp and optional shared `tags` and `metad
 | `solid` | no | Anchor-relative movement barriers. |
 | `under` | no | Independent anchor-relative walk-behind polygons. |
 | `activationAreas` | no | Named optional program activation outlines, without programs or scene state. |
-| `kitbash` | no | Ordered `cutCorner` operations using the existing [tile art operation](native-tileset.md#tiles). |
+| `kitbash` | no | Ordered `cutCorner` operations using the existing [tile art operation](native-tileset.md#tile-art-operations). |
 
 The shared optional `pluginData` comes last. A tile has no sheet grid or `cellSize`; sample dimensions come from the source rectangle or managed region. There is no `wallCapUnder` switch on a tile. A 2D tile with no `solid` outlines does not block movement; do not infer a full-cell barrier from `role`, visible pixels or walk-behind. A source with an authored full-cell barrier can express that rectangle in `solid`.
 

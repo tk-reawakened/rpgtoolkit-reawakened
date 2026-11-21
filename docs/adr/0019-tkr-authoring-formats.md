@@ -73,7 +73,7 @@ See the [approved terrain decisions](../design/terrain-scene-formats.md#approved
 
 ## Amendment: retained terrain and standalone tiles
 
-These decisions apply together at the pre-release terrain cutover. The [terrain design](../design/terrain-scene-formats.md#approved-cutover-decisions) records the approved choices.
+These decisions are the current pre-release rule. The [terrain design](../design/terrain-scene-formats.md#approved-cutover-decisions) records the approved choices.
 
 1. A `.tkrtle` is a `tile` document whose path is its identity. A `.tkrtst` is a `tileset` document containing standalone tile paths, terrain recipes and explicit output allocations; it does not embed tile definitions. A scene refers to tiles with `{tile: <.tkrtle path>}` and terrain with `{tileset: <.tkrtst path>, terrain: <local terrain id>}`. The previous embedded-tile reference is rejected.
 2. The scene keeps authored terrain spans and per-cell manual overrides separately from base tiles. The resolved board contains only chosen tiles. A `.tkrtol` is declarative, not executable code or permission to load a plugin.

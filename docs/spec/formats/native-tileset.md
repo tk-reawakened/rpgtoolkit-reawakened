@@ -1,16 +1,16 @@
 # Native tileset contract (`.tkrtst`)
 
-**Status: pre-release terrain cutover contract.** This page defines the `.tkrtst` contract from [tkr-authoring.md](tkr-authoring.md#3-tile-recipe-document-tkrtile), [native-contracts.md](native-contracts.md), [ADR 0019](../../adr/0019-tkr-authoring-formats.md) and [ADR 0005](../../adr/0005-independent-product-v1-and-native-format.md). The [terrain cutover](#terrain-cutover) section supersedes earlier embedded-tile and output-allocation wording on this page.
+**Status: pre-release contract at the retained-terrain amendment.** This page defines the `.tkrtst` contract from [tkr-authoring.md](tkr-authoring.md#3-tile-recipe-document-tkrtile), [native-contracts.md](native-contracts.md), [ADR 0019](../../adr/0019-tkr-authoring-formats.md) and [ADR 0005](../../adr/0005-independent-product-v1-and-native-format.md). Standalone tiles, terrain recipes and output slots below are the whole current contract.
 
 ## In plain words
 
-A `.tkrtst` file describes one reusable tileset: where its source images are, which cells become named tiles, how optional isometric blocks and autotile recipes are assembled, and what output target the editor builds. Its path names the document. A scene refers to the document by that path and to a tile by a local tile id. Collision and wall-cap walk-behind intent are stored with the tile recipe, so a generated tile does not lose these authoring properties.
+A `.tkrtst` file lists standalone `.tkrtle` tile documents, optional terrain recipes that choose among them, and the explicit output slots the editor builds. Its path names the document. A scene refers to the tileset by path for a terrain, and to a tile by that tile document's path. Collision and walk-behind geometry are stored with the tile document, not copied into the tileset.
 
 The document uses the shared native stamp and plugin-block rules. Its own top-level fields are closed: a misspelled key is an error. No top-level `id` is used; identity is the normalized project-relative path, extension included.
 
 ## Stamp and top-level shape
 
-`contract` is exactly `tileset`; `version` is text in the shared semantic-version form. Both are the first two keys. Writers emit `1.0.0-pre.2` until a released version is approved. Optional `tags`, `metadata` and `pluginData` follow shared rules. The contract's fields are `name`, `expects`, `tiles`, optional `terrains`, and `outputBinding`. No other top-level key is accepted.
+`contract` is exactly `tileset`; `version` is text in the shared semantic-version form. Both are the first two keys. Writers emit `1.0.0-pre.2` until a released version is approved. Optional `tags`, `metadata` and `pluginData` follow shared rules. The contract's fields are `name`, `expects`, `tiles`, optional `terrains`, optional authored `sources` and `isoBlocks`, and `outputBinding`. No other top-level key is accepted.
 
 ```yaml
 contract: tileset
@@ -48,22 +48,23 @@ All pixel and grid values are exact integers. Coordinates and cell indices are z
 | Field | Required | Contract |
 |---|---:|---|
 | `name` | yes | Non-empty display name. It has no identity or reference semantics. |
-| `projection` | yes | One of `2d`, `iso-stacked`, `iso-rotated`; controls the authored output layout. |
-| `cellSize` | yes | `[width, height]` in positive logical pixels; the common cell dimensions of the set. |
+| `expects` | yes | `{projection, cellSize}`: `2d`, `iso-stacked` or `iso-rotated`, and positive `[width, height]` logical pixels every palette member must match. |
+
+### Palette
+
+`tiles` is a non-empty ordered list of closed `{tile: <.tkrtle path>}` mappings. Each path is a project-relative document identity, normalized with ASCII-only case folding; duplicate normalized identities are errors. A tile's name, artwork, timeline, role, collision and walk-behind geometry belong to its standalone document, never to this list.
+
+### Tile art operations
+
+A standalone tile's optional `kitbash` uses the operation below; the tileset does not copy it.
+
+**Reawakened `cutCorner` rule (product choice, not a legacy-ordering claim).** Operations are applied in list order to the cropped cell before legacy pixel encoding. `clearHalf: false` leaves the cell unchanged. With `clearHalf: true`, clear the triangular half at the named corner to transparent; keep pixels whose centers lie exactly on the diagonal. For a cell of width `w` and height `h`, at zero-based pixel `(x, y)`, let `u = 2x + 1` and `v = 2y + 1`. Clear north-west when `u*h + v*w < 2*w*h`, north-east when `(2*w - u)*h + v*w < 2*w*h`, south-east when `(2*w - u)*h + (2*h - v)*w < 2*w*h`, and south-west when `u*h + (2*h - v)*w < 2*w*h`. Other pixels retain their source color and transparency. Multiple cuts therefore accumulate; no operation restores clear pixels.
 
 ### Sources
 
-`sources` is a non-empty ordered list. Each source has a unique local `id`, a `file` project-relative asset path, a `grid`, and `transparent` settings. `grid.width` and `.height` are positive pixel dimensions of a cell; `marginX`, `marginY`, `gapX`, and `gapY` are non-negative pixel values. A cell `[column, row]` identifies the source grid cell after margins and gaps. It must lie inside the source image; a partial final cell is not addressable.
+`sources` is an optional non-empty ordered list used only by `isoBlocks` faces. Each source has a unique local `id`, a `file` project-relative asset path, a `grid`, and `transparent` settings. `grid.width` and `.height` are positive pixel dimensions of a cell; `marginX`, `marginY`, `gapX`, and `gapY` are non-negative pixel values. A cell `[column, row]` identifies the source grid cell after margins and gaps. It must lie inside the source image; a partial final cell is not addressable. A palette tile does not use a sheet cell.
 
 `transparent` is exactly one of `{mode: alpha}` or `{mode: colorKey, color: [r, g, b]}`. Each color channel is an integer from 0 through 255. Alpha mode preserves source alpha; color-key mode treats exactly that RGB value as transparent.
-
-### Tiles
-
-`tiles` is a non-empty ordered list. Each tile has a unique local `id`, non-empty `name`, `source` id naming one source in this document, `cell` pair, and `role` (`floor`, `wall`, `wall-cap`, or `decorative`). Optional `kitbash` is an ordered list of supported transformations; each operation has a closed shape defined by its operation name. Unknown operations or parameters are errors. `cutCorner` takes `diagonal` (`north-west`, `north-east`, `south-east`, `south-west`) and `clearHalf` boolean, with pixel behavior defined below.
-
-**Reawakened `cutCorner` rule (product choice, not a legacy-ordering claim).** Operations are applied in list order to the cropped cell before legacy pixel encoding. `clearHalf: false` leaves the cell unchanged. With `clearHalf: true`, clear the triangular half at the named corner to transparent; keep pixels whose centers lie exactly on the diagonal. For a cell of width `w` and height `h`, at zero-based pixel `(x, y)`, let `u = 2x + 1` and `v = 2y + 1`. Clear north-west when `u*h + v*w < 2*w*h`, north-east when `(2*w - u)*h + v*w < 2*w*h`, south-east when `(2*w - u)*h + (2*h - v)*w < 2*w*h`, and south-west when `u*h + (2*h - v)*w < 2*w*h`. Other pixels retain their source color and transparency. Multiple cuts therefore accumulate; no operation restores cleared pixels. This rule defines native recipe behavior, not a claim about a historical tool.
-
-`collision` is required on each tile and is either `walkable` or `solid`. It describes the generated tile's default placement behavior: walkable tiles contribute no solid collision; solid tiles contribute the tile-footprint solid boundary when lowered into a scene/legacy board. It is authoring metadata and does not override scene-local vector edits. `wall-cap` role does not itself imply under/walk-behind behavior; only `wallCapUnder` says that explicitly.
 
 ### Isometric blocks
 
@@ -71,11 +72,7 @@ All pixel and grid values are exact integers. Coordinates and cell indices are z
 
 `wallCapUnder` is optional and defaults to `false`. When `true`, the generated block acts as a wall cap that can be walked under: lowering emits the corresponding under/walk-behind region for the block footprint as well as any collision selected by `collision`. It is independent of `collision`; setting it does not turn solid collision off. A block with no valid under-region geometry is rejected rather than silently downgraded.
 
-A flat `.tst` binding emits only the `tiles` rows. An unreferenced block recipe stays in the authored YAML and is reported as not emitted; its presence does not block a flat build. A target requiring raised blocks is refused until the projected faces, draw order, solid collision and walk-behind are specified and verified in both isometric layouts. Detail 150 describes a flat diamond, not a way to flatten a raised block.
-
-### Autotiles
-
-`autotiles`, when present, is an ordered list of unique ids. Each entry has a non-empty `name`, `mode` (`blob-47`), `base`, `border`, and `innerCorner` source-cell references, and `exportOrder` (`t25-canonical`). Each reference has exactly `source` and `cell`, names a source in this document and a valid cell. `blob-47` denotes the 8-neighbour 47-variant blob mask family; `t25-canonical` selects its fixed canonical output ordering. Unsupported modes or orderings are errors, not best-effort fallbacks.
+A flat `.tst` binding emits only the `outputBinding.slots` allocations. An unreferenced block recipe stays in the authored YAML and is reported as not emitted; its presence does not block a flat build. A target requiring raised blocks is refused until the projected faces, draw order, solid collision and walk-behind are specified and verified in both isometric layouts. Detail 150 describes a flat diamond, not a way to flatten a raised block.
 
 ### Built-in terrain matcher
 
@@ -87,7 +84,7 @@ This defines how `builtin/neighbour-match@1.0.0` chooses a tile for the [terrain
 
 ### Output binding
 
-`outputBinding` is required and has exactly `target` and `detail`. `target` is a project-relative destination path for the generated `.tst` output; it must not be a native-document identity or overwrite a source. `detail` is a positive integer legacy tile detail value. The build is deterministic for the same document and source bytes. The output is generated, not a second authoring document.
+`outputBinding` is required and has exactly `target`, `detail` and `slots`. `target` is a project-relative destination path for the generated `.tst` output; it must not be a native-document identity or overwrite a source. `detail` is a positive integer legacy tile detail value. `slots` is the persistent 1-based allocation table described under [the terrain cutover](#terrain-cutover); the writer never derives or renumbers it. The build is deterministic for the same document and source bytes. The output is generated, not a second authoring document.
 
 ## Terrain cutover
 
@@ -109,65 +106,29 @@ A reference to a standalone tile is `{tile: <.tkrtle path>}`. It resolves to exa
 
 ## Plugin data
 
-`pluginData` is an optional top-level mapping exactly as defined by [native-contracts.md#plugin-blocks](native-contracts.md#plugin-blocks). Each plugin id maps to a closed envelope containing only `version` and mapping-valued `data`; plugin payload stays opaque to the core and is preserved byte-for-byte by writers that do not own it. Plugins cannot add core fields or put blocks on individual tiles, sources, blocks or autotiles. A plugin needing per-tile data keeps it in its own data mapping keyed by local tile id. No plugin block has its own extension or registry row.
+`pluginData` is an optional top-level mapping exactly as defined by [native-contracts.md#plugin-blocks](native-contracts.md#plugin-blocks). Each plugin id maps to a closed envelope containing only `version` and mapping-valued `data`; plugin payload stays opaque to the core and is preserved byte-for-byte by writers that do not own it. Plugins cannot add core fields or put blocks on palette members, terrains, sources or blocks. A plugin needing per-tile data keeps it in the standalone tile's own block. No plugin block has its own extension or registry row.
 
 ## Lowering and preservation
 
 A tileset is source authoring data; the runtime continues to consume generated `.tst`, `.iso` and related legacy outputs, not `.tkrtst`. Building follows the source order and the deterministic recipe ordering above. Tile collision and `wallCapUnder` are carried into the generated scene/board collision and under-vector output where representable. If a legacy target cannot encode a selected field, the build must report it as unavailable rather than silently discarding or changing it. A writer changing one field preserves comments, unknown plugin payload, quoting, order, and all other unowned bytes under the shared in-place editing rules.
 
-## Draft-key disposition
+## Key disposition
 
-Every key shown in draft section 3 has a disposition here. Keys that remain have normative definitions above; these rows call out changes or important constraints.
-
-| Draft key | Disposition |
+| Key | Disposition |
 |---|---|
-| `contract` | Retained; value is `tileset` (shared stamp spelling). |
-| `version` | Retained; shared semantic version, pre-release until published. |
-| `id` | Dropped; path-with-extension is document identity. |
-| `name` | Retained as required display name. |
-| `projection` | Retained; constrained to shared three-value vocabulary. |
-| `cellSize` | Retained; positive `[width, height]` integer pixels. |
-| `sources` | Retained as ordered list; source `id` is local, `file` path project-relative, grid and transparency shapes closed. |
-| source `id` | Retained; unique within this document, not cross-document identity. |
-| source `file` | Retained; project-relative source asset path. |
-| source `grid` | Retained; cell dimensions, margins and gaps defined above. |
-| `transparent` | Retained; exactly alpha or RGB color-key mode. |
-| `tiles` | Retained as ordered list; local IDs unique and references scoped to this document. |
-| tile `id` | Retained as a stable local reference target. |
-| tile `name` | Retained as display name. |
-| tile `source` | Retained as local source-id reference. |
-| tile `cell` | Retained as zero-based `[column, row]`. |
-| tile `role` | Retained with closed four-value vocabulary. |
-| tile `collision` | Retained, required; `walkable` or `solid`; lowered as default collision intent. |
-| tile `kitbash` | Retained as ordered, closed operation list; `cutCorner` geometry is defined above. |
-| `isoBlocks` | Retained optional; ordered list of block recipes. |
-| block `id`, `name`, `heightPixels`, `faces` | Retained; exact required members and bounds defined above. |
-| face `source`, `cell`, `tint` | Retained; source-cell reference and optional bounded channel offsets. |
-| block `collision` | Retained, required; `walkable` or `solid`. |
-| block `wallCapUnder` | Retained optional; defaults false; adds under/walk-behind output independently of collision. |
-| `autotiles` | Retained optional; ordered list. |
-| autotile `id`, `name`, `mode`, `base`, `border`, `innerCorner`, `exportOrder` | Retained; closed modes/order and exact source-cell reference shape above. |
-| `outputBinding` | Retained required; generated target and detail. |
-| output `target` | Retained; project-relative generated `.tst` target; cannot overwrite source. |
-| output `detail` | Retained; positive integer. |
-| `tags`, `metadata`, `pluginData` | Not shown in draft; added from shared native contract. |
-| Any other top-level key | Rejected by closed contract; no undocumented escape hatch. |
+| `contract`, `version`, `tags`, `metadata`, `pluginData` | Shared stamp and reserved keys. |
+| `name` | Required display name; not identity. |
+| `expects` | Required `{projection, cellSize}` every standalone member must match. |
+| `tiles` | Required ordered palette of `{tile: <.tkrtle path>}` mappings; duplicate normalized identities are errors. |
+| `terrains` | Optional named recipes and rules that select palette members by path. |
+| `sources`, `isoBlocks` | Optional authored raised-block recipes; only `isoBlocks` faces use source cells. They do not define palette tiles. |
+| `outputBinding` | Required `{target, detail, slots}`; the only owner of persistent 1-based output slots. |
+| tile `id`, `source`, `cell`, `role`, `collision`, `kitbash`, `autotiles` | Removed from the tileset; they live in standalone `.tkrtle` documents or are rejected. |
+| Any other top-level key | Rejected by the closed contract; no alias and no migration from the embedded form. |
 
-## Proposed registry entry
+## Not decided here
 
-Add this row to [the native contract registry](native-contracts.md#the-registry) and the package registry in the same change:
-
-| Extension | Contract | Contract page |
-|---|---|---|
-| `.tkrtst` | `tileset` | [native-tileset.md](native-tileset.md) |
-
-## Owner review: consequential choices
-
-This draft makes concrete recommendations so it can be reviewed end to end. These are the decisions that remain genuinely ambiguous in the source materials and need Jensen's explicit review before the contract is treated as approved:
-
-1. **Tile-reference spelling:** use separate `tileset` path and `tile` local-ID fields, consistent with the asset-pack draft. A path fragment would be shorter but needs fragment parsing and escaping rules that shared native identity does not define.
-2. **Collision output geometry:** use each tile/block footprint as the default solid boundary on lowering. ADR 0019 requires collision stored with the art, but neither the draft nor the ADR defines the exact legacy vector geometry, especially for isometric faces. Confirm or replace before implementation.
-3. **`wallCapUnder` geometry:** emit an under region for the block footprint, independently of solid collision. The draft marks the intent but not the generated region's precise shape or depth; confirm this conservative footprint interpretation.
-4. **Legacy output representability:** report unrepresentable recipes/metadata rather than silently drop them; this follows the general authoring contract but exact `.tst`/`.iso` build mapping remains a later reader/writer implementation concern.
-
-Approval of this page is a gate in story #1846. Until Jensen approves it, this remains a proposed specification, not a completed acceptance criterion.
+- **Raised-isometric lowering.** `isoBlocks` remains authored, but a target that would emit a raised block refuses until its faces, draw order, collision and walk-behind are proved in both isometric layouts.
+- **Collision and wall-cap vector geometry.** A tile's explicit `solid` and `under` outlines are carried when representable; this page does not invent geometry for a legacy target that cannot encode them.
+- **Artwork codec.** A standalone tile names an ordinary raster rectangle or a managed frame and region ([native-tile.md](native-tile.md)); no tool or managed-art codec is defined here.
+- **Tileset-local tile identity.** There is none. A tile is its document path, and the previous `{tileset, tile: local-id}` spelling is rejected.
