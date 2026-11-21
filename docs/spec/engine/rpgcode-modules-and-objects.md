@@ -212,7 +212,7 @@ To remove a listener, pass `off` a callable equal to the one registered: store t
 | `dialogue.completed` | game | no | `actorId`, `targetId` (actor id or null), `text`; script-originated detail uses these same fields even when identifier folding lowercases their RPGCode spelling | Epic 8 interaction wrapper |
 | `talked` | actor | no | `actorId`, `targetId` (actor id or null), `text`; emitted by stock RPG package after `dialogue.completed` | Epic 8 stock RPG package |
 | `beforeDamage` | actor/battle operation | yes | source actor id or null, target actor id, damage detail | Epic 7 |
-| `beforeEnter` | board | yes (the step does not happen) | actor id, board key, entry detail | 20.9 |
+| `beforeEnter` | board | yes (a cancel refuses the linked-edge crossing; the step does not happen) | actor id, board key, entry detail | 20.9 |
 | `defeated` | actor (battle package) | no | `cause` (`damage`, `status`, `script`), `source` (actor id or null); emitted once per enemy per battle when it first reaches 0 HP, never on a run; the package re-emits it on the game as `stock_battle.defeated` with the same detail ([battle.md BAT-12](battle.md#bat-12)) | Epic 7 |
 | `battleEnded` | game | no | `{ outcome }`; emitted once after the battle outcome handler completes | Epic 7 battle lifecycle |
 | `boardReturned` | game | no | `{ boardKey }`; emitted once when the active board is shown again after the battle; `boardKey` identifies the active board | Epic 7 engine board/audio return |

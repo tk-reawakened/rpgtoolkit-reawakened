@@ -45,7 +45,8 @@ The current destination-collision and direct-step-stop rules settle how the acti
 
 ## Notes
 
-- Open question: does the queue represent absolute destinations or directional intent that should be replayed from the last safe position?
-- Assumption: queued movement must never cross a solid obstacle merely because a later command retains a stale target; the owner must confirm the precise queue behavior.
+- Resolved 2026-11-21 by an approved owner ruling (owner: Jensen; [R-65](../../docs/spec/engine/movement-and-collision.md#r-65), [ADR 0040](../../docs/adr/0040-tile-step-precheck-queues-and-linked-edge-preflight.md)): queued directions are relative intent recomputed from the actor's last safe position; absolute point and waypoint targets and later script-appended commands are kept; and a kept absolute point never grants passage through solid geometry. The dated ruling satisfies criterion 4 and the queue rule criterion 3.
+- The assumption below is now the rule: queued movement must never cross a solid obstacle because a later command retained a stale target.
+- Evidence: [Round 17 facts](../../docs/provenance/facts-round-17.md), R17-Q1 (`:24-27`, `:46`).
 
 - Risk: high — stale queued targets could cross a wall after a blocked step; outside this ticket's criteria, verify the selected rule in Epic 5's entry 12 replay and snapshot sweep.
