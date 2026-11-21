@@ -127,17 +127,16 @@ export async function buildSceneTerrain(inputs: SceneTerrainBuildInputs): Promis
   const outputs: { path: string; bytes: Uint8Array }[] = [];
   for (const [, { path, tileset }] of [...used].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     const members = tileset.tiles.map(({ tile }) => ({ path: tile, tile: tiles.get(fold(tile))! }));
-    let result: Awaited<ReturnType<typeof lowerSceneTileSlots>>;
     try {
-      result = await lowerSceneTileSlots(tileset.outputBinding, members, async (sample) => {
+      const result = await lowerSceneTileSlots(tileset.outputBinding, members, async (sample) => {
         const crop = await inputs.resolveCrop(sample);
         if (crop !== null && (crop.rect[2] !== tileset.expects.cellSize[0] || crop.rect[3] !== tileset.expects.cellSize[1])) throw new Error("Tile crop dimensions differ from the tileset cell size.");
         return crop;
       });
-    } catch (error) { fail("terrain-crop-unavailable", path, String(error)); continue; }
-    if (!result.ok) { for (const problem of result.problems) fail("terrain-tile-lowering", `${path}:${problem.path}`, problem.message); continue; }
-    outputs.push(...result.outputs);
-    for (const [id, reference] of result.references) references.set(id, reference);
+      if (!result.ok) { for (const problem of result.problems) fail("terrain-tile-lowering", `${path}:${problem.path}`, problem.message); continue; }
+      outputs.push(...result.outputs);
+      for (const [id, reference] of result.references) references.set(id, reference);
+    } catch (error) { fail("terrain-crop-unavailable", path, String(error)); }
   }
   if (problems.length) return { ok: false, problems };
   const palette: string[] | null = lowered.palette === null ? null : [];
