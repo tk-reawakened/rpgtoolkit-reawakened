@@ -2,13 +2,15 @@
 // ADR 0040). These are the contract tests for #1281's first slice: a tile direction step prechecks its
 // whole destination, a blocked player step is consumed and counted, other actors retry, and queued
 // directions are relative intent while point targets stay absolute.
-import { deepEqual, equal, ok } from "node:assert/strict";
+import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { test } from "node:test";
 import {
   actorFromSource,
+  advanceScriptTick,
   createEmptyBoard,
   createGameState,
   createScriptServices,
+  drainDiagnostics,
   enqueueDirectionMove,
   hydrateSprites,
   IR_VERSION,
@@ -16,7 +18,9 @@ import {
   restoreGameState,
   runMovementPhase,
   runTriggersPhase,
+  ScriptError,
   snapshot,
+  startProgram,
   startThread,
   type Arg,
   type GameState,
@@ -323,15 +327,15 @@ test("R-65 keeps one FIFO across kinds; a direction after a point starts where t
   equal(current.players[0]?.x, 96, "the direction starts from the point's actual end");
 });
 
-// R-65 item 5 / owner ruling on ambiguity 4 ---------------------------
+// R-69 (was R-65 item 5 / owner ruling on ambiguity 4) ---------------
 
 /** Call one movement built-in directly and read its by-reference outputs. */
 function getPath(
   command: "playergetpath" | "itemgetpath",
   state: GameState,
-  handle: number,
+  handle: number | string,
   index: number,
-): { value: unknown; out: readonly (readonly [number, unknown])[] } {
+): { value: unknown; out: readonly (readonly [number, unknown])[]; wait?: unknown } {
   const services = createScriptServices(state, [{ definition: MOVEMENT_PLUGIN }]);
   const spec = services.commands.get(command)?.spec;
   if (spec === undefined) throw new Error(`missing ${command}`);
@@ -341,7 +345,21 @@ function getPath(
     { value: 0, ref: "x" as never },
     { value: 0, ref: "y" as never },
   ];
-  return spec.call(services.view, args, () => ({ value: null })) as { value: unknown; out: readonly (readonly [number, unknown])[] };
+  const result = spec.call(services.view, args, () => ({ value: null })) as { value: unknown; out?: readonly (readonly [number, unknown])[]; wait?: unknown };
+  return { value: result.value, out: result.out ?? [], wait: result.wait };
+}
+
+/** Call the one-argument form, which reports only the count. */
+function getPathCount(command: "playergetpath" | "itemgetpath", state: GameState, handle: number | string): unknown {
+  const services = createScriptServices(state, [{ definition: MOVEMENT_PLUGIN }]);
+  const spec = services.commands.get(command)?.spec;
+  if (spec === undefined) throw new Error(`missing ${command}`);
+  const result = spec.call(services.view, [{ value: handle, ref: null }], () => ({ value: null })) as { value: unknown };
+  return result.value;
+}
+
+function waypointVector(handle = "wp", points: { x: number; y: number }[] = [{ x: 64, y: 63 }, { x: 96, y: 63 }]): NonNullable<WorldBoard["vectors"]>[number] {
+  return { handle, attributes: 0, closed: 0, layer: 1, type: 4, points };
 }
 
 test("playergetpath reports where each queued entry would end, including a direction entry", () => {
@@ -350,9 +368,9 @@ test("playergetpath reports where each queued entry would end, including a direc
   enqueueDirectionMove(current.sprites, "hero", "E", 0);
   enqueueMove(current.sprites, "hero", { source: "points", target: { x: 200, y: 100 }, facing: null });
   const first = getPath("playergetpath", current, 0, 0);
-  deepEqual([first.value, first.out], [1, [[2, 80], [3, 63]]], "the direction entry reports its computed pixel point");
+  deepEqual([first.value, first.out], [2, [[2, 80], [3, 63]]], "the direction entry reports its computed pixel point");
   const second = getPath("playergetpath", current, 0, 1);
-  deepEqual([second.value, second.out], [1, [[2, 200], [3, 100]]], "the point entry keeps its absolute target");
+  deepEqual([second.value, second.out], [2, [[2, 200], [3, 100]]], "the point entry keeps its absolute target");
 });
 
 test("itemgetpath reports where each queued entry would end, including a direction entry", () => {
@@ -363,9 +381,9 @@ test("itemgetpath reports where each queued entry would end, including a directi
   enqueueDirectionMove(current.sprites, "npc", "E", 0);
   enqueueMove(current.sprites, "npc", { source: "points", target: { x: 200, y: 100 }, facing: null });
   const first = getPath("itemgetpath", current, 0, 0);
-  deepEqual([first.value, first.out], [1, [[2, 80], [3, 63]]], "the direction entry reports its computed pixel point");
+  deepEqual([first.value, first.out], [2, [[2, 80], [3, 63]]], "the direction entry reports its computed pixel point");
   const second = getPath("itemgetpath", current, 0, 1);
-  deepEqual([second.value, second.out], [1, [[2, 200], [3, 100]]], "the point entry keeps its absolute target");
+  deepEqual([second.value, second.out], [2, [[2, 200], [3, 100]]], "the point entry keeps its absolute target");
 });
 
 test("playergetpath recomputes a direction after a blocked step from the last safe position", () => {
@@ -387,9 +405,111 @@ test("playergetpath recomputes a direction after a blocked step from the last sa
   deepEqual([point.value, point.out], [1, [[2, 84], [3, 63]]], "the next direction starts from 52, not the blocked target 80");
 });
 
-test("playergetpath still returns 0 when the player has no queued entries", () => {
+test("playergetpath returns 0 and writes nothing when the player is idle", () => {
   const currentBoard = board();
   const current = stateWith(currentBoard);
   const empty = getPath("playergetpath", current, 0, 0);
-  deepEqual([empty.value, empty.out], [0, [[2, 0], [3, 0]]], "no entry reports no point");
+  deepEqual([empty.value, empty.out], [0, []], "no entry reports no point and leaves both variables alone");
+});
+
+// R-69 items 1-8: count, index, rounding, missing index, arity, side effects, waypoints, missing handle.
+
+test("R-69 counts the step in progress and reports its target at index 0", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  runMovementPhase(current.sprites, currentBoard, 0);
+  equal(current.sprites.players[0]?.x, 52, "the step is in progress");
+  const result = getPath("playergetpath", current, 0, 0);
+  deepEqual([result.value, result.out], [1, [[2, 80], [3, 63]]], "the active step's target is entry 0 and is counted");
+});
+
+test("R-69 reports the first queued entry at index 0 when no step is active", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  enqueueDirectionMove(current.sprites, "hero", "W", 0);
+  enqueueDirectionMove(current.sprites, "hero", "W", 0);
+  equal(current.sprites.players[0]?.movement.active, null);
+  const result = getPath("playergetpath", current, 0, 0);
+  deepEqual([result.value, result.out], [2, [[2, 16], [3, 63]]], "index 0 is the first queued entry, counted with the second");
+});
+
+test("R-69 writes the point rounded half up to whole pixels", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  enqueueMove(current.sprites, "hero", { source: "points", target: { x: 64.5, y: 63.49 }, facing: null });
+  const result = getPath("playergetpath", current, 0, 0);
+  deepEqual([result.value, result.out], [1, [[2, 65], [3, 63]]], "floor(value + 0.5) is never a truncation");
+});
+
+test("R-69 writes nothing for a negative or past-end index and leaves both variables alone", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  enqueueMove(current.sprites, "hero", { source: "points", target: { x: 200, y: 100 }, facing: null });
+  const negative = getPath("playergetpath", current, 0, -1);
+  deepEqual([negative.value, negative.out], [1, []], "a negative index writes nothing");
+  const past = getPath("playergetpath", current, 0, 1);
+  deepEqual([past.value, past.out], [1, []], "an index at the count writes nothing");
+});
+
+test("R-69 rejects any argument count other than one or four with arity.mismatch", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const services = createScriptServices(current, [{ definition: MOVEMENT_PLUGIN }]);
+  startProgram(current.vm, { kind: "inline", text: "playergetpath(0, 0)\n", ir: IR_VERSION });
+  advanceScriptTick(current, services);
+  const diagnostics = drainDiagnostics(services);
+  equal(diagnostics.length, 1, "one diagnostic");
+  equal(diagnostics[0]?.code, "arity.mismatch", "the standard catchable wrong-count error");
+  ok(diagnostics[0]?.message.includes("1 or 4"), `the message names both valid counts: ${diagnostics[0]?.message}`);
+});
+
+test("R-69 does not wait or change movement when reading", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueMove(current.sprites, "hero", { source: "points", target: { x: 200, y: 100 }, facing: null });
+  const before = JSON.stringify(current.sprites);
+  const count = getPathCount("playergetpath", current, 0);
+  const first = getPath("playergetpath", current, 0, 0);
+  const second = getPath("playergetpath", current, 0, 0);
+  equal(count, 2, "the count includes both entries");
+  deepEqual([first.value, first.out], [second.value, second.out], "reading twice returns the same values");
+  equal(JSON.stringify(current.sprites), before, "the queue and movement are unchanged");
+  equal(first.wait, undefined, "the four-argument form does not wait");
+});
+
+test("R-69 counts a copied waypoint in full once per cycle but not a linked one", () => {
+  const currentBoard = board([waypointVector()]);
+  const linked = stateWith(currentBoard);
+  applySpriteEffect(linked, "playerpath", ["hero", 16, "wp", 1], 0);
+  equal(linked.sprites.players[0]?.queue.waypoint?.live, true, "the vector is linked");
+  deepEqual([getPathCount("playergetpath", linked, 0), getPath("playergetpath", linked, 0, 0).out], [0, []], "a linked waypoint is not a queue");
+  for (let tick = 0; tick < 3; tick += 1) runMovementPhase(linked.sprites, currentBoard, tick);
+  equal(linked.sprites.players[0]?.movement.active?.source, "waypoint-link", "a linked step is in progress");
+  deepEqual([getPathCount("playergetpath", linked, 0), getPath("playergetpath", linked, 0, 0).out], [0, []], "an in-progress linked step is still not a queue entry");
+
+  const copied = stateWith(currentBoard);
+  applySpriteEffect(copied, "playerpath", ["hero", 8, "wp", 2], 0);
+  equal(copied.sprites.players[0]?.queue.waypoint?.live, false, "the vector is copied");
+  const first = getPath("playergetpath", copied, 0, 0);
+  const second = getPath("playergetpath", copied, 0, 1);
+  deepEqual([getPathCount("playergetpath", copied, 0), first.out, second.out], [2, [[2, 64], [3, 63]], [[2, 96], [3, 63]]], "two cycles of two points still count once per cycle");
+  for (let tick = 0; tick < 200; tick += 1) runMovementPhase(copied.sprites, currentBoard, tick);
+  deepEqual([getPathCount("playergetpath", copied, 0), getPath("playergetpath", copied, 0, 0).out], [0, []], "the finished waypoint leaves an empty queue");
+});
+
+test("R-69 reports 3.1's 'player not found' text for a handle that names no actor", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const services = createScriptServices(current, [{ definition: MOVEMENT_PLUGIN }]);
+  for (const command of ["playergetpath", "itemgetpath"] as const) {
+    const spec = services.commands.get(command)?.spec;
+    if (spec === undefined) throw new Error(`missing ${command}`);
+    throws(
+      () => spec.call(services.view, [{ value: "ghost", ref: null }], () => ({ value: null })),
+      (error: unknown) => error instanceof ScriptError && error.code === "builtin.bad-arg" && error.message === "player not found",
+      `${command} keeps 3.1's message text`,
+    );
+  }
 });
