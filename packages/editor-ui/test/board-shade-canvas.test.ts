@@ -35,7 +35,7 @@ async function setup(initial: Partial<ShadeUi> & Pick<ShadeUi, "mode">) {
   if (!opened.ok) throw new Error(JSON.stringify(opened.error));
   const doc: BoardDocument = opened.document;
   const editor = createBoardEditor({ board: () => doc.getSnapshot(), apply: (command: BoardCommand) => doc.apply(command), brush: () => null, pickTile: () => false, preferences: () => ({}) as never });
-  let ui: ShadeUi = { tool: "draw", brush: { r: 64, g: 32, b: 16 }, ...initial };
+  let ui: ShadeUi = { tool: "draw", brush: { r: 64, g: 32, b: 16 }, showShading: true, showLighting: true, ...initial };
   const messages: (string | null)[] = [];
   const root = document.createElement("div");
   document.body.append(root);

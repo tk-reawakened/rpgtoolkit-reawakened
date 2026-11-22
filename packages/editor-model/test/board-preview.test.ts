@@ -11,6 +11,8 @@ import {
   createAssetIndex,
   createEmptyBoard,
   createEngine,
+  BinaryReader,
+  readBoard,
   writeBoard,
   type Board,
   type EnginePhaseRegistration,
@@ -191,4 +193,38 @@ test("hiding the background leaves its image out of the picture", async () => {
   deepEqual([...withImage.rgba.subarray(0, 4)], [200, 10, 10, 255]);
   deepEqual([...hidden.rgba.subarray(0, 4)], [0, 0, 0, 255], "the board's own background colour shows instead");
   deepEqual(await previewBoard(host.fs, "memory-project", written.value, { showBackground: true }), withImage);
+});
+
+/** The small board with painted shade and a light, saved as the editor saves them: one shading layer and an editable light. */
+function litBoard(): Uint8Array {
+  const read = readBoard(new BinaryReader(smallBoard()));
+  if (!read.ok) throw new Error(read.error.message);
+  const written = writeBoard({
+    ...read.value,
+    shadeLayers: [{ castLayer: 1, records: [{ runCount: 1, r: -60, g: 0, b: 30 }, { runCount: 3, r: 0, g: 0, b: 0 }] }],
+    lights: [{ layer: 1, type: 1, nodes: [{ x: 0, y: 0 }, { x: 64, y: 0 }], colours: [{ r: 0, g: 0, b: 0 }, { r: 90, g: 60, b: -40 }] }],
+  });
+  if (!written.ok) throw new Error(written.error.message);
+  return written.value;
+}
+
+test("a board with painted shade and a light previews as the engine's viewbrd draws it, and each can be hidden", async () => {
+  const bytes = litBoard();
+  const host = createMemoryPlatformServices({ files: { "Boards/village.brd": bytes, "Tiles/village.tst": tileset } });
+  const show = async (options: Parameters<typeof previewBoard>[3] = {}) => {
+    const picture = await previewBoard(host.fs, "memory-project", bytes, options);
+    ok(picture.ok, picture.ok ? "" : picture.message);
+    return picture.rgba;
+  };
+  const both = await show();
+  deepEqual(both, engineView(bytes, 64), "shade and light together match the real engine's picture");
+  const shadeOnly = await show({ showLighting: false });
+  const lightOnly = await show({ showShading: false });
+  const neither = await show({ showShading: false, showLighting: false });
+  notDeepEqual(shadeOnly, both, "hiding the light changes the picture");
+  notDeepEqual(lightOnly, both, "hiding the shade changes the picture");
+  notDeepEqual(shadeOnly, lightOnly);
+  const plain = await previewBoard(host.fs, "memory-project", smallBoard());
+  ok(plain.ok);
+  deepEqual(neither, plain.rgba, "with both hidden the board draws as if it had neither");
 });

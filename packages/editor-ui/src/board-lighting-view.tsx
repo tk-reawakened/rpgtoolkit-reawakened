@@ -12,9 +12,12 @@ export interface ShadeUi {
   readonly mode: ShadeCanvasMode;
   readonly tool: ShadeTool;
   readonly brush: { readonly r: number; readonly g: number; readonly b: number };
+  /** Whether the picture draws painted tile shading and lights; hiding changes only the picture, never the board. */
+  readonly showShading: boolean;
+  readonly showLighting: boolean;
 }
 
-export const INITIAL_SHADE_UI: ShadeUi = { mode: "off", tool: "draw", brush: { r: 64, g: 64, b: 64 } };
+export const INITIAL_SHADE_UI: ShadeUi = { mode: "off", tool: "draw", brush: { r: 64, g: 64, b: 64 }, showShading: true, showLighting: true };
 
 const TOOL_NAMES: Readonly<Record<ShadeTool, string>> = { draw: "Draw", erase: "Erase", rectangle: "Rectangle", flood: "Flood fill", dropper: "Dropper" };
 
@@ -79,6 +82,8 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
         <legend>On the board</legend>
         <button type="button" aria-pressed={ui.mode === "shading"} disabled={locked} onClick={() => onUi({ ...ui, mode: ui.mode === "shading" ? "off" : "shading" })}>Paint shading on the board</button>
         <button type="button" aria-pressed={ui.mode === "lighting"} disabled={locked} onClick={() => onUi({ ...ui, mode: ui.mode === "lighting" ? "off" : "lighting" })}>Move lights on the board</button>
+        <button type="button" aria-pressed={ui.showShading} onClick={() => onUi({ ...ui, showShading: !ui.showShading })}>Draw tile shading</button>
+        <button type="button" aria-pressed={ui.showLighting} onClick={() => onUi({ ...ui, showLighting: !ui.showLighting })}>Draw lighting</button>
         {ui.mode === "shading" ? SHADE_TOOLS.map((tool) => (
           <button type="button" key={tool} aria-pressed={ui.tool === tool} disabled={locked} onClick={() => onUi({ ...ui, tool })}>{TOOL_NAMES[tool]}</button>
         )) : null}

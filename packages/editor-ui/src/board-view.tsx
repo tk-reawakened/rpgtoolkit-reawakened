@@ -257,7 +257,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const x = Math.min(state.cursor.x, Math.max(0, size.width - 1));
   const y = Math.min(state.cursor.y, Math.max(0, size.height - 1));
   const tile = boardTileAt(snapshot, currentLayer, x, y);
-  const request = editor.pictureRequest();
+  const request = { ...editor.pictureRequest(), ...(shadeUi.showShading ? {} : { showShading: false }), ...(shadeUi.showLighting ? {} : { showLighting: false }) };
   const requestKey = JSON.stringify(request);
 
   // The text field follows the cursor cell, and a change the document made under it (undo, a reload) replaces a draft.
@@ -279,7 +279,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     );
     return () => { current = false; };
   // Object art and visual board data affect composition; region-only edits need no asset work.
-  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey, assetRevision]);
+  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.lights, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey, assetRevision]);
 
   useEffect(() => {
     if (!focusCell.current) return;
