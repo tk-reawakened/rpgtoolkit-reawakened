@@ -4,16 +4,22 @@
 import { deepEqual, equal } from "node:assert/strict";
 import { test } from "node:test";
 import {
+  assetKey,
+  CORE_PLUGIN,
   createAssetIndex,
   createEmptyBoard,
   createEngine,
   enqueueDirectionMove,
+  MOVEMENT_PLUGIN,
   hydrateSprites,
   IR_VERSION,
   movementPhaseRegistration,
   PACKAGE_ROOT,
+  readEvent,
   triggerPhaseRegistration,
+  utf8Encode,
   writeBoard,
+  type AssetKey,
   type Board,
   type GameState,
   type MovementEvent,
@@ -64,8 +70,9 @@ type Observation = {
 };
 type Facts = Observation & {
   readonly triggerStarts: readonly TriggerEvent[];
+  readonly beforeEnter: readonly number[];
   readonly diagnostics: readonly string[];
-  readonly history: readonly { readonly board: string | null; readonly x: number | null; readonly y: number | null; readonly pending: string | null }[];
+  readonly history: readonly { readonly board: string | null; readonly x: number | null; readonly y: number | null; readonly pending: string | null; readonly queued: number }[];
 };
 
 type PreflightCase = {
@@ -78,6 +85,7 @@ type PreflightCase = {
   readonly dirs?: readonly ("E" | "N")[];
   readonly holdReplyTicks?: number;
   readonly cancelBeforeEnter?: boolean;
+  readonly blockingProgram?: boolean;
   readonly index?: readonly string[];
 };
 
@@ -87,25 +95,40 @@ function runPreflightCase(options: PreflightCase = {}): Facts {
   const destination = options.destination ?? board(10, 10, {});
   const events: MovementEvent[] = [];
   const diagnostics: string[] = [];
-  const history: { board: string | null; x: number | null; y: number | null; pending: string | null }[] = [];
+  const history: { board: string | null; x: number | null; y: number | null; pending: string | null; queued: number }[] = [];
   const triggerStarts: TriggerEvent[] = [];
+  const beforeEnter: number[] = [];
   let seeded = false;
   const observed: { value: Observation | null } = { value: null };
   const plugin: PluginDefinition = {
     id: "edge-cancel",
     version: "1.0.0",
-    commands: [{
-      name: "cancelbeforeenter",
-      aliases: [],
-      params: [{ name: "event", optional: false, byRef: false, variadic: false }],
-      call: (view: { readonly state?: GameState }, args: readonly { readonly value: unknown }[]) => {
-        if (view.state !== undefined) applyEmitterOp(view.state.vm, view.state.events, "cancel", args[0]?.value as never, [], null);
-        return { value: 0 };
+    commands: [
+      {
+        name: "recordbeforeenter",
+        aliases: [],
+        params: [{ name: "event", optional: false, byRef: false, variadic: false }],
+        call: (view: { readonly state?: GameState }, args: readonly { readonly value: unknown }[]) => {
+          if (view.state !== undefined && readEvent(view.state, args[0]?.value as never) !== undefined) beforeEnter.push(view.state.time.tick);
+          return { value: 0 };
+        },
       },
-    }],
+      {
+        name: "cancelbeforeenter",
+        aliases: [],
+        params: [{ name: "event", optional: false, byRef: false, variadic: false }],
+        call: (view: { readonly state?: GameState }, args: readonly { readonly value: unknown }[]) => {
+          if (view.state !== undefined) applyEmitterOp(view.state.vm, view.state.events, "cancel", args[0]?.value as never, [], null);
+          return { value: 0 };
+        },
+      },
+    ],
     listeners: options.cancelBeforeEnter === true
-      ? [{ emitter: "board:boards/east.brd", type: "beforeEnter", command: "cancelbeforeenter" }]
-      : [],
+      ? [
+        { emitter: "board:boards/east.brd", type: "beforeEnter", command: "recordbeforeenter" },
+        { emitter: "board:boards/east.brd", type: "beforeEnter", command: "cancelbeforeenter" },
+      ]
+      : [{ emitter: "board:boards/east.brd", type: "beforeEnter", command: "recordbeforeenter" }],
   };
   const engine = createEngine({
     seed: 71,
@@ -115,7 +138,11 @@ function runPreflightCase(options: PreflightCase = {}): Facts {
     width: 320,
     height: 320,
     maxTicks: 12,
-    plugins: [{ definition: plugin }],
+    ...(options.blockingProgram === true ? { program: "wait()\nend()" } : {}),
+    // The scene program needs the built-in command table; the other cases keep the minimal plugin set.
+    plugins: options.blockingProgram === true
+      ? [{ definition: CORE_PLUGIN }, { definition: MOVEMENT_PLUGIN }, { definition: plugin }]
+      : [{ definition: plugin }],
     phaseRegistrations: [
       {
         phase: "movement",
@@ -144,7 +171,7 @@ function runPreflightCase(options: PreflightCase = {}): Facts {
         phase: "audio",
         run: (state) => {
           const player = state.sprites.players[0];
-          history.push({ board: state.world.board?.key ?? null, x: player?.x ?? null, y: player?.y ?? null, pending: player?.movement.pendingExit ?? null });
+          history.push({ board: state.world.board?.key ?? null, x: player?.x ?? null, y: player?.y ?? null, pending: player?.movement.pendingExit ?? null, queued: player?.queue.moves.length ?? 0 });
           observed.value = {
             board: state.world.board?.key ?? null,
             x: player?.x ?? null,
@@ -190,7 +217,7 @@ function runPreflightCase(options: PreflightCase = {}): Facts {
   }
   const latest = observed.value;
   if (latest === null) throw new Error("the audio observation never ran");
-  return { ...latest, diagnostics, history, triggerStarts };
+  return { ...latest, diagnostics, history, triggerStarts, beforeEnter };
 }
 
 test("R-66: an accepted crossing is a placement, not a completed step", () => {
@@ -279,4 +306,98 @@ test("E-48: a program-link exit keeps its finished-step record and fires a step 
   equal(facts.lastStepTick, 0, "E-48 keeps the finished-step record");
   equal(facts.lastStepBlocked, true);
   deepEqual(facts.triggerStarts.map((record) => [record.tick, record.key, record.source]), [[0, "region:0", "region"]]);
+});
+
+
+test("R-66/R-68: a linked refusal under a live blocking program is refused before beforeEnter and keeps the queue", () => {
+  // The scene program's wait() is a live blocking thread at the movement phase, so R-68 suppresses
+  // end-of-step processing for this tick. The linked refusal is uncounted either way, but it must still
+  // run its preflight (and beforeEnter) and keep the unrelated queued step.
+  const facts = runPreflightCase({ dirs: ["E", "N"], cancelBeforeEnter: true, blockingProgram: true });
+  // The destination arrives one tick after it is requested, so the linked attempt is refused on that
+  // tick, under the live blocking scene program's suppression. The engine forbids starting a cancelable
+  // event while a blocking thread is live (`runEngineCancelableEventOutcome`), so beforeEnter does not run
+  // and the preflight's "any failure is a refusal" boundary applies — uncounted, queue kept.
+  equal(facts.beforeEnter.length, 0);
+  equal(facts.diagnostics.filter((code) => code === "event.dispatch-active").length, 1);
+  const blockedAt = facts.events.find((record) => record.type === "blocked");
+  if (blockedAt === undefined) throw new Error("the linked attempt was not refused");
+  const tick = blockedAt.tick;
+  const row = facts.history[tick]!;
+  equal(row.board, "boards/west.brd");
+  deepEqual([row.x, row.y], [304, 95]);
+  equal(row.queued, 1, "the refused step consumed only its own entry; N stays queued");
+  deepEqual(facts.events.filter((record) => record.type === "blocked").map((record) => [record.tick, record.edge]), [[tick, "E"]]);
+  equal(facts.events.some((record) => record.type === "edge-exit"), false);
+  equal(facts.history.every((entry) => entry.board === "boards/west.brd"), true);
+});
+
+test("R-66/R-68: a crossing tick's end-of-step decision is captured before the blocking enter program starts", () => {
+  const west = board(10, 10, { links: { east: "east.brd" } });
+  const east = board(10, 10, { enterPrg: "east-enter.prg" });
+  const assets = new Map<AssetKey, Uint8Array>([
+    [assetKey("boards/west.brd"), bytes(west)],
+    [assetKey("boards/east.brd"), bytes(east)],
+  ]);
+  const programLoader = {
+    index: createAssetIndex(["Prg/east-enter.prg"]),
+    root: { kind: "package" as const },
+    read: (key: AssetKey) => key === assetKey("prg/east-enter.prg") ? utf8Encode("wait()\nend()") : undefined,
+  };
+  const movementContexts: { tick: number; suppressed: boolean | undefined }[] = [];
+  const triggerContexts: { tick: number; suppressed: boolean | undefined; live: boolean }[] = [];
+  const rows: { tick: number; board: string | null; x: number | null; y: number | null }[] = [];
+  let seeded = false;
+  const engine = createEngine({
+    seed: 71,
+    assetIndex: createAssetIndex(["Boards/west.brd", "Boards/east.brd"]),
+    assetRoot: PACKAGE_ROOT,
+    initialBoard: "west.brd",
+    programLoader,
+    width: 320,
+    height: 320,
+    maxTicks: 4,
+    initialAssets: assets,
+    phaseRegistrations: [
+      {
+        phase: "input",
+        rank: -1,
+        run: (state) => {
+          if (seeded) return;
+          const currentBoard = state.world.board;
+          if (currentBoard === null || currentBoard === undefined) return;
+          seeded = true;
+          state.sprites = hydrateSprites({
+            board: currentBoard,
+            players: [{ id: "hero", source: "hero.tem", kind: "player", x: 304, y: 95, layer: 0, facing: "E", controlled: true }],
+          });
+          enqueueDirectionMove(state.sprites, "hero", "E");
+        },
+      },
+      { phase: "movement", rank: -200, run: (state, _post, context) => movementContexts.push({ tick: state.time.tick, suppressed: context?.endOfStepSuppressed }) },
+      movementPhaseRegistration(),
+      {
+        phase: "triggers",
+        rank: -200,
+        run: (state, _post, context) => triggerContexts.push({
+          tick: state.time.tick,
+          suppressed: context?.endOfStepSuppressed,
+          live: state.vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"),
+        }),
+      },
+      {
+        phase: "audio",
+        run: (state) => {
+          const player = state.sprites.players[0];
+          rows.push({ tick: state.time.tick, board: state.world.board?.key ?? null, x: player?.x ?? null, y: player?.y ?? null });
+        },
+      },
+    ],
+  });
+  engine.advance(2, []);
+  // Tick 0: no blocking thread when the movement phase captures the decision; the crossing then starts the
+  // destination's enter program as a blocking thread, and the triggers phase still reads the captured false.
+  deepEqual(movementContexts.map((entry) => [entry.tick, entry.suppressed]), [[0, false], [1, true]]);
+  deepEqual(triggerContexts.map((entry) => [entry.tick, entry.suppressed, entry.live]), [[0, false, true], [1, true, true]]);
+  deepEqual(rows.slice(0, 2).map((row) => [row.tick, row.board, row.x, row.y]), [[0, "boards/east.brd", 15, 95], [1, "boards/east.brd", 15, 95]]);
 });
