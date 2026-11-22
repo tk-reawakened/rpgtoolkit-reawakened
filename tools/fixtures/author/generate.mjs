@@ -557,12 +557,12 @@ const LIGHT_TST = tileset(20, 2, 16, 3, (_k, tile) => LIGHT_COLOURS[tile] ?? LIG
 const LIGHT_LUT = ["", ...LIGHT_COLOURS.map((_colour, tile) => `light-oracle.tst${tile + 1}`)];
 const LIGHT_CELLS = Array.from({ length: 32 }, (_unused, index) => [index, index < 8 ? 2 + (index % 4) : 1]);
 const asRgb = ([r, g, b]) => ({ r, g, b });
-const ellipseLight = (edge, centre) => ({ layer: 1, type: 0, nodes: [[128, 64], [224, 64], [128, 112]], colours: [asRgb(edge), asRgb(centre)] });
+const ellipseLight = (edge, centre) => ({ layer: 1, type: 0, nodes: [[128, 112], [128, 64], [224, 64]], colours: [asRgb(edge), asRgb(centre)] });
 const gradientLight = (start, end) => ({ layer: 1, type: 1, nodes: [[0, 16], [256, 112]], colours: [asRgb(start), asRgb(end)] });
 const clippedGradientLight = (start, end) => ({
   layer: 1,
   type: 2,
-  nodes: [[0, 112], [256, 16], [64, 16], [192, 16], [192, 112], [64, 112]],
+  nodes: [[0, 112], [256, 16]],
   colours: [asRgb(start), asRgb(end)],
 });
 const LIGHT_BOARD_BASE = { sizeX: 8, sizeY: 4, sizeL: 1, coordType: 0, lut: LIGHT_LUT, cells: LIGHT_CELLS, shades: [] };
@@ -582,11 +582,12 @@ const LIGHT_NIGHT_BOARD = authoredBoard({
   ambient: [-110, -110, -110],
   lights: [ellipseLight([0, 0, 0], [130, 130, 130])],
 });
-// Round-7 boundary: centre and radii chosen so ellipse boundary points land exactly on
-// 32x32 cell centres, e.g. (208,80) and (112,16); both must stay unlit.
+// Boundary: centre and radii chosen so ellipse boundary points land exactly on cell test points
+// (the top-left corners of 32x32 cells), e.g. (224,64) and (128,0); both must stay unlit.
+// Node 1 is the centre; nodes 0 and 2 are the radius points.
 const LIGHT_BOUNDARY_BOARD = authoredBoard({
   ...LIGHT_BOARD_BASE,
-  lights: [{ layer: 1, type: 0, nodes: [[112, 80], [208, 80], [112, 144]], colours: [asRgb([-80, -40, -20]), asRgb([80, 120, 40])] }],
+  lights: [{ layer: 1, type: 0, nodes: [[128, 128], [128, 64], [224, 64]], colours: [asRgb([-80, -40, -20]), asRgb([83, 121, 37])] }],
 });
 
 const AUTHORED = {

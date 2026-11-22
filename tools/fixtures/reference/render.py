@@ -111,6 +111,8 @@ def board_model(path: Path) -> dict[str, Any]:
         elif field.startswith("  run of"):
             model["cells"].extend([value] * (pending_run or 0))
             pending_run = None
+        elif field == "shade[0].layer":
+            model["shadeCast"] = value
         elif field.startswith("shade[") and field.endswith("] count"):
             model["shades"].append([value, 0, 0, 0])
         elif field in ("r", "g", "b") and model["shades"] and len(model["shades"][-1]) < 4:
@@ -160,97 +162,68 @@ def _clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(maximum, value))
 
 
-def _interpolate(start: int, end: int, weight: int) -> int:
-    return start + int((end - start) * weight / FIXED)
-
-
-def _colour_at(colours: list[list[int]], weight: int) -> tuple[int, int, int]:
+def _light_value(colours: list[list[int]], weight: float) -> tuple[float, float, float]:
+    """Edge colour plus (centre - edge) x weight, exactly, per channel (docs/spec/formats/board.md#lights)."""
     edge = colours[0] if colours else [0, 0, 0]
-    centre = colours[1] if len(colours) > 1 else edge
-    return tuple(_clamp(_interpolate(edge[i], centre[i], weight), -255, 255) for i in range(3))
+    end = colours[1] if len(colours) > 1 else edge
+    return tuple(edge[i] + (end[i] - edge[i]) * weight for i in range(3))
 
 
-def _projection(point: tuple[int, int], start: tuple[int, int], end: tuple[int, int]) -> int:
-    dx, dy = end[0] - start[0], end[1] - start[1]
-    length_squared = dx * dx + dy * dy
-    if length_squared <= 0:
-        return 0
-    numerator = (point[0] - start[0]) * dx + (point[1] - start[1]) * dy
-    return _clamp(int(numerator * FIXED / length_squared), 0, FIXED)
-
-
-def _ellipse_weight(light: dict[str, Any], point: tuple[int, int]) -> int | None:
+def _spotlight_weight(light: dict[str, Any], point: tuple[int, int]) -> float | None:
+    """1 at the centre falling linearly to 0 at the edge; None on or outside the edge. Node 1 is the centre."""
     nodes = light["nodes"]
     if len(nodes) < 3:
         return None
-    centre, x_radius_point, y_radius_point = nodes[:3]
-    x_radius = abs(x_radius_point[0] - centre[0]) or abs(x_radius_point[1] - centre[1])
-    y_radius = abs(y_radius_point[1] - centre[1]) or abs(y_radius_point[0] - centre[0])
-    dx, dy = abs(point[0] - centre[0]), abs(point[1] - centre[1])
-    if x_radius == 0 and y_radius == 0:
-        return FIXED if dx == 0 and dy == 0 else None
-    if x_radius == 0 and dx != 0:
+    first, centre, last = nodes[0], nodes[1], nodes[2]
+    first_sq = (first[0] - centre[0]) ** 2 + (first[1] - centre[1]) ** 2
+    last_sq = (last[0] - centre[0]) ** 2 + (last[1] - centre[1]) ** 2
+    major, major_sq, minor_sq = (first, first_sq, last_sq) if first_sq > last_sq else (last, last_sq, first_sq)
+    if major_sq == 0 or minor_sq == 0:
         return None
-    if y_radius == 0 and dy != 0:
-        return None
-    # Round-7: boundary excluded; strict inequality in exact integer arithmetic.
-    if x_radius != 0 and y_radius != 0:
-        if dx * dx * y_radius * y_radius + dy * dy * x_radius * x_radius >= (x_radius * y_radius) ** 2:
-            return None
-    elif (x_radius == 0 and dy >= y_radius) or (y_radius == 0 and dx >= x_radius):
-        return None
-    rx = 0 if x_radius == 0 else dx * FIXED / x_radius
-    ry = 0 if y_radius == 0 else dy * FIXED / y_radius
-    distance = int(math.sqrt(rx * rx + ry * ry))
-    return FIXED - distance
+    mx, my = major[0] - centre[0], major[1] - centre[1]
+    dx, dy = point[0] - centre[0], point[1] - centre[1]
+    # Rotate into the ellipse's own axes without trigonometry: u = along the major axis, v = across it.
+    along = (dx * mx + dy * my) / math.sqrt(major_sq)
+    across = (dy * mx - dx * my) / math.sqrt(major_sq)
+    radius = math.sqrt(along * along / major_sq + across * across / minor_sq)
+    return None if radius >= 1 else 1 - radius
 
 
-def _point_on_segment(point: tuple[int, int], a: list[int], b: list[int]) -> bool:
-    cross = (point[0] - a[0]) * (b[1] - a[1]) - (point[1] - a[1]) * (b[0] - a[0])
-    return cross == 0 and min(a[0], b[0]) <= point[0] <= max(a[0], b[0]) and min(a[1], b[1]) <= point[1] <= max(a[1], b[1])
-
-
-def _inside_polygon(point: tuple[int, int], polygon: list[list[int]]) -> bool:
-    if len(polygon) < 3:
-        return True
-    inside = False
-    for index, a in enumerate(polygon):
-        b = polygon[index - 1]
-        if _point_on_segment(point, a, b):
-            return True
-        if (a[1] > point[1]) != (b[1] > point[1]):
-            left = (point[0] - a[0]) * (b[1] - a[1])
-            right = (b[0] - a[0]) * (point[1] - a[1])
-            if (b[1] > a[1] and left < right) or (b[1] < a[1] and left > right):
-                inside = not inside
-    return inside
-
-
-def _light_tint(light: dict[str, Any], point: tuple[int, int]) -> tuple[int, int, int] | None:
+def _light_contribution(light: dict[str, Any], point: tuple[int, int]) -> tuple[float, float, float] | None:
     if light["type"] == 0:
-        weight = _ellipse_weight(light, point)
-        return None if weight is None else _colour_at(light["colors"], weight)
+        weight = _spotlight_weight(light, point)
+        return None if weight is None else _light_value(light["colors"], weight)
     nodes = light["nodes"]
     if len(nodes) < 2:
         return None
-    if light["type"] == 2 and not _inside_polygon(point, nodes[2:]):
+    start, end = nodes[0], nodes[1]
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length_squared = dx * dx + dy * dy
+    if length_squared == 0:
         return None
-    return _colour_at(light["colors"], _projection(point, nodes[0], nodes[1]))
+    numerator = (point[0] - start[0]) * dx + (point[1] - start[1]) * dy
+    if light["type"] == 2 and not 0 <= numerator <= length_squared:
+        return None
+    return _light_value(light["colors"], _clamp(numerator / length_squared, 0.0, 1.0))
 
 
-def _baked_light_records(model: dict[str, Any], width: int, height: int) -> list[list[int]]:
+def _baked_light_records(model: dict[str, Any], painted: list[list[int]], width: int, height: int) -> list[list[int]]:
+    """The painted shade plus every light, each light rounded toward zero once onto the running total."""
     cells: list[list[int]] = []
+    for count, r, g, b in painted:
+        cells.extend([[r, g, b] for _ in range(max(count, 1))])
+    cells = (cells + [[0, 0, 0]] * (width * height))[: width * height]
     for y in range(height):
         for x in range(width):
-            point = (x * 32 + 16, y * 32 + 16)
-            total = [0, 0, 0]
+            point = tile_pixel(model, x + 1, y + 1)
+            total = cells[y * width + x]
             for light in model["lights"]:
-                contribution = _light_tint(light, point)
+                contribution = _light_contribution(light, point)
                 if contribution is not None:
-                    for channel in range(3):
-                        total[channel] += contribution[channel]
-            cells.append([1, *(_clamp(value, -MAX_TINT, MAX_TINT) for value in total)])
-    return cells
+                    total = [int(total[channel] + contribution[channel]) for channel in range(3)]
+            cells[y * width + x] = total
+    return [[1, *cell] for cell in cells]
+
 
 _palette: list[tuple[int, int, int]] | None = None
 
@@ -421,7 +394,10 @@ def render(scene: dict[str, Any]) -> Image.Image:
         # Lights are a distinct cast-layer-zero shading layer. Stored shade
         # layers retain their own cast-layer threshold rather than being
         # flattened ahead of the newly baked light records.
-        dynamic_shades = _baked_light_records(model, model["sizeX"], model["sizeY"])
+        rotated_grid = model["coordType"] & 3 == 2
+        light_width = model["sizeX"] + model["sizeY"] if rotated_grid else model["sizeX"]
+        light_height = light_width if rotated_grid else model["sizeY"]
+        dynamic_shades = _baked_light_records(model, stored_shades, light_width, light_height)
         model["shades"] = dynamic_shades
     elif not include["shading"]:
         model["shades"] = []
@@ -445,20 +421,13 @@ def render(scene: dict[str, Any]) -> Image.Image:
         if iso and tile.size == (32, 32):
             tile = project_2d_tile(tile)
         tint = ambient
-        if include["shading"] and model["shades"]:
+        # A shade layer cast onto layer N tints layers 1..N; a baked layer with no stored shading is cast onto every layer.
+        cast = model.get("shadeCast", 0) if stored_shades else 0
+        if include["shading"] and model["shades"] and (cast == 0 or layer + 1 <= cast):
             shade_index = y * grid_width + x
             cursor = 0
             shade = (0, 0, 0)
             for count, r, g, b in model["shades"]:
-                if cursor <= shade_index < cursor + count:
-                    shade = (r, g, b)
-                    break
-                cursor += count
-            tint = tuple(tint[i] + shade[i] for i in range(3))
-        if include["shading"] and model["lights"] and layer < 2 and stored_shades:
-            cursor = 0
-            shade = (0, 0, 0)
-            for count, r, g, b in stored_shades:
                 if cursor <= shade_index < cursor + count:
                     shade = (r, g, b)
                     break
