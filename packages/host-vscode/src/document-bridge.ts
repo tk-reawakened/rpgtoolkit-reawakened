@@ -73,7 +73,9 @@ export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snaps
 
 export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly CheckpointEntry[] | void>;
 export type BridgeMessage =
-  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string; readonly readOnly?: boolean }
+  | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string; readonly sourceTile?: number; readonly readOnly?: boolean }
+  /** A source visit asked for a one-based tile: every live view of this document selects it without changing the document. */
+  | { readonly type: "source-target"; readonly tile: number }
   | { readonly type: "board-preferences"; readonly preferences: EditorPreferences }
   | { readonly type: "snapshot"; readonly snapshot: BridgedSnapshot }
   | { readonly type: "browser-state"; readonly changes: BrowserStatePatch }
@@ -102,6 +104,8 @@ export type EditorHostRequest =
   | { readonly type: "preview"; readonly requestId: string; readonly request?: BoardPreviewRequest }
   | { readonly type: "read-project"; readonly requestId: string; readonly path: string }
   | { readonly type: "visit"; readonly requestId: string; readonly path: string }
+  /** Open a source and select its one-based tile (a tileset's tile); the extension host keeps one document per path. */
+  | { readonly type: "visit-source"; readonly requestId: string; readonly path: string; readonly tile: number }
   | { readonly type: "visit-reference"; readonly requestId: string; readonly path: string }
   | { readonly type: "return-visit"; readonly requestId: string }
   | { readonly type: "set-initial-board"; readonly requestId: string; readonly path: string }
@@ -132,6 +136,10 @@ export interface BridgedDocument {
   /** The board-editor preferences in force for this document's project (T-33). */
   boardPreferences(): EditorPreferences;
   visit(path: string, reference?: boolean): Promise<VisitOutcome>;
+  /** Open a source for the shared browser and select its one-based tile; the same one document per path answers. */
+  visitSource(path: string, tile: number): Promise<VisitOutcome>;
+  /** A source visit this document was opened for, as its one-based tile, until another visit names one. */
+  sourceTarget(): number | undefined;
   returnFromVisit(): Promise<ReturnOutcome>;
   setInitialBoard(path: string): Promise<ReturnOutcome>;
   initialBoardPath(): Promise<string | undefined>;
@@ -152,6 +160,7 @@ export async function handleEditorHostRequest(
 ): Promise<void> {
   if (request.type === "ready") {
     const initialBoardPath = await document.initialBoardPath();
+    const sourceTile = document.sourceTarget();
     await postMessage({
       type: "initialize",
       kind: document.model.kind,
@@ -160,6 +169,7 @@ export async function handleEditorHostRequest(
       browserState: document.browserSession.getSnapshot(),
       boardPreferences: document.boardPreferences(),
       ...(initialBoardPath === undefined ? {} : { initialBoardPath }),
+      ...(sourceTile === undefined ? {} : { sourceTile }),
     });
   } else if (request.type === "set-initial-board") {
     await postMessage({ type: "initial-board-result", requestId: request.requestId, outcome: await document.setInitialBoard(request.path) });
@@ -199,6 +209,8 @@ export async function handleEditorHostRequest(
     await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview(request.request) });
   } else if (request.type === "visit" || request.type === "visit-reference") {
     await postMessage({ type: "visit-result", requestId: request.requestId, outcome: await document.visit(request.path, request.type === "visit-reference") });
+  } else if (request.type === "visit-source") {
+    await postMessage({ type: "visit-result", requestId: request.requestId, outcome: await document.visitSource(request.path, request.tile) });
   } else if (request.type === "return-visit") {
     await postMessage({ type: "return-result", requestId: request.requestId, outcome: await document.returnFromVisit() });
   } else if (request.type === "pick-asset") {
@@ -287,7 +299,7 @@ export async function handleHistoryPreviewRequest(
       result: { ok: false, reason: "cannot-reload", message: denied },
       snapshot: document.model.getSnapshot(),
     });
-  } else if (request.type === "visit" || request.type === "visit-reference") {
+  } else if (request.type === "visit" || request.type === "visit-reference" || request.type === "visit-source") {
     await postMessage({ type: "visit-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
   } else if (request.type === "return-visit") {
     await postMessage({ type: "return-result", requestId: request.requestId, outcome: { ok: false, message: denied } });
@@ -381,6 +393,8 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "import-as-scene") return true;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
   if (value.type === "visit" || value.type === "visit-reference") return "path" in value && typeof value.path === "string" && value.path !== "";
+  if (value.type === "visit-source") return "path" in value && typeof value.path === "string" && value.path !== ""
+    && "tile" in value && typeof value.tile === "number" && Number.isInteger(value.tile) && value.tile >= 1 && value.tile <= 65535;
   if (value.type === "set-initial-board") return "path" in value && typeof value.path === "string" && value.path !== "";
   if (value.type === "pick-asset") return "request" in value && isAssetPickRequest(value.request);
   if (value.type === "resolve-conflict") return "choice" in value && (value.choice === "keep-local" || value.choice === "reload");
@@ -535,6 +549,15 @@ export class RemoteDocument {
     });
   }
 
+  /** Open a source (a `.tst`, a `.tbm`) and select its one-based tile; the extension host answers like any visit. */
+  visitSource(path: string, tile: number): Promise<VisitOutcome> {
+    const requestId = `visit-source-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingVisits.set(requestId, resolve);
+      this.vscode.postMessage({ type: "visit-source", requestId, path, tile });
+    });
+  }
+
   returnFromVisit(): Promise<ReturnOutcome> {
     const requestId = `return-${++this.nextRequest}`;
     return new Promise((resolve) => {
@@ -622,6 +645,8 @@ export class RemoteDocument {
     if (message.type === "initial-board-result") return void this.settle(this.pendingInitialBoards, message.requestId, message.outcome);
     if (message.type === "pick-result") return void this.settle(this.pendingPicks, message.requestId, message.outcome);
     if (message.type === "initialize") return;
+    // A source visit is a view instruction, not a document snapshot: the page's own listener selects the tile.
+    if (message.type === "source-target") return;
     this.snapshot = message.type === "save-result" && !message.result.ok && message.snapshot.saveError === null
       ? { ...message.snapshot, saving: false, saveError: message.result.failure }
       : message.snapshot;

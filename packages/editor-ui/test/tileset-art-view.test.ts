@@ -119,3 +119,30 @@ test("real tileset view exposes the shared Save action and saves pixel edits", a
     deepEqual(host.bytesOf(PATH), doc.serialize());
   } finally { disconnect(); await act(() => handle?.dispose()); el.remove(); }
 });
+
+test("a source visit selects its one-based tile in the view only, leaving pixels, drafts and history alone", async () => {
+  const initial = exampleTileset();
+  const host = createMemoryPlatformServices({ files: { [PATH]: initial } });
+  const opened = createTilesetArtDocument(host.fs, identity, initial);
+  ok(opened.ok);
+  const doc = opened.document;
+  const el = document.createElement("div");
+  document.body.append(el);
+  let handle: ViewHandle | undefined;
+  await act(() => { handle = mount(el, { document: doc, services: host }); });
+  try {
+    ok(paint(doc, 180).ok, "an unrelated draft pixel is already in the document");
+    const edits = doc.getSnapshot().edits.length;
+    await act(() => handle?.revealTile?.(2));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const select = [...el.querySelectorAll<HTMLSelectElement>("select")].find((candidate) => candidate.getAttribute("aria-label") === "Tile");
+    ok(select !== undefined);
+    equal(select.value, "1", "tile 2 is displayed by its zero-based option value");
+    equal(doc.getSnapshot().edits.length, edits, "selecting a tile records no edit");
+    equal(doc.getSnapshot().dirty, true, "the draft is still unsaved");
+    await act(() => handle?.revealTile?.(1));
+    equal(select.value, "0", "a later visit selects tile 1");
+    await act(() => handle?.revealTile?.(999));
+    equal(select.value, "1", "a tile past the set selects its last tile");
+  } finally { await act(() => handle?.dispose()); el.remove(); }
+});

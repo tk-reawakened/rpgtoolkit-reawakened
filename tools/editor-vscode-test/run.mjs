@@ -146,6 +146,22 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
   const otherBoardPath = "Boards/other.brd";
   const artPath = "Tiles/art.tst";
   const otherArtPath = "Tiles/other.tst";
+  // A 2 × 2 board naming tile 2 of art.tst in its first cell and leaving its last cell empty: the browser proof edits the
+  // saved artwork, then paints the empty cell with the same brush and reads the composed pixel back.
+  const artBoardPath = "Boards/art-source.brd";
+  const artBoardBytes = (() => {
+    const written = writeBoard({
+      ...createEmptyBoard(), sizeX: 2, sizeY: 2, sizeL: 1, layerTitles: ["", ""],
+      lut: ["", "art.tst2"], tileMatrix: [1, 0, 1, 1],
+      tileRuns: [
+        { lutIndex: 1, count: 1, marker: false },
+        { lutIndex: 0, count: 1, marker: false },
+        { lutIndex: 1, count: 2, marker: true },
+      ],
+    });
+    if (!written.ok) throw new Error(`Could not create the art source board: ${written.error.message}`);
+    return written.value;
+  })();
   const bitmapPath = "Bitmap/house.tbm";
   const otherBitmapPath = "Bitmap/other.tbm";
  
@@ -164,6 +180,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     }),
     writeFile(resolve(proofWorkspace, boardPath), boardBytes),
     writeFile(resolve(proofWorkspace, otherBoardPath), boardBytes),
+    writeFile(resolve(proofWorkspace, artBoardPath), artBoardBytes),
     copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, artPath)),
     copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, otherArtPath)),
     copyFile(resolve(root, "docs/spec/examples/versions/tileset/tileset_detail1.tst"), resolve(proofWorkspace, "Tiles/village.tst")),
@@ -516,7 +533,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       await runVscodeAutosaveCommandProof(page, expect, workbenchUrl, game, autosaveTitle, autosaveBytes, {
         readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
         pauseSave: persistentFs.pauseSave, resumeSave: persistentFs.resumeSave, externalBytes, sentinelTitle, sentinelBytes,
-        choice, boardPath, otherBoardPath, artPath, otherArtPath, bitmapPath, otherBitmapPath,
+        choice, boardPath, otherBoardPath, artPath, otherArtPath, artBoardPath, bitmapPath, otherBitmapPath,
         bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)),
         canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
       });
@@ -534,7 +551,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       await runVscodeWebProof(page, expect, workbenchUrl, game, title, expectedBytes, recoveredTitle, recoveredBytes, autosaveTitle, autosaveBytes, {
         restart, readBacking, writeBacking, withBackingWriteRefused, readHostEvents: persistentFs.events,
         pauseWrite: persistentFs.pauseWrite, resumeWrite: persistentFs.resumeWrite, writeEvents: persistentFs.writeEvents, externalBytes, sentinelTitle, sentinelBytes,
-        choice, boardPath, otherBoardPath, artPath, otherArtPath, bitmapPath, otherBitmapPath,
+        choice, boardPath, otherBoardPath, artPath, otherArtPath, artBoardPath, bitmapPath, otherBitmapPath,
         bitmapSaved: createBitmapBytes(true), bitmapPicture: (edited) => expectedBitmapPicture(createBitmapBytes(edited)),
         canvasBoards: canvasBoards.map(({ path, label, coordType }) => ({ path, label, coordType })),
         ...(workbenchSaveShortcutProof ? { saveViaWorkbenchShortcut: process.platform === "darwin" ? "Meta+S" : "Control+S" } : {}),

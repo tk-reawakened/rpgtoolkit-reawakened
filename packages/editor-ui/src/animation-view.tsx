@@ -275,7 +275,7 @@ export function AnimationView({ doc, fs, authoring, onEdited, browser, pendingEd
       {/\.tbm$/i.test(current.image.trim()) && browser?.openSource !== undefined && <button type="button" aria-label="Open frame image" onClick={() => {
         const origin = identity.path;
         const path = referencePath(layout, "bitmaps", current.image.trim());
-        void browser.openSource?.(path).then((message) => { if (doc.identity.path === origin && message !== null) setMessage(message); });
+        void browser.openSource?.({ path, tile: null }).then((message) => { if (doc.identity.path === origin && message !== null) setMessage(message); });
       }}>Open frame image</button>}
       <label>Sound reference <input value={typeValue("sound")} disabled={disabled} onInput={(event) => { const value = event.currentTarget.value; setTyped((state) => ({ ...state, sound: value })); void updateFrame("sound", value); }} /></label>
       <fieldset><legend>Transparency key (RGB)</legend>

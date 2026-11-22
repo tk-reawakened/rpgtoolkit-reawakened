@@ -140,6 +140,8 @@ export interface ViewHandle {
   dispose(): void;
   /** Present only for a program view. Queue a one-based location without changing its document or undo stack. */
   revealSource?(line: number, column: number): void;
+  /** Present only for the tileset artwork view. Select a one-based tile without changing its document, drafts or history. */
+  revealTile?(tile: number): void;
   /** Document views re-read saved linked artwork without resetting selection, drafts or history. */
   refreshAssets?(): void;
 }
@@ -190,6 +192,13 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
     if (reveal === null) sourceRequest = { line, column };
     else reveal(line, column);
   };
+  let revealTile: ((tile: number) => void) | null = null;
+  let tileRequest: number | null = null;
+  const selectTile = (tile: number): void => {
+    if (disposed) return;
+    if (revealTile === null) tileRequest = tile;
+    else revealTile(tile);
+  };
   let view: Parameters<typeof render>[0];
   if (isBoardView(document)) {
     view = createElement(BoardView, {
@@ -202,7 +211,19 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.navigation === undefined ? {} : { navigation: ctx.navigation }),
     });
   } else if (isTilesetArtView(document)) {
-    view = createElement(TilesetArtView, { doc: document, capabilities, onEdited });
+    view = createElement(TilesetArtView, {
+      doc: document,
+      capabilities,
+      onEdited,
+      onRevealReady: (handler) => {
+        revealTile = handler;
+        if (handler !== null && tileRequest !== null) {
+          const request = tileRequest;
+          tileRequest = null;
+          handler(request);
+        }
+      },
+    });
   } else if (isTileBitmapView(document)) {
     view = createElement(TileBitmapView, {
       doc: document,
@@ -268,6 +289,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   display();
   return {
     ...(isProgramView(document) ? { revealSource } : {}),
+    ...(isTilesetArtView(document) ? { revealTile: selectTile } : {}),
     refreshAssets() {
       if (disposed) return;
       assetRevision++;
