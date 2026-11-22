@@ -128,6 +128,40 @@ Every proposed choice below remains **Proposed ruling (pending owner review)**, 
   `repeat-distance-32-fires-on-every-blocked-press` and
   `blocked-press-outside-the-area-rearms-the-repeat`, and `P-19` was removed from
   the fixture registry (`tools/fixtures/movement/index.mjs` and `manifest.json`).
+- **Proposed (owner note): suppressed steps and E-40 re-arming.** A step whose
+  end-of-step processing is suppressed
+  ([R-68](../../../docs/spec/engine/movement-and-collision.md#r-68)) is re-armed by
+  nothing: the region half of E-40 re-arming is skipped with the rest of the
+  bundle, so a step-on region left under a program's control keeps its `fired`
+  flag, while the item half of E-40 re-arming still runs every tick. This is a
+  behaviour change from pre-R-68 `main` (where a program-driven step re-armed
+  regions) and follows R-68's "distances are not touched" item as written. Two
+  readings: (a) current — a suppressed step is inert for regions as well as for
+  its own firing, and an author expects the region to stay consumed until a
+  free-roaming step re-arms it; (b) E-40 re-arming is leaving-area bookkeeping,
+  not end-of-step processing, so regions should re-arm (and items should stop
+  re-arming) under the same suppression predicate. Recommendation: (a) as
+  implemented, because R-68 item 1 lists re-arm-adjacent distance accounting as
+  suppressed and an owner can flip it with one line if they prefer (b). Pinned by
+  the test "R-68: the trigger phase obeys the captured decision after a blocking
+  program is already live" and the review-1 note in PR #3329.
+- **Proposed (owner note): `multiRun` started by a live blocking program.** R-68
+  item 2 says end-of-step processing is suppressed exactly while a live
+  `blocking`-kind thread exists; item 3 says movement driven by a thread or
+  `multiRun` program counts as free-roaming (including R-67 re-firing). A
+  `multiRun` *started by a blocking program* satisfies both readings: item 2
+  suppresses because the blocking program is alive, item 3 says it counts. The
+  implementation follows item 2's exact predicate, so it is suppressed. Readings:
+  (a) item 2 controls — the suppression predicate is about who owns the thread
+  scheduler, not about which command queued the step, so any movement while a
+  blocking program is live is suppressed; (b) item 3 controls — `multiRun` is
+  named as free-roaming regardless of the caller, so its steps should count even
+  inside a blocking program. Recommendation: (a) as implemented, because item 2's
+  "exactly while" gives one deterministic test the whole engine can share (and
+  the engine now captures that one decision per tick); (b) would need `multiRun`
+  to carry a provenance bit that survives to the battle test. Pinned by "R-68:
+  multiRun run from a blocking program is suppressed" in
+  `packages/core/test/movement-rulings.test.ts`.
 
 ## Acceptance mapping
 
