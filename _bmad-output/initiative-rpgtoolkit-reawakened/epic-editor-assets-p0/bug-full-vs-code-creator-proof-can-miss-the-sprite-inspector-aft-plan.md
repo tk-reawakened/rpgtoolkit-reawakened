@@ -3,7 +3,7 @@ title: 'Full VS Code creator proof can miss the sprite inspector after earlier l
 type: bugfix
 ticket: 18
 created: '2026-11-22'
-status: built
+status: done
 baseline_revision: '95c031c998abb661abc6f56d077105e2c6f64b5a'
 route: oneshot
 route_source: auto
