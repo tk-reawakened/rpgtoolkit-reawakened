@@ -11,6 +11,7 @@ import {
     referencePath,
     stampFromBitmap,
     tileBasePoint,
+    shadeKeyAction,
     tileSourceOf,
     zoomOf,
     type ApplyResult,
@@ -18,6 +19,7 @@ import {
     type BoardEditorState,
     type BoardPicture,
     type BoardTool,
+    type Cell,
     type Brush,
     type ConflictChoice,
     type PendingEdits,
@@ -252,6 +254,16 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const readOnly = snapshot.readOnly !== null;
   const [shadeUi, setShadeUi] = useState<ShadeUi>(INITIAL_SHADE_UI);
   const shadeSubmit = useBoardSubmit(doc, onEdited, pendingEdits, "Edit lights and shading");
+  const [shadeCorner, setShadeCorner] = useState<Cell | null>(null);
+  /** Space on a cell in the Shading mode: the keyboard way to do what the pointer does. */
+  const shadeKey = (cell: Cell, shift: boolean): void => {
+    const action = shadeKeyAction(snapshot, shadeUi.tool, cell, shadeUi.brush, shadeCorner, shift);
+    shadeSubmit.clearMessage();
+    if (action.kind === "brush") setShadeUi({ ...shadeUi, brush: action.shade });
+    else if (action.kind === "corner") { setShadeCorner(action.cell); shadeSubmit.setMessage(action.message); }
+    else if (action.kind === "refuse") { setShadeCorner(null); shadeSubmit.setMessage(action.message); }
+    else { setShadeCorner(null); void shadeSubmit.submit({ type: "set-shade-cells", cells: action.cells }); }
+  };
   const conflict = snapshot.conflict;
   const currentLayer = Math.min(state.layer, Math.max(0, layers - 1));
   const x = Math.min(state.cursor.x, Math.max(0, size.width - 1));
@@ -384,7 +396,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       event.preventDefault();
       editor.toggleGrid();
     } else if (event.key === "Escape") {
-      if (colourPicker !== null) setColourPicker(null);
+      if (shadeCorner !== null) { setShadeCorner(null); shadeSubmit.clearMessage(); }
+      else if (colourPicker !== null) setColourPicker(null);
       else if (pickingStart) {
         setPickingStart(false);
         setStartMessage(null);
@@ -678,6 +691,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
                         } else if (event.key === " ") {
                           event.preventDefault();
                           editor.setCursor({ x: cx, y: cy });
+                          if (shadeUi.mode === "shading") { shadeKey({ x: cx, y: cy }, event.shiftKey); return; }
                           void editor.activate({ shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey });
                         } else if (event.key.toLowerCase() === "l" && !event.ctrlKey && !event.metaKey && !event.altKey && browser !== undefined) {
                           event.preventDefault();

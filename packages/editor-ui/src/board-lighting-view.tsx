@@ -87,7 +87,7 @@ export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLight
         {ui.mode === "shading" ? SHADE_TOOLS.map((tool) => (
           <button type="button" key={tool} aria-pressed={ui.tool === tool} disabled={locked} onClick={() => onUi({ ...ui, tool })}>{TOOL_NAMES[tool]}</button>
         )) : null}
-        {ui.mode === "shading" ? <p class="tkr-board-note">Draw and Erase paint cells (right-click erases), Rectangle draws an outline (Shift fills), Flood fill replaces the connected area, and Dropper copies a cell's shade into the brush. The Scroll and Zoom tools still move the view.</p> : null}
+        {ui.mode === "shading" ? <p class="tkr-board-note">Draw and Erase paint cells (right-click erases), Rectangle draws an outline (Shift fills), Flood fill replaces the connected area, and Dropper copies a cell's shade into the brush. The Scroll and Zoom tools still move the view. From the keyboard, move over the cell grid with the arrow keys and press Space to use the tool on that cell; Rectangle takes two Spaces, one on each corner (Shift fills), and Escape cancels it.</p> : null}
         {ui.mode === "lighting" ? <p class="tkr-board-note">Drag a light's node dots to move them. The numeric fields below stay available.</p> : null}
       </fieldset>
       <fieldset class="tkr-board-shading">

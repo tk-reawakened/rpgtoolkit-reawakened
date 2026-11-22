@@ -123,3 +123,30 @@ export function lightNodeAt(lights: readonly BoardLight[], pixel: BoardPoint, ra
   });
   return best;
 }
+
+/** What pressing Space on a cell does in the Shading mode: the keyboard way to do everything the pointer can. */
+export type ShadeKeyAction =
+  | { readonly kind: "apply"; readonly cells: readonly ShadeCell[] }
+  | { readonly kind: "brush"; readonly shade: Shade }
+  | { readonly kind: "corner"; readonly cell: Cell; readonly message: string }
+  | { readonly kind: "refuse"; readonly message: string };
+
+/**
+ * Space on `cell` with `tool`. Draw and Erase and Flood fill act on the cell; Dropper takes its shade into the brush;
+ * Rectangle needs two Spaces, the first on one corner and the second on the opposite corner (with `filled` for Shift),
+ * `corner` being the first one's cell while it waits.
+ */
+export function shadeKeyAction(board: ShadeBoard & Pick<ToolBoard, "layers" | "lut" | "tileMatrix">, tool: ShadeTool, cell: Cell, brush: Shade, corner: Cell | null, filled: boolean): ShadeKeyAction {
+  if (!cellOnBoard(board, cell.x, cell.y)) return { kind: "refuse", message: "That place is not on the board." };
+  if (tool === "dropper") return { kind: "brush", shade: shadeAt(board, cell) };
+  if (tool === "rectangle" && corner === null) {
+    return { kind: "corner", cell, message: `Rectangle started at column ${cell.x + 1}, row ${cell.y + 1}. Press Space on the opposite corner; hold Shift to fill it. Escape cancels.` };
+  }
+  const outcome = tool === "rectangle" && corner !== null ? rectangleShade(board, corner, cell, filled, brush)
+    : tool === "flood" ? floodShade(board, cell, brush)
+      : paintShade(board, [cell], tool === "erase" ? ZERO : brush);
+  if (!outcome.ok) return { kind: "refuse", message: outcome.message };
+  const unchanged = outcome.cells.every((next) => { const had = shadeAt(board, next); return had.r === next.r && had.g === next.g && had.b === next.b; });
+  if (outcome.cells.length === 0 || unchanged) return { kind: "refuse", message: "Those cells already have that shade." };
+  return { kind: "apply", cells: outcome.cells };
+}

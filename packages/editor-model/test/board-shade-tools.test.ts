@@ -2,7 +2,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { encodeShade } from "../src/board-document.ts";
-import { floodShade, lightNodeAt, newLight, paintShade, rectangleShade, shadeAt, type ShadeBoard } from "../src/index.ts";
+import { floodShade, lightNodeAt, newLight, paintShade, rectangleShade, shadeAt, shadeKeyAction, type ShadeBoard } from "../src/index.ts";
 
 /** A 4×3 top-down board whose shading is `values` (r, g, b per cell, row by row). */
 function board(values: readonly number[] = new Array<number>(36).fill(0)): ShadeBoard & { readonly layers: number; readonly lut: readonly string[]; readonly tileMatrix: readonly number[] } {
@@ -58,4 +58,18 @@ test("the pointer finds the nearest light node within its radius", () => {
   deepEqual(lightNodeAt(lights, { x: 104, y: 98 }, 8), { light: 0, node: 1 });
   deepEqual(lightNodeAt(lights, { x: 310, y: 40 }, 8), null);
   deepEqual(lightNodeAt(lights, { x: 460, y: 40 }, 8), { light: 1, node: 1 });
+});
+
+test("Space on a cell does what the pointer would: one cell, the Dropper, a flood, or a two-step rectangle", () => {
+  const brush = { r: 7, g: 7, b: 7 };
+  const draw = shadeKeyAction(board(), "draw", { x: 1, y: 1 }, brush, null, false);
+  deepEqual(draw, { kind: "apply", cells: [{ x: 1, y: 1, ...brush }] });
+  equal(shadeKeyAction(board(), "erase", { x: 1, y: 1 }, brush, null, false).kind, "refuse", "erasing a cell that is already zero changes nothing");
+  deepEqual(shadeKeyAction(board(), "dropper", { x: 1, y: 1 }, brush, null, false), { kind: "brush", shade: { r: 0, g: 0, b: 0 } });
+  const first = shadeKeyAction(board(), "rectangle", { x: 0, y: 0 }, brush, null, false);
+  equal(first.kind, "corner");
+  const second = shadeKeyAction(board(), "rectangle", { x: 2, y: 2 }, brush, { x: 0, y: 0 }, true);
+  ok(second.kind === "apply" && second.cells.length === 9);
+  equal(shadeKeyAction(board(), "draw", { x: 9, y: 9 }, brush, null, false).kind, "refuse");
+  equal(shadeKeyAction(board(), "flood", { x: 0, y: 0 }, brush, null, false).kind, "apply");
 });
