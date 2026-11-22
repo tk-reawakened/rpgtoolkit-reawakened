@@ -142,6 +142,9 @@ jobs:
       # The browser lane's container image must stay at the same Playwright version as `@playwright/test` (#1884).
       - run: pnpm ci:playwright-image:test && pnpm ci:playwright-image:check
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      # The required mobile APK build and proof presence must stay wired into `gate` (#2721).
+      - run: pnpm ci:mobile-gate:test && pnpm ci:mobile-gate:check
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm audit --prod
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm licence:test
