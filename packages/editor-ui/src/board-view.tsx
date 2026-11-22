@@ -28,6 +28,7 @@ import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-servi
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
+import { BoardLightingView } from "./board-lighting-view.tsx";
 import { BoardObjectsView, type BoardObjectsNavigation } from "./board-objects-view.tsx";
 import { BoardPropertiesView, type BoardPropertiesNavigation } from "./board-properties-view.tsx";
 import type { BrowserSelection } from "./brush.ts";
@@ -467,6 +468,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         onChooseStart={() => { if (!readOnly) { editor.pointerCancel(); setColourPicker(null); setPickingStart(true); setStartMessage("Click a board cell to set the player start."); } }}
         onSetStart={setPlayerStart}
       />
+      <BoardLightingView doc={doc} disabled={readOnly} onEdited={onEdited} pendingEdits={pendingEdits} />
       {pickingStart ? <p class="tkr-board-note" role="status">Choose a board cell for the player start, or press Escape to cancel.</p> : null}
       {startMessage === null ? null : <p class="tkr-board-note" role="status">{startMessage}</p>}
       {colourPicker === null ? null : <p class="tkr-board-note" role="status">Click a rendered colour to use it as this image's transparent colour, or press Escape to cancel. Apply in the inspector to keep it.</p>}

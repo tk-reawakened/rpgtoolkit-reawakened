@@ -3,7 +3,7 @@ title: 'Board shading and lighting'
 type: 'feature'
 ticket: '12'
 created: '2026-11-22'
-status: 'ready-for-dev'
+status: 'in-review'
 baseline_revision: 'eccc276c1d127c91b8202c07d8f285f11c49b2d4'
 route: 'full'
 route_source: 'auto'
@@ -91,6 +91,17 @@ context: ['{project-root}/docs/spec/formats/board.md', '{project-root}/docs/desi
 - Clipped gradient: the engine clips to a polygon made of nodes 2 and up, so a 2-node clipped light lights nothing; the engineer says it is a band between perpendicular lines through the two nodes.
 - Bake: the engine appends a new shade layer at load and clamps each cell's sum; the engineer says lights add into the one shading layer with no clamp until the final pixel.
 An editor preview or Convert built to the spec would not match what the runner renders, which breaks this story's acceptance ("renders in the runner"). Aligning the engine changes goldens (G5), so it needs an explicit decision.
+
+**Built 2026-11-22 (model and panel slice).**
+- `editor-model`: the board snapshot exposes `lights`; `set-board-fields` accepts `lights` and `shadeLayers` (validated in `refuse`: node counts 3 or 2, whole-number channels −255..255); new `set-shade-cells` paints the one shading layer (refuses more than one layer, off-board cells, out-of-range channels and no-ops); `board-lights.ts` adds `newLight`, `addLight`, `removeLight`, `moveLightNode`, `setLightColour`, `setLightType` and `convertLightToShading` (the light alone in an empty grid, rounded toward zero, added with no clamp, light removed in one command). Tests: `editor-model/test/board-lights.test.ts`.
+- `editor-ui`: `board-lighting-view.tsx` (mounted in `board-view.tsx`) has numeric fields and accessible names for the shade brush, a Shade cell action, Add spotlight/gradient, per-light type, node X/Y, both colours, Convert and Remove. Its buttons join the command palette through `connectEditorCommands`. Tests: `editor-ui/test/board-lighting-view.test.ts`.
+- Verified: `pnpm typecheck`; eslint on `editor-ui` and `editor-model`; 970 editor and host tests pass.
+
+**Not delivered, unmet acceptance (record before calling this story done):**
+- Canvas Shading and Lighting modes: pointer paint, rectangle, flood and dropper tools, and dragging a light's nodes on the board. The panel is numeric only.
+- The Draw tile shading and Draw lighting preview toggles.
+- A real-runner proof of a saved board with both light and shade (core goldens prove the light renderer; no board-level runner case was added here).
+- A keyboard-focus and narrow-pane visual check of the panel.
 
 ## Plan Change Log
 
