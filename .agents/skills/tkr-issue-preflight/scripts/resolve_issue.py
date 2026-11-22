@@ -490,7 +490,7 @@ def resolve(store: Store, number: int, repo: str | None = None) -> dict:
     if not holders:
         raise Fail(
             "not_found",
-            f"no ticket carries tracker_id \"#{number}\"; do not create an issue or a ticket to make this resolve",
+            f"no ticket carries tracker_id \"#{number}\"; verify the issue and plan mentions before creating a linked ticket; do not create a duplicate issue",
             mentions=store.mentions(number),
         )
     if len(holders) > 1:

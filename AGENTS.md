@@ -47,6 +47,7 @@ Setup, choosing a ticket, the checks to run and the pull-request flow are in [CO
 - **GitHub Project is the primary interface (Owner rule, 2026-10-19):** Planning happens via BMAD, but all epics, stories, and tasks must exist in the GitHub ecosystem.
   - Project Board: [RPG Toolkit Reawakened Roadmap & Tasks](https://github.com/orgs/tk-reawakened/projects/3).
   - Every BMAD ticket in `_bmad-output/` must have a corresponding GitHub issue with `tracker_id = "#<num>"` recorded in its `tickets.toml` (or leaf frontmatter).
+  - If a GitHub issue has no BMAD ticket, create one linked to that existing issue rather than stop. Use `tkr-issue-preflight` first; resolve existing plan mentions and stop on duplicate or conflicting identities rather than creating a duplicate.
   - New Epics are created as GitHub Parent Issues (`[Epic <num>] <title>`) with their stories attached as native sub-issues (`addSubIssue`).
   - Active sprint tasks belong to the current sprint (`sprint:@current`); unstarted future epics sit in the Backlog (`no:sprint`).
   - Branches name the ticket/issue (`feat/<ticket>-<short-name>`), and pull requests must cite their issue (`Fixes #<num>`).
