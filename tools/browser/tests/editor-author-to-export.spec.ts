@@ -153,7 +153,7 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await page.getByLabel("Game title").fill("Authored Acceptance");
   await page.getByRole("button", { name: "Apply changes" }).click();
   await saveActive(page, MAIN);
-  expect(mainOf(asm(await readProjectFile(page, folder, MAIN))).gameTitle).toBe("Authored Acceptance");
+  await expect.poll(async () => mainOf(asm(await readProjectFile(page, folder, MAIN))).gameTitle).toBe("Authored Acceptance");
 
   // Fixtures supply only source artwork and the documented item behaviour; every authored value below is UI work.
   await writeProjectFile(page, folder, "Tiles/village.tst", tileset);
@@ -263,11 +263,13 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await inspector.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(inspector.getByLabel("Item definition", { exact: true })).toHaveValue(/chest\.itm/);
   await saveActive(page, START_BOARD);
-  const savedBoard = decodeBoard(asm(await readProjectFile(page, folder, START_BOARD)), START_BOARD);
-  expect({
-    residue: [...savedBoard.residue],
-    tiles: savedBoard.lut.filter((reference) => reference === "village.tst1" || reference === "village.tst2"),
-    sprite: savedBoard.sprites.some((sprite) => /chest\.itm/.test(sprite.itemFile)),
+  await expect.poll(async () => {
+    const savedBoard = decodeBoard(asm(await readProjectFile(page, folder, START_BOARD)), START_BOARD);
+    return {
+      residue: [...savedBoard.residue],
+      tiles: savedBoard.lut.filter((reference) => reference === "village.tst1" || reference === "village.tst2"),
+      sprite: savedBoard.sprites.some((sprite) => /chest\.itm/.test(sprite.itemFile)),
+    };
   }).toEqual({ residue: RESIDUE, tiles: ["village.tst1", "village.tst2"], sprite: true });
   await closeSaved(page, START_BOARD);
   await expect(page.getByRole("tab", { name: START_BOARD, exact: true })).toHaveCount(0);
@@ -335,7 +337,7 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await expect(page.getByRole("region", { name: `Program ${PROGRAM}` }).getByRole("status")).toHaveText("Unsaved changes");
   await expect.poll(() => editorText(page)).toContain(START_MARKER);
   await saveActive(page, PROGRAM);
-  expect(new TextDecoder("latin1").decode(bytesOf(await readProjectFile(page, folder, PROGRAM), PROGRAM))).toContain(START_MARKER);
+  await expect.poll(async () => new TextDecoder("latin1").decode(bytesOf(await readProjectFile(page, folder, PROGRAM), PROGRAM))).toContain(START_MARKER);
 
   // Reopen the whole project after a page reload; the saved values and the main file's links must still resolve.
   await page.reload();

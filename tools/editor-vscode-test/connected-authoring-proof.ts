@@ -316,7 +316,9 @@ export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHo
     // Revert-proof: a timeout-only wait cannot report these revisions, so dropping the document-state waits fails here.
     expect(revisions, `${path} must be observed saved, edited, undone, redone and saved again`).toEqual(["clean", "dirty", "clean", "dirty", "clean"]);
     try {
-      expect(await host.read(path)).toEqual(new TextEncoder().encode(text));
+      // The marker is the editor's state; the assertion is still on persisted bytes, polled so a save whose marker and
+      // flush disagree (#3346) fails here instead of passing on a stale read, and a correct slow flush is not a flake.
+      await expect.poll(() => host.read(path)).toEqual(new TextEncoder().encode(text));
     } catch (error) {
       throw new Error(`${path} never held the saved text. Editor state: ${await programState(host.page, path)}. Cause: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -368,8 +370,8 @@ export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHo
   if (!savedDefinition.ok) throw new Error(savedDefinition.error.message);
   expect(await host.read(CONNECTED_ITEM)).toEqual(sourceBefore);
   await host.save();
-  // The save acknowledged before it returned, so the bytes are already the accepted revision (#3306).
-  expect(await host.read(CONNECTED_ITEM)).toEqual(savedDefinition.value);
+  // The acknowledge is the editor's state; the persisted bytes are still polled to their accepted revision (#3306, #3346).
+  await expect.poll(() => host.read(CONNECTED_ITEM)).toEqual(savedDefinition.value);
   await sprite.getByRole("button", { name: "Open South walking animation", exact: true }).click();
   const animation = await host.animationEditor();
   await expect(animation.getByRole("spinbutton", { name: "Global delay (seconds)", exact: true })).toHaveValue("0.25");
@@ -384,7 +386,7 @@ export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHo
   await bitmap.getByRole("button", { name: /^Column 1, row 1:/ }).click();
   await expectBitmapPixels(bitmap, expect, true);
   await host.save();
-  expect(await host.read(CONNECTED_BITMAP)).toEqual(connectedBitmapBytes(true));
+  await expect.poll(() => host.read(CONNECTED_BITMAP)).toEqual(connectedBitmapBytes(true));
   const decoded = readTileBitmap(new BinaryReader(await host.read(CONNECTED_BITMAP)));
   if (!decoded.ok) throw new Error(decoded.error.message);
   expect(decoded.value.cells[0]?.tile).toBe("connected.tst2");
