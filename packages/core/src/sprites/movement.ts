@@ -1,8 +1,9 @@
 /** Fixed-tick actor movement and collision (E-22..E-30, R-50, R-51, R-54). */
-import type { GameState } from "../save/state.ts";
+import type { GameState, SectionKey } from "../save/state.ts";
 import type { WorldBoard, WorldPoint, WorldVector } from "../world/model.ts";
 import { findBlockingThread, hasLiveBlockingThread, type Thread } from "../script/state.ts";
-import type { EnginePhaseContext, EnginePhaseRegistration } from "../engine/engine.ts";
+import type { EdgePreflightOutcome, EdgePreflightRequest, EnginePhaseContext, EnginePhaseRegistration } from "../engine/engine.ts";
+import type { PostEffect } from "../engine/effects.ts";
 import {
   FACING,
   FACING_VECTOR,
@@ -28,6 +29,10 @@ const WAIT_TICKS = 120;
 const SOLID = 1;
 const UNDER = 2;
 const STAIRS = 8;
+/** E-138/R-66: the four board edges a step can leave by. */
+type Edge = "N" | "S" | "E" | "W";
+/** E-138: the board link slot for each edge direction. */
+const EDGE_KEY: Record<Edge, "north" | "south" | "east" | "west"> = { N: "north", S: "south", E: "east", W: "west" };
 
 export type MovementEvent = {
   readonly type: string;
@@ -43,6 +48,8 @@ export type MovementEvent = {
   readonly distance?: number;
   readonly partyDistance256?: number;
   readonly direction?: Facing;
+  /** R-66/E-138: the board edge that stopped or requested a step. */
+  readonly edge?: Facing;
   readonly mode?: number;
   readonly goal?: SpritePoint;
   readonly route?: SpritePoint[];
@@ -69,6 +76,12 @@ export type MovementOptions = {
    * (docs/spec/engine/movement-and-collision.md#r-68).
    */
   readonly endOfStepProcessing?: boolean;
+  /**
+   * R-66 linked board-edge preflight. Core performs no I/O: the engine supplies the load-for-checking, the
+   * R-53 arrival test and the destination's cancelable `beforeEnter`. A direct caller without one still
+   * requests the crossing, and the engine's edges phase performs the same preflight before it commits.
+   */
+  readonly preflightEdge?: (request: EdgePreflightRequest) => EdgePreflightOutcome;
 };
 
 function fixed(value: number): number {
@@ -287,7 +300,7 @@ function spriteHit(section: SpritesSection, actor: SpriteActor, x: number, y: nu
     .sort((left, right) => drawId(section, left) - drawId(section, right))
     .find((other) => polygonsOverlap(shape, translateBase(other, fixed(other.x), fixed(other.y)))) ?? null;
 }
-function offBoard(actor: SpriteActor, board: WorldBoard, x: number, y: number): Facing | null {
+function offBoard(actor: SpriteActor, board: WorldBoard, x: number, y: number): Edge | null {
   const points = actor.collisionBase.points;
   const left = Math.min(...points.map((point) => point.x));
   const top = Math.min(...points.map((point) => point.y));
@@ -302,12 +315,32 @@ function offBoard(actor: SpriteActor, board: WorldBoard, x: number, y: number): 
 function free(section: SpritesSection, actor: SpriteActor, board: WorldBoard, x: number, y: number): boolean {
   return boardHit(actor, board, x, y) === null && spriteHit(section, actor, x, y) === null && offBoard(actor, board, x, y) === null;
 }
-/** R-63: test the collision base at the whole tile destination before the step advances. */
-function destinationBlocker(section: SpritesSection, actor: SpriteActor, board: WorldBoard, target: SpritePoint): { readonly vector: string | null; readonly sprite: string | null } | null {
+/** E-138: only the input-selected player is compared with the board's extent. */
+function isSelectedPlayer(actor: SpriteActor): boolean {
+  return actor.kind === "player" && actor.controlled === true;
+}
+function boardLink(board: WorldBoard, edge: Edge): string {
+  return board.links?.[EDGE_KEY[edge]] ?? "";
+}
+/** R-66 item 6: only a board link is preflighted; a `.prg` link keeps E-48 and an empty link is solid. */
+function isBoardLink(link: string): boolean {
+  return link !== "" && !link.toLowerCase().endsWith(".prg");
+}
+type StepBlocker = { readonly vector: string | null; readonly sprite: string | null; readonly edge: Facing | null };
+/**
+ * R-63: test the collision base at the whole destination before the step advances. E-138: the selected
+ * player's edge is part of that result and is combined after the vector result, so a link never clears a
+ * solid; only an edge with no link is solid.
+ */
+function destinationBlocker(section: SpritesSection, actor: SpriteActor, board: WorldBoard, target: SpritePoint): StepBlocker | null {
   const vector = boardHit(actor, board, fixed(target.x), fixed(target.y));
-  if (vector !== null) return { vector: vector.handle, sprite: null };
+  if (vector !== null) return { vector: vector.handle, sprite: null, edge: null };
+  if (isSelectedPlayer(actor)) {
+    const edge = offBoard(actor, board, fixed(target.x), fixed(target.y));
+    if (edge !== null && boardLink(board, edge) === "") return { vector: null, sprite: null, edge };
+  }
   const sprite = spriteHit(section, actor, fixed(target.x), fixed(target.y));
-  return sprite === null ? null : { vector: null, sprite: sprite.id };
+  return sprite === null ? null : { vector: null, sprite: sprite.id, edge: null };
 }
 /** Rebuild a relative direction entry from a stopped active step so a non-player can retry it (R-64 item 3). */
 function retryMove(active: SpriteActiveMove): SpriteMove {
@@ -321,7 +354,7 @@ function retryMove(active: SpriteActiveMove): SpriteMove {
     ...(active.pointer === true ? { pointer: true as const } : {}),
   };
 }
-function finishActor(actor: SpriteActor, active: SpriteActiveMove, blocked: boolean, tpa: number, tick: number, sink?: (event: MovementEvent) => void, countedBlocked = false, endOfStep = true): SpriteActor {
+function finishActor(actor: SpriteActor, active: SpriteActiveMove, blocked: boolean, tpa: number, tick: number, sink?: (event: MovementEvent) => void, countedBlocked = false, endOfStep = true, refused = false): SpriteActor {
   const waypoint = actor.queue.waypoint;
   const waypointDone = waypoint !== null && waypoint.cycles !== 0 && waypoint.cursor >= waypoint.points.length && waypoint.cycle + 1 >= waypoint.cycles;
   const nextWaypoint = waypointDone ? null : waypoint;
@@ -341,16 +374,20 @@ function finishActor(actor: SpriteActor, active: SpriteActiveMove, blocked: bool
   const partyDistance256 = blocked
     ? (countedBlocked ? STEP_TILE * FP : 0)
     : (endOfStep ? Math.floor(Math.sqrt(dx256 * dx256 + dy256 * dy256) + 0.5) : 0);
-  const movement = {
-    ...cloneMovement(actor.movement),
-    active: null,
-    waitTicks: 0,
-    lastStepTick: tick,
-    lastStepDistance: distance,
-    lastStepProvenance: active.provenance ?? { kind: "unknown" as const },
-    lastStepTarget: countedBlocked ? { ...active.target } : null,
-    lastStepBlocked: blocked,
-  };
+  // R-66 item 3: a refused crossing is a blocked step that is not counted, so it must not look like a
+  // finished step to the trigger and battle phases either: the previous step's record is left untouched.
+  const movement = refused
+    ? { ...cloneMovement(actor.movement), active: null, waitTicks: 0, pendingExit: null }
+    : {
+      ...cloneMovement(actor.movement),
+      active: null,
+      waitTicks: 0,
+      lastStepTick: tick,
+      lastStepDistance: distance,
+      lastStepProvenance: active.provenance ?? { kind: "unknown" as const },
+      lastStepTarget: countedBlocked ? { ...active.target } : null,
+      lastStepBlocked: blocked,
+    };
   if (!blocked) event(tick, "step-complete", { actor: actor.id, distance, partyDistance256 }, sink);
   const state = queue ? "moving" : "waiting";
   if (!queue) event(tick, "movement-complete", { actor: actor.id, blocked }, sink);
@@ -412,7 +449,38 @@ function waypointMove(actor: SpriteActor): { readonly move: SpriteMove; readonly
     waypoint: nextWaypoint,
   };
 }
-function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldBoard, tick: number, gameSpeed: number, pixelMovement: number, freezePointer: boolean, endOfStepProcessing: boolean, sink?: (event: MovementEvent) => void): void {
+/**
+ * End a step blocked at its start, consuming only its own entry (R-64 item 1, R-66 item 3). The rest of
+ * the queue and the waypoint stream stay as they were, and `prev` is cleared so the next entry starts on
+ * the following update.
+ */
+function finishBlockedAtStart(
+  section: SpritesSection,
+  actor: SpriteActor,
+  active: SpriteActiveMove,
+  queue: SpriteActor["queue"],
+  tick: number,
+  tpa: number,
+  sink: ((event: MovementEvent) => void) | undefined,
+  detail: StepBlocker,
+  counted: boolean,
+  endOfStep: boolean,
+  refused: boolean,
+): void {
+  event(tick, "blocked", {
+    actor: actor.id,
+    ...(detail.vector === null ? {} : { vector: detail.vector }),
+    ...(detail.sprite === null ? {} : { blocker: detail.sprite }),
+    ...(detail.edge === null ? {} : { edge: detail.edge }),
+    blocked: true,
+    ...(counted ? { partyDistance256: STEP_TILE * FP } : {}),
+  }, sink);
+  const moves = actor.queue.moves.length > 0 ? actor.queue.moves.slice(1) : actor.queue.moves;
+  const consumed: SpriteActor = { ...actor, facing: active.facing ?? actor.facing, queue: { ...queue, moves } };
+  replaceActor(section, { ...finishActor(consumed, active, true, tpa, tick, sink, counted, endOfStep, refused), prev: null });
+}
+
+function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldBoard, tick: number, gameSpeed: number, pixelMovement: number, freezePointer: boolean, endOfStepProcessing: boolean, preflightEdge: MovementOptions["preflightEdge"], sink?: (event: MovementEvent) => void): void {
   if (!actor.visible) return;
   if (actor.state === "frozen") {
     if (actor.frozenUntil !== null && tick >= actor.frozenUntil) {
@@ -450,6 +518,47 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
     const dx = target.x - actor.x;
     const dy = target.y - actor.y;
     const active: SpriteActiveMove = { source: move.source, start: { x: actor.x, y: actor.y }, target, facing, cadence: actor.prev !== null ? Math.max(0, ticksPerAdvance(actor.speed, gameSpeed) - 1) : 0, ignoreBoard: move.source === "points", tried: false, provenance: move.provenance ?? { kind: "unknown" }, ...(move.pathMode === undefined ? {} : { pathMode: move.pathMode }), ...(move.deferredComplete === true ? { deferredComplete: true } : {}), ...(move.pointer === true ? { pointer: true as const } : {}) };
+    // R-66 item 1/E-138: at step start, before any advance or source-side commit, compare the selected
+    // player's whole step target with the board extent. A board link is preflighted; an empty link is solid.
+    const selected = isSelectedPlayer(actor);
+    // E-138: the edge result is combined with the vector result, so the vector at the whole destination
+    // is tested first and a link never clears a solid.
+    // A point-style step ignores the source board's vectors (E-22), so for it the edge is tested without
+    // the vector gate: the preflight, not the ignored vector, decides whether the step may start.
+    const stepEdge = selected && (move.source === "points" || boardHit(actor, board, fixed(target.x), fixed(target.y)) === null)
+      ? offBoard(actor, board, fixed(target.x), fixed(target.y))
+      : null;
+    if (stepEdge !== null) {
+      const link = boardLink(board, stepEdge);
+      if (isBoardLink(link)) {
+        const outcome: EdgePreflightOutcome = preflightEdge?.({ actorId: actor.id, direction: stepEdge, link }) ?? "accepted";
+        if (outcome === "pending") {
+          // The destination is being fetched. Nothing was committed: the queue entry waits untouched.
+          return;
+        }
+        if (outcome === "refused") {
+          finishBlockedAtStart(section, actor, active, queue, tick, ticksPerAdvance(actor.speed, gameSpeed), sink, { vector: null, sprite: null, edge: stepEdge }, false, endOfStepProcessing, true);
+          return;
+        }
+        // R-66 item 4: an accepted crossing is a placement, not a completed step. The edges phase switches
+        // the board this tick and its placement cancels the active step and the queue.
+        replaceActor(section, {
+          ...actor,
+          facing: stepEdge,
+          state: "waiting",
+          movement: { ...cloneMovement(movement), active: null, waitTicks: 0, pendingExit: stepEdge },
+        });
+        event(tick, "edge-exit", { actor: actor.id, direction: stepEdge }, sink);
+        return;
+      }
+      if (link === "") {
+        const counted = pixelMovement === 0 && move.source === "direction" && endOfStepProcessing;
+        finishBlockedAtStart(section, actor, active, queue, tick, ticksPerAdvance(actor.speed, gameSpeed), sink, { vector: null, sprite: null, edge: stepEdge }, counted, endOfStepProcessing, false);
+        return;
+      }
+      // A `.prg` link keeps E-48: the step runs and the first advance that would leave the board requests
+      // the program, after the vector test.
+    }
     movement = { ...movement, active };
     const moves = actor.queue.moves.length > 0 ? actor.queue.moves.slice(1) : actor.queue.moves;
     const nextActor: SpriteActor = { ...actor, state: "moving", queue: { ...queue, moves }, movement };
@@ -480,9 +589,10 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
         actor: actor.id,
         ...(blocked.vector === null ? {} : { vector: blocked.vector }),
         ...(blocked.sprite === null ? {} : { blocker: blocked.sprite }),
+        ...(blocked.edge === null ? {} : { edge: blocked.edge }),
         blocked: true,
       };
-      if (actor.kind === "player" && actor.controlled === true) {
+      if (isSelectedPlayer(actor)) {
         const counted = atStart && endOfStepProcessing;
         event(tick, "blocked", { ...detail, ...(counted ? { partyDistance256: STEP_TILE * FP } : {}) }, sink);
         const finished = finishActor({ ...actor, facing: active.facing ?? actor.facing }, active, true, tpa, tick, sink, counted);
@@ -493,6 +603,8 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
         return;
       }
       event(tick, "blocked", detail, sink);
+      // E-138: a non-selected player is never blocked by a no-link edge, so only vectors and sprites reach
+      // this retry path.
       const requeued = { ...actor, facing: active.facing ?? actor.facing, queue: { ...actor.queue, moves: [retryMove(active), ...actor.queue.moves] } };
       replaceActor(section, { ...finishActor(requeued, active, true, tpa, tick, sink), prev: null });
       return;
@@ -500,15 +612,6 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
   }
   const next = advancePoint(actor, active, pixelMovement);
   const direction = active.facing ?? FACING[facingIndex(next.x - fixed(actor.x), next.y - fixed(actor.y))] ?? actor.facing;
-  if (actor.kind === "player") {
-    const exit = offBoard(actor, board, next.x, next.y);
-    if (exit !== null) {
-      const exited = finishActor({ ...actor, facing: exit, movement: { ...movement, active: null, pendingExit: exit } }, active, true, tpa, tick, sink);
-      replaceActor(section, exited);
-      event(tick, "edge-exit", { actor: actor.id, direction: exit }, sink);
-      return;
-    }
-  }
   const hit = active.ignoreBoard ? null : boardHit(actor, board, next.x, next.y);
   if (hit !== null) {
     const edge = hitEdge(translateBase(actor, next.x, next.y), hit);
@@ -544,6 +647,32 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
     }
     event(tick, "blocked", { actor: actor.id, vector: hit.handle, blocked: true }, sink);
     replaceActor(section, finishActor({ ...actor, facing: direction }, active, true, tpa, tick, sink));
+    return;
+  }
+  // E-138: the edge is combined with the vector result and after it, and only the selected player is
+  // tested. A board link was preflighted at step start; this path only covers a step whose start was
+  // elsewhere (a restored or migrated active step) and the `.prg` link E-48 keeps.
+  const exit = isSelectedPlayer(actor) ? offBoard(actor, board, next.x, next.y) : null;
+  if (exit !== null) {
+    const link = boardLink(board, exit);
+    if (isBoardLink(link)) {
+      const outcome: EdgePreflightOutcome = preflightEdge?.({ actorId: actor.id, direction: exit, link }) ?? "accepted";
+      if (outcome === "pending") return;
+      if (outcome === "refused") {
+        event(tick, "blocked", { actor: actor.id, edge: exit, blocked: true }, sink);
+        replaceActor(section, { ...finishActor({ ...actor, facing: exit }, active, true, tpa, tick, sink, false, endOfStepProcessing, true), prev: null });
+        return;
+      }
+      // The accepted board-link fallback (a step whose start was elsewhere) is a placement, not a step.
+      replaceActor(section, { ...actor, facing: exit, state: "waiting", movement: { ...movement, active: null, waitTicks: 0, pendingExit: exit } });
+      event(tick, "edge-exit", { actor: actor.id, direction: exit }, sink);
+      return;
+    }
+    // E-48 keeps the pre-R-66 behaviour exactly: a `.prg` link (and the unreachable empty-link fallback)
+    // ends the step through finishActor, so its finished-step record, queue event and step-triggered
+    // regions/items under the exiting tile behave as before this change.
+    replaceActor(section, finishActor({ ...actor, facing: exit, movement: { ...movement, active: null, pendingExit: exit } }, active, true, tpa, tick, sink, false, endOfStepProcessing));
+    event(tick, "edge-exit", { actor: actor.id, direction: exit }, sink);
     return;
   }
   const blocker = spriteHit(section, actor, next.x, next.y);
@@ -651,7 +780,7 @@ export function runMovementPhase(section: SpritesSection, board: WorldBoard | nu
       replaceActor(section, actor);
     }
     if (actor !== undefined && !(options.pauseItems === true && actor.kind === "item")) {
-      advanceActor(section, actor, board, tick, gameSpeed, pixelMovement, options.freezePointer === true, options.endOfStepProcessing !== false, sink);
+      advanceActor(section, actor, board, tick, gameSpeed, pixelMovement, options.freezePointer === true, options.endOfStepProcessing !== false, options.preflightEdge, sink);
     }
   }
   return events;
@@ -675,7 +804,7 @@ export function movementPhaseRegistration(options: MovementOptions & { readonly 
     phase: "movement",
     rank: options.rank ?? 0,
     ...(options.pixelMovement === undefined ? {} : { pixelMovement: options.pixelMovement }),
-    run(state: GameState, _postEffect?: unknown, context?: EnginePhaseContext): void {
+    run(state: GameState, _postEffect?: (section: SectionKey, effect: PostEffect) => void, context?: EnginePhaseContext): void {
       const blocker = findBlockingThread(state.vm);
       // R-68 (docs/spec/engine/movement-and-collision.md#r-68): one predicate gates end-of-step processing for
       // completed and blocked counted steps alike — a live blocking thread, not the wider script-ownership test
@@ -689,6 +818,7 @@ export function movementPhaseRegistration(options: MovementOptions & { readonly 
         freezePointer: blocker !== null || !endOfStepProcessing,
         pauseItems: modalPausesItems(state, blocker),
         endOfStepProcessing,
+        ...(context?.preflightEdge === undefined ? {} : { preflightEdge: context.preflightEdge }),
         onEvent: (ev) => {
           options.onEvent?.(ev);
           const stepDistance = ev.type === "step-complete" || ev.type === "blocked" ? ev.partyDistance256 : undefined;

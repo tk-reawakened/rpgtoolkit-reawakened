@@ -52,8 +52,17 @@
         "board-link-arrives-opposite-edge",
         "arrival-clamps-along-edge",
         "blocked-arrival-is-refused",
+        "refused-crossing-is-not-counted",
+        "refusal-by-bounds-keeps-the-source",
+        "refusal-by-layer-count-keeps-the-source",
+        "refusal-by-missing-board-keeps-the-source",
+        "refusal-by-before-enter-cancel-keeps-the-source",
+        "vector-is-tested-before-the-edge",
+        "point-path-edge-preflight-ignores-source-solid",
+        "point-path-refusal-starts-at-the-last-safe-position",
         "program-link-runs-program",
-        "west-edge-arrives-east-edge"
+        "west-edge-arrives-east-edge",
+        "non-selected-player-is-not-tested-against-the-edge"
       ],
       "proposed": ["P-11"]
     },
