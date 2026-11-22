@@ -17,6 +17,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { electronBinary } from "./electron-binary.mjs";
+import { stopChild } from "./child-process.mjs";
+import { gpuFallbackArgs, InfrastructureError, launchWithRecovery } from "./gpu-retry.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
@@ -105,29 +107,36 @@ function removeCaseDirectory(directory) {
   }
 }
 
-/** Launch the shell, wait for the page's report, and return it. */
-export async function measure(options = {}) {
-  const pkg = options.game ?? packagePath();
-  const reportPath = join(mkdtempSync(join(tmpdir(), "desktop-measure-")), "report.json");
+/**
+ * Spawn one launch attempt, wait for its report, and stop the child on both the success and failure paths. The stop is
+ * bounded (#2169): the old code killed without awaiting on success, so the next case could launch while the last GPU
+ * process was still tearing down, and awaited an unbounded `close` on the timeout path, which is the twenty-minute hang.
+ */
+async function launchOnce({ options, pkg, reportPath, timeoutMs, attempt }) {
   const binary = options.command?.[0] ?? electronBinary();
   const child = spawn(
     binary,
-    options.command?.slice(1) ?? [
-      // The app directory is the built one: its `package.json` names `main.js`, and the preload sits beside it.
-      join(root, "packages", "runner-desktop", "dist"),
-      // Headless Linux CI runners (Xvfb) have no GPU; use Chromium's software WebGL2 path.
-      ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
-      "--serve", root,
-      ...(options.launchArgs ?? ["--game", pkg]),
-      "--page", options.page ?? "packages/runner-desktop/app/player-measure.html",
-      "--report", reportPath,
-    ],
+    options.command === undefined
+      ? [
+        // The app directory is the built one: its `package.json` names `main.js`, and the preload sits beside it.
+        join(root, "packages", "runner-desktop", "dist"),
+        // Headless Linux CI runners (Xvfb) have no GPU; attempt 0 uses Chromium's software WebGL2 path, and a retry
+        // forces ANGLE's SwiftShader explicitly.
+        ...gpuFallbackArgs(process.platform, attempt),
+        "--serve", root,
+        ...(options.launchArgs ?? ["--game", pkg]),
+        "--page", options.page ?? "packages/runner-desktop/app/player-measure.html",
+        "--report", reportPath,
+      ]
+      : options.command.slice(1),
     {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
         ELECTRON_ENABLE_LOGGING: "0",
+        // An injected command writes its report here; the real shell receives the same path through `--report`.
+        DESKTOP_MEASURE_REPORT: reportPath,
         // The npm-installed Electron binary is user-owned, so the Linux SUID sandbox helper is not configured.
         // Disable sandboxing for the measurement harness only; interactive play still uses the OS sandbox by default.
         ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
@@ -138,7 +147,7 @@ export async function measure(options = {}) {
   child.stdout.on("data", (chunk) => log.push(String(chunk)));
   child.stderr.on("data", (chunk) => log.push(String(chunk)));
   const started = Date.now();
-  const deadline = started + (options.timeoutMs ?? 120_000);
+  const deadline = started + timeoutMs;
   let spawnError = null;
   child.on("error", (error) => { spawnError = error; });
   const closed = new Promise((resolveClose) => {
@@ -166,36 +175,82 @@ export async function measure(options = {}) {
       }
     }
   }
+  const output = log.join("");
   if (report !== null) {
-    child.kill();
-    return { report, log: log.join(""), package: pkg };
+    // Success still waits for the child to be gone before the next attempt or case can start.
+    await stopChild(child);
+    return { report, log: output, package: pkg };
   }
   const timedOut = exit === null;
-  if (timedOut) {
-    child.kill();
-    exit = await closed;
+  const stop = await stopChild(child);
+  if (timedOut && stop.exited) exit = { code: child.exitCode ?? null, signal: child.signalCode ?? null };
+  const message = !stop.exited
+    ? `Electron did not exit after SIGKILL; log:\n${output}`
+    : timedOut
+      ? `no report within the deadline; log:\n${output}`
+      : `Electron child exited before writing a report (${spawnError ? spawnError.message : exit.signal ? `signal ${exit.signal}` : `exit code ${exit.code}`}); log:\n${output}`;
+  const error = new Error(message);
+  error.log = output;
+  error.exitCode = exit?.code ?? null;
+  error.signal = exit?.signal ?? null;
+  throw error;
+}
+
+/**
+ * Launch the shell and return the page's report. A failure the classifier calls infrastructure (a dead GPU) is retried
+ * with software WebGL2, bounded backoff and a fresh report path per attempt; a persistent GPU failure is an
+ * `InfrastructureError` that names the evidence. Any other failure is rethrown after one attempt (#2169).
+ */
+export async function measure(options = {}) {
+  const pkg = options.game ?? packagePath();
+  const reportDirectory = mkdtempSync(join(tmpdir(), "desktop-measure-"));
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const started = Date.now();
+  try {
+    const outcome = await launchWithRecovery({
+      attempt: (attempt) => launchOnce({
+        options,
+        pkg,
+        // A fresh path per attempt: a partial report from a crashed attempt must never be read as success.
+        reportPath: join(reportDirectory, `report-attempt-${attempt + 1}.json`),
+        timeoutMs,
+        attempt,
+      }),
+      attempts: options.attempts ?? 3,
+      initialBackoffMs: options.initialBackoffMs ?? 2_000,
+      maxBackoffMs: options.maxBackoffMs ?? 8_000,
+      delay: options.delay,
+    });
+    return { ...outcome.value, attempts: outcome.attempts };
+  } catch (error) {
+    const infrastructure = error instanceof InfrastructureError;
+    const message = error instanceof Error ? error.message : String(error);
+    if (options.out != null) {
+      const failure = {
+        os: process.platform,
+        arch: process.arch,
+        measuredAt: new Date().toISOString(),
+        case: options.case ?? null,
+        package: pkg.replace(`${root}/`, ""),
+        error: message,
+        infrastructure,
+        exitCode: error.exitCode ?? null,
+        signal: error.signal ?? null,
+        output: error.log ?? "",
+        elapsedMs: Date.now() - started,
+        ...(Array.isArray(error.attempts) ? { attempts: error.attempts } : {}),
+      };
+      mkdirSync(dirname(resolve(options.out)), { recursive: true });
+      writeFileSync(resolve(options.out), `${JSON.stringify(failure, null, 2)}\n`);
+    }
+    if (infrastructure) {
+      const summary = message.split(/\r?\n/).slice(0, 12).join(" / ");
+      console.error(`::error title=desktop GPU unavailable (${process.platform})::${summary}`);
+    }
+    throw error;
+  } finally {
+    rmSync(reportDirectory, { recursive: true, force: true });
   }
-  const output = log.join("");
-  const message = timedOut
-    ? `no report within the deadline; log:\n${output}`
-    : `Electron child exited before writing a report (${spawnError ? spawnError.message : exit.signal ? `signal ${exit.signal}` : `exit code ${exit.code}`}); log:\n${output}`;
-  if (options.out != null) {
-    const failure = {
-      os: process.platform,
-      arch: process.arch,
-      measuredAt: new Date().toISOString(),
-      case: options.case ?? null,
-      package: pkg.replace(`${root}/`, ""),
-      error: message,
-      exitCode: exit.code,
-      signal: exit.signal,
-      output,
-      elapsedMs: Date.now() - started,
-    };
-    mkdirSync(dirname(resolve(options.out)), { recursive: true });
-    writeFileSync(resolve(options.out), `${JSON.stringify(failure, null, 2)}\n`);
-  }
-  throw new Error(message);
 }
 
 /**
@@ -209,6 +264,11 @@ export function caseProblem(setup, record) {
       return `expected the stated reason for an empty library, got ${JSON.stringify(record.error)}`;
     }
     return null;
+  }
+  // A game-opening case whose page failed must say so: without this, a GPU or package failure surfaced only as
+  // `tick: expected 120, got undefined`, which hides the cause (#2169).
+  if (typeof record.error === "string" && record.error !== "") {
+    return `the page reported an error: ${record.error}`;
   }
   if (record.resolvedBy !== setup.expected) {
     return `expected launch step ${setup.expected}, got ${JSON.stringify(record.resolvedBy)}`;
