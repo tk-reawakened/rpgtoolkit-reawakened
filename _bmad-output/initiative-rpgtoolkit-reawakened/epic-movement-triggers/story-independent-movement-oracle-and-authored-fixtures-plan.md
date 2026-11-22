@@ -121,10 +121,13 @@ Every proposed choice below remains **Proposed ruling (pending owner review)**, 
   which resolves the ambiguity in favour of the traced legacy finished-move
   processing (`docs/provenance/facts-round-18.md`, Q1a/Q1b). Rejected: the previous
   zero contribution, which contradicted that processing and made a repeat program
-  in front of a wall impossible to author deliberately. The generated case
-  `blocked-counted-step-does-not-leak-into-repeat-distance` and the `P-19` entry
-  in the fixture registry still encode the superseded answer; re-record them when
-  #1281 implements R-67.
+  in front of a wall impossible to author deliberately. Since #1281 implemented R-67
+  the oracle records the settled answer: the superseded
+  `blocked-counted-step-does-not-leak-into-repeat-distance` case was replaced by
+  `blocked-counted-step-feeds-repeat-distance`,
+  `repeat-distance-32-fires-on-every-blocked-press` and
+  `blocked-press-outside-the-area-rearms-the-repeat`, and `P-19` was removed from
+  the fixture registry (`tools/fixtures/movement/index.mjs` and `manifest.json`).
 
 ## Acceptance mapping
 
