@@ -93,16 +93,24 @@ export function edgesBoardLinkProgram() {
     programs: [{ id: "welcome-mat", type: "step", layer: 0, points: rectPts(0, 64, 64, 128), program: "welcome.prg" }],
   });
   const both = { west, east };
-  const start = (x, y) => ({ board: "west", boards: both, players: [hero({ x, y, speed: 0.02 })] });
+  const start = (x, y, extra = {}) => ({ board: "west", boards: both, players: [hero({ x, y, speed: 0.02, ...extra })] });
+  const refusedSolid = { board: "west", boards: both, players: [hero({ x: 304, y: 127, speed: 0.02 })] };
   return {
-    spec: ["movement-and-collision.md#e-28", "movement-and-collision.md#r-53", "movement-and-collision.md#e-19", "movement-and-collision.md#e-47", "movement-and-collision.md#e-48"],
+    spec: ["movement-and-collision.md#e-28", "movement-and-collision.md#r-53", "movement-and-collision.md#r-66", "movement-and-collision.md#e-138", "movement-and-collision.md#e-19", "movement-and-collision.md#e-47", "movement-and-collision.md#e-48"],
     cases: [
-      makeCase("no-link-edge-is-solid", "E-28: with no link the edge is solid; the step ends and the player stays.", start(144, 303), [{ t: 0, op: "push", actor: "hero", dirs: "S" }], 12),
-      makeCase("board-link-arrives-opposite-edge", "R-53: leaving east at y = 95 arrives at the west edge of `east` at x = 15 keeping y = 95; the program under the arrival is deactivated (E-19), so walking on inside it does not fire, but leaving and re-entering does.", start(304, 95), [{ t: 0, op: "push", actor: "hero", dirs: "E" }, { t: 4, op: "push", actor: "hero", dirs: "E,E,E,E,W,W,W,W" }], 120),
+      makeCase("no-link-edge-is-solid", "E-138/R-64: with no link the edge is solid at step start; the step ends without moving and the selected player's direction tile step is the counted one.", start(144, 303), [{ t: 0, op: "push", actor: "hero", dirs: "S" }], 12),
+      makeCase("board-link-arrives-opposite-edge", "R-53/R-66: leaving east at y = 95 arrives at the west edge of `east` at x = 15 keeping y = 95; the crossing is a placement, so no step completes, and the program under the arrival is deactivated (E-19).", start(304, 95), [{ t: 0, op: "push", actor: "hero", dirs: "E" }, { t: 4, op: "push", actor: "hero", dirs: "E,E,E,E,W,W,W,W" }], 120),
       makeCase("arrival-clamps-along-edge", "R-53 item 2: the along-edge coordinate is clamped so the collision base lies inside the shorter board (y 300 becomes 160).", start(304, 303), [{ t: 0, op: "push", actor: "hero", dirs: "E" }], 14),
-      makeCase("blocked-arrival-is-refused", "R-53 item 3: the arrival point overlaps a solid, so the move fails; board, position and the rest of the queue are unchanged and no thread starts or stops.", start(304, 127), [{ t: 0, op: "push", actor: "hero", dirs: "E,N" }], 30),
+      makeCase("blocked-arrival-is-refused", "R-66 items 2c and 3: the arrival point overlaps a solid, so the preflight refuses before the first advance; the player stays on the source board and the queued N step still runs.", refusedSolid, [{ t: 0, op: "push", actor: "hero", dirs: "E,N" }], 30),
+      makeCase("refused-crossing-is-not-counted", "R-66 item 3: a refused crossing is a blocked step but is not counted — no step-triggered program at the attempted destination fires.", { ...refusedSolid, boards: { ...both, west: { ...west, programs: [{ id: "edge-door", type: "step", layer: 0, points: rectPts(288, 80, 384, 110), program: "door.prg" }] } } }, [{ t: 0, op: "push", actor: "hero", dirs: "E" }], 30),
+      makeCase("refusal-by-bounds-keeps-the-source", "R-66 item 2c: a collision base wider than the destination cannot fit, so R-53 refuses the arrival.", { board: "west", boards: both, players: [hero({ x: 304, y: 95, speed: 0.02, collision: [-200, -15, 200, 0] })] }, [{ t: 0, op: "push", actor: "hero", dirs: "E" }], 12),
+      makeCase("refusal-by-layer-count-keeps-the-source", "R-66 item 2c: the player's layer must exist on the destination board.", { board: "west", boards: { west, east: { ...east, layers: 1 } }, players: [hero({ x: 304, y: 95, layer: 1, speed: 0.02 })] }, [{ t: 0, op: "push", actor: "hero", dirs: "E" }], 12),
+      makeCase("refusal-by-missing-board-keeps-the-source", "R-66 item 2a: a destination board that cannot be loaded is a refusal.", { board: "west", boards: { west }, players: [hero({ x: 304, y: 95, speed: 0.02 })] }, [{ t: 0, op: "push", actor: "hero", dirs: "E" }], 12),
+      makeCase("refusal-by-before-enter-cancel-keeps-the-source", "R-66 item 2d: the destination board's cancelable beforeEnter makes the crossing refused.", { board: "west", boards: { west, east: { ...east, beforeEnterCancel: true } }, players: [hero({ x: 304, y: 95, speed: 0.02 })] }, [{ t: 0, op: "push", actor: "hero", dirs: "E" }], 12),
+      makeCase("vector-is-tested-before-the-edge", "E-138: an edge link never clears a solid; the vector at the destination blocks the step and no preflight runs.", { board: "west", boards: { west: { ...west, vectors: [solid("edge-wall", 320, 60, 340, 140)] }, east }, players: [hero({ x: 304, y: 95, speed: 0.02 })] }, [{ t: 0, op: "push", actor: "hero", dirs: "E" }], 12),
       makeCase("program-link-runs-program", "E-48: an edge whose link is a program runs it instead of loading a board; the player stays.", start(144, 31), [{ t: 0, op: "push", actor: "hero", dirs: "N" }], 12),
       makeCase("west-edge-arrives-east-edge", "R-53 mirrored: leaving west arrives at the east edge, innermost x = board width - 15.", start(16, 95), [{ t: 0, op: "push", actor: "hero", dirs: "W" }], 14),
+      makeCase("non-selected-player-is-not-tested-against-the-edge", "E-138: other players are not tested against the board's edges at all; the ally walks off the board while the selected player stays put.", { board: "west", boards: both, players: [hero({ x: 48, y: 63, speed: 0.02 }), hero({ id: "ally", x: 304, y: 95, speed: 0.02, controlled: false })] }, [{ t: 0, op: "push", actor: "ally", dirs: "E" }], 30),
     ],
   };
 }

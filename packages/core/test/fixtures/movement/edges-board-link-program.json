@@ -7,6 +7,8 @@
   "spec": [
     "movement-and-collision.md#e-28",
     "movement-and-collision.md#r-53",
+    "movement-and-collision.md#r-66",
+    "movement-and-collision.md#e-138",
     "movement-and-collision.md#e-19",
     "movement-and-collision.md#e-47",
     "movement-and-collision.md#e-48"
@@ -15,7 +17,7 @@
   "cases": [
     {
       "name": "no-link-edge-is-solid",
-      "note": "E-28: with no link the edge is solid; the step ends and the player stays.",
+      "note": "E-138/R-64: with no link the edge is solid at step start; the step ends without moving and the selected player's direction tile step is the counted one.",
       "setup": {
         "board": "west",
         "boards": {
@@ -61,23 +63,23 @@
         {"e":"threads-started","ids":[]}
       ],
       "expect": [
-        {"t":0,"a":[["hero",144,307,0,"moving","S"]]},
-        {"t":1,"a":[["hero",144,311,0,"moving","S"]]},
-        {"t":2,"a":[["hero",144,315,0,"moving","S"]]},
-        {"t":3,"a":[["hero",144,319,0,"moving","S"]]},
-        {"t":4,"a":[["hero",144,319,0,"waiting","S"]],"ev":[{"e":"movement-complete","actor":"hero","blocked":true},{"e":"edge-blocked","dir":"S"}]},
-        {"t":5,"a":[["hero",144,319,0,"waiting","S"]]},
-        {"t":6,"a":[["hero",144,319,0,"waiting","S"]]},
-        {"t":7,"a":[["hero",144,319,0,"waiting","S"]]},
-        {"t":8,"a":[["hero",144,319,0,"waiting","S"]]},
-        {"t":9,"a":[["hero",144,319,0,"waiting","S"]]},
-        {"t":10,"a":[["hero",144,319,0,"waiting","S"]]},
-        {"t":11,"a":[["hero",144,319,0,"waiting","S"]]}
+        {"t":0,"a":[["hero",144,303,0,"waiting","S"]],"ev":[{"e":"blocked","actor":"hero","edge":"S"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":2,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":3,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":4,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":5,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":6,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":7,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":8,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":9,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":10,"a":[["hero",144,303,0,"waiting","S"]]},
+        {"t":11,"a":[["hero",144,303,0,"waiting","S"]]}
       ]
     },
     {
       "name": "board-link-arrives-opposite-edge",
-      "note": "R-53: leaving east at y = 95 arrives at the west edge of `east` at x = 15 keeping y = 95; the program under the arrival is deactivated (E-19), so walking on inside it does not fire, but leaving and re-entering does.",
+      "note": "R-53/R-66: leaving east at y = 95 arrives at the west edge of `east` at x = 15 keeping y = 95; the crossing is a placement, so no step completes, and the program under the arrival is deactivated (E-19).",
       "setup": {
         "board": "west",
         "boards": {
@@ -124,7 +126,7 @@
         {"e":"threads-started","ids":[]}
       ],
       "expect": [
-        {"t":0,"a":[["hero",15,95,0,"waiting","E"]],"ev":[{"e":"movement-complete","actor":"hero","blocked":true},{"e":"board-link","dir":"E","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":15,"y":95,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":15,"y":95,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
+        {"t":0,"a":[["hero",15,95,0,"waiting","E"]],"ev":[{"e":"before-enter","board":"east","cancelled":false},{"e":"edge-exit","actor":"hero","dir":"E"},{"e":"board-link","dir":"E","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":15,"y":95,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":15,"y":95,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
         {"t":1,"a":[["hero",15,95,0,"waiting","E"]]},
         {"t":2,"a":[["hero",15,95,0,"waiting","E"]]},
         {"t":3,"a":[["hero",15,95,0,"waiting","E"]]},
@@ -294,7 +296,7 @@
         {"e":"threads-started","ids":[]}
       ],
       "expect": [
-        {"t":0,"a":[["hero",15,160,0,"waiting","E"]],"ev":[{"e":"movement-complete","actor":"hero","blocked":true},{"e":"board-link","dir":"E","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":15,"y":160,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":15,"y":160,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
+        {"t":0,"a":[["hero",15,160,0,"waiting","E"]],"ev":[{"e":"before-enter","board":"east","cancelled":false},{"e":"edge-exit","actor":"hero","dir":"E"},{"e":"board-link","dir":"E","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":15,"y":160,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":15,"y":160,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
         {"t":1,"a":[["hero",15,160,0,"waiting","E"]]},
         {"t":2,"a":[["hero",15,160,0,"waiting","E"]]},
         {"t":3,"a":[["hero",15,160,0,"waiting","E"]]},
@@ -312,7 +314,7 @@
     },
     {
       "name": "blocked-arrival-is-refused",
-      "note": "R-53 item 3: the arrival point overlaps a solid, so the move fails; board, position and the rest of the queue are unchanged and no thread starts or stops.",
+      "note": "R-66 items 2c and 3: the arrival point overlaps a solid, so the preflight refuses before the first advance; the player stays on the source board and the queued N step still runs.",
       "setup": {
         "board": "west",
         "boards": {
@@ -358,7 +360,7 @@
         {"e":"threads-started","ids":[]}
       ],
       "expect": [
-        {"t":0,"a":[["hero",304,127,0,"moving","E"]],"ev":[{"e":"arrival-rejected","dir":"E","board":"east","x":15,"y":127}]},
+        {"t":0,"a":[["hero",304,127,0,"moving","E"]],"ev":[{"e":"arrival-rejected","dir":"E","board":"east","reason":"solid","x":15,"y":127},{"e":"blocked","actor":"hero","edge":"E"}]},
         {"t":1,"a":[["hero",304,123,0,"moving","N"]]},
         {"t":2,"a":[["hero",304,119,0,"moving","N"]]},
         {"t":3,"a":[["hero",304,115,0,"moving","N"]]},
@@ -388,6 +390,382 @@
         {"t":27,"a":[["hero",304,95,0,"waiting","N"]]},
         {"t":28,"a":[["hero",304,95,0,"waiting","N"]]},
         {"t":29,"a":[["hero",304,95,0,"waiting","N"]]}
+      ]
+    },
+    {
+      "name": "refused-crossing-is-not-counted",
+      "note": "R-66 item 3: a refused crossing is a blocked step but is not counted — no step-triggered program at the attempted destination fires.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [{"id":"edge-door","type":"step","layer":0,"points":[[288,80],[384,80],[384,110],[288,110]],"program":"door.prg"}],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          },
+          "east": {
+            "w": 320,
+            "h": 160,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"rubble","type":"solid","layer":0,"closed":true,"points":[[0,100],[40,100],[40,130],[0,130]]}],
+            "programs": [{"id":"welcome-mat","type":"step","layer":0,"points":[[0,64],[64,64],[64,128],[0,128]],"program":"welcome.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "music": "field.mid",
+            "enterProgram": "east-enter.prg"
+          }
+        },
+        "players": [{"id":"hero","x":304,"y":127,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 30,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",304,127,0,"waiting","E"]],"ev":[{"e":"arrival-rejected","dir":"E","board":"east","reason":"solid","x":15,"y":127},{"e":"blocked","actor":"hero","edge":"E"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":9,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":12,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":13,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":14,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":15,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":16,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":17,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":18,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":19,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":20,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":21,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":22,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":23,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":24,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":25,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":26,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":27,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":28,"a":[["hero",304,127,0,"waiting","E"]]},
+        {"t":29,"a":[["hero",304,127,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "refusal-by-bounds-keeps-the-source",
+      "note": "R-66 item 2c: a collision base wider than the destination cannot fit, so R-53 refuses the arrival.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          },
+          "east": {
+            "w": 320,
+            "h": 160,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"rubble","type":"solid","layer":0,"closed":true,"points":[[0,100],[40,100],[40,130],[0,130]]}],
+            "programs": [{"id":"welcome-mat","type":"step","layer":0,"points":[[0,64],[64,64],[64,128],[0,128]],"program":"welcome.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "music": "field.mid",
+            "enterProgram": "east-enter.prg"
+          }
+        },
+        "players": [{"id":"hero","x":304,"y":95,"layer":0,"speed":0.02,"facing":"S","controlled":true,"collision":[-200,-15,200,0]}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 12,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",304,95,0,"waiting","E"]],"ev":[{"e":"arrival-rejected","dir":"E","board":"east","reason":"bounds"},{"e":"blocked","actor":"hero","edge":"E"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":9,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",304,95,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "refusal-by-layer-count-keeps-the-source",
+      "note": "R-66 item 2c: the player's layer must exist on the destination board.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          },
+          "east": {
+            "w": 320,
+            "h": 160,
+            "layers": 1,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"rubble","type":"solid","layer":0,"closed":true,"points":[[0,100],[40,100],[40,130],[0,130]]}],
+            "programs": [{"id":"welcome-mat","type":"step","layer":0,"points":[[0,64],[64,64],[64,128],[0,128]],"program":"welcome.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "music": "field.mid",
+            "enterProgram": "east-enter.prg"
+          }
+        },
+        "players": [{"id":"hero","x":304,"y":95,"layer":1,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 12,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",304,95,1,"waiting","E"]],"ev":[{"e":"arrival-rejected","dir":"E","board":"east","reason":"layer"},{"e":"blocked","actor":"hero","edge":"E"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":2,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":3,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":4,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":5,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":6,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":7,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":8,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":9,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":10,"a":[["hero",304,95,1,"waiting","E"]]},
+        {"t":11,"a":[["hero",304,95,1,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "refusal-by-missing-board-keeps-the-source",
+      "note": "R-66 item 2a: a destination board that cannot be loaded is a refusal.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          }
+        },
+        "players": [{"id":"hero","x":304,"y":95,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 12,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",304,95,0,"waiting","E"]],"ev":[{"e":"arrival-rejected","dir":"E","board":"east","reason":"missing"},{"e":"blocked","actor":"hero","edge":"E"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":9,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",304,95,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "refusal-by-before-enter-cancel-keeps-the-source",
+      "note": "R-66 item 2d: the destination board's cancelable beforeEnter makes the crossing refused.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          },
+          "east": {
+            "w": 320,
+            "h": 160,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"rubble","type":"solid","layer":0,"closed":true,"points":[[0,100],[40,100],[40,130],[0,130]]}],
+            "programs": [{"id":"welcome-mat","type":"step","layer":0,"points":[[0,64],[64,64],[64,128],[0,128]],"program":"welcome.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "music": "field.mid",
+            "enterProgram": "east-enter.prg",
+            "beforeEnterCancel": true
+          }
+        },
+        "players": [{"id":"hero","x":304,"y":95,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 12,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",304,95,0,"waiting","E"]],"ev":[{"e":"before-enter","board":"east","cancelled":true},{"e":"arrival-rejected","dir":"E","board":"east","reason":"cancelled","x":15,"y":95},{"e":"blocked","actor":"hero","edge":"E"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":9,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",304,95,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "vector-is-tested-before-the-edge",
+      "note": "E-138: an edge link never clears a solid; the vector at the destination blocks the step and no preflight runs.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"edge-wall","type":"solid","layer":0,"closed":true,"points":[[320,60],[340,60],[340,140],[320,140]]}],
+            "programs": [],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          },
+          "east": {
+            "w": 320,
+            "h": 160,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"rubble","type":"solid","layer":0,"closed":true,"points":[[0,100],[40,100],[40,130],[0,130]]}],
+            "programs": [{"id":"welcome-mat","type":"step","layer":0,"points":[[0,64],[64,64],[64,128],[0,128]],"program":"welcome.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "music": "field.mid",
+            "enterProgram": "east-enter.prg"
+          }
+        },
+        "players": [{"id":"hero","x":304,"y":95,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 12,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",304,95,0,"waiting","E"]],"ev":[{"e":"blocked","actor":"hero","by":"edge-wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":9,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",304,95,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",304,95,0,"waiting","E"]]}
       ]
     },
     {
@@ -442,7 +820,7 @@
         {"t":1,"a":[["hero",144,23,0,"moving","N"]]},
         {"t":2,"a":[["hero",144,19,0,"moving","N"]]},
         {"t":3,"a":[["hero",144,15,0,"moving","N"]]},
-        {"t":4,"a":[["hero",144,15,0,"waiting","N"]],"ev":[{"e":"movement-complete","actor":"hero","blocked":true},{"e":"program-link","dir":"N","program":"north-gate.prg"}]},
+        {"t":4,"a":[["hero",144,15,0,"waiting","N"]],"ev":[{"e":"edge-exit","actor":"hero","dir":"N"},{"e":"movement-complete","actor":"hero","blocked":true},{"e":"program-link","dir":"N","program":"north-gate.prg"}]},
         {"t":5,"a":[["hero",144,15,0,"waiting","N"]]},
         {"t":6,"a":[["hero",144,15,0,"waiting","N"]]},
         {"t":7,"a":[["hero",144,15,0,"waiting","N"]]},
@@ -500,7 +878,7 @@
         {"e":"threads-started","ids":[]}
       ],
       "expect": [
-        {"t":0,"a":[["hero",305,95,0,"waiting","W"]],"ev":[{"e":"movement-complete","actor":"hero","blocked":true},{"e":"board-link","dir":"W","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":305,"y":95,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":305,"y":95,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
+        {"t":0,"a":[["hero",305,95,0,"waiting","W"]],"ev":[{"e":"before-enter","board":"east","cancelled":false},{"e":"edge-exit","actor":"hero","dir":"W"},{"e":"board-link","dir":"W","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":305,"y":95,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":305,"y":95,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
         {"t":1,"a":[["hero",305,95,0,"waiting","W"]]},
         {"t":2,"a":[["hero",305,95,0,"waiting","W"]]},
         {"t":3,"a":[["hero",305,95,0,"waiting","W"]]},
@@ -514,6 +892,90 @@
         {"t":11,"a":[["hero",305,95,0,"waiting","W"]]},
         {"t":12,"a":[["hero",305,95,0,"waiting","W"]]},
         {"t":13,"a":[["hero",305,95,0,"waiting","W"]]}
+      ]
+    },
+    {
+      "name": "non-selected-player-is-not-tested-against-the-edge",
+      "note": "E-138: other players are not tested against the board's edges at all; the ally walks off the board while the selected player stays put.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          },
+          "east": {
+            "w": 320,
+            "h": 160,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"rubble","type":"solid","layer":0,"closed":true,"points":[[0,100],[40,100],[40,130],[0,130]]}],
+            "programs": [{"id":"welcome-mat","type":"step","layer":0,"points":[[0,64],[64,64],[64,128],[0,128]],"program":"welcome.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "music": "field.mid",
+            "enterProgram": "east-enter.prg"
+          }
+        },
+        "players": [
+          {"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true},
+          {"id":"ally","x":304,"y":95,"layer":0,"speed":0.02,"facing":"S","controlled":false}
+        ]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"ally","dirs":"E"}
+      ],
+      "ticks": 30,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"hydrate","id":"ally","drawId":1,"index":1,"slot":1,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","S"],["ally",308,95,0,"moving","E"]]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","S"],["ally",312,95,0,"moving","E"]]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","S"],["ally",316,95,0,"moving","E"]]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","S"],["ally",320,95,0,"moving","E"]]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","S"],["ally",324,95,0,"moving","E"]]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","S"],["ally",328,95,0,"moving","E"]]},
+        {"t":6,"a":[["hero",48,63,0,"waiting","S"],["ally",332,95,0,"moving","E"]]},
+        {"t":7,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]],"ev":[{"e":"step-complete","actor":"ally"},{"e":"movement-complete","actor":"ally"}]},
+        {"t":8,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":9,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":12,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":13,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":14,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":15,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":16,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":17,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":18,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":19,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":20,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":21,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":22,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":23,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":24,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":25,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":26,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":27,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":28,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]},
+        {"t":29,"a":[["hero",48,63,0,"waiting","S"],["ally",336,95,0,"waiting","E"]]}
       ]
     }
   ]

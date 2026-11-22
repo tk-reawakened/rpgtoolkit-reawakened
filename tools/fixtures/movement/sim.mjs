@@ -58,6 +58,7 @@ export class World {
     this.walked = 0;
     this.battleDest = null;
     this.pendingSend = null;
+    this.preparedArrival = null;
     this.threads = [];
     this.tick = -1;
     this.players = (setup.players ?? []).map((p, index) => this.makeActor({ ...p, kind: "player" }, index));
@@ -574,30 +575,56 @@ export class World {
       } else a.cadence = blocked ? 0 : tpa - 1;
     };
 
+    // R-66 item 1/E-138: at step start, before any advance, the selected player's whole step target is
+    // compared with the board extent. A board link is preflighted; an empty link is solid. The vector at
+    // the destination is tested first, so a link never clears a solid.
+    if (a.kind === "player" && a.controlled) {
+      const vector = this.boardHit(a, c.tx, c.ty);
+      const edge = vector === null ? this.offBoard(a, c.tx, c.ty) : null;
+      if (edge !== null) {
+        const link = this.board.links?.[edge] ?? null;
+        if (link !== null && !link.program) {
+          const outcome = this.preflightEdge(a, edge, link);
+          if (outcome === "refused") {
+            if (c.dir !== null) a.facing = c.dir;
+            this.emit("blocked", { actor: a.id, edge });
+            finish(true);
+            return;
+          }
+          // R-66 item 4: an accepted crossing is a placement, not a completed step.
+          if (c.dir !== null) a.facing = c.dir;
+          a.cur = null;
+          a.waitLeft = 0;
+          a.pendingExit = edge;
+          this.emit("edge-exit", { actor: a.id, dir: edge });
+          return;
+        }
+        if (link === null) {
+          if (c.dir !== null) a.facing = c.dir;
+          if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0 && a.x === c.sx && a.y === c.sy) this.countBlockedStep(a, c);
+          this.emit("blocked", { actor: a.id, edge });
+          finish(true);
+          return;
+        }
+        // A `.prg` link keeps E-48: the step runs and the first advance that would leave requests it.
+      }
+    }
     // R-63 (docs/spec/engine/movement-and-collision.md#r-63): a tile direction step checks its whole
     // destination before the first advance. R-64: the controlled (input-selected) player consumes and
     // counts it, but only when the precheck stops the step at its start; other actors — including a
     // non-selected party player — and a block that appears mid-step keep the entry and retry it.
     if (c.src === "dir" && (this.board.pixelMovement ?? 0) === 0) {
       const solid = this.boardHit(a, c.tx, c.ty);
-      const other = solid === null ? this.spriteHit(a, c.tx, c.ty) : null;
-      if (solid !== null || other !== null) {
+      // E-138: only the selected player, after the vector result, and only an edge with no link.
+      const edge = solid === null && a.kind === "player" && a.controlled ? this.offBoard(a, c.tx, c.ty) : null;
+      const edgeSolid = edge !== null && (this.board.links?.[edge] ?? null) === null;
+      const other = solid === null && !edgeSolid ? this.spriteHit(a, c.tx, c.ty) : null;
+      if (solid !== null || edgeSolid || other !== null) {
         if (dirIdx >= 0) a.facing = dirIdx;
         if (a.kind === "player" && a.controlled) {
           if (a.x === c.sx && a.y === c.sy) this.countBlockedStep(a, c);
         } else a.queue.unshift({ src: "dir", dir: c.dir, size: c.size, triggerOrigin: c.triggerOrigin });
-        this.emit("blocked", { actor: a.id, by: (solid ?? other).id });
-        finish(true);
-        return;
-      }
-    }
-
-    // The player cannot leave the board except over a link (E-28); items are not limited.
-    if (a.kind === "player") {
-      const exit = this.offBoard(a, nx, ny);
-      if (exit !== null) {
-        if (dirIdx >= 0) a.facing = dirIdx;
-        a.pendingExit = exit;
+        this.emit("blocked", { actor: a.id, ...(edgeSolid ? { edge } : { by: (solid ?? other).id }) });
         finish(true);
         return;
       }
@@ -623,6 +650,24 @@ export class World {
       // on arriving there (one slide per step).
       this.applyMove(a, slid.x, slid.y, slid.facing);
       this.afterAdvance(a, c, slid.x, slid.y, true, tpa, finish);
+      return;
+    }
+
+    // E-138: the edge is combined with the vector result and runs after it, and only the selected
+    // player is tested. A board link here is a step that did not start at this position.
+    const exit = a.kind === "player" && a.controlled ? this.offBoard(a, nx, ny) : null;
+    if (exit !== null) {
+      if (dirIdx >= 0) a.facing = dirIdx;
+      const link = this.board.links?.[exit] ?? null;
+      if (link !== null && !link.program && this.preflightEdge(a, exit, link) === "refused") {
+        this.emit("blocked", { actor: a.id, edge: exit });
+        finish(true);
+        return;
+      }
+      a.pendingExit = exit;
+      this.emit("edge-exit", { actor: a.id, dir: exit });
+      a.cur = null;
+      finish(true);
       return;
     }
 
@@ -765,7 +810,54 @@ export class World {
     for (const a of this.ordered) this.moveActor(a);
   }
 
-  // ---------------------------------------------------------------- edges (E-28, R-53)
+  // ---------------------------------------------------------------- edges (E-28, R-53, R-66)
+
+  /**
+   * R-66 item 2: load the destination for checking only, compute R-53's arrival, test the destination's
+   * bounds, layer count and exact-solid vectors, then run its cancelable `beforeEnter`. This oracle has no
+   * I/O: an unknown board is the missing/unloadable refusal, and a scene flag models a cancelling listener.
+   */
+  preflightEdge(a, edge, link) {
+    const dest = this.boards.get(link.board);
+    if (dest === undefined) {
+      this.emit("arrival-rejected", { dir: edge, board: link.board, reason: "missing" });
+      return "refused";
+    }
+    if (a.layer < 0 || a.layer >= dest.layers) {
+      this.emit("arrival-rejected", { dir: edge, board: link.board, reason: "layer" });
+      return "refused";
+    }
+    const [l, u, r, d] = [a.base[0][0], a.base[0][1], a.base[1][0], a.base[2][1]];
+    const minX = -l;
+    const maxX = dest.w * FP - r;
+    const minY = -u;
+    const maxY = dest.h * FP - d;
+    if (minX > maxX || minY > maxY) {
+      this.emit("arrival-rejected", { dir: edge, board: link.board, reason: "bounds" });
+      return "refused";
+    }
+    let ax;
+    let ay;
+    if (edge === "E" || edge === "W") {
+      ax = edge === "E" ? minX : maxX;
+      ay = Math.max(minY, Math.min(maxY, a.y));
+    } else {
+      ay = edge === "S" ? minY : maxY;
+      ax = Math.max(minX, Math.min(maxX, a.x));
+    }
+    const base = translate(a.base, ax, ay);
+    if (dest.vectors.some((v) => v.layer === a.layer && v.type === "solid" && hitsVector(base, v))) {
+      this.emit("arrival-rejected", { dir: edge, board: link.board, reason: "solid", x: ax / FP, y: ay / FP });
+      return "refused";
+    }
+    this.emit("before-enter", { board: link.board, cancelled: dest.beforeEnterCancel === true });
+    if (dest.beforeEnterCancel === true) {
+      this.emit("arrival-rejected", { dir: edge, board: link.board, reason: "cancelled", x: ax / FP, y: ay / FP });
+      return "refused";
+    }
+    this.preparedArrival = { board: link.board, x: ax / FP, y: ay / FP, layer: a.layer };
+    return "accepted";
+  }
 
   edgesPhase() {
     const p = this.player;
@@ -773,37 +865,16 @@ export class World {
     const dir = p.pendingExit;
     p.pendingExit = null;
     const link = this.board.links?.[dir] ?? null;
-    if (link === null) {
-      this.emit("edge-blocked", { dir });
-      return;
-    }
+    if (link === null) return; // an empty link is already a solid block at step start
     if (link.program) {
       this.emit("program-link", { dir, program: link.program });
       return;
     }
-    const dest = this.boards.get(link.board);
-    const [l, u, r, d] = [p.base[0][0], p.base[0][1], p.base[1][0], p.base[2][1]];
-    let ax;
-    let ay;
-    const clamp = (v, lo, hi) => (lo > hi ? null : Math.max(lo, Math.min(hi, v)));
-    if (dir === "E" || dir === "W") {
-      ax = dir === "E" ? -l : dest.w * FP - r;
-      ay = clamp(p.y, -u, dest.h * FP - d);
-    } else {
-      ay = dir === "S" ? -u : dest.h * FP - d;
-      ax = clamp(p.x, -l, dest.w * FP - r);
-    }
-    let blocked = ax === null || ay === null;
-    if (!blocked) {
-      const base = translate(p.base, ax, ay);
-      blocked = dest.vectors.some((v) => v.layer === p.layer && v.type === "solid" && hitsVector(base, v));
-    }
-    if (blocked) {
-      this.emit("arrival-rejected", { dir, board: link.board, x: ax === null ? null : ax / FP, y: ay === null ? null : ay / FP });
-      return;
-    }
+    const prepared = this.preparedArrival;
+    this.preparedArrival = null;
+    if (prepared === null || prepared.board !== link.board) return;
     this.emit("board-link", { dir, from: this.boardId, to: link.board });
-    this.switchBoard(link.board, ax / FP, ay / FP, p.layer, null);
+    this.switchBoard(link.board, prepared.x, prepared.y, prepared.layer, null);
   }
 
   switchBoard(id, x, y, layer, from) {

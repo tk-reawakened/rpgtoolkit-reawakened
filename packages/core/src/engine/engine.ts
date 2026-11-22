@@ -167,12 +167,32 @@ void _phasesAreExhaustive;
 
 export type { EnginePhase };
 
+/**
+ * R-66 linked-edge preflight request (docs/spec/engine/movement-and-collision.md#r-66). The movement
+ * phase decides *when* to ask; the engine owns the board load, arrival computation and `beforeEnter`.
+ */
+export type EdgePreflightRequest = {
+  readonly actorId: string;
+  readonly direction: Facing;
+  readonly link: string;
+};
+/**
+ * `accepted`: the crossing may commit; the engine holds the prepared arrival for this tick's edges
+ * phase. `refused`: the step ends blocked and uncounted, the queue keeps its later entries.
+ * `pending`: the destination asset is requested and the movement phase must leave the step unstarted.
+ */
+export type EdgePreflightOutcome = "accepted" | "refused" | "pending";
+/** Per-phase engine services handed to a phase registration's `run` (G2: core itself does no I/O). */
+export type EnginePhaseContext = {
+  readonly preflightEdge: (request: EdgePreflightRequest) => EdgePreflightOutcome;
+};
+
 export type EnginePhaseRegistration = {
   readonly phase: EnginePhase;
   readonly rank?: number;
   /** Legacy main-file movement mode used as the scene default when no main file exists. */
   readonly pixelMovement?: number;
-  readonly run: (state: GameState, postEffect?: (section: SectionKey, effect: PostEffect) => void) => void;
+  readonly run: (state: GameState, postEffect?: (section: SectionKey, effect: PostEffect) => void, context?: EnginePhaseContext) => void;
 };
 
 /** A section owner reset callback (E-06; docs/spec/engine/main-loop-and-startup.md#reawakened-reset-sections). */
@@ -463,6 +483,12 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
    * has to be unique within the run.
    */
   let nextHintId = 1;
+  /**
+   * R-66: the arrival an accepted preflight prepared this tick, consumed by the edges phase. It is
+   * engine-local and never saved: a pending preflight persists nothing (the destination asset request
+   * and the untouched queue are the whole of its state), and an accepted one is consumed in the same tick.
+   */
+  let preparedEdgeArrival: { readonly actorId: string; readonly board: WorldBoard; readonly arrival: Arrival } | null = null;
   let recoveryCaptureRequested = false;
   let preBattleRecoveryCandidate: RecoveryCandidate | null = null;
   let recoveryLaunch: RecoveryLaunch | null = null;
@@ -3035,6 +3061,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   function edgeArrival(player: SpriteActor, direction: Facing, board: WorldBoard): Arrival | null {
     const points = player.collisionBase.points;
     if (points.length === 0) return null;
+    // R-53 item 3 / R-66 item 2c: the player's layer must exist on the destination board.
+    if (player.layer < 0 || player.layer >= board.sizeL) return null;
     let left = points[0]!.x;
     let top = points[0]!.y;
     let right = left;
@@ -3050,6 +3078,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     const maxX = board.width - right;
     const minY = -top;
     const maxY = board.height - bottom;
+    // R-53 item 3: the destination's width or height refuses a collision base that cannot fit at all.
+    if (minX > maxX || minY > maxY) return null;
     let x: number;
     let y: number;
     if (direction === "E" || direction === "W") {
@@ -3061,6 +3091,47 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     }
     if (boardCollisionAt(player, board, x, y) !== null) return null;
     return { x, y, layer: player.layer, unit: "pixel" };
+  }
+
+  /**
+   * R-66 item 2: load the linked board for checking only, compute the R-53 arrival, test the destination's
+   * bounds, layer count and exact-solid vectors, then run its cancelable `beforeEnter`. Nothing on the
+   * source board is committed here; a `pending` result means only that the destination asset was requested.
+   */
+  function preflightBoardEdge(request: EdgePreflightRequest): EdgePreflightOutcome {
+    preparedEdgeArrival = null;
+    const board = state.world.board;
+    const player = state.sprites.players.find((actor) => actor.id === request.actorId);
+    if (board === null || board === undefined || player === undefined) return "refused";
+    const edge = request.direction === "N" ? "north"
+      : request.direction === "S" ? "south"
+        : request.direction === "E" ? "east"
+          : request.direction === "W" ? "west" : null;
+    const link = edge === null ? "" : board.links?.[edge] ?? "";
+    if (link === "" || link.toLowerCase().endsWith(".prg")) return "refused";
+    const target = resolveAsset(index, root, "boards", link);
+    if (!target.ok) {
+      diagnostics.push({ code: "asset.missing", file: link, line: 0, message: `edge link board "${link}" is not in the asset index` });
+      return "refused";
+    }
+    const loaded = loadBoard(target.value);
+    if (loaded === "pending") return "pending";
+    if (loaded === null) return "refused";
+    const arrival = edgeArrival(player, request.direction, loaded);
+    if (arrival === null) return "refused";
+    registerEmitter(state.vm, state.events, boardEmitterKey(loaded.key));
+    const actor = state.actors.actors.find((candidate) => candidate.kind === "party") ?? state.actors.actors[0];
+    const allowed = runEngineCancelableEvent(
+      state,
+      services,
+      boardEmitterKey(loaded.key),
+      "beforeEnter",
+      { actorid: actor?.id ?? null, boardkey: loaded.key, entry: { x: arrival.x, y: arrival.y, layer: arrival.layer, unit: arrival.unit } },
+      STEP_BUDGET,
+    );
+    if (!allowed) return "refused";
+    preparedEdgeArrival = { actorId: player.id, board: loaded, arrival };
+    return "accepted";
   }
 
   function clearPendingExit(playerId: string): void {
@@ -3181,6 +3252,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
 
   /** Resolve the selected player's pending edge exit during AD-26's edges phase. */
   function runEdgesPhase(): void {
+    const prepared = preparedEdgeArrival;
+    preparedEdgeArrival = null;
     const board = state.world.board;
     const player = state.sprites.players.find((actor) => actor.id === state.sprites.selectedPlayer) ?? state.sprites.players[0];
     const direction = player?.movement.pendingExit;
@@ -3199,6 +3272,13 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       startFileProgram(link, board.key, "blocking");
       return;
     }
+    // R-66 item 4: an accepted preflight already loaded the destination, tested the arrival and ran
+    // `beforeEnter`; the edges phase only performs the E-19/E-47 placement.
+    if (prepared !== null && prepared.actorId === player.id) {
+      clearPendingExit(player.id);
+      arrive(prepared.board, prepared.arrival, true);
+      return;
+    }
     const target = resolveAsset(index, root, "boards", link);
     if (!target.ok) {
       clearPendingExit(player.id);
@@ -3211,6 +3291,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       clearPendingExit(player.id);
       return;
     }
+    // A pendingExit this tick's movement phase did not prepare (a restored or migrated active step)
+    // still gets the same preflight before anything commits.
     const arrival = edgeArrival(player, direction, loaded);
     if (arrival === null) {
       clearPendingExit(player.id);
@@ -4669,6 +4751,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   function runPhaseRegistration(
     registration: EnginePhaseRegistration,
     postEffect?: (section: SectionKey, effect: PostEffect) => void,
+    context?: EnginePhaseContext,
   ): void {
     const internal = isInternalPhaseRegistration(registration);
     const deliverEffect = (section: SectionKey, effect: PostEffect): void => {
@@ -4680,7 +4763,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     };
     if (!internal) exposeExternalState();
     try {
-      registration.run(state, postEffect === undefined ? undefined : deliverEffect);
+      registration.run(state, postEffect === undefined ? undefined : deliverEffect, context);
     } finally {
       if (!internal) finishExternalStateObservation();
     }
@@ -4772,13 +4855,17 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         // Preserve the observer seam after the final phase's state updates (docs/spec/engine/main-loop-and-startup.md#reawakened-phases).
         for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         return;
-      case "movement":
+      case "movement": {
         state.camera = updateCamera(state.camera, state.world.board ?? null, init.cameraTarget ?? init.spriteRuntime);
-        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
+        // G2/R-66: the movement phase owns when a linked-edge step is preflighted; the engine supplies the
+        // load-for-checking, the arrival test and `beforeEnter` through this per-phase context.
+        const movementContext: EnginePhaseContext = { preflightEdge: preflightBoardEdge };
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect), movementContext);
         if (state.vm.threads.some((thread) => thread.kind === "blocking" && (thread.wait?.kind === "sprite.movement" || thread.wait?.kind === "movement" || thread.wait?.kind === "sprite.stance"))) {
           boardRedraw();
         }
         return;
+      }
       case "edges":
         runEdgesPhase();
         for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));

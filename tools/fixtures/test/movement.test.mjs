@@ -166,21 +166,58 @@ test("collision-sprite-blocking: R-64 consumed and retried steps, plus diversion
   deepEqual(events(stop, "sprite-collision").map((e) => [e.winner, e.loser]), [["blocker", "walker"]]);
 });
 
-test("edges-board-link-program: R-53 arrival, clamp, refusal and program links", () => {
+test("edges-board-link-program: R-66 preflight, refusals, arrival and program links", () => {
   const sc = "edges-board-link-program";
-  deepEqual(events(theCase(sc, "no-link-edge-is-solid"), "edge-blocked").map((e) => e.dir), ["S"]);
+  // E-138/R-64: with no link the edge is solid at step start; the selected tile direction is consumed
+  // and counted, and the step never advances.
+  const noLink = theCase(sc, "no-link-edge-is-solid");
+  deepEqual(events(noLink, "blocked").map((e) => [e.t, e.edge]), [[0, "S"]]);
+  deepEqual(actorAt(noLink, 0, "hero").slice(1, 3), [144, 303]);
+  equal(actorAt(noLink, 11, "hero")[4], "waiting");
+  deepEqual(noLink.expect.filter((r) => r.fired), []);
+  // R-66 item 4: an accepted crossing is a placement on the step's first tick, so no step completes.
   const link = theCase(sc, "board-link-arrives-opposite-edge");
   deepEqual(actorAt(link, 0, "hero").slice(1, 3), [15, 95]);
+  deepEqual(events(link, "before-enter").map((e) => e.t), [0]);
+  deepEqual(events(link, "edge-exit").map((e) => [e.t, e.dir]), [[0, "E"]]);
+  deepEqual(events(link, "step-complete").filter((e) => e.t === 0), []);
   deepEqual(events(link, "enter-program").map((e) => e.program), ["east-enter.prg"]);
-  equal(events(link, "trigger-deactivate").length, 1);
   deepEqual(link.expect.filter((r) => r.fired).map((r) => r.t), [59]); // re-entering after leaving, never on arrival
   deepEqual(actorAt(theCase(sc, "arrival-clamps-along-edge"), 0, "hero").slice(1, 3), [15, 160]);
+  // R-66 item 3: a refused crossing ends blocked, keeps the queued step, and nothing is switched.
   const refused = theCase(sc, "blocked-arrival-is-refused");
-  deepEqual(events(refused, "arrival-rejected").map((e) => [e.x, e.y]), [[15, 127]]);
+  deepEqual(events(refused, "blocked").map((e) => [e.t, e.edge]), [[0, "E"]]);
+  deepEqual(events(refused, "arrival-rejected").map((e) => [e.reason, e.x, e.y]), [["solid", 15, 127]]);
   equal(events(refused, "board-link").length, 0);
-  deepEqual(actorAt(refused, 29, "hero").slice(1, 3), [304, 95]); // stayed on the source board; the queued N step still ran
+  equal(events(refused, "edge-exit").length, 0);
+  deepEqual(actorAt(refused, 29, "hero").slice(1, 3), [304, 95]); // stayed on the source board; the queued N step ran
+  // R-66 item 3: a refusal is not counted, so a step program over the attempted destination never fires.
+  deepEqual(theCase(sc, "refused-crossing-is-not-counted").expect.filter((r) => r.fired), []);
+  // R-66 item 2: every refusal cause keeps the source board and the last safe position.
+  for (const [name, reason] of [
+    ["refusal-by-bounds-keeps-the-source", "bounds"],
+    ["refusal-by-layer-count-keeps-the-source", "layer"],
+    ["refusal-by-missing-board-keeps-the-source", "missing"],
+    ["refusal-by-before-enter-cancel-keeps-the-source", "cancelled"],
+  ]) {
+    const refusedBy = theCase(sc, name);
+    deepEqual(events(refusedBy, "arrival-rejected").map((e) => e.reason), [reason], name);
+    deepEqual(events(refusedBy, "blocked").map((e) => e.edge), ["E"], name);
+    deepEqual(actorAt(refusedBy, 11, "hero").slice(1, 3), [304, 95], name);
+    equal(events(refusedBy, "board-link").length, 0, name);
+  }
+  // E-138: the vector result is tested before the edge, so a link never clears a solid.
+  const vector = theCase(sc, "vector-is-tested-before-the-edge");
+  deepEqual(events(vector, "blocked").map((e) => e.by), ["edge-wall"]);
+  equal(events(vector, "before-enter").length, 0);
+  // E-48 unchanged.
   deepEqual(events(theCase(sc, "program-link-runs-program"), "program-link").map((e) => e.program), ["north-gate.prg"]);
   deepEqual(actorAt(theCase(sc, "west-edge-arrives-east-edge"), 0, "hero").slice(1, 3), [305, 95]);
+  // E-138: a non-selected player is not tested against the edge at all.
+  const ally = theCase(sc, "non-selected-player-is-not-tested-against-the-edge");
+  deepEqual(actorAt(ally, 7, "ally").slice(1, 3), [336, 95]);
+  equal(events(ally, "blocked").length, 0);
+  equal(actorAt(ally, 7, "hero").slice(1, 3).join(","), "48,63");
 });
 
 test("board-entry-thread-lifecycle: board and item threads stop, persistent survives, new threads start in order", () => {
