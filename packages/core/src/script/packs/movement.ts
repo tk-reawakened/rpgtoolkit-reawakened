@@ -136,18 +136,43 @@ function threadContextHandle(state: GameState | undefined, threadId: number | un
   const slot: "source" | "target" = token;
   return state?.vm.threads.find((candidate) => candidate.id === threadId)?.[slot] ?? null;
 }
+/** Compared the way the engine writes and the battle resolver folds handles (case-insensitive, slashes unified). */
+function foldedHandle(value: string): string {
+  return value.replaceAll("\\", "/").trim().toLowerCase();
+}
+/** Every form a context actor handle can take for an item: sprite id, item key, source file or actor id. */
+function itemMatchesHandle(value: SpriteActor, wanted: string): boolean {
+  return foldedHandle(value.id) === wanted || foldedHandle(itemKey(value)) === wanted || foldedHandle(value.source) === wanted ||
+    (value.actorId !== null && value.actorId !== undefined && String(value.actorId) === wanted);
+}
+/** Every form a context actor handle can take for a party player: sprite id, actor id, actor name, sprite or actor source. */
+function playerMatchesHandle(state: GameState | undefined, value: SpriteActor, wanted: string): boolean {
+  if (foldedHandle(value.id) === wanted || foldedHandle(value.source) === wanted) return true;
+  if (value.actorId === null || value.actorId === undefined) return false;
+  if (String(value.actorId) === wanted) return true;
+  const record = state?.actors.actors.find((actor) => actor.id === value.actorId);
+  return record !== undefined && (foldedHandle(record.name) === wanted || foldedHandle(record.source) === wanted);
+}
 function itemIdForThread(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string {
   const context = threadContextHandle(state, threadId, arg);
   if (context !== undefined) {
-    const item = state?.sprites.items.find((value) => value.id === context || itemKey(value) === context);
-    return item?.id ?? context ?? String(arg);
+    if (context !== null) {
+      const wanted = foldedHandle(context);
+      const item = state?.sprites.items.find((value) => itemMatchesHandle(value, wanted));
+      if (item !== undefined) return item.id;
+    }
+    return context ?? String(arg);
   }
   return itemIdFor(state?.sprites, arg);
 }
 /** A player id from any accepted handle, including the thread's `source`/`target` (E-94/E-95); or null. */
 function playerIdForThread(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string | null {
   const context = threadContextHandle(state, threadId, arg);
-  if (context !== undefined) return state?.sprites.players.find((value) => value.id === context)?.id ?? null;
+  if (context !== undefined) {
+    if (context === null) return null;
+    const wanted = foldedHandle(context);
+    return state?.sprites.players.find((value) => playerMatchesHandle(state, value, wanted))?.id ?? null;
+  }
   if (typeof arg !== "number" && typeof arg !== "string") return null;
   const byId = state?.sprites.players.find((value) => value.id === String(arg));
   if (byId !== undefined) return byId.id;

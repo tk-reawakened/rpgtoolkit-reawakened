@@ -25,6 +25,7 @@ import {
   type Arg,
   type GameState,
   type MovementEvent,
+  type SpriteActor,
   type WorldBoard,
   type WorldProgram,
 } from "../src/index.ts";
@@ -522,26 +523,50 @@ test("R-69 accepts the calling thread's source and target context handles", () =
   const current = stateWith(currentBoard);
   const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
   const altar = actorFromSource({ id: "altar", kind: "item", source: "altar.itm", x: 200, y: 40, layer: 1 }, currentBoard, 1, 1);
-  current.sprites.items = [npc, altar];
+  const party = actorFromSource({ id: "player:7", kind: "player", actorId: 7 as NonNullable<SpriteActor["actorId"]>, source: "party.tem", x: 32, y: 63, layer: 1 }, currentBoard, 1, null);
+  current.sprites = { ...current.sprites, items: [npc, altar], players: [...current.sprites.players, party], selectedPlayer: "not-hero" };
   const ref = { kind: "inline" as const, text: "1", ir: IR_VERSION };
-  const itemThread = startThread(current.vm, { ref, kind: "item", owner: "world", source: "npc", target: "altar" });
+  const itemThread = startThread(current.vm, { ref, kind: "item", owner: "world", source: "npc", target: "altar.itm" });
   enqueueDirectionMove(current.sprites, "npc", "E", 0);
   enqueueMove(current.sprites, "altar", { source: "points", target: { x: 232.5, y: 40 }, facing: null });
 
   const source = getPath("itemgetpath", current, "SOURCE", 0, itemThread.id);
   deepEqual([source.value, source.out], [1, [[2, 80], [3, 63]]], "source resolves the calling item and is case-insensitive");
   const target = getPath("itemgetpath", current, "target", 0, itemThread.id);
-  deepEqual([target.value, target.out], [1, [[2, 233], [3, 40]]], "target resolves the other context item");
+  deepEqual([target.value, target.out], [1, [[2, 233], [3, 40]]], "target resolves the other item through its source file");
 
-  const playerThread = startThread(current.vm, { ref, kind: "persistent", owner: "script", source: "hero", target: "hero" });
+  // The selected player is deliberately not `hero` and not the party sprite, so a silent fallback cannot pass.
+  const playerThread = startThread(current.vm, { ref, kind: "persistent", owner: "script", source: "hero", target: "7" });
   enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueDirectionMove(current.sprites, "player:7", "E", 0);
   const playerSource = getPath("playergetpath", current, "source", 0, playerThread.id);
-  deepEqual([playerSource.value, playerSource.out], [1, [[2, 80], [3, 63]]], "a player thread's source resolves that player");
-  equal(getPathCount("playergetpath", current, "TARGET", playerThread.id), 1, "a player thread's target resolves too");
+  deepEqual([playerSource.value, playerSource.out], [1, [[2, 80], [3, 63]]], "a player thread's source resolves that sprite by id");
+  const playerTarget = getPath("playergetpath", current, "TARGET", 0, playerThread.id);
+  deepEqual([playerTarget.value, playerTarget.out], [1, [[2, 64], [3, 63]]], "target resolves an actor-id string as pushItemHook writes it");
 
   throws(
     () => getPath("itemgetpath", current, "ghost", 0, itemThread.id),
     (error: unknown) => error instanceof ScriptError && error.message === "player not found",
     "a handle that still names nothing keeps the 3.1 message",
   );
+});
+
+test("E-94 item commands resolve the calling thread's target handle", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
+  current.sprites.items = [npc];
+  const thread = startThread(current.vm, { ref: { kind: "inline", text: "1", ir: IR_VERSION }, kind: "item", owner: "world", source: "npc", target: "npc.itm" });
+  const services = createScriptServices(current, [{ definition: MOVEMENT_PLUGIN }]);
+  services.setCommandThread(thread.id);
+  const spec = services.commands.get("itemlocation")?.spec;
+  if (spec === undefined) throw new Error("missing itemlocation");
+  const args: Arg[] = [
+    { value: "target", ref: null },
+    { value: 0, ref: "x" as never },
+    { value: 0, ref: "y" as never },
+    { value: 0, ref: "layer" as never },
+  ];
+  const result = spec.call(services.view, args, () => ({ value: null })) as { out?: readonly (readonly [number, unknown])[] };
+  deepEqual(result.out, [[1, 48], [2, 63], [3, 2]], "itemlocation resolves the target's source-file handle");
 });

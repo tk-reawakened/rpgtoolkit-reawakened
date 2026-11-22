@@ -87,3 +87,12 @@ Independent review found one real defect: the new handle resolver rejected the c
 - Perturbation for the restored resolution: pointing `threadContextHandle` at no thread (or reverting the resolver) fails the same test.
 
 The recorded `docs.json` description was also corrected: its quick-reference entries hold the summary and Parameters line, while the full and per-plugin entries additionally hold the behaviour text, optional-parameter markers and error entries.
+
+## Review 2
+
+Round-2 review found the context resolver too narrow and the player half of the test unable to fail:
+
+- **MAJOR.** `playerIdForThread` matched only a player sprite's `id`, but the engine writes actor-id strings into thread `source`/`target` for player programs (item use/equip/remove hooks and `executeProgram` contexts), and party sprites are keyed `player:<actorId>`. It now matches every form the engine writes — sprite id, `String(actorId)`, actor name, and sprite or actor source file — folding case and slashes like the battle resolver. `itemIdForThread` gained the analogous item forms: source file and actor id alongside id and item key, so item commands now resolve `"target"` (E-94).
+- **MINOR.** The player half of the context test could not fail because `hero` was also the selected player. `selectedPlayer` is now `not-hero`, a second sprite `player:7` carries `actorId` 7, the thread target is the actor-id string `"7"`, and the item thread target is the source-file form `altar.itm`.
+
+Evidence: on round-1 head `db6099934`, `R-69 accepts the calling thread's source and target context handles` failed with `ScriptError: player not found` and the new `E-94 item commands resolve the calling thread's target handle` failed its assertion; both pass after the fix. Perturbing `playerIdForThread` back to the `playerId` fallback form fails the context test again. `itemlocation("target")` now resolves the source-file handle, covering the other item commands.
