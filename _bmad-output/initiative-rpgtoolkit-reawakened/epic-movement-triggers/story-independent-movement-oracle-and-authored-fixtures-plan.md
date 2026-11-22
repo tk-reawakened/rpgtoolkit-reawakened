@@ -202,7 +202,8 @@ Every proposed choice below remains **Proposed ruling (pending owner review)** e
   listener without dispatching, and a deferred check would let a step commit
   before the rule it is supposed to enforce runs. Consequence for authors: while
   a blocking board program is live, a linked edge is blocked and its refused
-  entry is consumed (see the fourth note below). Pinned by
+  entry is consumed (see the decided note "a refused linked crossing consumes
+  its own queue entry" below). Pinned by
   `packages/core/test/engine-edge-preflight.test.ts`, "R-66/R-68: a linked
   refusal under a live blocking program is refused before beforeEnter and keeps
   the queue": `beforeEnter` is not observed, exactly one
