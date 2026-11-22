@@ -7,7 +7,7 @@ import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
-import { pollPageFrames } from "./frame-poll.ts";
+import { pollNoFrameMatching, pollPageFrames } from "./frame-poll.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 import { runVscodeContextualHelpProof } from "./contextual-help-proof.ts";
@@ -36,6 +36,19 @@ type NewProjectHistoryProofHost = {
   bitmapPictureForBytes(bytes: Uint8Array): { width: number; height: number; data: number[] };
   previewTrace?(): readonly string[];
 };
+
+/**
+ * Prove no player frame is mounted. A detached frame is unknown, so it is re-enumerated rather than counted as absent;
+ * a non-detachment query error fails at once.
+ */
+async function expectNoPlayerScreen(page: Page, timeoutMs?: number): Promise<void> {
+  await pollNoFrameMatching<Frame>({
+    label: "No player frame (#screen)",
+    frames: () => page.frames(),
+    present: async (frame) => await frame.locator("#screen").count() > 0,
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  });
+}
 
 /** The first frame showing the packaged player's screen; a replaced frame is re-enumerated, not a failure (#3257). */
 async function findPlayerFrame(page: Page, label: string): Promise<Frame> {
@@ -291,7 +304,7 @@ export async function runVscodeGuardProof(
   await runCommand(page, expect, "Test: Run Example Program");
   await expect(page.getByText(/Program launch refused:.*save/i)).toBeVisible({ timeout: 30_000 });
   expect(await readBacking()).toEqual(original);
-  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count().catch(() => 0)))).not.toContain(1);
+  await expectNoPlayerScreen(page);
   await runCommand(page, expect, "Test: Allow Saves");
   await editor.getByRole("button", { name: "Save", exact: true }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
@@ -304,7 +317,7 @@ export async function runVscodeGuardProof(
   await expect.poll(readBacking, { timeout: 30_000 }).toEqual(raced);
   await runCommand(page, expect, "Test: Resume Program Read");
   await expect(page.getByText(/Program launch refused:.*changed/i)).toBeVisible({ timeout: 30_000 });
-  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count().catch(() => 0)))).not.toContain(1);
+  await expectNoPlayerScreen(page);
 }
 
 type WizardGroupRecord = {
@@ -2976,10 +2989,7 @@ export async function runVscodeConnectedAuthoringProof(page: Page, expect: Expec
     },
     stopRun: async () => {
       await runCommand(page, expect, "Debug: Stop");
-      await expect.poll(async () => {
-        for (const candidate of page.frames()) if (await candidate.locator("#screen").count().catch(() => 0) > 0) return true;
-        return false;
-      }, { timeout: 30_000 }).not.toBe(true);
+      await expectNoPlayerScreen(page, 30_000);
     },
     settle: () => page.waitForTimeout(80),
   }, expect);

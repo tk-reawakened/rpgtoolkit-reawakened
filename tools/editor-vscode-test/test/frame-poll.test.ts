@@ -2,7 +2,7 @@
 // inside its deadline, record what detached, and still fail at the deadline when nothing matching ever mounts.
 import { deepEqual, equal, rejects } from "node:assert/strict";
 import { test } from "node:test";
-import { isFrameDetachment, pollPageFrames, type FramePollOptions } from "../frame-poll.ts";
+import { isFrameDetachment, pollNoFrameMatching, pollPageFrames, type FramePollOptions } from "../frame-poll.ts";
 
 interface FakeFrame {
   readonly label: string;
@@ -105,4 +105,60 @@ test("the detachment rule recognises Playwright's frame and page losses only", (
   equal(isFrameDetachment(new Error("Execution context was destroyed, most likely because of a navigation")), true);
   equal(isFrameDetachment(new Error("locator.count: strict mode violation")), false);
   equal(isFrameDetachment("plain string"), false);
+});
+
+test("a negative assertion re-polls a detached frame instead of counting it as absent", async () => {
+  const clock = fakeClock();
+  let enumerations = 0;
+  await pollNoFrameMatching<FakeFrame>({
+    label: "No player frame (#screen)",
+    frames: () => {
+      enumerations += 1;
+      return enumerations === 1 ? [{ label: "gone" }] : [other];
+    },
+    present: async (frame) => {
+      if (frame.label === "gone") throw new Error("locator.count: Frame was detached");
+      return false;
+    },
+    now: clock.now,
+    sleep: clock.sleep,
+  });
+  equal(enumerations, 2, "a detached frame is unknown, so the poll must re-enumerate");
+  deepEqual(clock.slept, [100]);
+});
+
+test("a negative assertion fails at the deadline when a detached frame never settles", async () => {
+  const clock = fakeClock();
+  await rejects(pollNoFrameMatching<FakeFrame>({
+    label: "No player frame (#screen)",
+    frames: () => [{ label: "gone" }],
+    present: async () => { throw new Error("locator.count: Frame was detached"); },
+    timeoutMs: 30_000,
+    now: clock.now,
+    sleep: clock.sleep,
+  }), /No player frame \(#screen\) could not be proven absent within 30000 ms \(a frame detached and never settled\)\./);
+});
+
+test("a negative assertion still fails when a frame matches", async () => {
+  const clock = fakeClock();
+  await rejects(pollNoFrameMatching<FakeFrame>({
+    label: "No player frame (#screen)",
+    frames: () => [preview],
+    present: async () => true,
+    timeoutMs: 30_000,
+    now: clock.now,
+    sleep: clock.sleep,
+  }), /could not be proven absent within 30000 ms \(a frame still matches\)\./);
+});
+
+test("a non-detachment query error fails the negative assertion at once", async () => {
+  const clock = fakeClock();
+  await rejects(pollNoFrameMatching<FakeFrame>({
+    label: "No player frame (#screen)",
+    frames: () => [preview],
+    present: async () => { throw new Error("Protocol error (Runtime.callFunctionOn)"); },
+    now: clock.now,
+    sleep: clock.sleep,
+  }), /Protocol error \(Runtime\.callFunctionOn\)/);
+  deepEqual(clock.slept, [], "a real query fault must not be retried as absence");
 });

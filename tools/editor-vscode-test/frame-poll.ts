@@ -118,3 +118,56 @@ export async function pollPageFrames<F, T>(options: FramePollOptions<F, T>): Pro
     await sleep(interval);
   }
 }
+
+export interface FrameAbsenceOptions<F> {
+  /** What must not be on the page, for the deadline diagnostic. */
+  readonly label: string;
+  readonly frames: () => readonly F[];
+  /** True when this frame shows what must not exist. A detachment means "unknown", never "absent". */
+  readonly present: (frame: F) => Promise<boolean>;
+  readonly timeoutMs?: number;
+  readonly intervals?: readonly number[];
+  readonly now?: () => number;
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Prove no frame matches, re-enumerating while a frame is detached or the page cannot list frames. A negative
+ * assertion must never read a vanished frame as "absent": a detached frame is unknown, so the poll tries again until
+ * every frame answered, and a frame that still matches or stays unknown fails at the deadline (#3257 review).
+ */
+export async function pollNoFrameMatching<F>(options: FrameAbsenceOptions<F>): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const intervals = options.intervals ?? DEFAULT_INTERVALS;
+  const now = options.now ?? ((): number => Date.now());
+  const sleep = options.sleep ?? ((ms: number): Promise<void> => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
+  const deadline = now() + timeoutMs;
+  let attempt = 0;
+  for (;;) {
+    let frames: readonly F[];
+    let unknown = false;
+    try {
+      frames = options.frames();
+    } catch (error) {
+      if (!isFrameDetachment(error)) throw error;
+      unknown = true;
+      frames = [];
+    }
+    let present = false;
+    for (const frame of frames) {
+      try {
+        if (await options.present(frame)) present = true;
+      } catch (error) {
+        if (!isFrameDetachment(error)) throw error;
+        unknown = true;
+      }
+    }
+    if (!present && !unknown) return;
+    if (now() >= deadline) {
+      throw new Error(`${options.label} could not be proven absent within ${timeoutMs} ms (${unknown ? "a frame detached and never settled" : "a frame still matches"}).`);
+    }
+    const interval = intervals[Math.min(attempt, intervals.length - 1)] ?? DEFAULT_INTERVALS[0]!;
+    attempt += 1;
+    await sleep(interval);
+  }
+}
