@@ -2,4 +2,6 @@
 # ID 13 is #3250; ID 14 is #2795; ID 15 is #3257.
 # IDs 16–20 map verified #2795 follow-up regressions #3278–#3282; ID 22 maps issue #1951; ID 23 maps issue #3315.
 # ID 24 maps issue #3342 (the missing-ticket rule).
-next_id = 25
+# ID 25 maps issue #2169; ID 26 maps #2721; ID 27 maps #3306; ID 28 maps #3322.
+# ID 29 maps issue #3335; ID 30 maps #3331. ID 15 already carries #3257 on `docs/3257-history-frame-detach`, so this branch does not allocate a second ticket for it.
+next_id = 31
