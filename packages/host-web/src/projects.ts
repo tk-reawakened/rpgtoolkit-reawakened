@@ -1,4 +1,5 @@
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
+import { reportHostError } from "./host-log.ts";
 
 const DATABASE = "tkr-editor-projects";
 const STORE = "projects";
@@ -30,6 +31,7 @@ function openDatabase(): Promise<IDBDatabase | null> {
   const opening = new Promise<IDBDatabase | null>((resolve) => {
     try {
       if (typeof indexedDB === "undefined") {
+        reportHostError("projects.open", new Error("IndexedDB is not available in this document"));
         resolve(null);
         return;
       }
@@ -45,9 +47,16 @@ function openDatabase(): Promise<IDBDatabase | null> {
         };
         resolve(request.result);
       };
-      request.onerror = () => resolve(null);
-      request.onblocked = () => resolve(null);
-    } catch {
+      request.onerror = () => {
+        reportHostError("projects.open", request.error);
+        resolve(null);
+      };
+      request.onblocked = () => {
+        reportHostError("projects.open", new Error("another connection to the projects database blocks the upgrade"));
+        resolve(null);
+      };
+    } catch (error) {
+      reportHostError("projects.open", error);
       resolve(null);
     }
   });
@@ -64,8 +73,12 @@ async function readProjects(): Promise<readonly StoredProject[] | null> {
     try {
       request = database.transaction(STORE, "readonly").objectStore(STORE).getAll();
       request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
-    } catch {
+      request.onerror = () => {
+        reportHostError("projects.read", request.error);
+        resolve(null);
+      };
+    } catch (error) {
+      reportHostError("projects.read", error);
       resolve(null);
     }
   });
@@ -80,8 +93,12 @@ async function writeProject(project: StoredProject): Promise<boolean> {
       transaction = database.transaction(STORE, "readwrite");
       transaction.objectStore(STORE).put(project);
       transaction.oncomplete = () => resolve(true);
-      transaction.onabort = transaction.onerror = () => resolve(false);
-    } catch {
+      transaction.onabort = transaction.onerror = () => {
+        reportHostError("projects.write", transaction.error);
+        resolve(false);
+      };
+    } catch (error) {
+      reportHostError("projects.write", error);
       resolve(false);
     }
   });
@@ -89,7 +106,7 @@ async function writeProject(project: StoredProject): Promise<boolean> {
 
 async function sameEntry(left: DirectoryHandle, right: DirectoryHandle): Promise<boolean> {
   try { return await left.isSameEntry(right); }
-  catch { return false; }
+  catch (error) { reportHostError("projects.sameEntry", error); return false; }
 }
 
 export function createUniqueWebProjectId(existing: ReadonlySet<string>, nextId: () => string = () => crypto.randomUUID()): string {
@@ -138,7 +155,8 @@ export async function restoreWebProject(id: string): Promise<RestoredWebProject 
       recentRecords = recentRecords?.map((project) => project.id === stored.id ? refreshed : project) ?? [refreshed];
     }
     return { handle: { id: stored.id, name: stored.name }, root: stored.root };
-  } catch {
+  } catch (error) {
+    reportHostError("projects.restore", error);
     return null;
   }
 }

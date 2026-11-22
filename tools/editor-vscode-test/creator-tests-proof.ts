@@ -424,7 +424,10 @@ async function creatorTestsFrame(page: Page, expect: Expect): Promise<Frame> {
   let found: Frame | undefined;
   await expect.poll(async () => {
     found = undefined;
-    for (const frame of page.frames()) if (await frame.locator("section.tkr-creator-tests").count() > 0) { found = frame; break; }
+    for (const frame of page.frames()) {
+      // A webview replaced during the scan is absent for this slice; the poll re-enumerates (#3257).
+      if (await frame.locator("section.tkr-creator-tests").count().catch(() => 0) > 0) { found = frame; break; }
+    }
     return found !== undefined;
   }, { timeout: 30_000 }).toBe(true);
   return found!;

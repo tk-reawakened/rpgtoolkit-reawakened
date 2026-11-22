@@ -2,12 +2,17 @@ import { deepEqual, equal, throws } from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import { readLegacyFont, readTrueTypeFont, textInk, type AssetKey } from "@tk-reawakened/core";
-import { createWebgl2Renderer } from "../src/index.ts";
+import { createWebgl2Renderer, RenderContextLostError } from "../src/index.ts";
 import type { DrawList, HostDisplayGeometry, ScratchId, SurfaceId } from "@tk-reawakened/core";
 
 type DrawEvent = { readonly kind: "arrays" | "instanced"; readonly instanced: number };
 
-function fakeContext(): {
+function fakeContext({
+  compile = true,
+  link = true,
+  log = "",
+  lost = false,
+}: { compile?: boolean; link?: boolean; log?: string; lost?: boolean } = {}): {
   readonly gl: WebGL2RenderingContext;
   readonly uploads: () => readonly unknown[][];
   readonly allocated: () => readonly (readonly [number, number])[];
@@ -15,9 +20,11 @@ function fakeContext(): {
   readonly drawEvents: () => readonly DrawEvent[];
   readonly blendAlphas: () => readonly number[];
   readonly snapshotCount: () => number;
+  readonly lose: () => void;
 } {
   let next = 1;
   let instanced = 0;
+  let contextLost = lost;
   const uploads: unknown[][] = [];
   const allocated: (readonly [number, number])[] = [];
   const deletedTextures: unknown[] = [];
@@ -27,7 +34,8 @@ function fakeContext(): {
   const canvas = { width: 0, height: 0 };
   const methods: Record<string, (...args: unknown[]) => unknown> = {
     createProgram: () => ({}), createShader: () => ({}), createBuffer: () => ({}), createFramebuffer: () => ({}),
-    getAttribLocation: () => 0, getShaderParameter: () => true, getProgramParameter: () => true,
+    getAttribLocation: () => 0, getShaderParameter: () => compile, getProgramParameter: () => link,
+    getShaderInfoLog: () => log, getProgramInfoLog: () => log, isContextLost: () => contextLost,
     getUniformLocation: (_program, name) => ({ name }), createTexture: () => ({}),
     deleteTexture: (texture) => { deletedTextures.push(texture); },
     uniform1i: (location, value) => { if ((location as { name?: string }).name === "uInstanced") instanced = value as number; },
@@ -68,6 +76,7 @@ function fakeContext(): {
     drawEvents: () => drawEvents,
     blendAlphas: () => blendAlphas,
     snapshotCount: () => snapshots,
+    lose: () => { contextLost = true; },
   };
 }
 
@@ -281,4 +290,31 @@ test("WebGL2 renderer rejects missing and unsupported draw-list protocol version
   equal(renderer.canvas.width, 0);
   equal(renderer.canvas.height, 0);
   renderer.dispose();
+});
+
+test("a lost WebGL2 context during shader compilation throws RenderContextLostError", () => {
+  const { gl } = fakeContext({ compile: false, log: "", lost: true });
+  throws(() => createWebgl2Renderer(gl), RenderContextLostError);
+});
+
+test("a non-empty shader info log is preserved and is not reported as a lost context", () => {
+  const { gl } = fakeContext({ compile: false, log: "ERROR: 0:12: syntax error" });
+  throws(
+    () => createWebgl2Renderer(gl),
+    (error: unknown) => error instanceof Error
+      && !(error instanceof RenderContextLostError)
+      && /render-webgl2: shader compilation failed: ERROR: 0:12: syntax error/.test(error.message),
+  );
+});
+
+test("an empty shader info log on a live context names the possible loss instead of ending in a colon", () => {
+  const { gl } = fakeContext({ compile: false, log: "" });
+  throws(() => createWebgl2Renderer(gl), /no info log \(the WebGL context may be lost\)/);
+});
+
+test("render() refuses a context lost after startup instead of freezing silently", () => {
+  const context = fakeContext();
+  const renderer = createWebgl2Renderer(context.gl);
+  context.lose();
+  throws(() => renderer.render(list, geometry, { textures: () => null }), RenderContextLostError);
 });

@@ -23,6 +23,9 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { browserDebuggingPort, parseDebuggerPort, waitForDebuggerPort } from "./debugger-ports.mjs";
+import { stopChild } from "./child-process.mjs";
+import { connect } from "./cdp-client.mjs";
+import { gpuFallbackArgs, InfrastructureError, launchWithRecovery } from "./gpu-retry.mjs";
 import { BinaryReader, deriveGameId, derivePackageIdentity, loadPackage, readDistributionManifest, readMainFile, writeDistributionPackage, writeMainFile } from "@tk-reawakened/core";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -35,13 +38,11 @@ function argument(name, fallback) {
 }
 
 
-async function cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory) {
+async function cleanupProbe(child, mainDebugger, page, userDataDirectory) {
   mainDebugger?.close();
   page?.close();
-  if (child !== null) {
-    if (child.exitCode === null && child.signalCode === null) child.kill();
-    if (stopped !== null) await stopped;
-  }
+  // Bounded: SIGTERM, a grace period, SIGKILL, then a bounded wait (#2169). The old `await stopped` had no bound.
+  if (child !== null) await stopChild(child);
   removeTemporaryDirectory(userDataDirectory);
   if (temporaryPackageDirectory !== null) {
     removeTemporaryDirectory(temporaryPackageDirectory);
@@ -348,38 +349,6 @@ async function verifyNonIntegerScaleViaEmulation(mainDebugger, page, evaluate, s
   }
 }
 
-/** A tiny CDP client: request/response over one socket, enough for evaluate and input dispatch. */
-function connect(url) {
-  const socket = new WebSocket(url);
-  let nextId = 1;
-  const waiting = new Map();
-  const ready = new Promise((done, fail) => {
-    socket.addEventListener("open", () => done());
-    socket.addEventListener("error", () => fail(new Error("the debugging socket failed")));
-  });
-  socket.addEventListener("message", (message) => {
-    const payload = JSON.parse(String(message.data));
-    const pending = waiting.get(payload.id);
-    if (pending === undefined) return;
-    waiting.delete(payload.id);
-    if (payload.error !== undefined) pending.fail(new Error(payload.error.message));
-    else pending.done(payload.result);
-  });
-  return {
-    async send(method, params = {}) {
-      await ready;
-      const id = nextId;
-      nextId += 1;
-      const result = new Promise((done, fail) => waiting.set(id, { done, fail }));
-      socket.send(JSON.stringify({ id, method, params }));
-      return result;
-    },
-    close() {
-      socket.close();
-    },
-  };
-}
-
 const KEY = {
   F3: { key: "F3", code: "F3", windowsVirtualKeyCode: 114, nativeVirtualKeyCode: 114, text: "", unmodifiedText: "" },
   Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: "\r", unmodifiedText: "\r" },
@@ -402,35 +371,41 @@ async function main() {
   let pkg = null;
   let userDataDirectory = null;
   let child = null;
-  let stopped = null;
   let page = null;
   let mainDebugger = null;
   const log = [];
-  let inspectorOutput = "";
-  let inspectorPort = null;
-  const captureLog = (chunk) => {
-    const text = String(chunk);
-    log.push(text);
-    if (inspectorPort === null) {
-      inspectorOutput = `${inspectorOutput}${text}`.slice(-4096);
-      const match = /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(inspectorOutput);
-      if (match !== null) inspectorPort = parseDebuggerPort(match[1]);
-    }
-  };
+  const sleep = (ms) => new Promise((wait) => setTimeout(wait, ms));
 
-  try {
-    pkg = packagePath();
-    userDataDirectory = mkdtempSync(join(tmpdir(), "tkr-desktop-input-"));
-    child = spawn(
+  /**
+   * Launch Electron, attach both debuggers, and wait until the live page publishes its first status. This is the only
+   * phase that is retried: once the page is healthy the probe body runs once, and a renderer that dies mid-probe now
+   * rejects through the bounded CDP client instead of hanging (#2169).
+   */
+  const launch = async (attempt) => {
+    const directory = mkdtempSync(join(tmpdir(), "tkr-desktop-input-"));
+    const chunks = [];
+    let inspectorOutput = "";
+    let inspectorPort = null;
+    const capture = (chunk) => {
+      const text = String(chunk);
+      chunks.push(text);
+      if (inspectorPort === null) {
+        inspectorOutput = `${inspectorOutput}${text}`.slice(-4096);
+        const match = /Debugger listening on ws:\/\/127\.0\.0\.1:(\d+)\//.exec(inspectorOutput);
+        if (match !== null) inspectorPort = parseDebuggerPort(match[1]);
+      }
+    };
+    const spawned = spawn(
       electronBinary(),
       [
         "--remote-debugging-port=0",
         "--remote-debugging-address=127.0.0.1",
         "--inspect=127.0.0.1:0",
-        `--user-data-dir=${userDataDirectory}`,
-        ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
+        `--user-data-dir=${directory}`,
+        // Attempt 0 keeps the platform's normal setup; a retry forces ANGLE's SwiftShader on a machine whose GPU died.
+        ...gpuFallbackArgs(process.platform, attempt),
         dist,
-        "--user-data-dir", userDataDirectory,
+        "--user-data-dir", directory,
         "--serve", root,
         "--game", pkg,
         "--page", "packages/runner-desktop/app/player.html",
@@ -445,67 +420,85 @@ async function main() {
         },
       },
     );
-    child.once("error", (error) => log.push(`Electron failed to start: ${error.message}\n`));
-    stopped = new Promise((resolve) => child.once("close", (code, signal) => resolve({ code, signal })));
-    child.stdout.on("data", captureLog);
-    child.stderr.on("data", captureLog);
-
-    const [browserPort, nodePort] = await Promise.all([
-      waitForDebuggerPort("Chromium remote-debugging port", () => browserDebuggingPort(userDataDirectory), stopped),
-      waitForDebuggerPort("Node inspector port", () => inspectorPort, stopped),
-    ]);
-    const pageTarget = await targets(browserPort);
-    page = connect(pageTarget.webSocketDebuggerUrl);
-    mainDebugger = connect(await nodeDebuggerTarget(nodePort));
-  } catch (error) {
-    await cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory);
-    console.log(JSON.stringify({ package: pkg, error: String(error), log: log.join("") }, null, 2));
-    process.exitCode = 1;
-    return;
-  }
-  const evaluate = async (expression) => {
-    const result = await page.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
-    if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text ?? "evaluation failed");
-    return result.result.value;
-  };
-  const status = () => evaluate("window.__live ?? null");
-  const press = async (name) => {
-    const key = KEY[name];
-    await page.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
-    await page.send("Input.dispatchKeyEvent", { type: "keyUp", ...key });
-  };
-  const keyDown = async (name) => page.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...KEY[name] });
-  const keyUp = async (name) => page.send("Input.dispatchKeyEvent", { type: "keyUp", ...KEY[name] });
-  const sleep = (ms) => new Promise((wait) => setTimeout(wait, ms));
-
-  // The engine consumes keyboard state per input phase, so a back-to-back keydown/keyup pair can fall inside one
-  // phase and register nothing (that is what the real run showed before #1122). Wait until the player has stood
-  // still over several ticks before taking the position to measure against.
-  const settled = async () => {
-    let previous = null;
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      const live = await status();
-      const same = previous !== null && previous.x === live.player?.x && previous.y === live.player?.y && live.tick > 30;
-      previous = live.player ?? null;
-      if (same) return live;
-      await sleep(100);
+    spawned.once("error", (error) => chunks.push(`Electron failed to start: ${error.message}\n`));
+    const closed = new Promise((resolve) => spawned.once("close", (code, signal) => resolve({ code, signal })));
+    spawned.stdout.on("data", capture);
+    spawned.stderr.on("data", capture);
+    let attachedPage = null;
+    let attachedDebugger = null;
+    try {
+      const [browserPort, nodePort] = await Promise.all([
+        waitForDebuggerPort("Chromium remote-debugging port", () => browserDebuggingPort(directory), closed),
+        waitForDebuggerPort("Node inspector port", () => inspectorPort, closed),
+      ]);
+      const pageTarget = await targets(browserPort);
+      attachedPage = connect(pageTarget.webSocketDebuggerUrl);
+      attachedDebugger = connect(await nodeDebuggerTarget(nodePort));
+      const evaluateOnPage = async (expression) => {
+        const result = await attachedPage.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+        if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text ?? "evaluation failed");
+        return result.result.value;
+      };
+      // The page pauses on blur; a headless launch may start unfocused, so take focus the way a click would.
+      await evaluateOnPage("document.querySelector('#screen')?.focus(); window.dispatchEvent(new Event('focus'));");
+      let live = null;
+      for (let poll = 0; poll < 80; poll += 1) {
+        live = await evaluateOnPage("window.__live ?? null");
+        if (live !== null && typeof live.tick === "number" && live.tick > 0) break;
+        await sleep(100);
+      }
+      if (live === null) throw new Error("the live page published no status");
+      if (live.error !== undefined) throw new Error(String(live.error));
+      return { child: spawned, page: attachedPage, mainDebugger: attachedDebugger, userDataDirectory: directory, opened: live, log: chunks };
+    } catch (error) {
+      await cleanupProbe(spawned, attachedDebugger, attachedPage, directory);
+      if (error instanceof Error) error.log = `${chunks.join("")}${error.log ?? ""}`;
+      throw error;
     }
-    return null;
   };
 
   try {
+    pkg = packagePath();
+    const launched = await launchWithRecovery({ attempt: (attempt) => launch(attempt) });
+    child = launched.value.child;
+    page = launched.value.page;
+    mainDebugger = launched.value.mainDebugger;
+    userDataDirectory = launched.value.userDataDirectory;
+    const opened = launched.value.opened;
+    log.push(...launched.value.log);
+
+    const evaluate = async (expression) => {
+      const result = await page.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+      if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text ?? "evaluation failed");
+      return result.result.value;
+    };
+    const status = () => evaluate("window.__live ?? null");
+    const press = async (name) => {
+      const key = KEY[name];
+      await page.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
+      await page.send("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+    };
+    const keyDown = async (name) => page.send("Input.dispatchKeyEvent", { type: "rawKeyDown", ...KEY[name] });
+    const keyUp = async (name) => page.send("Input.dispatchKeyEvent", { type: "keyUp", ...KEY[name] });
+
+    // The engine consumes keyboard state per input phase, so a back-to-back keydown/keyup pair can fall inside one
+    // phase and register nothing (that is what the real run showed before #1122). Wait until the player has stood
+    // still over several ticks before taking the position to measure against.
+    const settled = async () => {
+      let previous = null;
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        const live = await status();
+        const same = previous !== null && previous.x === live.player?.x && previous.y === live.player?.y && live.tick > 30;
+        previous = live.player ?? null;
+        if (same) return live;
+        await sleep(100);
+      }
+      return null;
+    };
+
     // Before board entry the session has no board and the player may already exist (E-02 creates it at boot); the
     // board key is the honest signal that the game is actually being played. ENTER clears title/message screens.
-    // The page pauses on blur; a headless launch may start unfocused, so take focus the way a click would.
-    await evaluate("document.querySelector('#screen')?.focus(); window.dispatchEvent(new Event('focus'));");
-    for (let attempt = 0; attempt < 80; attempt += 1) {
-      const live = await status();
-      if (live !== null && typeof live.tick === "number" && live.tick > 0) break;
-      await new Promise((wait) => setTimeout(wait, 100));
-    }
-    const opened = await status();
-    if (opened === null) throw new Error("the live page published no status");
-    if (opened.error !== undefined) throw new Error(String(opened.error));
+
 
     const ownershipResult = await mainDebugger.send("Runtime.evaluate", {
       expression: `({ pid: process.pid, userDataDirectory: process.mainModule.require("electron").app.getPath("userData") })`,
@@ -844,10 +837,15 @@ async function main() {
     console.log(JSON.stringify(report, null, 2));
     if (report.error !== null) process.exitCode = 1;
   } catch (error) {
-    console.log(JSON.stringify({ package: pkg, error: String(error), log: log.join("") }, null, 2));
+    console.log(JSON.stringify({
+      package: pkg,
+      error: String(error),
+      infrastructure: error instanceof InfrastructureError,
+      log: `${log.join("")}${error?.log ?? ""}`,
+    }, null, 2));
     process.exitCode = 1;
   } finally {
-    await cleanupProbe(child, stopped, mainDebugger, page, userDataDirectory);
+    await cleanupProbe(child, mainDebugger, page, userDataDirectory);
   }
 }
 
