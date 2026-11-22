@@ -333,8 +333,11 @@ function isPreviewRequest(value: unknown): value is BoardPreviewRequest {
   const layers = "visibleLayers" in value ? value.visibleLayers : undefined;
   const background = "showBackground" in value ? value.showBackground : undefined;
   const sprites = "showSprites" in value ? value.showSprites : undefined;
+  const shading = "showShading" in value ? value.showShading : undefined;
+  const lighting = "showLighting" in value ? value.showLighting : undefined;
   const layersOk = layers === undefined || (Array.isArray(layers) && layers.length <= 1024 && layers.every((layer) => Number.isInteger(layer) && layer >= 0));
-  return layersOk && (background === undefined || typeof background === "boolean") && (sprites === undefined || typeof sprites === "boolean");
+  return layersOk && (background === undefined || typeof background === "boolean") && (sprites === undefined || typeof sprites === "boolean")
+    && (shading === undefined || typeof shading === "boolean") && (lighting === undefined || typeof lighting === "boolean");
 }
 
 function isProjectPath(value: unknown): value is string {

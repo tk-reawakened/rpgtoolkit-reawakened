@@ -947,3 +947,31 @@ test("the native context menu can explicitly choose a tile brush without paintin
   equal(s.doc.getSnapshot().dirty, false, "a context-menu brush action selects but does not paint");
   handle.dispose();
 });
+
+test("in the Shading mode, Space on a cell shades it from the keyboard, and Rectangle takes two Spaces", async () => {
+  const s = await setup();
+  await show(s);
+  const press = async (target: HTMLElement, key: string, init: KeyboardEventInit = {}): Promise<void> => {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+  const button = (label: string): HTMLButtonElement => {
+    const found = [...s.el.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === label);
+    if (found === undefined) throw new Error(`no button ${label}`);
+    return found;
+  };
+  const base = s.doc.getSnapshot().edits.length;
+  await act(() => { button("Paint shading on the board").click(); });
+  await press(cell(s.el, 2, 1), " ");
+  equal(s.doc.getSnapshot().shadeLayers.length, 1, "Space shaded the cell");
+  equal(s.doc.getSnapshot().edits.length, base + 1);
+  await act(() => { button("Rectangle").click(); });
+  await press(cell(s.el, 1, 2), " ");
+  match(alerts(s.el).join(" "), /Rectangle started at column 1, row 2/);
+  equal(s.doc.getSnapshot().edits.length, base + 1, "the first corner changes nothing");
+  await press(cell(s.el, 3, 3), " ");
+  equal(s.doc.getSnapshot().edits.length, base + 2, "the second corner is one edit");
+});

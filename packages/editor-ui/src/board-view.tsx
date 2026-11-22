@@ -11,6 +11,7 @@ import {
     referencePath,
     stampFromBitmap,
     tileBasePoint,
+    shadeKeyAction,
     tileSourceOf,
     zoomOf,
     type ApplyResult,
@@ -18,6 +19,7 @@ import {
     type BoardEditorState,
     type BoardPicture,
     type BoardTool,
+    type Cell,
     type Brush,
     type ConflictChoice,
     type PendingEdits,
@@ -28,6 +30,8 @@ import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-servi
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
+import { BoardLightingView, INITIAL_SHADE_UI, type ShadeUi } from "./board-lighting-view.tsx";
+import { useBoardSubmit } from "./use-board-submit.ts";
 import { BoardObjectsView, type BoardObjectsNavigation } from "./board-objects-view.tsx";
 import { BoardPropertiesView, type BoardPropertiesNavigation } from "./board-properties-view.tsx";
 import type { BrowserSelection } from "./brush.ts";
@@ -248,12 +252,29 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
 
   const { grid: size, layers } = snapshot;
   const readOnly = snapshot.readOnly !== null;
+  const [shadeUi, setShadeUi] = useState<ShadeUi>(INITIAL_SHADE_UI);
+  const shadeSubmit = useBoardSubmit(doc, onEdited, pendingEdits, "Edit lights and shading");
+  const [shadeCorner, setShadeCorner] = useState<Cell | null>(null);
+  // Choosing another editing mode hands the pointer back to it: shading and lights never silently outlast the mode that started them.
+  useEffect(() => {
+    setShadeCorner(null);
+    setShadeUi((current) => current.mode === "off" ? current : { ...current, mode: "off" });
+  }, [state.mode]);
+  /** Space on a cell in the Shading mode: the keyboard way to do what the pointer does. */
+  const shadeKey = (cell: Cell, shift: boolean): void => {
+    const action = shadeKeyAction(snapshot, shadeUi.tool, cell, shadeUi.brush, shadeCorner, shift);
+    shadeSubmit.clearMessage();
+    if (action.kind === "brush") setShadeUi({ ...shadeUi, brush: action.shade });
+    else if (action.kind === "corner") { setShadeCorner(action.cell); shadeSubmit.setMessage(action.message); }
+    else if (action.kind === "refuse") { setShadeCorner(null); shadeSubmit.setMessage(action.message); }
+    else { setShadeCorner(null); void shadeSubmit.submit({ type: "set-shade-cells", cells: action.cells }); }
+  };
   const conflict = snapshot.conflict;
   const currentLayer = Math.min(state.layer, Math.max(0, layers - 1));
   const x = Math.min(state.cursor.x, Math.max(0, size.width - 1));
   const y = Math.min(state.cursor.y, Math.max(0, size.height - 1));
   const tile = boardTileAt(snapshot, currentLayer, x, y);
-  const request = editor.pictureRequest();
+  const request = { ...editor.pictureRequest(), ...(shadeUi.showShading ? {} : { showShading: false }), ...(shadeUi.showLighting ? {} : { showLighting: false }) };
   const requestKey = JSON.stringify(request);
 
   // The text field follows the cursor cell, and a change the document made under it (undo, a reload) replaces a draft.
@@ -275,7 +296,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     );
     return () => { current = false; };
   // Object art and visual board data affect composition; region-only edits need no asset work.
-  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey, assetRevision]);
+  }, [doc, snapshot.tileMatrix, snapshot.lut, snapshot.shadeLayers, snapshot.lights, snapshot.sprites, snapshot.images, snapshot.properties.backgroundImage, snapshot.properties.backgroundDrawType, snapshot.properties.backgroundColour, snapshot.properties.ambient, requestKey, assetRevision]);
 
   useEffect(() => {
     if (!focusCell.current) return;
@@ -380,7 +401,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       event.preventDefault();
       editor.toggleGrid();
     } else if (event.key === "Escape") {
-      if (colourPicker !== null) setColourPicker(null);
+      if (shadeCorner !== null) { setShadeCorner(null); shadeSubmit.clearMessage(); }
+      else if (colourPicker !== null) setColourPicker(null);
       else if (pickingStart) {
         setPickingStart(false);
         setStartMessage(null);
@@ -586,7 +608,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       <div class="tkr-board-picture">
         <BoardCanvas editor={editor} state={state} board={snapshot} picture={picture} stamp={brush?.kind === "stamp" ? brush.stamp : null}
           startPicking={pickingStart} startMarker={startMarker} onStartCell={(cell) => setPlayerStart(cell.x + 1, cell.y + 1, state.layer + 1)}
-          colourPicking={colourPicker !== null} onColourPixel={(colour) => { colourPicker?.(colour); setColourPicker(null); }} />
+          colourPicking={colourPicker !== null} onColourPixel={(colour) => { colourPicker?.(colour); setColourPicker(null); }}
+          shade={{ ui: shadeUi, onUi: setShadeUi, submit: shadeSubmit.submit, onMessage: shadeSubmit.setMessage, disabled: readOnly }} />
         {picture === null ? (
           <p class="tkr-board-preview-state" role="status">Drawing the board…</p>
         ) : picture.ok ? (
@@ -599,6 +622,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
           <p class="tkr-board-preview-state" role="status">No picture: {picture.message}</p>
         )}
       </div>
+      <BoardLightingView doc={doc} disabled={readOnly} ui={shadeUi} onUi={setShadeUi} board={shadeSubmit} />
       {state.mode === "tiles" ? <p class="tkr-board-brush-state">{brushText}</p> : <p class="tkr-board-note">
         {polygonMode ? "Click points, then right-click to close (Ctrl+right-click leaves open). Shift constrains; Ctrl reverses grid snapping; Alt removes a nearby point. Select to move points or drag a point-selection box." : "Draw places a default object. Select and drag to move it; use the inspector to choose its source and edit exact coordinates."}
       </p>}
@@ -672,6 +696,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
                         } else if (event.key === " ") {
                           event.preventDefault();
                           editor.setCursor({ x: cx, y: cy });
+                          if (shadeUi.mode === "shading") { shadeKey({ x: cx, y: cy }, event.shiftKey); return; }
                           void editor.activate({ shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey });
                         } else if (event.key.toLowerCase() === "l" && !event.ctrlKey && !event.metaKey && !event.altKey && browser !== undefined) {
                           event.preventDefault();

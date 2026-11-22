@@ -12,6 +12,7 @@
     { "path": "golden/reference/S-LIGHT-CLIPPED.png", "scene": "S-LIGHT-CLIPPED", "class": "independent-reference", "gating": true, "producer": "4.33" },
     { "path": "golden/reference/S-LIGHT-OVERLAP.png", "scene": "S-LIGHT-OVERLAP", "class": "independent-reference", "gating": true, "producer": "4.33" },
     { "path": "golden/reference/S-LIGHT-NIGHT.png", "scene": "S-LIGHT-NIGHT", "class": "independent-reference", "gating": true, "producer": "4.33" },
+    { "path": "golden/reference/S-LIGHT-SHADE.png", "scene": "S-LIGHT-SHADE", "class": "independent-reference", "gating": true, "producer": "13.12" },
     { "path": "golden/reference/S-LIGHT-BOUNDARY.png", "scene": "S-LIGHT-BOUNDARY", "class": "independent-reference", "gating": true, "producer": "4.34" },
     { "path": "golden/regression/closing/demo-title.png", "scene": "closing:demo:title", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },
     { "path": "golden/regression/closing/demo-board.png", "scene": "closing:demo:board", "suite": "closing", "class": "regression-baseline", "gating": true, "producer": "4.28" },

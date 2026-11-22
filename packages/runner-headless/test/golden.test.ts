@@ -25,7 +25,7 @@ test("S-01 runs through the real tracer twice with stable hashes and exact indep
   equal(outcome.ok, true, outcome.message);
 });
 
-for (const name of ["S-ISO-STACKED", "S-ISO-ROTATED", "S-LIGHT-ELLIPSE", "S-LIGHT-GRADIENT", "S-LIGHT-CLIPPED", "S-LIGHT-OVERLAP", "S-LIGHT-NIGHT", "S-LIGHT-BOUNDARY"]) {
+for (const name of ["S-ISO-STACKED", "S-ISO-ROTATED", "S-LIGHT-ELLIPSE", "S-LIGHT-GRADIENT", "S-LIGHT-CLIPPED", "S-LIGHT-OVERLAP", "S-LIGHT-NIGHT", "S-LIGHT-BOUNDARY", "S-LIGHT-SHADE"]) {
   test(`${name} runs through the real tracer and matches its independent oracle`, () => {
     const sceneText = readFileSync(join(REPO_ROOT, `golden/scenes/${name}.json`), "utf8");
     const scene = JSON.parse(sceneText) as TracerScene;

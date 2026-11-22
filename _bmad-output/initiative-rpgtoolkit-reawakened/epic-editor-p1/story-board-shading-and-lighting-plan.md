@@ -1,23 +1,125 @@
 ---
-type: feature
-title: "Board shading and lighting"
-ticket: 12
-status: draft
-risk: high
+title: 'Board shading and lighting'
+type: 'feature'
+ticket: '12'
+created: '2026-11-22'
+status: 'in-review'
+baseline_revision: 'eccc276c1d127c91b8202c07d8f285f11c49b2d4'
+route: 'full'
+route_source: 'auto'
+risk: 'high'
+review: ''
+review_source: ''
+lenses_ran: []
+review_loop_iteration: 0
+context: ['{project-root}/docs/spec/formats/board.md', '{project-root}/docs/design/board-authoring.md', '{project-root}/docs/adr/0022-shared-editor-authoring-contracts.md']
 ---
+
+<frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
 
 ## Intent
 
-Add shading paint and light node editing, per-node colour, cast layer and explicit light-to-shading conversion on the existing board object model.
+**Problem:** The board editor can paint tiles and objects but cannot author the board's lights or paint per-cell shading directly. The board snapshot does not even expose `lights`, so light nodes, colours and the light-to-shading conversion are unreachable (T-23 Shading and Lighting modes, T-26).
 
-## Scope and acceptance
+**Approach:** Extend the existing board document with light and shade edit commands, then add Shading and Lighting tools in `editor-ui` that call them. Every control has a numeric/keyboard route. Lights stay editable until an explicit, undoable bake writes shading.
 
-Provide the documented spotlight, gradient, clipped-gradient, RGB -255..255 controls, grey/zero, keyboard and numeric access; bake uses the spec and does not silently destroy source.
+## Boundaries & Constraints
+
+**Always:** Edit the existing board model through commands, so one gesture is one undo step. Keep RGB at −255..255, with spotlight (3 nodes), gradient and clipped gradient (2 nodes) exactly as `docs/spec/formats/board.md#lights`. Preserve version, residue and unknown fields. Register every new action in the `CommandRegistry`. Host access goes through platform-services. Selecting or previewing a light never dirties the document.
+
+**Never:** Silently bake or destroy a light. Do not change engine render arithmetic (`core/src/render/shade.ts`; the R-15 alignment is a separate ticket), the board wire format or runtime lowering. Do not add a second document model, a docking library, or lighting for native scenes (Epic 27) in this story. Do not use `Math.random`, `Date` or float falloff in `core` (G3).
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Paint shade | Shading tool, tint (r,g,b), drag over cells | One command sets each cell's tint on the chosen cast layer; one undo reverts the drag | Out-of-range channel or off-board cell: refuse whole edit with a named reason |
+| Add / move light | Spotlight, gradient or clipped gradient; node positions and two colours | Light is stored with the right node count; moving a node is one undoable edit | Wrong node count or colour channel out of range refused; stored record unchanged |
+| Bake | Explicit "Convert light to shading" | Spec arithmetic writes shading; light is removed only after the author confirms; undo restores the light | Bake that would exceed the shade grid or clamp unexpectedly reports the cells affected and changes nothing |
+| Save and run | Board with light and shade | Saves, reopens identical, and the runner renders both | Read-only or failed save: shown, no partial write claimed |
+
+</frozen-after-approval>
+
+## Decisions recorded 2026-11-22 (owner)
+
+1. Shading and Lighting modes go in the existing board tools (`board-view.tsx`); story 30.1 restyles them.
+2. R-15 is amended to the engineer's account in the spec (swap after the sum, for every non-transparent tile pixel). The engine and goldens still implement the old rule, so **this story does not change engine arithmetic**. A follow-up ticket brings `core/src/render/shade.ts` and the goldens into line under G5.
+3. The single ±255 clamp is kept as a deliberate departure.
+4. Clipped gradients are editable (the band rule is now specified). Convert adds the light into the one shading layer, deletes the light, and is one undo step.
+
+## Engineer answers (2026-11-22, behaviour only; to be written into the docs first, in their own commit)
+
+- Clipped gradient: the axis runs from node 0 to node 1; the light covers the band between two perpendicular lines through the nodes (both edges inside), unlimited along its length. Plain gradient clamps the fraction to 0..1. Identical nodes have no effect. Plain and clipped keep their nodes when switched; switching to spotlight resets them.
+- Spotlight: node 1 is the centre, nodes 0 and 2 are radius points; the longer distance is the major axis and sets rotation; only the shorter length is used for the minor axis. New spotlight: a circle, radius points 160 px above and left of the centre (stopped at 0 at the board edge). Hard edge: on or past the boundary adds nothing. Linear falloff for all types; spotlight colour 1 at the centre, colour 0 at the edge. New light: colour 1 is the brush shade, colour 0 is zero.
+- Lights add to the painted grid and to each other, with no clamp until the final pixel; each light rounds toward zero as it is added, so order can change a cell by 1. Cells are sampled at each tile's position; row and column 0 are never lit. Stored light layer is unused and mirrors the cast layer.
+- One shading layer only is meaningful (editor shows shading and enables Convert only with exactly one). Cast layer N tints layers 1..N.
+- Shading tools: draw (one cell, drag paints, right-click erases), erase (0,0,0), rectangle outline (Shift fills, in cell numbers), flood (per channel), dropper, zero-RGB and a grey slider setting all three channels. Channels clamp to −255..255. Default brush (64,64,64). No brush size.
+- Convert: adds the selected light into the shading grid, records one undo step, deletes the light. Runtime bake leaves stored lights alone.
+- Isometric: a shade cell is the tile's diamond; the rectangle tool uses cell numbers; flood skips off-edge cells.
+- Live preview draws shading plus all lights, with separate "Draw tile shading" and "Draw lighting" toggles.
+- Not confirmed: sprites' own white/black swap; whether shipped sample boards hit the clamp case.
+
+## Code Map
+
+- `packages/core/src/formats/board/model.ts` -- `BoardLight`, `BoardShadeLayer`; read-only here, the stored contract.
+- `packages/editor-model/src/board-document.ts` -- `SetBoardFieldsCommand` lacks `lights`; `BoardDocumentFields` does not expose them; `planShades` already encodes and checks tints. Extend, do not replace.
+- `packages/editor-model/src/board-tools.ts` -- tile tools returning `ShadeAssignment[]`; the shade-paint tool belongs beside it.
+- `packages/editor-model/src/board-preview.ts` -- already composes with `shading: true`; add lights to the preview.
+- `packages/editor-ui/src/board-view.tsx`, `board-canvas.tsx` -- tool strip and canvas gestures.
+- `packages/core/src/render/shade.ts`, `docs/spec/engine/display-input-audio.md#reawakened-light-and-raster-arithmetic` -- falloff and bake arithmetic to reuse.
+- `packages/editor-model/test/board-document.test.ts` -- test pattern; keep each test under 1 second.
+
+## Tasks & Acceptance
+
+**Execution:**
+- [ ] `packages/editor-model/src/board-document.ts` -- add `lights` to the snapshot and to `set-board-fields`, with node/colour validation -- unblocks all light editing.
+- [ ] `packages/editor-model/src/board-lights.ts` -- add/move/recolour/remove light edits and the explicit bake using the spec arithmetic -- keeps `core` free of editor logic.
+- [ ] `packages/editor-model/src/board-tools.ts` -- shade-paint gesture producing one `set-tiles`-style command -- one drag, one undo.
+- [ ] `packages/editor-ui/src/board-view.tsx` and a new lighting view -- Shading and Lighting modes with numeric fields, keyboard nudge and commands registered in `CommandRegistry` -- required by the accessibility contract.
+- [ ] `packages/editor-model/test/` and `packages/editor-ui/test/` -- unit tests for the matrix, plus one runner-harness case that renders a board with both light and shade.
+
+**Acceptance Criteria:**
+- Given a board with a light and shaded cells, when saved and reopened, then both are identical and the runner renders both.
+- Given an unbaked light, when the author cancels or undoes a bake, then the editable light is unchanged.
+- Given invalid channels or node counts, when applied, then the edit is refused with a reason and the document is not dirty.
+
+## Implementation Notes
+
+**2026-11-22: the engine now matches the amended light rules (4.44, `3a6f44d60`); the R-15 swap is its own ticket 4.45 (#3358) and does not block this story. Earlier finding, now resolved for lights:** the built engine did not match the amended spec for lights. `packages/core/src/render/shade.ts` (`rasterizeLights`, `bakeLights`) differs from the engineer's account in four ways:
+- Spotlight node order: the engine takes node 0 as the centre and nodes 1 and 2 as the x and y radius points; the engineer says node 1 is the centre.
+- Spotlight shape: the engine is axis-aligned; the engineer says it can be rotated by the longer radius.
+- Clipped gradient: the engine clips to a polygon made of nodes 2 and up, so a 2-node clipped light lights nothing; the engineer says it is a band between perpendicular lines through the two nodes.
+- Bake: the engine appends a new shade layer at load and clamps each cell's sum; the engineer says lights add into the one shading layer with no clamp until the final pixel.
+An editor preview or Convert built to the spec would not match what the runner renders, which breaks this story's acceptance ("renders in the runner"). Aligning the engine changes goldens (G5), so it needs an explicit decision.
+
+**Built 2026-11-22 (model and panel slice).**
+- `editor-model`: the board snapshot exposes `lights`; `set-board-fields` accepts `lights` and `shadeLayers` (validated in `refuse`: node counts 3 or 2, whole-number channels −255..255); new `set-shade-cells` paints the one shading layer (refuses more than one layer, off-board cells, out-of-range channels and no-ops); `board-lights.ts` adds `newLight`, `addLight`, `removeLight`, `moveLightNode`, `setLightColour`, `setLightType` and `convertLightToShading` (the light alone in an empty grid, rounded toward zero, added with no clamp, light removed in one command). Tests: `editor-model/test/board-lights.test.ts`.
+- `editor-ui`: `board-lighting-view.tsx` (mounted in `board-view.tsx`) has numeric fields and accessible names for the shade brush, a Shade cell action, Add spotlight/gradient, per-light type, node X/Y, both colours, Convert and Remove. Its buttons join the command palette through `connectEditorCommands`. Tests: `editor-ui/test/board-lighting-view.test.ts`.
+- Verified: `pnpm typecheck`; eslint on `editor-ui` and `editor-model`; 970 editor and host tests pass.
+
+**Built 2026-11-22 (canvas tools).** `editor-model/src/board-shade-tools.ts` has pure planners: `paintShade` (Draw and Erase), `rectangleShade` (outline in cell numbers, filled with Shift), `floodShade` (per channel), `shadeAt` (Dropper) and `lightNodeAt`. `editor-ui/src/board-canvas.tsx` routes the pointer to them while the panel's "Paint shading on the board" or "Move lights on the board" is on (Scroll and Zoom still move the view): one gesture is one command and one undo; right-click erases; Escape drops a gesture in progress; light nodes show as numbered dots and drag to move. `use-board-submit.ts` is the shared apply path. Tests: `editor-model/test/board-shade-tools.test.ts`, `editor-ui/test/board-shade-canvas.test.ts`. Verified: `pnpm typecheck`, eslint, 980 editor and host tests.
+
+**Built 2026-11-22 (remaining items).**
+- Runner proof: `S-LIGHT-SHADE` (painted shade plus a light on one board) matches the independent oracle through the real tracer; `editor-model/test/board-preview.test.ts` also compares the editor preview of a shade-plus-light board with the real engine's `viewbrd` and checks each can be hidden.
+- Preview toggles: "Draw tile shading" and "Draw lighting" (`showShading`, `showLighting` on `BoardPreviewRequest`, validated in the VS Code bridge). The preview now also refreshes when a light changes.
+- Keyboard painting: Space on a cell uses the Shading tool (`shadeKeyAction`); Rectangle takes two Spaces; Escape cancels.
+- Help: `docs/help/lights-and-shading.md`, a "Lights and shading on a board" palette command, and a CHANGELOG entry.
+- Browser check: `tools/browser/tests/editor-board-lighting.spec.ts` drives the shipped editor page in Chromium (real mouse paints shade and drags a light, Convert, Undo, save, bytes read back; keyboard; narrow pane, light and forced-colours themes, no panel overflow, every control named).
+- Self-review (inline, no reviewer subagents): the panel moved under the picture so the canvas stays in view; choosing another editing mode turns shade mode off so the pointer is never silently captured.
+
+**Known limits, not fixed here:**
+- A legacy light with more nodes than the format uses today (a clipped gradient stored with polygon nodes) is refused by light edits with a clear message and its data is kept; the runtime ignores the extra nodes.
+- Not exercised in a real VS Code host; the panel and canvas are the shared `editor-ui` components and the bridge validates the new request flags, but no host test ran.
+- Lights and shading are for legacy boards; native scenes are out of scope here.
+- The R-15 white/black swap is ticket 4.45 (#3358).
+
+## Plan Change Log
+
+## Review Triage Log
 
 ## Verification
 
-A board with both light and shade saves, reopens and renders in the runner, and cancellation and supported undo preserve the editable light before an explicit bake.
-
-## Dependencies and decisions
-
-Prerequisites: 1, 4.13, 12.1, 12.11. Apply the epic Notes, format specs, AD-18/19/20/22/29 and connected-authoring direction; T-23, T-26 map to CAP-16. Preserve version and residue, use the existing shared model and browser, and route host access through platform-services. Where provider or host capability is unavailable, preserve data and report the limitation; do not simulate it.
+**Commands:**
+- `pnpm --filter @tk-reawakened/editor-model test` -- expected: pass (package name to be confirmed from `package.json`)
+- `pnpm --filter @tk-reawakened/editor-ui test` -- expected: pass
+- `pnpm check` -- expected: lint, types and guard-rail checks pass; golden tests unchanged (G5)

@@ -13,6 +13,7 @@ import {
   type DrawList,
   BinaryReader,
   readBoard,
+  writeBoard,
   type WorldBoard,
   resolveAsset,
   foldPath,
@@ -42,6 +43,10 @@ export interface BoardPreviewRequest {
   readonly showBackground?: boolean;
   /** Whether placed item sprites are drawn. The default preserves the engine's `viewbrd` picture. */
   readonly showSprites?: boolean;
+  /** Whether painted tile shading is drawn; it is when absent. Hiding it leaves the board file untouched. */
+  readonly showShading?: boolean;
+  /** Whether lights are drawn; they are when absent. Hiding them leaves the board file untouched. */
+  readonly showLighting?: boolean;
 }
 
 /** The truthful visual extent for one stored board object. `index` is its raw board slot, including empty slots. */
@@ -147,13 +152,23 @@ export async function previewBoard(
   }
   const paths = await projectPaths(storage);
   if (typeof paths === "string") return { ok: false, message: paths };
+  // Hiding shading or lighting draws a copy of the board without it; the file and the document are never touched.
+  let preparedBytes = boardBytes;
+  const dropShading = options.showShading === false && board.shadeLayers.length > 0;
+  const dropLighting = options.showLighting === false && board.lights.length > 0;
+  const earlyWarnings: string[] = [];
+  if (dropShading || dropLighting) {
+    const hidden = writeBoard({ ...board, ...(dropShading ? { shadeLayers: [] } : {}), ...(dropLighting ? { lights: [] } : {}) });
+    if (hidden.ok) preparedBytes = hidden.value;
+    else earlyWarnings.push(`Shading and lighting cannot be hidden on this board: ${hidden.error.message}`);
+  }
   let index = createAssetIndex(paths);
   const root = options.root ?? PACKAGE_ROOT;
   const pathOf = new Map<AssetKey, string>();
   paths.forEach((path, at) => pathOf.set(index.keys[at]!, path));
   const key = assetKey("preview.brd");
   const bytes = new Map<AssetKey, Uint8Array>();
-  const warnings: string[] = [];
+  const warnings: string[] = [...earlyWarnings];
   const unavailable = new Set<AssetKey>();
   const imageAssets = new Set<AssetKey>();
   for (const image of board.images) {
@@ -179,7 +194,7 @@ export async function previewBoard(
   };
   // Reads are repeated until the board hydrates: each round names one file the hydrator needs and does not yet hold.
   for (;;) {
-    const hydrated = hydrateBoard(key, boardBytes, index, root, bytes, options.tick ?? 0);
+    const hydrated = hydrateBoard(key, preparedBytes, index, root, bytes, options.tick ?? 0);
     if (hydrated.error !== null) {
       const asset = assetKey(hydrated.error.path);
       if (imageAssets.has(asset) && !unavailable.has(asset)) {

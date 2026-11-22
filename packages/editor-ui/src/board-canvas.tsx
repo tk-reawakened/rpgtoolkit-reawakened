@@ -1,6 +1,15 @@
 import type { Colorref } from "@tk-reawakened/core";
 import {
   cellCentre,
+  cellsBetween,
+  lightNodeAt,
+  moveLightNode,
+  paintShade,
+  floodShade,
+  rectangleShade,
+  rectangleRegion,
+  shadeAt,
+  type BoardCommand,
   cellOnBoard,
   cellOutline,
   cellsInRect,
@@ -19,7 +28,8 @@ import {
   type Pixel,
   type Stamp,
 } from "@tk-reawakened/editor-model";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
+import type { ShadeUi } from "./board-lighting-view.tsx";
 
 /** The most cells outlined in one frame, so a very zoomed-out view of a huge board stays quick. */
 const MAX_OUTLINED = 20_000;
@@ -44,7 +54,24 @@ export interface BoardCanvasProps {
   readonly onStartCell?: (cell: Cell) => void;
   readonly colourPicking?: boolean;
   readonly onColourPixel?: (colour: Colorref) => void;
+  /** Shading and lighting on the canvas: while its mode is not `off`, the pointer paints shade cells or moves light nodes. */
+  readonly shade?: {
+    readonly ui: ShadeUi;
+    readonly onUi: (next: ShadeUi) => void;
+    readonly submit: (command: BoardCommand) => Promise<boolean>;
+    readonly onMessage: (text: string | null) => void;
+    readonly disabled: boolean;
+  };
 }
+
+/** A shading or lighting gesture in progress on the canvas. */
+type ShadeGesture =
+  | { readonly kind: "stroke"; readonly cells: readonly Cell[]; readonly erase: boolean; readonly last: Pixel }
+  | { readonly kind: "rectangle"; readonly anchor: Cell; readonly current: Cell; readonly filled: boolean }
+  | { readonly kind: "node"; readonly light: number; readonly node: number; readonly current: Pixel };
+
+/** How near, in screen pixels, the pointer must be to grab a light's node. */
+const NODE_GRAB = 9;
 
 function outline(context: CanvasRenderingContext2D, board: BoardDocumentSnapshot, cell: Cell): void {
   const corners = cellOutline(board, cell.x, cell.y);
@@ -149,8 +176,34 @@ function paintObjects(context: CanvasRenderingContext2D, props: BoardCanvasProps
   }
 }
 
+
+/** The lights' nodes (with their numbers) and the cells a shading gesture in progress would set. */
+function paintShadeOverlay(context: CanvasRenderingContext2D, props: BoardCanvasProps, gesture: ShadeGesture | null, stroke: (cells: readonly Cell[], style: string, width: number, fill?: string) => void): void {
+  const shade = props.shade;
+  if (shade === undefined || shade.ui.mode === "off") return;
+  const { board, state } = props;
+  const zoom = zoomOf(state.viewport);
+  if (gesture?.kind === "stroke") stroke(gesture.cells.filter((cell) => cellOnBoard(board, cell.x, cell.y)), gesture.erase ? "#ff6b6b" : COLOURS.selection, 2, COLOURS.pending);
+  if (gesture?.kind === "rectangle") stroke(rectangleRegion(board, gesture.anchor, gesture.current, gesture.filled), COLOURS.selection, 2, COLOURS.pending);
+  board.lights.forEach((light, index) => {
+    const nodes = gesture?.kind === "node" && gesture.light === index ? light.nodes.map((node, at) => at === gesture.node ? gesture.current : node) : light.nodes;
+    context.lineWidth = 1.5 / zoom;
+    context.strokeStyle = "#ffd400";
+    context.beginPath();
+    nodes.forEach((node, at) => at === 0 ? context.moveTo(node.x, node.y) : context.lineTo(node.x, node.y));
+    context.stroke();
+    nodes.forEach((node, at) => {
+      context.fillStyle = "#ffd400";
+      context.fillRect(node.x - 4 / zoom, node.y - 4 / zoom, 8 / zoom, 8 / zoom);
+      context.fillStyle = "#fff";
+      context.font = `${11 / zoom}px sans-serif`;
+      context.fillText(`${index + 1}.${at + 1}`, node.x + 6 / zoom, node.y - 6 / zoom);
+    });
+  });
+}
+
 /** Draw the picture, the grid, the selection, the gesture in progress and the cursor. */
-function paint(context: CanvasRenderingContext2D, source: CanvasImageSource | null, picture: { readonly width: number; readonly height: number } | null, props: BoardCanvasProps): void {
+function paint(context: CanvasRenderingContext2D, source: CanvasImageSource | null, picture: { readonly width: number; readonly height: number } | null, props: BoardCanvasProps, gesture: ShadeGesture | null): void {
   const { board, state, stamp } = props;
   const viewport = state.viewport;
   const zoom = zoomOf(viewport);
@@ -182,6 +235,7 @@ function paint(context: CanvasRenderingContext2D, source: CanvasImageSource | nu
   if (state.hover !== null) stroke([state.hover], COLOURS.hover, 1);
   stroke([state.cursor], COLOURS.cursor, 2);
   paintObjects(context, props);
+  paintShadeOverlay(context, props, gesture, stroke);
   if (props.startMarker !== null && props.startMarker !== undefined && props.startMarker.layer === state.layer + 1) {
     const cell = pixelToCell(board, props.startMarker.x, props.startMarker.y);
     if (cell !== null && cellOnBoard(board, cell.x, cell.y)) {
@@ -211,6 +265,11 @@ function paint(context: CanvasRenderingContext2D, source: CanvasImageSource | nu
 export function BoardCanvas(props: BoardCanvasProps) {
   const { editor, state, picture } = props;
   const canvas = useRef<HTMLCanvasElement>(null);
+  const gesture = useRef<ShadeGesture | null>(null);
+  const [, redraw] = useState(0);
+  const setGesture = (next: ShadeGesture | null): void => { gesture.current = next; redraw((count) => count + 1); };
+  // While a mode other than `off` is on, the pointer belongs to shading or lighting, except for the Scroll and Zoom tools.
+  const shadeActive = props.shade !== undefined && props.shade.ui.mode !== "off" && state.tool !== "scroll" && state.tool !== "zoom";
   const source = useRef<{ readonly image: CanvasImageSource; readonly width: number; readonly height: number } | null>(null);
 
   // The picture is put on an off-screen canvas once, and drawn scaled from there for every frame.
@@ -231,7 +290,7 @@ export function BoardCanvas(props: BoardCanvasProps) {
     if (target === null) return;
     const context = target.getContext("2d");
     if (context === null) return;
-    paint(context, source.current?.image ?? null, source.current, props);
+    paint(context, source.current?.image ?? null, source.current, props, gesture.current);
   });
 
   const position = (event: PointerEvent | WheelEvent): Pixel => {
@@ -244,6 +303,72 @@ export function BoardCanvas(props: BoardCanvasProps) {
     return { x: (event.clientX - box.left) * scaleX, y: (event.clientY - box.top) * scaleY };
   };
   const modifiers = (event: PointerEvent | WheelEvent): Modifiers => ({ shift: event.shiftKey, ctrl: event.ctrlKey || event.metaKey, alt: event.altKey });
+
+  const boardPixel = (at: Pixel): Pixel => screenToBoard(state.viewport, at.x, at.y);
+
+  /** Start a shading or lighting gesture at a screen position; the work is done when the pointer is released. */
+  const shadeDown = (at: Pixel, event: PointerEvent): void => {
+    const shade = props.shade;
+    if (shade === undefined || shade.disabled || state.busy) return;
+    shade.onMessage(null);
+    const pixel = boardPixel(at);
+    if (shade.ui.mode === "lighting") {
+      const hit = lightNodeAt(props.board.lights, pixel, NODE_GRAB / zoomOf(state.viewport));
+      if (hit !== null && event.button === 0) setGesture({ kind: "node", ...hit, current: pixel });
+      return;
+    }
+    const cell = pixelToCell(props.board, pixel.x, pixel.y);
+    if (cell === null || !cellOnBoard(props.board, cell.x, cell.y)) return shade.onMessage("That place is not on the board.");
+    const tool = shade.ui.tool;
+    const erase = tool === "erase" || (tool === "draw" && event.button === 2);
+    if (tool === "dropper") {
+      shade.onUi({ ...shade.ui, brush: shadeAt(props.board, cell) });
+    } else if (tool === "flood") {
+      const outcome = floodShade(props.board, cell, shade.ui.brush);
+      if (!outcome.ok) shade.onMessage(outcome.message);
+      else if (outcome.cells.length === 0) shade.onMessage("Those cells already have that shade.");
+      else void shade.submit({ type: "set-shade-cells", cells: outcome.cells });
+    } else if (tool === "rectangle") {
+      setGesture({ kind: "rectangle", anchor: cell, current: cell, filled: event.shiftKey });
+    } else {
+      setGesture({ kind: "stroke", cells: [cell], erase, last: pixel });
+    }
+  };
+  const shadeMove = (at: Pixel, event: PointerEvent): void => {
+    const current = gesture.current;
+    if (current === null) return;
+    const pixel = boardPixel(at);
+    if (current.kind === "node") return setGesture({ ...current, current: { x: Math.round(pixel.x), y: Math.round(pixel.y) } });
+    const cell = pixelToCell(props.board, pixel.x, pixel.y);
+    if (current.kind === "rectangle") {
+      if (cell !== null && cellOnBoard(props.board, cell.x, cell.y)) setGesture({ ...current, current: cell, filled: event.shiftKey });
+      return;
+    }
+    const crossed = cellsBetween(props.board, current.last, pixel).filter((next) => !current.cells.some((seen) => seen.x === next.x && seen.y === next.y));
+    if (crossed.length > 0) setGesture({ ...current, cells: [...current.cells, ...crossed], last: pixel });
+  };
+  const shadeUp = async (): Promise<void> => {
+    const shade = props.shade;
+    const current = gesture.current;
+    setGesture(null);
+    if (shade === undefined || current === null) return;
+    const brush = shade.ui.brush;
+    if (current.kind === "node") {
+      const moved = moveLightNode(props.board, current.light, current.node, current.current);
+      if (!moved.ok) return shade.onMessage(moved.message);
+      const light = props.board.lights[current.light]?.nodes[current.node];
+      if (light !== undefined && light.x === current.current.x && light.y === current.current.y) return;
+      await shade.submit({ type: "set-board-fields", fields: { lights: moved.lights } });
+      return;
+    }
+    const outcome = current.kind === "rectangle"
+      ? rectangleShade(props.board, current.anchor, current.current, current.filled, brush)
+      : paintShade(props.board, current.cells, current.erase ? { r: 0, g: 0, b: 0 } : brush);
+    if (!outcome.ok) return shade.onMessage(outcome.message);
+    const unchanged = outcome.cells.every((cell) => { const had = shadeAt(props.board, cell); return had.r === cell.r && had.g === cell.g && had.b === cell.b; });
+    if (outcome.cells.length === 0 || unchanged) return shade.onMessage("Those cells already have that shade.");
+    await shade.submit({ type: "set-shade-cells", cells: outcome.cells });
+  };
 
   return (
     <canvas
@@ -277,14 +402,22 @@ export function BoardCanvas(props: BoardCanvasProps) {
           if (cell !== null && cellOnBoard(props.board, cell.x, cell.y)) props.onStartCell?.(cell);
           return;
         }
+        if (shadeActive && event.button !== 1) { shadeDown(positionOnCanvas, event); return; }
         editor.pointerDown(positionOnCanvas, modifiers(event), event.button);
       }}
-      onPointerMove={(event) => { if (!props.startPicking && !props.colourPicking) editor.pointerMove(position(event), modifiers(event)); }}
+      onKeyDown={(event) => { if (event.key === "Escape" && gesture.current !== null) { event.stopPropagation(); setGesture(null); } }}
+      onPointerMove={(event) => {
+        if (props.startPicking || props.colourPicking) return;
+        if (shadeActive) shadeMove(position(event), event);
+        else editor.pointerMove(position(event), modifiers(event));
+      }}
       onPointerUp={(event) => {
         canvas.current?.releasePointerCapture?.(event.pointerId);
-        if (!props.startPicking && !props.colourPicking) void editor.pointerUp(position(event), modifiers(event));
+        if (props.startPicking || props.colourPicking) return;
+        if (shadeActive) void shadeUp();
+        else void editor.pointerUp(position(event), modifiers(event));
       }}
-      onPointerCancel={() => editor.pointerCancel()}
+      onPointerCancel={() => { setGesture(null); editor.pointerCancel(); }}
       onWheel={(event) => {
         event.preventDefault();
         editor.wheel(event.deltaY !== 0 ? event.deltaY : event.deltaX, modifiers(event), position(event));

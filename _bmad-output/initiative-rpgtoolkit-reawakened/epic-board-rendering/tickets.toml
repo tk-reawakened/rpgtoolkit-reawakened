@@ -680,3 +680,29 @@ hitl = false
 risk = "high"
 references = ["issue - #1146", "superseded unmerged proposal - PR #1152 (535b2aec)", "merged lifecycle fix - PR #1153 (9e497a33)", "unrelated docs correction that closed the issue - PR #1154 (503ea161)"]
 notes = ["PR #1153 restored outermost-only composition before the unrelated PR #1154 closed #1146. The earlier PR #1152 was not merged. This entry remains open until its acceptance criteria and perturbation proofs are recorded."]
+
+[[entry]]
+id = 44
+tracker_id = "#3356"
+type = "story"
+title = "Align the light renderer with the amended spec"
+description = "Bring packages/core/src/render/shade.ts, the independent oracle and the S-LIGHT scenes into line with docs/spec/formats/board.md#lights: spotlight centre is node 1 and rotates by its longer radius; a clipped gradient is the band between perpendicular lines through its two nodes; cells are tested at their top-left corner (isometric: diamond centre); lights add into the single shading layer, rounding toward zero once per light with no clamp. The R-15 white/black swap is split out to 4.45. Built in 3a6f44d60."
+verify = "The six S-LIGHT-* scenes pass through the real engine and match regenerated independent reference PNGs; the golden change log and ledger state the G5 reason; `node tools/fixtures/author/generate.mjs --check`, `python3 tools/fixtures/reference/render.py --check`, `pnpm golden`, `pnpm golden:bun` and `pnpm oracle:check` pass; unit tests cover rotated spotlight, clipped band edges, identical nodes and overlapping lights."
+covers = ["CAP-6"]
+after = [34]
+hitl = false
+risk = "high"
+references = ["issue - #3356", "docs/spec/formats/board.md#lights", "gate for - 13.12 board shading and lighting"]
+
+[[entry]]
+id = 45
+tracker_id = "#3358"
+type = "story"
+title = "Apply the R-15 white/black swap after the sum, on tile pixels only"
+description = "Align the engine, WebGL shader and independent oracle with the amended R-15 in docs/spec/formats/tiles.md: after shade and ambient are added and the result clamped to 0..255, exactly (255,255,255) becomes (245,245,245) and exactly (0,0,0) becomes (10,10,10), tested on the whole pixel, even with zero tint, and only in the tile shading step (board tiles, tile-bitmap sprite frames, the RPGCode tile-draw command). Image sprite frames, board images and the background do not swap. Touches packages/core/src/raster/tint.ts and raster.ts, formats/tile-bitmap/composite.ts, packages/render-webgl2/src/index.ts and tools/fixtures/reference/render.py."
+verify = "Unit tests cover swap-after-sum, whole-pixel, zero tint and each graphic kind; software and WebGL renderers agree; changed goldens are regenerated from the independent oracle with the G5 reason stated; `pnpm golden`, `pnpm golden:bun` and `pnpm oracle:check` pass."
+covers = ["CAP-6"]
+after = [44]
+hitl = false
+risk = "high"
+references = ["issue - #3358", "docs/spec/formats/tiles.md", "docs/spec/formats/board.md#shading"]
