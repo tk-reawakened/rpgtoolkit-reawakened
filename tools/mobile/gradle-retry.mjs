@@ -21,14 +21,22 @@ export const TRANSIENT_GRADLE_FAILURES = [
   /\bCould not (?:GET|HEAD|download)\b/i,
 ];
 
-/** A resolution failure line that is only evidence when another transient marker explains it. */
+/** A resolution failure line that is only evidence when another transient or ambiguous marker explains it. */
 export const GRADLE_RESOLVE_CONTEXT = /\bCould not resolve all (?:files|dependencies) for configuration\b/i;
+
+/**
+ * Ambiguous resolution output. Gradle prints `Could not find …` / `Searched in the following locations:` after it has
+ * exhausted its own 429/5xx retries, and attempt 1 may hide the underlying status line, so this is retryable — bounded.
+ * A genuine absence that the repository stated explicitly (`Received status code 404`) stays permanent.
+ */
+export const AMBIGUOUS_GRADLE_RESOLUTION = [
+  /\bCould not find\b/i,
+  /\bSearched in the following locations\b/i,
+];
 
 /** Failures no retry can fix. A permanent marker anywhere in the output wins over every transient one. */
 export const PERMANENT_GRADLE_FAILURES = [
   /\bstatus code 40[134]\b/i,
-  /\bCould not find\b/i,
-  /\bSearched in the following locations\b/i,
   /\bchecksum\b.*(?:mismatch|did not match|not match)/i,
   /\bsignature\b.*(?:mismatch|verification failed|invalid)/i,
   /\bUnsupported class file major version\b/i,
@@ -43,6 +51,7 @@ export const PERMANENT_GRADLE_FAILURES = [
 export function classifyGradleFailure(text) {
   const evidence = [];
   const context = [];
+  const ambiguous = [];
   const permanent = [];
   for (const line of String(text ?? "").split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -55,10 +64,14 @@ export function classifyGradleFailure(text) {
       if (!evidence.includes(trimmed)) evidence.push(trimmed);
     } else if (GRADLE_RESOLVE_CONTEXT.test(trimmed) && !context.includes(trimmed)) {
       context.push(trimmed);
+    } else if (AMBIGUOUS_GRADLE_RESOLUTION.some((pattern) => pattern.test(trimmed)) && !ambiguous.includes(trimmed)) {
+      ambiguous.push(trimmed);
     }
   }
   if (permanent.length > 0) return { retryable: false, evidence: [], permanent };
-  if (evidence.length > 0) return { retryable: true, evidence: [...evidence, ...context], permanent: [] };
+  if (evidence.length > 0 || ambiguous.length > 0) {
+    return { retryable: true, evidence: [...evidence, ...context, ...ambiguous], permanent: [] };
+  }
   return { retryable: false, evidence: [], permanent: [] };
 }
 

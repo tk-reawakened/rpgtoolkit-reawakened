@@ -13,7 +13,10 @@ const workflow = ({
   gateNeeds = ["changes", "mobile-build", "mobile-proof-present"],
   proofJob = true,
   proofScript = true,
+  proofStartedArg = true,
+  proofDownloadTolerant = true,
   advisoryDownload = true,
+  advisoryMarker = true,
 } = {}) => [
   "name: CI",
   "jobs:",
@@ -37,13 +40,23 @@ const workflow = ({
   "    continue-on-error: true",
   "    steps:",
   ...(advisoryDownload ? ["      - uses: actions/download-artifact@v8", "        with:", "          name: mobile-apk"] : []),
+  "      - name: Exercise APK on API 36 emulator",
+  "        uses: reactivecircus/android-emulator-runner@v2",
+  "        with:",
+  ...(advisoryMarker
+    ? ["          script: |", "            printf '%s\\n' '{}' > artifacts/mobile-proof/started.json", "            pnpm mobile:proof"]
+    : ["          script: pnpm mobile:proof"]),
   ...(proofJob
     ? [
       "  mobile-proof-present:",
       "    needs: [changes, mobile]",
       "    steps:",
+      "      - uses: actions/download-artifact@v8",
+      ...(proofDownloadTolerant ? ["        continue-on-error: true"] : []),
+      "        with:",
+      "          name: mobile-android-api36-proof",
       proofScript
-        ? "      - run: node tools/mobile/proof-present.mjs artifacts/mobile-proof/readings.json"
+        ? `      - run: node tools/mobile/proof-present.mjs artifacts/mobile-proof/readings.json${proofStartedArg ? " artifacts/mobile-proof/started.json" : ""}`
         : "      - run: echo skipped",
     ]
     : []),
@@ -109,6 +122,24 @@ test("fails when the advisory job no longer downloads the APK", () => {
   const result = mobileGateAgreement({ workflowText: workflow({ advisoryDownload: false }) });
   assert.equal(result.ok, false);
   assert.match(result.reason, /download the required mobile-apk/);
+});
+
+test("fails when the required proof check stops tolerating an absent artifact", () => {
+  const result = mobileGateAgreement({ workflowText: workflow({ proofDownloadTolerant: false }) });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /tolerate an absent proof artifact/);
+});
+
+test("fails when the emulator step stops writing the start marker", () => {
+  const result = mobileGateAgreement({ workflowText: workflow({ advisoryMarker: false }) });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /started\.json/);
+});
+
+test("fails when the start marker is not passed to the proof check", () => {
+  const result = mobileGateAgreement({ workflowText: workflow({ proofStartedArg: false }) });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /start marker/);
 });
 
 test("jobLines does not confuse the advisory mobile job with mobile-build", () => {

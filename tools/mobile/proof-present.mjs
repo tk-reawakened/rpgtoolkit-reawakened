@@ -1,10 +1,14 @@
-// Verify that a mobile proof exists and reports a verdict — not that the verdict is "passed" (#2721).
+// Gate decision for the mobile proof artifact (#2721), keeping the emulator lane advisory (#1935).
 //
-// The emulator lane stays advisory while mobile work is paused (#1935), but "advisory" must not mean "a missing proof
-// looks green". `readings.json` is written in `proof.mjs`'s `finally` even when the proof failed, so a
-// `result: "failed"` is a real observation; no file, an empty file or unparseable JSON is not.
+// The emulator job writes `started.json` as the first action of its emulator step. Then:
+//   - readings present and valid            → pass (`result: "passed"` or `"failed"`)
+//   - readings present but empty/garbled    → fail
+//   - no readings, start marker present     → fail: a lane that started must produce a verdict
+//   - no readings, no start marker          → pass with a "did not run" annotation: the advisory lane never started
+// That keeps "no proof must not pass silently" without putting emulator/AVD infrastructure failures on every PR. The
+// required `mobile-build` job is what guards the dependency surface.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -31,27 +35,51 @@ export function proofVerdict(text) {
   return { ok: true, result: value.result };
 }
 
-/** Read a proof file and decide it, including the loud failure for a missing or empty file. */
-export function readProof(path, read = readFileSync) {
+/**
+ * Decide the proof-presence job from the readings and the emulator step's start marker. `read` and `exists` are
+ * injected so tests never need a real artifact; a missing readings file is reported as `undefined` by `read` throwing.
+ */
+export function proofPresence({ readingsPath, startedPath, read = readFileSync, exists = existsSync }) {
+  const started = exists(startedPath);
   let text;
   try {
-    text = read(path, "utf8");
-  } catch (error) {
-    return { ok: false, reason: `no proof readings at ${path} (${error?.code ?? error?.message ?? error})` };
+    text = read(readingsPath, "utf8");
+  } catch {
+    text = undefined;
   }
-  if (String(text).trim() === "") return { ok: false, reason: `the proof readings at ${path} are empty` };
-  return { ...proofVerdict(text), path };
+  if (text === undefined) {
+    if (started) {
+      return {
+        ok: false,
+        state: "started-without-readings",
+        reason: `the emulator lane started (${startedPath}) but wrote no readings at ${readingsPath}`,
+      };
+    }
+    return { ok: true, state: "not-run", result: null, reason: `the emulator lane did not start (no ${startedPath})` };
+  }
+  if (String(text).trim() === "") {
+    return { ok: false, state: "empty", reason: `the proof readings at ${readingsPath} are empty` };
+  }
+  const verdict = proofVerdict(text);
+  return verdict.ok
+    ? { ...verdict, state: "present", path: readingsPath }
+    : { ...verdict, state: "invalid", path: readingsPath };
 }
 
 async function main() {
-  const path = resolve(process.argv[2] ?? resolve(root, "artifacts", "mobile-proof", "readings.json"));
-  const verdict = readProof(path);
+  const readingsPath = resolve(process.argv[2] ?? resolve(root, "artifacts", "mobile-proof", "readings.json"));
+  const startedPath = resolve(process.argv[3] ?? resolve(root, "artifacts", "mobile-proof", "started.json"));
+  const verdict = proofPresence({ readingsPath, startedPath });
   if (!verdict.ok) {
     console.error(`mobile proof check failed: ${verdict.reason}`);
     process.exitCode = 1;
     return;
   }
-  console.log(`mobile proof present: ${path} reports result "${verdict.result}"${verdict.result === "passed" ? "" : " (advisory, not a pass)"}`);
+  if (verdict.state === "not-run") {
+    console.log(`mobile proof not required: ${verdict.reason}`);
+    return;
+  }
+  console.log(`mobile proof present: ${readingsPath} reports result "${verdict.result}"${verdict.result === "passed" ? "" : " (advisory, not a pass)"}`);
 }
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {

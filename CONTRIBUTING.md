@@ -461,12 +461,15 @@ The mobile proof drives the built Capacitor APK on a booted Android device or em
 Build the debug APK the way the required `mobile-build` job does: `pnpm mobile:build` prepares the web assets,
 `npx cap add android` and `npx cap sync android` generate the (gitignored) project, then, from
 `packages/runner-mobile/android`, `node ../../../tools/mobile/gradle-build.mjs` assembles it. The wrapper passes Gradle's
-internal retry budget, retries only a 429, 5xx, timeout or reset with 10 s and 30 s backoff, adds `--info` from the
-second attempt, and fails if a “successful” build produced no non-empty
-`app/build/outputs/apk/debug/app-debug.apk`. A 404, a missing artifact or a compile error is permanent and never retried.
-The APK and `artifacts/mobile-build/attempts.json` are uploaded; the APK build is required, while the emulator proof
-downloads that APK and stays advisory. A required `mobile-proof-present` job then checks that the proof artifact exists
-and reports a verdict — a failed proof is allowed, a missing one is not.
+internal retry budget, runs every attempt with `--info` so Gradle's own retries and status codes are visible, retries a
+429, 5xx, timeout or reset — and Gradle's ambiguous post-retry `Could not find …` / `Searched in…` output — with 10 s
+and 30 s backoff, and fails if a “successful” build produced no non-empty `app/build/outputs/apk/debug/app-debug.apk`.
+A stated `Received status code 404` (or another 40x), a checksum/signature mismatch or a compile error is permanent and
+never retried. The APK and `artifacts/mobile-build/attempts.json` are uploaded; the APK build is required, while the
+emulator proof downloads that APK and stays advisory. The emulator step writes `artifacts/mobile-proof/started.json`
+before it runs the proof, and a required `mobile-proof-present` job then checks that a started lane reported a verdict:
+a failed proof is allowed, a started lane with no readings fails, and a lane that never started is annotated rather than
+failed so emulator infrastructure cannot gate every pull request.
 
 Start an Android 16 (API 36) emulator and make sure `adb` can see it. Install the Playwright Android driver with
 `pnpm exec playwright install android`, then run `pnpm mobile:proof`. The Android API uses the default driver-install

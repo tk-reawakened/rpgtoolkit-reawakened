@@ -4,9 +4,10 @@
 //   node ../../../tools/mobile/gradle-build.mjs --attempts 3 --delays 10000,30000
 //
 // The generated Android project is gitignored (`.gitignore`), so the Gradle tuning lives here rather than in a committed
-// `gradle.properties`: every invocation passes the internal retry budget and backoff properties, and attempt 2 onwards
-// adds `--info` so Gradle's own silent retries appear in the log. A build that exits 0 without a non-empty APK is a loud
-// failure, not a success; the APK and an `attempts.json` record are copied to `artifacts/mobile-build/` for the job.
+// `gradle.properties`: every invocation passes the internal retry budget and backoff properties and runs with `--info`,
+// so Gradle's own retries and the underlying status codes appear in the log and in `attempts.json`. A build that exits 0
+// without a non-empty APK is a loud failure, not a success; the APK and an `attempts.json` record are copied to
+// `artifacts/mobile-build/` for the job.
 
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
@@ -20,20 +21,20 @@ const root = resolve(here, "..", "..");
 /** Where Gradle writes the debug APK, relative to the Android project. */
 export const APK_RELATIVE = join("app", "build", "outputs", "apk", "debug", "app-debug.apk");
 
-/** The Gradle arguments for one attempt (0-based). `--info` makes Gradle's own retries visible from the second try. */
-export function gradleArguments(attempt) {
+/** The Gradle arguments for every attempt. `--info` makes Gradle's own retries and status codes visible. */
+export function gradleArguments() {
   return [
     "assembleDebug",
     "--no-daemon",
     "--console=plain",
+    "--info",
     "-Dorg.gradle.internal.repository.max.retries=6",
     "-Dorg.gradle.internal.repository.initial.backoff=1000",
-    ...(attempt >= 1 ? ["--info"] : []),
   ];
 }
 
-function defaultRun({ attempt, cwd, remainingMs }) {
-  const result = spawnSync(join(cwd, process.platform === "win32" ? "gradlew.bat" : "gradlew"), gradleArguments(attempt), {
+function defaultRun({ cwd, remainingMs }) {
+  const result = spawnSync(join(cwd, process.platform === "win32" ? "gradlew.bat" : "gradlew"), gradleArguments(), {
     cwd,
     encoding: "utf8",
     timeout: Math.max(1_000, Math.min(remainingMs, 15 * 60_000)),

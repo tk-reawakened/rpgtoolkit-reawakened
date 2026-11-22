@@ -349,7 +349,7 @@ test("mobile CI builds the APK as required and keeps the emulator proof advisory
   match(text, /api-level: 36/u);
   match(text, /arch: x86_64/u);
   match(text, /emulator-options:.*-gpu swiftshader_indirect/u);
-  match(text, /script: pnpm mobile:proof/u);
+  match(text, /script: \|[\s\S]*started\.json[\s\S]*pnpm mobile:proof/u, "the emulator step must write the start marker before the proof");
   match(text, /name: mobile-android-api36-proof/u);
   match(text, /name: mobile-apk/u, "the proof job must download the required APK");
   match(text, /uses: actions\/download-artifact@v8/u);

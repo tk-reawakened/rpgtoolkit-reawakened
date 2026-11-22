@@ -25,25 +25,43 @@ test("5xx, timeouts and resets are retryable", () => {
   }
 });
 
-test("40x and a missing artifact are permanent and never retried", () => {
-  for (const line of [
-    "> Could not GET 'https://repo.maven.apache.org/x.pom'. Received status code 404 from server: Not Found",
-    "> Could not find javax.annotation:javax.annotation-api:9.9.9.",
-    "Searched in the following locations:",
-  ]) {
-    const result = classifyGradleFailure(line);
-    assert.equal(result.retryable, false, line);
-    assert.ok(result.permanent.length > 0, line);
-  }
+test("an explicit 404 is permanent and never retried", () => {
+  const result = classifyGradleFailure("> Could not GET 'https://repo.maven.apache.org/x.pom'. Received status code 404 from server: Not Found");
+  assert.equal(result.retryable, false);
+  assert.ok(result.permanent.length > 0);
+});
+
+test("the receipt: Gradle's post-retry \"Could not find\" output is ambiguous and retryable", () => {
+  // This is exactly how the #2721 failure surfaces once Gradle has exhausted its own 429 retries and `--info` was off.
+  const receipt = [
+    "Could not resolve all files for configuration ':app:debugRuntimeClasspath'.",
+    "> Could not find com.google.guava:guava:33.3.1-jre.",
+    "  Searched in the following locations:",
+    "    - https://dl.google.com/dl/android/maven2/com/google/guava/guava/33.3.1-jre/guava-33.3.1-jre.pom",
+    "    - https://repo.maven.apache.org/maven2/com/google/guava/guava/33.3.1-jre/guava-33.3.1-jre.pom",
+  ].join("\n");
+  const result = classifyGradleFailure(receipt);
+  assert.equal(result.retryable, true);
+  assert.ok(result.evidence.some((line) => line.includes("guava")));
+  assert.ok(result.evidence.some((line) => line.includes("Searched in the following locations")));
 });
 
 test("a permanent marker wins when transient text appears alongside it", () => {
   const result = classifyGradleFailure([
     RATE_LIMIT,
-    "> Could not find javax.annotation:javax.annotation-api:9.9.9.",
+    "> Could not GET 'https://repo.maven.apache.org/x.pom'. Received status code 404 from server: Not Found",
   ].join("\n"));
   assert.equal(result.retryable, false);
-  assert.ok(result.permanent.some((line) => line.includes("Could not find")));
+  assert.ok(result.permanent.some((line) => line.includes("status code 404")));
+});
+
+test("ambiguous output beside an explicit 404 stays permanent", () => {
+  const result = classifyGradleFailure([
+    "> Could not find com.google.guava:guava:33.3.1-jre.",
+    "  Received status code 404 from server: Not Found",
+  ].join("\n"));
+  assert.equal(result.retryable, false);
+  assert.ok(result.permanent.some((line) => line.includes("404")));
 });
 
 test("a Kotlin compile failure is permanent", () => {
@@ -101,7 +119,7 @@ test("a 429 every time stops after the bounded attempts and reports each one", a
 });
 
 test("a permanent failure gets exactly one attempt", async () => {
-  const { calls, run } = scripted([failed("> Could not find javax.annotation:javax.annotation-api:9.9.9.")]);
+  const { calls, run } = scripted([failed("> Could not GET 'https://repo.maven.apache.org/x.pom'. Received status code 404 from server: Not Found")]);
   const result = await runWithRetry({ run, sleep: async () => { throw new Error("must not wait"); }, now: () => 0 });
   assert.equal(result.ok, false);
   assert.equal(calls.length, 1);

@@ -78,16 +78,29 @@ export function mobileGateAgreement({ workflowText }) {
   if (proof === null) {
     return { ok: false, reason: "the workflow has no required mobile-proof-present job" };
   }
-  if (!proof.some((line) => line.includes("tools/mobile/proof-present.mjs"))) {
+  const proofText = proof.join("\n");
+  if (!proofText.includes("tools/mobile/proof-present.mjs")) {
     return { ok: false, reason: "mobile-proof-present must run tools/mobile/proof-present.mjs" };
+  }
+  if (!/^\s+continue-on-error:\s*true\s*$/m.test(proofText)) {
+    return { ok: false, reason: "mobile-proof-present must tolerate an absent proof artifact before the start marker decides" };
+  }
+  if (!proofText.includes("started.json")) {
+    return { ok: false, reason: "mobile-proof-present must pass the emulator start marker to proof-present.mjs" };
   }
 
   const advisory = jobLines(workflowText, "mobile");
   if (advisory === null) {
     return { ok: false, reason: "the workflow has no advisory mobile job" };
   }
+  const advisoryText = advisory.join("\n");
   if (!advisory.some((line) => /^\s+name:\s*mobile-apk\s*$/.test(line))) {
     return { ok: false, reason: "the advisory mobile job must download the required mobile-apk artifact" };
+  }
+  const marker = advisoryText.indexOf("started.json");
+  const proofRun = advisoryText.indexOf("pnpm mobile:proof");
+  if (marker === -1 || proofRun === -1 || marker > proofRun) {
+    return { ok: false, reason: "the emulator step must write started.json before it runs the proof" };
   }
 
   const gate = jobLines(workflowText, "gate");

@@ -947,15 +947,19 @@ jobs:
           disk-size: 2048M
           emulator-options: -no-window -no-audio -no-boot-anim -camera-back none -gpu swiftshader_indirect
           disable-animations: true
-          script: pnpm mobile:proof
+          # The start marker distinguishes "the advisory lane never started" from "it started and wrote no verdict".
+          script: |
+            printf '%s\n' '{"schema":1,"lane":"mobile-android-api36"}' > artifacts/mobile-proof/started.json
+            pnpm mobile:proof
       - uses: actions/upload-artifact@v6
         if: always() && (needs.changes.result != 'success' || needs.changes.outputs.full != 'false')
         with:
           name: mobile-android-api36-proof
           path: artifacts/mobile-proof/
           if-no-files-found: error
-  # Required: a proof must exist and report a verdict. A proof that failed still passes here, because the emulator lane
-  # is advisory (#1935); a missing, empty or unparseable proof does not (#2721).
+  # Required: a proof that started must report a verdict. A failed verdict passes (the emulator lane is advisory, #1935);
+  # a started lane with no readings, or empty/garbled readings, fails. A lane that never started (no start marker)
+  # passes with an annotation, so emulator/AVD infrastructure does not gate every PR (#2721).
   mobile-proof-present:
     needs: [changes, mobile]
     if: ${{ !cancelled() }}
@@ -983,10 +987,13 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - uses: actions/download-artifact@v8
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        # An absent artifact is not a failure here: the run step decides from the start marker whether the advisory
+        # lane never started (pass with an annotation) or started without a verdict (fail).
+        continue-on-error: true
         with:
           name: mobile-android-api36-proof
           path: artifacts/mobile-proof
-      - run: node tools/mobile/proof-present.mjs artifacts/mobile-proof/readings.json
+      - run: node tools/mobile/proof-present.mjs artifacts/mobile-proof/readings.json artifacts/mobile-proof/started.json
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
   gate:
     # The APK build and the presence of a proof are required; only the emulator proof itself is advisory (#1935).

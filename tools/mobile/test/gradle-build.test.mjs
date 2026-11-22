@@ -22,15 +22,14 @@ function workspace() {
 const success = { status: 0, stdout: "BUILD SUCCESSFUL", stderr: "" };
 const rateLimited = { status: 1, stdout: "FAILURE: Build failed with an exception.", stderr: RATE_LIMIT };
 
-test("gradleArguments pass the retry budget and add --info only from the second attempt", () => {
-  const first = gradleArguments(0);
+test("gradleArguments pass the retry budget and always log with --info", () => {
+  const first = gradleArguments();
   assert.ok(first.includes("assembleDebug"));
   assert.ok(first.includes("--no-daemon"));
   assert.ok(first.includes("--console=plain"));
+  assert.ok(first.includes("--info"));
   assert.ok(first.includes("-Dorg.gradle.internal.repository.max.retries=6"));
   assert.ok(first.includes("-Dorg.gradle.internal.repository.initial.backoff=1000"));
-  assert.equal(first.includes("--info"), false);
-  assert.equal(gradleArguments(1).includes("--info"), true);
 });
 
 test("a 429 retry that succeeds copies the APK and records both attempts", async () => {
@@ -155,6 +154,40 @@ test("a 404 is permanent: exactly one attempt, with its evidence", async () => {
     const written = JSON.parse(readFileSync(join(outDir, "attempts.json"), "utf8"));
     assert.equal(written.attempts, 1);
     assert.deepEqual(written.classifications[0].permanent.some((line) => line.includes("404")), true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("Gradle's post-retry \"Could not find\" output retries, then fails with the coordinates", async () => {
+  const { cwd, outDir, cleanup } = workspace();
+  try {
+    const receipt = [
+      "Could not resolve all files for configuration ':app:debugRuntimeClasspath'.",
+      "> Could not find com.google.guava:guava:33.3.1-jre.",
+      "  Searched in the following locations:",
+      "    - https://repo.maven.apache.org/maven2/com/google/guava/guava/33.3.1-jre/guava-33.3.1-jre.pom",
+    ].join("\n");
+    let calls = 0;
+    const sleeps = [];
+    const error = await buildDebugApk({
+      cwd,
+      outDir,
+      run: async () => {
+        calls += 1;
+        return { status: 1, stdout: "", stderr: receipt };
+      },
+      sleep: async (ms) => { sleeps.push(ms); },
+      now: () => 0,
+      log: () => {},
+    }).catch((caught) => caught);
+    assert.equal(calls, 3);
+    assert.deepEqual(sleeps, [10_000, 30_000]);
+    assert.match(error.message, /com\.google\.guava:guava:33\.3\.1-jre/);
+    assert.match(error.message, /repo\.maven\.apache\.org/);
+    const written = JSON.parse(readFileSync(join(outDir, "attempts.json"), "utf8"));
+    assert.equal(written.attempts, 3);
+    assert.equal(written.classifications[0].retryable, true);
   } finally {
     cleanup();
   }
