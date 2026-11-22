@@ -213,3 +213,19 @@ test("R-66: a point-style step ignores source vectors but still preflights its l
   deepEqual(events.filter((record) => record.type === "blocked").map((record) => record.edge), ["E"]);
   equal(sprites.players[0]?.movement.lastStepTick, null);
 });
+
+test("E-138: a point-style step into a no-link edge is blocked at start and consumed (pre-existing step drop)", () => {
+  // Pre-existing behaviour: a blocked point-style step is consumed and not counted (R-64 item 4 counts
+  // only the selected player's direction-style tile steps). R-66/E-138 now decide it at step start
+  // instead of after walking to the edge, so the player never advances.
+  const currentBoard = board();
+  const sprites = playerState(currentBoard, { x: 290 });
+  enqueueMove(sprites, "hero", { source: "points", target: { x: 322, y: 95 }, facing: "E", provenance: { kind: "script", thread: 0 } });
+  const events = run(sprites, currentBoard, 1);
+  equal(sprites.players[0]?.x, 290, "the step never starts");
+  deepEqual(sprites.players[0]?.queue.moves, [], "the blocked point step is consumed");
+  deepEqual(events.filter((record) => record.type === "blocked").map((record) => [record.edge, record.partyDistance256]), [["E", undefined]]);
+  equal(events.some((record) => record.type === "step-complete"), false);
+  equal(sprites.players[0]?.movement.lastStepTick, 0, "the finished blocked step keeps its record, uncounted");
+  equal(sprites.players[0]?.movement.lastStepBlocked, true);
+});

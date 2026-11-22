@@ -177,7 +177,7 @@
         {"t":48,"a":[["hero",91,95,0,"moving","W"]]},
         {"t":49,"a":[["hero",87,95,0,"moving","W"]]},
         {"t":50,"a":[["hero",83,95,0,"moving","W"]]},
-        {"t":51,"a":[["hero",79,95,0,"moving","W"]],"ev":[{"e":"step-complete","actor":"hero"}]},
+        {"t":51,"a":[["hero",79,95,0,"moving","W"]],"fired":[{"kind":"region","id":"welcome-mat","program":"welcome.prg"}],"ev":[{"e":"step-complete","actor":"hero"}]},
         {"t":52,"a":[["hero",75,95,0,"moving","W"]]},
         {"t":53,"a":[["hero",71,95,0,"moving","W"]]},
         {"t":54,"a":[["hero",67,95,0,"moving","W"]]},
@@ -185,7 +185,7 @@
         {"t":56,"a":[["hero",59,95,0,"moving","W"]]},
         {"t":57,"a":[["hero",55,95,0,"moving","W"]]},
         {"t":58,"a":[["hero",51,95,0,"moving","W"]]},
-        {"t":59,"a":[["hero",47,95,0,"moving","W"]],"fired":[{"kind":"region","id":"welcome-mat","program":"welcome.prg"}],"ev":[{"e":"step-complete","actor":"hero"}]},
+        {"t":59,"a":[["hero",47,95,0,"moving","W"]],"ev":[{"e":"step-complete","actor":"hero"}]},
         {"t":60,"a":[["hero",43,95,0,"moving","W"]]},
         {"t":61,"a":[["hero",39,95,0,"moving","W"]]},
         {"t":62,"a":[["hero",35,95,0,"moving","W"]]},
@@ -816,10 +816,10 @@
         {"e":"threads-started","ids":[]}
       ],
       "expect": [
-        {"t":0,"a":[["hero",15,95,0,"waiting","S"]],"ev":[{"e":"before-enter","board":"east","cancelled":false},{"e":"edge-exit","actor":"hero","dir":"E"},{"e":"board-link","dir":"E","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":15,"y":95,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":15,"y":95,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
-        {"t":1,"a":[["hero",15,95,0,"waiting","S"]]},
-        {"t":2,"a":[["hero",15,95,0,"waiting","S"]]},
-        {"t":3,"a":[["hero",15,95,0,"waiting","S"]]}
+        {"t":0,"a":[["hero",15,95,0,"waiting","E"]],"ev":[{"e":"before-enter","board":"east","cancelled":false},{"e":"edge-exit","actor":"hero","dir":"E"},{"e":"board-link","dir":"E","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":15,"y":95,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":15,"y":95,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
+        {"t":1,"a":[["hero",15,95,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",15,95,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",15,95,0,"waiting","E"]]}
       ]
     },
     {
@@ -928,7 +928,7 @@
         {"t":1,"a":[["hero",144,23,0,"moving","N"]]},
         {"t":2,"a":[["hero",144,19,0,"moving","N"]]},
         {"t":3,"a":[["hero",144,15,0,"moving","N"]]},
-        {"t":4,"a":[["hero",144,15,0,"waiting","N"]],"ev":[{"e":"edge-exit","actor":"hero","dir":"N"},{"e":"movement-complete","actor":"hero","blocked":true},{"e":"program-link","dir":"N","program":"north-gate.prg"}]},
+        {"t":4,"a":[["hero",144,15,0,"waiting","N"]],"ev":[{"e":"movement-complete","actor":"hero","blocked":true},{"e":"edge-exit","actor":"hero","dir":"N"},{"e":"program-link","dir":"N","program":"north-gate.prg"}]},
         {"t":5,"a":[["hero",144,15,0,"waiting","N"]]},
         {"t":6,"a":[["hero",144,15,0,"waiting","N"]]},
         {"t":7,"a":[["hero",144,15,0,"waiting","N"]]},

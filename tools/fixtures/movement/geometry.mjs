@@ -65,6 +65,22 @@ export function overlaps(a, b) {
   return true;
 }
 
+/**
+ * Activation-area contact: like {@link overlaps}, but shapes that merely touch along an edge or
+ * corner count. R-67 defines a trigger area's overlap as "any contact of the player's collision base
+ * ... with the program's area; it is not full containment", and the trigger runtime tests contact by
+ * segment intersection. Collision keeps the strict `overlaps` predicate.
+ */
+export function contacts(a, b) {
+  const all = [...axes(a, a.length > 2), ...axes(b, b.length > 2)];
+  for (const [ax, ay] of all) {
+    const [aLo, aHi] = project(a, ax, ay);
+    const [bLo, bHi] = project(b, ax, ay);
+    if (aHi < bLo || bHi < aLo) return false;
+  }
+  return true;
+}
+
 /** Does the base overlap one board vector (closed polygon or open polyline)? */
 export function hitsVector(base, vector) {
   if (vector.closed !== false) return overlaps(base, vector.points);

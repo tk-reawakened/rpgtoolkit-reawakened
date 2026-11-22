@@ -245,6 +245,12 @@ type EngineCommonInit = {
   readonly displayGeometry?: HostDisplayGeometry;
   /** Decoded image assets supplied by a host or deterministic scene runner. */
   readonly assets?: ReadonlyMap<AssetKey, DecodedTexture>;
+  /**
+   * Raw asset bytes the host already holds, keyed as the runner requests them (`boards/west.brd`). The
+   * engine treats them as fetched: it neither re-requests nor reports them missing. A scene runner with
+   * its fixtures in memory supplies them so a per-tick replay does not depend on host I/O latency.
+   */
+  readonly initialAssets?: ReadonlyMap<AssetKey, Uint8Array>;
   /** Files the host ships with the engine under `media/` (the default bitmap font, bundled TrueType fonts and cursor images), as bytes like every other asset. */
   readonly bundled?: ReadonlyMap<AssetKey, Uint8Array>;
   /** Additional scene/editor image commands, kept as draw-list data. */
@@ -422,7 +428,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   let mainKey: AssetKey | null = null;
   const installedFonts = new Map<AssetKey, Uint8Array>();
   const parsedFonts = new WeakMap<Uint8Array, TrueTypeFont | null>();
-  const cache = new Map<AssetKey, Uint8Array>();
+  const cache = new Map<AssetKey, Uint8Array>(init.initialAssets ?? []);
   // Source resolution is synchronous; installed sources remain physically available when Load hides newer keys.
   const programSources = new Map<AssetKey, Uint8Array>();
   let cacheKeysSnapshot: string[] = [];

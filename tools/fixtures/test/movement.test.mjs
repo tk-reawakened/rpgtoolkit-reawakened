@@ -182,7 +182,9 @@ test("edges-board-link-program: R-66 preflight, refusals, arrival and program li
   deepEqual(events(link, "edge-exit").map((e) => [e.t, e.dir]), [[0, "E"]]);
   deepEqual(events(link, "step-complete").filter((e) => e.t === 0), []);
   deepEqual(events(link, "enter-program").map((e) => e.program), ["east-enter.prg"]);
-  deepEqual(link.expect.filter((r) => r.fired).map((r) => r.t), [59]); // re-entering after leaving, never on arrival
+  // E-19/E-40 re-arms when the base leaves the area; R-67 defines an area overlap as any contact, so the
+  // west step that brings the base's leading edge onto x = 64 already contacts the region and fires (t51).
+  deepEqual(link.expect.filter((r) => r.fired).map((r) => r.t), [51]); // re-entering after leaving, never on arrival
   deepEqual(actorAt(theCase(sc, "arrival-clamps-along-edge"), 0, "hero").slice(1, 3), [15, 160]);
   // R-66 item 3: a refused crossing ends blocked, keeps the queued step, and nothing is switched.
   const refused = theCase(sc, "blocked-arrival-is-refused");
@@ -214,10 +216,15 @@ test("edges-board-link-program: R-66 preflight, refusals, arrival and program li
   // off-board point cannot skip the edge preflight. The accepted crossing is placed, not walked.
   const pointAccepted = theCase(sc, "point-path-edge-preflight-ignores-source-solid");
   deepEqual(actorAt(pointAccepted, 0, "hero").slice(1, 3), [15, 95]);
+  // Accepting an edge exit faces the crossed edge for every step style (origin/main behaviour, E-19 does
+  // not reset facing); a refused point step never moves, so it keeps the facing it had.
+  equal(actorAt(pointAccepted, 0, "hero")[5], "E");
+  equal(actorAt(theCase(sc, "board-link-arrives-opposite-edge"), 0, "hero")[5], "E");
   deepEqual(events(pointAccepted, "edge-exit").map((e) => [e.t, e.dir]), [[0, "E"]]);
   equal(events(pointAccepted, "step-complete").length, 0);
   const pointRefused = theCase(sc, "point-path-refusal-starts-at-the-last-safe-position");
   deepEqual(actorAt(pointRefused, 0, "hero").slice(1, 3), [290, 127], "no advance before the refusal");
+  equal(actorAt(pointRefused, 0, "hero")[5], "S");
   deepEqual(events(pointRefused, "blocked").map((e) => [e.t, e.edge]), [[0, "E"]]);
   equal(events(pointRefused, "edge-exit").length, 0);
   // E-48 unchanged.
