@@ -675,14 +675,16 @@ export class World {
   /**
    * R-64 item 2: the player's consumed blocked direction-style tile step is processed as a step event.
    * Step-triggered programs and items and the random-battle check run at the step's intended destination
-   * (`c.tx`/`c.ty`). The step contributes no repeat-distance travel; R-64 names no repeat contribution and
-   * PROPOSED P-19 records the open point. The party remainder's one-tile rule is not modelled here: these
-   * scenes record positions, trigger facts and events, never the party step counter.
+   * (`c.tx`/`c.ty`). R-67: the counted step also contributes one step's worth to each step-activated repeat
+   * program whose area the attempted destination overlaps — 32 px (one tile) in tile movement — so
+   * `walked` carries that contribution into the trigger evaluation. The party remainder's one-tile rule is
+   * not modelled here: these scenes record positions, trigger facts and events, never the party counter.
    */
   countBlockedStep(a, c) {
     a.stepDone = true;
     a.stepDoneOrigin = c.triggerOrigin ?? false;
     a.stepDest = { x: c.tx, y: c.ty };
+    this.walked = 32 * FP;
   }
 
   afterAdvance(a, c, nx, ny, reach, tpa, finish) {
@@ -825,16 +827,29 @@ export class World {
 
   // ---------------------------------------------------------------- triggers (E-40..E-45, R-52)
 
+  /**
+   * R-68 (docs/spec/engine/movement-and-collision.md#r-68): end-of-step processing is suppressed exactly while
+   * a live blocking thread exists — a `blocking`-kind thread that has not finished, whether ready, running or
+   * parked in a wait. Background threads (board, item, persistent) are never blocking scripts.
+   */
+  liveBlockingThread() {
+    return this.threads.some((th) => th.kind === "blocking" && th.status !== "done");
+  }
+
   triggersPhase() {
     const p = this.player;
-    const stepEvent = p.stepDone;
+    // R-68: one predicate for completed and blocked counted steps alike. A suppressed step still ends and
+    // still drops its accumulated travel; nothing else about it is processed.
+    const suppressed = this.liveBlockingThread();
+    const stepHappened = p.stepDone;
+    const stepEvent = stepHappened && !suppressed;
     const stepOrigin = p.stepDoneOrigin;
     // R-64 item 2: a counted blocked step is evaluated at the tile the player pressed into.
     const stepDest = p.stepDest;
     p.stepDone = false;
     p.stepDoneOrigin = false;
     p.stepDest = null;
-    this.battleDest = stepDest;
+    this.battleDest = stepEvent ? stepDest : null;
     const keyEvent = Boolean(this.activateKey);
     this.activateKey = false;
     let stepped = false;
@@ -843,7 +858,7 @@ export class World {
       stepped = true;
     }
     if (keyEvent) this.evaluate("key");
-    this.walked = stepEvent ? 0 : this.walked;
+    this.walked = stepHappened ? 0 : this.walked;
     return stepped;
   }
 

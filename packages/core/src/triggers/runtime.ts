@@ -236,7 +236,14 @@ export function selectPointerActivationTarget(state: GameState, point: { readonl
   state.sprites.players = state.sprites.players.map((actor) => actor.id === player.id ? { ...actor, facing } : actor);
   return winner.key;
 }
+/** One tile-mode step's worth for a repeat distance (R-67; E-23's 32 px tile step). */
+const STEP_TILE = 32;
+/**
+ * Distance a finished step contributes to a repeat program's counter (E-42). R-67: a counted blocked player
+ * direction-style tile step contributes one step's worth even though the actor never moved.
+ */
 function stepDistance(player: SpriteActor): number {
+  if (player.movement.lastStepBlocked && player.movement.lastStepTarget !== null) return STEP_TILE;
   const movement = player.movement as typeof player.movement & { readonly lastStepDistance?: number };
   return movement.lastStepDistance ?? 0;
 }
@@ -352,7 +359,7 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     }
     section.deactivateAt = null;
   }
-  const step = stepTick(player) === state.time.tick;
+  const stepHappened = stepTick(player) === state.time.tick;
   let completedTriggerThread: number | null = null;
   if (section.active !== null && currentThreadFinished(state, section.active)) {
     const active = section.active;
@@ -362,10 +369,16 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     section.active = null;
   }
   const lastStepProvenance = player.movement.lastStepProvenance;
-  const completedTriggerMovement = step
+  const triggerStep = stepHappened && lastStepProvenance.kind === "trigger";
+  const completedTriggerMovement = stepHappened
     && completedTriggerThread !== null
     && lastStepProvenance.kind === "trigger"
     && lastStepProvenance.thread === completedTriggerThread;
+  // R-68 (docs/spec/engine/movement-and-collision.md#r-68): one live-blocking-thread predicate suppresses
+  // end-of-step processing for completed and blocked steps alike — the party counter, step-triggered programs
+  // and items, repeat distance and the battle check. Movement a trigger program queued keeps R-52's
+  // non-recursion instead: it must still consume its entry once the program has finished.
+  const step = stepHappened && (!hasLiveBlockingThread(state.vm) || triggerStep || completedTriggerMovement);
   // docs/spec/engine/main-loop-and-startup.md#reawakened-boot-held-activation
   // A boot poll is deferred until the enter program has released the blocking thread.
   const bootPoll = section.lastKeySeq === -1;
@@ -383,7 +396,6 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   if (activationEntries.length > 0) section.lastKeySeq = activationEntries[0]!.seq;
   else for (const entry of state.input.keys) if (entry.seq > section.lastKeySeq) section.lastKeySeq = entry.seq;
   const moving = player.state === "moving" && player.movement.active !== null && player.movement.active.provenance?.kind !== "trigger";
-  const triggerStep = step && lastStepProvenance.kind === "trigger";
   const suppressedStep = triggerStep || completedTriggerMovement;
   const stepEligible = step && !triggerStep;
   const movementEvent = stepEligible || moving;

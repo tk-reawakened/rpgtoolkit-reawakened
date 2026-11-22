@@ -5,6 +5,7 @@ import type { EnginePhaseRegistration } from "../engine/engine.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import { createRngPort } from "../rng/xoshiro.ts";
 import type { GameState } from "../save/state.ts";
+import { hasLiveBlockingThread } from "../script/state.ts";
 import { coordLayout, pixelToTile } from "../world/coords.ts";
 import type { SpriteActor } from "./model.ts";
 
@@ -86,6 +87,9 @@ export function runRandomEncounterPhase(state: GameState, config: RandomEncounte
   const board = state.world.board ?? null;
   const actor = state.sprites.players.find((value) => value.id === state.sprites.selectedPlayer) ?? null;
   if (board === null || actor === null) return;
+  // R-68 (docs/spec/engine/movement-and-collision.md#r-68): the random-battle test is end-of-step processing,
+  // so one live-blocking-thread predicate suppresses it for completed and blocked steps alike.
+  if (hasLiveBlockingThread(state.vm)) return;
   // R-64: a blocked player tile step runs its battle check at the intended destination. The saved
   // progress keeps the actor's real tile so the next tick does not re-check the source tile.
   const blockedDestination = actor.movement.lastStepBlocked && actor.movement.lastStepTick === state.time.tick

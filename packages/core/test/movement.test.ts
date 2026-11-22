@@ -310,7 +310,7 @@ test("movement-waits fixture drives every owned case through the real core movem
   };
   const root = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "movement");
   const data = JSON.parse(readFileSync(join(root, "movement-waits.json"), "utf8")) as { readonly cases: readonly Case[] };
-  equal(data.cases.length, 6);
+  equal(data.cases.length, 8);
   for (const scene of data.cases) {
     const source = scene.setup.boards[scene.setup.board]!;
     const vectors = source.vectors.map((vector) => ({ handle: vector.id, attributes: vector.attributes ?? vector.toLayer ?? 0, closed: vector.closed ? 1 : 0, layer: vector.layer, type: vector.type === "solid" ? 1 : vector.type === "under" ? 2 : vector.type === "stairs" ? 8 : 16, points: vector.points.map(([x, y]) => ({ x, y })) }));
@@ -324,6 +324,10 @@ test("movement-waits fixture drives every owned case through the real core movem
       enqueuePathMove(sprites, currentBoard, "a", { x: 144, y: 95 }, 1);
     } else if (scene.name === "blocking-thread-implies-the-wait") {
       enqueueDirectionMove(sprites, "hero", "E", 0); enqueueDirectionMove(sprites, "hero", "E", 0);
+    } else if (scene.name === "blocking-program-step-suppresses-end-of-step-processing" || scene.name === "background-thread-movement-counts-as-free-roaming") {
+      // R-68's thread-source scenes: the same direction step, driven by a blocking program and by a board
+      // thread. The movement phase itself does the same work; only the end-of-step predicate differs.
+      enqueueDirectionMove(sprites, "hero", "E", 0);
     } else if (scene.name === "multirun-one-wait-over-both-sprites") {
       enqueuePathMove(sprites, currentBoard, "a", { x: 112, y: 95 }, 1);
       enqueuePathMove(sprites, currentBoard, "b", { x: 176, y: 127 }, 1);

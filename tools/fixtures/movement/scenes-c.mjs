@@ -45,12 +45,22 @@ export function movementWaits() {
   const a = () => npc("a", 48, 95, { speed: 0 });
   const b = () => npc("b", 48, 127, { speed: 0 });
   const where = (id, x, y) => ({ op: "locate", actor: id, x, y });
+  // R-68: a step-activated repeat region across the tile east of the hero's start (x 64..160, y 47..79).
+  const stepRegion = { id: "step-region", type: "repeat", layer: 0, closed: true, points: rectPts(64, 47, 160, 79), program: "step-region.prg", distanceRepeat: 32 };
+  const roam = (threads) => ({
+    board: "field",
+    boards: { field: board({ programs: [stepRegion] }) },
+    players: [hero({ x: 48, y: 63, speed: 0.02 })],
+    threads,
+  });
   return {
-    spec: ["main-loop-and-startup.md#e-33", "movement-and-collision.md#e-22", "rpgcode-language.md#threads"],
+    spec: ["main-loop-and-startup.md#e-33", "movement-and-collision.md#e-22", "movement-and-collision.md#r-68", "rpgcode-language.md#threads"],
     cases: [
       makeCase("pause-thread-flag-waits-for-completion", "tkMV_PAUSE_THREAD: the thread parks on a movement wait; the wait is polled in the `waits` phase, so it resumes on the tick after the movement finishes and then reads the by-reference location.", field([a()], [thread("T", "item", [{ op: "emit", name: "before" }, { op: "path", actor: "a", flags: PAUSE | FLAGS.PATHFIND, points: [[144, 95]] }, where("a", "ax", "ay"), { op: "emit", name: "after-wait" }, { op: "end" }])]), [], 30),
       makeCase("without-the-flag-the-thread-continues", "Without the flag the path runs concurrently: the thread emits at once, sleeps 10 ticks and wakes while the item is still walking.", field([a()], [thread("T", "item", [{ op: "path", actor: "a", flags: FLAGS.PATHFIND, points: [[144, 95]] }, { op: "emit", name: "continued" }, { op: "sleep", ticks: 10 }, { op: "emit", name: "woke-mid-walk" }, { op: "end" }])]), [], 30),
       makeCase("blocking-thread-implies-the-wait", "Movement started from a blocking program runs to completion before the program continues (E-33), with no flag.", { ...field([], [thread("main", "blocking", [{ op: "push", actor: "hero", dirs: "E,E" }, { op: "emit", name: "walked" }, { op: "end" }])]), players: [hero({ speed: 0 })] }, [], 40),
+      makeCase("blocking-program-step-suppresses-end-of-step-processing", "R-68 item 2: an ordinary (blocking) program's movement completes, but while that live blocking thread exists no step-triggered program, repeat distance or battle check runs — the repeat region east of the hero never fires, though the step itself completes at x 80 and the program resumes the tick after.", roam([thread("main", "blocking", [{ op: "push", actor: "hero", dirs: "E" }, { op: "emit", name: "walked" }, { op: "end" }])]), [], 20),
+      makeCase("background-thread-movement-counts-as-free-roaming", "R-68 item 3: a board (background) thread parked in its own global movement wait is not a blocking script, so the same step runs end-of-step processing and the 32 px repeat region fires when the step completes.", roam([thread("worker", "board", [{ op: "push", actor: "hero", dirs: "E", flags: PAUSE }, { op: "emit", name: "walked" }, { op: "end" }])]), [], 20),
       makeCase("multirun-one-wait-over-both-sprites", "multiRun defers every start, then yields one movement wait over the collected sprites: the thread resumes after the slower sprite finishes.", field([a(), b()], [thread("T", "blocking", [{ op: "multiRun", moves: [{ op: "path", actor: "a", flags: FLAGS.PATHFIND, points: [[112, 95]] }, { op: "path", actor: "b", flags: FLAGS.PATHFIND, points: [[176, 127]] }] }, { op: "emit", name: "both-done" }, { op: "end" }])]), [], 50),
       makeCase("waypoint-path-copy-two-cycles", "tkMV_WAYPOINT_PATH copies the vector; cycles = 2 walks it twice then completes and releases the pause.", field([a()], [thread("T", "item", [{ op: "waypoint", actor: "a", flags: FLAGS.WAYPOINT_PATH | PAUSE, vector: "patrol", cycles: 2 }, { op: "emit", name: "patrol-done" }, { op: "end" }])]), [], 140),
       makeCase("waypoint-link-sees-live-edit", "tkMV_WAYPOINT_LINK reads the vector live: moving the second point at tick 12 changes the route from the next segment on.", field([a()], [thread("T", "item", [{ op: "waypoint", actor: "a", flags: FLAGS.WAYPOINT_LINK | PAUSE, vector: "patrol", cycles: 1 }, { op: "emit", name: "patrol-done" }, { op: "end" }])]), [{ t: 12, op: "editVector", action: "move", id: "patrol", points: [[48, 159], [176, 159], [112, 223], [48, 223]] }], 100),
