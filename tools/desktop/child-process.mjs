@@ -8,10 +8,8 @@
 
 /** The default pause, resolved by a timer that never keeps the process alive on its own. */
 export function sleep(ms) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
+  // Ref'd on purpose: a top-level flow awaiting this timer must not let the event loop drain (exit 13).
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function hasExited(child) {
@@ -28,8 +26,8 @@ function waitForClose(closed, ms, delay) {
     return Promise.race([closed.then((value) => ({ value })), delay(ms).then(() => null)]);
   }
   return new Promise((resolve) => {
+    // Ref'd on purpose: this timer is the bound a top-level `stopChild` await depends on.
     const timer = setTimeout(() => resolve(null), ms);
-    timer.unref?.();
     closed.then((value) => {
       clearTimeout(timer);
       resolve({ value });

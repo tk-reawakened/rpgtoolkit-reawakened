@@ -62,10 +62,9 @@ export function gpuFallbackArgs(platform = process.platform, attempt = 0) {
 }
 
 function defaultDelay(ms) {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
+  // Ref'd on purpose: the retry backoff is the only handle left once the failed child is gone. An unref'd timer here
+  // lets the event loop drain and Node exits 13 ("unsettled top-level await") instead of retrying (#2169).
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function lastLines(text, count) {

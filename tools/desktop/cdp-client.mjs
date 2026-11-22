@@ -12,8 +12,8 @@ export function connect(url, {
   requestTimeoutMs = 30_000,
   createSocket = (target) => new WebSocket(target),
   schedule = (callback, ms) => {
+    // Ref'd on purpose: these timers are the bounds a top-level probe await depends on.
     const timer = setTimeout(callback, ms);
-    timer.unref?.();
     return () => clearTimeout(timer);
   },
 } = {}) {

@@ -31,6 +31,28 @@ function argument(name, fallback) {
   return at >= 0 ? process.argv[at + 1] : fallback;
 }
 
+function numberArgument(name) {
+  const raw = argument(name, null);
+  if (raw === null) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number, got ${JSON.stringify(raw)}`);
+  return value;
+}
+
+/**
+ * A test-only launch command (`DESKTOP_MEASURE_REPORT` tells it where to write), so the real CLI path — including its
+ * timers and top-level await — can be exercised without Electron.
+ */
+function measureCommand() {
+  const value = process.env.DESKTOP_MEASURE_COMMAND;
+  if (value === undefined || value === "") return undefined;
+  const command = JSON.parse(value);
+  if (!Array.isArray(command) || command.length === 0 || command.some((part) => typeof part !== "string")) {
+    throw new Error("DESKTOP_MEASURE_COMMAND must be a JSON array of strings");
+  }
+  return command;
+}
+
 /** The demo package and its descriptor, built from the fetched sample game. */
 function packagePath() {
   const named = argument("--game", null);
@@ -309,10 +331,12 @@ function baselineExpectation() {
 async function main() {
   const out = argument("--out", null);
   const name = argument("--case", null);
+  const command = measureCommand();
+  const tuning = { command, attempts: numberArgument("--attempts"), initialBackoffMs: numberArgument("--backoff-ms"), timeoutMs: numberArgument("--timeout-ms") };
   // The closing suite (entry 9.14): the page runs the whole plan in Electron and compares it with the committed baseline,
   // so this mode reports the suite's own verdict and has no single-frame expectation to check.
   if (process.argv.includes("--closing")) {
-    const measured = await measure({ out, case: "closing", page: "packages/runner-desktop/app/player-measure.html?closing" });
+    const measured = await measure({ out, case: "closing", page: "packages/runner-desktop/app/player-measure.html?closing", ...tuning });
     const record = { os: process.platform, arch: process.arch, measuredAt: new Date().toISOString(), ...measured.report };
     if (out !== null) {
       mkdirSync(dirname(resolve(out)), { recursive: true });
@@ -338,21 +362,23 @@ async function main() {
   const setup = name === null ? { case: null, expected: "argument", picked: null, directory: null, launchArgs: undefined } : caseSetup(name, packagePath());
   let measured;
   try {
-    measured = await measure({ out, case: setup.case, launchArgs: setup.launchArgs });
+    measured = await measure({ out, case: setup.case, launchArgs: setup.launchArgs, ...tuning });
   } finally {
     removeCaseDirectory(setup.directory);
   }
   const record = {
     os: process.platform,
     arch: process.arch,
-    electron: execFileSync(electronBinary(), ["--version"], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        ELECTRON_ENABLE_LOGGING: "0",
-        ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
-      },
-    }).trim(),
+    electron: command === undefined
+      ? execFileSync(electronBinary(), ["--version"], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ELECTRON_ENABLE_LOGGING: "0",
+          ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+        },
+      }).trim()
+      : "injected-command",
     measuredAt: new Date().toISOString(),
     case: setup.case,
     // The path is relative to the repository so the record is portable between machines.
