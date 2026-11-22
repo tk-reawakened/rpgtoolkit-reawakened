@@ -15,7 +15,7 @@ export { runVscodeCreatorTestsProof } from "./creator-tests-proof.ts";
 const copyBytesCommand = "Test: Copy Main File Bytes";
 
 type Expect = typeof playwrightExpect;
-type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean };
+type ProofWindow = Window & { __tkrCspViolations?: string[]; __tkrCspPositiveControlRan?: boolean; __tkrCspFrameListeners?: true };
 type CspConsoleViolation = { text: string; url: string; lineNumber: number; columnNumber: number };
 type ProofRunSnapshot = { readonly stateHash: string | null };
 type NewProjectHistoryProofHost = {
@@ -87,6 +87,8 @@ type ProofHost = {
   otherBoardPath: string;
   artPath: string;
   otherArtPath: string;
+  /** A 2 × 2 board naming tile 2 of `artPath` in its first cell, for the browser source proof. */
+  artBoardPath: string;
   writeBacking(path: string, bytes: Uint8Array): Promise<void>;
   withBackingWriteRefused(path: string, check: () => Promise<void>): Promise<void>;
   /** A fully drawn 2 × 2 tile bitmap over `Tiles/village.tst`: tile 1 everywhere except a shaded (10, -20, 30) tile 2 at column 2, row 1. */
@@ -2347,6 +2349,10 @@ async function readCspViolations(frame: Frame, label: string): Promise<string[]>
 async function instrumentCspFrame(frame: Frame): Promise<void> {
   await frame.evaluate(() => {
     const target = window as ProofWindow;
+    // A frame revisited by a later scenario keeps the listener pair this function added; a second pair would count each
+    // violation twice. The page-wide init script's array does not count: its listeners do not reach webview content.
+    if (target.__tkrCspFrameListeners === true) return;
+    target.__tkrCspFrameListeners = true;
     target.__tkrCspViolations = [];
     const seen = new WeakSet<Event>();
     const recordViolation = (event: Event) => {

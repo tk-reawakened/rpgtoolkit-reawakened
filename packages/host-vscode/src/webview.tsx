@@ -14,6 +14,11 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
     mountedView?.refreshAssets?.();
     return;
   }
+  if (event.data.type === "source-target") {
+    // A source visit asked for a tile; selecting it changes no document state and keeps drafts and history.
+    mountedView?.revealTile?.(event.data.tile);
+    return;
+  }
   if (event.data.type === "initialize") {
     mountedView?.dispose();
     const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath, event.data.readOnly !== true);
@@ -49,9 +54,9 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
           layout: projectLayoutForDocumentPath(remote.identity.path),
-          // A linked visit: the extension host opens the file in its own editor and remembers the way back.
-          openSource: async (path) => {
-            const outcome = await remote.visit(path);
+          // A linked visit: the extension host opens the file in its own editor, remembers the way back, and selects the tile.
+          openSource: async (visit) => {
+            const outcome = visit.tile === null ? await remote.visit(visit.path) : await remote.visitSource(visit.path, visit.tile);
             return outcome.ok ? null : outcome.message;
           },
         },
@@ -77,6 +82,8 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
         } : {}),
       });
     }
+    // A source visit that opened this document names the tile its first view selects, without touching the document.
+    if (event.data.sourceTile !== undefined) mountedView.revealTile?.(event.data.sourceTile);
   }
   remoteDocument?.receive(event.data);
 });

@@ -174,6 +174,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly #onDispose: () => void;
   /** The webviews showing this document: each can be asked to hand over the edits it has accepted (#2613). */
   readonly #views = new Set<SettleTarget>();
+  /** The one-based tile the latest source visit asked for, kept for a view that is created later. */
+  #sourceTile: number | null;
   #nextSettle = 0;
   /** How many `saveCustomDocument` calls have finished, and the last one's result. */
   #saves = 0;
@@ -195,7 +197,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     return delay !== null && this.#now() - this.#lastEditAt <= delay + 1000 ? "auto" : "manual";
   }
 
-  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession, onDispose: () => void = () => undefined) {
+  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession, onDispose: () => void = () => undefined, sourceTile: number | null = null) {
     this.uri = uri;
     this.model = model;
     this.capabilities = port.capabilities;
@@ -207,6 +209,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.#port = port;
     this.#fire = fire;
     this.#onDispose = onDispose;
+    this.#sourceTile = sourceTile;
     this.#lastEditAt = this.#now();
     this.#lastHead = model.getSnapshot().edits.at(-1)?.editId ?? null;
     model.subscribe(() => {
@@ -231,8 +234,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** Track a webview of this document; the returned function forgets it (its panel was disposed). */
-  attachWebview(post: (requestId: string) => PromiseLike<boolean>): () => void {
-    const target: SettleTarget = { post, waiting: new Map() };
+  attachWebview(post: (requestId: string) => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
+    const target: SettleTarget = { post, waiting: new Map(), ...(notify === undefined ? {} : { notify }) };
     this.#views.add(target);
     return () => {
       this.#views.delete(target);
@@ -275,6 +278,26 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     return "the editor could not confirm that it handed over its accepted edits";
   }
 
+  /**
+   * The tile of a source visit not yet shown, for the next view that initializes. It is handed over once, so a later
+   * view of the same document (a split) keeps its own tile choice.
+   */
+  sourceTarget(): number | undefined {
+    const tile = this.#sourceTile ?? undefined;
+    this.#sourceTile = null;
+    return tile;
+  }
+
+  /**
+   * Select `tile` in every live view of this document, and remember it for a view VS Code creates later. This changes no
+   * document state: pixels, drafts and history stay as they were.
+   */
+  revealSourceTarget(tile: number): void {
+    if (!Number.isInteger(tile) || tile < 1) return;
+    this.#sourceTile = tile;
+    for (const view of this.#views) view.notify?.({ type: "source-target", tile });
+  }
+
   /** The board-editor preferences the webview reads (T-33). */
   boardPreferences(): EditorPreferences {
     const folder = this.#port.folderOf(this.uri);
@@ -294,6 +317,11 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** Follow a link from this document to the file at `path` in a new editor, remembering where it came from (story 11.4). */
   visit(path: string, reference = false): Promise<VisitOutcome> {
     return this.#navigation.visit(this, path, reference);
+  }
+
+  /** Open the artwork source at `path` and select its one-based tile through the host's own document route. */
+  visitSource(path: string, tile: number): Promise<VisitOutcome> {
+    return this.#navigation.visitSource(this, path, tile);
   }
 
   /** Go back to where the latest visit started. */
@@ -474,12 +502,16 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 /** One webview of a document, and the `settle` requests it has not yet answered. */
 interface SettleTarget {
   post(requestId: string): PromiseLike<boolean>;
+  /** A message sent outside a request/answer pair, such as a source visit's tile. */
+  notify?(message: BridgeMessage): void;
   readonly waiting: Map<string, (settled: boolean) => void>;
 }
 
 /** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
 interface DocumentNavigation<Uri extends UriLike> {
   visit(origin: GameDocument<Uri>, path: string, reference: boolean): Promise<VisitOutcome>;
+  /** Open `path` and select its one-based tile in the editor the registry gives it; the origin is unchanged. */
+  visitSource(origin: GameDocument<Uri>, path: string, tile: number): Promise<VisitOutcome>;
   returnFromVisit(origin: GameDocument<Uri>): Promise<ReturnOutcome>;
   setInitialBoard(origin: GameDocument<Uri>, path: string): Promise<ReturnOutcome>;
   pickAsset(origin: GameDocument<Uri>, request: AssetPickRequest): Promise<PickOutcome>;
@@ -507,6 +539,8 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
   const hostDocuments = new WeakMap<AnyDocument, GameDocument<Uri>>();
   /** The live document of each open identity, so a host command outside an editor reaches its settled state. */
   const openDocuments = new Map<string, GameDocument<Uri>>();
+  /** A source visit's one-based tile by document identity, until the editor VS Code is opening has been created. */
+  const pendingSourceTiles = new Map<string, number>();
   const createWorkspace = (folder: WorkspaceFolderLike<Uri>, fs: FileSystemService): DocumentWorkspace => {
     const policy = port.historyPolicy;
     return createDocumentWorkspace({
@@ -557,6 +591,41 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
     return project;
   };
 
+  /**
+   * Open `path` in the editor the registry gives it, recording the visit, and hand a source visit's one-based tile to that
+   * document: the live one at once, a new one when the provider creates it. VS Code can activate an editor it resolved
+   * earlier without asking for the document again, so the tile is also delivered after `openEditor` settles.
+   */
+  const openVisited = async (origin: GameDocument<Uri>, project: Project, folder: WorkspaceFolderLike<Uri>, path: string, tile: number | null): Promise<VisitOutcome> => {
+    const key = createDocumentIdentity(folder.key, path).key;
+    project.visits.begin(origin.model.identity.path, path);
+    const liveFor = (): GameDocument<Uri> | undefined => {
+      const opened = project.workspace.documents().find((document) => document.identity.key === key);
+      return opened === undefined ? undefined : hostDocuments.get(opened);
+    };
+    if (tile !== null) {
+      const live = liveFor();
+      if (live === undefined) pendingSourceTiles.set(key, tile);
+      else live.revealSourceTarget(tile);
+    }
+    try {
+      await port.openEditor(port.uriFor(folder, path));
+    } catch (error) {
+      // The editor did not open: forget the visit, so a later return does not go back from a place never reached.
+      project.visits.end();
+      pendingSourceTiles.delete(key);
+      return { ok: false, message: `${path} could not be opened: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    // Whatever happened, the tile is for this visit only; a later ordinary open must not inherit it.
+    const pending = pendingSourceTiles.get(key);
+    pendingSourceTiles.delete(key);
+    if (tile === null) return { ok: true, path };
+    const live = liveFor();
+    if (live === undefined) return { ok: false, message: `${path} opened in an editor that cannot select tile ${tile}. Reopen it with the tileset artwork editor.` };
+    if (pending !== undefined) live.revealSourceTarget(pending);
+    return { ok: true, path };
+  };
+
   const navigation: DocumentNavigation<Uri> = {
     async visit(origin, path, reference) {
       const folder = folderOfDocument(origin);
@@ -596,15 +665,16 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const resolved = await resolveDocumentPath(project.fs, target);
       if (!resolved.ok) return { ok: false, message: resolved.kind === "case-conflict" ? resolved.message : `Could not check ${path}: ${resolved.error.message}` };
       if (!resolved.exists) return { ok: false, message: `${path} is not in the project, so there is nothing to visit.` };
-      project.visits.begin(origin.model.identity.path, resolved.path);
-      try {
-        await port.openEditor(port.uriFor(folder, resolved.path));
-      } catch (error) {
-        // The editor did not open: forget the visit, so a later return does not go back from a place never reached.
-        project.visits.end();
-        return { ok: false, message: `${resolved.path} could not be opened: ${error instanceof Error ? error.message : String(error)}` };
-      }
-      return { ok: true, path: resolved.path };
+      return openVisited(origin, project, folder, resolved.path, null);
+    },
+    async visitSource(origin, path, tile) {
+      const folder = folderOfDocument(origin);
+      const project = projectIn(folder, origin.uri);
+      if (kindForPath(path) === null) return { ok: false, message: `${path} has no registered editor, so there is nothing to open.` };
+      const resolved = await resolveDocumentPath(project.fs, path);
+      if (!resolved.ok) return { ok: false, message: resolved.kind === "case-conflict" ? resolved.message : `Could not check ${path}: ${resolved.error.message}` };
+      if (!resolved.exists) return { ok: false, message: `${path} is not in the project, so there is nothing to open.` };
+      return openVisited(origin, project, folder, resolved.path, tile);
     },
     async returnFromVisit(origin) {
       const folder = folderOfDocument(origin);
@@ -715,9 +785,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         const recovered = await recoverDocument(kind, workspace.storage, identity, await port.readBackup(backupId));
         if (!recovered.ok) throw new Error(`${nameOf(uri)}: ${recovered.error.error.message}`);
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
+        const sourceTile = pendingSourceTiles.get(identity.key);
+        pendingSourceTiles.delete(identity.key);
         const document = new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession, () => {
           if (openDocuments.get(recovered.document.identity.key)?.model === recovered.document) openDocuments.delete(recovered.document.identity.key);
-        });
+        }, sourceTile ?? null);
         hostDocuments.set(document.model, document);
         openDocuments.set(document.model.identity.key, document);
         return document;
@@ -732,9 +804,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (known.has(opened.document)) {
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
+      const sourceTile = pendingSourceTiles.get(opened.document.identity.key);
+      pendingSourceTiles.delete(opened.document.identity.key);
       const document = new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession, () => {
         if (openDocuments.get(opened.document.identity.key)?.model === opened.document) openDocuments.delete(opened.document.identity.key);
-      });
+      }, sourceTile ?? null);
       hostDocuments.set(document.model, document);
       openDocuments.set(document.model.identity.key, document);
       return document;
@@ -821,7 +895,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
         void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
       });
-      const detach = document.attachWebview((requestId) => webview.postMessage({ type: "settle", requestId }));
+      const detach = document.attachWebview((requestId) => webview.postMessage({ type: "settle", requestId }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));

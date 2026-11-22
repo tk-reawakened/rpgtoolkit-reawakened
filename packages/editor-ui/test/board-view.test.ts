@@ -554,7 +554,7 @@ test("animated tiles are selectable brushes and tile bitmaps are whole stamp bru
   const bitmapBrush = s.el.querySelector<HTMLButtonElement>(".tkr-tileset-browser-select-brush");
   ok(bitmapBrush !== null && !bitmapBrush.disabled && bitmapBrush.textContent === "Select stamp brush", `a bitmap is a whole stamp brush; source=${source.value}, item=${s.el.querySelector(".tkr-tileset-browser-item")?.textContent}, message=${s.el.querySelector(".tkr-tileset-browser-message")?.textContent}`);
   match(s.el.querySelector(".tkr-tileset-browser-message")?.textContent ?? "", /Tile bitmap, 1 × 1 tiles\. Select it as a whole stamp brush/);
-  match(s.el.querySelector(".tkr-tileset-browser-note")?.textContent ?? "", /Source editing is unavailable until the P1 tile editor provider exists/);
+  match(s.el.querySelector(".tkr-tileset-browser-note")?.textContent ?? "", /Animated tiles, single pictures and isometric tilesets have no editor yet\. Browsing and brush selection do not change source files or paint a board\./);
   await act(() => bitmapBrush.click());
   deepEqual(s.browser.session.getSnapshot().selection, { kind: "bitmaps", path: "Bitmap/portrait.tbm", reference: "portrait.tbm", label: "portrait.tbm", boardTile: null, stamp: { width: 1, height: 1 } });
   const paint = s.el.querySelector<HTMLButtonElement>(".tkr-board-brush");

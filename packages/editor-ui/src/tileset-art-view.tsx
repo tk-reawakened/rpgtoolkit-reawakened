@@ -10,6 +10,8 @@ export interface TilesetArtViewProps {
   readonly doc: ViewDocument<TilesetArtSnapshot, TilesetArtCommand>;
   readonly capabilities: Capabilities;
   readonly onEdited: (event: DocumentEdited) => void;
+  /** Navigation only: bind the one-based tile selector; `null` retires it on disposal. */
+  readonly onRevealReady?: (reveal: ((tile: number) => void) | null) => void;
 }
 
 interface Pixel {
@@ -92,7 +94,7 @@ function sameTiles(left: TilesetArtSnapshot["tiles"], right: TilesetArtSnapshot[
 }
 
 /** A tileset pixel editor whose only editable authority is the host's tileset document. */
-export function TilesetArtView({ doc, capabilities, onEdited }: TilesetArtViewProps) {
+export function TilesetArtView({ doc, capabilities, onEdited, onRevealReady }: TilesetArtViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -123,6 +125,8 @@ export function TilesetArtView({ doc, capabilities, onEdited }: TilesetArtViewPr
     lastIncomingTiles.current = snapshot.tiles;
   }
   const tiles = acceptedTiles.current;
+  const tileCount = useRef(0);
+  tileCount.current = tiles.length;
   const hasTiles = tiles.length > 0;
   const selectedTile = hasTiles ? Math.min(tile, tiles.length - 1) : -1;
   const active = selectedTile < 0 ? undefined : tiles[selectedTile];
@@ -163,6 +167,18 @@ export function TilesetArtView({ doc, capabilities, onEdited }: TilesetArtViewPr
   useEffect(() => {
     if (snapshot.conflict === null) setConflictDismissed(false);
   }, [snapshot.conflict]);
+
+  // A source visit selects a tile without touching the document, its drafts or its history; a closed view retires it.
+  useEffect(() => {
+    onRevealReady?.((requested) => {
+      if (!Number.isInteger(requested) || requested < 1) return;
+      cancelGesture();
+      setTile(Math.min(requested, Math.max(1, tileCount.current)) - 1);
+      setCursor({ x: 0, y: 0 });
+      setRefusal(null);
+    });
+    return () => onRevealReady?.(null);
+  }, [onRevealReady]);
 
   useEffect(() => {
     setSaveError(snapshot.saveError?.message ?? null);

@@ -43,7 +43,7 @@ import {
   type Visits,
   DEFAULT_WORKBENCH_PANELS,
 } from "@tk-reawakened/editor-model";
-import { createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountShell, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountShell, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
@@ -143,6 +143,15 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     void services.settings.set("user", LAYOUT_SETTING, JSON.stringify(saveLayout()));
   });
 
+  /**
+   * Select a visit's one-based tile in the artwork editor already open for `document`, without changing its document,
+   * drafts or history. A view still to be mounted is told by `sync` through the same handle before anything else touches it.
+   */
+  const revealSourceTile = (document: AnyDocument, tile: number | null): void => {
+    if (tile === null || document.kind !== "tileset") return;
+    views.get(document.identity.key)?.view.revealTile?.(tile);
+  };
+
   /** Bring the editors in line with the tabs: the active tab's editor is in the slot, the others are hidden, a closed tab's is gone. */
   const sync = (): void => {
     if (disposed) return;
@@ -170,10 +179,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container, projectLayout, async (path) => {
-            const result = await visits.visit(document, path);
+          entry = { document, view: mountDocumentView(project, document, container, projectLayout, async (visit) => {
+            const result = await visits.visit(document, visit.path);
             if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
             show(result.document);
+            revealSourceTile(result.document, visit.tile);
             return null;
           }, {
             pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
@@ -243,11 +253,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     const result = await tree.open(path);
     if (result.ok && result.via === "document") show(result.document);
   };
-  /** What the tileset browser's "edit source" asks for: the file in a tab, or why it did not open. */
-  const openSource = async (path: string): Promise<string | null> => {
-    const result = await tree.open(path);
+  /** What the tileset browser's "edit source" asks for: the file in a tab at its tile, or why it did not open. */
+  const openSource = async (visit: SourceVisit): Promise<string | null> => {
+    const result = await tree.open(visit.path);
     if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
-    if (result.via === "document") show(result.document);
+    if (result.via !== "document") return null;
+    show(result.document);
+    revealSourceTile(result.document, visit.tile);
     return null;
   };
 
@@ -273,7 +285,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     if (imported.value === null) return platformOk(undefined);
     // Both the board and Files routes update the tree before opening the new scene.
     await tree.refresh();
-    const reason = await openSource(imported.value);
+    const reason = await openSource({ path: imported.value, tile: null });
     return reason === null ? platformOk(undefined) : platformError("io-error", `${imported.value} was created but could not be opened: ${reason}`);
   };
 

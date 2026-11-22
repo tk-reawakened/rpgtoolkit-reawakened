@@ -2,7 +2,7 @@ import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
@@ -414,7 +414,7 @@ export function mountDocumentView(
   document: AnyDocument,
   element: HTMLElement,
   projectLayout: ProjectLayout = { projectFolder: "" },
-  openSource?: (path: string) => Promise<string | null>,
+  openSource?: (visit: SourceVisit) => Promise<string | null>,
   navigation?: ViewContext["navigation"],
   /** The running project's main file (`.gam`), which the language server reads the project from; `null` when none. */
   main: string | null = null,
@@ -441,7 +441,7 @@ export function mountDocumentView(
   const show = (container: HTMLElement): void => {
     if (disposed || mounted !== null) throw new Error("Cannot show a disposed or already mounted editor view.");
     mounted = document.kind === "terrain-scene"
-      ? mountWebTerrainScene(container, project, asTerrainSceneDocument(document), main, browserLayout.projectFolder, openSource)
+      ? mountWebTerrainScene(container, project, asTerrainSceneDocument(document), main, browserLayout.projectFolder, openSource === undefined ? undefined : (path) => openSource({ path, tile: null }))
       : mount(container, {
       document: viewDocumentFor(project, document, importBoard),
       services: project.services,
@@ -473,7 +473,7 @@ export function mountDocumentView(
     }
   };
   show(element);
-  return { hide, show, refreshAssets: () => mounted?.refreshAssets?.(), ...(document.kind === "program" ? { revealSource } : {}), dispose: () => { hide(); disposed = true; } };
+  return { hide, show, refreshAssets: () => mounted?.refreshAssets?.(), ...(document.kind === "program" ? { revealSource } : {}), ...(document.kind === "tileset" ? { revealTile: (tile: number) => mounted?.revealTile?.(tile) } : {}), dispose: () => { hide(); disposed = true; } };
 }
 
 /** Make a view owner over a document the project already has open. */

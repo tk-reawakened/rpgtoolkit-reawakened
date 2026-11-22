@@ -331,7 +331,7 @@ test("a host with a tab to open makes 'Edit tile bitmap' open the source, and th
   const stamp = bytesOf(bitmap(1, 1, () => EMPTY));
   const s = await setup(bytesOf(START), { "Bitmap/stamp.tbm": stamp });
   const opened: string[] = [];
-  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (path) => { opened.push(path); return path === "Bitmap/stamp.tbm" ? "it is locked" : null; } };
+  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (visit) => { opened.push(visit.path); return visit.path === "Bitmap/stamp.tbm" ? "it is locked" : null; } };
   await show(s, browser);
   const source = control<HTMLSelectElement>(s.el, ".tkr-tileset-browser select");
   await act(async () => {
@@ -347,6 +347,55 @@ test("a host with a tab to open makes 'Edit tile bitmap' open the source, and th
   await settle(2);
   deepEqual(opened, ["Bitmap/stamp.tbm"]);
   match(s.el.querySelector(".tkr-tileset-browser-message")?.textContent ?? "", /Cannot open Bitmap\/stamp\.tbm: it is locked/);
+});
+
+test("More actions opens the chosen tileset row's own file at its one-based tile, by the registry, and leaves the board side alone", async () => {
+  const s = await setup(bytesOf(START), { "Tiles/iso.iso": exampleTileset() });
+  const opened: { path: string; tile: number | null }[] = [];
+  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (visit) => { opened.push({ path: visit.path, tile: visit.tile }); return null; } };
+  await show(s, browser);
+  const source = control<HTMLSelectElement>(s.el, ".tkr-tileset-browser select");
+  await act(async () => {
+    source.value = "Tiles/village.tst";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  await until(() => s.el.querySelector('[data-browser-reference="village.tst2"]') !== null);
+  const row = s.el.querySelector<HTMLElement>('[data-browser-reference="village.tst2"]');
+  ok(row !== null);
+  const more = row.querySelector<HTMLButtonElement>("button:last-of-type");
+  ok(more !== null);
+  more.focus();
+  await act(() => { more.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true })); });
+  const edit = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-tileset-browser-menu button")].find((button) => button.textContent === "Edit tile artwork");
+  ok(edit !== undefined, "the menu offers Edit tile artwork for a .tst row");
+  ok(!edit.disabled);
+  await act(() => edit.click());
+  await settle(2);
+  deepEqual(opened, [{ path: "Tiles/village.tst", tile: 2 }], "the row's own file and tile are named, not the brush or its label");
+  equal(s.session.getSnapshot().selection, null, "opening a source never chooses a brush");
+
+  // Reloading the same source (a late listing or an asset refresh) makes new rows but keeps an open menu; another source closes it.
+  await act(() => control<HTMLButtonElement>(s.el, '[data-browser-reference="village.tst2"] button:last-of-type').click());
+  await act(async () => {
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  await settle(4);
+  ok([...s.el.querySelectorAll<HTMLButtonElement>('[data-browser-reference="village.tst2"] .tkr-tileset-browser-menu button')].some((button) => button.textContent === "Edit tile artwork"), "a same-source reload keeps the open menu");
+
+  // An isometric tileset has no registered artwork editor: the action says so instead of offering an edit the provider cannot do.
+  await act(async () => {
+    source.value = "Tiles/iso.iso";
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+  await until(() => s.el.querySelector('[data-browser-reference="iso.iso1"]') !== null);
+  equal(s.el.querySelectorAll(".tkr-tileset-browser-menu").length, 0, "another source closes the open menu");
+  await act(() => control<HTMLButtonElement>(s.el, '[data-browser-reference="iso.iso1"] button:last-of-type').click());
+  const unavailable = [...s.el.querySelectorAll<HTMLButtonElement>(".tkr-tileset-browser-menu button")].find((button) => button.textContent === "Edit source unavailable");
+  equal(unavailable?.disabled, true);
+  equal(opened.length, 1, "nothing tried to open a source that has no editor");
 });
 
 test("undo through the host restores the cell and the saved state", async () => {
@@ -366,7 +415,7 @@ test("a tile bitmap naming a tile the project lacks is still a stamp brush with 
   const broken = bytesOf(bitmap(2, 1, (x) => (x === 0 ? { tile: "gone.tst1", r: 0, g: 0, b: 0 } : { tile: "village.tst1", r: 0, g: 0, b: 0 })));
   const s = await setup(bytesOf(START), { "Bitmap/broken.tbm": broken });
   const opened: string[] = [];
-  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (path) => { opened.push(path); return null; } };
+  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (visit) => { opened.push(visit.path); return null; } };
   await show(s, browser);
   const source = control<HTMLSelectElement>(s.el, ".tkr-tileset-browser select");
   await act(async () => {
@@ -502,7 +551,7 @@ test("a tile bitmap with no cells is no stamp but keeps its edit action, and cho
   const empty = bytesOf({ magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: -1, height: -1, cells: [], residue: new Uint8Array() });
   const s = await setup(bytesOf(START), { "Bitmap/empty.tbm": empty });
   const opened: string[] = [];
-  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (path) => { opened.push(path); return null; } };
+  const browser: TilesetBrowserContext = { ...s.browser, openSource: async (visit) => { opened.push(visit.path); return null; } };
   await show(s, browser);
   const source = control<HTMLSelectElement>(s.el, ".tkr-tileset-browser select");
   await act(async () => {
