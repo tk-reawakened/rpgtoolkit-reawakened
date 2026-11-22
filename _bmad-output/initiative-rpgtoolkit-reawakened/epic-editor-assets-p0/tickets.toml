@@ -193,3 +193,18 @@ covers = ["CAP-15"]
 after = [13, "11.6", "11.7", "11.8", "11.10", "9.16"]
 hitl = false
 risk = "high"
+
+[[entry]]
+id = 18
+tracker_id = "#3192"
+type = "bug"
+title = "Full VS Code creator proof can miss the sprite inspector after earlier lanes"
+description = "In the full VS Code Web proof using the documented example workspace, the connected-authoring pass can time out waiting for Choose activation program in the Sprite inspector after the preceding passes. The focused pass succeeded on the same revision. Determine whether prior workbench state or selection acknowledgement explains the difference."
+verify = "Capture the selected object, editor role and active surface at the failure point, or identify a merged change and prove it addresses the same sequence. Run the full sequence on the current revision and demonstrate that the selected sprite exposes Choose activation program and that the existing linked-program and run assertions still execute. Do not substitute the focused run, add a fixed sleep, or weaken creator coverage."
+covers = ["CAP-15"]
+after = [12]
+hitl = false
+risk = "medium"
+severity = "P2"
+refine = true
+references = ["Evidence: https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3192"]
