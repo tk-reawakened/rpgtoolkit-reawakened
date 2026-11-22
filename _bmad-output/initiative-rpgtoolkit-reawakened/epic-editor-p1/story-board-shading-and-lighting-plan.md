@@ -3,7 +3,7 @@ title: 'Board shading and lighting'
 type: 'feature'
 ticket: '12'
 created: '2026-11-22'
-status: 'draft'
+status: 'in-progress'
 baseline_revision: 'eccc276c1d127c91b8202c07d8f285f11c49b2d4'
 route: 'full'
 route_source: 'auto'
@@ -84,6 +84,13 @@ context: ['{project-root}/docs/spec/formats/board.md', '{project-root}/docs/desi
 - Given invalid channels or node counts, when applied, then the edit is refused with a reason and the document is not dirty.
 
 ## Implementation Notes
+
+**2026-11-22, stopped before code: the built engine does not match the amended spec for lights.** `packages/core/src/render/shade.ts` (`rasterizeLights`, `bakeLights`) differs from the engineer's account in four ways:
+- Spotlight node order: the engine takes node 0 as the centre and nodes 1 and 2 as the x and y radius points; the engineer says node 1 is the centre.
+- Spotlight shape: the engine is axis-aligned; the engineer says it can be rotated by the longer radius.
+- Clipped gradient: the engine clips to a polygon made of nodes 2 and up, so a 2-node clipped light lights nothing; the engineer says it is a band between perpendicular lines through the two nodes.
+- Bake: the engine appends a new shade layer at load and clamps each cell's sum; the engineer says lights add into the one shading layer with no clamp until the final pixel.
+An editor preview or Convert built to the spec would not match what the runner renders, which breaks this story's acceptance ("renders in the runner"). Aligning the engine changes goldens (G5), so it needs an explicit decision.
 
 ## Plan Change Log
 
