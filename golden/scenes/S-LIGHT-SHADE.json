@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "name": "S-LIGHT-SHADE",
+  "boardFiles": [
+    "packages/core/test/fixtures/authored/light-oracle-shade.brd",
+    "packages/core/test/fixtures/authored/light-oracle.tst"
+  ],
+  "sprites": [],
+  "ambient": [
+    0,
+    0,
+    0
+  ],
+  "view": {
+    "viewport": [
+      256,
+      128
+    ],
+    "camera": [
+      0,
+      0
+    ],
+    "include": {
+      "shading": true,
+      "images": false,
+      "sprites": false
+    }
+  },
+  "tick": 0
+}

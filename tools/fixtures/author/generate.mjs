@@ -590,6 +590,14 @@ const LIGHT_BOUNDARY_BOARD = authoredBoard({
   lights: [{ layer: 1, type: 0, nodes: [[128, 128], [128, 64], [224, 64]], colours: [asRgb([-80, -40, -20]), asRgb([83, 121, 37])] }],
 });
 
+// 13.12: painted shade and a light on one board, as the board editor saves it. The shade is one layer cast onto layer 1;
+// the light adds to it at load (docs/spec/formats/board.md#lights).
+const LIGHT_SHADE_BOARD = authoredBoard({
+  ...LIGHT_BOARD_BASE,
+  shades: [{ layer: 1, runs: [[3, -40, 10, 0], [5, 0, 0, 0], [2, 30, -30, 60], [22, 0, 0, 0]] }],
+  lights: [gradientLight([-60, 20, 10], [100, -10, 40])],
+});
+
 const AUTHORED = {
   // Authored from spec, unverified against a real file (no detail-4 sample
   "light-oracle.tst": LIGHT_TST,
@@ -599,6 +607,7 @@ const AUTHORED = {
   "light-oracle-overlap.brd": LIGHT_OVERLAP_BOARD,
   "light-oracle-night.brd": LIGHT_NIGHT_BOARD,
   "light-oracle-boundary.brd": LIGHT_BOUNDARY_BOARD,
+  "light-oracle-shade.brd": LIGHT_SHADE_BOARD,
 
   // exists in the archive). Two tiles pin the per-tile offset(docs/spec/formats/tiles.md#tileset-tst-and-isometric-tileset-iso).
   "detail4.tst": tileset(20, 4, 16, 1, palettePixel, 2),
@@ -991,6 +1000,15 @@ const ORACLE_SCENES = {
     schema: 1,
     name: "S-LIGHT-OVERLAP",
     boardFiles: ["packages/core/test/fixtures/authored/light-oracle-overlap.brd", "packages/core/test/fixtures/authored/light-oracle.tst"],
+    sprites: [],
+    ambient: [0, 0, 0],
+    view: { viewport: [256, 128], camera: [0, 0], include: { shading: true, images: false, sprites: false } },
+    tick: 0,
+  },
+  "S-LIGHT-SHADE.json": {
+    schema: 1,
+    name: "S-LIGHT-SHADE",
+    boardFiles: ["packages/core/test/fixtures/authored/light-oracle-shade.brd", "packages/core/test/fixtures/authored/light-oracle.tst"],
     sprites: [],
     ambient: [0, 0, 0],
     view: { viewport: [256, 128], camera: [0, 0], include: { shading: true, images: false, sprites: false } },
