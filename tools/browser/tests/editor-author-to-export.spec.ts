@@ -89,8 +89,12 @@ async function openFile(page: Page, path: string): Promise<void> {
   await expect(tab).toHaveAttribute("aria-selected", "true");
 }
 
-async function saveActive(page: Page): Promise<void> {
+/** Save the active editor and wait for its own acknowledgment, so the save completed its write, not just its click. */
+async function saveActive(page: Page, path: string): Promise<void> {
+  const tab = page.getByRole("tab", { name: new RegExp(`^${path.replaceAll(".", "\\.")}(?:, unsaved changes)?$`) });
+  await expect(tab).toHaveAttribute("aria-label", `${path}, unsaved changes`);
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect(tab).toHaveAttribute("aria-label", path);
 }
 
 /** Close a document after its save acknowledges, so Close does not ask to save it again (#3337). */
@@ -148,8 +152,8 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   // Game settings: a saved title, checked against the bytes rather than the form.
   await page.getByLabel("Game title").fill("Authored Acceptance");
   await page.getByRole("button", { name: "Apply changes" }).click();
-  await saveActive(page);
-  await expect.poll(async () => mainOf(asm(await readProjectFile(page, folder, MAIN))).gameTitle).toBe("Authored Acceptance");
+  await saveActive(page, MAIN);
+  expect(mainOf(asm(await readProjectFile(page, folder, MAIN))).gameTitle).toBe("Authored Acceptance");
 
   // Fixtures supply only source artwork and the documented item behaviour; every authored value below is UI work.
   await writeProjectFile(page, folder, "Tiles/village.tst", tileset);
@@ -191,7 +195,7 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await characterAuthoring.getByLabel("Health (HP)", { exact: true }).fill("24");
   await characterAuthoring.getByLabel("Health (HP)", { exact: true }).blur();
   await expect(characterAuthoring.getByLabel("Character edit status")).toHaveText("Character change recorded. Save the document to keep it.");
-  await saveActive(page);
+  await saveActive(page, "Chrs/start.tem");
   await closeSaved(page, "Chrs/start.tem");
   await openFile(page, "Chrs/start.tem");
   await expect(characterGraphics.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue(ANIMATION);
@@ -208,7 +212,7 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await itemGraphics.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file").fill(ANIMATION);
   await itemGraphics.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file").blur();
   await expect(itemGraphics.getByText(/Graphics change recorded\. Save the document to keep it\./)).toBeVisible();
-  await saveActive(page);
+  await saveActive(page, ITEM);
   await closeSaved(page, ITEM);
   await openFile(page, ITEM);
   await expect(itemGraphics.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue(ANIMATION);
@@ -258,14 +262,12 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await page.getByRole("button", { name: "Use it", exact: true }).click();
   await inspector.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(inspector.getByLabel("Item definition", { exact: true })).toHaveValue(/chest\.itm/);
-  await saveActive(page);
-  await expect.poll(async () => {
-    const savedBoard = decodeBoard(asm(await readProjectFile(page, folder, START_BOARD)), START_BOARD);
-    return {
-      residue: [...savedBoard.residue],
-      tiles: savedBoard.lut.filter((reference) => reference === "village.tst1" || reference === "village.tst2"),
-      sprite: savedBoard.sprites.some((sprite) => /chest\.itm/.test(sprite.itemFile)),
-    };
+  await saveActive(page, START_BOARD);
+  const savedBoard = decodeBoard(asm(await readProjectFile(page, folder, START_BOARD)), START_BOARD);
+  expect({
+    residue: [...savedBoard.residue],
+    tiles: savedBoard.lut.filter((reference) => reference === "village.tst1" || reference === "village.tst2"),
+    sprite: savedBoard.sprites.some((sprite) => /chest\.itm/.test(sprite.itemFile)),
   }).toEqual({ residue: RESIDUE, tiles: ["village.tst1", "village.tst2"], sprite: true });
   await closeSaved(page, START_BOARD);
   await expect(page.getByRole("tab", { name: START_BOARD, exact: true })).toHaveCount(0);
@@ -299,7 +301,8 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   const sceneCell = scene.getByRole("button", { name: /^Cell 0, 0:/ }).first();
   await sceneCell.click();
   await expect(sceneCell).toHaveAccessibleName(/empty override/);
-  await saveActive(page);
+  // The scene save holds a conflict dialog open until it is authorized, so its completion is the reported build.
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   const authorize = page.getByRole("dialog").filter({ hasText: "Generated outputs conflict with existing project files." });
   await authorize.getByRole("button", { name: "Authorize listed outputs", exact: true }).click();
   await expect(page.getByText("Scene saved and board built.", { exact: true })).toBeVisible();
@@ -314,7 +317,7 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   const setInitial = page.getByRole("dialog").filter({ hasText: FIELD_BOARD });
   await setInitial.getByRole("button", { name: "Set initial board", exact: true }).click();
   await openFile(page, MAIN);
-  await saveActive(page);
+  await saveActive(page, MAIN);
 
   // RPGCode: replace the starter program with authored text through the real text editor.
   await openFile(page, PROGRAM);
@@ -331,8 +334,8 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await page.keyboard.type("mwincls()");
   await expect(page.getByRole("region", { name: `Program ${PROGRAM}` }).getByRole("status")).toHaveText("Unsaved changes");
   await expect.poll(() => editorText(page)).toContain(START_MARKER);
-  await saveActive(page);
-  await expect.poll(async () => new TextDecoder("latin1").decode(bytesOf(await readProjectFile(page, folder, PROGRAM), PROGRAM))).toContain(START_MARKER);
+  await saveActive(page, PROGRAM);
+  expect(new TextDecoder("latin1").decode(bytesOf(await readProjectFile(page, folder, PROGRAM), PROGRAM))).toContain(START_MARKER);
 
   // Reopen the whole project after a page reload; the saved values and the main file's links must still resolve.
   await page.reload();

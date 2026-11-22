@@ -133,6 +133,19 @@ async function openFile(page: Page, path: string): Promise<void> {
   )).toHaveAttribute("aria-selected", "true");
 }
 
+/** Read the artwork bytes only after the editor acknowledges the save, so a slow flush cannot read the old revision. */
+async function savedArtwork(page: Page, folder: string): Promise<number[]> {
+  const tab = page.getByRole("tab", { name: /^Tiles\/art\.tst(?:, unsaved changes)?$/ });
+  await expect(tab).toHaveAttribute("aria-label", "Tiles/art.tst");
+  return storedBytes(page, folder, "Tiles/art.tst");
+}
+
+/** Press the artwork editor's save only when its document has edits, so the acknowledgment proves that save wrote them. */
+async function saveArtwork(page: Page): Promise<void> {
+  await expect(page.getByRole("tab", { name: /^Tiles\/art\.tst(?:, unsaved changes)?$/ })).toHaveAttribute("aria-label", "Tiles/art.tst, unsaved changes");
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+}
+
 async function setup(page: Page): Promise<string> {
   const folder = await installProject(page, [
     { path: "Main/example.gam", bytes: mainBytes },
@@ -293,16 +306,17 @@ test("actual browser art gestures stay private until accepted, share history, an
   await page.evaluate(() => window.scrollBy(0, 16));
   await page.mouse.move(pointer.x, pointer.y);
   await expectPixel(page, canvas, 14, 15, green);
+  await expect(page.getByRole("tab", { name: /^Tiles\/art\.tst(?:, unsaved changes)?$/ })).toHaveAttribute("aria-label", "Tiles/art.tst, unsaved changes");
   await page.keyboard.press("ControlOrMeta+s");
-  await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(accepted);
+  expect(await savedArtwork(page, folder)).toEqual(accepted);
   await expectPixel(page, canvas, 14, 15, green);
   await expectPixel(page, mirror, 14, 15, rgbaAt(initial, 14, 15));
   await page.mouse.up();
   await expectPixel(page, mirror, 14, 15, green);
   await expect(page.getByRole("button", { name: "Save active editor", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await saveArtwork(page);
   const saved = changed(accepted, [{ x: 14, y: 15, rgba: green }]);
-  await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
+  expect(await savedArtwork(page, folder)).toEqual(saved);
   await toggleSecondView();
   await expect(mirrorRoot).toBeHidden();
   await toggleSecondView();
@@ -369,9 +383,9 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
       proof.__tkrArtLock = null;
     });
   }
-  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await saveArtwork(page);
   let saved = changed(artBytes, [{ x: 5, y: 7, rgba: green }]);
-  await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
+  expect(await savedArtwork(page, folder)).toEqual(saved);
   await expect(main.locator(".tkr-tileset-art-error")).toHaveCount(0);
 
   await page.context().setOffline(true);
@@ -380,9 +394,9 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
     await beginStroke(page, canvas, 11, 12);
     await page.mouse.up();
     await expectPixel(page, canvas, 11, 12, pink);
-    await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+    await saveArtwork(page);
     saved = changed(saved, [{ x: 11, y: 12, rgba: pink }]);
-    await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(saved);
+    expect(await savedArtwork(page, folder)).toEqual(saved);
     await expect(page.getByRole("button", { name: "Save active editor", exact: true })).toBeDisabled();
   } finally {
     await page.context().setOffline(false);
@@ -404,7 +418,7 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
   await conflict.getByRole("button", { name: "Review conflict" }).click();
   await conflict.getByRole("button", { name: "Save my version", exact: true }).click();
   await expect(conflict).toBeHidden();
-  await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(mine);
+  expect(await savedArtwork(page, folder)).toEqual(mine);
   await expect(main.locator(".tkr-tileset-art-error")).toHaveCount(0);
 
   await main.getByLabel("Brush color").fill("#d12b73");
@@ -424,9 +438,9 @@ test("actual browser art survives exclusive-lock failure, offline saving and rev
   await canvas.focus();
   await page.keyboard.press("Space");
   await expectPixel(page, canvas, 15, 15, pink, 16);
-  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await saveArtwork(page);
   const final = changed(smallerBytes, [{ x: 15, y: 15, rgba: pink }]);
-  await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(final);
+  expect(await savedArtwork(page, folder)).toEqual(final);
   expect(await storedBytes(page, folder, "Main/example.gam")).toEqual(mainBytes);
   expect(await storedBytes(page, folder, "Tiles/other.tst")).toEqual(otherBytes);
   await assertCleanSurface(page, errors, testInfo);
@@ -540,9 +554,9 @@ test("a board's browser opens the chosen .tst tile, its asymmetric pixel saves, 
   for (const view of [canvas, mirror]) await expectPixel(page, view, 3, 7, original);
   await page.keyboard.press("ControlOrMeta+Shift+z");
   for (const view of [canvas, mirror]) await expectPixel(page, view, 3, 7, blue);
-  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await saveArtwork(page);
   const savedArt = changed(artBytes, [{ x: 3, y: 7, rgba: blue }], 1);
-  await expect.poll(() => storedBytes(page, folder, "Tiles/art.tst")).toEqual(savedArt);
+  expect(await savedArtwork(page, folder)).toEqual(savedArt);
   expectOneStoredPixelChanged(artBytes, savedArt, 1, 3, 7, blue);
   await toggleSecondView(page);
   await expect(mirrorRoot.getByRole("img", { name: "Pixel canvas" })).toHaveCount(0);
