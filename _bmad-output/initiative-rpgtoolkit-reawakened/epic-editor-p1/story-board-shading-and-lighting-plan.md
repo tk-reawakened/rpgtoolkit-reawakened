@@ -99,12 +99,19 @@ An editor preview or Convert built to the spec would not match what the runner r
 
 **Built 2026-11-22 (canvas tools).** `editor-model/src/board-shade-tools.ts` has pure planners: `paintShade` (Draw and Erase), `rectangleShade` (outline in cell numbers, filled with Shift), `floodShade` (per channel), `shadeAt` (Dropper) and `lightNodeAt`. `editor-ui/src/board-canvas.tsx` routes the pointer to them while the panel's "Paint shading on the board" or "Move lights on the board" is on (Scroll and Zoom still move the view): one gesture is one command and one undo; right-click erases; Escape drops a gesture in progress; light nodes show as numbered dots and drag to move. `use-board-submit.ts` is the shared apply path. Tests: `editor-model/test/board-shade-tools.test.ts`, `editor-ui/test/board-shade-canvas.test.ts`. Verified: `pnpm typecheck`, eslint, 980 editor and host tests.
 
-**Not delivered, unmet acceptance (record before calling this story done):**
-- The Draw tile shading and Draw lighting preview toggles; the preview always draws both.
-- Keyboard-only painting on the canvas (the numeric Shade cell action covers one cell); no brush-size control by design.
-- A real-runner proof of a saved board with both light and shade (core goldens prove the light renderer; no board-level runner case was added).
-- A real-browser and VS Code-host visual check at normal and narrow widths, light and dark and high contrast.
-- Review (step 4) has not run.
+**Built 2026-11-22 (remaining items).**
+- Runner proof: `S-LIGHT-SHADE` (painted shade plus a light on one board) matches the independent oracle through the real tracer; `editor-model/test/board-preview.test.ts` also compares the editor preview of a shade-plus-light board with the real engine's `viewbrd` and checks each can be hidden.
+- Preview toggles: "Draw tile shading" and "Draw lighting" (`showShading`, `showLighting` on `BoardPreviewRequest`, validated in the VS Code bridge). The preview now also refreshes when a light changes.
+- Keyboard painting: Space on a cell uses the Shading tool (`shadeKeyAction`); Rectangle takes two Spaces; Escape cancels.
+- Help: `docs/help/lights-and-shading.md`, a "Lights and shading on a board" palette command, and a CHANGELOG entry.
+- Browser check: `tools/browser/tests/editor-board-lighting.spec.ts` drives the shipped editor page in Chromium (real mouse paints shade and drags a light, Convert, Undo, save, bytes read back; keyboard; narrow pane, light and forced-colours themes, no panel overflow, every control named).
+- Self-review (inline, no reviewer subagents): the panel moved under the picture so the canvas stays in view; choosing another editing mode turns shade mode off so the pointer is never silently captured.
+
+**Known limits, not fixed here:**
+- A legacy light with more nodes than the format uses today (a clipped gradient stored with polygon nodes) is refused by light edits with a clear message and its data is kept; the runtime ignores the extra nodes.
+- Not exercised in a real VS Code host; the panel and canvas are the shared `editor-ui` components and the bridge validates the new request flags, but no host test ran.
+- Lights and shading are for legacy boards; native scenes are out of scope here.
+- The R-15 white/black swap is ticket 4.45 (#3358).
 
 ## Plan Change Log
 

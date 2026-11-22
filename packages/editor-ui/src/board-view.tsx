@@ -255,6 +255,11 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const [shadeUi, setShadeUi] = useState<ShadeUi>(INITIAL_SHADE_UI);
   const shadeSubmit = useBoardSubmit(doc, onEdited, pendingEdits, "Edit lights and shading");
   const [shadeCorner, setShadeCorner] = useState<Cell | null>(null);
+  // Choosing another editing mode hands the pointer back to it: shading and lights never silently outlast the mode that started them.
+  useEffect(() => {
+    setShadeCorner(null);
+    setShadeUi((current) => current.mode === "off" ? current : { ...current, mode: "off" });
+  }, [state.mode]);
   /** Space on a cell in the Shading mode: the keyboard way to do what the pointer does. */
   const shadeKey = (cell: Cell, shift: boolean): void => {
     const action = shadeKeyAction(snapshot, shadeUi.tool, cell, shadeUi.brush, shadeCorner, shift);
