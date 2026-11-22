@@ -673,6 +673,19 @@ jobs:
         env:
           ELECTRON_DISABLE_SANDBOX: "1"
           TKR_VSCODE_CREATOR_TESTS_PROOF: ${{ matrix.lane == 'editor-vscode-creator' && '1' || '0' }}
+      # Ticket 14: a fresh creator journey from an empty destination through the real New project wizard and editors to
+      # the reviewed export, then those exact bytes in an isolated web runner. The lane starts its own bundle build and
+      # player server, so it needs no fixture workspace.
+      - name: VS Code web fresh creator acceptance proof
+        if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && matrix.lane == 'editor-vscode'
+        run: |
+          workspace="$(mktemp -d "${RUNNER_TEMP:-/tmp}/tkr-vscode-creator.XXXXXX")"
+          TKR_VSCODE_CREATOR_ACCEPTANCE_PROOF=1 xvfb-run -a pnpm --dir tools/editor-vscode-test proof -- \
+            --extension extensions/editor \
+            --workspace "$workspace" \
+            --game Main/example.gam
+        env:
+          ELECTRON_DISABLE_SANDBOX: "1"
       - run: pnpm fixtures:fetch
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && (matrix.lane == 'player' || matrix.lane == 'closing')
       - run: xvfb-run -a pnpm browser:test

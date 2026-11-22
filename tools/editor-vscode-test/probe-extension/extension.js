@@ -62,7 +62,10 @@ function activate(context) {
     if (path === undefined) return;
     const workspace = vscode.workspace.workspaceFolders?.[0];
     if (workspace === undefined) throw new Error("The proof workspace is not open");
-    await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(workspace.uri, ...path.split("/")), { preview: false });
+    // A leading slash names an absolute path in the same filesystem, so a proof can open a file in a second workspace
+    // folder (for example a project the New project wizard just added) without depending on folder order.
+    const target = path.startsWith("/") ? workspace.uri.with({ path }) : vscode.Uri.joinPath(workspace.uri, ...path.split("/"));
+    await vscode.commands.executeCommand("vscode.open", target, { preview: false });
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.saveAll", async () => {
     console.info("[vscode-web-proof-probe] invoking VS Code's native Save All command");
