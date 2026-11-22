@@ -2,7 +2,7 @@
 type: feature
 title: "Art library reuse evidence decision"
 ticket: 2
-status: in-review
+status: done
 risk: high
 created: 2026-11-14
 baseline_revision: e379d86a8d6794030b78f619ffbb827a73f92477
@@ -64,7 +64,7 @@ Fresh isolated evaluation is recorded in [story-13.2-candidate-evidence.md](../.
 - [x] Reconcile concurrent work at `597d7c3e4f0939229b19775538c2efa13de59c20`; preserve the canonical browser workbench, sprite editors and board tools.
 - [x] Verify the integrated revision through configured type checks, model/component regressions and both actual host surfaces. The findings distinguish exercised behavior from the remaining checklist, not a claim to complete T-36 or all of 13.1/13.3.
 - [x] Independently review the model/boundary and interaction/host slices, track defects, fix and reverify; publish exact findings and remaining ownership/coverage limits.
-- [ ] Obtain person review of the fresh art-host findings before story closure, as published. The owner merged the package-evidence docs in PR #2347; ordinary reversible internal modules require no new product-direction vote.
+- [x] Owner reviewed the evidence summary and approved the in-house pixel canvas as the starting point for 13.1, without a vendor canvas dependency. This does not approve any new artwork format or claim full T-36 coverage.
 
 **Acceptance Criteria:**
 
@@ -75,6 +75,8 @@ Fresh isolated evaluation is recorded in [story-13.2-candidate-evidence.md](../.
 - Given the complete evidence packet, when a person reviews its gaps and ownership, then only their specific approval admits an implementation. Neither successful probes nor general owned-editor approval closes this story.
 
 ## Implementation Notes
+
+- Owner approval: carry forward the in-house browser-native canvas, shared document and host history demonstrated by PR #2640 for 13.1. JollyPixel remains an unadmitted candidate; Dotting is not adopted. This accepts the demonstrated starting point, not cold offline startup, disconnected VS Code transport, layered source persistence or tools assigned to later stories.
 
 - 2026-11-14: checkpoint `d5ecff7428756201df26cea095d8f28919edcc6b` preserves the owned experiment on the pushed `feat/1726-art-host-prototype` branch. This is experimental source, not production admission.
 - 2026-11-14: fresh main added sprite editors, a real browser workbench and board tools. Merge `cca45b2571190d1df267ddf254b5bc9328b38b85` preserves those foundations rather than keeping a competing single-document browser demo. Actual-host checks must now cover that integrated revision.
