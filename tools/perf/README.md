@@ -181,3 +181,30 @@ difference. The first active under vector lazily resolves normal-position images
 sprite row checks visible images on its promoted layers and emits only intersecting spans. The deterministic
 budget test limits each image to one ordinary lookup and one redraw lookup per frame across six covered actors.
 Transparency is checked only on the clipped spans and only for a translucent silhouette. No world state is copied.
+
+## Verified final source (2026-11-22, demo board, real GPU)
+
+This closes the verification #2795 asked for: the profile below runs the merged source, not a feature branch.
+Apple M1 Pro, 16 GiB RAM, macOS 27.2, Node 26.13.0, headed Playwright Chromium with default GPU on a 120 Hz
+display. Three consecutive `pnpm perf:player` runs (eight seconds each), every one confirmed on `boards/start.brd`
+before sampling.
+
+| Measurement | Run 1 | Run 2 | Run 3 |
+|---|---:|---:|---:|
+| Frame rate | 120.5 fps | 120.7 fps | 117.5 fps |
+| Frame p50 / p90 / p99 | 8.3 / 9.0 / 9.3 ms | 8.3 / 9.0 / 9.3 ms | 8.3 / 9.2 / 15.8 ms |
+| Long tasks in 8 s | 0 | 0 | 0 |
+| Ticks per second | 60.8 | 60.6 | 60.7 |
+
+Runs 1 and 2 sit at the display cap. The p99 and frame-rate spread in run 3 is workstation noise (its maximum frame
+was 83.4 ms, one dropped frame); no run recorded a long task. Simulation keeps time at 60.7 ticks per second.
+
+The **Integration measurement** table above (39.0 fps, p50 27.2 ms, 4 long tasks) measured the `feat/1890` branch
+before #3264 and #3283 deferred screen encoding for live frames. It is history, not the current state: the merged
+source no longer shows `encodeSurfaceBytes` among the top costs at all. Inclusive hot paths now are
+`refreshPresentedFrame` (36.8%), `rasterizeWithBlendTarget` (23.1%), `blend`/`drawBlit` (7.1%/15.6%) and
+`hashDrawList` (10.9%), which is the deferred-frames design behaving as intended: most frames present without
+re-encoding, and the hash covers a draw list rather than encoded bytes.
+
+Reproduce with `pnpm build && pnpm browser:build && pnpm perf:player --headed`. The numbers are advisory and never
+gate CI; the gating checks remain the deterministic work-count budgets in `packages/*/test/perf-budget-*.test.ts`.
