@@ -2,7 +2,7 @@
 
 This evidence separates a rights-cleared generic blob mapping from the still-unproved legacy Toolkit community order. It gives a reproducible candidate map and test cases, but does **not** approve that candidate for legacy compatibility or unblock #1733.
 
-**Status:** human ruling required. No legacy engine source code was inspected or used. No sample artwork is copied into this repository.
+**Status:** owner-supplied Toolkit 3.1.0 behaviour added below (2026-11-22); human approval of the mapping still required. No legacy engine source code was inspected or used. No sample artwork is copied into this repository.
 
 ## Decision summary
 
@@ -156,6 +156,31 @@ The transcription contains all 47 distinct canonical masks and nine repeated pac
 
 The accompanying `commune_1.png` image illustrates the terrain artwork in the same generic packing. It is not an independent Toolkit-community sample and cannot establish Toolkit compatibility.
 
+## Toolkit 3.1.0 auto-tiler behaviour (owner-supplied, clean-room)
+
+Supplied by the project owner on 2026-11-22 as a behaviour description from a reader of the 3.1.0 release. The implementer (this repository's code and its agents) did not open that source (G7). It names the first release as 3.0.5 ("terraforming", per the 3.0.5 release notes) and the 3.1.0 release as its origin; those links are provenance only and are not to be consulted while writing code.
+
+**Behaviour.** The Board Editor has an Auto-Tiler. **H** toggles it. It uses a tileset whose filename starts with `AUTOTILES_`. Draw and Erase update the neighbouring tiles on the current layer, on both 2D and isometric boards.
+
+**Mask.** A neighbour counts when it uses the same tileset. Bits: N=1, S=2, W=4, E=8, NW=16, NE=32, SW=64, SE=128. A diagonal counts only when both adjoining cardinal neighbours count (NW needs N and W; NE needs N and E; SW needs S and W; SE needs S and E).
+
+**Order.** 47 variants in 52 one-based tileset slots; `-` is an unused slot.
+
+| Slots | Decimal masks in slot order |
+|---|---|
+| 1-9 | 239, 223, 207, 127, 111, 95, 79, 191, - |
+| 10-18 | 175, 159, 143, 63, 47, 31, 15, 171, - |
+| 19-27 | 139, 43, 11, 206, 78, 142, 14, 87, - |
+| 28-36 | 23, 71, 7, 61, 45, 29, 13, 3, - |
+| 37-45 | 12, 138, 10, 70, 6, 21, 5, 41, - |
+| 46-52 | 9, 2, 8, 1, 4, 0, 255 |
+
+Slot 51 is the isolated tile (mask 0). Slot 52 is fully surrounded (255).
+
+**Independent check (2026-11-22).** Enumerating the gating rule above gives exactly 47 valid masks. The table has 47 distinct values and they are that set: none missing, none outside it, none repeated. This checks internal consistency only; it does not verify the slot positions against Toolkit.
+
+**Note on the generic candidate above.** The ascending-mask candidate and the clockwise bit weights (N=1, NE=2, E=4 ...) in the generic section are a different convention and do not match Toolkit's. Toolkit's bit weights and slot order are the ones in this section. The generic material remains only as a CC0 cross-check of the 47-shape set.
+
 ## Legacy compatibility gap and recommendation
 
 The current evidence answers: “What is one published, CC0 blob-mask convention, and what would its generic ascending-mask IDs mean?” It does **not** answer: “What order do the relevant Toolkit community auto-tile samples use?” The user-facing T-25 description says sample-set ordering is required for compatibility; the general 47-mask rule is not a substitute.
@@ -164,7 +189,7 @@ The current evidence answers: “What is one published, CC0 blob-mask convention
 
 ### Human approval still required
 
-A reviewer/owner must approve whether the pinned sample provenance and available permissions satisfy the acceptance requirement, and approve a complete independently established Toolkit index-to-neighbour mapping; alternatively, a rights-cleared sample with that evidence must be acquired. The fixture route permits functional observation but is not an artwork license. The generic diagram is complete only as a generic mask transcription; this report records no Toolkit mapping approval. Story 13.7 remains incomplete and 13.8 remains blocked.
+A reviewer/owner must approve whether the pinned sample provenance and available permissions satisfy the acceptance requirement, and approve a complete independently established Toolkit index-to-neighbour mapping; alternatively, a rights-cleared sample with that evidence must be acquired. The fixture route permits functional observation but is not an artwork license. The generic diagram is complete only as a generic mask transcription; this report records no Toolkit mapping approval. With the owner-supplied section above, a complete mapping exists; story 13.7 closes when a reviewer approves it, and 13.8 stays blocked until then.
 
 ## References
 
