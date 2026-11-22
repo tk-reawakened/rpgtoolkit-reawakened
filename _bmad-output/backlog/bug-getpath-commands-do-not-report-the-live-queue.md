@@ -54,9 +54,9 @@ The built-in declares four required parameters, so one argument fails the shared
    **When** the index is negative or at or past the count
    **Then** both variables keep their values, no error is raised, and the call still returns the count
 5. **Every other argument count is the standard catchable wrong-count error**
-   **Given** a call with two or three arguments, or none beyond the handle
+   **Given** a call with zero arguments, two or three arguments, or five or more arguments
    **When** it runs
-   **Then** it raises catchable `arity.mismatch` naming one or four, writes nothing, and produces the unset value
+   **Then** it raises catchable `arity.mismatch` naming one or four (that is, `"playergetpath" takes 1 or 4 argument(s)`), writes nothing, and produces the unset value
 6. **Reading has no side effects**
    **Given** a queue with an active step and queued entries
    **When** either form is read twice
