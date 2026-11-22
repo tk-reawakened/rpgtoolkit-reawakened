@@ -335,8 +335,10 @@ function getPath(
   state: GameState,
   handle: number | string,
   index: number,
+  threadId?: number,
 ): { value: unknown; out: readonly (readonly [number, unknown])[]; wait?: unknown } {
   const services = createScriptServices(state, [{ definition: MOVEMENT_PLUGIN }]);
+  if (threadId !== undefined) services.setCommandThread(threadId);
   const spec = services.commands.get(command)?.spec;
   if (spec === undefined) throw new Error(`missing ${command}`);
   const args: Arg[] = [
@@ -349,9 +351,10 @@ function getPath(
   return { value: result.value, out: result.out ?? [], wait: result.wait };
 }
 
-/** Call the one-argument form, which reports only the count. */
-function getPathCount(command: "playergetpath" | "itemgetpath", state: GameState, handle: number | string): unknown {
+/** Call the one-argument form, which reports only the count, optionally from a given thread's context. */
+function getPathCount(command: "playergetpath" | "itemgetpath", state: GameState, handle: number | string, threadId?: number): unknown {
   const services = createScriptServices(state, [{ definition: MOVEMENT_PLUGIN }]);
+  if (threadId !== undefined) services.setCommandThread(threadId);
   const spec = services.commands.get(command)?.spec;
   if (spec === undefined) throw new Error(`missing ${command}`);
   const result = spec.call(services.view, [{ value: handle, ref: null }], () => ({ value: null })) as { value: unknown };
@@ -512,4 +515,33 @@ test("R-69 reports 3.1's 'player not found' text for a handle that names no acto
       `${command} keeps 3.1's message text`,
     );
   }
+});
+
+test("R-69 accepts the calling thread's source and target context handles", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
+  const altar = actorFromSource({ id: "altar", kind: "item", source: "altar.itm", x: 200, y: 40, layer: 1 }, currentBoard, 1, 1);
+  current.sprites.items = [npc, altar];
+  const ref = { kind: "inline" as const, text: "1", ir: IR_VERSION };
+  const itemThread = startThread(current.vm, { ref, kind: "item", owner: "world", source: "npc", target: "altar" });
+  enqueueDirectionMove(current.sprites, "npc", "E", 0);
+  enqueueMove(current.sprites, "altar", { source: "points", target: { x: 232.5, y: 40 }, facing: null });
+
+  const source = getPath("itemgetpath", current, "SOURCE", 0, itemThread.id);
+  deepEqual([source.value, source.out], [1, [[2, 80], [3, 63]]], "source resolves the calling item and is case-insensitive");
+  const target = getPath("itemgetpath", current, "target", 0, itemThread.id);
+  deepEqual([target.value, target.out], [1, [[2, 233], [3, 40]]], "target resolves the other context item");
+
+  const playerThread = startThread(current.vm, { ref, kind: "persistent", owner: "script", source: "hero", target: "hero" });
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const playerSource = getPath("playergetpath", current, "source", 0, playerThread.id);
+  deepEqual([playerSource.value, playerSource.out], [1, [[2, 80], [3, 63]]], "a player thread's source resolves that player");
+  equal(getPathCount("playergetpath", current, "TARGET", playerThread.id), 1, "a player thread's target resolves too");
+
+  throws(
+    () => getPath("itemgetpath", current, "ghost", 0, itemThread.id),
+    (error: unknown) => error instanceof ScriptError && error.message === "player not found",
+    "a handle that still names nothing keeps the 3.1 message",
+  );
 });

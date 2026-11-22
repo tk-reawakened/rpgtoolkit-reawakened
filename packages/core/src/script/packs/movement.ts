@@ -63,19 +63,20 @@ function queuedTargets(actorValue: SpriteActor): SpritePoint[] {
   }
   return targets;
 }
-/** R-69 item 8: a handle that names no live player or item has no queue to report, with 3.1's message text. */
+/**
+ * R-69 item 8: a handle that names no live player or item has no queue to report, with 3.1's message text.
+ * Handles resolve like the other movement built-ins: id, item key, numeric handle/index, and the calling
+ * thread's `"source"`/`"target"` context handles (E-94/E-95).
+ */
 function pathActor(view: CommandView, kind: "player" | "item", arg: Value | undefined): SpriteActor {
-  const candidates = (kind === "player" ? view.state?.sprites.players : view.state?.sprites.items) ?? [];
-  if (typeof arg === "number" || typeof arg === "string") {
-    const byId = candidates.find((value) => value.id === String(arg) || (kind === "item" && itemKey(value) === String(arg)));
-    if (byId !== undefined) return byId;
-    const index = typeof arg === "number" ? arg : Number(arg);
-    if (Number.isInteger(index) && (typeof arg === "number" || arg.trim() !== "")) {
-      const byIndex = kind === "player"
-        ? candidates.find((value) => value.index === index) ?? candidates[index]
-        : candidates.find((value) => value.handle === index || value.index === index);
-      if (byIndex !== undefined) return byIndex;
-    }
+  const handle = typeof arg === "number" || typeof arg === "string" ? arg : undefined;
+  if (kind === "item") {
+    const item = view.state?.sprites.items.find((value) => value.id === itemIdForThread(view.state, view.thread, handle));
+    if (item !== undefined) return item;
+  } else {
+    const id = playerIdForThread(view.state, view.thread, handle);
+    const player = id === null ? undefined : view.state?.sprites.players.find((value) => value.id === id);
+    if (player !== undefined) return player;
   }
   throw new ScriptError("builtin.bad-arg", "player not found");
 }
@@ -124,13 +125,37 @@ function itemIdFor(state: SpritesSection | undefined, arg: number | string | und
   return item?.id ?? "";
 }
 
+/**
+ * The actor id a thread's `source` or `target` context handle names (E-94/E-95), `null` when the thread has
+ * no value for it, or `undefined` when `arg` is not one of those two handles.
+ */
+function threadContextHandle(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string | null | undefined {
+  if (typeof arg !== "string") return undefined;
+  const token = arg.toLowerCase();
+  if (token !== "source" && token !== "target") return undefined;
+  const slot: "source" | "target" = token;
+  return state?.vm.threads.find((candidate) => candidate.id === threadId)?.[slot] ?? null;
+}
 function itemIdForThread(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string {
-  if (typeof arg === "string" && arg.toLowerCase() === "source") {
-    const handle = state?.vm.threads.find((candidate) => candidate.id === threadId)?.source;
-    const source = state?.sprites.items.find((candidate) => candidate.id === handle || itemKey(candidate) === handle);
-    if (source !== undefined) return source.id;
+  const context = threadContextHandle(state, threadId, arg);
+  if (context !== undefined) {
+    const item = state?.sprites.items.find((value) => value.id === context || itemKey(value) === context);
+    return item?.id ?? context ?? String(arg);
   }
   return itemIdFor(state?.sprites, arg);
+}
+/** A player id from any accepted handle, including the thread's `source`/`target` (E-94/E-95); or null. */
+function playerIdForThread(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string | null {
+  const context = threadContextHandle(state, threadId, arg);
+  if (context !== undefined) return state?.sprites.players.find((value) => value.id === context)?.id ?? null;
+  if (typeof arg !== "number" && typeof arg !== "string") return null;
+  const byId = state?.sprites.players.find((value) => value.id === String(arg));
+  if (byId !== undefined) return byId.id;
+  const index = typeof arg === "number" ? arg : Number(arg);
+  if (Number.isInteger(index) && (typeof arg === "number" || arg.trim() !== "")) {
+    return (state?.sprites.players.find((value) => value.index === index) ?? state?.sprites.players[index])?.id ?? null;
+  }
+  return null;
 }
 function playerId(view: CommandView, arg: number | string): string {
   return playerIdFor(view.state?.sprites, arg);
