@@ -218,6 +218,56 @@ test("R-64 continues the queue one update after a mid-step block, not one cadenc
   equal(heroYs.findIndex((y) => y !== 63), 4, "north starts on the update after the block (tick 3 + 1)");
 });
 
+test("R-64 retries a sprite-blocked non-player direction step until the blocker moves out", () => {
+  // #1300's open proof note: the retry path is pinned for vectors by
+  // "R-64 makes a blocked non-player retry the same entry with its queue waiting"; this case clears a
+  // blocking sprite out of the destination and lets the same entry proceed, through the real phase.
+  const currentBoard = board();
+  const current = stateWith(currentBoard, []);
+  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
+  const cart = { ...actorFromSource({ id: "cart", kind: "item", source: "cart.itm", x: 80, y: 63, layer: 1 }, currentBoard, 1, 1), speed: 0.02 };
+  current.sprites = { ...current.sprites, items: [npc, cart] };
+  enqueueDirectionMove(current.sprites, "npc", "E", 0);
+  enqueueDirectionMove(current.sprites, "cart", "N", 0);
+  const events: MovementEvent[] = [];
+  const npcX: number[] = [];
+  for (let tick = 0; tick <= 40; tick += 1) {
+    events.push(...runMovementPhase(current.sprites, currentBoard, tick));
+    npcX.push(current.sprites.items[0]?.x ?? 0);
+  }
+  equal(npcX[0], 48, "the sprite-blocked step does not advance");
+  equal(events.some((record) => record.type === "blocked" && record.actor === "npc" && record.blocker === "cart"), true, "the destination precheck names the sprite");
+  equal(current.sprites.items[0]?.x, 80, "the same entry resumes and finishes once the blocker clears");
+  equal(current.sprites.items[0]?.queue.moves.length, 0, "the completed entry is consumed");
+  // The cart walks north one 4 px advance per tick from y 63; the NPC can start on the update after the
+  // cart's base leaves the destination base (y 48..63), i.e. at y 47 on tick 4.
+  deepEqual(npcX.slice(0, 4), [48, 48, 48, 48], "the entry is retried in place, not dropped or advanced");
+  equal(npcX[4], 52, "the first advance happens on the update after the blocker clears");
+  equal(events.some((record) => record.type === "movement-complete" && record.actor === "npc"), true, "the drained queue reports completion");
+});
+
+test("R-64 consumes a sprite-blocked player direction step instead of retrying it", () => {
+  // R-64 item 1 versus item 3: the selected player's blocked direction entry is consumed and counted,
+  // so moving the blocker out afterwards does not resume the step (the #1300 asymmetry).
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const cart = { ...actorFromSource({ id: "cart", kind: "item", source: "cart.itm", x: 80, y: 63, layer: 1 }, currentBoard, 0, 0), speed: 0.02 };
+  current.sprites = { ...current.sprites, items: [cart] };
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueDirectionMove(current.sprites, "cart", "N", 0);
+  const events: MovementEvent[] = [];
+  for (let tick = 0; tick <= 40; tick += 1) {
+    current.time = { ...current.time, tick };
+    movementPhaseRegistration({ onEvent: (record) => events.push(record) }).run(current);
+  }
+  equal(current.sprites.players[0]?.x, 48, "the player stays put after the blocker clears");
+  equal(current.sprites.players[0]?.queue.moves.length, 0, "the blocked entry is consumed, not retried");
+  equal(current.party.steps, 1, "a blocked player direction step counts one tile");
+  const blocked = events.filter((record) => record.type === "blocked" && record.actor === "hero");
+  equal(blocked.length, 1, "one blocked update, not one per retry");
+  equal(blocked[0]?.type === "blocked" ? blocked[0].blocker : null, "cart");
+});
+
 // R-65 ---------------------------------------------------------------
 
 test("R-65 recomputes a queued direction from where the actor actually stands", () => {
