@@ -106,9 +106,14 @@ test("production browser workbench: paint shading and move a light on the real c
   await panel.getByRole("button", { name: "Move lights on the board" }).click();
   await panel.getByRole("button", { name: "Add spotlight" }).click();
   await expect(panel.getByLabel("Light 1 type")).toBeVisible();
-  await panel.getByLabel("Light 1 Centre X (pixels)").fill("96");
-  await panel.getByLabel("Light 1 Centre X (pixels)").blur();
-  await expect(panel.getByLabel("Light 1 Centre X (pixels)")).toHaveValue("96");
+  // The panel is disabled while an edit is applied; a late re-render between fill and blur would reset the field, so wait for idle and retry the whole edit.
+  const centreX = panel.getByLabel("Light 1 Centre X (pixels)");
+  await expect(async () => {
+    await expect(centreX).toBeEnabled();
+    await centreX.fill("96");
+    await centreX.blur();
+    await expect(centreX).toHaveValue("96", { timeout: 1000 });
+  }).toPass({ timeout: 15000 });
   await panel.getByRole("button", { name: "Convert Light 1 to shading" }).click();
   await expect(panel.getByLabel("Light 1 type")).toHaveCount(0);
   await page.getByRole("toolbar", { name: "Board view" }).getByRole("button", { name: "Undo", exact: true }).click();
