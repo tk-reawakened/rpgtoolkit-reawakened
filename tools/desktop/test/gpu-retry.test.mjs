@@ -15,6 +15,8 @@ const GPU_LINES = [
   "GPU state invalid after WaitForGetOffsetInRange",
   "render-webgl2: shader compilation failed: ",
   "render-webgl2: shader compilation failed: no info log (the WebGL context may be lost)",
+  "render-webgl2: program link failed: ",
+  "render-webgl2: program link failed: no info log (the WebGL context may be lost)",
   "render-webgl2: the WebGL2 context was lost",
   "render-webgl2: no WebGL2 context",
 ];
@@ -22,6 +24,7 @@ const GPU_LINES = [
 // A real game/format/launch regression. Retrying any of these must be impossible.
 const OTHER_LINES = [
   "render-webgl2: shader compilation failed: ERROR: 0:12: 'float' : syntax error",
+  "render-webgl2: program link failed: ERROR: 0:3: unresolved symbol foo",
   "expected launch step argument, got undefined",
   "tick: expected 120, got undefined",
   "No game was chosen: pass --game",

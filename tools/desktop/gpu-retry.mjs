@@ -12,6 +12,9 @@ export const GPU_EVIDENCE = [
   // The old bare form and the renderer's current, informative form both mean the same dead GPU (#2169).
   /shader compilation failed:\s*$/m,
   /shader compilation failed: no info log \(the WebGL context may be lost\)/,
+  // A link failure on a machine with no GPU means the same thing as a compile failure (#2169, Xvfb lane).
+  /program link failed:\s*$/m,
+  /program link failed: no info log \(the WebGL context may be lost\)/,
   /render-webgl2: the WebGL2 context was lost/,
   /render-webgl2\.context-lost/,
   /no WebGL2 context/,
