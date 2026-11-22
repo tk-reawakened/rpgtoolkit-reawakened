@@ -78,9 +78,9 @@ contracts.
   manifest and hand-worked acceptance assertions; `package.json` registers it
   in `fixtures:test`.
 
-## Implementation notes and proposed rulings
+## Implementation notes and settled rulings
 
-Every proposed choice below remains **Proposed ruling (pending owner review)** except P-19 and the two notes the owner decided on 2026-11-22 (facing after an accepted crossing; a refused crossing's own queue entry), which are settled; the scene records the observable consequence and the rejected alternative:
+Every choice below is settled. P-19 was settled by [R-67](../../../docs/spec/engine/movement-and-collision.md#r-67), and six owner notes were decided on 2026-11-22: facing after an accepted crossing; a refused crossing's own queue entry; suppressed steps and E-40 re-arming; `multiRun` started by a live blocking program; a linked crossing refused while a blocking thread is live; and R-51 priority-order coverage (a decision not to add an oracle scene). Each note records the observable consequence, the readings, the rejected alternative and the pinning test:
 
 - P-1/P-3/P-4: cadence begins on command, 4 px advances use 1/256 fixed-point
   vectors, and blocked/reached steps end independently. Evidence: E-22/E-23
@@ -128,39 +128,46 @@ Every proposed choice below remains **Proposed ruling (pending owner review)** e
   `repeat-distance-32-fires-on-every-blocked-press` and
   `blocked-press-outside-the-area-rearms-the-repeat`, and `P-19` was removed from
   the fixture registry (`tools/fixtures/movement/index.mjs` and `manifest.json`).
-- **Proposed (owner note): suppressed steps and E-40 re-arming.** A step whose
+- **Decided (owner: Jensen, 2026-11-22; recorded in the spec): suppressed steps and E-40 re-arming.** A step whose
   end-of-step processing is suppressed
   ([R-68](../../../docs/spec/engine/movement-and-collision.md#r-68)) is re-armed by
   nothing: the region half of E-40 re-arming is skipped with the rest of the
   bundle, so a step-on region left under a program's control keeps its `fired`
-  flag, while the item half of E-40 re-arming still runs every tick. This is a
-  behaviour change from pre-R-68 `main` (where a program-driven step re-armed
-  regions) and follows R-68's "distances are not touched" item as written. Two
-  readings: (a) current — a suppressed step is inert for regions as well as for
-  its own firing, and an author expects the region to stay consumed until a
-  free-roaming step re-arms it; (b) E-40 re-arming is leaving-area bookkeeping,
-  not end-of-step processing, so regions should re-arm (and items should stop
-  re-arming) under the same suppression predicate. Recommendation: (a) as
-  implemented, because R-68 item 1 lists re-arm-adjacent distance accounting as
-  suppressed and an owner can flip it with one line if they prefer (b). Pinned by
-  the test "R-68: the trigger phase obeys the captured decision after a blocking
-  program is already live" and the review-1 note in PR #3329.
-- **Proposed (owner note): `multiRun` started by a live blocking program.** R-68
+  flag until a free-roaming step applies E-40's leaving rule, while the item
+  half of E-40 re-arming still runs every tick. This is a behaviour change from
+  pre-R-68 `main` (where a program-driven step re-armed regions) and follows
+  R-68's "distances are not touched" item as written. The two readings were:
+  (a) a suppressed step is inert for regions as well as for its own firing, and
+  an author expects the region to stay consumed until a free-roaming step
+  re-arms it; (b) E-40 re-arming is leaving-area bookkeeping, not end-of-step
+  processing, so regions should re-arm (and items should stop re-arming) under
+  the same suppression predicate. The owner chose (a), which is what the engine
+  does; the rejected alternative is (b), which would reintroduce the pre-R-68
+  behaviour during a program's own movement. Recorded in
+  [R-68](../../../docs/spec/engine/movement-and-collision.md#r-68) item 1,
+  [E-40](../../../docs/spec/engine/movement-and-collision.md#e-40) and the
+  ADR 0041 amendment dated 2026-11-22. Pinned by the test "R-68: the trigger
+  phase obeys the captured decision after a blocking program is already live"
+  and the review-1 note in PR #3329.
+- **Decided (owner: Jensen, 2026-11-22; recorded in the spec): `multiRun` started by a live blocking program.** R-68
   item 2 says end-of-step processing is suppressed exactly while a live
   `blocking`-kind thread exists; item 3 says movement driven by a thread or
   `multiRun` program counts as free-roaming (including R-67 re-firing). A
   `multiRun` *started by a blocking program* satisfies both readings: item 2
   suppresses because the blocking program is alive, item 3 says it counts. The
-  implementation follows item 2's exact predicate, so it is suppressed. Readings:
-  (a) item 2 controls — the suppression predicate is about who owns the thread
-  scheduler, not about which command queued the step, so any movement while a
-  blocking program is live is suppressed; (b) item 3 controls — `multiRun` is
-  named as free-roaming regardless of the caller, so its steps should count even
-  inside a blocking program. Recommendation: (a) as implemented, because item 2's
-  "exactly while" gives one deterministic test the whole engine can share (and
-  the engine now captures that one decision per tick); (b) would need `multiRun`
-  to carry a provenance bit that survives to the battle test. Pinned by "R-68:
-  multiRun run from a blocking program is suppressed" in
+  implementation follows item 2's exact predicate, so it is suppressed. The two
+  readings were: (a) item 2 controls — the suppression predicate is about who
+  owns the thread scheduler, not about which command queued the step, so any
+  movement while a blocking program is live is suppressed; (b) item 3 controls —
+  `multiRun` is named as free-roaming regardless of the caller, so its steps
+  should count even inside a blocking program. The owner chose (a), because
+  item 2's "exactly while" gives one deterministic test the whole engine can
+  share (and the engine now captures that one decision per tick); reading (b) is
+  the rejected alternative because it would need `multiRun` to carry a
+  provenance bit that survives to the battle test. Recorded in
+  [R-68](../../../docs/spec/engine/movement-and-collision.md#r-68) item 3 and the
+  ADR 0041 amendment dated 2026-11-22. Pinned by "R-68: multiRun run from a
+  blocking program is suppressed" in
   `packages/core/test/movement-rulings.test.ts`.
 - **Decided (owner: Jensen, 2026-11-22; recorded in the spec): facing after an
   accepted linked crossing.** The player keeps the **exit-direction facing**
@@ -181,7 +188,7 @@ Every proposed choice below remains **Proposed ruling (pending owner review)** e
   case of `packages/core/test/fixtures/movement/edges-board-link-program.json`
   including the per-tick `facing` column (the point-style crossing
   `point-path-edge-preflight-ignores-source-solid` records `E` at t0).
-- **Proposed (owner note): a board-edge crossing is refused while a blocking
+- **Decided (owner: Jensen, 2026-11-22; recorded in the spec): a board-edge crossing is refused while a blocking
   thread is live.** R-66 item 2(d) runs the destination board's cancelable
   `beforeEnter`, and an engine-originated cancelable event refuses to start
   while another blocking thread exists
@@ -190,44 +197,48 @@ Every proposed choice below remains **Proposed ruling (pending owner review)** e
   refusal (`packages/core/src/engine/engine.ts`, `preflightBoardEdge`), so a
   crossing that would otherwise be accepted is refused while any blocking
   script is alive — a scene program parked in `wait()`, for example. R-66 item
-  2(d) covers only a listener that cancels, and ADR 0040 only says a listener
-  that waits for input is a catchable error; neither states that the event
-  cannot start at all. Readings: (a) current — refusal is the deterministic
-  choice, matching EMIT-11's rule that an engine-originated cancelable emit
-  never starts while a blocking thread is live, and the player stays put;
-  (b) the preflight should still accept when the destination's `beforeEnter`
-  has no listeners, or defer the check until the thread yields, because a
-  blocking scene program is unrelated to a destination board with no listener.
-  Recommendation: (a) as implemented, because the engine cannot know there is no
+  2(d) previously covered only a listener that cancels, and ADR 0040 only says a
+  listener that waits for input is a catchable error; neither stated that the
+  event cannot start at all. The two readings were: (a) refusal is the
+  deterministic choice, matching EMIT-11's rule that an engine-originated
+  cancelable emit never starts while a blocking thread is live, and the player
+  stays put; (b) the preflight should still accept when the destination's
+  `beforeEnter` has no listeners, or defer the check until the thread yields,
+  because a blocking scene program is unrelated to a destination board with no
+  listener. The owner chose (a), because the engine cannot know there is no
   listener without dispatching, and a deferred check would let a step commit
-  before the rule it is supposed to enforce runs. Consequence for authors: while
-  a blocking board program is live, a linked edge is blocked and its refused
-  entry is consumed (see the decided note "a refused linked crossing consumes
-  its own queue entry" below). Pinned by
+  before the rule it is supposed to enforce runs; (b) is the rejected
+  alternative. Consequence for authors: while a blocking board program is live,
+  a linked edge is blocked and its refused entry is consumed (see the decided
+  note "a refused linked crossing consumes its own queue entry", recorded in
+  R-66 item 3). Recorded in
+  [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66) item 2(d) and
+  the second ADR 0040 amendment dated 2026-11-22. Pinned by
   `packages/core/test/engine-edge-preflight.test.ts`, "R-66/R-68: a linked
   refusal under a live blocking program is refused before beforeEnter and keeps
   the queue": `beforeEnter` is not observed, exactly one
   `event.dispatch-active` diagnostic is recorded, the player stays at the
   source position, the refused entry is consumed and the unrelated `N` entry
   stays queued.
-- **Proposed (owner note): R-51 priority-order oracle coverage.** PR #3311's
+- **Decided (owner: Jensen, 2026-11-22; recorded in the spec): R-51 priority-order coverage.** PR #3311's
   "Ruling ambiguities" item 5 records that the direction-style scenes that used
   to exercise [R-51](../../../docs/spec/engine/movement-and-collision.md#r-51)'s
   winner/loser total order now test R-64 instead, so the total order is covered
   only by a unit test (a `keyboard`-source direct point step,
   `packages/core/test/movement.test.ts`, "equal-speed moving collisions use
   controlled-player then drawId total order"), and the oracle's point and path
-  scenes divert around a blocking sprite before a collision can occur. Readings:
-  (a) unit coverage is sufficient, because the total order is one comparator
-  and the oracle already pins the diversion path; (b) a dedicated point-style
-  precedence scene should pin the total order as observable per-tick facts, as
-  every other movement and trigger rule is pinned, so a future comparator change
-  fails in the oracle too. Recommendation: (b) — add one dedicated
-  point-style precedence case to the `collision-sprite-blocking` scene where
-  two equal-speed point-style actors walk directly at each other and diversion
-  cannot help, with expected facts for the winner blocked for that tick and the
-  loser frozen for the R-51 duration. No oracle test pins this yet; the existing
-  guard is the unit test named above.
+  scenes divert around a blocking sprite before a collision can occur. The two
+  readings were: (a) unit coverage is sufficient, because the total order is one
+  comparator and the oracle already pins the diversion path; (b) a dedicated
+  point-style precedence scene should pin the total order as observable per-tick
+  facts, as every other movement and trigger rule is pinned, so a future
+  comparator change fails in the oracle too. The owner chose (a) and decided
+  **not** to add a scene; (b) is the rejected alternative. This is a decision
+  not to add a scene, so a future audit must not record the missing scene as a
+  gap. Recorded in
+  [R-51](../../../docs/spec/engine/movement-and-collision.md#r-51)'s Coverage
+  note and the second ADR 0040 amendment dated 2026-11-22. The existing guard is
+  the unit test named above; no oracle test pins the total order.
 - **Decided (owner: Jensen, 2026-11-22; recorded in the spec): a refused linked
   crossing consumes its own queue entry and keeps every later entry.** The
   behaviour stays as implemented (PR #3330): `finishBlockedAtStart` slices the
@@ -269,12 +280,15 @@ initial build the oracle scenes were extended by #3329 (the R-67/R-68 cases,
 including the replacement of the superseded
 `blocked-counted-step-does-not-leak-into-repeat-distance` case) and by #3330
 (the R-66 edge scenes and the engine replay
-`packages/core/test/movement-edge-fixture-replay.test.ts`). Two of the owner
-notes added on 2026-11-21 were decided by the owner on 2026-11-22 — facing after
-an accepted crossing, and the refused crossing's own queue entry — and are
-recorded in the spec, ADR 0040's amendment and ticket 8; the blocking-thread
-refusal and the R-51 precedence scene stay **Proposed (owner note)**. Neither
-decision changes behaviour.
+`packages/core/test/movement-edge-fixture-replay.test.ts`). All six owner notes
+added on 2026-11-21 are now decided by the owner, dated 2026-11-22. Facing after
+an accepted crossing, and the refused crossing's own queue entry, are recorded
+in the spec, ADR 0040's first amendment and ticket 8. Suppressed-step E-40
+re-arming and `multiRun` under a live blocking program are recorded in R-68
+items 1 and 3, E-40 and ADR 0041's amendment. The blocking-thread refusal is
+recorded in R-66 item 2(d) and ADR 0040's second amendment. R-51 priority-order
+coverage is recorded in R-51's Coverage note as a decision not to add an oracle
+scene. No decision changes behaviour.
 
 ## Plan Change Log
 
@@ -285,8 +299,13 @@ decision changes behaviour.
   blocking thread is live; R-51 priority-order oracle coverage; and the refused
   crossing's own queue entry against R-66 item 3), refreshed the stale status
   line after #3329/#3330, and corrected ticket 8's "closed by" wording.
-- 2026-11-22: owner decided the facing and queue-entry notes. Both are now
-  **Decided** records, matching the shipped behaviour, and the rule text was
-  amended in the spec (R-66 items 3–4, R-53 items 3–4, E-28, Moving between
-  boards), in ADR 0040's dated amendment, in ticket 8 and in the linked-edge
-  spike. The blocking-thread refusal and R-51 precedence notes stay proposed.
+- 2026-11-22: owner decided all six owner notes. Facing and queue entry were the
+  first pair: both are **Decided** records, matching the shipped behaviour, and
+  the rule text was amended in the spec (R-66 items 3–4, R-53 items 3–4, E-28,
+  Moving between boards), in ADR 0040's dated amendment, in ticket 8 and in the
+  linked-edge spike. Suppressed-step E-40 re-arming and `multiRun` under a live
+  blocking program were recorded in R-68 items 1 and 3, E-40 and ADR 0041's
+  amendment. The blocking-thread refusal was recorded in R-66 item 2(d) and
+  ADR 0040's second amendment. R-51 priority-order coverage was recorded in
+  R-51's Coverage note as a decision not to add an oracle scene. No decision
+  changes behaviour.
