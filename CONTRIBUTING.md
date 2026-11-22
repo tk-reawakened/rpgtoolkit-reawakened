@@ -307,7 +307,7 @@ For a GitHub issue, use the project-owned `tkr-issue-preflight` skill before han
 uv run .agents/skills/tkr-issue-preflight/scripts/resolve_issue.py "#942" --project-root . --check-stock
 ```
 
-Follow its scoped handoff if there is no active initiative. An issue with no local ticket is reported as not found; the preflight does not create one.
+Follow its scoped handoff if there is no active initiative. If it reports `not_found`, verify the GitHub issue, reconcile any plan mentions, create a BMAD ticket linked to that existing issue, and rerun preflight. The resolver itself does not write. Duplicate, conflicting, or malformed identities remain blocking errors.
 
 To publish a planned epic, make `_bmad-output/initiative-rpgtoolkit-reawakened/tickets.toml` and the epic folder's `tickets.toml` authoritative first, then run:
 

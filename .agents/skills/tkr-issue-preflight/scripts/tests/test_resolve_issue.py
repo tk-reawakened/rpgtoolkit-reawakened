@@ -305,11 +305,23 @@ class FailClosedTests(unittest.TestCase):
         fx.write(f"{INIT}/plan-gh-999-orphan.md", md(type="feature", ticket="'#999'", status="done"))
         out = self.assertFails(fx, "#999", "not_found")
         self.assertEqual(out["mentions"], [f"{INIT}/plan-gh-999-orphan.md"])
-        self.assertIn("do not create", out["error"])
+        self.assertIn("verify the issue and plan mentions before creating a linked ticket", out["error"])
+        self.assertIn("do not create a duplicate issue", out["error"])
+        self.assertNotIn("do not create an issue or a ticket", out["error"])
 
     def test_missing_number_with_no_mentions(self):
         out = self.assertFails(Fixture(self).layout(), "#4040", "not_found")
         self.assertEqual(out["mentions"], [])
+
+    def test_not_found_still_exits_non_zero_and_keeps_the_mentions_list(self):
+        fx = Fixture(self).layout()
+        fx.write(f"{INIT}/plan-gh-999-orphan.md", md(type="feature", ticket="'#999'", status="done"))
+        status, out, err = fx.run("#999")
+        self.assertEqual(status, 1)
+        self.assertEqual((out["ok"], out["code"]), (False, "not_found"))
+        self.assertIn("mentions", out)
+        self.assertEqual(out["mentions"], [f"{INIT}/plan-gh-999-orphan.md"])
+        self.assertTrue(err.startswith("not_found:"), err)
 
     def test_the_same_number_on_two_entries_in_different_epics_is_a_duplicate(self):
         fx = Fixture(self).layout()
