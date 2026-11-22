@@ -504,3 +504,4 @@ export {
   type ProgramSetup,
   type SavedFixture,
 } from "./launch-setups.ts";
+export * from "./board-lights.ts";
