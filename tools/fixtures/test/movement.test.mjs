@@ -210,6 +210,16 @@ test("edges-board-link-program: R-66 preflight, refusals, arrival and program li
   const vector = theCase(sc, "vector-is-tested-before-the-edge");
   deepEqual(events(vector, "blocked").map((e) => e.by), ["edge-wall"]);
   equal(events(vector, "before-enter").length, 0);
+  // E-22/R-66: a point-style step ignores the source board's vectors, so a source solid over its
+  // off-board point cannot skip the edge preflight. The accepted crossing is placed, not walked.
+  const pointAccepted = theCase(sc, "point-path-edge-preflight-ignores-source-solid");
+  deepEqual(actorAt(pointAccepted, 0, "hero").slice(1, 3), [15, 95]);
+  deepEqual(events(pointAccepted, "edge-exit").map((e) => [e.t, e.dir]), [[0, "E"]]);
+  equal(events(pointAccepted, "step-complete").length, 0);
+  const pointRefused = theCase(sc, "point-path-refusal-starts-at-the-last-safe-position");
+  deepEqual(actorAt(pointRefused, 0, "hero").slice(1, 3), [290, 127], "no advance before the refusal");
+  deepEqual(events(pointRefused, "blocked").map((e) => [e.t, e.edge]), [[0, "E"]]);
+  equal(events(pointRefused, "edge-exit").length, 0);
   // E-48 unchanged.
   deepEqual(events(theCase(sc, "program-link-runs-program"), "program-link").map((e) => e.program), ["north-gate.prg"]);
   deepEqual(actorAt(theCase(sc, "west-edge-arrives-east-edge"), 0, "hero").slice(1, 3), [305, 95]);

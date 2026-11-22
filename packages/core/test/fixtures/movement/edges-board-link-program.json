@@ -769,6 +769,114 @@
       ]
     },
     {
+      "name": "point-path-edge-preflight-ignores-source-solid",
+      "note": "R-66/E-22: a point-style step ignores the source board's vectors, so a source solid over the off-board point cannot skip the edge preflight; the accepted crossing is placed at the opposite edge without advancing.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"edge-wall","type":"solid","layer":0,"closed":true,"points":[[320,60],[340,60],[340,140],[320,140]]}],
+            "programs": [],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          },
+          "east": {
+            "w": 320,
+            "h": 160,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"rubble","type":"solid","layer":0,"closed":true,"points":[[0,100],[40,100],[40,130],[0,130]]}],
+            "programs": [{"id":"welcome-mat","type":"step","layer":0,"points":[[0,64],[64,64],[64,128],[0,128]],"program":"welcome.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "music": "field.mid",
+            "enterProgram": "east-enter.prg"
+          }
+        },
+        "players": [{"id":"hero","x":290,"y":95,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"path","actor":"hero","flags":0,"points":[[322,95]]}
+      ],
+      "ticks": 4,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",15,95,0,"waiting","S"]],"ev":[{"e":"before-enter","board":"east","cancelled":false},{"e":"edge-exit","actor":"hero","dir":"E"},{"e":"board-link","dir":"E","from":"west","to":"east"},{"e":"threads-stopped","ids":[]},{"e":"board-install","board":"east"},{"e":"place-player","x":15,"y":95,"layer":0},{"e":"camera-align","on":"player","smoothing":0},{"e":"trigger-deactivate","x":15,"y":95,"layer":0},{"e":"music","file":"field.mid"},{"e":"threads-started","ids":[]},{"e":"enter-program","program":"east-enter.prg","as":"blocking"},{"e":"cache-flushed"}]},
+        {"t":1,"a":[["hero",15,95,0,"waiting","S"]]},
+        {"t":2,"a":[["hero",15,95,0,"waiting","S"]]},
+        {"t":3,"a":[["hero",15,95,0,"waiting","S"]]}
+      ]
+    },
+    {
+      "name": "point-path-refusal-starts-at-the-last-safe-position",
+      "note": "R-66 items 1 and 3: a point-style step whose linked arrival is solid is refused at step start, so the player never advances and the source solid it ignores cannot let it start.",
+      "setup": {
+        "board": "west",
+        "boards": {
+          "west": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"edge-wall","type":"solid","layer":0,"closed":true,"points":[[320,60],[340,60],[340,140],[320,140]]}],
+            "programs": [],
+            "items": [],
+            "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
+            "threads": [],
+            "music": "town.mid"
+          },
+          "east": {
+            "w": 320,
+            "h": 160,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"rubble","type":"solid","layer":0,"closed":true,"points":[[0,100],[40,100],[40,130],[0,130]]}],
+            "programs": [{"id":"welcome-mat","type":"step","layer":0,"points":[[0,64],[64,64],[64,128],[0,128]],"program":"welcome.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "music": "field.mid",
+            "enterProgram": "east-enter.prg"
+          }
+        },
+        "players": [{"id":"hero","x":290,"y":127,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"path","actor":"hero","flags":0,"points":[[322,127]]}
+      ],
+      "ticks": 4,
+      "boot": [
+        {"e":"board-install","board":"west"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",290,127,0,"waiting","S"]],"ev":[{"e":"arrival-rejected","dir":"E","board":"east","reason":"solid","x":15,"y":127},{"e":"blocked","actor":"hero","edge":"E"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",290,127,0,"waiting","S"]]},
+        {"t":2,"a":[["hero",290,127,0,"waiting","S"]]},
+        {"t":3,"a":[["hero",290,127,0,"waiting","S"]]}
+      ]
+    },
+    {
       "name": "program-link-runs-program",
       "note": "E-48: an edge whose link is a program runs it instead of loading a board; the player stays.",
       "setup": {

@@ -518,7 +518,9 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
     const selected = isSelectedPlayer(actor);
     // E-138: the edge result is combined with the vector result, so the vector at the whole destination
     // is tested first and a link never clears a solid.
-    const stepEdge = selected && boardHit(actor, board, fixed(target.x), fixed(target.y)) === null
+    // A point-style step ignores the source board's vectors (E-22), so for it the edge is tested without
+    // the vector gate: the preflight, not the ignored vector, decides whether the step may start.
+    const stepEdge = selected && (move.source === "points" || boardHit(actor, board, fixed(target.x), fixed(target.y)) === null)
       ? offBoard(actor, board, fixed(target.x), fixed(target.y))
       : null;
     if (stepEdge !== null) {
@@ -656,8 +658,15 @@ function advanceActor(section: SpritesSection, actor: SpriteActor, board: WorldB
         replaceActor(section, { ...finishActor({ ...actor, facing: exit }, active, true, tpa, tick, sink, false, true), prev: null });
         return;
       }
+      // The accepted board-link fallback (a step whose start was elsewhere) is a placement, not a step.
+      replaceActor(section, { ...actor, facing: exit, state: "waiting", movement: { ...movement, active: null, waitTicks: 0, pendingExit: exit } });
+      event(tick, "edge-exit", { actor: actor.id, direction: exit }, sink);
+      return;
     }
-    replaceActor(section, { ...actor, facing: exit, state: "waiting", movement: { ...movement, active: null, waitTicks: 0, pendingExit: exit } });
+    // E-48 keeps the pre-R-66 behaviour exactly: a `.prg` link (and the unreachable empty-link fallback)
+    // ends the step through finishActor, so its finished-step record, queue event and step-triggered
+    // regions/items under the exiting tile behave as before this change.
+    replaceActor(section, finishActor({ ...actor, facing: exit, movement: { ...movement, active: null, pendingExit: exit } }, active, true, tpa, tick, sink));
     event(tick, "edge-exit", { actor: actor.id, direction: exit }, sink);
     return;
   }

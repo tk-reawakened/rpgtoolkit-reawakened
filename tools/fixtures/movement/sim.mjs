@@ -579,7 +579,8 @@ export class World {
     // compared with the board extent. A board link is preflighted; an empty link is solid. The vector at
     // the destination is tested first, so a link never clears a solid.
     if (a.kind === "player" && a.controlled) {
-      const vector = this.boardHit(a, c.tx, c.ty);
+      // E-22: a point-style step ignores source vectors, so its edge is tested without the vector gate.
+      const vector = c.ignoreBoard ? null : this.boardHit(a, c.tx, c.ty);
       const edge = vector === null ? this.offBoard(a, c.tx, c.ty) : null;
       if (edge !== null) {
         const link = this.board.links?.[edge] ?? null;

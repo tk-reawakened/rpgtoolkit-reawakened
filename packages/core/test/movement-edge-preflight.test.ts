@@ -182,7 +182,7 @@ test("R-66: point-style steps are preflighted too", () => {
   deepEqual(sprites.players[0]?.queue.moves, []);
 });
 
-test("E-48: a program link is not preflighted and keeps the existing program-link request", () => {
+test("E-48: a program link is not preflighted and keeps the finished-step record and queue event", () => {
   const currentBoard = board({ east: "gate.prg" });
   const sprites = playerState(currentBoard);
   const { requests, preflightEdge } = recorder();
@@ -190,5 +190,26 @@ test("E-48: a program link is not preflighted and keeps the existing program-lin
   const events = run(sprites, currentBoard, 30, preflightEdge);
   deepEqual(requests, []);
   deepEqual(events.filter((record) => record.type === "edge-exit").map((record) => record.direction), ["E"]);
+  deepEqual(events.filter((record) => record.type === "movement-complete").map((record) => [record.tick, record.blocked]), [[0, true]]);
+  equal(events.some((record) => record.type === "step-complete"), false);
   equal(sprites.players[0]?.movement.pendingExit, "E");
+  equal(sprites.players[0]?.movement.lastStepTick, 0, "E-48 keeps the step record so step regions still run");
+  equal(sprites.players[0]?.movement.lastStepBlocked, true);
+});
+
+test("R-66: a point-style step ignores source vectors but still preflights its linked edge at step start", () => {
+  // E-22: a point step ignores board vectors, so the vector is not a reason to skip the edge check.
+  // R-66 item 1/3: the refusal must leave the player at the step-start position with the queue kept.
+  const wall = { handle: "edge-wall", attributes: 0, closed: 1, layer: 1, type: 1, points: [{ x: 320, y: 60 }, { x: 340, y: 60 }, { x: 340, y: 140 }, { x: 320, y: 140 }] };
+  const currentBoard = board({ east: "east.brd" }, [wall]);
+  const sprites = playerState(currentBoard, { x: 290 });
+  const { requests, preflightEdge } = recorder(["refused"]);
+  enqueueMove(sprites, "hero", { source: "points", target: { x: 322, y: 95 }, facing: "E", provenance: { kind: "script", thread: 0 } });
+  enqueueDirectionMove(sprites, "hero", "N");
+  const events = run(sprites, currentBoard, 1, preflightEdge);
+  deepEqual(requests, [{ actorId: "hero", direction: "E", link: "east.brd" }]);
+  equal(sprites.players[0]?.x, 290, "no advance before the refusal");
+  deepEqual(sprites.players[0]?.queue.moves.map((move) => move.source === "direction" ? move.direction : move.source), ["N"], "the rest of the queue is kept");
+  deepEqual(events.filter((record) => record.type === "blocked").map((record) => record.edge), ["E"]);
+  equal(sprites.players[0]?.movement.lastStepTick, null);
 });

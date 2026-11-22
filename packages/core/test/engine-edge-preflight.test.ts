@@ -9,13 +9,16 @@ import {
   createEngine,
   enqueueDirectionMove,
   hydrateSprites,
+  IR_VERSION,
   movementPhaseRegistration,
   PACKAGE_ROOT,
+  triggerPhaseRegistration,
   writeBoard,
   type Board,
   type GameState,
   type MovementEvent,
   type PluginDefinition,
+  type TriggerEvent,
 } from "../src/index.ts";
 import { applyEmitterOp } from "../src/events/index.ts";
 
@@ -25,7 +28,7 @@ function bytes(board: Board): Uint8Array {
   return encoded.value;
 }
 
-function board(sizeX: number, sizeY: number, options: { links?: Partial<Board["links"]>; vectors?: Board["vectors"]; enterPrg?: string; sizeL?: number } = {}): Board {
+function board(sizeX: number, sizeY: number, options: { links?: Partial<Board["links"]>; vectors?: Board["vectors"]; programs?: Board["programs"]; enterPrg?: string; sizeL?: number } = {}): Board {
   const empty = createEmptyBoard();
   const cells = sizeX * sizeY;
   return {
@@ -38,6 +41,7 @@ function board(sizeX: number, sizeY: number, options: { links?: Partial<Board["l
     layerTitles: Array.from({ length: (options.sizeL ?? 1) + 1 }, () => ""),
     links: { ...empty.links, ...options.links },
     vectors: options.vectors ?? [],
+    programs: options.programs ?? [],
     properties: { ...empty.properties, enterPrg: options.enterPrg ?? "" },
   };
 }
@@ -55,8 +59,11 @@ type Observation = {
   readonly queued: number;
   readonly steps: number;
   readonly events: readonly MovementEvent[];
+  readonly lastStepTick: number | null;
+  readonly lastStepBlocked: boolean;
 };
 type Facts = Observation & {
+  readonly triggerStarts: readonly TriggerEvent[];
   readonly diagnostics: readonly string[];
   readonly history: readonly { readonly board: string | null; readonly x: number | null; readonly y: number | null; readonly pending: string | null }[];
 };
@@ -65,6 +72,7 @@ type PreflightCase = {
   readonly destination?: Board;
   readonly sourceLinks?: Partial<Board["links"]>;
   readonly sourceVectors?: Board["vectors"];
+  readonly sourcePrograms?: Board["programs"];
   readonly playerLayer?: number;
   readonly collisionBase?: readonly { readonly x: number; readonly y: number }[];
   readonly dirs?: readonly ("E" | "N")[];
@@ -75,11 +83,12 @@ type PreflightCase = {
 
 function runPreflightCase(options: PreflightCase = {}): Facts {
   const links = options.sourceLinks ?? { east: "east.brd" };
-  const from = source(links, options.sourceVectors ?? []);
+  const from = board(10, 10, { links, vectors: options.sourceVectors ?? [], programs: options.sourcePrograms ?? [] });
   const destination = options.destination ?? board(10, 10, {});
   const events: MovementEvent[] = [];
   const diagnostics: string[] = [];
   const history: { board: string | null; x: number | null; y: number | null; pending: string | null }[] = [];
+  const triggerStarts: TriggerEvent[] = [];
   let seeded = false;
   const observed: { value: Observation | null } = { value: null };
   const plugin: PluginDefinition = {
@@ -127,6 +136,10 @@ function runPreflightCase(options: PreflightCase = {}): Facts {
         },
       },
       movementPhaseRegistration({ onEvent: (record) => { events.push(record); } }),
+      triggerPhaseRegistration({
+        programRef: () => ({ kind: "inline", text: "end()", ir: IR_VERSION }),
+        onEvent: (record) => { if (record.type === "trigger-start") triggerStarts.push(record); },
+      }),
       {
         phase: "audio",
         run: (state) => {
@@ -140,6 +153,8 @@ function runPreflightCase(options: PreflightCase = {}): Facts {
             queued: player?.queue.moves.length ?? 0,
             steps: state.party.steps,
             events: [...events],
+            lastStepTick: player?.movement.lastStepTick ?? null,
+            lastStepBlocked: player?.movement.lastStepBlocked ?? false,
           };
         },
       },
@@ -175,7 +190,7 @@ function runPreflightCase(options: PreflightCase = {}): Facts {
   }
   const latest = observed.value;
   if (latest === null) throw new Error("the audio observation never ran");
-  return { ...latest, diagnostics, history };
+  return { ...latest, diagnostics, history, triggerStarts };
 }
 
 test("R-66: an accepted crossing is a placement, not a completed step", () => {
@@ -245,4 +260,23 @@ test("R-66: a destination still loading leaves the step unstarted until the byte
   equal(waiting.length > 0, true, "the player waits on the source board while the board is fetched");
   deepEqual(waiting.map((row) => [row.x, row.y, row.pending]), waiting.map(() => [304, 95, null]), "nothing committed while the fetch is pending");
   equal(facts.events.some((record) => record.type === "blocked"), false);
+});
+
+test("E-48: a program-link exit keeps its finished-step record and fires a step region under the exit tile", () => {
+  // ADR 0040/R-66 item 6: a `.prg` link keeps E-48. The step still ends as a blocked step (so a
+  // step-triggered region under the exit tile activates on that tick) and the queue event survives.
+  const exitRegion = {
+    program: "gate-exit.prg", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "",
+    activate: 0, activationType: 0, repeatDistance: 0, layer: 0,
+    points: [{ x: 280, y: 70 }, { x: 320, y: 70 }, { x: 320, y: 100 }, { x: 280, y: 100 }],
+    closed: 1, handle: "exit-region",
+  } satisfies Board["programs"][number];
+  const facts = runPreflightCase({ sourceLinks: { east: "gate.prg" }, sourcePrograms: [exitRegion], dirs: ["E"] });
+  equal(facts.board, "boards/west.brd");
+  deepEqual([facts.x, facts.y], [304, 95], "the exiting step stops at its last safe position");
+  deepEqual(facts.events.filter((record) => record.type === "movement-complete").map((record) => [record.tick, record.blocked]), [[0, true]]);
+  deepEqual(facts.events.filter((record) => record.type === "edge-exit").map((record) => [record.tick, record.direction]), [[0, "E"]]);
+  equal(facts.lastStepTick, 0, "E-48 keeps the finished-step record");
+  equal(facts.lastStepBlocked, true);
+  deepEqual(facts.triggerStarts.map((record) => [record.tick, record.key, record.source]), [[0, "region:0", "region"]]);
 });
