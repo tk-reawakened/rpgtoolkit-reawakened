@@ -484,7 +484,6 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         onChooseStart={() => { if (!readOnly) { editor.pointerCancel(); setColourPicker(null); setPickingStart(true); setStartMessage("Click a board cell to set the player start."); } }}
         onSetStart={setPlayerStart}
       />
-      <BoardLightingView doc={doc} disabled={readOnly} ui={shadeUi} onUi={setShadeUi} board={shadeSubmit} />
       {pickingStart ? <p class="tkr-board-note" role="status">Choose a board cell for the player start, or press Escape to cancel.</p> : null}
       {startMessage === null ? null : <p class="tkr-board-note" role="status">{startMessage}</p>}
       {colourPicker === null ? null : <p class="tkr-board-note" role="status">Click a rendered colour to use it as this image's transparent colour, or press Escape to cancel. Apply in the inspector to keep it.</p>}
@@ -618,6 +617,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
           <p class="tkr-board-preview-state" role="status">No picture: {picture.message}</p>
         )}
       </div>
+      <BoardLightingView doc={doc} disabled={readOnly} ui={shadeUi} onUi={setShadeUi} board={shadeSubmit} />
       {state.mode === "tiles" ? <p class="tkr-board-brush-state">{brushText}</p> : <p class="tkr-board-note">
         {polygonMode ? "Click points, then right-click to close (Ctrl+right-click leaves open). Shift constrains; Ctrl reverses grid snapping; Alt removes a nearby point. Select to move points or drag a point-selection box." : "Draw places a default object. Select and drag to move it; use the inspector to choose its source and edit exact coordinates."}
       </p>}
