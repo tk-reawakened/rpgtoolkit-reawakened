@@ -17,6 +17,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { electronBinary } from "./electron-binary.mjs";
+import { stopChild } from "./child-process.mjs";
+import { classifyLaunchFailure, gpuFallbackArgs, InfrastructureError, launchWithRecovery } from "./gpu-retry.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
@@ -27,6 +29,28 @@ export const CASES = ["argument", "player-json", "baked", "library", "library-em
 function argument(name, fallback) {
   const at = process.argv.indexOf(name);
   return at >= 0 ? process.argv[at + 1] : fallback;
+}
+
+function numberArgument(name) {
+  const raw = argument(name, null);
+  if (raw === null) return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number, got ${JSON.stringify(raw)}`);
+  return value;
+}
+
+/**
+ * A test-only launch command (`DESKTOP_MEASURE_REPORT` tells it where to write), so the real CLI path — including its
+ * timers and top-level await — can be exercised without Electron.
+ */
+function measureCommand() {
+  const value = process.env.DESKTOP_MEASURE_COMMAND;
+  if (value === undefined || value === "") return undefined;
+  const command = JSON.parse(value);
+  if (!Array.isArray(command) || command.length === 0 || command.some((part) => typeof part !== "string")) {
+    throw new Error("DESKTOP_MEASURE_COMMAND must be a JSON array of strings");
+  }
+  return command;
 }
 
 /** The demo package and its descriptor, built from the fetched sample game. */
@@ -105,29 +129,36 @@ function removeCaseDirectory(directory) {
   }
 }
 
-/** Launch the shell, wait for the page's report, and return it. */
-export async function measure(options = {}) {
-  const pkg = options.game ?? packagePath();
-  const reportPath = join(mkdtempSync(join(tmpdir(), "desktop-measure-")), "report.json");
+/**
+ * Spawn one launch attempt, wait for its report, and stop the child on both the success and failure paths. The stop is
+ * bounded (#2169): the old code killed without awaiting on success, so the next case could launch while the last GPU
+ * process was still tearing down, and awaited an unbounded `close` on the timeout path, which is the twenty-minute hang.
+ */
+async function launchOnce({ options, pkg, reportPath, timeoutMs, attempt }) {
   const binary = options.command?.[0] ?? electronBinary();
   const child = spawn(
     binary,
-    options.command?.slice(1) ?? [
-      // The app directory is the built one: its `package.json` names `main.js`, and the preload sits beside it.
-      join(root, "packages", "runner-desktop", "dist"),
-      // Headless Linux CI runners (Xvfb) have no GPU; use Chromium's software WebGL2 path.
-      ...(process.platform === "linux" ? ["--enable-unsafe-swiftshader"] : []),
-      "--serve", root,
-      ...(options.launchArgs ?? ["--game", pkg]),
-      "--page", options.page ?? "packages/runner-desktop/app/player-measure.html",
-      "--report", reportPath,
-    ],
+    options.command === undefined
+      ? [
+        // The app directory is the built one: its `package.json` names `main.js`, and the preload sits beside it.
+        join(root, "packages", "runner-desktop", "dist"),
+        // Headless Linux CI runners (Xvfb) have no GPU; attempt 0 uses Chromium's software WebGL2 path, and a retry
+        // forces ANGLE's SwiftShader explicitly.
+        ...gpuFallbackArgs(process.platform, attempt),
+        "--serve", root,
+        ...(options.launchArgs ?? ["--game", pkg]),
+        "--page", options.page ?? "packages/runner-desktop/app/player-measure.html",
+        "--report", reportPath,
+      ]
+      : options.command.slice(1),
     {
       cwd: root,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
         ELECTRON_ENABLE_LOGGING: "0",
+        // An injected command writes its report here; the real shell receives the same path through `--report`.
+        DESKTOP_MEASURE_REPORT: reportPath,
         // The npm-installed Electron binary is user-owned, so the Linux SUID sandbox helper is not configured.
         // Disable sandboxing for the measurement harness only; interactive play still uses the OS sandbox by default.
         ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
@@ -138,7 +169,7 @@ export async function measure(options = {}) {
   child.stdout.on("data", (chunk) => log.push(String(chunk)));
   child.stderr.on("data", (chunk) => log.push(String(chunk)));
   const started = Date.now();
-  const deadline = started + (options.timeoutMs ?? 120_000);
+  const deadline = started + timeoutMs;
   let spawnError = null;
   child.on("error", (error) => { spawnError = error; });
   const closed = new Promise((resolveClose) => {
@@ -166,36 +197,92 @@ export async function measure(options = {}) {
       }
     }
   }
+  const output = log.join("");
   if (report !== null) {
-    child.kill();
-    return { report, log: log.join(""), package: pkg };
+    // Success still waits for the child to be gone before the next attempt or case can start.
+    await stopChild(child);
+    // The measurement page writes its failure into the report (`report.error`). Classify only that string: a GPU
+    // failure there is the same infrastructure failure as one detected from the log, so it enters the recovery path
+    // instead of being returned (#2169). Classifying the whole log here could let incidental GPU noise mask a real
+    // hash or launch regression that the page reported.
+    const pageError = typeof report.error === "string" ? report.error : "";
+    if (pageError !== "" && classifyLaunchFailure({ message: pageError }).kind === "gpu") {
+      const error = new Error(pageError);
+      error.log = output;
+      throw error;
+    }
+    return { report, log: output, package: pkg };
   }
   const timedOut = exit === null;
-  if (timedOut) {
-    child.kill();
-    exit = await closed;
+  const stop = await stopChild(child);
+  if (timedOut && stop.exited) exit = { code: child.exitCode ?? null, signal: child.signalCode ?? null };
+  const message = !stop.exited
+    ? `Electron did not exit after SIGKILL; log:\n${output}`
+    : timedOut
+      ? `no report within the deadline; log:\n${output}`
+      : `Electron child exited before writing a report (${spawnError ? spawnError.message : exit.signal ? `signal ${exit.signal}` : `exit code ${exit.code}`}); log:\n${output}`;
+  const error = new Error(message);
+  error.log = output;
+  error.exitCode = exit?.code ?? null;
+  error.signal = exit?.signal ?? null;
+  throw error;
+}
+
+/**
+ * Launch the shell and return the page's report. A failure the classifier calls infrastructure (a dead GPU) is retried
+ * with software WebGL2, bounded backoff and a fresh report path per attempt; a persistent GPU failure is an
+ * `InfrastructureError` that names the evidence. Any other failure is rethrown after one attempt (#2169).
+ */
+export async function measure(options = {}) {
+  const pkg = options.game ?? packagePath();
+  const reportDirectory = mkdtempSync(join(tmpdir(), "desktop-measure-"));
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const started = Date.now();
+  try {
+    const outcome = await launchWithRecovery({
+      attempt: (attempt) => launchOnce({
+        options,
+        pkg,
+        // A fresh path per attempt: a partial report from a crashed attempt must never be read as success.
+        reportPath: join(reportDirectory, `report-attempt-${attempt + 1}.json`),
+        timeoutMs,
+        attempt,
+      }),
+      attempts: options.attempts ?? 3,
+      initialBackoffMs: options.initialBackoffMs ?? 2_000,
+      maxBackoffMs: options.maxBackoffMs ?? 8_000,
+      delay: options.delay,
+    });
+    return { ...outcome.value, attempts: outcome.attempts };
+  } catch (error) {
+    const infrastructure = error instanceof InfrastructureError;
+    const message = error instanceof Error ? error.message : String(error);
+    if (options.out != null) {
+      const failure = {
+        os: process.platform,
+        arch: process.arch,
+        measuredAt: new Date().toISOString(),
+        case: options.case ?? null,
+        package: pkg.replace(`${root}/`, ""),
+        error: message,
+        infrastructure,
+        exitCode: error.exitCode ?? null,
+        signal: error.signal ?? null,
+        output: error.log ?? "",
+        elapsedMs: Date.now() - started,
+        ...(Array.isArray(error.attempts) ? { attempts: error.attempts } : {}),
+      };
+      mkdirSync(dirname(resolve(options.out)), { recursive: true });
+      writeFileSync(resolve(options.out), `${JSON.stringify(failure, null, 2)}\n`);
+    }
+    if (infrastructure) {
+      const summary = message.split(/\r?\n/).slice(0, 12).join(" / ");
+      console.error(`::error title=desktop GPU unavailable (${process.platform})::${summary}`);
+    }
+    throw error;
+  } finally {
+    rmSync(reportDirectory, { recursive: true, force: true });
   }
-  const output = log.join("");
-  const message = timedOut
-    ? `no report within the deadline; log:\n${output}`
-    : `Electron child exited before writing a report (${spawnError ? spawnError.message : exit.signal ? `signal ${exit.signal}` : `exit code ${exit.code}`}); log:\n${output}`;
-  if (options.out != null) {
-    const failure = {
-      os: process.platform,
-      arch: process.arch,
-      measuredAt: new Date().toISOString(),
-      case: options.case ?? null,
-      package: pkg.replace(`${root}/`, ""),
-      error: message,
-      exitCode: exit.code,
-      signal: exit.signal,
-      output,
-      elapsedMs: Date.now() - started,
-    };
-    mkdirSync(dirname(resolve(options.out)), { recursive: true });
-    writeFileSync(resolve(options.out), `${JSON.stringify(failure, null, 2)}\n`);
-  }
-  throw new Error(message);
 }
 
 /**
@@ -209,6 +296,11 @@ export function caseProblem(setup, record) {
       return `expected the stated reason for an empty library, got ${JSON.stringify(record.error)}`;
     }
     return null;
+  }
+  // A game-opening case whose page failed must say so: without this, a GPU or package failure surfaced only as
+  // `tick: expected 120, got undefined`, which hides the cause (#2169).
+  if (typeof record.error === "string" && record.error !== "") {
+    return `the page reported an error: ${record.error}`;
   }
   if (record.resolvedBy !== setup.expected) {
     return `expected launch step ${setup.expected}, got ${JSON.stringify(record.resolvedBy)}`;
@@ -239,10 +331,12 @@ function baselineExpectation() {
 async function main() {
   const out = argument("--out", null);
   const name = argument("--case", null);
+  const command = measureCommand();
+  const tuning = { command, attempts: numberArgument("--attempts"), initialBackoffMs: numberArgument("--backoff-ms"), timeoutMs: numberArgument("--timeout-ms") };
   // The closing suite (entry 9.14): the page runs the whole plan in Electron and compares it with the committed baseline,
   // so this mode reports the suite's own verdict and has no single-frame expectation to check.
   if (process.argv.includes("--closing")) {
-    const measured = await measure({ out, case: "closing", page: "packages/runner-desktop/app/player-measure.html?closing" });
+    const measured = await measure({ out, case: "closing", page: "packages/runner-desktop/app/player-measure.html?closing", ...tuning });
     const record = { os: process.platform, arch: process.arch, measuredAt: new Date().toISOString(), ...measured.report };
     if (out !== null) {
       mkdirSync(dirname(resolve(out)), { recursive: true });
@@ -268,21 +362,23 @@ async function main() {
   const setup = name === null ? { case: null, expected: "argument", picked: null, directory: null, launchArgs: undefined } : caseSetup(name, packagePath());
   let measured;
   try {
-    measured = await measure({ out, case: setup.case, launchArgs: setup.launchArgs });
+    measured = await measure({ out, case: setup.case, launchArgs: setup.launchArgs, ...tuning });
   } finally {
     removeCaseDirectory(setup.directory);
   }
   const record = {
     os: process.platform,
     arch: process.arch,
-    electron: execFileSync(electronBinary(), ["--version"], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        ELECTRON_ENABLE_LOGGING: "0",
-        ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
-      },
-    }).trim(),
+    electron: command === undefined
+      ? execFileSync(electronBinary(), ["--version"], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          ELECTRON_ENABLE_LOGGING: "0",
+          ...(process.platform === "linux" ? { ELECTRON_DISABLE_SANDBOX: "1" } : {}),
+        },
+      }).trim()
+      : "injected-command",
     measuredAt: new Date().toISOString(),
     case: setup.case,
     // The path is relative to the repository so the record is portable between machines.

@@ -61,8 +61,12 @@ test("browser connected authoring follows shared graphics and local programs int
   await expect(page.getByLabel("Game title")).toBeVisible();
 
   const pane = () => page.locator(".tkr-editor-pane:not([hidden])");
+  /** The one tab showing `path`, whether or not the editor's document has unsaved changes. */
+  const documentTab = (path: string) => page.getByRole("tab", {
+    name: new RegExp(`^${path.replaceAll(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:, unsaved changes)?$`),
+  });
   const openFile = async (path: string): Promise<void> => {
-    const tab = page.getByRole("tab", { name: new RegExp(`^${path.replaceAll(".", "\\.")}(?:, unsaved changes)?$`) });
+    const tab = documentTab(path);
     if (await tab.count()) {
       await tab.first().click();
     } else {
@@ -165,19 +169,33 @@ test("browser connected authoring follows shared graphics and local programs int
       await expect(page.getByRole("tab", { name: path, exact: true })).toHaveAttribute("aria-selected", "true");
       await expect(pane().locator(".monaco-editor")).toContainText(text);
     },
-    writeProgram: async (path, text, before) => {
+    // The tab's accessible name is the editor's own document state: it drops ", unsaved changes" only when the
+    // document has no edits after its saved revision, so undo and save are observed, never waited out (#3322, #3337).
+    documentState: async (path) => {
+      const label = await documentTab(path).getAttribute("aria-label");
+      if (label === null) throw new Error(`No editor tab shows ${path}`);
+      return label === path ? "clean" : "dirty";
+    },
+    writeProgram: async (path, text, before, awaitState) => {
       await openFile(path);
       const editor = pane().locator(".monaco-editor");
       await expect(editor.locator(".view-lines")).toBeVisible();
+      await awaitState("clean");
       await editor.locator(".view-line").first().click();
       await page.keyboard.press("ControlOrMeta+A");
       await page.keyboard.insertText(text);
+      // Typing is buffered and lands as one document edit; wait for that revision, not the visible text.
+      await awaitState("dirty");
       await page.keyboard.press("ControlOrMeta+Z");
+      await awaitState("clean");
       await expect(editor).toContainText(before.split("\n")[0]!);
       await page.keyboard.press("ControlOrMeta+Shift+Z");
+      await awaitState("dirty");
       await expect(editor).toContainText(text.split("\n")[0]!);
       await page.getByRole("button", { name: "Save active editor", exact: true }).click();
-      await expect(page.getByRole("tab", { name: path, exact: true })).toHaveAttribute("aria-selected", "true");
+      // The save acknowledges only after the host wrote the document's revision to the project folder.
+      await awaitState("clean");
+      await expect(documentTab(path)).toHaveAttribute("aria-selected", "true");
     },
     runSavedBoardSetup: async () => {
       const run = page.getByRole("group", { name: "Run", exact: true });
