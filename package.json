@@ -22,6 +22,8 @@
     "release:preflight": "node tools/release/preflight.mjs",
     "ci:playwright-image:check": "node tools/ci/check-playwright-image.mjs",
     "ci:playwright-image:test": "node --test tools/ci/test/check-playwright-image.test.mjs",
+    "ci:mobile-gate:check": "node tools/ci/check-mobile-gate.mjs",
+    "ci:mobile-gate:test": "node --test tools/ci/test/check-mobile-gate.test.mjs",
     "graph": "node tools/deps/graph.mjs",
     "graph:write": "node tools/deps/graph.mjs --write",
     "graph:test": "node --test tools/deps/test/graph.test.mjs",

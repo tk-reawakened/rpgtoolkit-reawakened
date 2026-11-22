@@ -458,7 +458,24 @@ from its `.tpk` in both page hosts. Run it before a PR that touches a runner, th
 
 The mobile proof drives the built Capacitor APK on a booted Android device or emulator. It uses Playwright's experimental [Android device and WebView API](https://playwright.dev/docs/api/class-android), rather than a manually forwarded debugging port. It still checks the rendered title and screenshots, trusted canvas touch, rotation, and host-blob presence after force-stop and relaunch; blob presence is not a claim that game state was restored.
 
-Build the debug APK as shown in the mobile job in `.github/workflows/ci.yml`: `pnpm mobile:build` prepares the web assets, then Capacitor sync and Gradle assemble the APK. Start an Android 16 (API 36) emulator and make sure `adb` can see it. Install the Playwright Android driver with `pnpm exec playwright install android`, then run `pnpm mobile:proof`. The Android API uses the default driver-install behavior; do not pass `omitDriverInstall`. With multiple devices, set `ANDROID_SERIAL` to the intended device. The proof resolves the serial through `adb`, uses that same device for Playwright and all later `adb` commands, records the actual Android version and ABI, and disconnects other enumerated devices.
+Build the debug APK the way the required `mobile-build` job does: `pnpm mobile:build` prepares the web assets,
+`npx cap add android` and `npx cap sync android` generate the (gitignored) project, then, from
+`packages/runner-mobile/android`, `node ../../../tools/mobile/gradle-build.mjs` assembles it. The wrapper passes Gradle's
+internal retry budget, runs every attempt with `--info` so Gradle's own retries and status codes are visible, retries a
+429, 5xx, timeout or reset — and Gradle's ambiguous post-retry `Could not find …` / `Searched in…` output — with 10 s
+and 30 s backoff, and fails if a “successful” build produced no non-empty `app/build/outputs/apk/debug/app-debug.apk`.
+A stated `Received status code 404` (or another 40x), a checksum/signature mismatch or a compile error is permanent and
+never retried. The APK and `artifacts/mobile-build/attempts.json` are uploaded; the APK build is required, while the
+emulator proof downloads that APK and stays advisory. The emulator step writes `artifacts/mobile-proof/started.json`
+before it runs the proof, and a required `mobile-proof-present` job then checks that a started lane reported a verdict:
+a failed proof is allowed, a started lane with no readings fails, and a lane that never started is annotated rather than
+failed so emulator infrastructure cannot gate every pull request.
+
+Start an Android 16 (API 36) emulator and make sure `adb` can see it. Install the Playwright Android driver with
+`pnpm exec playwright install android`, then run `pnpm mobile:proof`. The Android API uses the default driver-install
+behavior; do not pass `omitDriverInstall`. With multiple devices, set `ANDROID_SERIAL` to the intended device. The proof
+resolves the serial through `adb`, uses that same device for Playwright and all later `adb` commands, records the actual
+Android version and ABI, and disconnects other enumerated devices.
 
 For a non-default ADB server, Playwright uses the same `ANDROID_ADB_SERVER_ADDRESS` and `ANDROID_ADB_SERVER_PORT` as `adb`. A TCP `ADB_SERVER_SOCKET` takes precedence; non-TCP sockets are not supported by Playwright's Android API and fail explicitly. `ADB_SERVER_PORT` alone does not select a server for `adb`.
 

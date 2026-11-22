@@ -108,6 +108,11 @@ test("each launch case lays out the directories its rule reads", () => {
 
 test("a case's expectation fails on the wrong launch step, the wrong pick, or a silent empty library", () => {
   assert.equal(caseProblem({ expected: "argument", picked: null }, { resolvedBy: "argument" }), null);
+  // A page that failed must report its cause instead of only the missing tick-120 measurement (#2169).
+  assert.match(
+    caseProblem({ expected: "argument", picked: null }, { resolvedBy: "argument", error: "render-webgl2: shader compilation failed: " }),
+    /the page reported an error: render-webgl2: shader compilation failed: /,
+  );
   assert.match(caseProblem({ expected: "argument", picked: null }, { resolvedBy: "config" }), /expected launch step argument/);
 
   assert.equal(caseProblem({ expected: "library", picked: "g" }, { resolvedBy: "library", picked: "g" }), null);

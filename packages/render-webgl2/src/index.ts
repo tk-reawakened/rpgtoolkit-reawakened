@@ -59,18 +59,44 @@ void main(){
  bool eligible=safe&&!(all(greaterThanEqual(p,ivec2(0)))&&all(lessThan(p,uLogical)))&&p.x>=-uBounds.x&&p.x<uLogical.x+uBounds.y&&p.y>=-uBounds.z&&p.y<uLogical.y+uBounds.w&&all(greaterThanEqual(cell0,vec2(0.)))&&all(lessThanEqual(cell1,uContent))&&cell0.x>=uSafe.x&&cell0.y>=uSafe.y&&cell1.x<=uContent.x-uSafe.z&&cell1.y<=uContent.y-uSafe.w;
  if(eligible){ivec2 m=p+uBounds.xz;outColor=outputPixel(texelFetch(uMarginPlane,ivec2(m.x,uMarginSize.y-1-m.y),0));return;} outColor=vec4(0.);
 }`;
+/**
+ * The WebGL2 context was lost. Chromium can lose the context when its GPU process dies (see #2169): a compile failure
+ * with no info log means there was no driver to compile on, and a draw after the loss has nothing to present.
+ */
+export class RenderContextLostError extends Error {
+  readonly code = "render-webgl2.context-lost";
+  constructor(message = "render-webgl2: the WebGL2 context was lost") {
+    super(message);
+    this.name = "RenderContextLostError";
+  }
+}
+
 function compile(gl: WebGL2RenderingContext, kind: number, source: string): WebGLShader {
   const shader = gl.createShader(kind);
   if (shader === null) throw new Error("render-webgl2: could not create shader");
   gl.shaderSource(shader, source); gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) { const message = gl.getShaderInfoLog(shader) ?? "no log"; gl.deleteShader(shader); throw new Error(`render-webgl2: shader compilation failed: ${message}`); }
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(shader);
+    gl.deleteShader(shader);
+    if (gl.isContextLost()) throw new RenderContextLostError();
+    // An empty info log has no compiler message to report; say what it almost certainly means rather than ending the
+    // sentence with a colon and nothing (#2169).
+    const message = log === null || log.trim() === "" ? "no info log (the WebGL context may be lost)" : log;
+    throw new Error(`render-webgl2: shader compilation failed: ${message}`);
+  }
   return shader;
 }
 function makeProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
   const program = gl.createProgram(); if (program === null) throw new Error("render-webgl2: could not create program");
   const vertex = compile(gl, gl.VERTEX_SHADER, vs); const fragment = compile(gl, gl.FRAGMENT_SHADER, fs);
   gl.attachShader(program, vertex); gl.attachShader(program, fragment); gl.linkProgram(program); gl.deleteShader(vertex); gl.deleteShader(fragment);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) { const message = gl.getProgramInfoLog(program) ?? "no log"; gl.deleteProgram(program); throw new Error(`render-webgl2: program link failed: ${message}`); }
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const log = gl.getProgramInfoLog(program);
+    gl.deleteProgram(program);
+    if (gl.isContextLost()) throw new RenderContextLostError();
+    const message = log === null || log.trim() === "" ? "no info log (the WebGL context may be lost)" : log;
+    throw new Error(`render-webgl2: program link failed: ${message}`);
+  }
   return program;
 }
 function uniform(gl: WebGL2RenderingContext, program: WebGLProgram, name: string): WebGLUniformLocation {
@@ -216,6 +242,7 @@ export function createWebgl2Renderer(gl: WebGL2RenderingContext): Webgl2Renderer
     get canvas(){return size;},
     render(list,geometry,options){
       if (disposed) throw new Error("render-webgl2: renderer was disposed");
+      if (gl.isContextLost()) throw new RenderContextLostError();
       if (list.protocolVersion !== 3) {
         throw new Error(`render-webgl2: unsupported draw-list protocol version: ${String(list.protocolVersion)}`);
       }
