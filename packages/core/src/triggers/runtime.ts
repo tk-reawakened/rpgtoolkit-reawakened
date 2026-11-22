@@ -49,6 +49,12 @@ export type TriggerPhaseOptions = {
   readonly onEvent?: (event: TriggerEvent) => void;
   /** A located report for a trigger whose program cannot start; without it, a missing program is thrown. */
   readonly onDiagnostic?: (diagnostic: { readonly code: string; readonly file: string; readonly line: number; readonly message: string }) => void;
+  /**
+   * R-68's end-of-step decision for this tick, as the engine captured it before any trigger program started
+   * (docs/spec/engine/movement-and-collision.md#r-68). Absent when the phase is driven directly, in which case
+   * the live blocking-thread predicate is read.
+   */
+  readonly endOfStepSuppressed?: boolean;
 };
 
 function fixed(value: number): number {
@@ -378,7 +384,10 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   // end-of-step processing for completed and blocked steps alike — the party counter, step-triggered programs
   // and items, repeat distance and the battle check. Movement a trigger program queued keeps R-52's
   // non-recursion instead: it must still consume its entry once the program has finished.
-  const step = stepHappened && (!hasLiveBlockingThread(state.vm) || triggerStep || completedTriggerMovement);
+  // R-68: the engine captures this once per tick, at the movement phase, so a program this phase starts cannot
+  // change the answer for the rest of the tick. Driven directly (no engine context), the live predicate is read.
+  const endOfStepSuppressed = options.endOfStepSuppressed ?? hasLiveBlockingThread(state.vm);
+  const step = stepHappened && (!endOfStepSuppressed || triggerStep || completedTriggerMovement);
   // docs/spec/engine/main-loop-and-startup.md#reawakened-boot-held-activation
   // A boot poll is deferred until the enter program has released the blocking thread.
   const bootPoll = section.lastKeySeq === -1;
@@ -524,13 +533,16 @@ export function triggerPhaseRegistration(options: TriggerPhaseOptions = {}): Eng
   return {
     phase: "triggers",
     rank: options.rank ?? 0,
-    run: (state, postEffect?) => {
+    run: (state, postEffect?, context?) => {
       // Without a host-supplied sink, a missing trigger program posts the engine's own diagnostic
       // effect, which the engine turns into a located report (engine.ts's engine-section applier).
-      const phaseOptions: TriggerPhaseOptions = postEffect === undefined
+      const base: TriggerPhaseOptions = context?.endOfStepSuppressed === undefined
         ? options
+        : { ...options, endOfStepSuppressed: context.endOfStepSuppressed };
+      const phaseOptions: TriggerPhaseOptions = postEffect === undefined
+        ? base
         : {
-          ...options,
+          ...base,
           onDiagnostic: options.onDiagnostic ?? ((diagnostic) => { postEffect("engine", engineEffect("engine", "diagnostic", [diagnostic.code, diagnostic.file, diagnostic.line, diagnostic.message], "diagnostic")); }),
         };
       runTriggersPhase(state, phaseOptions);

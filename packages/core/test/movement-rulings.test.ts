@@ -524,7 +524,7 @@ test("R-68 suppresses the battle check while a blocking script is alive", () => 
   }
   equal(current.sprites.players[0]?.x, 80, "the step itself still completes");
   equal(posts.length, 0, "the random-battle test is end-of-step processing and does not run (R-68 item 1)");
-  deepEqual(current.sprites.randomEncounter?.tile, sourceTile, "no encounter progress is recorded");
+  deepEqual(current.sprites.randomEncounter?.tile, pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, 80, 63), "no test runs, but the tile the step reached is recorded so no deferred roll happens");
 });
 
 test("R-68 counts a pathfinding walk once per completed step, not once per tick", () => {
@@ -547,4 +547,66 @@ test("R-68 counts a pathfinding walk once per completed step, not once per tick"
   equal(current.sprites.players[0]?.x, 48 + 3 * TILE, "the walk reaches the goal");
   equal(ticksInside > fires, true, `the walk spends ${ticksInside} ticks in the region and fires fewer times`);
   equal(fires, 3, "one firing per completed 32 px step (R-68 item 4 keeps per-step processing)");
+});
+
+// R-68: one captured decision per tick (review 1) ---------------------------------
+
+function battleConfig() {
+  return { fightingDisabled: 0, enemies: [], fightType: 0, chances: 1, useCustomFightPrg: 0, customFightPrg: "" };
+}
+
+test("R-68: the battle test obeys the tick's captured decision, not a program the trigger phase just started", () => {
+  // The engine captures end-of-step suppression at the movement phase, before any trigger program runs, and
+  // hands that value to both the trigger phase and the battle test. A counted blocked step whose destination
+  // region fires a blocking step program must therefore still run its destination battle check on that tick.
+  const current = stateWith(board([wall(76, 84)], [repeatRegion(EAST_TILE, TILE)]));
+  const battleBoard = { ...current.world.board!, allowBattles: 1 } as WorldBoard;
+  current.world = { ...current.world, board: battleBoard };
+  current.sprites.randomEncounter = { boardKey: battleBoard.key, tile: pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, 48, 63), tiles: 0 };
+  current.time = { ...current.time, tick: 0 };
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const captured = false;
+  movementPhaseRegistration().run(current, undefined, { endOfStepSuppressed: captured });
+  const events = runTriggersPhase(current, { programRef, endOfStepSuppressed: captured });
+  equal(events.some((record) => record.type === "trigger-start"), true, "the step region's program starts");
+  equal(current.vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"), true, "and is live");
+  const posts: string[] = [];
+  runRandomEncounterPhase(current, battleConfig(), (_section, effect) => posts.push(effect.name), captured);
+  deepEqual(posts, ["battle.noEnemies"], "the destination battle check still runs in the same tick");
+  deepEqual(current.sprites.randomEncounter?.tile, pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, 48, 63), "progress keeps the actor's real tile");
+});
+
+test("R-68: the trigger phase obeys the captured decision after a blocking program is already live", () => {
+  // A program was already live when the tick's decision was taken, so the captured answer is "not suppressed"
+  // only if it was taken before that program existed. Re-arming is the observable: the step's destination is
+  // outside the region, so the region must be re-armed, which the live predicate would skip.
+  const current = stateWith(board([wall(24, 28, "west"), wall(76, 84)], [repeatRegion(EAST_TILE, 2 * TILE)]));
+  equal(pressAndProcess(current, 0), true, "a free-roaming press fires the region on entry");
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  current.time = { ...current.time, tick: 1 };
+  enqueueDirectionMove(current.sprites, "hero", "W", 0);
+  movementPhaseRegistration().run(current, undefined, { endOfStepSuppressed: false });
+  runTriggersPhase(current, { programRef, endOfStepSuppressed: false });
+  equal(current.triggers.fired["region:0"], undefined, "the captured decision, not the live thread, governs re-arming");
+});
+
+test("R-68: a suppressed completed step records its tile so the program-end tick holds no deferred roll", () => {
+  const current = stateWith(board([], []) as WorldBoard);
+  const battleBoard = { ...current.world.board!, allowBattles: 1 } as WorldBoard;
+  current.world = { ...current.world, board: battleBoard };
+  const tile = (x: number) => pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, x, 63);
+  current.sprites.randomEncounter = { boardKey: battleBoard.key, tile: tile(48), tiles: 0 };
+  // A program drove the player one tile east while it was live: the completion tick is suppressed.
+  current.sprites.players[0] = { ...current.sprites.players[0]!, x: 80, movement: { ...current.sprites.players[0]!.movement, lastStepTick: 0, lastStepBlocked: false } };
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  current.time = { ...current.time, tick: 0 };
+  const posts: string[] = [];
+  runRandomEncounterPhase(current, battleConfig(), (_section, effect) => posts.push(effect.name));
+  deepEqual(posts, [], "no test runs while the program is live");
+  deepEqual(current.sprites.randomEncounter?.tile, tile(80), "the tile the program walked onto is recorded, not tested");
+  // The program ends; the next tick must not roll for the tile it already recorded.
+  current.vm = { ...current.vm, threads: current.vm.threads.map((thread) => ({ ...thread, status: "finished" as const })) };
+  current.time = { ...current.time, tick: 1 };
+  runRandomEncounterPhase(current, battleConfig(), (_section, effect) => posts.push(effect.name));
+  deepEqual(posts, [], "no deferred draw on the tick the program ends");
 });

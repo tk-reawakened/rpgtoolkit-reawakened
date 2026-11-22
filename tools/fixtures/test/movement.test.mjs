@@ -262,6 +262,12 @@ test("tile-step-precheck-events: a counted blocked step is processed at its inte
   const rearm = theCase(sc, "blocked-press-outside-the-area-rearms-the-repeat");
   deepEqual(rearm.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "rearm"], [24, "rearm"]]);
   equal(actorAt(rearm, 16, "hero")[5], "W", "the westward press turns the player without moving him");
+  // R-68 items 1-2: the region on the pressed-into tile and the destination battle check both run on the
+  // tick the step is counted, so the program the region starts cannot split the bundle.
+  const both = theCase(sc, "blocked-counted-step-fires-the-region-and-checks-the-battle");
+  deepEqual(both.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "door"]]);
+  deepEqual(events(both, "tile-moved").map((e) => [e.t, e.cell]), [[0, [2, 1]]]);
+  deepEqual(events(both, "fight-handoff").map((e) => e.t), [0]);
   // R-63 item 2 with R-64: the step is stopped after its first advance by an item that walked into the
   // destination's collision area, so it is not the counted step and the step region over the destination
   // never fires. The item finishes its own step at the end of the run.

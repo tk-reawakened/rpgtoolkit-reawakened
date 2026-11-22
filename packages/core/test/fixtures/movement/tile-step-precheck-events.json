@@ -313,6 +313,52 @@
       ]
     },
     {
+      "name": "blocked-counted-step-fires-the-region-and-checks-the-battle",
+      "note": "R-68 items 1-2: the four parts of end-of-step processing share one decision, so the counted blocked step fires the step region on the tile it pressed into AND runs the destination battle check on that same tick — the program the region starts does not suppress the battle test. PROPOSED P-10 fixes the draws.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"wall","type":"solid","layer":0,"closed":true,"points":[[76,32],[84,32],[84,224],[76,224]]}],
+            "programs": [{"id":"door","type":"step","layer":0,"points":[[64,47],[96,47],[96,79],[64,79]],"program":"door.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "battle": {"allowed":true,"type":1,"chances":1,"skill":1,"background":"cave.bkg"}
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}],
+        "fightEnabled": true,
+        "encounterTable": [{"enemy":"rat.ene","skill":1}],
+        "rng": [0,0]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 8,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"door","program":"door.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true},{"e":"tile-moved","cell":[2,1]},{"e":"rng-draw","n":4,"value":0},{"e":"rng-draw","n":1,"value":0},{"e":"fight-handoff","board":"field","player":"hero","x":48,"y":63,"layer":0,"enemies":["rat.ene"],"background":"cave.bkg"}]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",48,63,0,"waiting","E"]]}
+      ]
+    },
+    {
       "name": "blocked-mid-step-is-not-counted",
       "note": "R-63 item 2 and R-64: an item that walks into the destination's collision area after the step began ends the player's step at its last safe position with no successful-step distance and no counted-step processing. The step region over the destination (x 68..100, away from the player's base at x 35.8..65.8) therefore never fires; all movement here is tile movement (speed 0.02 is one 4 px advance per tick).",
       "setup": {

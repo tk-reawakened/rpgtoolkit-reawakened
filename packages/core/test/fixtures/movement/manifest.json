@@ -96,6 +96,7 @@
         "blocked-counted-step-feeds-repeat-distance",
         "repeat-distance-32-fires-on-every-blocked-press",
         "blocked-press-outside-the-area-rearms-the-repeat",
+        "blocked-counted-step-fires-the-region-and-checks-the-battle",
         "blocked-mid-step-is-not-counted",
         "blocked-mid-step-queue-continues-next-update",
         "non-selected-player-blocked-step-retries"

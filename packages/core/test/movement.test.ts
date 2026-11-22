@@ -246,6 +246,7 @@ test("owned authored movement scenes reproduce every in-scope case through core"
     "no-route-waits-then-continues": true, // 5.5 path-following
     "no-route-wait-expires-and-stops": true, // 5.5 path-following
     "blocked-counted-step-checks-battles-at-the-destination": true, // triggers and battle phases only; movement-rulings.test.ts covers it
+    "blocked-counted-step-fires-the-region-and-checks-the-battle": true, // triggers and battle phases only; movement-rulings.test.ts covers it
   };
   for (const name of ["movement-tile-pixel", "collision-solid-stairs-under", "collision-sprite-blocking", "tile-step-precheck-events"]) {
     const document = JSON.parse(readFileSync(join(root, `${name}.json`), "utf8")) as { readonly cases: readonly MovementFixtureCase[] };

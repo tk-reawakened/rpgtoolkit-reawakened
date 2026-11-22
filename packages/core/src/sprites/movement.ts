@@ -2,7 +2,7 @@
 import type { GameState } from "../save/state.ts";
 import type { WorldBoard, WorldPoint, WorldVector } from "../world/model.ts";
 import { findBlockingThread, hasLiveBlockingThread, type Thread } from "../script/state.ts";
-import type { EnginePhaseRegistration } from "../engine/engine.ts";
+import type { EnginePhaseContext, EnginePhaseRegistration } from "../engine/engine.ts";
 import {
   FACING,
   FACING_VECTOR,
@@ -675,12 +675,14 @@ export function movementPhaseRegistration(options: MovementOptions & { readonly 
     phase: "movement",
     rank: options.rank ?? 0,
     ...(options.pixelMovement === undefined ? {} : { pixelMovement: options.pixelMovement }),
-    run(state: GameState): void {
+    run(state: GameState, _postEffect?: unknown, context?: EnginePhaseContext): void {
       const blocker = findBlockingThread(state.vm);
       // R-68 (docs/spec/engine/movement-and-collision.md#r-68): one predicate gates end-of-step processing for
       // completed and blocked counted steps alike — a live blocking thread, not the wider script-ownership test
-      // (whose "any thread holds a global wait" half would silence a background thread's own movement).
-      const endOfStepProcessing = !hasLiveBlockingThread(state.vm);
+      // (whose "any thread holds a global wait" half would silence a background thread's own movement). When the
+      // engine supplies the tick's captured decision, that value is used so every end-of-step part in the tick
+      // shares it.
+      const endOfStepProcessing = !(context?.endOfStepSuppressed ?? hasLiveBlockingThread(state.vm));
       runMovementPhase(state.sprites, state.world.board ?? null, state.time.tick, {
         ...options,
         pixelMovement: state.world.movement.walking ?? options.pixelMovement ?? 0,
