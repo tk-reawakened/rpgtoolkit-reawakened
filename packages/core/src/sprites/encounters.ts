@@ -5,6 +5,7 @@ import type { EnginePhaseRegistration } from "../engine/engine.ts";
 import type { PlainData } from "../ports/plain-data.ts";
 import { createRngPort } from "../rng/xoshiro.ts";
 import type { GameState } from "../save/state.ts";
+import { hasLiveBlockingThread } from "../script/state.ts";
 import { coordLayout, pixelToTile } from "../world/coords.ts";
 import type { SpriteActor } from "./model.ts";
 
@@ -81,8 +82,12 @@ function effect(name: string, payload: PlainData): PostEffect {
   return { thread: 0, name, kind: "request", args: [payload], out: {}, result: null, patch: null, wait: null, request: null };
 }
 
-/** Evaluate one battle phase after trigger activation. */
-export function runRandomEncounterPhase(state: GameState, config: RandomEncounterConfig | null, post?: Post): void {
+/**
+ * Evaluate one battle phase after trigger activation. `endOfStepSuppressed` is R-68's decision for the tick
+ * (docs/spec/engine/movement-and-collision.md#r-68), captured by the engine before any trigger program starts;
+ * driven directly, the live blocking-thread predicate is read.
+ */
+export function runRandomEncounterPhase(state: GameState, config: RandomEncounterConfig | null, post?: Post, endOfStepSuppressed = hasLiveBlockingThread(state.vm)): void {
   const board = state.world.board ?? null;
   const actor = state.sprites.players.find((value) => value.id === state.sprites.selectedPlayer) ?? null;
   if (board === null || actor === null) return;
@@ -101,8 +106,12 @@ export function runRandomEncounterPhase(state: GameState, config: RandomEncounte
     return;
   }
   if (previous.tile.x === tile.x && previous.tile.y === tile.y) return;
+  // R-68: the tile accounting follows the actor even while the battle test is suppressed — no draw, but the
+  // tracker records the tile the actor reached, so a step a program drove is not rolled for on the tick that
+  // program ends (which would be a deferred, spurious test for a tile reached while a script owned the player).
   const progress = { boardKey: board.key, tile: actualTile, tiles: previous.tiles };
   state.sprites.randomEncounter = progress;
+  if (endOfStepSuppressed) return;
   const chances = Math.trunc(config.chances);
   const rng = createRngPort(state.rng);
   let fight = false;
@@ -145,5 +154,9 @@ export function runRandomEncounterPhase(state: GameState, config: RandomEncounte
 
 /** Register the evaluator for scene-mode runners; boot mode supplies its config directly. */
 export function randomEncounterPhaseRegistration(options: RandomEncounterOptions): EnginePhaseRegistration {
-  return { phase: "triggers", rank: options.rank ?? 0, run: (state, post) => runRandomEncounterPhase(state, options.config, post) };
+  return {
+    phase: "triggers",
+    rank: options.rank ?? 0,
+    run: (state, post, context) => runRandomEncounterPhase(state, options.config, post, context?.endOfStepSuppressed),
+  };
 }

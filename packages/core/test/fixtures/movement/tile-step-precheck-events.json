@@ -7,11 +7,12 @@
   "spec": [
     "movement-and-collision.md#r-63",
     "movement-and-collision.md#r-64",
+    "movement-and-collision.md#r-67",
     "movement-and-collision.md#e-40",
     "movement-and-collision.md#e-42",
     "plugins-and-battle.md#random-encounters"
   ],
-  "proposed": ["P-6","P-10","P-19"],
+  "proposed": ["P-6","P-10"],
   "cases": [
     {
       "name": "blocked-counted-step-fires-the-step-region-at-the-destination",
@@ -106,8 +107,8 @@
       ]
     },
     {
-      "name": "blocked-counted-step-does-not-leak-into-repeat-distance",
-      "note": "R-64 item 2 gives the consumed step the party remainder and end-of-step processing, and names no repeat-distance contribution: two presses into the wall therefore add 0 px to the repeat counter. The second press must not fire the 40 px repeat region (PROPOSED P-19).",
+      "name": "blocked-counted-step-feeds-repeat-distance",
+      "note": "R-67 item 1: a counted blocked press adds one step's worth (32 px) to the repeat region whose area the attempted destination overlaps. The first press fires on entry; the next two presses accumulate 32 px each, so a 40 px repeat distance fires again on the third press at tick 16 and never on the second.",
       "setup": {
         "board": "field",
         "boards": {
@@ -138,9 +139,10 @@
       },
       "script": [
         {"t":0,"op":"push","actor":"hero","dirs":"E"},
-        {"t":8,"op":"push","actor":"hero","dirs":"E"}
+        {"t":8,"op":"push","actor":"hero","dirs":"E"},
+        {"t":16,"op":"push","actor":"hero","dirs":"E"}
       ],
-      "ticks": 20,
+      "ticks": 24,
       "boot": [
         {"e":"board-install","board":"field"},
         {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
@@ -163,10 +165,197 @@
         {"t":13,"a":[["hero",48,63,0,"waiting","E"]]},
         {"t":14,"a":[["hero",48,63,0,"waiting","E"]]},
         {"t":15,"a":[["hero",48,63,0,"waiting","E"]]},
-        {"t":16,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":16,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"trail","program":"trail.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
         {"t":17,"a":[["hero",48,63,0,"waiting","E"]]},
         {"t":18,"a":[["hero",48,63,0,"waiting","E"]]},
-        {"t":19,"a":[["hero",48,63,0,"waiting","E"]]}
+        {"t":19,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":20,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":21,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":22,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":23,"a":[["hero",48,63,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "repeat-distance-32-fires-on-every-blocked-press",
+      "note": "R-67 item 3: with a repeat distance of 32 px or less every counted blocked press fires the region once, because the press adds a full step's worth even though the player never moves.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"wall","type":"solid","layer":0,"closed":true,"points":[[76,32],[84,32],[84,224],[76,224]]}],
+            "programs": [
+              {
+                "id": "press32",
+                "type": "repeat",
+                "layer": 0,
+                "points": [[64,47],[96,47],[96,79],[64,79]],
+                "program": "press32.prg",
+                "distanceRepeat": 32
+              }
+            ],
+            "items": [],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"},
+        {"t":8,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 12,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"press32","program":"press32.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"press32","program":"press32.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":9,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",48,63,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "blocked-press-outside-the-area-rearms-the-repeat",
+      "note": "R-67 item 2: a counted blocked press whose attempted destination is outside the region resets the counter exactly as a step leaving the area does, so the 64 px program is re-armed and fires on the next overlapping press (tick 24) without accumulating its distance again.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [
+              {"id":"west","type":"solid","layer":0,"closed":true,"points":[[24,32],[28,32],[28,224],[24,224]]},
+              {"id":"wall","type":"solid","layer":0,"closed":true,"points":[[76,32],[84,32],[84,224],[76,224]]}
+            ],
+            "programs": [
+              {
+                "id": "rearm",
+                "type": "repeat",
+                "layer": 0,
+                "points": [[64,47],[96,47],[96,79],[64,79]],
+                "program": "rearm.prg",
+                "distanceRepeat": 64
+              }
+            ],
+            "items": [],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"},
+        {"t":8,"op":"push","actor":"hero","dirs":"E"},
+        {"t":16,"op":"push","actor":"hero","dirs":"W"},
+        {"t":24,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 32,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"rearm","program":"rearm.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":8,"a":[["hero",48,63,0,"waiting","E"]],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":9,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":10,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":11,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":12,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":13,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":14,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":15,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":16,"a":[["hero",48,63,0,"waiting","W"]],"ev":[{"e":"blocked","actor":"hero","by":"west"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":17,"a":[["hero",48,63,0,"waiting","W"]]},
+        {"t":18,"a":[["hero",48,63,0,"waiting","W"]]},
+        {"t":19,"a":[["hero",48,63,0,"waiting","W"]]},
+        {"t":20,"a":[["hero",48,63,0,"waiting","W"]]},
+        {"t":21,"a":[["hero",48,63,0,"waiting","W"]]},
+        {"t":22,"a":[["hero",48,63,0,"waiting","W"]]},
+        {"t":23,"a":[["hero",48,63,0,"waiting","W"]]},
+        {"t":24,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"rearm","program":"rearm.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true}]},
+        {"t":25,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":26,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":27,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":28,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":29,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":30,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":31,"a":[["hero",48,63,0,"waiting","E"]]}
+      ]
+    },
+    {
+      "name": "blocked-counted-step-fires-the-region-and-checks-the-battle",
+      "note": "R-68 items 1-2: the four parts of end-of-step processing share one decision, so the counted blocked step fires the step region on the tile it pressed into AND runs the destination battle check on that same tick — the program the region starts does not suppress the battle test. PROPOSED P-10 fixes the draws.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [{"id":"wall","type":"solid","layer":0,"closed":true,"points":[[76,32],[84,32],[84,224],[76,224]]}],
+            "programs": [{"id":"door","type":"step","layer":0,"points":[[64,47],[96,47],[96,79],[64,79]],"program":"door.prg"}],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "battle": {"allowed":true,"type":1,"chances":1,"skill":1,"background":"cave.bkg"}
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}],
+        "fightEnabled": true,
+        "encounterTable": [{"enemy":"rat.ene","skill":1}],
+        "rng": [0,0]
+      },
+      "script": [
+        {"t":0,"op":"push","actor":"hero","dirs":"E"}
+      ],
+      "ticks": 8,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",48,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"door","program":"door.prg"}],"ev":[{"e":"blocked","actor":"hero","by":"wall"},{"e":"movement-complete","actor":"hero","blocked":true},{"e":"tile-moved","cell":[2,1]},{"e":"rng-draw","n":4,"value":0},{"e":"rng-draw","n":1,"value":0},{"e":"fight-handoff","board":"field","player":"hero","x":48,"y":63,"layer":0,"enemies":["rat.ene"],"background":"cave.bkg"}]},
+        {"t":1,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":2,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":3,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":4,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":5,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":6,"a":[["hero",48,63,0,"waiting","E"]]},
+        {"t":7,"a":[["hero",48,63,0,"waiting","E"]]}
       ]
     },
     {

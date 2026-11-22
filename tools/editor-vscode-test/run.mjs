@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
-import { dirname, relative, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader, projectFolder, readMainFile } from "@tk-reawakened/core";
@@ -22,6 +23,7 @@ import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } f
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
 import { createCreatorTestFiles } from "./creator-tests-fixture.mjs";
+import { CREATOR_PROJECT, runVscodeCreatorAcceptanceProof } from "./creator-acceptance-proof.ts";
 
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const harness = resolve(root, "tools/editor-vscode-test");
@@ -43,6 +45,17 @@ await access(resolve(extension, manifest.browser));
 await access(resolve(extension, "dist/webview.js"));
 await access(resolve(root, "extensions/rpgcode/dist/extension.browser.js"));
 await access(workspace);
+if (process.env.TKR_VSCODE_CREATOR_ACCEPTANCE_PROOF === "1") {
+  // The creator-acceptance lane owns its whole journey: an empty workspace, the real New project wizard, authored edits
+  // through the shipped editors, then the reviewed export handed as exact bytes to the portable playback oracle.
+  try {
+    await runCreatorAcceptanceLane({ root, harness, extension, port });
+  } catch (error) {
+    console.error(error);
+    process.exitCode = 1;
+  }
+  process.exit(process.exitCode ?? 0);
+}
 const gameFiles = await findGameFiles(workspace);
 if (gameFiles.length !== 1 || resolve(workspace, game) !== gameFiles[0]) {
   throw new Error(`The VS Code web proof workspace must contain exactly one .gam file, matching --game; found ${gameFiles.length}`);
@@ -562,6 +575,132 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
     if (probeDiagnostics.length > 0) console.error(`[vscode-web:probe-diagnostics]\n${probeDiagnostics.join("\n")}`);
     throw proofFailure;
   }
+}
+
+/**
+ * One VS Code Web acceptance journey from an empty destination to a reviewed export, then the same bytes in an isolated
+ * player. This lane never reads the editor's workspace from the player: it starts a separate Chromium context with
+ * service workers blocked, and the playback oracle routes only the captured archive and descriptor.
+ */
+async function runCreatorAcceptanceLane({ root, harness, extension, port }) {
+  const laneWorkspace = await mkdtemp(join(tmpdir(), "tkr-vscode-creator-acceptance-"));
+  const profile = await mkdtemp(join(tmpdir(), "tkr-vscode-creator-acceptance-profile-"));
+  const workbenchUrl = `http://localhost:${port}/`;
+  const readinessUrl = `http://127.0.0.1:${port}/`;
+  const diagnostics = [];
+  let browser;
+  let playerBrowser;
+  let playerServer;
+  let buildProcess;
+  let workbench;
+  let persistentFs;
+  const cleanupErrors = [];
+  const routeErrors = [];
+  try {
+    // The destination the wizard writes into must start empty, and the window must not auto-save authored documents.
+    await mkdir(laneWorkspace, { recursive: true });
+    await mkdir(join(laneWorkspace, ".vscode"), { recursive: true });
+    await writeFile(join(laneWorkspace, ".vscode", "settings.json"), `${JSON.stringify({ "files.autoSave": "off" }, null, 2)}\n`);
+    await mkdir(join(laneWorkspace, CREATOR_PROJECT), { recursive: true });
+
+    persistentFs = await startPersistentFs(laneWorkspace, `http://localhost:${port}`);
+    workbench = trackProcess(spawn(resolve(harness, "node_modules/.bin/vscode-test-web"), [
+      "--host=localhost", "--browser=none",
+      `--extensionDevelopmentPath=${extension}`,
+      `--extensionPath=${resolve(harness, "probe-extension")}`,
+      `--extensionPath=${resolve(root, "extensions/rpgcode")}`,
+      `--port=${port}`, `--folder-uri=tkr-testfs://${persistentFs.authority}/`,
+      `--testRunnerDataDir=${process.env.TKR_VSCODE_TEST_DATA_DIR ?? resolve(root, ".vscode-test-web")}`,
+      ...(process.env.TKR_VSCODE_TEST_COMMIT === undefined ? [] : [`--commit=${process.env.TKR_VSCODE_TEST_COMMIT}`]),
+    ], {
+      cwd: root,
+      stdio: "inherit",
+      env: { ...process.env, NODE_OPTIONS: [process.env.NODE_OPTIONS, "--dns-result-order=ipv4first"].filter(Boolean).join(" ") },
+    }));
+    await Promise.race([waitForHttpServer(workbench.child, readinessUrl), workbench.error]);
+
+    browser = await chromium.launchPersistentContext(profile, { headless: true });
+    // The proof filesystem authenticates every request with this run's token, which the probe extension embeds as a
+    // placeholder; serve its source with the token in place or every workspace read fails with invalid credentials.
+    await browser.route("**/static/extensions/0/extension.js", async (route) => {
+      try {
+        const response = await route.fetch();
+        const source = await response.text();
+        if (source.split("__TKR_PROOF_SECRET__").length !== 2) throw new Error("Proof provider no longer matches the credential injection");
+        await route.fulfill({ response, body: source.replace("__TKR_PROOF_SECRET__", persistentFs.token) });
+      } catch (error) {
+        routeErrors.push(error);
+        try { await route.continue(); } catch (continuationError) { routeErrors.push(continuationError); }
+      }
+    });
+    const page = await browser.newPage();
+    page.on("console", (message) => {
+      if (message.type() === "error" && diagnostics.length < 100) diagnostics.push(message.text().replaceAll(persistentFs.token, "[redacted]"));
+    });
+    page.on("pageerror", (error) => { if (diagnostics.length < 100) diagnostics.push(`[pageerror] ${error.stack ?? error.message}`); });
+    page.on("requestfailed", (request) => { if (diagnostics.length < 100) diagnostics.push(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`); });
+
+    const artifact = await runVscodeCreatorAcceptanceProof(page, expect, workbenchUrl, {
+      readBacking: async (path) => new Uint8Array(await readFile(join(laneWorkspace, path))),
+      writeBacking: async (path, bytes) => {
+        const target = join(laneWorkspace, path);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, bytes);
+      },
+      backingExists: async (path) => {
+        try { await stat(join(laneWorkspace, path)); return true; }
+        catch (error) { if (error?.code === "ENOENT") return false; throw error; }
+      },
+    });
+    console.log("vscode.dev fresh project authoring, reopen and reviewed export proof passed");
+
+    // The player lane needs the browser bundles the web runner loads; the desktop build does not produce them.
+    buildProcess = trackProcess(spawn(process.execPath, [resolve(root, "tools/browser/build.mjs")], { cwd: root, stdio: "inherit" }));
+    const buildCode = await buildProcess.closed;
+    if (buildCode !== 0 || buildProcess.errors.length > 0) throw new Error(`The web runner bundle build failed with ${buildCode}`);
+    buildProcess = undefined;
+
+    const playerPort = await freePort();
+    playerServer = trackProcess(spawn(process.execPath, [resolve(root, "tools/browser/serve.mjs"), "--port", String(playerPort)], { cwd: root, stdio: "inherit" }));
+    await Promise.race([waitForHttpServer(playerServer.child, `http://127.0.0.1:${playerPort}/health`), playerServer.error]);
+    const playerUrl = `http://127.0.0.1:${playerPort}/packages/runner-web/app/index.html`;
+
+    const { provePackagePlayback } = await import("./package-playback.ts").catch((error) => {
+      throw new Error(`The portable playback oracle (tools/editor-vscode-test/package-playback.ts) is missing: ${error.message}`);
+    });
+    playerBrowser = await chromium.launch({ headless: true });
+    const playerContext = await playerBrowser.newContext({ serviceWorkers: "block" });
+    const playerPage = await playerContext.newPage();
+    await provePackagePlayback(playerPage, expect, {
+      archiveName: artifact.archiveName,
+      archive: artifact.archive,
+      descriptor: artifact.descriptor,
+    }, {
+      board: "boards/start.brd",
+      // The engine boots initBoard at the board's authored start (column 2, row 2, layer 1 -> x 48, y 63); the startup
+      // program ends without a wait, so no dismissal key is needed.
+      start: { x: 48, y: 63 },
+      // South walking uses the walk animation authored on the character; the authored board has no solid regions.
+      movement: { key: "ArrowDown", axis: "y", direction: 1 },
+      playerUrl,
+    });
+    console.log(`vscode.dev exported package booted and responded to authored input in an isolated runner (${artifact.archiveName})`);
+  } finally {
+    if (diagnostics.length > 0) console.error(`[vscode-creator-acceptance-diagnostics]\n${diagnostics.join("\n")}`);
+    if (playerBrowser !== undefined) { try { await playerBrowser.close(); } catch (error) { cleanupErrors.push(error); } }
+    if (playerServer !== undefined) {
+      try { playerServer.child.kill("SIGTERM"); await playerServer.closed; } catch (error) { cleanupErrors.push(error); }
+      cleanupErrors.push(...playerServer.errors);
+    }
+    if (buildProcess !== undefined) {
+      try { buildProcess.child.kill("SIGTERM"); await buildProcess.closed; } catch (error) { cleanupErrors.push(error); }
+    }
+    cleanupErrors.push(...await cleanupTestRun(browser, workbench, laneWorkspace));
+    cleanupErrors.push(...routeErrors);
+    if (persistentFs !== undefined) { try { await persistentFs.close(); } catch (error) { cleanupErrors.push(error); } }
+    try { await rm(profile, { recursive: true, force: true }); } catch (error) { cleanupErrors.push(error); }
+  }
+  if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "The creator acceptance lane could not clean up");
 }
 
 async function createWebAdapterBytes(file, gamePath, title) {

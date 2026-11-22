@@ -301,10 +301,27 @@ test("tile-step-precheck-events: a counted blocked step is processed at its inte
   equal(handoff.t, 0);
   deepEqual(handoff.enemies, ["rat.ene"]);
   deepEqual([handoff.x, handoff.y], [48, 63]);
-  // P-19: the counted step adds 0 px to repeat distance, so the second 40 px pass never fires.
-  const repeat = theCase(sc, "blocked-counted-step-does-not-leak-into-repeat-distance");
-  deepEqual(repeat.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "trail"]]);
-  deepEqual(events(repeat, "blocked").map((e) => e.t), [0, 8]);
+  // R-67: the counted blocked step adds one step's worth (32 px) of repeat distance at the attempted
+  // destination. A 40 px program therefore fires on entry (tick 0) and again once 64 px has accumulated on
+  // the third press (tick 16), never on the second (32 px).
+  const repeat = theCase(sc, "blocked-counted-step-feeds-repeat-distance");
+  deepEqual(repeat.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "trail"], [16, "trail"]]);
+  deepEqual(events(repeat, "blocked").map((e) => e.t), [0, 8, 16]);
+  equal(actorAt(repeat, 16, "hero")[1], 48, "the player never moves");
+  // R-67 item 3: 32 px or less fires on every counted blocked press.
+  const every = theCase(sc, "repeat-distance-32-fires-on-every-blocked-press");
+  deepEqual(every.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "press32"], [8, "press32"]]);
+  // R-67 item 2: a destination outside the area resets the counter and re-arms the program, so the press at
+  // tick 24 fires on entry with no walking in between; the tick-8 eastward press accumulated only 32 px.
+  const rearm = theCase(sc, "blocked-press-outside-the-area-rearms-the-repeat");
+  deepEqual(rearm.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "rearm"], [24, "rearm"]]);
+  equal(actorAt(rearm, 16, "hero")[5], "W", "the westward press turns the player without moving him");
+  // R-68 items 1-2: the region on the pressed-into tile and the destination battle check both run on the
+  // tick the step is counted, so the program the region starts cannot split the bundle.
+  const both = theCase(sc, "blocked-counted-step-fires-the-region-and-checks-the-battle");
+  deepEqual(both.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[0, "door"]]);
+  deepEqual(events(both, "tile-moved").map((e) => [e.t, e.cell]), [[0, [2, 1]]]);
+  deepEqual(events(both, "fight-handoff").map((e) => e.t), [0]);
   // R-63 item 2 with R-64: the step is stopped after its first advance by an item that walked into the
   // destination's collision area, so it is not the counted step and the step region over the destination
   // never fires. The item finishes its own step at the end of the run.
@@ -412,6 +429,17 @@ test("movement-waits: the wait is polled in the waits phase, one tick after comp
   deepEqual(events(free, "continued").map((e) => e.t), [0]);
   deepEqual(events(free, "woke-mid-walk").map((e) => e.t), [10]);
   deepEqual(events(theCase(sc, "blocking-thread-implies-the-wait"), "walked").map((e) => e.t), [16]);
+  // R-68: an ordinary blocking program's movement completes at tick 7, but no end-of-step processing runs
+  // while that live blocking thread exists, so the repeat region across the walked tile never fires.
+  const suppressed = theCase(sc, "blocking-program-step-suppresses-end-of-step-processing");
+  deepEqual(actorAt(suppressed, 7, "hero").slice(1, 5), [80, 63, 0, "waiting"]);
+  equal(rowAt(suppressed, 7).th.main, "wait:movement");
+  deepEqual(suppressed.expect.filter((r) => r.fired), []);
+  // R-68 item 3: a board thread parked in the same movement wait is not a blocking script, so the same
+  // step runs end-of-step processing and the 32 px repeat region fires when it completes.
+  const roaming = theCase(sc, "background-thread-movement-counts-as-free-roaming");
+  deepEqual(roaming.expect.filter((r) => r.fired).map((r) => [r.t, r.fired[0].id]), [[7, "step-region"]]);
+  deepEqual(events(roaming, "step-complete").map((e) => e.t), [7]);
   const multi = theCase(sc, "multirun-one-wait-over-both-sprites");
   deepEqual(events(multi, "movement-complete").map((e) => [e.t, e.actor]), [[15, "a"], [31, "b"]]);
   deepEqual(events(multi, "both-done").map((e) => e.t), [32]);
@@ -449,7 +477,14 @@ test("random-encounter: one roll per tile moved, after activation, with stable h
   equal(events(theCase(sc, "board-forbids-battles"), "rng-draw").length, 0);
   equal(events(theCase(sc, "main-file-disables-fighting"), "tile-moved").length, 0);
   deepEqual(events(theCase(sc, "custom-fight-program"), "custom-fight-program").map((e) => e.program), ["fight.prg"]);
-  deepEqual(events(theCase(sc, "no-enemy-of-the-skill-level"), "message").map((e) => e.text), ["No enemies of skill level 2 found."]);
+  deepEqual(events(theCase(sc, "no-enemy-of-the-skill-level"), "message").map((e) => e.text), ["No enemies of skill level 2 found."]);  // R-68 with R-64: the step a blocking program drove is not tested, but its tile is recorded, so the
+  // free-roam step back to the start tile is a new tile and draws once (a fight at tick 27).
+  const suppressed = theCase(sc, "suppressed-program-step-records-its-tile");
+  deepEqual(events(suppressed, "tile-moved").map((e) => [e.t, e.cell]), [[27, [1, 1]]]);
+  deepEqual(events(suppressed, "rng-draw").map((e) => e.t), [27, 27, 27]);
+  deepEqual(events(suppressed, "fight-handoff").map((e) => e.t), [27]);
+  deepEqual(suppressed.expect.filter((r) => r.ev?.some((e) => e.e === "rng-draw" && r.t === 7)), []);
+
 });
 
 test("demo scenes: the corpus pathfinding NPC intercepts, and a stationary player gets the battle handoff", () => {

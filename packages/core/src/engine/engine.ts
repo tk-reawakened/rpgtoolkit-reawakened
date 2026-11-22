@@ -182,9 +182,21 @@ export type EdgePreflightRequest = {
  * `pending`: the destination asset is requested and the movement phase must leave the step unstarted.
  */
 export type EdgePreflightOutcome = "accepted" | "refused" | "pending";
-/** Per-phase engine services handed to a phase registration's `run` (G2: core itself does no I/O). */
+/** The per-tick context the engine hands every phase registration (R-66, R-68; ADR 0040, ADR 0041). */
 export type EnginePhaseContext = {
-  readonly preflightEdge: (request: EdgePreflightRequest) => EdgePreflightOutcome;
+  /**
+   * Whether end-of-step processing is suppressed for this tick
+   * (docs/spec/engine/movement-and-collision.md#r-68). The engine decides it once, at the movement phase, before
+   * any end-of-step part runs, so the party remainder, step triggers, repeat distance and the battle test share
+   * one answer even when the trigger phase starts a blocking program of its own.
+   */
+  readonly endOfStepSuppressed?: boolean;
+  /**
+   * R-66 linked-edge preflight (G2: core itself does no I/O). The engine supplies it in the movement phase;
+   * a phase registration without one still requests the crossing and the edges phase preflights before it
+   * commits.
+   */
+  readonly preflightEdge?: (request: EdgePreflightRequest) => EdgePreflightOutcome;
 };
 
 export type EnginePhaseRegistration = {
@@ -916,6 +928,12 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   let frameHash: string | null = null;
   /** Set when an outermost program ended in the current tick; suppresses tick-end and tail presentation so its final screen stays committed as surface 0 until the next free-roam draw (ADR 0018 R5). */
   let endedProgramThisTick = false;
+  /**
+   * R-68's end-of-step decision for the current tick, captured at the movement phase before any end-of-step part
+   * runs (docs/spec/engine/movement-and-collision.md#r-68). `null` until the first movement phase of a tick, so a
+   * tick that reaches `triggers` without one falls back to a live read.
+   */
+  let endOfStepSuppressed: boolean | null = null;
   /** When true, `engine.drawList` presents surface 0 (the committed final program screen) instead of re-rasterising the board; cleared when a free-roam frame is actually committed. */
   let holdProgramFrame = false;
   /** True when a tick has advanced the presented scene since surface 0 was last rasterised (ADR 0018 T13). */
@@ -4862,10 +4880,16 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         return;
       case "movement": {
+        // R-68 (docs/spec/engine/movement-and-collision.md#r-68): one decision per tick, taken before any
+        // end-of-step part runs. The party remainder (movement), step triggers and repeat distance (triggers)
+        // and the battle test (triggers) all read this value, so a trigger program that starts later in the
+        // same tick cannot split the bundle — the defect where a counted blocked step's destination battle
+        // check was dropped because its own step program had just started.
+        endOfStepSuppressed = hasLiveBlockingThread(state.vm);
+        // G2/R-66: the movement phase owns when a linked-edge step is preflighted; the same context carries the
+        // load-for-checking, the arrival test and `beforeEnter` alongside R-68's captured decision.
+        const movementContext: EnginePhaseContext = { endOfStepSuppressed, preflightEdge: preflightBoardEdge };
         state.camera = updateCamera(state.camera, state.world.board ?? null, init.cameraTarget ?? init.spriteRuntime);
-        // G2/R-66: the movement phase owns when a linked-edge step is preflighted; the engine supplies the
-        // load-for-checking, the arrival test and `beforeEnter` through this per-phase context.
-        const movementContext: EnginePhaseContext = { preflightEdge: preflightBoardEdge };
         for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect), movementContext);
         if (state.vm.threads.some((thread) => thread.kind === "blocking" && (thread.wait?.kind === "sprite.movement" || thread.wait?.kind === "movement" || thread.wait?.kind === "sprite.stance"))) {
           boardRedraw();
@@ -4876,8 +4900,10 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         runEdgesPhase();
         for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
         return;
-      case "triggers":
-        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));
+      case "triggers": {
+        const suppressed = endOfStepSuppressed ?? hasLiveBlockingThread(state.vm);
+        const context: EnginePhaseContext = { endOfStepSuppressed: suppressed };
+        for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect), context);
         if (mainFile !== null) {
           runRandomEncounterPhase(state, {
             fightingDisabled: mainFile.fightingDisabled,
@@ -4886,9 +4912,10 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
             chances: mainFile.chances,
             useCustomFightPrg: mainFile.useCustomFightPrg,
             customFightPrg: mainFile.customFightPrg,
-          }, (section, effect) => bus.postEffect(section, effect));
+          }, (section, effect) => bus.postEffect(section, effect), suppressed);
         }
         return;
+      }
       case "animation":
         runAnimationPhase();
         for (const registration of registrationByPhase.get(phase) ?? []) runPhaseRegistration(registration, (section, effect) => bus.postEffect(section, effect));

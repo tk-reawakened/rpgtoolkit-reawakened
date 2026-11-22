@@ -42,7 +42,6 @@ export const PROPOSED = {
   "P-16": "Diversion and the pathfinder treat every other visible sprite on the layer as an obstacle; a route counts only if it reaches the goal; the 120-tick wait retests each tick.",
   "P-17": "Pathfinder conventions: step costs 10 (4-way) and 10 / 14 (8-way), Manhattan and octile heuristics, ties by (f, x, y, insertion); nearest free node by squared distance then (x, y); the capped search approaches the expanded node nearest the goal; vector mode handles axis-aligned solids and keeps the whole base on the board.",
   "P-18": "Gamepad edges are computed on the merged held state: an action already held by another source appends no queue entry.",
-  "P-19": "A counted blocked player step adds 0 px to a repeat region's distance counter: R-64 item 2 grants the tile to the party remainder and to end-of-step processing and states no repeat contribution.",
 };
 
 const SCENES = [
@@ -52,7 +51,7 @@ const SCENES = [
   ["edges-board-link-program", edgesBoardLinkProgram, ["P-11"]],
   ["board-entry-thread-lifecycle", boardEntryThreadLifecycle, ["P-11"]],
   ["triggers-precedence", triggersPrecedence, ["P-6", "P-7", "P-8"]],
-  ["tile-step-precheck-events", tileStepPrecheckEvents, ["P-6", "P-10", "P-19"]],
+  ["tile-step-precheck-events", tileStepPrecheckEvents, ["P-6", "P-10"]],
   ["actor-hydration-item-multitask", actorHydrationItemMultitask, ["P-9"]],
   ["pathfinding-axial-diagonal-vector", pathfindingAxialDiagonalVector, ["P-2", "P-17"]],
   ["input-replay-button-slots", inputReplayButtonSlots, ["P-12", "P-13", "P-18"]],

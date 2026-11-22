@@ -1,7 +1,8 @@
-// Owner rulings R-63, R-64 and R-65 (docs/spec/engine/movement-and-collision.md#r-63 to #r-65;
-// ADR 0040). These are the contract tests for #1281's first slice: a tile direction step prechecks its
-// whole destination, a blocked player step is consumed and counted, other actors retry, and queued
-// directions are relative intent while point targets stay absolute.
+// Owner rulings R-63 to R-68 (docs/spec/engine/movement-and-collision.md#r-63 to #r-68; ADR 0040,
+// ADR 0041). These are the contract tests for #1281's slices: a tile direction step prechecks its whole
+// destination, a blocked player step is consumed and counted, other actors retry, queued directions are
+// relative intent while point targets stay absolute, a counted blocked press feeds repeat distance, and one
+// live-blocking-thread predicate governs end-of-step processing.
 import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -32,7 +33,7 @@ import {
 } from "../src/index.ts";
 import { runRandomEncounterPhase } from "../src/sprites/encounters.ts";
 import { applySpriteEffect, MOVEMENT_PLUGIN } from "../src/script/packs/movement.ts";
-import { enqueueMove } from "../src/sprites/runtime.ts";
+import { enqueueMove, enqueuePathMove } from "../src/sprites/runtime.ts";
 import { pixelToTile, coordLayout } from "../src/world/coords.ts";
 
 const HERO = { id: "hero", kind: "player" as const, source: "hero.tem", x: 48, y: 63, layer: 1, controlled: true };
@@ -135,7 +136,7 @@ test("R-64 makes a blocked non-player retry the same entry with its queue waitin
   equal(events.some((record) => record.type === "movement-complete"), false, "a retrying queue has not drained");
 });
 
-test("R-64 suppresses blocked-step processing while a program owns input", () => {
+test("R-68 suppresses blocked-step processing while a blocking script is alive", () => {
   const currentBoard = board([wall(76, 84)]);
   const current = stateWith(currentBoard);
   startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
@@ -146,8 +147,8 @@ test("R-64 suppresses blocked-step processing while a program owns input", () =>
   equal(current.party.steps, 0, "end-of-step processing is suppressed");
   equal(current.party.stepRemainder, 0);
   equal(current.sprites.players[0]?.movement.lastStepTarget, null, "no destination processing is recorded");
-  // R-64 item 1 applies to an uncounted block too: the script-owned east block still leaves the queued north
-  // entry to start on the following update, not one advance cadence later.
+  // R-64 item 1 applies to a blocked step whose processing is suppressed too: the script-owned east block
+  // still leaves the queued north entry to start on the following update, not one advance cadence later.
   current.time = { ...current.time, tick: current.time.tick + 1 };
   movementPhaseRegistration().run(current);
   equal(current.sprites.players[0]?.y, 63 - TILE / 8, "north advances one 4 px step on the update after the block");
@@ -598,4 +599,244 @@ test("shared item command resolution keeps origin/main behaviour for a target ha
     { value: 0, ref: "layer" as never },
   ], () => ({ value: null })) as { value: unknown; out?: readonly (readonly [number, unknown])[] };
   deepEqual([location.value, location.out], [0, [[1, 0], [2, 0], [3, 1]]], "itemlocation('target') stays a dry no-op as on main");
+});
+
+// R-67 ---------------------------------------------------------------
+
+function repeatRegion(points: WorldProgram["points"], distance: number): WorldProgram {
+  return { ...region(points, 2), repeatDistance: distance };
+}
+
+/** The tile east of the hero's start: his collision base at x 80 spans 65..95. */
+const EAST_TILE = [{ x: 64, y: 47 }, { x: 96, y: 47 }, { x: 96, y: 79 }, { x: 64, y: 79 }] as WorldProgram["points"];
+
+/** Press and process one tick, then let the started program finish so the next press is free-roaming again. */
+function pressAndProcess(current: GameState, tick: number, direction: "E" | "W" = "E"): boolean {
+  current.time = { ...current.time, tick };
+  enqueueDirectionMove(current.sprites, "hero", direction, 0);
+  movementPhaseRegistration().run(current);
+  const events = runTriggersPhase(current, { programRef });
+  current.vm = {
+    ...current.vm,
+    threads: current.vm.threads.map((thread) => thread.kind === "blocking" ? { ...thread, status: "finished" as const } : thread),
+  };
+  return events.some((record) => record.type === "trigger-start" && record.key === "region:0");
+}
+
+test("R-67 a counted blocked press adds one step's worth, so a 32 px repeat region fires once per press", () => {
+  const current = stateWith(board([wall(76, 84)], [repeatRegion(EAST_TILE, TILE)]));
+  equal(pressAndProcess(current, 0), true, "the first press fires on entry (E-42)");
+  equal(current.sprites.players[0]?.x, 48, "the player never moves");
+  equal(current.party.steps, 1, "the blocked step still counts one tile for the party remainder");
+  equal(pressAndProcess(current, 1), true, "a repeat distance of 32 px fires on every counted blocked press (R-67 item 3)");
+  equal(current.party.steps, 2);
+  equal(current.triggers.repeat["region:0"], 0, "the counter resets after each firing");
+});
+
+test("R-67 accumulates one step's worth per blocked press against a longer repeat distance", () => {
+  const current = stateWith(board([wall(76, 84)], [repeatRegion(EAST_TILE, 2 * TILE)]));
+  equal(pressAndProcess(current, 0), true, "the first press fires on entry (E-42)");
+  equal(pressAndProcess(current, 1), false, "32 px after the firing is short of 64 px");
+  equal(current.triggers.repeat["region:0"], TILE, "the blocked press contributed 32 px, not the 0 px it travelled");
+  equal(pressAndProcess(current, 2), true, "the third press reaches 64 px");
+  equal(current.triggers.repeat["region:0"], 0);
+});
+
+test("R-67 resets a repeat program the attempted destination does not overlap", () => {
+  // The west wall makes the westward destination blocked and outside the east-tile region, so the program is
+  // re-armed exactly as a normal step leaving the area leaves it: it fires on the next overlapping press with
+  // no walking in between, and its accumulated distance is cleared.
+  const current = stateWith(board([wall(24, 28, "west"), wall(76, 84)], [repeatRegion(EAST_TILE, 2 * TILE)]));
+  equal(pressAndProcess(current, 0, "E"), true, "entry fire");
+  equal(pressAndProcess(current, 1, "E"), false, "32 px of the 64 px repeat distance");
+  equal(current.triggers.repeat["region:0"], TILE);
+  equal(pressAndProcess(current, 2, "W"), false, "a destination outside the area fires nothing");
+  equal(current.triggers.repeat["region:0"], undefined, "the counter is cleared on a step that does not overlap the area");
+  equal(pressAndProcess(current, 3, "E"), true, "the re-armed program fires on the next overlapping press");
+  equal(current.triggers.repeat["region:0"], 0);
+});
+
+// R-68 ---------------------------------------------------------------
+
+/** A background (board) thread parked in a global movement wait, as a walking NPC's own thread would be. */
+function parkBackgroundThread(current: GameState): void {
+  const thread = startThread(current.vm, { ref: programRef("wander"), kind: "board", owner: "world" });
+  current.vm = {
+    ...current.vm,
+    threads: current.vm.threads.map((value) => value.id === thread.id
+      ? { ...value, status: "waiting" as const, wait: { kind: "movement" as const, global: true, moves: [] } }
+      : value),
+  };
+}
+
+test("R-68 a background thread parked in a global wait does not suppress end-of-step processing", () => {
+  const current = stateWith(board([wall(76, 84)], [repeatRegion(EAST_TILE, TILE)]));
+  parkBackgroundThread(current);
+  equal(pressAndProcess(current, 0), true, "a board thread is never a blocking script, even parked in a global wait (R-68 item 3)");
+  equal(current.party.steps, 1, "the party counter runs as in free roaming");
+});
+
+test("R-68 suppresses a completed step's end-of-step processing while a blocking script is alive", () => {
+  const current = stateWith(board([], [repeatRegion(EAST_TILE, TILE)]));
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const events: MovementEvent[] = [];
+  let started = false;
+  for (let tick = 0; tick < 30; tick += 1) {
+    current.time = { ...current.time, tick };
+    movementPhaseRegistration({ onEvent: (record) => events.push(record) }).run(current);
+    if (runTriggersPhase(current, { programRef }).some((record) => record.type === "trigger-start")) started = true;
+  }
+  equal(current.sprites.players[0]?.x, 80, "the script-owned step still completes normally");
+  equal(current.sprites.players[0]?.queue.moves.length, 0, "and is consumed");
+  equal(started, false, "no step-triggered program runs");
+  equal(current.party.steps, 0, "no party step is counted");
+  equal(current.triggers.repeat["region:0"], undefined, "no repeat distance is accumulated");
+  equal(events.some((record) => record.type === "step-complete" && record.partyDistance256 === 0), true, "the completed step reports no party contribution");
+});
+
+test("R-68 leaves a fired repeat program's counter alone while a blocking script is alive", () => {
+  const current = stateWith(board([wall(76, 84)], [repeatRegion(EAST_TILE, 2 * TILE)]));
+  equal(pressAndProcess(current, 0), true, "a free-roaming press fires the region on entry");
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  // The wall is gone, so the next east step completes inside the same region. R-68 keeps its counter and
+  // fired state untouched, which is what a per-frame or per-step evaluation without the predicate breaks.
+  current.world = { ...current.world, board: board([], [repeatRegion(EAST_TILE, 2 * TILE)]) };
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  let started = false;
+  for (let tick = 1; tick <= 30; tick += 1) {
+    current.time = { ...current.time, tick };
+    movementPhaseRegistration().run(current);
+    if (runTriggersPhase(current, { programRef }).some((record) => record.type === "trigger-start")) started = true;
+  }
+  equal(current.sprites.players[0]?.x, 80, "the step completes inside the region");
+  equal(started, false, "nothing fires");
+  equal(current.triggers.repeat["region:0"], 0, "no repeat distance is accumulated for the suppressed step");
+  equal(current.triggers.fired["region:0"], true, "the program's fired state is untouched, so it is not re-armed either");
+});
+
+test("R-68 suppresses the battle check while a blocking script is alive", () => {
+  const battleBoard = { ...board([], []), allowBattles: 1 } as WorldBoard;
+  const current = stateWith(battleBoard);
+  const sourceTile = pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, 48, 63);
+  current.sprites.randomEncounter = { boardKey: battleBoard.key, tile: sourceTile, tiles: 0 };
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const posts: string[] = [];
+  for (let tick = 0; tick < 30; tick += 1) {
+    current.time = { ...current.time, tick };
+    movementPhaseRegistration().run(current);
+    runRandomEncounterPhase(current, { fightingDisabled: 0, enemies: [], fightType: 0, chances: 1, useCustomFightPrg: 0, customFightPrg: "" }, (_section, effect) => posts.push(effect.name));
+  }
+  equal(current.sprites.players[0]?.x, 80, "the step itself still completes");
+  equal(posts.length, 0, "the random-battle test is end-of-step processing and does not run (R-68 item 1)");
+  deepEqual(current.sprites.randomEncounter?.tile, pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, 80, 63), "no test runs, but the tile the step reached is recorded so no deferred roll happens");
+});
+
+test("R-68 counts a pathfinding walk once per completed step, not once per tick", () => {
+  const walkRegion = [{ x: 64, y: 47 }, { x: 160, y: 47 }, { x: 160, y: 79 }, { x: 64, y: 79 }] as WorldProgram["points"];
+  const currentBoard = board([], [repeatRegion(walkRegion, TILE)]);
+  const current = stateWith(currentBoard);
+  enqueuePathMove(current.sprites, currentBoard, "hero", { x: 48 + 3 * TILE, y: 63 }, 1);
+  let fires = 0;
+  let ticksInside = 0;
+  for (let tick = 0; tick < 100; tick += 1) {
+    current.time = { ...current.time, tick };
+    movementPhaseRegistration().run(current);
+    if (runTriggersPhase(current, { programRef }).some((record) => record.type === "trigger-start")) fires += 1;
+    current.vm = {
+      ...current.vm,
+      threads: current.vm.threads.map((thread) => thread.kind === "blocking" ? { ...thread, status: "finished" as const } : thread),
+    };
+    if ((current.sprites.players[0]?.x ?? 48) > 48) ticksInside += 1;
+  }
+  equal(current.sprites.players[0]?.x, 48 + 3 * TILE, "the walk reaches the goal");
+  equal(ticksInside > fires, true, `the walk spends ${ticksInside} ticks in the region and fires fewer times`);
+  equal(fires, 3, "one firing per completed 32 px step (R-68 item 4 keeps per-step processing)");
+});
+
+// R-68: one captured decision per tick (review 1) ---------------------------------
+
+function battleConfig() {
+  return { fightingDisabled: 0, enemies: [], fightType: 0, chances: 1, useCustomFightPrg: 0, customFightPrg: "" };
+}
+
+test("R-68: the battle test obeys the tick's captured decision, not a program the trigger phase just started", () => {
+  // The engine captures end-of-step suppression at the movement phase, before any trigger program runs, and
+  // hands that value to both the trigger phase and the battle test. A counted blocked step whose destination
+  // region fires a blocking step program must therefore still run its destination battle check on that tick.
+  const current = stateWith(board([wall(76, 84)], [repeatRegion(EAST_TILE, TILE)]));
+  const battleBoard = { ...current.world.board!, allowBattles: 1 } as WorldBoard;
+  current.world = { ...current.world, board: battleBoard };
+  current.sprites.randomEncounter = { boardKey: battleBoard.key, tile: pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, 48, 63), tiles: 0 };
+  current.time = { ...current.time, tick: 0 };
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const captured = false;
+  movementPhaseRegistration().run(current, undefined, { endOfStepSuppressed: captured });
+  const events = runTriggersPhase(current, { programRef, endOfStepSuppressed: captured });
+  equal(events.some((record) => record.type === "trigger-start"), true, "the step region's program starts");
+  equal(current.vm.threads.some((thread) => thread.kind === "blocking" && thread.status !== "finished"), true, "and is live");
+  const posts: string[] = [];
+  runRandomEncounterPhase(current, battleConfig(), (_section, effect) => posts.push(effect.name), captured);
+  deepEqual(posts, ["battle.noEnemies"], "the destination battle check still runs in the same tick");
+  deepEqual(current.sprites.randomEncounter?.tile, pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, 48, 63), "progress keeps the actor's real tile");
+});
+
+test("R-68: the trigger phase obeys the captured decision after a blocking program is already live", () => {
+  // A program was already live when the tick's decision was taken, so the captured answer is "not suppressed"
+  // only if it was taken before that program existed. Re-arming is the observable: the step's destination is
+  // outside the region, so the region must be re-armed, which the live predicate would skip.
+  const current = stateWith(board([wall(24, 28, "west"), wall(76, 84)], [repeatRegion(EAST_TILE, 2 * TILE)]));
+  equal(pressAndProcess(current, 0), true, "a free-roaming press fires the region on entry");
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  current.time = { ...current.time, tick: 1 };
+  enqueueDirectionMove(current.sprites, "hero", "W", 0);
+  movementPhaseRegistration().run(current, undefined, { endOfStepSuppressed: false });
+  runTriggersPhase(current, { programRef, endOfStepSuppressed: false });
+  equal(current.triggers.fired["region:0"], undefined, "the captured decision, not the live thread, governs re-arming");
+});
+
+test("R-68: a suppressed completed step records its tile so the program-end tick holds no deferred roll", () => {
+  const current = stateWith(board([], []) as WorldBoard);
+  const battleBoard = { ...current.world.board!, allowBattles: 1 } as WorldBoard;
+  current.world = { ...current.world, board: battleBoard };
+  const tile = (x: number) => pixelToTile(coordLayout(battleBoard.coordType), battleBoard.sizeX, x, 63);
+  current.sprites.randomEncounter = { boardKey: battleBoard.key, tile: tile(48), tiles: 0 };
+  // A program drove the player one tile east while it was live: the completion tick is suppressed.
+  current.sprites.players[0] = { ...current.sprites.players[0]!, x: 80, movement: { ...current.sprites.players[0]!.movement, lastStepTick: 0, lastStepBlocked: false } };
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  current.time = { ...current.time, tick: 0 };
+  const posts: string[] = [];
+  runRandomEncounterPhase(current, battleConfig(), (_section, effect) => posts.push(effect.name));
+  deepEqual(posts, [], "no test runs while the program is live");
+  deepEqual(current.sprites.randomEncounter?.tile, tile(80), "the tile the program walked onto is recorded, not tested");
+  // The program ends; the next tick must not roll for the tile it already recorded.
+  current.vm = { ...current.vm, threads: current.vm.threads.map((thread) => ({ ...thread, status: "finished" as const })) };
+  current.time = { ...current.time, tick: 1 };
+  runRandomEncounterPhase(current, battleConfig(), (_section, effect) => posts.push(effect.name));
+  deepEqual(posts, [], "no deferred draw on the tick the program ends");
+});
+
+test("R-68: multiRun run from a blocking program is suppressed", () => {
+  // Proposed (owner note) in the movement oracle plan: R-68 item 2 suppresses exactly while a live blocking
+  // thread exists, while item 3 names `multiRun` as free-roaming. A `multiRun` started BY a blocking program
+  // satisfies both readings; the implementation follows item 2's exact predicate (caller-independent), which
+  // this test pins so a later ruling flips a visible assertion rather than silent behaviour.
+  const current = stateWith(board([], [repeatRegion(EAST_TILE, TILE)]));
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  current.time = { ...current.time, tick: 0 };
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const events: MovementEvent[] = [];
+  let started = false;
+  for (let tick = 0; tick < 60; tick += 1) {
+    current.time = { ...current.time, tick };
+    movementPhaseRegistration({ onEvent: (record) => events.push(record) }).run(current);
+    if (runTriggersPhase(current, { programRef }).some((record) => record.type === "trigger-start")) started = true;
+  }
+  equal(current.sprites.players[0]?.x, 112, "both multiRun-style steps complete");
+  equal(started, false, "no step-triggered program runs");
+  equal(current.party.steps, 0, "no party step is counted");
+  equal(current.party.stepRemainder, 0);
+  equal(events.some((record) => record.type === "step-complete" && record.partyDistance256 === 0), true, "the completed steps report no party contribution");
 });

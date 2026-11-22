@@ -4,7 +4,12 @@
   "note": "Authored from docs/spec; expected facts are derived by tools/fixtures/movement, not by packages/core. No state or draw hashes: later entries assert those.",
   "tick": "60 Hz fixed; phases input, waits, threads, events, movement, edges, triggers, animation, audio, time (AD-26); random encounters hand off from triggers.",
   "units": "board pixels; fractions are exact multiples of 1/256",
-  "spec": ["main-loop-and-startup.md#e-33","movement-and-collision.md#e-22","rpgcode-language.md#threads"],
+  "spec": [
+    "main-loop-and-startup.md#e-33",
+    "movement-and-collision.md#e-22",
+    "movement-and-collision.md#r-68",
+    "rpgcode-language.md#threads"
+  ],
   "proposed": ["P-15"],
   "cases": [
     {
@@ -239,6 +244,146 @@
         {"t":37,"a":[["hero",112,63,0,"waiting","E"]],"th":{"main":"done"}},
         {"t":38,"a":[["hero",112,63,0,"waiting","E"]],"th":{"main":"done"}},
         {"t":39,"a":[["hero",112,63,0,"waiting","E"]],"th":{"main":"done"}}
+      ]
+    },
+    {
+      "name": "blocking-program-step-suppresses-end-of-step-processing",
+      "note": "R-68 item 2: an ordinary (blocking) program's movement completes, but while that live blocking thread exists no step-triggered program, repeat distance or battle check runs — the repeat region east of the hero never fires, though the step itself completes at x 80 and the program resumes the tick after.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [
+              {
+                "id": "step-region",
+                "type": "repeat",
+                "layer": 0,
+                "closed": true,
+                "points": [[64,47],[160,47],[160,79],[64,79]],
+                "program": "step-region.prg",
+                "distanceRepeat": 32
+              }
+            ],
+            "items": [],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}],
+        "threads": [
+          {
+            "id": "main",
+            "kind": "blocking",
+            "start": 0,
+            "program": [{"op":"push","actor":"hero","dirs":"E"},{"op":"emit","name":"walked"},{"op":"end"}]
+          }
+        ]
+      },
+      "script": [],
+      "ticks": 20,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",52,63,0,"moving","E"]],"th":{"main":"wait:movement"},"ev":[{"e":"thread-start","id":"main","kind":"blocking"}]},
+        {"t":1,"a":[["hero",56,63,0,"moving","E"]],"th":{"main":"wait:movement"}},
+        {"t":2,"a":[["hero",60,63,0,"moving","E"]],"th":{"main":"wait:movement"}},
+        {"t":3,"a":[["hero",64,63,0,"moving","E"]],"th":{"main":"wait:movement"}},
+        {"t":4,"a":[["hero",68,63,0,"moving","E"]],"th":{"main":"wait:movement"}},
+        {"t":5,"a":[["hero",72,63,0,"moving","E"]],"th":{"main":"wait:movement"}},
+        {"t":6,"a":[["hero",76,63,0,"moving","E"]],"th":{"main":"wait:movement"}},
+        {"t":7,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"wait:movement"},"ev":[{"e":"step-complete","actor":"hero"},{"e":"movement-complete","actor":"hero"}]},
+        {"t":8,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"},"ev":[{"e":"walked","thread":"main"},{"e":"thread-end","thread":"main"}]},
+        {"t":9,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":10,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":11,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":12,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":13,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":14,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":15,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":16,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":17,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":18,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}},
+        {"t":19,"a":[["hero",80,63,0,"waiting","E"]],"th":{"main":"done"}}
+      ]
+    },
+    {
+      "name": "background-thread-movement-counts-as-free-roaming",
+      "note": "R-68 item 3: a board (background) thread parked in its own global movement wait is not a blocking script, so the same step runs end-of-step processing and the 32 px repeat region fires when the step completes.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [
+              {
+                "id": "step-region",
+                "type": "repeat",
+                "layer": 0,
+                "closed": true,
+                "points": [[64,47],[160,47],[160,79],[64,79]],
+                "program": "step-region.prg",
+                "distanceRepeat": 32
+              }
+            ],
+            "items": [],
+            "links": {},
+            "threads": []
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}],
+        "threads": [
+          {
+            "id": "worker",
+            "kind": "board",
+            "start": 0,
+            "program": [{"op":"push","actor":"hero","dirs":"E","flags":1},{"op":"emit","name":"walked"},{"op":"end"}]
+          }
+        ]
+      },
+      "script": [],
+      "ticks": 20,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",52,63,0,"moving","E"]],"th":{"worker":"wait:movement"},"ev":[{"e":"thread-start","id":"worker","kind":"board"}]},
+        {"t":1,"a":[["hero",56,63,0,"moving","E"]],"th":{"worker":"wait:movement"}},
+        {"t":2,"a":[["hero",60,63,0,"moving","E"]],"th":{"worker":"wait:movement"}},
+        {"t":3,"a":[["hero",64,63,0,"moving","E"]],"th":{"worker":"wait:movement"}},
+        {"t":4,"a":[["hero",68,63,0,"moving","E"]],"th":{"worker":"wait:movement"}},
+        {"t":5,"a":[["hero",72,63,0,"moving","E"]],"th":{"worker":"wait:movement"}},
+        {"t":6,"a":[["hero",76,63,0,"moving","E"]],"th":{"worker":"wait:movement"}},
+        {"t":7,"a":[["hero",80,63,0,"waiting","E"]],"fired":[{"kind":"region","id":"step-region","program":"step-region.prg"}],"th":{"worker":"wait:movement"},"ev":[{"e":"step-complete","actor":"hero"},{"e":"movement-complete","actor":"hero"}]},
+        {"t":8,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"},"ev":[{"e":"walked","thread":"worker"},{"e":"thread-end","thread":"worker"}]},
+        {"t":9,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":10,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":11,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":12,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":13,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":14,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":15,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":16,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":17,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":18,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}},
+        {"t":19,"a":[["hero",80,63,0,"waiting","E"]],"th":{"worker":"done"}}
       ]
     },
     {
