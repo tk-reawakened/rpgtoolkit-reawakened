@@ -725,12 +725,109 @@ jobs:
           path: test-results/
           if-no-files-found: ignore
           retention-days: 14
-  # The mobile lane builds and drives the real Capacitor APK on Android 16.
-  # The proof script captures the page's own readings and fails instead of
-  # substituting browser stubs or synthetic reports. Mobile results are
-  # advisory while mobile work is paused (#1935).
-  mobile:
+  # The mobile APK build is REQUIRED: dependency resolution is part of what a pull request must keep working.
+  # Only the emulator proof is advisory while mobile work is paused (#1935). `mobile-proof-present` (below) is
+  # required, so an advisory proof still has to exist and report a verdict.
+  mobile-build:
     needs: [changes]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: mobile-build
+          CHANGES: ${{ needs.changes.result }}
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$CHANGES" = success ] && [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          elif [ "$CHANGES" != success ]; then
+            echo "CI classifier [$JOB]: RUN - changes job result was '$CHANGES' (${REASON:-no classifier verdict})"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - name: Reclaim unused hosted-runner toolchains
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        run: |
+          df -h "$HOME"
+          # These toolchains are not used by the Android build; leave the SDK, Java and Node intact.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          df -h "$HOME"
+      - uses: pnpm/action-setup@v6
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - uses: actions/setup-node@v7
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        with:
+          packages: platform-tools
+      - run: sdkmanager "platforms;android-33" "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0" "build-tools;37.0.0"
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      # Warm the pinned Capacitor/AGP dependency graph: most of the 429 exposure is a cold download of the same artifacts
+      # on every run (#2721). The key follows the lockfile and the Capacitor configuration.
+      - uses: actions/cache@v6
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        with:
+          path: |
+            ~/.gradle/caches/modules-2
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'packages/runner-mobile/capacitor.config.json') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: pnpm build
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: pnpm fixtures:fetch
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo --out fixtures/packages/demo.tpk --title Demo
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - run: pnpm mobile:build
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - name: Add Android platform
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        run: cd packages/runner-mobile && npx cap add android
+      - name: Sync Capacitor Android project
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        run: cd packages/runner-mobile && npx cap sync android
+      # The wrapper retries only transient dependency failures (429/5xx/timeouts) with bounded backoff, passes Gradle's
+      # internal retry budget, and fails loudly if Gradle exits 0 without a non-empty APK (#2721).
+      - name: Assemble debug APK
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        working-directory: packages/runner-mobile/android
+        run: node ../../../tools/mobile/gradle-build.mjs --attempts 3 --delays 10000,30000
+      - uses: actions/upload-artifact@v6
+        if: always() && (needs.changes.result != 'success' || needs.changes.outputs.full != 'false')
+        with:
+          name: mobile-apk
+          path: artifacts/mobile-build/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v6
+        if: always() && (needs.changes.result != 'success' || needs.changes.outputs.full != 'false')
+        with:
+          name: mobile-gradle-attempts
+          path: artifacts/mobile-build/attempts.json
+          if-no-files-found: error
+          retention-days: 7
+  # Advisory: the emulator proof only. It downloads the required APK instead of building it again.
+  mobile:
+    needs: [changes, mobile-build]
     if: ${{ !cancelled() }}
     continue-on-error: true
     runs-on: ubuntu-24.04
@@ -786,21 +883,12 @@ jobs:
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
       - run: pnpm build
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - run: pnpm fixtures:fetch
+      - name: Download the debug APK
+        uses: actions/download-artifact@v8
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - run: pnpm make-package fixtures/legacy/demo --closing-plan golden/closing/plan.json --game demo --out fixtures/packages/demo.tpk --title Demo
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - run: pnpm mobile:build
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-      - name: Add Android platform
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: cd packages/runner-mobile && npx cap add android
-      - name: Sync Capacitor Android project
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: cd packages/runner-mobile && npx cap sync android
-      - name: Assemble debug APK
-        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
-        run: cd packages/runner-mobile/android && ./gradlew assembleDebug
+        with:
+          name: mobile-apk
+          path: packages/runner-mobile/android/app/build/outputs/apk/debug
       - name: Install Playwright Android driver
         if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
         run: pnpm exec playwright install android
@@ -863,9 +951,43 @@ jobs:
           name: mobile-android-api36-proof
           path: artifacts/mobile-proof/
           if-no-files-found: error
+  # Required: a proof must exist and report a verdict. A proof that failed still passes here, because the emulator lane
+  # is advisory (#1935); a missing, empty or unparseable proof does not (#2721).
+  mobile-proof-present:
+    needs: [changes, mobile]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: CI classifier decision
+        shell: bash
+        env:
+          JOB: mobile-proof-present
+          CHANGES: ${{ needs.changes.result }}
+          FULL: ${{ needs.changes.outputs.full }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          if [ "$CHANGES" = success ] && [ "$FULL" = false ]; then
+            echo "CI classifier [$JOB]: DEFER - nothing this job guards could have changed; $REASON"
+          elif [ "$CHANGES" != success ]; then
+            echo "CI classifier [$JOB]: RUN - changes job result was '$CHANGES' (${REASON:-no classifier verdict})"
+          else
+            echo "CI classifier [$JOB]: RUN - ${REASON:-full: no classifier verdict, treated as full}"
+          fi
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+      - uses: actions/download-artifact@v8
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
+        with:
+          name: mobile-android-api36-proof
+          path: artifacts/mobile-proof
+      - run: node tools/mobile/proof-present.mjs artifacts/mobile-proof/readings.json
+        if: needs.changes.result != 'success' || needs.changes.outputs.full != 'false'
   gate:
-    # The advisory mobile proof runs independently of the required gate.
-    needs: [changes, checks, unit, golden, golden-bun, browser, vscode-web, desktop, script-dogfood]
+    # The APK build and the presence of a proof are required; only the emulator proof itself is advisory (#1935).
+    needs: [changes, checks, unit, golden, golden-bun, browser, vscode-web, desktop, mobile-build, mobile-proof-present, script-dogfood]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
