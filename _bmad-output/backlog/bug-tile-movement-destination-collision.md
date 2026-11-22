@@ -49,16 +49,27 @@ The board-vector collision check appears to run against intermediate animation a
    **Given** a linked edge whose arrival is out of bounds, on too high a layer, solid, unloadable, or cancelled by `beforeEnter`
    **When** the player steps into it
    **Then** the player stays on the source board at the last safe position, its queue is unchanged, and no `step-complete`, party step, trigger, battle check or destination-board effect occurs ([R-66](../../docs/spec/engine/movement-and-collision.md#r-66)).
+5. **A counted blocked step advances and re-fires repeat distance**
+   **Given** a repeat board program whose area contains the tile in front of a wall and whose `distanceRepeat` is 32 px
+   **When** the player presses into the wall and the step is counted
+   **Then** the step adds one step's worth (32 px) to that program's repeat distance and fires it once per press, while a press whose attempted destination is outside the program's area resets the counter as a normal step leaving the area does ([R-67](../../docs/spec/engine/movement-and-collision.md#r-67)).
+6. **End-of-step processing has one suppression predicate**
+   **Given** the same completed and blocked player steps driven free-roaming, by an ordinary program's blocking movement, and by a thread or multitask program
+   **When** each step ends
+   **Then** the ordinary program's synchronous turn runs none of the party step counter, step-triggered programs and items, repeat distances or random-battle test, while thread- and multitask-driven movement runs all of it as free-roaming, and pathfinding runs it once per completed step rather than once per frame ([R-68](../../docs/spec/engine/movement-and-collision.md#r-68)).
 
 ## References
 
 - issue — https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1281
-- spec — docs/spec/engine/movement-and-collision.md, E-135, R-63, R-64, R-65 and R-66; docs/adr/0040-tile-step-precheck-queues-and-linked-edge-preflight.md
+- spec — docs/spec/engine/movement-and-collision.md, E-135, E-42, R-63, R-64, R-65, R-66, R-67 and R-68; docs/spec/engine/rpgcode-functions.md#r-69; docs/adr/0040-tile-step-precheck-queues-and-linked-edge-preflight.md; docs/adr/0041-blocked-step-repeat-distance-program-driven-steps-and-getpath.md
 - related issues — https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1300 and https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1290
 
 ## Notes
 
-- Settled 2026-11-21 by approved owner rulings R-63 to R-66 (owner: Jensen; ADR 0040): the destination is prechecked and a later solid stops at the last safe position; a blocked player direction step is consumed and counted while a non-player retries; queued directions are recomputed from the last safe position while points stay absolute; and a linked-edge arrival is preflighted before movement commits, with the queue kept on refusal. The prerequisites #1300 and #1290 are answered by R-65 and R-66; implementation follows criteria 1 to 4 and amends nothing further in the spec.
+- Settled 2026-11-21 by approved owner rulings R-63 to R-66 (owner: Jensen; ADR 0040): the destination is prechecked and a later solid stops at the last safe position; a blocked player direction step is consumed and counted while a non-player retries; queued directions are recomputed from the last safe position while points stay absolute; and a linked-edge arrival is preflighted before movement commits, with the queue kept on refusal. The prerequisites #1300 and #1290 are answered by R-65 and R-66; implementation follows criteria 1 to 6 and amends nothing further in the spec.
 - Evidence behind the rulings: docs/provenance/facts-round-17.md (R17-Q1 to R17-Q4), with its certain/probable labels.
+- Added 2026-11-21 by approved owner rulings R-67 and R-68 (owner: Jensen; ADR 0041): a counted blocked step adds one step's worth (32 px in tile mode) to every repeat program whose area the attempted destination overlaps and resets the rest as a normal step leaving the area does, so pressing into a wall can re-fire a repeat program once per press (criterion 5); and one live-blocking-thread predicate suppresses all end-of-step processing for completed and blocked steps, while thread- and multitask-driven movement counts as free-roaming and pathfinding counts per completed step (criterion 6). Neither is implemented yet.
+- Implementation follow-ups for criteria 5 and 6 (verified against current `main`): the movement phase's counted blocked step does not advance repeat distance, so the generated case `blocked-counted-step-does-not-leak-into-repeat-distance` and the `P-19` entry in the movement fixture registry encode the superseded answer and must be re-recorded; and the counted blocked step is currently gated by the full script-ownership test (which includes any thread's global wait) rather than by a live blocking thread, while completed steps count regardless of one. Both change only behaviour, not state shapes.
+- R-69 is the separate path-query contract for `playergetpath`/`itemgetpath`, tracked by https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3315. No ticket in `_bmad-output/` carries that tracker id (`resolve_issue.py "#3315" --check-stock` reports `not_found`), so no ticket was created or edited for it; this ticket does not implement R-69.
 
 - Risk: medium — a wall can stop a tile move at an intermediate position, impairing movement while leaving a workaround.
