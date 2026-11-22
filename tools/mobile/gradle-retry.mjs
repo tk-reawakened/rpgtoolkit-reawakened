@@ -19,9 +19,10 @@ export const TRANSIENT_GRADLE_FAILURES = [
   /\bCould not resolve host\b/i,
   // `Could not GET` also carries a status code; a 404 line is caught by the permanent list, which wins.
   /\bCould not (?:GET|HEAD|download)\b/i,
-  // Only retried when a transient marker is present on the same line or elsewhere in the log.
-  /\bCould not resolve all (?:files|dependencies) for configuration\b/i,
 ];
+
+/** A resolution failure line that is only evidence when another transient marker explains it. */
+export const GRADLE_RESOLVE_CONTEXT = /\bCould not resolve all (?:files|dependencies) for configuration\b/i;
 
 /** Failures no retry can fix. A permanent marker anywhere in the output wins over every transient one. */
 export const PERMANENT_GRADLE_FAILURES = [
@@ -41,6 +42,7 @@ export const PERMANENT_GRADLE_FAILURES = [
  */
 export function classifyGradleFailure(text) {
   const evidence = [];
+  const context = [];
   const permanent = [];
   for (const line of String(text ?? "").split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -49,12 +51,14 @@ export function classifyGradleFailure(text) {
       if (!permanent.includes(trimmed)) permanent.push(trimmed);
       continue;
     }
-    if (TRANSIENT_GRADLE_FAILURES.some((pattern) => pattern.test(trimmed)) && !evidence.includes(trimmed)) {
-      evidence.push(trimmed);
+    if (TRANSIENT_GRADLE_FAILURES.some((pattern) => pattern.test(trimmed))) {
+      if (!evidence.includes(trimmed)) evidence.push(trimmed);
+    } else if (GRADLE_RESOLVE_CONTEXT.test(trimmed) && !context.includes(trimmed)) {
+      context.push(trimmed);
     }
   }
   if (permanent.length > 0) return { retryable: false, evidence: [], permanent };
-  if (evidence.length > 0) return { retryable: true, evidence, permanent: [] };
+  if (evidence.length > 0) return { retryable: true, evidence: [...evidence, ...context], permanent: [] };
   return { retryable: false, evidence: [], permanent: [] };
 }
 

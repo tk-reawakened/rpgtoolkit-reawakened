@@ -109,7 +109,7 @@ export async function launchWithRecovery({
   for (let index = 0; index < attempts; index += 1) {
     try {
       const value = await attempt(index);
-      return { value, attempts: index + 1, delays, evidence, records };
+      return { value, attempts: index + 1, delays, evidence: [...new Set(evidence)], records };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const classification = classify({ message, log: error?.log ?? "" });
