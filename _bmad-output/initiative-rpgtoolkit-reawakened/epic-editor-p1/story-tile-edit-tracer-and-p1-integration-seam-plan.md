@@ -3,11 +3,14 @@ title: 'Tile edit tracer and P1 integration seam'
 type: feature
 ticket: 1
 created: '2026-11-22'
-status: draft
+status: built
 baseline_revision: 025c41609b6940fbc574d4bdb4707032ea30b0d2
 route: full
 route_source: auto
 risk: medium
+review: quick
+review_source: pinned
+lenses_ran: [hosts, ui-and-proofs]
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
@@ -42,9 +45,9 @@ risk: medium
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `packages/editor-ui/src/tileset-browser.tsx`, `mount.ts`, `tileset-art-view.tsx` — expose source editing by provider capability and carry the exact initial tile through the shared mount/visit interface.
-- [ ] `packages/host-web/src/workbench.ts`, `index.ts`, `packages/host-vscode/src/webview.tsx` and its source-visit handler — target the existing editor, preserve one document per URI and restore the board context; fix saved asset invalidation if the proof identifies a gap.
-- [ ] `tools/browser/tests/editor-artwork.spec.ts` and the VS Code artwork proof — exercise the same user path in both hosts with a non-first tile and asymmetric pixel; independently prove persisted artwork, rendered board pixel and unchanged unrelated records.
+- [x] `packages/editor-ui/src/tileset-browser.tsx`, `mount.ts`, `tileset-art-view.tsx` — expose source editing by provider capability and carry the exact initial tile through the shared mount/visit interface.
+- [x] `packages/host-web/src/workbench.ts`, `index.ts`, `packages/host-vscode/src/webview.tsx` and its source-visit handler — target the existing editor, preserve one document per URI and restore the board context; fix saved asset invalidation if the proof identifies a gap.
+- [x] `tools/browser/tests/editor-artwork.spec.ts` and the VS Code artwork proof — exercise the same user path in both hosts with a non-first tile and asymmetric pixel; independently prove persisted artwork, rendered board pixel and unchanged unrelated records.
 
 **Acceptance criteria:**
 - Given an active board with a supported `.tst` source, when the author opens a non-first source tile through More actions with the keyboard, then that tile is selected in its artwork editor and returning leaves the origin board unchanged.
@@ -53,11 +56,23 @@ risk: medium
 
 ## Implementation Notes
 
+`SourceVisit { path, tile }` in `editor-ui` is the shared source-visit contract; the browser chooses Edit tile artwork or Edit tile bitmap from the document-kind registry and otherwise shows an unavailable action. A tile reveal is view state only. The browser workbench reveals through the mounted view; VS Code passes a validated `visit-source` request, gives a new document its tile once and notifies already-open views. No saved-asset invalidation gap was found: returning to the board recomposes the saved artwork through the existing refresh hooks.
+
 ## Plan Change Log
 
 ## Review Triage Log
+
+| Finding | Verdict | Evidence and disposition |
+|---|---|---|
+| Hosts: a pending VS Code tile outlived a visit that opened without the artwork editor and reached a later ordinary open | Patch | Delete after every visit and report the unopened editor; `packages/host-vscode/test/source-visit.test.ts` (#3339). |
+| Hosts: every new VS Code webview of the document was sent back to the visited tile | Patch | One initializing view receives it; same test (#3339). Residual already-open split edge deferred to #3340. |
+| UI/proofs: browser byte oracle transposed column-major pixels; VS Code oracle edited tile 1 for any tile | Patch | Both oracles corrected before the proofs passed. |
+| UI/proofs: reopen, already-open visit with draft/history, and clamp were unasserted or weak | Patch | Browser journey reopens and visits a dirty open document; clamp test starts from tile 1. VS Code's same-document two-view history remains proved by the browser lane. |
+| Proof run: More actions closed when the browser list reloaded | Patch | Menu keyed by row reference, closed on source change; failing-then-passing unit test (#3338). |
 
 ## Verification
 
 - Run the focused Playwright artwork case in the `editor-web` lane and the matching real VS Code Web artwork proof. Verify changed artwork and board with independent saved-byte assertions, and the actual board preview with a pixel check.
 - Run affected test typechecks and focused document/tileset browser tests. Use the existing real-host integration lanes; no extra duplicate browser lane.
+
+Local results on Node 24.21.0: Chromium `editor-artwork.spec.ts` 3/3; packaged VS Code Web `run.mjs` with the example game passed cancel and keep lanes including the board-to-tile journey; focused editor-ui, host-vscode, host-web, kind-conformance and harness tests, TypeScript builds and test typechecks, scoped lint, dependency graph, provenance and help-content check.
