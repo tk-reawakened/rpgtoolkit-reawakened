@@ -20,6 +20,7 @@ import { ScriptError } from "../errors.ts";
 import { readCharacter } from "../../formats/actor/character.ts";
 import { BinaryReader } from "../../formats/binary/reader.ts";
 import { actorInputFromCharacter } from "../../actors/hydrate.ts";
+import { toNumberValue } from "../values.ts";
 
 const PAUSE = 1;
 const PATHFIND = 4;
@@ -33,19 +34,91 @@ function queueEnd(actorValue: SpriteActor): SpritePoint {
   return point;
 }
 /**
- * Where queue entry `index` would end (owner ruling on ambiguity 4): walk the queue in order from the
- * active step's target, else the actor's position, expanding relative direction entries. Point entries
- * keep their absolute target. Undefined means the index is outside the queue.
+ * Every destination the actor still has, in the order R-69 reports them: the active step's target, each FIFO
+ * entry's computed target (a direction is relative intent from the previous point, R-65), then a **copied**
+ * waypoint's remaining points for its current cycle. A linked waypoint is not a queue and contributes nothing.
  */
-function queuedDestination(actorValue: SpriteActor, index: number): SpritePoint | undefined {
-  if (index < 0 || index >= actorValue.queue.moves.length) return undefined;
-  let point: SpritePoint = actorValue.movement.active?.target ?? { x: actorValue.x, y: actorValue.y };
-  for (let cursor = 0; cursor <= index; cursor += 1) {
-    const move = actorValue.queue.moves[cursor];
-    if (move === undefined) return undefined;
+function queuedTargets(actorValue: SpriteActor): SpritePoint[] {
+  const active = actorValue.movement.active;
+  const targets: SpritePoint[] = [];
+  let point: SpritePoint = active?.target ?? { x: actorValue.x, y: actorValue.y };
+  // R-69 item 5: a linked waypoint is not a queue, so even its in-progress step is not a counted entry. A
+  // copied waypoint's step (source "waypoint-path") is a queued entry and is counted like any point route.
+  if (active !== null && active.source !== "waypoint-link") targets.push({ x: point.x, y: point.y });
+  for (const move of actorValue.queue.moves) {
     point = moveDestination(move, point);
+    targets.push(point);
   }
-  return point;
+  const waypoint = actorValue.queue.waypoint;
+  if (waypoint !== null && !waypoint.live && waypoint.points.length > 0) {
+    // Mirrors waypointMove's advance: the cursor is one past the last expanded point, so at the end of a
+    // cycle the next one starts again at its first point, and `cycles` (0 = forever) bounds the count.
+    let cycle = waypoint.cycle;
+    let cursor = waypoint.cursor;
+    if (cursor >= waypoint.points.length) {
+      cycle += 1;
+      cursor = 0;
+    }
+    if (waypoint.cycles === 0 || cycle < waypoint.cycles) targets.push(...waypoint.points.slice(cursor));
+  }
+  return targets;
+}
+/** Compared like battle.ts's actor resolver: case-insensitive, slashes unified. */
+function foldedPathHandle(value: string): string {
+  return value.replaceAll("\\", "/").trim().toLowerCase();
+}
+/**
+ * The calling thread's `source`/`target` value (E-94/E-95), or undefined when `arg` is not one of those
+ * handles. The raw value is private to this resolver; it is never handed back for another command to re-read.
+ */
+function pathContextValue(view: CommandView, arg: Value | undefined): string | null | undefined {
+  if (typeof arg !== "string") return undefined;
+  const token = arg.toLowerCase();
+  if (token !== "source" && token !== "target") return undefined;
+  const thread = view.state?.vm.threads.find((candidate) => candidate.id === view.thread);
+  return (token === "source" ? thread?.source : thread?.target) ?? null;
+}
+/**
+ * Whether a sprite answers any form the engine writes into a thread's source/target: sprite id or source,
+ * an item key, an actor-id string, or the linked actor record's name or source (vm.ts `hasLiveEntityHandle`).
+ */
+function pathSpriteMatches(state: GameState | undefined, value: SpriteActor, wanted: string, kind: "player" | "item"): boolean {
+  if (foldedPathHandle(value.id) === wanted || foldedPathHandle(value.source) === wanted) return true;
+  if (kind === "item" && foldedPathHandle(itemKey(value)) === wanted) return true;
+  if (value.actorId === null || value.actorId === undefined) return false;
+  if (String(value.actorId) === wanted) return true;
+  const record = state?.actors.actors.find((actor) => actor.id === value.actorId);
+  return record !== undefined && (foldedPathHandle(record.name) === wanted || foldedPathHandle(record.source) === wanted);
+}
+/**
+ * R-69 item 8: a handle that names no live player or item has no queue to report, with 3.1's message text.
+ * Unlike the other movement built-ins, the path query resolves every form the engine writes into a thread's
+ * `"source"`/`"target"` context (E-94/E-95) through this private resolver; shared resolvers stay as on main.
+ */
+function pathActor(view: CommandView, kind: "player" | "item", arg: Value | undefined): SpriteActor {
+  const state = view.state;
+  const candidates = (kind === "player" ? state?.sprites.players : state?.sprites.items) ?? [];
+  const context = pathContextValue(view, arg);
+  if (context !== undefined) {
+    if (context !== null) {
+      const wanted = foldedPathHandle(context);
+      const value = candidates.find((candidate) => pathSpriteMatches(state, candidate, wanted, kind));
+      if (value !== undefined) return value;
+    }
+    throw new ScriptError("builtin.bad-arg", "player not found");
+  }
+  if (typeof arg === "number" || typeof arg === "string") {
+    const byId = candidates.find((value) => value.id === String(arg) || (kind === "item" && itemKey(value) === String(arg)));
+    if (byId !== undefined) return byId;
+    const index = typeof arg === "number" ? arg : Number(arg);
+    if (Number.isInteger(index) && (typeof arg === "number" || arg.trim() !== "")) {
+      const byIndex = kind === "player"
+        ? candidates.find((value) => value.index === index) ?? candidates[index]
+        : candidates.find((value) => value.handle === index || value.index === index);
+      if (byIndex !== undefined) return byIndex;
+    }
+  }
+  throw new ScriptError("builtin.bad-arg", "player not found");
 }
 
 function number(args: readonly Arg[], index: number, fallback = 0): number {
@@ -139,8 +212,12 @@ function movementResult(view: CommandView, id: string, kind: "player" | "item", 
   if (!waitFor(view, flags) || actorValue === null || (steps === 0 && !pending)) return { value: null, effects };
   return { value: null, effects, wait: { kind: "sprite.movement", global: blocking(view), actor: id } };
 }
-function docs(summary: string, behaviour: string, waits: BuiltinDoc["waits"] = { kind: "never", summary: "Does not wait." }): BuiltinDoc {
-  return { summary, behaviour, groups: ["players-party-sprite-movement-31", "mouse-buttons-cursor-maps-11"], tags: ["legacy"], waits };
+/** Native spec sections the movement commands appear in (tools/command-docs/check.mjs compares these). */
+const MOVEMENT_GROUPS = ["players-party-sprite-movement-31", "mouse-buttons-cursor-maps-11"] as const;
+const ITEM_GROUPS = ["items-inventory-shop-gold-28"] as const;
+const INPUT_GROUPS = ["message-window-text-fonts-30"] as const;
+function docs(summary: string, behaviour: string, waits: BuiltinDoc["waits"] = { kind: "never", summary: "Does not wait." }, groups: readonly string[] = MOVEMENT_GROUPS): BuiltinDoc {
+  return { summary, behaviour, groups: [...groups], tags: ["legacy"], waits };
 }
 function movementParams(): BuiltinSpec["params"] { return [{ name: "args", optional: true, byRef: false, variadic: true }]; }
 function direction(value: string): Facing {
@@ -188,7 +265,7 @@ function stanceResult(view: CommandView, id: string, kind: "player" | "item", st
 }
 const PUSH: BuiltinSpec = {
   name: "push", aliases: [], params: movementParams(),
-  doc: docs("Move the selected player or the player named by the optional handle.", "Queues each comma-separated direction as a 32-pixel step in modes 0 and 1 or an 8-pixel step in mode 2. A blocking program or the pause flag waits until that player's movement queue is idle; other threads continue.", { kind: "until-event", summary: "Waits for the player's queued movement to finish." }),
+  doc: docs("Push the player with the specified handle, or the default player if no handle is specified, along the given directions. The direction should be a comma delimited, but...", "Queues each comma-separated direction as a 32-pixel step in modes 0 and 1 or an 8-pixel step in mode 2. A blocking program or the pause flag waits until that player's movement queue is idle; other threads continue.", { kind: "until-event", summary: "Waits for the player's queued movement to finish." }),
   call: (view, args) => {
     const id = movementPlayerId(view, args[1]?.value);
     const flags = number(args, 2);
@@ -200,7 +277,7 @@ const PUSH: BuiltinSpec = {
 };
 const PUSH_ITEM: BuiltinSpec = {
   name: "pushitem", aliases: [], params: movementParams(),
-  doc: docs("Move an item in one or more directions.", "Queues each comma-separated direction as a 32-pixel step in modes 0 and 1 or an 8-pixel step in mode 2. A blocking program or the pause flag waits until that item's movement queue is idle."),
+  doc: docs("Push an item in a direction. Each direction queues a fixed movement target, and pause or blocking waits for completion.", "Queues each comma-separated direction as a 32-pixel step in modes 0 and 1 or an 8-pixel step in mode 2. A blocking program or the pause flag waits until that item's movement queue is idle.", undefined, ITEM_GROUPS),
   call: (view, args) => {
     const id = itemId(view, args[0]?.value as number | string ?? "");
     const flags = number(args, 2);
@@ -210,16 +287,16 @@ const PUSH_ITEM: BuiltinSpec = {
 };
 const PLAYER_STEP: BuiltinSpec = {
   name: "playerstep", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "flags", optional: true, byRef: false, variadic: false }],
-  doc: docs("Move a player to a board point.", "Finds a deterministic route to x,y, queues it, and waits only for a blocking thread or the pause flag."),
+  doc: docs("Move a player to a board point. The engine queues a deterministic path to `(x,y)`; a blocking thread or `tkMV_PAUSE` waits for movement completion.", "Finds a deterministic route to x,y, queues it, and waits only for a blocking thread or the pause flag."),
   call: (view, args) => { const id = movementPlayerId(view, args[0]?.value); const flags = number(args, 3); const value = actor(view, id, "player"); const state = view.state; const points = value === null || state?.world.board == null ? [] : routePoints(state.world.board, state.sprites, value, [{ x: number(args, 1), y: number(args, 2) }], (flags & 2) !== 0); return movementResult(view, id, "player", points.length, flags, args, true); },
 };
 const ITEM_STEP: BuiltinSpec = {
   name: "itemstep", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "flags", optional: true, byRef: false, variadic: false }],
-  doc: docs("Move an item to a board point.", "Finds a deterministic route to x,y, queues it, and waits only for a blocking thread or the pause flag."),
+  doc: docs("Move an item to a board point. The engine queues a deterministic path and pause or blocking waits for completion.", "Finds a deterministic route to x,y, queues it, and waits only for a blocking thread or the pause flag.", undefined, ITEM_GROUPS),
   call: (view, args) => { const id = itemId(view, args[0]?.value as number | string ?? ""); const flags = number(args, 3); const value = actor(view, id, "item"); const state = view.state; const points = value === null || state?.world.board == null ? [] : routePoints(state.world.board, state.sprites, value, [{ x: number(args, 1), y: number(args, 2) }], (flags & 2) !== 0); return movementResult(view, id, "item", points.length, flags, args, true); },
 };
 function pathCommand(name: "playerpath" | "itempath"): BuiltinSpec {
-  return { name, aliases: [], params: movementParams(), doc: docs("Queue a player or item path.", "Queues explicit points, a deterministic path-find route, or a copied/live-linked waypoint vector. The pause flag or a blocking program waits for completion."), call: (view, args) => {
+  return { name, aliases: [], params: movementParams(), doc: docs(name === "playerpath" ? "Give a player one or more destinations. Points, path-find mode, and waypoint copy/link mode are queued deterministically; pause or blocking waits through a finite path, or through the first traversal of a forever waypoint." : "Give an item destinations. Points, path-find mode, and waypoint copy/link mode are queued deterministically; pause or blocking waits through a finite path, or through the first traversal of a forever waypoint.", "Queues explicit points, a deterministic path-find route, or a copied/live-linked waypoint vector. The pause flag or a blocking program waits for completion.", undefined, name === "itempath" ? ITEM_GROUPS : undefined), call: (view, args) => {
     const kind = name === "playerpath" ? "player" : "item";
     const flags = number(args, 1); const id = kind === "player" ? movementPlayerId(view, args[0]?.value) : itemId(view, args[0]?.value as number | string ?? ""); const value = actor(view, id, kind); const board = view.state?.world.board; let points = pointsFromArgs(args, 2);
     if ((flags & (WAYPOINT | WAYPOINT_LINK)) !== 0) { const source = vector(view, string(args, 2)); points = source?.points ?? []; }
@@ -227,9 +304,9 @@ function pathCommand(name: "playerpath" | "itempath"): BuiltinSpec {
     return movementResult(view, id, kind, points.length, flags, args, true);
   } };
 }
-const PLAYER_LOCATION: BuiltinSpec = { name: "playerlocation", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }, { name: "layer", optional: false, byRef: true, variadic: false }], doc: docs("Read a player's location.", "Returns the player's current pixel x,y and one-based layer immediately through by-reference outputs."), call: (view, args) => { const value = actor(view, playerId(view, args[0]?.value as number | string ?? ""), "player"); return { value: value?.x ?? 0, out: [...output(args, 1, value?.x ?? 0), ...output(args, 2, value?.y ?? 0), ...output(args, 3, (value?.layer ?? 0) + 1)] }; } };
-const ITEM_LOCATION: BuiltinSpec = { ...PLAYER_LOCATION, name: "itemlocation", doc: docs("Read an item's location.", "Returns the item's current pixel x,y and one-based layer immediately through by-reference outputs."), call: (view, args) => { const value = actor(view, itemId(view, args[0]?.value as number | string ?? ""), "item"); return { value: value?.x ?? 0, out: [...output(args, 1, value?.x ?? 0), ...output(args, 2, value?.y ?? 0), ...output(args, 3, (value?.layer ?? 0) + 1)] }; } };
-const ACTIVE_PLAYER: BuiltinSpec = { name: "activeplayer", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }], doc: docs("Select the active party member.", "Resolves the supplied stable player handle and commits the selected actor id through the party owner."), call: (view, args) => {
+const PLAYER_LOCATION: BuiltinSpec = { name: "playerlocation", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }, { name: "layer", optional: false, byRef: true, variadic: false }], doc: docs("Read where a player is now. Pixel x/y and the one-based layer are written through the references.", "Returns the player's current pixel x,y and one-based layer immediately through by-reference outputs."), call: (view, args) => { const value = actor(view, playerId(view, args[0]?.value as number | string ?? ""), "player"); return { value: value?.x ?? 0, out: [...output(args, 1, value?.x ?? 0), ...output(args, 2, value?.y ?? 0), ...output(args, 3, (value?.layer ?? 0) + 1)] }; } };
+const ITEM_LOCATION: BuiltinSpec = { ...PLAYER_LOCATION, name: "itemlocation", doc: docs("Read where an item is now. Pixel x/y and the one-based layer are written through the references.", "Returns the item's current pixel x,y and one-based layer immediately through by-reference outputs.", undefined, ITEM_GROUPS), call: (view, args) => { const value = actor(view, itemId(view, args[0]?.value as number | string ?? ""), "item"); return { value: value?.x ?? 0, out: [...output(args, 1, value?.x ?? 0), ...output(args, 2, value?.y ?? 0), ...output(args, 3, (value?.layer ?? 0) + 1)] }; } };
+const ACTIVE_PLAYER: BuiltinSpec = { name: "activeplayer", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }], doc: docs("Choose or read the active player. Selection is stored by stable player handle.", "Resolves the supplied stable player handle and commits the selected actor id through the party owner."), call: (view, args) => {
   const party = view.state?.party;
   const raw = args[0]?.value;
   const member = typeof raw === "number"
@@ -256,7 +333,7 @@ function partyFileActor(view: CommandView, file: unknown): number | undefined {
   return view.state?.actors.actors.find((candidate) => candidate.kind === "party" && (candidate.source === file || candidate.name === file))?.id;
 }
 function partyFileAction(name: "addplayer" | "restoreplayer", type: "add" | "restore"): BuiltinSpec {
-  return { name, aliases: [], params: [{ name: "file", optional: false, byRef: false, variadic: false }], doc: docs(name === "addplayer" ? "Add a character-file-backed player to the party." : "Restore a previously removed player to the party.", "Applies a roster change through the party owner; addplayer requests and parses the character asset when it is not already hydrated."), call: (view, args) => {
+  return { name, aliases: [], params: [{ name: "file", optional: false, byRef: false, variadic: false }], doc: docs(name === "addplayer" ? "Add a player to the party." : "Restore a player who was previously on the team.", "Applies a roster change through the party owner; addplayer requests and parses the character asset when it is not already hydrated."), call: (view, args) => {
     const file = string(args, 0);
     const actorId = partyFileActor(view, file);
     if (actorId !== undefined) return { value: null, effects: [{ kind: "state-write", section: "party", args: [{ type, actorId }] }] };
@@ -270,13 +347,13 @@ function partyFileAction(name: "addplayer" | "restoreplayer", type: "add" | "res
 }
 const ADD_PLAYER = partyFileAction("addplayer", "add");
 const RESTORE_PLAYER = partyFileAction("restoreplayer", "restore");
-const NEW_PLAYER: BuiltinSpec = { name: "newplyr", aliases: ["newplayer"], params: [{ name: "file", optional: false, byRef: false, variadic: false }], doc: docs("Change the main player's graphics from a character file.", "Requests the character asset and updates graphics on the selected sprite while preserving actor identity, stats and roster position."), call: (_view, args) => ({
+const NEW_PLAYER: BuiltinSpec = { name: "newplyr", aliases: ["newplayer"], params: [{ name: "file", optional: false, byRef: false, variadic: false }], doc: docs("Change the graphics of the main player to that of the file passed in. The file must be a character file (*.tem)", "Requests the character asset and updates graphics on the selected sprite while preserving actor identity, stats and roster position."), call: (_view, args) => ({
   value: null,
   request: { kind: "asset", area: "characters", path: string(args, 0) },
   then: { command: "__party_newplyr_asset", args: [string(args, 0)] },
 }) };
 function partyAction(name: "removeplayer" | "destroyplayer"): BuiltinSpec {
-  return { name, aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }], doc: docs(name === "removeplayer" ? "Remove a player from the active party roster." : "Permanently remove a player from the party.", "Resolves the documented player handle to its stable actor id and applies the membership change through the party owner."), call: (view, args) => {
+  return { name, aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }], doc: docs(name === "removeplayer" ? "Remove a player from the party [to an old player list]." : "Permanently remove a player from the party.", "Resolves the documented player handle to its stable actor id and applies the membership change through the party owner."), call: (view, args) => {
     const actorId = partyMember(view, args[0]?.value);
     if (actorId === undefined) return { value: null };
     return { value: null, effects: [{ kind: "state-write", section: "party", args: [{ type: name === "removeplayer" ? "remove" : "destroy", actorId }] }] };
@@ -318,15 +395,47 @@ function partyAssetContinuation(name: "__party_addplayer_asset" | "__party_newpl
 }
 const ADD_PLAYER_ASSET = partyAssetContinuation("__party_addplayer_asset");
 const NEW_PLAYER_ASSET = partyAssetContinuation("__party_newplyr_asset");
-const PLAYER_DIRECTION: BuiltinSpec = { name: "playerdirection", aliases: [], params: movementParams(), doc: docs("Read or set a player's facing.", "Returns the current facing index, or emits an effect to set it when a direction is supplied."), call: (view, args) => { const value = actor(view, playerId(view, args[0]?.value as number | string ?? ""), "player"); if (args.length < 2) return { value: value === null ? 0 : DIRECTIONS.indexOf(value.facing) }; return { value: null, effects: [moveEffect("playerdirection", args)] }; } };
-const PLAYER_SPEED: BuiltinSpec = { name: "playerspeed", aliases: [], params: movementParams(), doc: docs("Set a player's walking speed.", "Emits an effect changing the selected player's deterministic step delay."), call: (_view, args) => ({ value: null, effects: [moveEffect("playerspeed", args)] }) };
-const ITEM_DIRECTION: BuiltinSpec = { ...PLAYER_DIRECTION, name: "itemdirection", doc: docs("Get or set an item's facing.", "Returns the current facing index, or emits an effect to set it when a direction is supplied."), call: (view, args) => { const value = actor(view, itemId(view, args[0]?.value as number | string ?? ""), "item"); if (args.length < 2) return { value: value === null ? 0 : DIRECTIONS.indexOf(value.facing) }; return { value: null, effects: [moveEffect("itemdirection", args)] }; } };
-const ITEM_SPEED: BuiltinSpec = { ...PLAYER_SPEED, name: "itemspeed", doc: docs("Set an item's walking speed.", "Emits an effect changing the item's deterministic step delay."), call: (_view, args) => ({ value: null, effects: [moveEffect("itemspeed", args)] }) };
-const SPRITE_TRANSLUCENCY: BuiltinSpec = { name: "spritetranslucency", aliases: [], params: [{ name: "percent", optional: true, byRef: false, variadic: false }], doc: docs("Set how visible characters stay when they walk behind tiles that cover them, such as trees and roofs. With no value it returns the current setting.", "Sets one global percentage for players and items (default 50; stored as given, drawn clamped to 0 to 100); with no argument it returns the current percentage. The part of a sprite covered by a higher-layer tile is drawn again over that tile at this opacity: 0 hides it, 100 shows it fully. It is a presentation setting saved with the sprites section; it does not wait and takes effect on the next frame (E-31)."), call: (view, args) => args.length === 0 ? { value: view.state?.sprites.translucency ?? 50 } : { value: null, effects: [moveEffect("spritetranslucency", args)] } };
-const PLAYER_GET_PATH: BuiltinSpec = { name: "playergetpath", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "index", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }], doc: docs("Show where each queued player destination would end, including a step that only says which way to walk. Technically, the queue is walked in order from the active step's target (or the player's position when it is standing still), so a direction entry reports the pixel point its direction and distance reach and a point entry reports its stored target; index 0 is the first queued entry. Returns 1 and writes x and y when the index exists, otherwise 0.", "Walks the queue in order from the active step's target, else the player's position, with the same relative expansion the movement phase uses, and writes the pixel point at the requested index; an index outside the queue returns 0 and writes 0 to x and y."), call: (view, args) => { const value = actor(view, playerId(view, args[0]?.value as number | string ?? ""), "player"); const point = value === null ? undefined : queuedDestination(value, number(args, 1)); return { value: point === undefined ? 0 : 1, out: [...output(args, 2, point?.x ?? 0), ...output(args, 3, point?.y ?? 0)] }; } };
-const ITEM_GET_PATH: BuiltinSpec = { ...PLAYER_GET_PATH, name: "itemgetpath", doc: docs("Show where each queued item destination would end, including a step that only says which way to walk. Technically, the queue is walked in order from the active step's target (or the item's position when it is standing still), so a direction entry reports the pixel point its direction and distance reach and a point entry reports its stored target; index 0 is the first queued entry. Returns 1 and writes x and y when the index exists, otherwise 0.", "Walks the queue in order from the active step's target, else the item's position, with the same relative expansion the movement phase uses, and writes the pixel point at the requested index; an index outside the queue returns 0 and writes 0 to x and y."), call: (view, args) => { const value = actor(view, itemId(view, args[0]?.value as number | string ?? ""), "item"); const point = value === null ? undefined : queuedDestination(value, number(args, 1)); return { value: point === undefined ? 0 : 1, out: [...output(args, 2, point?.x ?? 0), ...output(args, 3, point?.y ?? 0)] }; } };
-const WANDER: BuiltinSpec = { name: "wander", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "restrict", optional: true, byRef: false, variadic: false }], doc: docs("Take a deterministic random step.", "Draws one direction from the injected seedable RNG and emits a one-step item movement effect."), call: (view, args) => { const id = itemId(view, args[0]?.value as number | string ?? ""); const draw = view.rng.nextUint32(); const dir = DIRECTIONS[draw % DIRECTIONS.length] ?? "S"; return { value: null, effects: [moveEffect("wander", [{ value: id, ref: null }, { value: dir, ref: null }, ...args])] }; } };
-const WAIT: BuiltinSpec = { name: "wait", aliases: [], params: [{ name: "dest", optional: true, byRef: true, variadic: false }], doc: docs("Wait for a key press.", "Parks the script until the lowest unclaimed key in the input queue is available, then returns it and optionally writes it by reference.", { kind: "until-input", summary: "Waits for a key press." }), call: (_view, args) => ({ value: null, wait: { kind: "input.key", global: true, key: null, resumeRefs: args.flatMap((arg) => arg.ref === null ? [] : [arg.ref]) } as Wait }) };
+const PLAYER_DIRECTION: BuiltinSpec = { name: "playerdirection", aliases: [], params: movementParams(), doc: docs("Read or set which way a player faces. The facing is one of the eight deterministic directions.", "Returns the current facing index, or emits an effect to set it when a direction is supplied."), call: (view, args) => { const value = actor(view, playerId(view, args[0]?.value as number | string ?? ""), "player"); if (args.length < 2) return { value: value === null ? 0 : DIRECTIONS.indexOf(value.facing) }; return { value: null, effects: [moveEffect("playerdirection", args)] }; } };
+const PLAYER_SPEED: BuiltinSpec = { name: "playerspeed", aliases: [], params: movementParams(), doc: docs("Set how quickly a player walks. The speed is stored on the actor and affects its fixed-tick step cadence.", "Emits an effect changing the selected player's deterministic step delay."), call: (_view, args) => ({ value: null, effects: [moveEffect("playerspeed", args)] }) };
+const ITEM_DIRECTION: BuiltinSpec = { ...PLAYER_DIRECTION, name: "itemdirection", doc: docs("Read or set which way an item faces. The facing is one of the eight deterministic directions.", "Returns the current facing index, or emits an effect to set it when a direction is supplied.", undefined, ITEM_GROUPS), call: (view, args) => { const value = actor(view, itemId(view, args[0]?.value as number | string ?? ""), "item"); if (args.length < 2) return { value: value === null ? 0 : DIRECTIONS.indexOf(value.facing) }; return { value: null, effects: [moveEffect("itemdirection", args)] }; } };
+const ITEM_SPEED: BuiltinSpec = { ...PLAYER_SPEED, name: "itemspeed", doc: docs("Set how quickly an item walks. The speed is stored on the actor and affects fixed-tick cadence.", "Emits an effect changing the item's deterministic step delay.", undefined, ITEM_GROUPS), call: (_view, args) => ({ value: null, effects: [moveEffect("itemspeed", args)] }) };
+const SPRITE_TRANSLUCENCY: BuiltinSpec = { name: "spritetranslucency", aliases: [], params: [{ name: "percent", optional: true, byRef: false, variadic: false }], doc: docs("Set how visible sprites remain under covered tiles.", "Sets one global percentage for players and items (default 50; stored as given, drawn clamped to 0 to 100); with no argument it returns the current percentage. The part of a sprite covered by a higher-layer tile is drawn again over that tile at this opacity: 0 hides it, 100 shows it fully. It is a presentation setting saved with the sprites section; it does not wait and takes effect on the next frame (E-31)."), call: (view, args) => args.length === 0 ? { value: view.state?.sprites.translucency ?? 50 } : { value: null, effects: [moveEffect("spritetranslucency", args)] } };
+/** R-69: exactly one or exactly four arguments; the count includes the active step and both forms return it. */
+function getPathCommand(name: "playergetpath" | "itemgetpath"): BuiltinSpec {
+  const kind = name === "playergetpath" ? "player" : "item";
+  const summary = `Show where ${kind === "player" ? "a player's" : "an item's"} queued destinations will end, including a step that only says which way to walk. With just a handle it returns how many destinations are waiting, counting the one being walked toward now, so ${kind === "player" ? "a player" : "an item"} standing still returns 0; with an index and two variables it writes that destination's whole-pixel point.`;
+  return {
+    name,
+    aliases: [],
+    params: [
+      { name: "handle", optional: false, byRef: false, variadic: false },
+      { name: "index", optional: true, byRef: false, variadic: false },
+      { name: "x", optional: true, byRef: true, variadic: false },
+      { name: "y", optional: true, byRef: true, variadic: false },
+    ],
+    doc: {
+      ...docs(summary, "Accepts exactly one argument or exactly four. One argument returns the number of entries in the queue, counting the step in progress (idle returns 0). Four arguments also write the indexed destination's x and y as floor(value + 0.5) whole pixels, with index 0 the active step's target or the first queued entry when no step is active; a negative or out-of-range index writes nothing and raises nothing. A linked waypoint is not counted and a copied one is counted in full once per cycle. The call does not wait or change movement.", undefined, kind === "item" ? ITEM_GROUPS : undefined),
+      throws: [
+        { code: "arity.mismatch", when: "the call has an argument count other than one or four." },
+        { code: "builtin.bad-arg", when: "the handle names no live player or item." },
+      ],
+    },
+    call: (view, args) => {
+      if (args.length !== 1 && args.length !== 4) {
+        throw new ScriptError("arity.mismatch", `"${name}" takes 1 or 4 argument(s), got ${args.length}`);
+      }
+      const targets = queuedTargets(pathActor(view, kind, args[0]?.value));
+      const point = args.length === 4 ? targets[Math.trunc(toNumberValue(args[1]?.value ?? 0))] : undefined;
+      return point === undefined
+        ? { value: targets.length }
+        : { value: targets.length, out: [...output(args, 2, Math.floor(point.x + 0.5)), ...output(args, 3, Math.floor(point.y + 0.5))] };
+    },
+  };
+}
+const PLAYER_GET_PATH = getPathCommand("playergetpath");
+const ITEM_GET_PATH = getPathCommand("itemgetpath");
+const WANDER: BuiltinSpec = { name: "wander", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "restrict", optional: true, byRef: false, variadic: false }], doc: docs("Let an item take a deterministic random step. The injected seed controls the chosen direction and the optional restriction.", "Draws one direction from the injected seedable RNG and emits a one-step item movement effect.", undefined, ITEM_GROUPS), call: (view, args) => { const id = itemId(view, args[0]?.value as number | string ?? ""); const draw = view.rng.nextUint32(); const dir = DIRECTIONS[draw % DIRECTIONS.length] ?? "S"; return { value: null, effects: [moveEffect("wander", [{ value: id, ref: null }, { value: dir, ref: null }, ...args])] }; } };
+const WAIT: BuiltinSpec = { name: "wait", aliases: [], params: [{ name: "dest", optional: true, byRef: true, variadic: false }], doc: docs("Wait for a key press. The lowest unclaimed input sequence at or after the park sequence resumes the thread and is optionally written to `ret`.", "Parks the script until the lowest unclaimed key in the input queue is available, then returns it and optionally writes it by reference.", { kind: "until-input", summary: "Waits for a key press." }, INPUT_GROUPS), call: (_view, args) => ({ value: null, wait: { kind: "input.key", global: true, key: null, resumeRefs: args.flatMap((arg) => arg.ref === null ? [] : [arg.ref]) } as Wait }) };
 const POINTER_FIELDS = ["x", "y", "buttons", "downs", "ups"] as const;
 /** The baseline a `waitinput` call passes back: the five compared pointer fields of a previous result, or the record as it is now. */
 function pointerBaseline(view: CommandView, last: Value | undefined): NonNullable<Extract<Wait, { readonly kind: "input.key" }>["pointer"]> {
@@ -357,12 +466,12 @@ const WAIT_INPUT: BuiltinSpec = {
   },
   call: (view, args) => ({ value: null, wait: { kind: "input.key", global: true, key: null, pointer: pointerBaseline(view, args[0]?.value) } as Wait }),
 };
-const GET: BuiltinSpec = { name: "get", aliases: [], params: [{ name: "dest", optional: true, byRef: true, variadic: false }], doc: docs("Get the next buffered key.", "Returns and claims the lowest unclaimed key immediately, or returns an empty string when the buffer has no eligible key.") , call: (view, args) => { const key = view.state?.input.keys.find((candidate) => !(view.state?.engine.claims ?? []).includes(candidate.seq)); if (key === undefined) return { value: "", out: output(args, 0, "") }; return { value: key.name, out: output(args, 0, key.name), effects: [{ kind: "state-write", section: "input", args: [key.seq] }] }; } };
-const CLEAR_BUFFER: BuiltinSpec = { name: "clearbuffer", aliases: [], params: [], doc: docs("Clear all buffered keys.", "Claims every currently buffered key through the engine sequence protocol and removes only those claimed records immediately."), call: (_view) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: [] }] }) };
-const SET_BUTTON: BuiltinSpec = { name: "setbutton", aliases: [], params: [{ name: "file", optional: false, byRef: false, variadic: false }, { name: "slot", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "width", optional: false, byRef: false, variadic: false }, { name: "height", optional: false, byRef: false, variadic: false }], doc: docs("Create a clickable button.", "Creates or replaces a button image and its independently clickable slot at pixel x,y with the supplied dimensions until clearButtons removes them."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
-const CHECK_BUTTON: BuiltinSpec = { name: "checkbutton", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "slot", optional: true, byRef: true, variadic: false }], doc: docs("Check whether a button was clicked.", "Returns 1 when the pixel is inside an enabled button slot, otherwise 0; it does not wait. Optionally writes the numeric slot number on a hit or 0 on a miss."), call: (view, args) => { const input = view.state?.input; const x = number(args, 0); const y = number(args, 1); const hit = input?.buttons.find((button): button is InputButtonSlot => "id" in button && button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h); const slot = hit === undefined ? 0 : Number(hit.id); return { value: hit === undefined ? 0 : 1, out: output(args, 2, Number.isFinite(slot) ? slot : 0) }; } };
-const CLEAR_BUTTONS: BuiltinSpec = { name: "clearbuttons", aliases: [], params: [{ name: "slots", optional: true, byRef: false, variadic: true }], doc: docs("Clear clickable buttons.", "Removes every button image and slot, or only the numeric slots supplied, immediately and without waiting."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
-const MOUSE_MOVE: BuiltinSpec = { name: "mousemove", aliases: [], params: [{ name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }], doc: docs("Read the pointer position.", "Returns the current window-relative pointer x and y through by-reference outputs without waiting."), call: (view, args) => ({ value: null, out: [...output(args, 0, view.state?.input.pointer.x ?? 0), ...output(args, 1, view.state?.input.pointer.y ?? 0)] }) };
+const GET: BuiltinSpec = { name: "get", aliases: [], params: [{ name: "dest", optional: true, byRef: true, variadic: false }], doc: docs("Read the next buffered key. It claims that key's monotonic input sequence and optionally writes the name to `ret`.", "Returns and claims the lowest unclaimed key immediately, or returns an empty string when the buffer has no eligible key.", undefined, INPUT_GROUPS) , call: (view, args) => { const key = view.state?.input.keys.find((candidate) => !(view.state?.engine.claims ?? []).includes(candidate.seq)); if (key === undefined) return { value: "", out: output(args, 0, "") }; return { value: key.name, out: output(args, 0, key.name), effects: [{ kind: "state-write", section: "input", args: [key.seq] }] }; } };
+const CLEAR_BUFFER: BuiltinSpec = { name: "clearbuffer", aliases: [], params: [], doc: docs("Empty the keyboard buffer. It claims every currently buffered sequence and lets the input owner prune them at the phase boundary.", "Claims every currently buffered key through the engine sequence protocol and removes only those claimed records immediately.", undefined, INPUT_GROUPS), call: (_view) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: [] }] }) };
+const SET_BUTTON: BuiltinSpec = { name: "setbutton", aliases: [], params: [{ name: "file", optional: false, byRef: false, variadic: false }, { name: "slot", optional: false, byRef: false, variadic: false }, { name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "width", optional: false, byRef: false, variadic: false }, { name: "height", optional: false, byRef: false, variadic: false }], doc: docs("Draw a button image and create its clickable slot. Replaces the same slot.", "Creates or replaces a button image and its independently clickable slot at pixel x,y with the supplied dimensions until clearButtons removes them."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
+const CHECK_BUTTON: BuiltinSpec = { name: "checkbutton", aliases: [], params: [{ name: "x", optional: false, byRef: false, variadic: false }, { name: "y", optional: false, byRef: false, variadic: false }, { name: "slot", optional: true, byRef: true, variadic: false }], doc: docs("Check whether an enabled button slot covers a pixel. Returns 1 on a hit and 0 otherwise.", "Returns 1 when the pixel is inside an enabled button slot, otherwise 0; it does not wait. Optionally writes the numeric slot number on a hit or 0 on a miss."), call: (view, args) => { const input = view.state?.input; const x = number(args, 0); const y = number(args, 1); const hit = input?.buttons.find((button): button is InputButtonSlot => "id" in button && button.enabled && x >= button.x && x < button.x + button.w && y >= button.y && y < button.y + button.h); const slot = hit === undefined ? 0 : Number(hit.id); return { value: hit === undefined ? 0 : 1, out: output(args, 2, Number.isFinite(slot) ? slot : 0) }; } };
+const CLEAR_BUTTONS: BuiltinSpec = { name: "clearbuttons", aliases: [], params: [{ name: "slots", optional: true, byRef: false, variadic: true }], doc: docs("Remove selected button slots, or all slots when no slot is supplied.", "Removes every button image and slot, or only the numeric slots supplied, immediately and without waiting."), call: (_view, args) => ({ value: null, effects: [{ kind: "state-write", section: "input", args: args.map((arg) => arg.value as never) }] }) };
+const MOUSE_MOVE: BuiltinSpec = { name: "mousemove", aliases: [], params: [{ name: "x", optional: false, byRef: true, variadic: false }, { name: "y", optional: false, byRef: true, variadic: false }], doc: docs("Read the pointer position. The current window-relative pixel x/y are written by reference without waiting.", "Returns the current window-relative pointer x and y through by-reference outputs without waiting."), call: (view, args) => ({ value: null, out: [...output(args, 0, view.state?.input.pointer.x ?? 0), ...output(args, 1, view.state?.input.pointer.y ?? 0)] }) };
 const MOUSE_CLICK: BuiltinSpec = {
   name: "mouseclick", aliases: [],
   params: [
@@ -370,7 +479,7 @@ const MOUSE_CLICK: BuiltinSpec = {
     { name: "y", optional: false, byRef: true, variadic: false },
     { name: "noWait", optional: true, byRef: false, variadic: false },
   ],
-  doc: docs("Wait for or read a pointer click.", "Writes the current pointer position immediately when noWait is true; otherwise parks until a click is available.", { kind: "until-event", summary: "Waits for a pointer click." }),
+  doc: docs("Wait for a click or read the current pointer position. Blocking mode resumes from the input event; noWait writes pixel x/y immediately.", "Writes the current pointer position immediately when noWait is true; otherwise parks until a click is available.", { kind: "until-event", summary: "Waits for a pointer click." }),
   call: (view, args) => {
     const pointer = view.state?.input.pointer;
     if (number(args, 2) !== 0) return { value: null, out: [...output(args, 0, pointer?.x ?? 0), ...output(args, 1, pointer?.y ?? 0)] };
@@ -380,14 +489,14 @@ const MOUSE_CLICK: BuiltinSpec = {
     } };
   },
 };
-const PLAYER_STANCE: BuiltinSpec = { name: "playerstance", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "stance", optional: false, byRef: false, variadic: false }, { name: "flags", optional: true, byRef: false, variadic: false }], doc: docs("Play a player's stance animation.", "Starts the named stance through the sprite animation owner, then waits for that owner to report completion."), call: (view, args) => stanceResult(view, playerId(view, args[0]?.value as number | string ?? ""), "player", string(args, 1), args) };
-const ITEM_STANCE: BuiltinSpec = { ...PLAYER_STANCE, name: "itemstance", doc: docs("Play an item's stance animation.", "Starts the named item stance through the sprite animation owner, then waits for that owner to report completion."), call: (view, args) => stanceResult(view, itemId(view, args[0]?.value as number | string ?? ""), "item", string(args, 1), args) };
+const PLAYER_STANCE: BuiltinSpec = { name: "playerstance", aliases: [], params: [{ name: "handle", optional: false, byRef: false, variadic: false }, { name: "stance", optional: false, byRef: false, variadic: false }, { name: "flags", optional: true, byRef: false, variadic: false }], doc: docs("Play a player's stance animation. The command waits for the animation owner to report completion.", "Starts the named stance through the sprite animation owner, then waits for that owner to report completion."), call: (view, args) => stanceResult(view, playerId(view, args[0]?.value as number | string ?? ""), "player", string(args, 1), args) };
+const ITEM_STANCE: BuiltinSpec = { ...PLAYER_STANCE, name: "itemstance", doc: docs("Play an item's stance animation. The command waits for the animation owner to report completion.", "Starts the named item stance through the sprite animation owner, then waits for that owner to report completion.", undefined, ITEM_GROUPS), call: (view, args) => stanceResult(view, itemId(view, args[0]?.value as number | string ?? ""), "item", string(args, 1), args) };
 
 const ERASE_ITEM: BuiltinSpec = {
   name: "eraseitem", aliases: [],
   params: [{ name: "handle", optional: false, byRef: false, variadic: false }],
   doc: docs("Hide a board item while keeping it in memory.",
-    "Hides the item identified by the handle or the program's source immediately. Its multitask thread stops, or finishes battle cleanup first when it owns the current fight."),
+    "Hides the item identified by the handle or the program's source immediately. Its multitask thread stops, or finishes battle cleanup first when it owns the current fight.", undefined, ITEM_GROUPS),
   call: (view, args) => {
     const handle = args[0]?.value;
     const id = typeof handle === "string" || typeof handle === "number" ? itemId(view, handle) : "";
