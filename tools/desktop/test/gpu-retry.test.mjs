@@ -14,6 +14,7 @@ const GPU_LINES = [
   "Exiting GPU process due to errors during initialization",
   "GPU state invalid after WaitForGetOffsetInRange",
   "render-webgl2: shader compilation failed: ",
+  "render-webgl2: shader compilation failed: no info log (the WebGL context may be lost)",
   "render-webgl2: the WebGL2 context was lost",
   "render-webgl2: no WebGL2 context",
 ];
@@ -127,7 +128,12 @@ class FakeChild extends EventEmitter {
     this.signalCode = null;
     this.signals = [];
     this.unrefCalls = 0;
+    this.destroyed = [];
     this.onSignal = onSignal;
+    // Pipes that never end: destroying them is what releases the loop when no `close` ever arrives (#2169).
+    for (const name of ["stdin", "stdout", "stderr"]) {
+      this[name] = { destroy: () => { this.destroyed.push(name); } };
+    }
   }
   kill(signal) {
     this.signals.push(signal);
@@ -162,6 +168,7 @@ test("stopChild returns exited:false after the bound instead of hanging", async 
   assert.deepEqual(child.signals, ["SIGTERM", "SIGKILL"]);
   assert.deepEqual(waits, [5_000, 2_000]);
   assert.equal(child.unrefCalls, 1);
+  assert.deepEqual(child.destroyed, ["stdin", "stdout", "stderr"]);
 });
 
 test("stopChild does not signal a child that has already exited", async () => {
@@ -208,6 +215,79 @@ test("measure retries a GPU launch failure and succeeds from the second attempt'
     assert.equal(measured.attempts, 2);
     assert.equal(measured.report.resolvedBy, "argument");
     assert.equal(measured.report.error, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a report that carries GPU evidence is retried instead of returned", { timeout: 1000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "desktop-report-gpu-"));
+  const helper = join(dir, "report-gpu.mjs");
+  writeFileSync(helper, `
+    import { writeFileSync } from "node:fs";
+    const report = process.env.DESKTOP_MEASURE_REPORT;
+    writeFileSync(report, JSON.stringify({
+      resolvedBy: "argument",
+      error: report.endsWith("report-attempt-1.json")
+        ? "render-webgl2: shader compilation failed: no info log (the WebGL context may be lost)"
+        : null,
+      tick: 120,
+    }));
+  `);
+  try {
+    const measured = await measure({
+      game: "test.tpk",
+      command: [process.execPath, helper],
+      attempts: 2,
+      timeoutMs: 5_000,
+      delay: async () => {},
+    });
+    assert.equal(measured.attempts, 2);
+    assert.equal(measured.report.error, null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a clean report takes exactly one attempt", { timeout: 1000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "desktop-report-clean-"));
+  const helper = join(dir, "report-clean.mjs");
+  writeFileSync(helper, `
+    import { writeFileSync } from "node:fs";
+    writeFileSync(process.env.DESKTOP_MEASURE_REPORT, JSON.stringify({ resolvedBy: "argument", error: null, tick: 120 }));
+  `);
+  try {
+    const measured = await measure({
+      game: "test.tpk",
+      command: [process.execPath, helper],
+      attempts: 3,
+      timeoutMs: 5_000,
+      delay: async () => {},
+    });
+    assert.equal(measured.attempts, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a non-GPU page error is not retried even if the log mentions the GPU", { timeout: 1000 }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "desktop-report-other-"));
+  const helper = join(dir, "report-other.mjs");
+  writeFileSync(helper, `
+    import { writeFileSync } from "node:fs";
+    process.stderr.write("GPU state invalid after WaitForGetOffsetInRange\\n");
+    writeFileSync(process.env.DESKTOP_MEASURE_REPORT, JSON.stringify({ resolvedBy: "argument", error: "tick: expected 120, got undefined" }));
+  `);
+  try {
+    const measured = await measure({
+      game: "test.tpk",
+      command: [process.execPath, helper],
+      attempts: 3,
+      timeoutMs: 5_000,
+      delay: async () => { throw new Error("a non-GPU report must not be retried"); },
+    });
+    assert.equal(measured.attempts, 1);
+    assert.equal(measured.report.error, "tick: expected 120, got undefined");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -155,14 +155,14 @@ tick-120 measurement.
 
 Each launch is stopped with a bounded SIGTERM, grace period and SIGKILL before the next case starts, so one case cannot
 overlap the previous Electron process. A failure Chromium attributes to the GPU (its GPU process exiting or reporting
-invalid state, an empty `shader compilation failed:` log, or a lost WebGL2 context) is retried up to three times with
-2 s and 4 s backoff, and the retry forces ANGLE's SwiftShader. Any other failure — a wrong launch step, a hash mismatch,
-a bad package — is never retried. When every attempt fails on the GPU, the command writes a failure record marked
-`infrastructure`, prints an `::error` annotation and exits non-zero: a persistently dead GPU is reported as the
-machine's problem, not as a game or package regression.
+invalid state, an empty `shader compilation failed:` log, or a lost WebGL2 context), including one the page itself
+publishes in its report, is retried up to three times with 2 s and 4 s backoff, and the retry forces ANGLE's SwiftShader.
+Any other failure — a wrong launch step, a hash mismatch, a bad package — is never retried. When every attempt fails on
+the GPU, the command writes a failure record marked `infrastructure`, prints an `::error` annotation and exits non-zero:
+a persistently dead GPU is reported as the machine's problem, not as a game or package regression.
 
 The CI `desktop` job runs all five on macOS, Linux and Windows and uploads one record per case. Its long steps carry
-timeout backstops, so a stuck launch fails the job instead of holding the runner.
+timeout backstops generous enough for a recovering retry, so a stuck launch fails the job instead of holding the runner.
 
 ## Debug overlays and the diagnostics strip
 

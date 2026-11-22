@@ -24,6 +24,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { browserDebuggingPort, parseDebuggerPort, waitForDebuggerPort } from "./debugger-ports.mjs";
 import { stopChild } from "./child-process.mjs";
+import { connect } from "./cdp-client.mjs";
 import { gpuFallbackArgs, InfrastructureError, launchWithRecovery } from "./gpu-retry.mjs";
 import { BinaryReader, deriveGameId, derivePackageIdentity, loadPackage, readDistributionManifest, readMainFile, writeDistributionPackage, writeMainFile } from "@tk-reawakened/core";
 
@@ -346,76 +347,6 @@ async function verifyNonIntegerScaleViaEmulation(mainDebugger, page, evaluate, s
     }
     if (restoredObservation === null) throw new Error("clearing desktop viewport emulation did not produce a fresh matching native host.display and ceil backing");
   }
-}
-
-/**
- * A tiny CDP client: request/response over one socket, enough for evaluate and input dispatch. Every request is bounded
- * and a closed socket rejects everything still waiting (#2169): the old client resolved ids and nothing else, so a
- * renderer that died mid-probe left a probe request pending forever.
- */
-function connect(url, { requestTimeoutMs = 30_000 } = {}) {
-  const socket = new WebSocket(url);
-  let nextId = 1;
-  let closed = false;
-  const waiting = new Map();
-  socket.addEventListener("message", (message) => {
-    const payload = JSON.parse(String(message.data));
-    const pending = waiting.get(payload.id);
-    if (pending === undefined) return;
-    waiting.delete(payload.id);
-    if (payload.error !== undefined) pending.fail(new Error(payload.error.message));
-    else pending.done(payload.result);
-  });
-  const failAll = (reason) => {
-    if (closed) return;
-    closed = true;
-    for (const [id, pending] of waiting) {
-      waiting.delete(id);
-      pending.fail(new Error(`${reason} before the ${pending.method} reply`));
-    }
-  };
-  const ready = new Promise((done, fail) => {
-    socket.addEventListener("open", () => done());
-    socket.addEventListener("error", () => fail(new Error("the debugging socket failed")));
-    socket.addEventListener("close", () => fail(new Error("the debugging socket closed before it opened")));
-  });
-  // A socket that fails before the first `send` must not become an unhandled rejection; `send` still sees the rejection.
-  ready.catch(() => {});
-  socket.addEventListener("close", () => failAll("the debugging socket closed"));
-  socket.addEventListener("error", () => failAll("the debugging socket failed"));
-  return {
-    async send(method, params = {}) {
-      if (closed) throw new Error(`the debugging socket closed before ${method}`);
-      await ready;
-      if (closed) throw new Error(`the debugging socket closed before ${method}`);
-      const id = nextId;
-      nextId += 1;
-      let timer = null;
-      const result = new Promise((done, fail) => {
-        waiting.set(id, { done, fail, method });
-        if (requestTimeoutMs > 0) {
-          timer = setTimeout(() => {
-            if (waiting.delete(id)) fail(new Error(`${method} did not answer within ${requestTimeoutMs} ms`));
-          }, requestTimeoutMs);
-          timer.unref?.();
-        }
-      });
-      try {
-        socket.send(JSON.stringify({ id, method, params }));
-        return await result;
-      } finally {
-        clearTimeout(timer);
-      }
-    },
-    close() {
-      try {
-        socket.close();
-      } catch {
-        // Already gone.
-      }
-      failAll("the debugging client was closed");
-    },
-  };
 }
 
 const KEY = {

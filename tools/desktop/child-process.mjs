@@ -60,7 +60,8 @@ export async function stopChild(child, {
   if (await waitForClose(closed, Math.max(0, graceMs), delay) !== null) return { exited: true, escalated: false };
   killQuietly(child, "SIGKILL");
   if (await waitForClose(closed, Math.max(0, killMs), delay) !== null) return { exited: true, escalated: true };
-  // A hanging child must not keep the Node process alive once the caller has its bounded answer.
+  // No `close` event means the piped stdio sockets are still open and ref'ed; `unref()` alone would not release them.
+  for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.destroy?.();
   child.unref?.();
   return { exited: false, escalated: true };
 }

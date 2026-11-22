@@ -9,7 +9,9 @@
 export const GPU_EVIDENCE = [
   /Exiting GPU process due to errors during initialization/,
   /GPU state invalid/,
+  // The old bare form and the renderer's current, informative form both mean the same dead GPU (#2169).
   /shader compilation failed:\s*$/m,
+  /shader compilation failed: no info log \(the WebGL context may be lost\)/,
   /render-webgl2: the WebGL2 context was lost/,
   /render-webgl2\.context-lost/,
   /no WebGL2 context/,

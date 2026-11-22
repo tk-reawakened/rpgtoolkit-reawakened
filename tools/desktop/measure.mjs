@@ -18,7 +18,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { electronBinary } from "./electron-binary.mjs";
 import { stopChild } from "./child-process.mjs";
-import { gpuFallbackArgs, InfrastructureError, launchWithRecovery } from "./gpu-retry.mjs";
+import { classifyLaunchFailure, gpuFallbackArgs, InfrastructureError, launchWithRecovery } from "./gpu-retry.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..", "..");
@@ -179,6 +179,16 @@ async function launchOnce({ options, pkg, reportPath, timeoutMs, attempt }) {
   if (report !== null) {
     // Success still waits for the child to be gone before the next attempt or case can start.
     await stopChild(child);
+    // The measurement page writes its failure into the report (`report.error`). Classify only that string: a GPU
+    // failure there is the same infrastructure failure as one detected from the log, so it enters the recovery path
+    // instead of being returned (#2169). Classifying the whole log here could let incidental GPU noise mask a real
+    // hash or launch regression that the page reported.
+    const pageError = typeof report.error === "string" ? report.error : "";
+    if (pageError !== "" && classifyLaunchFailure({ message: pageError }).kind === "gpu") {
+      const error = new Error(pageError);
+      error.log = output;
+      throw error;
+    }
     return { report, log: output, package: pkg };
   }
   const timedOut = exit === null;

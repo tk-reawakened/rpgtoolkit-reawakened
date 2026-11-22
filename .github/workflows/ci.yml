@@ -480,7 +480,7 @@ jobs:
       # plus the four measurements. The uploaded records are the three-OS observation, one file per case.
       - name: Measure every launch case
         id: measure_desktop
-        timeout-minutes: 12
+        timeout-minutes: 18
         shell: bash
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os != 'Linux'
         run: |
@@ -493,7 +493,7 @@ jobs:
           exit "$status"
       - name: Measure every launch case under Xvfb
         id: measure_linux
-        timeout-minutes: 12
+        timeout-minutes: 18
         shell: bash
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os == 'Linux'
         run: |
@@ -506,19 +506,19 @@ jobs:
           exit "$status"
       - name: Probe live desktop fitting and input
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os != 'Linux'
-        timeout-minutes: 12
+        timeout-minutes: 18
         run: pnpm desktop:input
       - name: Probe live desktop fitting and input under Xvfb
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os == 'Linux'
-        timeout-minutes: 12
+        timeout-minutes: 18
         run: xvfb-run -a pnpm desktop:input
       - name: Prove authored village pixels in Electron
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os != 'Linux'
-        timeout-minutes: 12
+        timeout-minutes: 18
         run: pnpm desktop:authored
       - name: Prove authored village pixels in Electron under Xvfb
         if: (needs.changes.result != 'success' || needs.changes.outputs.full != 'false') && runner.os == 'Linux'
-        timeout-minutes: 12
+        timeout-minutes: 18
         run: xvfb-run -a pnpm desktop:authored
       # Inventory must run after measurement so the Electron binary has been downloaded and extracted.
       - run: pnpm desktop:inventory
