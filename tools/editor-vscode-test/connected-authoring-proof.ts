@@ -234,36 +234,100 @@ async function expectBoardArtwork(editor: Locator, expect: Expect, edited: boole
   }
 }
 
+/** The board's actual state, so a failed inspector step names what was on screen instead of only a timeout. */
+async function boardState(board: Locator): Promise<string> {
+  return board.evaluate((element) => {
+    const shown = (node: Element): boolean => node instanceof HTMLElement && node.offsetParent !== null;
+    const inspector = [...element.querySelectorAll('.tkr-board-objects[aria-label="Sprite inspector"]')].find(shown) ?? null;
+    const mode = [...element.querySelectorAll("[data-board-mode]")]
+      .filter((node) => node.getAttribute("aria-pressed") === "true")
+      .map((node) => node.getAttribute("data-board-mode"))[0] ?? null;
+    const slot = inspector?.querySelector('select[aria-label="Stored slot"]');
+    const controls = inspector === null ? [] : [...inspector.querySelectorAll("button, select, input")]
+      .filter(shown)
+      .map((node) => `${node.tagName.toLowerCase()} ${node.getAttribute("aria-label") ?? (node.textContent ?? "").trim().slice(0, 24)}`);
+    const tabs = [...document.querySelectorAll('[role="tab"]')]
+      .map((node) => `${node.textContent?.trim() ?? ""}${node.getAttribute("aria-selected") === "true" ? " *" : ""}`);
+    return JSON.stringify({
+      mode,
+      slot: slot instanceof HTMLSelectElement ? slot.value : null,
+      controls,
+      text: (inspector?.textContent ?? "").trim().slice(0, 200),
+      tabs,
+    });
+  }).catch((error: unknown) => `unavailable: ${error instanceof Error ? error.message : String(error)}`);
+}
+
+/** Run one board step; a failure names the step and the state it found, not only the timeout. */
+async function boardStep<T>(board: Locator, what: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throw new Error(`${what} failed. Board state: ${await boardState(board)}. Cause: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/** What the program editor shows for `path`: its own save status, the surface text and the open tabs. */
+async function programState(page: Page, path: string): Promise<string> {
+  return page.evaluate((program) => {
+    const region = [...document.querySelectorAll("section.tkr-program")]
+      .find((node) => node.getAttribute("aria-label") === `Program ${program}`) ?? null;
+    const status = region?.querySelector(".tkr-program-state")?.textContent ?? null;
+    const textarea = region?.querySelector("textarea");
+    const monaco = region?.querySelector(".monaco-editor") ?? null;
+    const lines = monaco === null ? [] : [...monaco.querySelectorAll(".view-line")].map((node) => node.textContent ?? "");
+    const tabs = [...document.querySelectorAll('[role="tab"]')]
+      .map((node) => `${node.textContent?.trim() ?? ""}${node.getAttribute("aria-selected") === "true" ? " *" : ""}`);
+    const surface = textarea instanceof HTMLTextAreaElement
+      ? textarea.value
+      : lines.length === 0 ? null : lines.join("\n");
+    const rendered = region?.querySelector(".view-lines")?.textContent ?? null;
+    return JSON.stringify({ status, surface: surface?.slice(0, 200) ?? null, rendered: rendered?.slice(0, 200) ?? null, monaco: monaco !== null, lines: lines.length, tabs });
+  }, path).catch((error: unknown) => `unavailable: ${error instanceof Error ? error.message : String(error)}`);
+}
+
 /** The same creator journey through the actual browser and packaged VS Code hosts. */
 export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHost, expect: Expect): Promise<void> {
   let board = await host.openBoard(CONNECTED_BOARD);
   const inspector = () => board.locator('.tkr-board-objects[aria-label="Sprite inspector"]:visible');
+  /** Save `path` with `text`, then wait for those exact bytes; a mismatch reports the editor's own state. */
+  const writeProgram = async (path: string, text: string, before: string): Promise<void> => {
+    await host.writeProgram(path, text, before);
+    try {
+      await expect.poll(() => host.read(path)).toEqual(new TextEncoder().encode(text));
+    } catch (error) {
+      throw new Error(`${path} never held the saved text. Editor state: ${await programState(host.page, path)}. Cause: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const selectSlot = async (slot: number | null) => {
     await inspector().getByLabel("Stored slot", { exact: true }).selectOption(slot === null ? "" : String(slot));
     await host.settle();
   };
-  await board.locator('[data-board-mode="sprites"]').click();
-  await host.settle();
+  await boardStep(board, "Switching the board to sprite mode", async () => {
+    await board.locator('[data-board-mode="sprites"]').click();
+    await host.settle();
+  });
   const sourceBefore = await host.read(CONNECTED_ITEM);
   const boardBefore = await host.read(CONNECTED_BOARD);
-  await selectSlot(null);
+  await boardStep(board, "Selecting no stored slot", () => selectSlot(null));
   await expectBoardArtwork(board, expect, false);
-  await selectSlot(0);
-  await expect(inspector().getByLabel("Activation program override", { exact: true })).toHaveValue("connected-activation-a.prg");
-  await expect(inspector().getByLabel("Multitask program override", { exact: true })).toHaveValue("connected-parallel-a.prg");
-  await inspector().getByRole("button", { name: "Choose activation program", exact: true }).click();
+  await boardStep(board, "Selecting stored slot 0", () => selectSlot(0));
+  await boardStep(board, "Reading the sprite's activation program", () => expect(inspector().getByLabel("Activation program override", { exact: true })).toHaveValue("connected-activation-a.prg"));
+  await boardStep(board, "Reading the sprite's multitask program", () => expect(inspector().getByLabel("Multitask program override", { exact: true })).toHaveValue("connected-parallel-a.prg"));
+  await boardStep(board, "Choosing the activation program", () => inspector().getByRole("button", { name: "Choose activation program", exact: true }).click());
   await host.cancelAssetPicker();
-  await expect(inspector().getByLabel("Activation program override", { exact: true })).toHaveValue("connected-activation-a.prg");
+  await boardStep(board, "Keeping the activation program after a cancelled choice", () => expect(inspector().getByLabel("Activation program override", { exact: true })).toHaveValue("connected-activation-a.prg"));
   expect(await host.read(CONNECTED_BOARD)).toEqual(boardBefore);
-  await inspector().getByRole("button", { name: "Choose activation program", exact: true }).click();
-  await host.chooseAsset("connected-activation-edited.prg");
-  await expect(inspector().getByLabel("Activation program override", { exact: true })).toHaveValue("connected-activation-edited.prg");
-  await inspector().getByRole("button", { name: "Apply", exact: true }).click();
-  await host.settle();
-  await inspector().getByRole("button", { name: "Open activation program", exact: true }).click();
+  await boardStep(board, "Choosing the edited activation program", async () => {
+    await inspector().getByRole("button", { name: "Choose activation program", exact: true }).click();
+    await host.chooseAsset("connected-activation-edited.prg");
+    await expect(inspector().getByLabel("Activation program override", { exact: true })).toHaveValue("connected-activation-edited.prg");
+    await inspector().getByRole("button", { name: "Apply", exact: true }).click();
+    await host.settle();
+  });
+  await boardStep(board, "Opening the edited activation program", () => inspector().getByRole("button", { name: "Open activation program", exact: true }).click());
   await host.expectProgram(CONNECTED_ACTIVATION_EDITED, "CONNECTED ACTIVATION OLD");
-  await host.writeProgram(CONNECTED_ACTIVATION_EDITED, ACTIVATION_NEW, ACTIVATION_OLD);
-  await expect.poll(() => host.read(CONNECTED_ACTIVATION_EDITED)).toEqual(new TextEncoder().encode(ACTIVATION_NEW));
+  await writeProgram(CONNECTED_ACTIVATION_EDITED, ACTIVATION_NEW, ACTIVATION_OLD);
   expect(await host.read(CONNECTED_ACTIVATION_A)).toEqual(new TextEncoder().encode(ACTIVATION_OLD));
   board = await host.returnToBoard();
   await expect(inspector().getByLabel("Stored slot", { exact: true })).toHaveValue("0");
@@ -354,8 +418,7 @@ export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHo
   });
   await expect.poll(async () => (await scene(boardRun)).parallelRevision, { timeout: 30_000 }).toBe("CONNECTED PARALLEL OLD");
   expect((await scene(boardRun)).text.join(" ")).not.toContain("CONNECTED STARTUP OLD");
-  await host.writeProgram(CONNECTED_PARALLEL_A, PARALLEL_NEW, PARALLEL_OLD);
-  await expect.poll(() => host.read(CONNECTED_PARALLEL_A)).toEqual(new TextEncoder().encode(PARALLEL_NEW));
+  await writeProgram(CONNECTED_PARALLEL_A, PARALLEL_NEW, PARALLEL_OLD);
   const boardTickAfterSave = (await scene(boardRun)).tick;
   await host.revealRun();
   await expect.poll(async () => (await scene(boardRun)).tick).toBeGreaterThan(boardTickAfterSave + 1);
@@ -373,8 +436,7 @@ export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHo
   const oldSnapshot = await host.readRunSnapshot(oldRun);
   expect(oldSnapshot.kind).toBe("game");
   expect(oldSnapshot.manifest).toMatch(/^[a-f0-9]{64}$/);
-  await host.writeProgram(CONNECTED_STARTUP, STARTUP_NEW, STARTUP_OLD);
-  await expect.poll(() => host.read(CONNECTED_STARTUP)).toEqual(new TextEncoder().encode(STARTUP_NEW));
+  await writeProgram(CONNECTED_STARTUP, STARTUP_NEW, STARTUP_OLD);
   const gameTickAfterSave = (await scene(oldRun)).tick;
   await host.revealRun();
   await expect.poll(async () => (await scene(oldRun)).tick).toBeGreaterThan(gameTickAfterSave + 1);

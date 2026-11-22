@@ -189,6 +189,35 @@ test("the text area shows the document's LF text; typing becomes one labelled ed
   match(stateOf(s.el), /All changes saved/);
 });
 
+test("#3192 Save clicked while typing is still buffered writes the text the author sees", async () => {
+  const s = await setup();
+  show(s);
+  await type(s.el, "x = 1\ny = 22\n");
+  equal(s.pending.busy(), true, "the typing has not reached the document yet when Save is clicked");
+  equal(textOf(s), "x = 1\ny = 2\n");
+  // The button's own handler, exactly as the workbench's Save Active Editor reaches it: no settle in between.
+  await act(() => named(s.el, "Save").click());
+  await settled();
+  deepEqual(s.host.bytesOf(PATH), bytes("x = 1\r\ny = 22\r\n"), "the write carries the buffered typing, not the text before it");
+  equal(textOf(s), "x = 1\ny = 22\n");
+  match(stateOf(s.el), /All changes saved/);
+});
+
+test("#3192 Save after typing an undo and a redo writes the redone text", async () => {
+  const s = await setup();
+  show(s);
+  await type(s.el, "x = 1\ny = 22\n");
+  const undo = await key(area(s.el), { key: "z", ctrlKey: true });
+  equal(undo.defaultPrevented, true);
+  await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
+  // No settle between the redo and Save, exactly as the browser proof clicks Save after its redo assertion.
+  await act(() => named(s.el, "Save").click());
+  await settled();
+  deepEqual(s.host.bytesOf(PATH), bytes("x = 1\r\ny = 22\r\n"), "the redo is what the write carries");
+  equal(textOf(s), "x = 1\ny = 22\n");
+  match(stateOf(s.el), /All changes saved/);
+});
+
 test("Save from the keyboard flushes typing first, so nothing typed a moment ago is left out", async () => {
   const s = await setup();
   show(s);
