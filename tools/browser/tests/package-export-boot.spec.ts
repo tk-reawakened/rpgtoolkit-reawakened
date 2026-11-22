@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { expect, test } from "@playwright/test";
+import { bootPublishedPackage } from "@tk-reawakened/editor-vscode-test/package-playback";
 
 type RunnerWindow = Window & { __live?: { readonly board: string | null }; __tkrTestFolder?: FileSystemDirectoryHandle };
 type ProjectInput = { readonly path: string; readonly bytes: readonly number[] };
@@ -62,40 +63,6 @@ test("the reviewed editor download boots in the real web runner without its sour
   await page.getByRole("button", { name: `Download ${packageName}.json`, exact: true }).click();
   const descriptorDownload = await descriptorDownloadPromise;
   const descriptorBytes = readFileSync(await descriptorDownload.path());
-  const descriptor = JSON.parse(descriptorBytes.toString("utf8")) as { file: string; sha256: string; size: number };
-  expect(descriptor).toMatchObject({
-    file: packageName,
-    size: archiveBytes.byteLength,
-    sha256: await page.evaluate(async (bytes) => {
-      const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes));
-      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    }, [...archiveBytes]),
-  });
-
-  const archive = Buffer.from(archiveBytes);
-  await page.route(`**/${packageName}`, (route) => {
-    const range = /^bytes=(\d+)-(\d+)$/.exec(route.request().headers()["range"] ?? "");
-    if (range === null) {
-      return route.fulfill({ status: 200, headers: { "accept-ranges": "bytes" }, contentType: "application/octet-stream", body: archive });
-    }
-    const start = Number(range[1]);
-    const end = Number(range[2]);
-    if (start >= archive.length || end < start) {
-      return route.fulfill({ status: 416, headers: { "content-range": `bytes */${archive.length}` } });
-    }
-    const last = Math.min(end, archive.length - 1);
-    return route.fulfill({
-      status: 206,
-      headers: {
-        "accept-ranges": "bytes",
-        "content-range": `bytes ${start}-${last}/${archive.length}`,
-        "content-length": String(last - start + 1),
-      },
-      contentType: "application/octet-stream",
-      body: archive.subarray(start, last + 1),
-    });
-  });
-  await page.route(`**/${packageName}.json`, (route) => route.fulfill({ status: 200, contentType: "application/json", body: descriptorBytes }));
   await page.evaluate(async (name) => {
     const storage = await navigator.storage.getDirectory();
     await storage.removeEntry(name, { recursive: true });
@@ -110,7 +77,7 @@ test("the reviewed editor download boots in the real web runner without its sour
     }
   }, folderName)).toBe(false);
 
-  await page.goto(`/packages/runner-web/app/index.html?package=${packageName}&mode=whole`);
+  await bootPublishedPackage(page, expect, { archiveName: packageName, archive: archiveBytes, descriptor: descriptorBytes });
   expect(await page.evaluate(() => (window as RunnerWindow).__tkrTestFolder)).toBeUndefined();
   await page.waitForFunction(() => (window as RunnerWindow).__live !== undefined, undefined, { timeout: 45_000 });
   for (let press = 0; press < 6; press += 1) {
