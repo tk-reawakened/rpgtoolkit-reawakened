@@ -1,6 +1,7 @@
 // Actual VS Code custom-editor conformance for the owned art experiment (#1726), not library admission.
 // File oracle: docs/spec/formats/tiles.md#tile-data. Lifecycle: ADR0022 D1–D3 and ADR0026.
-import { expandTileToRgba, readTileset, writeTileset } from "@tk-reawakened/core";
+import { BinaryReader, expandTileToRgba, readBoard, readTileset, writeTileset } from "@tk-reawakened/core";
+import { boardToScreen, clampViewport, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, Frame, Locator, Page } from "@playwright/test";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 
@@ -10,6 +11,8 @@ interface PointColor { readonly x: number; readonly y: number; readonly rgba: Rg
 interface NativeArtHost {
   readonly artPath: string;
   readonly otherArtPath: string;
+  /** A 2 × 2 board naming tile 2 of `artPath` in its first cell and leaving its last cell empty. */
+  readonly artBoardPath: string;
   readBacking(path: string): Promise<Uint8Array>;
   writeBacking(path: string, bytes: Uint8Array): Promise<void>;
   withBackingWriteRefused(path: string, check: () => Promise<void>): Promise<void>;
@@ -218,6 +221,7 @@ export async function runVscodeArtProof(page: Page, expect: Expect, host: Native
   await actions.closeEditor();
   first = await openArt(page, expect, host.artPath, actions);
   await expectPixel(canvas(first), expect, 24, 25, recoveryColor);
+  await editSourceTileFromBoard(page, expect, host, actions);
   await page.screenshot({ path: "/tmp/tkr-1726-native-art.png" });
   console.log("vscode.dev actual art document: native history, views, stored pixels, loaded-offline editing, physical write refusal, conflict and orderly reload passed");
   return first;
@@ -289,11 +293,11 @@ async function openArt(page: Page, expect: Expect, path: string, actions: Native
   return frame;
 }
 
-function changed(bytes: Uint8Array, changes: readonly PointColor[]): Uint8Array {
+function changed(bytes: Uint8Array, changes: readonly PointColor[], tileIndex = 0): Uint8Array {
   const read = readTileset(bytes, "authored-art.tst");
   if (!read.ok) throw new Error(read.error.message);
   if (read.value.detail.code !== 1) throw new Error("The authored actual-host control must be a32x32 RGB TST");
-  const pixels = read.value.tiles[0]!.pixels.slice();
+  const pixels = read.value.tiles[tileIndex]!.pixels.slice();
   for (const change of changes) {
     // Normative column-major storage, independent of the view's row-major transport.
     const at = (change.x * 32 + change.y) * 3;
@@ -302,7 +306,7 @@ function changed(bytes: Uint8Array, changes: readonly PointColor[]): Uint8Array 
     pixels[at + 2] = change.rgba[3] === 0 ? 2 : change.rgba[2];
   }
   const tiles = read.value.tiles.slice();
-  tiles[0] = { pixels };
+  tiles[tileIndex] = { pixels };
   const written = writeTileset({ ...read.value, tiles });
   if (!written.ok) throw new Error(written.error.message);
   return written.value;
@@ -319,4 +323,109 @@ function pixel(bytes: Uint8Array, x: number, y: number): number[] {
 function displayPixel(bytes: Uint8Array, x: number, y: number): number[] {
   const rgba = pixel(bytes, x, y);
   return rgba[3] === 0 ? [0, 0, 0, 0] : rgba;
+}
+
+const SOURCE_VIEW = { width: 640, height: 384 };
+const SOURCE_SHAPE = { sizeX: 2, sizeY: 2, coordType: 0 };
+const SOURCE_VIEWPORT: Viewport = clampViewport(SOURCE_SHAPE, { x: 0, y: 0, zoomIndex: 2, ...SOURCE_VIEW });
+
+async function boardFrames(page: Page, expect: Expect, count: number): Promise<Frame[]> {
+  let found: Frame[] = [];
+  await expect.poll(async () => {
+    found = [];
+    for (const outer of await page.locator("iframe.webview:visible").elementHandles()) {
+      const outerFrame = await outer.contentFrame();
+      if (outerFrame === null) continue;
+      for (const frame of outerFrame.childFrames()) {
+        if (frame.isDetached()) continue;
+        try {
+          if (await frame.locator("canvas.tkr-board-canvas").count() === 1) found.push(frame);
+        } catch (error) {
+          if (!frame.isDetached()) throw error;
+        }
+      }
+    }
+    return found.length;
+  }, { timeout: 30_000 }).toBe(count);
+  return found;
+}
+
+async function activateBoardTab(page: Page, expect: Expect, path: string): Promise<void> {
+  const filename = path.slice(path.lastIndexOf("/") + 1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tab = page.getByRole("tab", { name: new RegExp(`^${filename}(?:,|$)`) });
+  await expect(tab).toHaveCount(1);
+  await tab.click();
+}
+
+/** The board's own browser opens tile 2 of the art file; its saved pixel reaches the composed board only after painting. */
+async function editSourceTileFromBoard(page: Page, expect: Expect, host: NativeArtHost, actions: NativeArtActions): Promise<void> {
+  const boardBefore = await host.readBacking(host.artBoardPath);
+  const artBefore = await host.readBacking(host.artPath);
+  await actions.focusWorkbench();
+  await openNativeQuickOpenFile(page, expect, host.artBoardPath);
+  const board = (await boardFrames(page, expect, 1))[0]!;
+  await actions.instrument(board);
+  const canvasOf = board.locator("canvas.tkr-board-canvas");
+  const boardPixel = async (x: number, y: number): Promise<number[]> => {
+    const screen = boardToScreen(SOURCE_VIEWPORT, x, y);
+    return canvasOf.evaluate((element, point) => {
+      const target = element as HTMLCanvasElement;
+      const context = target.getContext("2d");
+      if (context === null) throw new Error("The real board preview has no 2D context");
+      return Array.from(context.getImageData(Math.floor(point.x), Math.floor(point.y), 1, 1).data);
+    }, screen);
+  };
+  // Capture the reference pixels only once the composed picture has replaced the editor's empty background (#1e1e1e).
+  const editorBackground = [30, 30, 30, 255];
+  await expect.poll(() => boardPixel(5, 7), { timeout: 15_000 }).not.toEqual(editorBackground);
+  await expect(canvasOf).toHaveAttribute("aria-busy", "false");
+  expect(await boardPixel(3, 7)).not.toEqual(blue);
+  const unaffected = await boardPixel(5, 7);
+
+  await board.getByLabel("Source", { exact: true }).selectOption({ label: "art.tst (tst)" });
+  const row = board.locator('[data-browser-reference="art.tst2"]');
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "More actions", exact: true }).focus();
+  await page.keyboard.press("Shift+F10");
+  await board.getByRole("button", { name: "Edit tile artwork", exact: true }).click();
+  const view = (await artFrames(page, expect, 1))[0]!;
+  await actions.instrument(view);
+  await expect(view.getByLabel("Tile", { exact: true })).toHaveValue("1");
+  expect(await host.readBacking(host.artPath)).toEqual(artBefore);
+
+  await setBrush(view, "#20b0e0");
+  await beginStroke(page, canvas(view), 3, 7, 3, 7);
+  await page.mouse.up();
+  await expectPixel(canvas(view), expect, 3, 7, blue);
+  await view.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(view.locator(".tkr-tileset-art-state")).toHaveText("All changes saved");
+  const saved = changed(artBefore, [{ x: 3, y: 7, rgba: blue }], 1);
+  expect(await host.readBacking(host.artPath)).toEqual(saved);
+  expect(await host.readBacking(host.artBoardPath)).toEqual(boardBefore);
+
+  await activateBoardTab(page, expect, host.artBoardPath);
+  await expect.poll(() => boardPixel(3, 7)).toEqual(blue);
+  await board.getByLabel("Source", { exact: true }).selectOption({ label: "art.tst (tst)" });
+  await board.locator('[data-browser-reference="art.tst2"] .tkr-tileset-browser-source').click();
+  expect(await host.readBacking(host.artBoardPath)).toEqual(boardBefore);
+  await board.getByRole("button", { name: "Column 2, row 1: empty", exact: true }).click();
+  await board.getByRole("button", { name: "Paint art.tst tile 2 here", exact: true }).click();
+  await expect(board.locator(".tkr-board-state")).toHaveText("Unsaved changes");
+  await board.locator(".tkr-board-save").click();
+  await expect(board.locator(".tkr-board-state")).toHaveText("All changes saved");
+  const painted = await host.readBacking(host.artBoardPath);
+  const parsed = readBoard(new BinaryReader(painted, "Boards/art-source.brd"));
+  if (!parsed.ok) throw parsed.error;
+  expect(parsed.value.tileMatrix).toEqual([1, 1, 1, 1]);
+  expect(parsed.value.lut).toEqual(["", "art.tst2"]);
+  // The board recomposes its picture after the save; wait for it rather than reading the previous frame.
+  await expect.poll(() => boardPixel(32 + 3, 7)).toEqual(blue);
+  await expect.poll(() => boardPixel(5, 7)).toEqual(unaffected);
+  await expect.poll(() => boardPixel(3, 7)).toEqual(blue);
+  expect(await host.readBacking(host.artPath)).toEqual(saved);
+  // Leave the workbench as the earlier art scenarios did: only the artwork editor open, so later scenarios see no extra webview.
+  await activateBoardTab(page, expect, host.artBoardPath);
+  await actions.closeEditor();
+  await boardFrames(page, expect, 0);
+  await artFrames(page, expect, 1);
 }

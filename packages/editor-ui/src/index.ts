@@ -16,6 +16,7 @@ export type { RunSetupOutcome, RunSetupStore, RunViewProps } from "./run-view.ts
 export type { RunControlProps, RunSetupMemory } from "./run-control.tsx";
 export { createBrowserSession, type BrowserSession, type BrowserState, type BrowserSelection, type BrowserStamp } from "./brush.ts";
 export type { TilesetBrowserContext } from "./tileset-browser.tsx";
+export type { SourceVisit } from "./source-visit.ts";
 export type { ShellProps } from "./shell.tsx";
 export { ProgramView, type ProgramPreferencesSource, type ProgramViewDocument, type ProgramViewProps } from "./program-view.tsx";
 export { createPlainTextSurface, diffText, type LanguageFeatures, type SurfaceDiagnostic, type TextChange, type TextSelection, type TextSurface, type TextSurfaceFactory, type TextSurfaceHost } from "./text-surface.ts";

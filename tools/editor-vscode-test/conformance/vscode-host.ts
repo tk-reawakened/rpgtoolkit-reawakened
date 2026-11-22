@@ -369,6 +369,10 @@ class Webview {
 
   #receive(page: Page, message: BridgeMessage): void {
     if (this.#page !== page) return;
+    if (message.type === "source-target") {
+      page.handle?.revealTile?.(message.tile);
+      return;
+    }
     if (message.type === "initialize") {
       const remote = new RemoteDocument(message.kind, message.snapshot, message.browserState, {
         postMessage: (request) => this.#send(request),
@@ -400,15 +404,16 @@ class Webview {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
           layout: { projectFolder: "" },
-          // As `webview.tsx` supplies it: a linked visit through the extension host.
-          openSource: async (path) => {
-            const outcome = await remote.visit(path);
+          // As `webview.tsx` supplies it: a linked visit through the extension host, with its one-based tile.
+          openSource: async (visit) => {
+            const outcome = visit.tile === null ? await remote.visit(visit.path) : await remote.visitSource(visit.path, visit.tile);
             return outcome.ok ? null : outcome.message;
           },
         },
         boardPreferences: remote.boardPreferences,
         pendingEdits: remote.pendingEdits,
       });
+      if (message.sourceTile !== undefined) page.handle.revealTile?.(message.sourceTile);
       return;
     }
     page.remote?.receive(message);
