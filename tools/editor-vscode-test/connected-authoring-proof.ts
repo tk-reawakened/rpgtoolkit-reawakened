@@ -129,6 +129,9 @@ export function connectedAuthoringProofFiles(): readonly ProofFile[] {
   ];
 }
 
+/** The editor document's revision relative to its saved baseline, as its own host reports it. */
+export type EditorDocumentState = "clean" | "dirty";
+
 export interface ConnectedAuthoringProofHost {
   readonly page: Page;
   readonly launchSetupPath: string;
@@ -145,7 +148,13 @@ export interface ConnectedAuthoringProofHost {
   returnToBoard(): Promise<Locator>;
   expectSingleSharedItemDocument(): Promise<void>;
   expectProgram(path: string, text: string): Promise<void>;
-  writeProgram(path: string, text: string, before: string): Promise<void>;
+  /** Whether the open document `path` equals its saved revision (`clean`) or holds edits (`dirty`). */
+  documentState(path: string): Promise<EditorDocumentState>;
+  /**
+   * Replace `path` with `text`, prove undo and redo through `awaitState`, then save. The host must report each
+   * document revision exactly when the editor's own document model changes, never from a fixed wait.
+   */
+  writeProgram(path: string, text: string, before: string, awaitState: (state: EditorDocumentState) => Promise<void>): Promise<void>;
   runSavedBoardSetup(): Promise<Frame>;
   runGame(): Promise<Frame>;
   revealRun(): Promise<void>;
@@ -290,11 +299,24 @@ async function programState(page: Page, path: string): Promise<string> {
 export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHost, expect: Expect): Promise<void> {
   let board = await host.openBoard(CONNECTED_BOARD);
   const inspector = () => board.locator('.tkr-board-objects[aria-label="Sprite inspector"]:visible');
-  /** Save `path` with `text`, then wait for those exact bytes; a mismatch reports the editor's own state. */
+  /**
+   * Save `path` with `text`, waiting on the editor's own document revisions rather than a fixed window. The typing
+   * must reach the document, undo must return it to its saved revision, redo must make it dirty again, and the save
+   * must be acknowledged by the host before the bytes are read (#3322, #3306).
+   */
   const writeProgram = async (path: string, text: string, before: string): Promise<void> => {
-    await host.writeProgram(path, text, before);
+    const revisions: EditorDocumentState[] = [];
+    const awaitState = async (state: EditorDocumentState): Promise<void> => {
+      await expect.poll(() => host.documentState(path), {
+        message: `${path} never reached its ${state === "clean" ? "saved" : "edited"} document revision`,
+      }).toBe(state);
+      revisions.push(state);
+    };
+    await host.writeProgram(path, text, before, awaitState);
+    // Revert-proof: a timeout-only wait cannot report these revisions, so dropping the document-state waits fails here.
+    expect(revisions, `${path} must be observed saved, edited, undone, redone and saved again`).toEqual(["clean", "dirty", "clean", "dirty", "clean"]);
     try {
-      await expect.poll(() => host.read(path)).toEqual(new TextEncoder().encode(text));
+      expect(await host.read(path)).toEqual(new TextEncoder().encode(text));
     } catch (error) {
       throw new Error(`${path} never held the saved text. Editor state: ${await programState(host.page, path)}. Cause: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -346,7 +368,8 @@ export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHo
   if (!savedDefinition.ok) throw new Error(savedDefinition.error.message);
   expect(await host.read(CONNECTED_ITEM)).toEqual(sourceBefore);
   await host.save();
-  await expect.poll(() => host.read(CONNECTED_ITEM)).toEqual(savedDefinition.value);
+  // The save acknowledged before it returned, so the bytes are already the accepted revision (#3306).
+  expect(await host.read(CONNECTED_ITEM)).toEqual(savedDefinition.value);
   await sprite.getByRole("button", { name: "Open South walking animation", exact: true }).click();
   const animation = await host.animationEditor();
   await expect(animation.getByRole("spinbutton", { name: "Global delay (seconds)", exact: true })).toHaveValue("0.25");
@@ -361,7 +384,7 @@ export async function runConnectedAuthoringProof(host: ConnectedAuthoringProofHo
   await bitmap.getByRole("button", { name: /^Column 1, row 1:/ }).click();
   await expectBitmapPixels(bitmap, expect, true);
   await host.save();
-  await expect.poll(() => host.read(CONNECTED_BITMAP)).toEqual(connectedBitmapBytes(true));
+  expect(await host.read(CONNECTED_BITMAP)).toEqual(connectedBitmapBytes(true));
   const decoded = readTileBitmap(new BinaryReader(await host.read(CONNECTED_BITMAP)));
   if (!decoded.ok) throw new Error(decoded.error.message);
   expect(decoded.value.cells[0]?.tile).toBe("connected.tst2");
