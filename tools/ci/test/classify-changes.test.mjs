@@ -264,10 +264,10 @@ test("workflow: classify seals the verdict before any PR code runs, and no job c
     equal(/\bgit\s+(?!--no-replace-objects\b)/u.test(line), false, `git call must pass --no-replace-objects: ${line}`);
   }
 
-  for (const name of ["golden", "script-dogfood", "golden-bun", "desktop", "browser", "vscode-web", "mobile"]) {
+  const assertGatedJob = (name, needs) => {
     const lines = jobs.get(name);
     ok(lines, `ci.yml must define ${name}`);
-    match(lines.join("\n"), /^ {4}needs: \[changes\]$/mu, `${name} must depend only on changes`);
+    match(lines.join("\n"), needs, `${name} must depend on the right jobs`);
     match(lines.join("\n"), /^ {4}if: \$\{\{ !cancelled\(\) \}\}$/mu, `${name} must run whenever the workflow is not cancelled`);
     const guarded = "needs.changes.result != 'success' || needs.changes.outputs.full != 'false'";
     // Split the job into steps (6-space `- `) and require the reporter first and every later step gated.
@@ -281,12 +281,18 @@ test("workflow: classify seals the verdict before any PR code runs, and no job c
     for (const step of steps.slice(1)) {
       ok(step.join("\n").includes(guarded), `${name} step must gate on the classifier: ${step[0].trim()}`);
     }
+  };
+  for (const name of ["golden", "script-dogfood", "golden-bun", "desktop", "browser", "vscode-web", "mobile-build"]) {
+    assertGatedJob(name, /^ {4}needs: \[changes\]$/mu);
   }
+  // The advisory proof waits for the required APK build; the proof-presence check waits for the advisory proof.
+  assertGatedJob("mobile", /^ {4}needs: \[changes, mobile-build\]$/mu);
+  assertGatedJob("mobile-proof-present", /^ {4}needs: \[changes, mobile\]$/mu);
 
   // `gate` recomputes the diff itself, so a workflow or classifier change can never arrive as "inert".
   const gate = jobs.get("gate")?.join("\n") ?? "";
-  match(gate, /^ {4}needs: \[changes, checks, unit, golden, golden-bun, browser, vscode-web, desktop, script-dogfood\]$/mu,
-    "gate must wait for every required job and finish independently of mobile");
+  match(gate, /^ {4}needs: \[changes, checks, unit, golden, golden-bun, browser, vscode-web, desktop, mobile-build, mobile-proof-present, script-dogfood\]$/mu,
+    "gate must wait for every required job, including the mobile APK build and proof presence");
   match(gate, /uses: actions\/checkout@v7\n {8}with:\n {10}fetch-depth: 0/u, "gate must check out full history");
   ok(gate.includes("cannot be inert"), "gate must refuse a defer for a workflow or classifier change");
   ok(gate.includes(".github/workflows/|tools/ci/"), "gate must look for workflow and classifier paths");
@@ -311,17 +317,31 @@ test("unit shards have a bounded job timeout and a timed-out shard fails the gat
   equal(success.status, 0);
 });
 
-test("mobile CI reserves AVD space and keeps the real emulator proof", () => {
-  const lines = readWorkflowJobs().get("mobile");
-  ok(lines, "mobile job must exist");
+test("mobile CI builds the APK as required and keeps the emulator proof advisory", () => {
+  const jobs = readWorkflowJobs();
+  const build = jobs.get("mobile-build");
+  ok(build, "mobile-build job must exist");
+  const buildText = build.join("\n");
+  ok(!/^ {4}continue-on-error:/mu.test(buildText), "the APK build must be required");
+  const cleanup = buildText.indexOf("- name: Reclaim unused hosted-runner toolchains");
+  const sdk = buildText.indexOf("- run: sdkmanager ");
+  const assemble = buildText.indexOf("- name: Assemble debug APK");
+  ok(cleanup >= 0 && cleanup < sdk && sdk < assemble);
+  match(buildText, /sudo rm -rf \/usr\/share\/dotnet \/opt\/ghc \/usr\/local\/share\/boost/u);
+  match(buildText, /tools\/mobile\/gradle-build\.mjs/u);
+  match(buildText, /name: mobile-apk/u);
+  match(buildText, /name: mobile-gradle-attempts/u);
+  match(buildText, /if-no-files-found: error/u);
+
+  const lines = jobs.get("mobile");
+  ok(lines, "mobile proof job must exist");
   const text = lines.join("\n");
   match(text, /^ {4}continue-on-error: true$/mu, "mobile proof failures must be advisory");
-  const cleanup = text.indexOf("- name: Reclaim unused hosted-runner toolchains");
-  const sdk = text.indexOf("- run: sdkmanager ");
-  const assemble = text.indexOf("- name: Assemble debug APK");
+  const proofCleanup = text.indexOf("- name: Reclaim unused hosted-runner toolchains");
+  const proofSdk = text.indexOf("- run: sdkmanager ");
   const check = text.indexOf("- name: Require Android emulator disk space");
   const emulator = text.indexOf("- name: Exercise APK on API 36 emulator");
-  ok(cleanup >= 0 && cleanup < sdk && sdk < assemble && assemble < check && check < emulator);
+  ok(proofCleanup >= 0 && proofCleanup < proofSdk && proofSdk < check && check < emulator);
   match(text, /sudo rm -rf \/usr\/share\/dotnet \/opt\/ghc \/usr\/local\/share\/boost/u);
   match(text, /system-images;android-36;google_apis;x86_64/u);
   match(text, /name: Configure and require KVM access/u);
@@ -331,6 +351,8 @@ test("mobile CI reserves AVD space and keeps the real emulator proof", () => {
   match(text, /emulator-options:.*-gpu swiftshader_indirect/u);
   match(text, /script: pnpm mobile:proof/u);
   match(text, /name: mobile-android-api36-proof/u);
+  match(text, /name: mobile-apk/u, "the proof job must download the required APK");
+  match(text, /uses: actions\/download-artifact@v8/u);
 
   const start = lines.findIndex((line) => line.trim() === "- name: Require Android emulator disk space");
   const run = lines.findIndex((line, index) => index > start && line === "        run: |");
