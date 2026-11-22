@@ -379,6 +379,8 @@ function connect(url, { requestTimeoutMs = 30_000 } = {}) {
     socket.addEventListener("error", () => fail(new Error("the debugging socket failed")));
     socket.addEventListener("close", () => fail(new Error("the debugging socket closed before it opened")));
   });
+  // A socket that fails before the first `send` must not become an unhandled rejection; `send` still sees the rejection.
+  ready.catch(() => {});
   socket.addEventListener("close", () => failAll("the debugging socket closed"));
   socket.addEventListener("error", () => failAll("the debugging socket failed"));
   return {
@@ -519,7 +521,7 @@ async function main() {
       return { child: spawned, page: attachedPage, mainDebugger: attachedDebugger, userDataDirectory: directory, opened: live, log: chunks };
     } catch (error) {
       await cleanupProbe(spawned, attachedDebugger, attachedPage, directory);
-      error.log = `${chunks.join("")}${error.log ?? ""}`;
+      if (error instanceof Error) error.log = `${chunks.join("")}${error.log ?? ""}`;
       throw error;
     }
   };
