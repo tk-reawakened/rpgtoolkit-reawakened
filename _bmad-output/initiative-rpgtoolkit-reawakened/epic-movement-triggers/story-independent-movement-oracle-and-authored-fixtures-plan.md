@@ -162,30 +162,25 @@ Every proposed choice below remains **Proposed ruling (pending owner review)**, 
   to carry a provenance bit that survives to the battle test. Pinned by "R-68:
   multiRun run from a blocking program is suppressed" in
   `packages/core/test/movement-rulings.test.ts`.
-- **Proposed (owner note): facing after an accepted linked crossing.** [R-53](../../../docs/spec/engine/movement-and-collision.md#r-53),
-  [E-19](../../../docs/spec/engine/movement-and-collision.md#e-19) and
-  [E-47](../../../docs/spec/engine/movement-and-collision.md#e-47) do not state
-  which way the player faces after an accepted crossing. Current behaviour is
-  the same as `origin/main` before [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66):
-  the player faces the crossed edge, for both direction-style and point-style
-  steps (`movement.ts` writes `facing: stepEdge` on the accepted branch, the
-  per-advance fallback writes `facing: exit`, and placement never resets
-  facing). Readings: (a) current — a crossing leaves the player facing the edge
-  it walked off, so the next held direction reads naturally and main's
-  observable behaviour is preserved; (b) a crossing is a placement, so facing
-  should stay unchanged unless the step itself had a direction
-  (`active.facing ?? actor.facing`), which keeps a point-style crossing's old
-  facing because a point has no direction. Recommendation: (a) as implemented,
-  because it preserves `origin/main`'s observable behaviour and the ruling text
-  supports neither reading over the other; (b) is arguably more placement-like
-  and is one line apart in the accepted branches. Owner decision requested —
-  recorded as **Proposed (owner note)**. Pinned by
+- **Decided (owner: Jensen, 2026-11-22; recorded in the spec): facing after an
+  accepted linked crossing.** The player keeps the **exit-direction facing**
+  after an accepted crossing, for both direction-style and point-style steps,
+  and placement does not reset facing. This is the behaviour already shipped
+  and the same as `origin/main` before
+  [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66)
+  (`movement.ts` writes `facing: stepEdge` on the accepted branch and the
+  per-advance fallback writes `facing: exit`). The rejected alternative was a
+  placement that leaves the old facing unless the step had a direction
+  (`active.facing ?? actor.facing`); it is not adopted because the crossing is
+  still a walk off a named edge. Recorded in
+  [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66) item 4,
+  [R-53](../../../docs/spec/engine/movement-and-collision.md#r-53) item 4, the
+  Moving between boards success bullet, and the ADR 0040 amendment dated
+  2026-11-22. Pinned by
   `packages/core/test/movement-edge-fixture-replay.test.ts`, which replays every
   case of `packages/core/test/fixtures/movement/edges-board-link-program.json`
   including the per-tick `facing` column (the point-style crossing
-  `point-path-edge-preflight-ignores-source-solid` records `E` at t0); the
-  alternatives were recorded in PR #3330's body and are unchanged by this
-  follow-up.
+  `point-path-edge-preflight-ignores-source-solid` records `E` at t0).
 - **Proposed (owner note): a board-edge crossing is refused while a blocking
   thread is live.** R-66 item 2(d) runs the destination board's cancelable
   `beforeEnter`, and an engine-originated cancelable event refuses to start
@@ -232,35 +227,24 @@ Every proposed choice below remains **Proposed ruling (pending owner review)**, 
   cannot help, with expected facts for the winner blocked for that tick and the
   loser frozen for the R-51 duration. No oracle test pins this yet; the existing
   guard is the unit test named above.
-- **Proposed (owner note): a refused linked crossing's own queue entry is
-  consumed — spec/code discrepancy, owner question open.** Current behaviour:
-  a refused crossing consumes its own queue entry and keeps every later entry
-  and waypoint (`finishBlockedAtStart` slices the first entry; PR #3330's
-  ambiguity 1). The ruling text says the queue is "kept unchanged":
-  [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66) item 3
-  (`movement-and-collision.md` ~417, "its movement queue is **kept unchanged**,
-  including later script-appended commands and waypoints"), ADR 0040 ruling 4
-  ("its queue is kept"), and ticket 8
-  (`_bmad-output/backlog/bug-tile-movement-destination-collision.md`,
-  criterion 4 "its queue is unchanged" and the Notes line "with the queue kept
-  on refusal"). Two resolutions, and this follow-up deliberately changes
-  neither because the director is asking the owner: (1) change
-  `finishBlockedAtStart`'s refused branch to keep the refused entry too, so the
-  next update retries the same entry and R-66 item 3's "The next step toward the
-  edge runs the whole preflight again" is that retry; (2) amend R-66 item 3,
-  ADR 0040 ruling 4 and ticket 8's wording to "later entries and waypoints are
-  kept; the refused step's own entry is consumed because the step ended", which
-  is what the code does. Both readings keep later entries, so the only
-  observable difference is whether the player retries the refused crossing on
-  the next update or waits for fresh input. Recommendation: (2) as implemented,
-  because R-64 item 1 already consumes a blocked player direction step, R-66
-  item 3 predates that composition, and keeping the entry would let a held key
-  pile duplicate entries unless the retry also skipped fresh input. Pinned
-  today by `packages/core/test/movement-edge-preflight.test.ts`, "R-66: a
-  refused crossing ends the step blocked, uncounted, and keeps the rest of the
-  queue" (and its suppression twin), plus the engine replay
-  `packages/core/test/movement-edge-fixture-replay.test.ts`; whichever
-  resolution the owner picks, those tests must change with it.
+- **Decided (owner: Jensen, 2026-11-22; recorded in the spec): a refused linked
+  crossing consumes its own queue entry and keeps every later entry.** The
+  behaviour stays as implemented (PR #3330): `finishBlockedAtStart` slices the
+  refused entry, keeps later entries and waypoints, leaves the player at the
+  last safe position, and runs none of R-64's counted processing. The rule now
+  reads that way everywhere: [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66)
+  item 3, [R-53](../../../docs/spec/engine/movement-and-collision.md#r-53)
+  item 3, E-28, the Moving between boards bullets, the ADR 0040 amendment dated
+  2026-11-22, ticket 8's criterion 4 and Notes, and the linked-edge spike's
+  settled record. Reason to record: a refusal can never repeat forever and the
+  refused step behaves like any other blocked player direction step (R-64 item
+  1). The rejected alternative — keep the refused entry too, so the next update
+  retries it — would let a held key pile duplicate entries unless the retry also
+  skipped fresh input. Pinned by
+  `packages/core/test/movement-edge-preflight.test.ts`, "R-66: a refused
+  crossing ends the step blocked, uncounted, and keeps the rest of the queue"
+  (and its suppression twin), plus the engine replay
+  `packages/core/test/movement-edge-fixture-replay.test.ts`.
 
 ## Acceptance mapping
 
@@ -284,9 +268,12 @@ initial build the oracle scenes were extended by #3329 (the R-67/R-68 cases,
 including the replacement of the superseded
 `blocked-counted-step-does-not-leak-into-repeat-distance` case) and by #3330
 (the R-66 edge scenes and the engine replay
-`packages/core/test/movement-edge-fixture-replay.test.ts`). The four owner notes
-added on 2026-11-21 stay **Proposed (owner note)** until the owner rules; none of
-them changes behaviour in this ticket.
+`packages/core/test/movement-edge-fixture-replay.test.ts`). Two of the owner
+notes added on 2026-11-21 were decided by the owner on 2026-11-22 — facing after
+an accepted crossing, and the refused crossing's own queue entry — and are
+recorded in the spec, ADR 0040's amendment and ticket 8; the blocking-thread
+refusal and the R-51 precedence scene stay **Proposed (owner note)**. Neither
+decision changes behaviour.
 
 ## Plan Change Log
 
@@ -297,3 +284,8 @@ them changes behaviour in this ticket.
   blocking thread is live; R-51 priority-order oracle coverage; and the refused
   crossing's own queue entry against R-66 item 3), refreshed the stale status
   line after #3329/#3330, and corrected ticket 8's "closed by" wording.
+- 2026-11-22: owner decided the facing and queue-entry notes. Both are now
+  **Decided** records, matching the shipped behaviour, and the rule text was
+  amended in the spec (R-66 items 3–4, R-53 items 3–4, E-28, Moving between
+  boards), in ADR 0040's dated amendment, in ticket 8 and in the linked-edge
+  spike. The blocking-thread refusal and R-51 precedence notes stay proposed.

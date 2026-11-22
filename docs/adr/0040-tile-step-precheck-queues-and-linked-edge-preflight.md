@@ -101,3 +101,17 @@ Three conflicts had to be settled. E-135 said a solid that becomes blocking mid-
 ## Deferred
 
 Board-edge program links (E-48) keep their current behaviour until a later ruling. Pointer repathing and path-finding across a refused edge are governed by their existing rules. No change is made to `send`, pixel sliding, R-51's point-style diversion, or the movement event vocabulary.
+
+## Amendment (owner: Jensen, 2026-11-22)
+
+The rulings below refine ruling 4 without rewriting its dated text. They were decided after reviewing the implemented refusal and crossing behaviour, and they match the code in `packages/core/src/sprites/movement.ts` (`finishBlockedAtStart` and the accepted-crossing branches).
+
+1. **A refused linked crossing consumes its own queue entry; later entries are kept.** Ruling 4's "its queue is kept" means every later entry, including later script-appended commands and waypoints: the refused step's own entry is consumed, like any blocked player direction step under R-64 item 1. A refusal can therefore never repeat forever, and position, party counters, triggers, board events and movement events are otherwise unchanged (`blocked { edge }` with no `step-complete`, no `edge-exit`, no party distance and no destination effects). Recorded in `docs/spec/engine/movement-and-collision.md` — [R-66](../spec/engine/movement-and-collision.md#r-66) item 3, [R-53](../spec/engine/movement-and-collision.md#r-53) item 3, E-28 and the Moving between boards bullets — and in #1281's criteria 4 and Notes.
+2. **Facing after an accepted crossing is the exit direction, for both step styles.** The player faces the edge it crossed, and placement does not reset facing. This keeps the behaviour of `origin/main` before R-66 for direction-style and point-style steps, and the rejected alternative (a placement that leaves facing unchanged unless the step had a direction) is not adopted because the crossing is still a walk off a named edge. Recorded in [R-66](../spec/engine/movement-and-collision.md#r-66) item 4 and [R-53](../spec/engine/movement-and-collision.md#r-53) item 4.
+
+**Lands in.** `docs/spec/engine/movement-and-collision.md` (E-28, R-53 items 3–4, R-66 items 3–5, Moving between boards), this amendment, `_bmad-output/backlog/bug-tile-movement-destination-collision.md`, `_bmad-output/backlog/spike-linked-edge-refusal-transaction.md` and the movement oracle plan.
+
+**Evidence.** The implemented refusal consumes the entry and keeps later entries (PR #3330; pinned by `packages/core/test/movement-edge-preflight.test.ts` and `packages/core/test/movement-edge-fixture-replay.test.ts`), and an accepted crossing faces the crossed edge for both step styles (pinned by the same replay over `packages/core/test/fixtures/movement/edges-board-link-program.json`).
+
+**If ruled otherwise.** Repealing item 1 means keeping the refused entry too (one line in `finishBlockedAtStart`), and the refusal then retries on the next update; repealing item 2 means writing `active.facing ?? actor.facing` in the accepted branches.
+
