@@ -93,12 +93,15 @@
       "cases": [
         "blocked-counted-step-fires-the-step-region-at-the-destination",
         "blocked-counted-step-checks-battles-at-the-destination",
-        "blocked-counted-step-does-not-leak-into-repeat-distance",
+        "blocked-counted-step-feeds-repeat-distance",
+        "repeat-distance-32-fires-on-every-blocked-press",
+        "blocked-press-outside-the-area-rearms-the-repeat",
+        "blocked-counted-step-fires-the-region-and-checks-the-battle",
         "blocked-mid-step-is-not-counted",
         "blocked-mid-step-queue-continues-next-update",
         "non-selected-player-blocked-step-retries"
       ],
-      "proposed": ["P-6","P-10","P-19"]
+      "proposed": ["P-6","P-10"]
     },
     {
       "scene": "actor-hydration-item-multitask",
@@ -141,6 +144,8 @@
         "pause-thread-flag-waits-for-completion",
         "without-the-flag-the-thread-continues",
         "blocking-thread-implies-the-wait",
+        "blocking-program-step-suppresses-end-of-step-processing",
+        "background-thread-movement-counts-as-free-roaming",
         "multirun-one-wait-over-both-sprites",
         "waypoint-path-copy-two-cycles",
         "waypoint-link-sees-live-edit"
@@ -168,6 +173,7 @@
         "board-forbids-battles",
         "main-file-disables-fighting",
         "custom-fight-program",
+        "suppressed-program-step-records-its-tile",
         "no-enemy-of-the-skill-level"
       ],
       "proposed": ["P-6","P-10"]
@@ -203,7 +209,6 @@
     "P-15": "Movement and key waits are polled in the `waits` phase, so a thread resumes on the tick after the movement completes; movement started from a blocking thread implies the wait.",
     "P-16": "Diversion and the pathfinder treat every other visible sprite on the layer as an obstacle; a route counts only if it reaches the goal; the 120-tick wait retests each tick.",
     "P-17": "Pathfinder conventions: step costs 10 (4-way) and 10 / 14 (8-way), Manhattan and octile heuristics, ties by (f, x, y, insertion); nearest free node by squared distance then (x, y); the capped search approaches the expanded node nearest the goal; vector mode handles axis-aligned solids and keeps the whole base on the board.",
-    "P-18": "Gamepad edges are computed on the merged held state: an action already held by another source appends no queue entry.",
-    "P-19": "A counted blocked player step adds 0 px to a repeat region's distance counter: R-64 item 2 grants the tile to the party remainder and to end-of-step processing and states no repeat contribution."
+    "P-18": "Gamepad edges are computed on the merged held state: an action already held by another source appends no queue entry."
   }
 }

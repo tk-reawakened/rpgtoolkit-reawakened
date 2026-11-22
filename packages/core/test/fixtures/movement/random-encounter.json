@@ -502,6 +502,85 @@
       ]
     },
     {
+      "name": "suppressed-program-step-records-its-tile",
+      "note": "R-68 with R-64: a step a blocking program drives is not tested, but the tile it reaches is recorded, so the free-roam step back draws once (a fight) instead of comparing equal to the start tile. A missed recording would defer the roll to the program's end or lose it; the oracle models the tracker from the ruling text.",
+      "setup": {
+        "board": "field",
+        "boards": {
+          "field": {
+            "w": 320,
+            "h": 320,
+            "layers": 2,
+            "pixelMovement": 0,
+            "gameSpeed": 0,
+            "pfMode": 1,
+            "vectors": [],
+            "programs": [],
+            "items": [],
+            "links": {},
+            "threads": [],
+            "battle": {"allowed":true,"type":0,"chances":1,"skill":1,"background":"cave.bkg"}
+          }
+        },
+        "players": [{"id":"hero","x":48,"y":63,"layer":0,"speed":0.02,"facing":"S","controlled":true}],
+        "fightEnabled": true,
+        "encounterTable": [{"enemy":"rat.ene","skill":1},{"enemy":"bat.ene","skill":1},{"enemy":"troll.ene","skill":3}],
+        "rng": [0,0,0,0],
+        "threads": [{"id":"driver","kind":"blocking","start":0,"program":[{"op":"push","actor":"hero","dirs":"E"},{"op":"end"}]}]
+      },
+      "script": [
+        {"t":20,"op":"push","actor":"hero","dirs":"W"}
+      ],
+      "ticks": 40,
+      "boot": [
+        {"e":"board-install","board":"field"},
+        {"e":"hydrate","id":"hero","drawId":0,"index":0,"slot":0,"visible":true},
+        {"e":"threads-started","ids":[]}
+      ],
+      "expect": [
+        {"t":0,"a":[["hero",52,63,0,"moving","E"]],"th":{"driver":"wait:movement"},"ev":[{"e":"thread-start","id":"driver","kind":"blocking"}]},
+        {"t":1,"a":[["hero",56,63,0,"moving","E"]],"th":{"driver":"wait:movement"}},
+        {"t":2,"a":[["hero",60,63,0,"moving","E"]],"th":{"driver":"wait:movement"}},
+        {"t":3,"a":[["hero",64,63,0,"moving","E"]],"th":{"driver":"wait:movement"}},
+        {"t":4,"a":[["hero",68,63,0,"moving","E"]],"th":{"driver":"wait:movement"}},
+        {"t":5,"a":[["hero",72,63,0,"moving","E"]],"th":{"driver":"wait:movement"}},
+        {"t":6,"a":[["hero",76,63,0,"moving","E"]],"th":{"driver":"wait:movement"}},
+        {"t":7,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"wait:movement"},"ev":[{"e":"step-complete","actor":"hero"},{"e":"movement-complete","actor":"hero"}]},
+        {"t":8,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"},"ev":[{"e":"thread-end","thread":"driver"}]},
+        {"t":9,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":10,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":11,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":12,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":13,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":14,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":15,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":16,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":17,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":18,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":19,"a":[["hero",80,63,0,"waiting","E"]],"th":{"driver":"done"}},
+        {"t":20,"a":[["hero",76,63,0,"moving","W"]],"th":{"driver":"done"}},
+        {"t":21,"a":[["hero",72,63,0,"moving","W"]],"th":{"driver":"done"}},
+        {"t":22,"a":[["hero",68,63,0,"moving","W"]],"th":{"driver":"done"}},
+        {"t":23,"a":[["hero",64,63,0,"moving","W"]],"th":{"driver":"done"}},
+        {"t":24,"a":[["hero",60,63,0,"moving","W"]],"th":{"driver":"done"}},
+        {"t":25,"a":[["hero",56,63,0,"moving","W"]],"th":{"driver":"done"}},
+        {"t":26,"a":[["hero",52,63,0,"moving","W"]],"th":{"driver":"done"}},
+        {"t":27,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"},"ev":[{"e":"step-complete","actor":"hero"},{"e":"movement-complete","actor":"hero"},{"e":"tile-moved","cell":[1,1]},{"e":"rng-draw","n":1,"value":0},{"e":"rng-draw","n":4,"value":0},{"e":"rng-draw","n":2,"value":0},{"e":"fight-handoff","board":"field","player":"hero","x":48,"y":63,"layer":0,"enemies":["rat.ene"],"background":"cave.bkg"}]},
+        {"t":28,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":29,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":30,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":31,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":32,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":33,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":34,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":35,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":36,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":37,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":38,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}},
+        {"t":39,"a":[["hero",48,63,0,"waiting","W"]],"th":{"driver":"done"}}
+      ]
+    },
+    {
       "name": "no-enemy-of-the-skill-level",
       "note": "No table entry of the board's skill level: the documented message, and no enemy draws.",
       "setup": {

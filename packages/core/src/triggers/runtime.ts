@@ -49,6 +49,12 @@ export type TriggerPhaseOptions = {
   readonly onEvent?: (event: TriggerEvent) => void;
   /** A located report for a trigger whose program cannot start; without it, a missing program is thrown. */
   readonly onDiagnostic?: (diagnostic: { readonly code: string; readonly file: string; readonly line: number; readonly message: string }) => void;
+  /**
+   * R-68's end-of-step decision for this tick, as the engine captured it before any trigger program started
+   * (docs/spec/engine/movement-and-collision.md#r-68). Absent when the phase is driven directly, in which case
+   * the live blocking-thread predicate is read.
+   */
+  readonly endOfStepSuppressed?: boolean;
 };
 
 function fixed(value: number): number {
@@ -236,7 +242,14 @@ export function selectPointerActivationTarget(state: GameState, point: { readonl
   state.sprites.players = state.sprites.players.map((actor) => actor.id === player.id ? { ...actor, facing } : actor);
   return winner.key;
 }
+/** One tile-mode step's worth for a repeat distance (R-67; E-23's 32 px tile step). */
+const STEP_TILE = 32;
+/**
+ * Distance a finished step contributes to a repeat program's counter (E-42). R-67: a counted blocked player
+ * direction-style tile step contributes one step's worth even though the actor never moved.
+ */
 function stepDistance(player: SpriteActor): number {
+  if (player.movement.lastStepBlocked && player.movement.lastStepTarget !== null) return STEP_TILE;
   const movement = player.movement as typeof player.movement & { readonly lastStepDistance?: number };
   return movement.lastStepDistance ?? 0;
 }
@@ -352,7 +365,7 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     }
     section.deactivateAt = null;
   }
-  const step = stepTick(player) === state.time.tick;
+  const stepHappened = stepTick(player) === state.time.tick;
   let completedTriggerThread: number | null = null;
   if (section.active !== null && currentThreadFinished(state, section.active)) {
     const active = section.active;
@@ -362,10 +375,19 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
     section.active = null;
   }
   const lastStepProvenance = player.movement.lastStepProvenance;
-  const completedTriggerMovement = step
+  const triggerStep = stepHappened && lastStepProvenance.kind === "trigger";
+  const completedTriggerMovement = stepHappened
     && completedTriggerThread !== null
     && lastStepProvenance.kind === "trigger"
     && lastStepProvenance.thread === completedTriggerThread;
+  // R-68 (docs/spec/engine/movement-and-collision.md#r-68): one live-blocking-thread predicate suppresses
+  // end-of-step processing for completed and blocked steps alike — the party counter, step-triggered programs
+  // and items, repeat distance and the battle check. Movement a trigger program queued keeps R-52's
+  // non-recursion instead: it must still consume its entry once the program has finished.
+  // R-68: the engine captures this once per tick, at the movement phase, so a program this phase starts cannot
+  // change the answer for the rest of the tick. Driven directly (no engine context), the live predicate is read.
+  const endOfStepSuppressed = options.endOfStepSuppressed ?? hasLiveBlockingThread(state.vm);
+  const step = stepHappened && (!endOfStepSuppressed || triggerStep || completedTriggerMovement);
   // docs/spec/engine/main-loop-and-startup.md#reawakened-boot-held-activation
   // A boot poll is deferred until the enter program has released the blocking thread.
   const bootPoll = section.lastKeySeq === -1;
@@ -383,7 +405,6 @@ export function runTriggersPhase(state: GameState, options: TriggerPhaseOptions 
   if (activationEntries.length > 0) section.lastKeySeq = activationEntries[0]!.seq;
   else for (const entry of state.input.keys) if (entry.seq > section.lastKeySeq) section.lastKeySeq = entry.seq;
   const moving = player.state === "moving" && player.movement.active !== null && player.movement.active.provenance?.kind !== "trigger";
-  const triggerStep = step && lastStepProvenance.kind === "trigger";
   const suppressedStep = triggerStep || completedTriggerMovement;
   const stepEligible = step && !triggerStep;
   const movementEvent = stepEligible || moving;
@@ -512,13 +533,16 @@ export function triggerPhaseRegistration(options: TriggerPhaseOptions = {}): Eng
   return {
     phase: "triggers",
     rank: options.rank ?? 0,
-    run: (state, postEffect?) => {
+    run: (state, postEffect?, context?) => {
       // Without a host-supplied sink, a missing trigger program posts the engine's own diagnostic
       // effect, which the engine turns into a located report (engine.ts's engine-section applier).
-      const phaseOptions: TriggerPhaseOptions = postEffect === undefined
+      const base: TriggerPhaseOptions = context?.endOfStepSuppressed === undefined
         ? options
+        : { ...options, endOfStepSuppressed: context.endOfStepSuppressed };
+      const phaseOptions: TriggerPhaseOptions = postEffect === undefined
+        ? base
         : {
-          ...options,
+          ...base,
           onDiagnostic: options.onDiagnostic ?? ((diagnostic) => { postEffect("engine", engineEffect("engine", "diagnostic", [diagnostic.code, diagnostic.file, diagnostic.line, diagnostic.message], "diagnostic")); }),
         };
       runTriggersPhase(state, phaseOptions);
