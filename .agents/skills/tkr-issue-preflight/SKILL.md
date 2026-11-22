@@ -1,6 +1,6 @@
 ---
 name: tkr-issue-preflight
-description: 'Resolves a GitHub issue number (#NNN or an issue URL) to the one internal BMad ticket that carries it, its existing plan path, and the reference stock bmad-ticket and bmad-build accept; fails closed on missing, duplicate or conflicting identities. Use when the user hands over an issue number to build, plan, resume, review or close in rpgtoolkit-reawakened, e.g. "work #1234", "what is the plan for issue 987". Not for creating or editing issues or tickets.'
+description: 'Resolves a GitHub issue number (#NNN or an issue URL) to the internal BMad ticket that carries it, its existing plan path, and the reference stock bmad-ticket and bmad-build accept; fails closed on duplicate or conflicting identities. Use when the user hands over an issue number to build, plan, resume, review or close in rpgtoolkit-reawakened, e.g. "work #1234", "what is the plan for issue 987".'
 ---
 
 # Issue preflight
@@ -24,9 +24,9 @@ It reads the whole ticket store under `{output_folder}` and never writes. Quote 
 
 `buildable: false` (an epic or initiative): it holds tickets and is not built itself; `--check-stock` returns `stock_check.checked: false` for it and still exits 0. List `children` with their tracker ids (a pulled leaf's id counts; `tracker_id_conflict` on a child means its entry and file disagree) and ask which to preflight.
 
-`ok: false`: report `code` and `error` verbatim and stop. Each is a store defect for the owner to fix, not something to work around:
+- `not_found`: verify the issue exists in this repository, inspect and reconcile every `mentions` plan so existing work is not duplicated, then use `bmad-ticket` to create the appropriate ticket linked to the existing issue (`tracker_id = "#NNN"`). Do not create another GitHub issue. Rerun preflight with `--check-stock` and validate the store before handoff. If a mention makes the identity or plan ambiguous, stop and resolve the conflict first.
 
-- `not_found`: no ticket carries the number. `mentions` lists plans that name it. Do not create an issue or a ticket to make it resolve; the ticket may be unpublished, or the number mistyped.
+For every other `ok: false`, report `code` and `error` verbatim and stop. Each is a store defect for the owner to fix, not something to work around:
 - `duplicate_tracker_id`, `tracker_id_conflict`: two tickets share the number, or one ticket's carriers (entry, file, `remote` issue number) disagree. Show the paths and let the user choose which is wrong.
 - `multiple_plans`, `plan_path_collision`: the plan is ambiguous. Do not pick one. `plan_identity_conflict`: a plan names another issue than its ticket carries, whichever number you asked for.
 - `malformed_store` (including a folder that cannot be listed, or a symlink to a folder, which stock follows and this scan would not), `bad_remote`, `wrong_repository` (an issue URL, or a ticket's `remote`, in another repository), `stock_unreadable`, `stock_disagrees`, `bad_config`, `bad_reference`: the store, the stock reader or the input is wrong.
