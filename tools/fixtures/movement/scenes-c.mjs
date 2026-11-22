@@ -103,6 +103,7 @@ export function randomEncounter() {
       makeCase("board-forbids-battles", "A board that does not allow battles never rolls.", arena(BATTLE({ allowed: false })), [east("E,E,E")], 40),
       makeCase("main-file-disables-fighting", "The main file's fighting switch off means no rolls.", arena(BATTLE(), { fight: false }), [east("E,E,E")], 40),
       makeCase("custom-fight-program", "With the custom-fight flag set, its program runs instead of the built-in handoff.", arena(BATTLE({ chances: 1 }), { custom: "fight.prg", rng: [0] }), [east("E")], 20),
+      makeCase("suppressed-program-step-records-its-tile", "R-68 with R-64: a step a blocking program drives is not tested, but the tile it reaches is recorded, so the free-roam step back draws once (a fight) instead of comparing equal to the start tile. A missed recording would defer the roll to the program's end or lose it; the oracle models the tracker from the ruling text.", { board: "field", boards: { field: board({ battle: BATTLE({ chances: 1 }) }) }, players: [hero({ x: 48, y: 63, speed: 0.02 })], fightEnabled: true, encounterTable: TABLE, rng: [0, 0, 0, 0], threads: [thread("driver", "blocking", [{ op: "push", actor: "hero", dirs: "E" }, { op: "end" }])] }, [{ t: 20, op: "push", actor: "hero", dirs: "W" }], 40),
       makeCase("no-enemy-of-the-skill-level", "No table entry of the board's skill level: the documented message, and no enemy draws.", arena(BATTLE({ chances: 1, skill: 2 }), { rng: [0] }), [east("E")], 20),
     ],
   };

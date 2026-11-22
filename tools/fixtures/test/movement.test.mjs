@@ -423,7 +423,14 @@ test("random-encounter: one roll per tile moved, after activation, with stable h
   equal(events(theCase(sc, "board-forbids-battles"), "rng-draw").length, 0);
   equal(events(theCase(sc, "main-file-disables-fighting"), "tile-moved").length, 0);
   deepEqual(events(theCase(sc, "custom-fight-program"), "custom-fight-program").map((e) => e.program), ["fight.prg"]);
-  deepEqual(events(theCase(sc, "no-enemy-of-the-skill-level"), "message").map((e) => e.text), ["No enemies of skill level 2 found."]);
+  deepEqual(events(theCase(sc, "no-enemy-of-the-skill-level"), "message").map((e) => e.text), ["No enemies of skill level 2 found."]);  // R-68 with R-64: the step a blocking program drove is not tested, but its tile is recorded, so the
+  // free-roam step back to the start tile is a new tile and draws once (a fight at tick 27).
+  const suppressed = theCase(sc, "suppressed-program-step-records-its-tile");
+  deepEqual(events(suppressed, "tile-moved").map((e) => [e.t, e.cell]), [[27, [1, 1]]]);
+  deepEqual(events(suppressed, "rng-draw").map((e) => e.t), [27, 27, 27]);
+  deepEqual(events(suppressed, "fight-handoff").map((e) => e.t), [27]);
+  deepEqual(suppressed.expect.filter((r) => r.ev?.some((e) => e.e === "rng-draw" && r.t === 7)), []);
+
 });
 
 test("demo scenes: the corpus pathfinding NPC intercepts, and a stationary player gets the battle handoff", () => {

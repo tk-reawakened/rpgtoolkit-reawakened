@@ -858,6 +858,9 @@ export class World {
       stepped = true;
     }
     if (keyEvent) this.evaluate("key");
+    // R-68 with R-64: a suppressed step is not tested, but the tile the actor reached is recorded — core
+    // records its progress tile before returning, so a step back to the start tile is a new tile and draws.
+    if (stepHappened && !stepEvent && this.board.battle && this.setup.fightEnabled) this.lastCell = this.cellOf(p);
     this.walked = stepHappened ? 0 : this.walked;
     return stepped;
   }

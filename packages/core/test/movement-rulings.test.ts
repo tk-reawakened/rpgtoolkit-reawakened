@@ -816,3 +816,27 @@ test("R-68: a suppressed completed step records its tile so the program-end tick
   runRandomEncounterPhase(current, battleConfig(), (_section, effect) => posts.push(effect.name));
   deepEqual(posts, [], "no deferred draw on the tick the program ends");
 });
+
+test("R-68: multiRun run from a blocking program is suppressed", () => {
+  // Proposed (owner note) in the movement oracle plan: R-68 item 2 suppresses exactly while a live blocking
+  // thread exists, while item 3 names `multiRun` as free-roaming. A `multiRun` started BY a blocking program
+  // satisfies both readings; the implementation follows item 2's exact predicate (caller-independent), which
+  // this test pins so a later ruling flips a visible assertion rather than silent behaviour.
+  const current = stateWith(board([], [repeatRegion(EAST_TILE, TILE)]));
+  startThread(current.vm, { ref: programRef("driver"), kind: "blocking", owner: "script" });
+  current.time = { ...current.time, tick: 0 };
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  const events: MovementEvent[] = [];
+  let started = false;
+  for (let tick = 0; tick < 60; tick += 1) {
+    current.time = { ...current.time, tick };
+    movementPhaseRegistration({ onEvent: (record) => events.push(record) }).run(current);
+    if (runTriggersPhase(current, { programRef }).some((record) => record.type === "trigger-start")) started = true;
+  }
+  equal(current.sprites.players[0]?.x, 112, "both multiRun-style steps complete");
+  equal(started, false, "no step-triggered program runs");
+  equal(current.party.steps, 0, "no party step is counted");
+  equal(current.party.stepRemainder, 0);
+  equal(events.some((record) => record.type === "step-complete" && record.partyDistance256 === 0), true, "the completed steps report no party contribution");
+});

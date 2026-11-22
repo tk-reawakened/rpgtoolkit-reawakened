@@ -173,6 +173,7 @@
         "board-forbids-battles",
         "main-file-disables-fighting",
         "custom-fight-program",
+        "suppressed-program-step-records-its-tile",
         "no-enemy-of-the-skill-level"
       ],
       "proposed": ["P-6","P-10"]
