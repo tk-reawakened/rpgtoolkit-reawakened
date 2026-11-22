@@ -1,15 +1,29 @@
-import { addLight, convertLightToShading, createEditTracker, moveLightNode, newLight, removeLight, setLightColour, setLightType, type LightType, type LightEdit, type PendingEdits, type SetBoardFieldsCommand } from "@tk-reawakened/editor-model";
-import type { BoardCommand } from "@tk-reawakened/editor-model";
-import type { DocumentEdited } from "@tk-reawakened/platform-services";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { addLight, convertLightToShading, moveLightNode, newLight, removeLight, setLightColour, setLightType, SHADE_TOOLS, type LightType, type LightEdit, type SetBoardFieldsCommand, type ShadeTool } from "@tk-reawakened/editor-model";
+import { useState } from "preact/hooks";
+import type { BoardSubmit } from "./use-board-submit.ts";
 import type { BoardViewDocument } from "./mount.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
+
+/** What the pointer does on the board canvas: nothing special, paint shade cells, or move light nodes. */
+export type ShadeCanvasMode = "off" | "shading" | "lighting";
+
+/** The shading and lighting state the panel and the canvas share. */
+export interface ShadeUi {
+  readonly mode: ShadeCanvasMode;
+  readonly tool: ShadeTool;
+  readonly brush: { readonly r: number; readonly g: number; readonly b: number };
+}
+
+export const INITIAL_SHADE_UI: ShadeUi = { mode: "off", tool: "draw", brush: { r: 64, g: 64, b: 64 } };
+
+const TOOL_NAMES: Readonly<Record<ShadeTool, string>> = { draw: "Draw", erase: "Erase", rectangle: "Rectangle", flood: "Flood fill", dropper: "Dropper" };
 
 export interface BoardLightingViewProps {
   readonly doc: BoardViewDocument;
   readonly disabled: boolean;
-  readonly onEdited: (event: DocumentEdited) => void;
-  readonly pendingEdits: PendingEdits;
+  readonly ui: ShadeUi;
+  readonly onUi: (next: ShadeUi) => void;
+  readonly board: BoardSubmit;
 }
 
 const TYPE_NAMES: Readonly<Record<LightType, string>> = { 0: "Spotlight", 1: "Gradient", 2: "Clipped gradient" };
@@ -34,38 +48,15 @@ const clamp = (value: number): number => Math.max(-255, Math.min(255, Math.trunc
  * the board's shading and removes it in a single edit (docs/spec/formats/board.md#lights). The shade brush is
  * (64,64,64) until changed; there is no brush size.
  */
-export function BoardLightingView({ doc, disabled, onEdited, pendingEdits }: BoardLightingViewProps) {
-  const submitted = useRef(createEditTracker());
-  useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
+export function BoardLightingView({ doc, disabled, ui, onUi, board }: BoardLightingViewProps) {
   const snapshot = useDocumentSnapshot(doc);
-  const [brush, setBrush] = useState({ r: 64, g: 64, b: 64 });
+  const brush = ui.brush;
+  const setBrush = (next: ShadeUi["brush"] | ((current: ShadeUi["brush"]) => ShadeUi["brush"])): void => onUi({ ...ui, brush: typeof next === "function" ? next(ui.brush) : next });
   const [column, setColumn] = useState(1);
   const [row, setRow] = useState(1);
-  const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { message, setMessage, busy, submit } = board;
   const locked = disabled || busy;
 
-  const submit = async (command: BoardCommand): Promise<boolean> => {
-    const finish = submitted.current.begin();
-    setBusy(true);
-    setMessage(null);
-    try {
-      const result = await doc.apply(command);
-      if (!result.ok) {
-        setMessage(result.rejection.message);
-        return false;
-      }
-      const edit = doc.getSnapshot().edits.find((entry) => entry.editId === result.editId);
-      onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? "Edit lights and shading" });
-      return true;
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-      return false;
-    } finally {
-      finish();
-      setBusy(false);
-    }
-  };
   const submitFields = (fields: SetBoardFieldsCommand["fields"]): Promise<boolean> => submit({ type: "set-board-fields", fields });
   const editLights = (edit: LightEdit): void => {
     if (!edit.ok) { setMessage(edit.message); return; }
@@ -84,6 +75,16 @@ export function BoardLightingView({ doc, disabled, onEdited, pendingEdits }: Boa
   return (
     <details class="tkr-board-lighting" open data-editor-commands="include">
       <summary>Lights and shading</summary>
+      <fieldset class="tkr-board-canvas-tools">
+        <legend>On the board</legend>
+        <button type="button" aria-pressed={ui.mode === "shading"} disabled={locked} onClick={() => onUi({ ...ui, mode: ui.mode === "shading" ? "off" : "shading" })}>Paint shading on the board</button>
+        <button type="button" aria-pressed={ui.mode === "lighting"} disabled={locked} onClick={() => onUi({ ...ui, mode: ui.mode === "lighting" ? "off" : "lighting" })}>Move lights on the board</button>
+        {ui.mode === "shading" ? SHADE_TOOLS.map((tool) => (
+          <button type="button" key={tool} aria-pressed={ui.tool === tool} disabled={locked} onClick={() => onUi({ ...ui, tool })}>{TOOL_NAMES[tool]}</button>
+        )) : null}
+        {ui.mode === "shading" ? <p class="tkr-board-note">Draw and Erase paint cells (right-click erases), Rectangle draws an outline (Shift fills), Flood fill replaces the connected area, and Dropper copies a cell's shade into the brush. The Scroll and Zoom tools still move the view.</p> : null}
+        {ui.mode === "lighting" ? <p class="tkr-board-note">Drag a light's node dots to move them. The numeric fields below stay available.</p> : null}
+      </fieldset>
       <fieldset class="tkr-board-shading">
         <legend>Shading</legend>
         <p class="tkr-board-note">Each channel is a whole number from −255 to 255; 0 changes nothing. The Shading brush paints one cell.</p>

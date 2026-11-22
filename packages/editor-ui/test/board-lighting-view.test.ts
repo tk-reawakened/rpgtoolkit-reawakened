@@ -15,6 +15,10 @@ import type { BoardViewDocument } from "../src/mount.ts";
 const PATH = "Boards/lighting.brd";
 // A static component import would initialize Preact before happy-dom supplies its browser environment.
 let BoardLightingView: typeof import("../src/board-lighting-view.tsx").BoardLightingView;
+let INITIAL_SHADE_UI: typeof import("../src/board-lighting-view.tsx").INITIAL_SHADE_UI;
+type ShadeUi = import("../src/board-lighting-view.tsx").ShadeUi;
+let useBoardSubmit: typeof import("../src/use-board-submit.ts").useBoardSubmit;
+let useState: typeof import("preact/hooks").useState;
 let act: (callback: () => void | Promise<void>) => Promise<void> | void;
 let createElement: typeof import("preact").createElement;
 let render: typeof import("preact").render;
@@ -23,7 +27,9 @@ before(async () => {
   GlobalRegistrator.register();
   ({ act } = await import("preact/test-utils"));
   ({ createElement, render } = await import("preact"));
-  ({ BoardLightingView } = await import("../dist/board-lighting-view.js"));
+  ({ BoardLightingView, INITIAL_SHADE_UI } = await import("../dist/board-lighting-view.js"));
+  ({ useBoardSubmit } = await import("../dist/use-board-submit.js"));
+  ({ useState } = await import("preact/hooks"));
 });
 
 after(() => GlobalRegistrator.unregister());
@@ -33,6 +39,8 @@ interface Setup {
   readonly root: HTMLElement;
   renderView(): void;
 }
+
+let Harness: () => preact.JSX.Element;
 
 async function setup(): Promise<Setup> {
   const built = buildNewBoard({ name: "lighting", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
@@ -59,13 +67,13 @@ async function setup(): Promise<Setup> {
   };
   const root = document.createElement("div");
   document.body.append(root);
+  Harness = () => {
+    const [ui, setUi] = useState<ShadeUi>(INITIAL_SHADE_UI);
+    const board = useBoardSubmit(view, () => undefined, pendingEdits, "Edit lights and shading");
+    return createElement(BoardLightingView, { doc: view, disabled: false, ui, onUi: setUi, board }) as preact.JSX.Element;
+  };
   const renderView = (): void => {
-    render(createElement(BoardLightingView, {
-      doc: view,
-      disabled: false,
-      onEdited: () => undefined,
-      pendingEdits,
-    }), root);
+    render(createElement(Harness, {}), root);
   };
   await act(() => renderView());
   return { doc, root, renderView };

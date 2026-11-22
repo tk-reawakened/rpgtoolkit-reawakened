@@ -28,7 +28,8 @@ import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-servi
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
-import { BoardLightingView } from "./board-lighting-view.tsx";
+import { BoardLightingView, INITIAL_SHADE_UI, type ShadeUi } from "./board-lighting-view.tsx";
+import { useBoardSubmit } from "./use-board-submit.ts";
 import { BoardObjectsView, type BoardObjectsNavigation } from "./board-objects-view.tsx";
 import { BoardPropertiesView, type BoardPropertiesNavigation } from "./board-properties-view.tsx";
 import type { BrowserSelection } from "./brush.ts";
@@ -249,6 +250,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
 
   const { grid: size, layers } = snapshot;
   const readOnly = snapshot.readOnly !== null;
+  const [shadeUi, setShadeUi] = useState<ShadeUi>(INITIAL_SHADE_UI);
+  const shadeSubmit = useBoardSubmit(doc, onEdited, pendingEdits, "Edit lights and shading");
   const conflict = snapshot.conflict;
   const currentLayer = Math.min(state.layer, Math.max(0, layers - 1));
   const x = Math.min(state.cursor.x, Math.max(0, size.width - 1));
@@ -468,7 +471,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         onChooseStart={() => { if (!readOnly) { editor.pointerCancel(); setColourPicker(null); setPickingStart(true); setStartMessage("Click a board cell to set the player start."); } }}
         onSetStart={setPlayerStart}
       />
-      <BoardLightingView doc={doc} disabled={readOnly} onEdited={onEdited} pendingEdits={pendingEdits} />
+      <BoardLightingView doc={doc} disabled={readOnly} ui={shadeUi} onUi={setShadeUi} board={shadeSubmit} />
       {pickingStart ? <p class="tkr-board-note" role="status">Choose a board cell for the player start, or press Escape to cancel.</p> : null}
       {startMessage === null ? null : <p class="tkr-board-note" role="status">{startMessage}</p>}
       {colourPicker === null ? null : <p class="tkr-board-note" role="status">Click a rendered colour to use it as this image's transparent colour, or press Escape to cancel. Apply in the inspector to keep it.</p>}
@@ -588,7 +591,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       <div class="tkr-board-picture">
         <BoardCanvas editor={editor} state={state} board={snapshot} picture={picture} stamp={brush?.kind === "stamp" ? brush.stamp : null}
           startPicking={pickingStart} startMarker={startMarker} onStartCell={(cell) => setPlayerStart(cell.x + 1, cell.y + 1, state.layer + 1)}
-          colourPicking={colourPicker !== null} onColourPixel={(colour) => { colourPicker?.(colour); setColourPicker(null); }} />
+          colourPicking={colourPicker !== null} onColourPixel={(colour) => { colourPicker?.(colour); setColourPicker(null); }}
+          shade={{ ui: shadeUi, onUi: setShadeUi, submit: shadeSubmit.submit, onMessage: shadeSubmit.setMessage, disabled: readOnly }} />
         {picture === null ? (
           <p class="tkr-board-preview-state" role="status">Drawing the board…</p>
         ) : picture.ok ? (

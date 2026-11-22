@@ -505,3 +505,4 @@ export {
   type SavedFixture,
 } from "./launch-setups.ts";
 export * from "./board-lights.ts";
+export * from "./board-shade-tools.ts";

@@ -97,11 +97,14 @@ An editor preview or Convert built to the spec would not match what the runner r
 - `editor-ui`: `board-lighting-view.tsx` (mounted in `board-view.tsx`) has numeric fields and accessible names for the shade brush, a Shade cell action, Add spotlight/gradient, per-light type, node X/Y, both colours, Convert and Remove. Its buttons join the command palette through `connectEditorCommands`. Tests: `editor-ui/test/board-lighting-view.test.ts`.
 - Verified: `pnpm typecheck`; eslint on `editor-ui` and `editor-model`; 970 editor and host tests pass.
 
+**Built 2026-11-22 (canvas tools).** `editor-model/src/board-shade-tools.ts` has pure planners: `paintShade` (Draw and Erase), `rectangleShade` (outline in cell numbers, filled with Shift), `floodShade` (per channel), `shadeAt` (Dropper) and `lightNodeAt`. `editor-ui/src/board-canvas.tsx` routes the pointer to them while the panel's "Paint shading on the board" or "Move lights on the board" is on (Scroll and Zoom still move the view): one gesture is one command and one undo; right-click erases; Escape drops a gesture in progress; light nodes show as numbered dots and drag to move. `use-board-submit.ts` is the shared apply path. Tests: `editor-model/test/board-shade-tools.test.ts`, `editor-ui/test/board-shade-canvas.test.ts`. Verified: `pnpm typecheck`, eslint, 980 editor and host tests.
+
 **Not delivered, unmet acceptance (record before calling this story done):**
-- Canvas Shading and Lighting modes: pointer paint, rectangle, flood and dropper tools, and dragging a light's nodes on the board. The panel is numeric only.
-- The Draw tile shading and Draw lighting preview toggles.
-- A real-runner proof of a saved board with both light and shade (core goldens prove the light renderer; no board-level runner case was added here).
-- A keyboard-focus and narrow-pane visual check of the panel.
+- The Draw tile shading and Draw lighting preview toggles; the preview always draws both.
+- Keyboard-only painting on the canvas (the numeric Shade cell action covers one cell); no brush-size control by design.
+- A real-runner proof of a saved board with both light and shade (core goldens prove the light renderer; no board-level runner case was added).
+- A real-browser and VS Code-host visual check at normal and narrow widths, light and dark and high contrast.
+- Review (step 4) has not run.
 
 ## Plan Change Log
 
