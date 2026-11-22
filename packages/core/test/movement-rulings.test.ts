@@ -28,6 +28,7 @@ import {
   type GameState,
   type MovementEvent,
   type SpriteActor,
+  type Value,
   type WorldBoard,
   type WorldProgram,
 } from "../src/index.ts";
@@ -667,29 +668,204 @@ test("itemgetpath resolves every form the engine writes into an item context han
   }
 });
 
-test("shared item command resolution keeps origin/main behaviour for a target handle", () => {
+// E-94 (THR-2, #3331): item and player built-ins resolve the calling thread's source/target to the sprite
+// those slots name, including the numeric actor-id string an item program stores, and a numeric actor id
+// never picks an unrelated sprite (#3328 review 3).
+
+type MovementCall = {
+  readonly value: unknown;
+  readonly out?: readonly (readonly [number, unknown])[];
+  readonly wait?: { readonly actor?: string };
+  readonly effects?: readonly { readonly args?: readonly unknown[] }[];
+};
+
+/** Call one movement built-in on a given thread, so `view.thread` matches the context it must resolve. */
+function callMovement(name: string, state: GameState, threadId: number, args: readonly Arg[]): MovementCall {
+  const services = createScriptServices(state, [{ definition: MOVEMENT_PLUGIN }]);
+  services.setCommandThread(threadId);
+  const spec = services.commands.get(name)?.spec;
+  if (spec === undefined) throw new Error(`missing ${name}`);
+  return spec.call(services.view, args, () => ({ value: null })) as MovementCall;
+}
+
+const literal = (value: Value): Arg => ({ value, ref: null });
+const byReference = (value: Value): Arg => ({ value, ref: "out" as never });
+const outs = (result: MovementCall): unknown[] => (result.out ?? []).map(([, value]) => value);
+const threadRef = { kind: "inline" as const, text: "1", ir: IR_VERSION };
+
+/** An item whose every engine-written handle form is distinct, plus an unrelated npc and its actor record. */
+function itemContextState(): GameState {
   const currentBoard = board();
   const current = stateWith(currentBoard);
-  const decoy = actorFromSource({ id: "7", kind: "item", source: "decoy.itm", x: 200, y: 40, layer: 1 }, currentBoard, 0, 0);
+  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
+  const altar = actorFromSource({ id: "altar", kind: "item", actorId: 9 as NonNullable<SpriteActor["actorId"]>, source: "altar.itm", x: 200, y: 40, layer: 2, facing: "E" }, currentBoard, 1, 3);
+  current.sprites = { ...current.sprites, items: [npc, altar] };
+  addActor(current.actors, { id: 9, kind: "npc", source: "actor-altar.itm", name: "AltarActor" });
+  return current;
+}
+
+/** A party player linked to actor 7 and the hero, each with its own distinct handle form. */
+function playerContextState(): GameState {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const party = actorFromSource({ id: "player:7", kind: "player", actorId: 7 as NonNullable<SpriteActor["actorId"]>, source: "party.tem", x: 100, y: 40, layer: 1, facing: "E" }, currentBoard, 1, null);
+  current.sprites = { ...current.sprites, players: [...current.sprites.players, party], selectedPlayer: "not-hero" };
+  addActor(current.actors, { id: 7, kind: "party", source: "actor-party.tem", name: "PartyHero" });
+  return current;
+}
+
+const ITEM_FORMS = ["altar", "altar.itm", "item:altar", "9", "AltarActor", "actor-altar.itm"] as const;
+const PLAYER_FORMS = ["hero", "player:7", "party.tem", "7", "PartyHero", "actor-party.tem"] as const;
+
+test("item commands resolve every form the engine writes into a thread source or target", () => {
+  for (const form of ITEM_FORMS) {
+    for (const command of ["itemlocation", "itemstep", "itempath", "itemdirection", "itemspeed", "itemstance", "pushitem", "wander", "eraseitem", "itemgetpath"] as const) {
+      const current = itemContextState();
+      const thread = startThread(current.vm, { ref: threadRef, kind: "blocking", owner: "script", source: "npc", target: form });
+      if (command === "itemgetpath") {
+        enqueueDirectionMove(current.sprites, "altar", "E", 0);
+        equal(getPathCount("itemgetpath", current, "target", thread.id), 1, `itemgetpath target=${form} counts the altar queue`);
+        continue;
+      }
+      if (command === "itemlocation") {
+        const result = callMovement(command, current, thread.id, [literal("target"), byReference(0), byReference(0), byReference(0)]);
+        deepEqual(outs(result), [200, 40, 3], `itemlocation target=${form} reports the altar`);
+        continue;
+      }
+      if (command === "itemdirection") {
+        equal(callMovement(command, current, thread.id, [literal("target")]).value, 2, `itemdirection target=${form} reads the altar facing`);
+        continue;
+      }
+      if (command === "itemstance") {
+        equal(callMovement(command, current, thread.id, [literal("target"), literal("cheer")]).wait?.actor, "altar", `itemstance target=${form} waits on the altar`);
+        continue;
+      }
+      if (command === "itemspeed") {
+        const npcSpeed = current.sprites.items[0]?.speed;
+        const result = callMovement(command, current, thread.id, [literal("target"), literal(25)]);
+        applySpriteEffect(current, "itemspeed", (result.effects?.[0]?.args ?? []) as never, thread.id);
+        equal(current.sprites.items.find((item) => item.id === "altar")?.speed, 25, `itemspeed target=${form} changes the altar speed`);
+        equal(current.sprites.items.find((item) => item.id === "npc")?.speed, npcSpeed, `itemspeed target=${form} leaves the npc alone`);
+        continue;
+      }
+      if (command === "wander") {
+        const result = callMovement(command, current, thread.id, [literal("target")]);
+        equal(result.effects?.[0]?.args?.[0], "altar", `wander target=${form} names the altar, not the raw slot text`);
+        applySpriteEffect(current, "wander", (result.effects?.[0]?.args ?? []) as never, thread.id);
+        equal(current.sprites.items.find((item) => item.id === "altar")?.queue.moves.length, 1, `wander target=${form} steps the altar`);
+        equal(current.sprites.items.find((item) => item.id === "npc")?.queue.moves.length, 0, `wander target=${form} leaves the npc alone`);
+        continue;
+      }
+      if (command === "eraseitem") {
+        equal(callMovement(command, current, thread.id, [literal("target")]).effects?.[0]?.args?.[0], "altar", `eraseitem target=${form} names the altar`);
+        continue;
+      }
+      const result = command === "pushitem"
+        ? callMovement(command, current, thread.id, [literal("target"), literal("E")])
+        : callMovement(command, current, thread.id, command === "itemstep" ? [literal("target"), literal(232), literal(40)] : [literal("target"), literal(0), literal(232), literal(40)]);
+      equal(result.wait?.actor, "altar", `${command} target=${form} waits on the altar`);
+    }
+  }
+});
+
+test("player commands resolve every form the engine writes into a thread source or target", () => {
+  for (const form of PLAYER_FORMS) {
+    const id = form === "hero" ? "hero" : "player:7";
+    const x = id === "hero" ? 48 : 100;
+    const facing = id === "hero" ? 4 : 2;
+    for (const command of ["playerlocation", "playerstep", "playerpath", "playerdirection", "playerspeed", "playerstance", "push", "playergetpath"] as const) {
+      const current = playerContextState();
+      const thread = startThread(current.vm, { ref: threadRef, kind: "blocking", owner: "script", source: "hero", target: form });
+      if (command === "playergetpath") {
+        enqueueDirectionMove(current.sprites, "hero", "E", 0);
+        enqueueDirectionMove(current.sprites, "player:7", "E", 0);
+        const point = getPath(command, current, "target", 0, thread.id);
+        deepEqual([point.value, point.out], [1, [[2, x + TILE], [3, id === "hero" ? 63 : 40]]], `playergetpath target=${form} reads ${id}`);
+        continue;
+      }
+      if (command === "playerlocation") {
+        const result = callMovement(command, current, thread.id, [literal("target"), byReference(0), byReference(0), byReference(0)]);
+        deepEqual(outs(result), [x, id === "hero" ? 63 : 40, 2], `playerlocation target=${form} reports ${id}`);
+        continue;
+      }
+      if (command === "playerdirection") {
+        equal(callMovement(command, current, thread.id, [literal("target")]).value, facing, `playerdirection target=${form} reads ${id}'s facing`);
+        continue;
+      }
+      if (command === "playerstance") {
+        equal(callMovement(command, current, thread.id, [literal("target"), literal("cheer")]).wait?.actor, id, `playerstance target=${form} waits on ${id}`);
+        continue;
+      }
+      if (command === "playerspeed") {
+        const decoySpeed = current.sprites.players.find((player) => player.id !== id)?.speed;
+        const result = callMovement(command, current, thread.id, [literal("target"), literal(25)]);
+        applySpriteEffect(current, "playerspeed", (result.effects?.[0]?.args ?? []) as never, thread.id);
+        equal(current.sprites.players.find((player) => player.id === id)?.speed, 25, `playerspeed target=${form} changes ${id}'s speed`);
+        equal(current.sprites.players.find((player) => player.id !== id)?.speed, decoySpeed, `playerspeed target=${form} leaves the other player alone`);
+        continue;
+      }
+      const result = command === "push"
+        ? callMovement(command, current, thread.id, [literal("E"), literal("target")])
+        : callMovement(command, current, thread.id, command === "playerstep" ? [literal("target"), literal(64), literal(63)] : [literal("target"), literal(0), literal(64), literal(63)]);
+      equal(result.wait?.actor, id, `${command} target=${form} waits on ${id}`);
+    }
+  }
+});
+
+test("a numeric actor-id context never selects an unrelated sprite or index", () => {
+  // Item side: the decoy's id and handle both equal the actor id, and no item is linked to actor 7.
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const decoy = actorFromSource({ id: "7", kind: "item", source: "decoy.itm", x: 200, y: 40, layer: 1 }, currentBoard, 0, 7);
   current.sprites.items = [decoy];
-  const thread = startThread(current.vm, { ref: { kind: "inline", text: "1", ir: IR_VERSION }, kind: "item", owner: "world", source: "npc", target: "7" });
-  const services = createScriptServices(current, [{ definition: MOVEMENT_PLUGIN }]);
-  services.setCommandThread(thread.id);
-  const wanderSpec = services.commands.get("wander")?.spec;
-  if (wanderSpec === undefined) throw new Error("missing wander");
-  const wander = wanderSpec.call(services.view, [{ value: "target", ref: null }], () => ({ value: null })) as { effects?: readonly { args?: readonly unknown[] }[] };
-  deepEqual(wander.effects?.[0]?.args?.[0], "target", "wander keeps the literal unresolved handle, as on main");
-  applySpriteEffect(current, "wander", (wander.effects?.[0]?.args ?? []) as never, thread.id);
-  equal(current.sprites.items[0]?.queue.moves.length, 0, "wander('target') moves no unrelated item");
-  const locationSpec = services.commands.get("itemlocation")?.spec;
-  if (locationSpec === undefined) throw new Error("missing itemlocation");
-  const location = locationSpec.call(services.view, [
-    { value: "target", ref: null },
-    { value: 0, ref: "x" as never },
-    { value: 0, ref: "y" as never },
-    { value: 0, ref: "layer" as never },
-  ], () => ({ value: null })) as { value: unknown; out?: readonly (readonly [number, unknown])[] };
-  deepEqual([location.value, location.out], [0, [[1, 0], [2, 0], [3, 1]]], "itemlocation('target') stays a dry no-op as on main");
+  addActor(current.actors, { id: 7, kind: "party", source: "actor-party.tem", name: "PartyHero" });
+  const itemThread = startThread(current.vm, { ref: threadRef, kind: "item", owner: "world", source: "npc", target: "7" });
+  const wander = callMovement("wander", current, itemThread.id, [literal("target")]);
+  equal(wander.effects?.[0]?.args?.[0], "", "wander('target') resolves nothing rather than the decoy");
+  applySpriteEffect(current, "wander", (wander.effects?.[0]?.args ?? []) as never, itemThread.id);
+  equal(current.sprites.items[0]?.queue.moves.length, 0, "the exact #3328 regression does not step the decoy item");
+  const location = callMovement("itemlocation", current, itemThread.id, [literal("target"), byReference(0), byReference(0), byReference(0)]);
+  deepEqual([location.value, outs(location)], [0, [0, 0, 1]], "itemlocation('target') stays a dry no-op");
+  throws(
+    () => getPathCount("itemgetpath", current, "target", itemThread.id),
+    (error: unknown) => error instanceof ScriptError && error.message === "player not found",
+    "itemgetpath reports the unresolved item with 3.1's text",
+  );
+
+  // Player side: the decoy player's id equals actor 5, and player:5 is the sprite that actor links to.
+  const players = playerContextState();
+  const decoyPlayer = actorFromSource({ id: "5", kind: "player", source: "decoy.tem", x: 300, y: 300, layer: 1 }, currentBoard, 2, null);
+  const linked = actorFromSource({ id: "player:5", kind: "player", actorId: 5 as NonNullable<SpriteActor["actorId"]>, source: "linked.tem", x: 100, y: 40, layer: 1 }, currentBoard, 3, null);
+  players.sprites = { ...players.sprites, players: [...players.sprites.players, decoyPlayer, linked], selectedPlayer: "5" };
+  addActor(players.actors, { id: 5, kind: "party", source: "actor-five.tem", name: "Five" });
+  const playerThread = startThread(players.vm, { ref: threadRef, kind: "blocking", owner: "script", source: "hero", target: "5" });
+  deepEqual(outs(callMovement("playerlocation", players, playerThread.id, [literal("target"), byReference(0), byReference(0), byReference(0)])), [100, 40, 2], "playerlocation('target') reads player:5, not the decoy the default handle would pick");
+  equal(callMovement("push", players, playerThread.id, [literal("E"), literal("target")]).wait?.actor, "player:5", "push waits on player:5, not the decoy");
+});
+
+test("an unresolved context is a dry no-op and never the default player or item", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
+  current.sprites.items = [npc];
+  const playerThread = startThread(current.vm, { ref: threadRef, kind: "blocking", owner: "script", source: "hero", target: "npc" });
+  deepEqual(outs(callMovement("playerlocation", current, playerThread.id, [literal("target"), byReference(0), byReference(0), byReference(0)])), [0, 0, 1], "playerlocation('target') on an item handle does not fall back to the selected player");
+  equal(callMovement("playerdirection", current, playerThread.id, [literal("target")]).value, 0, "playerdirection('target') on an item handle reads nothing");
+  throws(
+    () => callMovement("push", current, playerThread.id, [literal("E"), literal("target")]),
+    (error: unknown) => error instanceof ScriptError && error.code === "builtin.bad-arg",
+    "the movement commands keep their located wrong-type handle error",
+  );
+  const itemThread = startThread(current.vm, { ref: threadRef, kind: "item", owner: "world", source: "hero", target: "hero" });
+  deepEqual(outs(callMovement("itemlocation", current, itemThread.id, [literal("target"), byReference(0), byReference(0), byReference(0)])), [0, 0, 1], "itemlocation('target') on a player handle is a dry no-op");
+});
+
+test("an explicit numeric item handle still resolves as today", () => {
+  const current = itemContextState();
+  enqueueDirectionMove(current.sprites, "altar", "E", 0);
+  deepEqual(outs(callMovement("itemlocation", current, 0, [literal(3), byReference(0), byReference(0), byReference(0)])), [200, 40, 3], "handle 3 selects the altar");
+  deepEqual(outs(callMovement("itemlocation", current, 0, [literal("3"), byReference(0), byReference(0), byReference(0)])), [200, 40, 3], "numeric string 3 selects the altar");
+  equal(getPathCount("itemgetpath", current, 3), 1, "itemgetpath keeps the numeric handle form");
 });
 
 // R-67 ---------------------------------------------------------------

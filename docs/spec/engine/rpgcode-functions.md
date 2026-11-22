@@ -3,7 +3,7 @@
 The Toolkit 3.1 engine registers 282 command names, grouped by area; 14 are aliases of another command. Names are case-insensitive. This page also documents Reawakened-only additions, which are not part of that legacy count. Signatures use the engine's own notation: `[x]` = optional parameter, `&` = the argument must be a variable (it receives a result), `ret` = the value the command returns. Types are `int`/`double` (numbers), `string`, `bool` (number or "on"/"off"), `canvas`/`thread`/`animation` (numeric handles).
 
 <a id="e-94"></a>
-**E-94 Built-in library.** About 280 functions, grouped by capability. Parity means every name in the 3.1 catalogue resolves, with the same argument conventions, including optional trailing by-reference outputs and handles that accept a name, an index, `"source"` or `"target"`. The 3.1 catalogue on this page is the 282 names the engine registers, aliases included; Reawakened-only commands are identified separately.
+**E-94 Built-in library.** About 280 functions, grouped by capability. Parity means every name in the 3.1 catalogue resolves, with the same argument conventions, including optional trailing by-reference outputs and handles that accept a name, an index, `"source"` or `"target"`. Both special handles resolve to the sprite the calling thread's slot names, by the forms and precedence [THR-2](rpgcode-errors-and-threads.md#thr-2) rules; a slot that names no live sprite of the kind the command looks up takes the command's ordinary not-found path. The 3.1 catalogue on this page is the 282 names the engine registers, aliases included; Reawakened-only commands are identified separately.
 
 **Compatibility notes.**
 
