@@ -80,7 +80,7 @@ contracts.
 
 ## Implementation notes and proposed rulings
 
-Every proposed choice below remains **Proposed ruling (pending owner review)**, except P-19, which is settled; the scene records the observable consequence and the rejected alternative:
+Every proposed choice below remains **Proposed ruling (pending owner review)** except P-19 and the two notes the owner decided on 2026-11-22 (facing after an accepted crossing; a refused crossing's own queue entry), which are settled; the scene records the observable consequence and the rejected alternative:
 
 - P-1/P-3/P-4: cadence begins on command, 4 px advances use 1/256 fixed-point
   vectors, and blocked/reached steps end independently. Evidence: E-22/E-23
@@ -162,6 +162,90 @@ Every proposed choice below remains **Proposed ruling (pending owner review)**, 
   to carry a provenance bit that survives to the battle test. Pinned by "R-68:
   multiRun run from a blocking program is suppressed" in
   `packages/core/test/movement-rulings.test.ts`.
+- **Decided (owner: Jensen, 2026-11-22; recorded in the spec): facing after an
+  accepted linked crossing.** The player keeps the **exit-direction facing**
+  after an accepted crossing, for both direction-style and point-style steps,
+  and placement does not reset facing. This is the behaviour already shipped
+  and the same as `origin/main` before
+  [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66)
+  (`movement.ts` writes `facing: stepEdge` on the accepted branch and the
+  per-advance fallback writes `facing: exit`). The rejected alternative was a
+  placement that leaves the old facing unless the step had a direction
+  (`active.facing ?? actor.facing`); it is not adopted because the crossing is
+  still a walk off a named edge. Recorded in
+  [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66) item 4,
+  [R-53](../../../docs/spec/engine/movement-and-collision.md#r-53) item 4, the
+  Moving between boards success bullet, and the ADR 0040 amendment dated
+  2026-11-22. Pinned by
+  `packages/core/test/movement-edge-fixture-replay.test.ts`, which replays every
+  case of `packages/core/test/fixtures/movement/edges-board-link-program.json`
+  including the per-tick `facing` column (the point-style crossing
+  `point-path-edge-preflight-ignores-source-solid` records `E` at t0).
+- **Proposed (owner note): a board-edge crossing is refused while a blocking
+  thread is live.** R-66 item 2(d) runs the destination board's cancelable
+  `beforeEnter`, and an engine-originated cancelable event refuses to start
+  while another blocking thread exists
+  (`packages/core/src/events/dispatch.ts`, `runEngineCancelableEventOutcome`,
+  diagnostic `event.dispatch-active`). The preflight treats any failure as a
+  refusal (`packages/core/src/engine/engine.ts`, `preflightBoardEdge`), so a
+  crossing that would otherwise be accepted is refused while any blocking
+  script is alive — a scene program parked in `wait()`, for example. R-66 item
+  2(d) covers only a listener that cancels, and ADR 0040 only says a listener
+  that waits for input is a catchable error; neither states that the event
+  cannot start at all. Readings: (a) current — refusal is the deterministic
+  choice, matching EMIT-11's rule that an engine-originated cancelable emit
+  never starts while a blocking thread is live, and the player stays put;
+  (b) the preflight should still accept when the destination's `beforeEnter`
+  has no listeners, or defer the check until the thread yields, because a
+  blocking scene program is unrelated to a destination board with no listener.
+  Recommendation: (a) as implemented, because the engine cannot know there is no
+  listener without dispatching, and a deferred check would let a step commit
+  before the rule it is supposed to enforce runs. Consequence for authors: while
+  a blocking board program is live, a linked edge is blocked and its refused
+  entry is consumed (see the decided note "a refused linked crossing consumes
+  its own queue entry" below). Pinned by
+  `packages/core/test/engine-edge-preflight.test.ts`, "R-66/R-68: a linked
+  refusal under a live blocking program is refused before beforeEnter and keeps
+  the queue": `beforeEnter` is not observed, exactly one
+  `event.dispatch-active` diagnostic is recorded, the player stays at the
+  source position, the refused entry is consumed and the unrelated `N` entry
+  stays queued.
+- **Proposed (owner note): R-51 priority-order oracle coverage.** PR #3311's
+  "Ruling ambiguities" item 5 records that the direction-style scenes that used
+  to exercise [R-51](../../../docs/spec/engine/movement-and-collision.md#r-51)'s
+  winner/loser total order now test R-64 instead, so the total order is covered
+  only by a unit test (a `keyboard`-source direct point step,
+  `packages/core/test/movement.test.ts`, "equal-speed moving collisions use
+  controlled-player then drawId total order"), and the oracle's point and path
+  scenes divert around a blocking sprite before a collision can occur. Readings:
+  (a) unit coverage is sufficient, because the total order is one comparator
+  and the oracle already pins the diversion path; (b) a dedicated point-style
+  precedence scene should pin the total order as observable per-tick facts, as
+  every other movement and trigger rule is pinned, so a future comparator change
+  fails in the oracle too. Recommendation: (b) — add one dedicated
+  point-style precedence case to the `collision-sprite-blocking` scene where
+  two equal-speed point-style actors walk directly at each other and diversion
+  cannot help, with expected facts for the winner blocked for that tick and the
+  loser frozen for the R-51 duration. No oracle test pins this yet; the existing
+  guard is the unit test named above.
+- **Decided (owner: Jensen, 2026-11-22; recorded in the spec): a refused linked
+  crossing consumes its own queue entry and keeps every later entry.** The
+  behaviour stays as implemented (PR #3330): `finishBlockedAtStart` slices the
+  refused entry, keeps later entries and waypoints, leaves the player at the
+  last safe position, and runs none of R-64's counted processing. The rule now
+  reads that way everywhere: [R-66](../../../docs/spec/engine/movement-and-collision.md#r-66)
+  item 3, [R-53](../../../docs/spec/engine/movement-and-collision.md#r-53)
+  item 3, E-28, the Moving between boards bullets, the ADR 0040 amendment dated
+  2026-11-22, ticket 8's criterion 4 and Notes, and the linked-edge spike's
+  settled record. Reason to record: a refusal can never repeat forever and the
+  refused step behaves like any other blocked player direction step (R-64 item
+  1). The rejected alternative — keep the refused entry too, so the next update
+  retries it — would let a held key pile duplicate entries unless the retry also
+  skipped fresh input. Pinned by
+  `packages/core/test/movement-edge-preflight.test.ts`, "R-66: a refused
+  crossing ends the step blocked, uncounted, and keeps the rest of the queue"
+  (and its suppression twin), plus the engine replay
+  `packages/core/test/movement-edge-fixture-replay.test.ts`.
 
 ## Acceptance mapping
 
@@ -180,10 +264,29 @@ Every proposed choice below remains **Proposed ruling (pending owner review)**, 
 
 ## Status
 
-Built on branch `feat/5.2`; implementation and fixture gates are complete. The
-ticket remains `built` pending owner review and merge; it is not marked done.
+Done: ticket 2 is merged, and its frontmatter status is `done`. After the
+initial build the oracle scenes were extended by #3329 (the R-67/R-68 cases,
+including the replacement of the superseded
+`blocked-counted-step-does-not-leak-into-repeat-distance` case) and by #3330
+(the R-66 edge scenes and the engine replay
+`packages/core/test/movement-edge-fixture-replay.test.ts`). Two of the owner
+notes added on 2026-11-21 were decided by the owner on 2026-11-22 — facing after
+an accepted crossing, and the refused crossing's own queue entry — and are
+recorded in the spec, ADR 0040's amendment and ticket 8; the blocking-thread
+refusal and the R-51 precedence scene stay **Proposed (owner note)**. Neither
+decision changes behaviour.
 
 ## Plan Change Log
 
 - 2026-10-18: resumed the partial implementation, completed the plan's code map
   and acceptance mapping, and recorded all pending proposed-ruling choices.
+- 2026-11-21: recorded four proposed owner notes from the acceptance audit at
+  `5035734d7` (facing after an accepted crossing; a crossing refused while a
+  blocking thread is live; R-51 priority-order oracle coverage; and the refused
+  crossing's own queue entry against R-66 item 3), refreshed the stale status
+  line after #3329/#3330, and corrected ticket 8's "closed by" wording.
+- 2026-11-22: owner decided the facing and queue-entry notes. Both are now
+  **Decided** records, matching the shipped behaviour, and the rule text was
+  amended in the spec (R-66 items 3–4, R-53 items 3–4, E-28, Moving between
+  boards), in ADR 0040's dated amendment, in ticket 8 and in the linked-edge
+  spike. The blocking-thread refusal and R-51 precedence notes stay proposed.

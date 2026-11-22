@@ -93,6 +93,13 @@ async function saveActive(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
 }
 
+/** Close a document after its save acknowledges, so Close does not ask to save it again (#3337). */
+async function closeSaved(page: Page, path: string): Promise<void> {
+  const tab = page.getByRole("tab", { name: new RegExp(`^${path.replaceAll(".", "\\.")}(?:, unsaved changes)?$`) });
+  await expect(tab).toHaveAttribute("aria-label", path);
+  await page.getByRole("button", { name: `Close ${path}`, exact: true }).click();
+}
+
 function bytesOf(read: readonly number[] | null, path: string): Uint8Array {
   if (read === null) throw new Error(`${path} was not written`);
   return Uint8Array.from(read);
@@ -185,7 +192,7 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await characterAuthoring.getByLabel("Health (HP)", { exact: true }).blur();
   await expect(characterAuthoring.getByLabel("Character edit status")).toHaveText("Character change recorded. Save the document to keep it.");
   await saveActive(page);
-  await page.getByRole("button", { name: "Close Chrs/start.tem", exact: true }).click();
+  await closeSaved(page, "Chrs/start.tem");
   await openFile(page, "Chrs/start.tem");
   await expect(characterGraphics.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue(ANIMATION);
   await expect(characterAuthoring.getByLabel("Character name", { exact: true })).toHaveValue("Ada");
@@ -202,7 +209,7 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await itemGraphics.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file").blur();
   await expect(itemGraphics.getByText(/Graphics change recorded\. Save the document to keep it\./)).toBeVisible();
   await saveActive(page);
-  await page.getByRole("button", { name: `Close ${ITEM}`, exact: true }).click();
+  await closeSaved(page, ITEM);
   await openFile(page, ITEM);
   await expect(itemGraphics.getByRole("group", { name: "Directional walk animations" }).getByLabel("South animation file")).toHaveValue(ANIMATION);
   const savedItem = readItem(new BinaryReader(bytesOf(await readProjectFile(page, folder, ITEM), ITEM)));
@@ -260,7 +267,7 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
       sprite: savedBoard.sprites.some((sprite) => /chest\.itm/.test(sprite.itemFile)),
     };
   }).toEqual({ residue: RESIDUE, tiles: ["village.tst1", "village.tst2"], sprite: true });
-  await page.getByRole("button", { name: `Close ${START_BOARD}`, exact: true }).click();
+  await closeSaved(page, START_BOARD);
   await expect(page.getByRole("tab", { name: START_BOARD, exact: true })).toHaveCount(0);
 
   // Cancelling the new-board dialog writes no board.

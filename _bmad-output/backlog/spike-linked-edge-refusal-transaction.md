@@ -45,7 +45,7 @@ A linked edge step can complete before the edges phase refuses its destination u
 
 ## Notes
 
-- Resolved 2026-11-21 by an approved owner ruling (owner: Jensen; [R-66](../../docs/spec/engine/movement-and-collision.md#r-66), [ADR 0040](../../docs/adr/0040-tile-step-precheck-queues-and-linked-edge-preflight.md)): the arrival is preflighted before movement commits (bounds, layers, board vectors, `beforeEnter`); a refusal leaves the player on the source board at the last safe position with its queue kept, and produces no step-complete or party-step side effects. Complete-then-roll-back was rejected. The dated ruling satisfies criterion 4 and records the boundary and event ordering for criterion 3.
+- Resolved 2026-11-21 by an approved owner ruling (owner: Jensen; [R-66](../../docs/spec/engine/movement-and-collision.md#r-66), [ADR 0040](../../docs/adr/0040-tile-step-precheck-queues-and-linked-edge-preflight.md)): the arrival is preflighted before movement commits (bounds, layers, board vectors, `beforeEnter`); a refusal leaves the player on the source board at the last safe position and produces no step-complete or party-step side effects. Complete-then-roll-back was rejected. The dated ruling satisfies criterion 4 and records the boundary and event ordering for criterion 3. The queue detail is owner-decided (2026-11-22, ADR 0040 amendment): the refused entry is consumed and every later entry is kept.
 - The assumption below is now the rule: a refusal must not leave a partially committed movement transaction; the boundary is the preflight.
 - Evidence: [Round 17 facts](../../docs/provenance/facts-round-17.md), R17-Q3/Q4 (`:99-110`, `:123`, `:132`).
 
