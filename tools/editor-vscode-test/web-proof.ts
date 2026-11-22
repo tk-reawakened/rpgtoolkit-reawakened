@@ -707,8 +707,14 @@ async function proveNativeTextSaveFailure(
 }
 
 async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: string): Promise<void> {
+  type SettingsProbe = { readonly title: string; readonly disabled: boolean; readonly note: string | null };
+  // Only a frame that is both this document's title and read-only is the mounted preview; a writable frame of the same
+  // title is a different editor, so it must not be selected just because it answered first.
+  const isReadOnlyPreview = (value: SettingsProbe): boolean => value.title === expectedTitle
+    && value.disabled
+    && (value.note ?? "").includes("Read only");
   // A settings webview can be replaced while it mounts, so the poll re-enumerates instead of querying a gone frame (#3257).
-  const outcome = await pollPageFrames<Frame, { readonly title: string; readonly disabled: boolean; readonly note: string | null }>({
+  const outcome = await pollPageFrames<Frame, SettingsProbe>({
     label: "Read-only History game-settings frame",
     frames: () => page.frames(),
     describe: (frame) => `${frame.name()} (${frame.url()})`,
@@ -723,11 +729,9 @@ async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: s
         note: await note.count() > 0 ? await note.first().textContent() : null,
       };
     },
-    accept: (reports) => reports.some((report) => report.value.title === expectedTitle
-      && report.value.disabled
-      && (report.value.note ?? "").includes("Read only")),
+    accept: (reports) => reports.some((report) => isReadOnlyPreview(report.value)),
   });
-  const mounted = outcome.reports.find((report) => report.value.title === expectedTitle)?.value;
+  const mounted = outcome.reports.find((report) => isReadOnlyPreview(report.value))?.value;
   if (mounted === undefined) throw new Error("The History command did not open the shared editor in read-only mode.");
   expect(mounted.disabled).toBe(true);
   expect(mounted.note).toContain("Read only");
