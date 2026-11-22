@@ -201,14 +201,14 @@ function actorRows(state: GameState): (string | number | boolean)[][] {
   ]);
 }
 
-function replay(testCase: FixtureCase): { readonly rows: { readonly t: number; readonly a: (string | number | boolean)[][]; readonly ev: string[]; readonly fired: string[] }[] } {
+function replay(testCase: FixtureCase): { readonly rows: { readonly t: number; readonly board: string | null; readonly a: (string | number | boolean)[][]; readonly ev: string[]; readonly fired: string[] }[] } {
   const setup = testCase.setup;
   const source = setup.boards[setup.board];
   if (source === undefined) throw new Error(`${testCase.name}: setup.board is not in setup.boards`);
   const observed: Observed[] = [];
   const applied = new Set<number>();
   let seeded = false;
-  const rows: { t: number; a: (string | number | boolean)[][]; ev: string[]; fired: string[] }[] = [];
+  const rows: { t: number; board: string | null; a: (string | number | boolean)[][]; ev: string[]; fired: string[] }[] = [];
   let currentPrograms: readonly FixtureProgram[] = [];
   const target = setup.boards.east;
   const cancel = target?.beforeEnterCancel === true;
@@ -334,6 +334,7 @@ function replay(testCase: FixtureCase): { readonly rows: { readonly t: number; r
           const keys = observed.filter((entry) => entry.tick === tick).map((entry) => entry.key);
           rows.push({
             t: tick,
+            board: state.world.board?.key ?? null,
             a: actorRows(state),
             ev: keys.filter((key) => !key.startsWith("fired:")),
             fired: keys.filter((key) => key.startsWith("fired:")).map((key) => key.slice("fired:".length)),
@@ -368,10 +369,17 @@ test("edges-board-link-program: the committed fixture replays through the real e
   deepEqual(entry?.cases, fixture.cases.map((testCase) => testCase.name), "every manifest case is replayed");
   for (const testCase of fixture.cases) {
     const { rows } = replay(testCase);
+    // The fixture rows carry the oracle's `board-install` lifecycle event, so the board identity each tick
+    // is derived from the fixture (initial board plus the last switch in the row), not from core state.
+    let expectedBoard = testCase.setup.board;
     for (const expected of testCase.expect) {
+      const install = (expected.ev ?? []).filter((event) => event.e === "board-install").at(-1);
+      const installed = (install as { readonly board?: string } | undefined)?.board;
+      if (installed !== undefined) expectedBoard = installed;
       const actual = rows[expected.t];
       if (actual === undefined) throw new Error(`${testCase.name} t${expected.t}: row is missing`);
       equal(actual.t, expected.t, `${testCase.name} t${expected.t}: row exists`);
+      deepEqual(actual.board, `boards/${expectedBoard}.brd`, `${testCase.name} t${expected.t}: board`);
       deepEqual(actual.a, expected.a.map((row) => [...row]), `${testCase.name} t${expected.t}: actors`);
       const events = (expected.ev ?? []).map(fixtureEventKey).filter((key): key is string => key !== null);
       deepEqual(actual.ev, events, `${testCase.name} t${expected.t}: events`);

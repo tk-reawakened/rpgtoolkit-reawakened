@@ -394,7 +394,7 @@
     },
     {
       "name": "refused-crossing-is-not-counted",
-      "note": "R-66 item 3: a refused crossing is a blocked step but is not counted — no step-triggered program at the attempted destination fires.",
+      "note": "R-66 item 3: a refused crossing is a blocked step but is not counted — no step-triggered program at the attempted destination fires. The edge-door region contacts the attempted base (x 321..351, y 112..127) but not the standing base (x 289..319), so a counted step would fire it.",
       "setup": {
         "board": "west",
         "boards": {
@@ -406,7 +406,7 @@
             "gameSpeed": 0,
             "pfMode": 1,
             "vectors": [],
-            "programs": [{"id":"edge-door","type":"step","layer":0,"points":[[288,80],[384,80],[384,110],[288,110]],"program":"door.prg"}],
+            "programs": [{"id":"edge-door","type":"step","layer":0,"points":[[320,100],[384,100],[384,140],[320,140]],"program":"door.prg"}],
             "items": [],
             "links": {"E":{"board":"east"},"N":{"program":"north-gate.prg"},"S":null,"W":{"board":"east"}},
             "threads": [],

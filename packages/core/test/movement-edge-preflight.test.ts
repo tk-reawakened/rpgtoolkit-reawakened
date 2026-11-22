@@ -103,7 +103,6 @@ test("R-66: a refused crossing ends the step blocked, uncounted, and keeps the r
   deepEqual(blocked.map((record) => [record.edge, record.partyDistance256, record.blocked]), [["E", undefined, true]]);
   equal(events.some((record) => record.type === "step-complete"), false);
   equal(events.some((record) => record.type === "movement-complete"), false, "the queue still has the north step");
-  equal(events.some((record) => record.type === "party-step"), false);
 });
 
 test("R-66: the next step asks again; nothing remembers the refusal", () => {
