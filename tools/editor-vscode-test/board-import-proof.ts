@@ -89,7 +89,7 @@ export async function runVscodeBoardImportProof(
     let found: Frame | undefined;
     await expect.poll(async () => {
       for (const frame of page.frames()) {
-        if (await frame.locator(".tkr-board").count() > 0) { found = frame; return true; }
+        if (await frame.locator(".tkr-board").count().catch(() => 0) > 0) { found = frame; return true; }
       }
       return false;
     }, { timeout: 30_000 }).toBe(true);

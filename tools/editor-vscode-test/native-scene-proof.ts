@@ -84,7 +84,7 @@ export async function runVscodeNativeSceneProof(page: Page, expect: Expect, work
   await assertBuiltBoard(0);
   let player: Frame | undefined;
   await expect.poll(async () => {
-    for (const frame of page.frames()) if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
+    for (const frame of page.frames()) if (await frame.locator("#screen").count().catch(() => 0) > 0) { player = frame; return true; }
     return false;
   }, { timeout: 30_000 }).toBe(true);
   if (player === undefined) throw new Error("The scene-play workbench frame did not open");
