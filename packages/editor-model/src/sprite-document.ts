@@ -228,7 +228,9 @@ function fieldSnapshot(model: SpriteActor): SpriteDocumentFields {
     customStances: model.customStances ?? [],
     speed: model.speed ?? null,
     idleTime: model.idleTime ?? null,
-    vectorBases: rawBases ?? [DEFAULT_COLLISION, DEFAULT_ACTIVATION],
+    // The format stores a base count; zero stored bases mean the file has no polygons, which the editable snapshot
+    // represents as the default pair (exactly as an omitted list). An empty array is not a valid pair.
+    vectorBases: rawBases === undefined || rawBases.length === 0 ? [DEFAULT_COLLISION, DEFAULT_ACTIVATION] : rawBases,
     graphicsUnavailable: model.minor < (character ? 8 : 7) ? `This ${character ? "character" : "item"} file version does not store editable collision and activation bases. The file version is preserved; upgrade it with the format conversion workflow before editing bases.` : null,
     character: isCharacter(model) ? {
       name: model.name,

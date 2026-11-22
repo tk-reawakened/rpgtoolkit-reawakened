@@ -61,6 +61,26 @@ test("character stances, timing and distinct bases save and reopen through the s
   deepEqual(reopened.document.serialize(), host.bytesOf(path));
 });
 
+test("an actor file with zero stored bases presents the default pair to the editor", async () => {
+  const path = "Chrs/blank.tem";
+  const parsed = readCharacter(new BinaryReader(exampleCharacter()));
+  ok(parsed.ok);
+  const written = writeCharacter({ ...parsed.value, vectorBases: [] });
+  ok(written.ok);
+  const { host, doc } = await open("character", path, written.value);
+  const snapshot = doc.getSnapshot();
+  equal(snapshot.vectorBases?.length, 2, "the editable snapshot always holds a collision and activation pair");
+  ok((snapshot.vectorBases?.[0]?.points.length ?? 0) >= 3);
+  ok((snapshot.vectorBases?.[1]?.points.length ?? 0) >= 3);
+  // The file itself still stores no bases: an unrelated edit must not invent polygons.
+  ok((await doc.save()).ok);
+  const saved = await host.fs.read(path);
+  ok(saved.ok);
+  const reread = readCharacter(new BinaryReader(saved.value));
+  ok(reread.ok);
+  equal(reread.value.vectorBases?.length, 0, "the zero stored base count is preserved");
+});
+
 test("items use the same lifecycle for their eight directions, custom stances and bases without battle slots", async () => {
   const path = "Item/chest.itm";
   const { host, identity, doc } = await open("item", path, exampleItem());
