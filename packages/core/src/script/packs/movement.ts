@@ -407,6 +407,7 @@ function getPathCommand(name: "playergetpath" | "itemgetpath"): BuiltinSpec {
   return {
     name,
     aliases: [],
+    acceptedCounts: [1, 4],
     params: [
       { name: "handle", optional: false, byRef: false, variadic: false },
       { name: "index", optional: true, byRef: false, variadic: false },

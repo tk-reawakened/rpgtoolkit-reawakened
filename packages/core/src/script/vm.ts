@@ -2419,6 +2419,17 @@ function checkArity(
   name: string,
   pos: SourcePos,
 ): void {
+  const accepted = spec.acceptedCounts;
+  if (accepted !== undefined) {
+    if (accepted.includes(args.length)) return;
+    // ERR-2 names the count the command needs; a declared set is not a contiguous range.
+    const expected = [...accepted].sort((left, right) => left - right).join(" or ");
+    throw new ScriptError(
+      "arity.mismatch",
+      `"${name}" takes ${expected} argument(s), got ${args.length}`,
+      pos,
+    );
+  }
   const variadic = spec.params.some((param) => param.variadic);
   const required = spec.params.filter((param) => !param.optional && !param.variadic).length;
   const maximum = variadic ? Infinity : spec.params.length;

@@ -126,6 +126,14 @@ export type BuiltinSpec = {
   readonly name: string;
   readonly aliases: readonly string[];
   readonly params: readonly ParamSpec[];
+  /**
+   * The exact argument counts the command accepts, when its parameter list cannot say so. A command that
+   * accepts one or four arguments declares four parameters so the by-reference outputs keep their positions,
+   * but only these counts reach `call`. The VM's own wrong-count error names them, in ascending order, and a
+   * call outside the set never runs the handler (ERR-2). Omit it for the ordinary contiguous range the
+   * parameters already describe.
+   */
+  readonly acceptedCounts?: readonly number[];
   readonly call: CommandHandler;
   /** Author-facing registration metadata; never passed to the handler or VM state. */
   readonly doc?: BuiltinDoc;

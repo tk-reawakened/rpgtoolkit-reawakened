@@ -508,16 +508,57 @@ test("R-69 writes nothing for a negative or past-end index and leaves both varia
   deepEqual([past.value, past.out], [1, []], "an index at the count writes nothing");
 });
 
-test("R-69 rejects any argument count other than one or four with arity.mismatch", () => {
+test("R-69 admits the one-argument and four-argument forms through the VM's arity check", () => {
   const currentBoard = board();
   const current = stateWith(currentBoard);
+  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
+  current.sprites.items = [npc];
+  enqueueDirectionMove(current.sprites, "hero", "E", 0);
+  enqueueDirectionMove(current.sprites, "npc", "E", 0);
   const services = createScriptServices(current, [{ definition: MOVEMENT_PLUGIN }]);
-  startProgram(current.vm, { kind: "inline", text: "playergetpath(0, 0)\n", ir: IR_VERSION });
+  startProgram(current.vm, {
+    kind: "inline",
+    text: "pc = playergetpath(0)\npx = playergetpath(0, 0, pxout, pyout)\nic = itemgetpath(0)\nix = itemgetpath(0, 0, ixout, iyout)\n",
+    ir: IR_VERSION,
+  });
+  advanceScriptTick(current, services);
+  deepEqual(drainDiagnostics(services), [], "the VM boundary admits one and four arguments");
+  equal(current.vm.globals.pc, 1, "playergetpath(0) runs through the VM and returns the count");
+  equal(current.vm.globals.px, 1, "the four-argument call runs through the VM and returns the count");
+  deepEqual([current.vm.globals.pxout, current.vm.globals.pyout], [80, 63], "the four-argument call writes through the VM's by-reference outputs");
+  equal(current.vm.globals.ic, 1, "itemgetpath(0) runs through the VM");
+  equal(current.vm.globals.ix, 1, "the item four-argument call runs through the VM");
+  deepEqual([current.vm.globals.ixout, current.vm.globals.iyout], [80, 63], "the item call writes its by-reference outputs");
+});
+
+test("R-69 rejects zero, two, three and five arguments at the VM with the exact accepted counts", () => {
+  for (const command of ["playergetpath", "itemgetpath"] as const) {
+    for (const argc of [0, 2, 3, 5]) {
+      const current = stateWith(board());
+      const services = createScriptServices(current, [{ definition: MOVEMENT_PLUGIN }]);
+      const args = ["0", "0", "x", "y", "0"].slice(0, argc).join(", ");
+      startProgram(current.vm, { kind: "inline", text: `${command}(${args})\n`, ir: IR_VERSION });
+      advanceScriptTick(current, services);
+      const diagnostics = drainDiagnostics(services);
+      equal(diagnostics.length, 1, `${command}(${argc} arguments) reports one diagnostic`);
+      equal(diagnostics[0]?.code, "arity.mismatch", "the standard catchable wrong-count error");
+      equal(
+        diagnostics[0]?.message,
+        `"${command}" takes 1 or 4 argument(s), got ${argc}`,
+        `${command}(${argc} arguments) names exactly the accepted counts`,
+      );
+    }
+  }
+});
+
+test("a command without an accepted-count set keeps the generic contiguous-range wording", () => {
+  const current = stateWith(board());
+  const services = createScriptServices(current, [{ definition: MOVEMENT_PLUGIN }]);
+  startProgram(current.vm, { kind: "inline", text: "checkbutton()\n", ir: IR_VERSION });
   advanceScriptTick(current, services);
   const diagnostics = drainDiagnostics(services);
   equal(diagnostics.length, 1, "one diagnostic");
-  equal(diagnostics[0]?.code, "arity.mismatch", "the standard catchable wrong-count error");
-  ok(diagnostics[0]?.message.includes("1 or 4"), `the message names both valid counts: ${diagnostics[0]?.message}`);
+  equal(diagnostics[0]?.message, '"checkbutton" takes 2 to 3 argument(s), got 0', "the generic range wording is unchanged for every other command");
 });
 
 test("R-69 does not wait or change movement when reading", () => {
