@@ -3,8 +3,7 @@ title: 'Board shading and lighting'
 type: 'feature'
 ticket: '12'
 created: '2026-11-22'
-status: 'blocked'
-blocked_reason: 'Waits for 4.44 (#3356): the engine light renderer and R-15 swap must match the amended spec before editor work can render the same as the runner.'
+status: 'ready-for-dev'
 baseline_revision: 'eccc276c1d127c91b8202c07d8f285f11c49b2d4'
 route: 'full'
 route_source: 'auto'
@@ -86,7 +85,7 @@ context: ['{project-root}/docs/spec/formats/board.md', '{project-root}/docs/desi
 
 ## Implementation Notes
 
-**2026-11-22, stopped before code: the built engine does not match the amended spec for lights.** `packages/core/src/render/shade.ts` (`rasterizeLights`, `bakeLights`) differs from the engineer's account in four ways:
+**2026-11-22: the engine now matches the amended light rules (4.44, `3a6f44d60`); the R-15 swap is its own ticket 4.45 (#3358) and does not block this story. Earlier finding, now resolved for lights:** the built engine did not match the amended spec for lights. `packages/core/src/render/shade.ts` (`rasterizeLights`, `bakeLights`) differs from the engineer's account in four ways:
 - Spotlight node order: the engine takes node 0 as the centre and nodes 1 and 2 as the x and y radius points; the engineer says node 1 is the centre.
 - Spotlight shape: the engine is axis-aligned; the engineer says it can be rotated by the longer radius.
 - Clipped gradient: the engine clips to a polygon made of nodes 2 and up, so a 2-node clipped light lights nothing; the engineer says it is a band between perpendicular lines through the two nodes.
