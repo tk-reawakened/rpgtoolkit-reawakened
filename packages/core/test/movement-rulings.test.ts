@@ -6,6 +6,7 @@ import { deepEqual, equal, ok, throws } from "node:assert/strict";
 import { test } from "node:test";
 import {
   actorFromSource,
+  addActor,
   advanceScriptTick,
   createEmptyBoard,
   createGameState,
@@ -518,55 +519,83 @@ test("R-69 reports 3.1's 'player not found' text for a handle that names no acto
   }
 });
 
-test("R-69 accepts the calling thread's source and target context handles", () => {
+test("playergetpath resolves every form the engine writes into a player context handle", () => {
   const currentBoard = board();
   const current = stateWith(currentBoard);
-  const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
-  const altar = actorFromSource({ id: "altar", kind: "item", source: "altar.itm", x: 200, y: 40, layer: 1 }, currentBoard, 1, 1);
   const party = actorFromSource({ id: "player:7", kind: "player", actorId: 7 as NonNullable<SpriteActor["actorId"]>, source: "party.tem", x: 32, y: 63, layer: 1 }, currentBoard, 1, null);
-  current.sprites = { ...current.sprites, items: [npc, altar], players: [...current.sprites.players, party], selectedPlayer: "not-hero" };
-  const ref = { kind: "inline" as const, text: "1", ir: IR_VERSION };
-  const itemThread = startThread(current.vm, { ref, kind: "item", owner: "world", source: "npc", target: "altar.itm" });
-  enqueueDirectionMove(current.sprites, "npc", "E", 0);
-  enqueueMove(current.sprites, "altar", { source: "points", target: { x: 232.5, y: 40 }, facing: null });
-
-  const source = getPath("itemgetpath", current, "SOURCE", 0, itemThread.id);
-  deepEqual([source.value, source.out], [1, [[2, 80], [3, 63]]], "source resolves the calling item and is case-insensitive");
-  const target = getPath("itemgetpath", current, "target", 0, itemThread.id);
-  deepEqual([target.value, target.out], [1, [[2, 233], [3, 40]]], "target resolves the other item through its source file");
-
-  // The selected player is deliberately not `hero` and not the party sprite, so a silent fallback cannot pass.
-  const playerThread = startThread(current.vm, { ref, kind: "persistent", owner: "script", source: "hero", target: "7" });
+  current.sprites = { ...current.sprites, players: [...current.sprites.players, party], selectedPlayer: "not-hero" };
+  addActor(current.actors, { id: 7, kind: "party", source: "actor-party.tem", name: "PartyHero" });
   enqueueDirectionMove(current.sprites, "hero", "E", 0);
   enqueueDirectionMove(current.sprites, "player:7", "E", 0);
-  const playerSource = getPath("playergetpath", current, "source", 0, playerThread.id);
-  deepEqual([playerSource.value, playerSource.out], [1, [[2, 80], [3, 63]]], "a player thread's source resolves that sprite by id");
-  const playerTarget = getPath("playergetpath", current, "TARGET", 0, playerThread.id);
-  deepEqual([playerTarget.value, playerTarget.out], [1, [[2, 64], [3, 63]]], "target resolves an actor-id string as pushItemHook writes it");
-
+  const ref = { kind: "inline" as const, text: "1", ir: IR_VERSION };
+  const cases: readonly (readonly ["source" | "target", string, number])[] = [
+    ["source", "hero", 80],
+    ["target", "7", 64],
+    ["source", "player:7", 64],
+    ["target", "PartyHero", 64],
+    ["target", "actor-party.tem", 64],
+    ["source", "party.tem", 64],
+  ];
+  for (const [slot, value, x] of cases) {
+    const thread = startThread(current.vm, { ref, kind: "persistent", owner: "script", source: slot === "source" ? value : "hero", target: slot === "target" ? value : "hero" });
+    const point = getPath("playergetpath", current, slot.toUpperCase(), 0, thread.id);
+    deepEqual([point.value, point.out], [1, [[2, x], [3, 63]]], `${slot}=${value} resolves a player`);
+  }
+  const ghostThread = startThread(current.vm, { ref, kind: "persistent", owner: "script", source: "ghost" });
   throws(
-    () => getPath("itemgetpath", current, "ghost", 0, itemThread.id),
+    () => getPath("playergetpath", current, "source", 0, ghostThread.id),
     (error: unknown) => error instanceof ScriptError && error.message === "player not found",
-    "a handle that still names nothing keeps the 3.1 message",
+    "an unresolved context still keeps the 3.1 message",
   );
 });
 
-test("E-94 item commands resolve the calling thread's target handle", () => {
+test("itemgetpath resolves every form the engine writes into an item context handle", () => {
   const currentBoard = board();
   const current = stateWith(currentBoard);
   const npc = actorFromSource({ id: "npc", kind: "item", source: "npc.itm", x: 48, y: 63, layer: 1 }, currentBoard, 0, 0);
-  current.sprites.items = [npc];
-  const thread = startThread(current.vm, { ref: { kind: "inline", text: "1", ir: IR_VERSION }, kind: "item", owner: "world", source: "npc", target: "npc.itm" });
+  const altar = actorFromSource({ id: "altar", kind: "item", actorId: 9 as NonNullable<SpriteActor["actorId"]>, source: "altar.itm", x: 200, y: 40, layer: 1 }, currentBoard, 1, 1);
+  current.sprites.items = [npc, altar];
+  addActor(current.actors, { id: 9, kind: "npc", source: "actor-altar.itm", name: "AltarActor" });
+  enqueueDirectionMove(current.sprites, "npc", "E", 0);
+  enqueueMove(current.sprites, "altar", { source: "points", target: { x: 232.5, y: 40 }, facing: null });
+  const ref = { kind: "inline" as const, text: "1", ir: IR_VERSION };
+  const cases: readonly (readonly ["source" | "target", string, number, number])[] = [
+    ["source", "npc", 80, 63],
+    ["source", "npc.itm", 80, 63],
+    ["target", "item:altar", 233, 40],
+    ["target", "altar.itm", 233, 40],
+    ["target", "9", 233, 40],
+    ["target", "AltarActor", 233, 40],
+    ["target", "actor-altar.itm", 233, 40],
+  ];
+  for (const [slot, value, x, y] of cases) {
+    const thread = startThread(current.vm, { ref, kind: "item", owner: "world", source: slot === "source" ? value : "npc", target: slot === "target" ? value : "altar" });
+    const point = getPath("itemgetpath", current, slot, 0, thread.id);
+    deepEqual([point.value, point.out], [1, [[2, x], [3, y]]], `${slot}=${value} resolves an item`);
+  }
+});
+
+test("shared item command resolution keeps origin/main behaviour for a target handle", () => {
+  const currentBoard = board();
+  const current = stateWith(currentBoard);
+  const decoy = actorFromSource({ id: "7", kind: "item", source: "decoy.itm", x: 200, y: 40, layer: 1 }, currentBoard, 0, 0);
+  current.sprites.items = [decoy];
+  const thread = startThread(current.vm, { ref: { kind: "inline", text: "1", ir: IR_VERSION }, kind: "item", owner: "world", source: "npc", target: "7" });
   const services = createScriptServices(current, [{ definition: MOVEMENT_PLUGIN }]);
   services.setCommandThread(thread.id);
-  const spec = services.commands.get("itemlocation")?.spec;
-  if (spec === undefined) throw new Error("missing itemlocation");
-  const args: Arg[] = [
+  const wanderSpec = services.commands.get("wander")?.spec;
+  if (wanderSpec === undefined) throw new Error("missing wander");
+  const wander = wanderSpec.call(services.view, [{ value: "target", ref: null }], () => ({ value: null })) as { effects?: readonly { args?: readonly unknown[] }[] };
+  deepEqual(wander.effects?.[0]?.args?.[0], "target", "wander keeps the literal unresolved handle, as on main");
+  applySpriteEffect(current, "wander", (wander.effects?.[0]?.args ?? []) as never, thread.id);
+  equal(current.sprites.items[0]?.queue.moves.length, 0, "wander('target') moves no unrelated item");
+  const locationSpec = services.commands.get("itemlocation")?.spec;
+  if (locationSpec === undefined) throw new Error("missing itemlocation");
+  const location = locationSpec.call(services.view, [
     { value: "target", ref: null },
     { value: 0, ref: "x" as never },
     { value: 0, ref: "y" as never },
     { value: 0, ref: "layer" as never },
-  ];
-  const result = spec.call(services.view, args, () => ({ value: null })) as { out?: readonly (readonly [number, unknown])[] };
-  deepEqual(result.out, [[1, 48], [2, 63], [3, 2]], "itemlocation resolves the target's source-file handle");
+  ], () => ({ value: null })) as { value: unknown; out?: readonly (readonly [number, unknown])[] };
+  deepEqual([location.value, location.out], [0, [[1, 0], [2, 0], [3, 1]]], "itemlocation('target') stays a dry no-op as on main");
 });

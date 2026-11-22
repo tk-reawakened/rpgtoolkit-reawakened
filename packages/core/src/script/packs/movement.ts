@@ -63,20 +63,60 @@ function queuedTargets(actorValue: SpriteActor): SpritePoint[] {
   }
   return targets;
 }
+/** Compared like battle.ts's actor resolver: case-insensitive, slashes unified. */
+function foldedPathHandle(value: string): string {
+  return value.replaceAll("\\", "/").trim().toLowerCase();
+}
+/**
+ * The calling thread's `source`/`target` value (E-94/E-95), or undefined when `arg` is not one of those
+ * handles. The raw value is private to this resolver; it is never handed back for another command to re-read.
+ */
+function pathContextValue(view: CommandView, arg: Value | undefined): string | null | undefined {
+  if (typeof arg !== "string") return undefined;
+  const token = arg.toLowerCase();
+  if (token !== "source" && token !== "target") return undefined;
+  const thread = view.state?.vm.threads.find((candidate) => candidate.id === view.thread);
+  return (token === "source" ? thread?.source : thread?.target) ?? null;
+}
+/**
+ * Whether a sprite answers any form the engine writes into a thread's source/target: sprite id or source,
+ * an item key, an actor-id string, or the linked actor record's name or source (vm.ts `hasLiveEntityHandle`).
+ */
+function pathSpriteMatches(state: GameState | undefined, value: SpriteActor, wanted: string, kind: "player" | "item"): boolean {
+  if (foldedPathHandle(value.id) === wanted || foldedPathHandle(value.source) === wanted) return true;
+  if (kind === "item" && foldedPathHandle(itemKey(value)) === wanted) return true;
+  if (value.actorId === null || value.actorId === undefined) return false;
+  if (String(value.actorId) === wanted) return true;
+  const record = state?.actors.actors.find((actor) => actor.id === value.actorId);
+  return record !== undefined && (foldedPathHandle(record.name) === wanted || foldedPathHandle(record.source) === wanted);
+}
 /**
  * R-69 item 8: a handle that names no live player or item has no queue to report, with 3.1's message text.
- * Handles resolve like the other movement built-ins: id, item key, numeric handle/index, and the calling
- * thread's `"source"`/`"target"` context handles (E-94/E-95).
+ * Unlike the other movement built-ins, the path query resolves every form the engine writes into a thread's
+ * `"source"`/`"target"` context (E-94/E-95) through this private resolver; shared resolvers stay as on main.
  */
 function pathActor(view: CommandView, kind: "player" | "item", arg: Value | undefined): SpriteActor {
-  const handle = typeof arg === "number" || typeof arg === "string" ? arg : undefined;
-  if (kind === "item") {
-    const item = view.state?.sprites.items.find((value) => value.id === itemIdForThread(view.state, view.thread, handle));
-    if (item !== undefined) return item;
-  } else {
-    const id = playerIdForThread(view.state, view.thread, handle);
-    const player = id === null ? undefined : view.state?.sprites.players.find((value) => value.id === id);
-    if (player !== undefined) return player;
+  const state = view.state;
+  const candidates = (kind === "player" ? state?.sprites.players : state?.sprites.items) ?? [];
+  const context = pathContextValue(view, arg);
+  if (context !== undefined) {
+    if (context !== null) {
+      const wanted = foldedPathHandle(context);
+      const value = candidates.find((candidate) => pathSpriteMatches(state, candidate, wanted, kind));
+      if (value !== undefined) return value;
+    }
+    throw new ScriptError("builtin.bad-arg", "player not found");
+  }
+  if (typeof arg === "number" || typeof arg === "string") {
+    const byId = candidates.find((value) => value.id === String(arg) || (kind === "item" && itemKey(value) === String(arg)));
+    if (byId !== undefined) return byId;
+    const index = typeof arg === "number" ? arg : Number(arg);
+    if (Number.isInteger(index) && (typeof arg === "number" || arg.trim() !== "")) {
+      const byIndex = kind === "player"
+        ? candidates.find((value) => value.index === index) ?? candidates[index]
+        : candidates.find((value) => value.handle === index || value.index === index);
+      if (byIndex !== undefined) return byIndex;
+    }
   }
   throw new ScriptError("builtin.bad-arg", "player not found");
 }
@@ -125,62 +165,13 @@ function itemIdFor(state: SpritesSection | undefined, arg: number | string | und
   return item?.id ?? "";
 }
 
-/**
- * The actor id a thread's `source` or `target` context handle names (E-94/E-95), `null` when the thread has
- * no value for it, or `undefined` when `arg` is not one of those two handles.
- */
-function threadContextHandle(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string | null | undefined {
-  if (typeof arg !== "string") return undefined;
-  const token = arg.toLowerCase();
-  if (token !== "source" && token !== "target") return undefined;
-  const slot: "source" | "target" = token;
-  return state?.vm.threads.find((candidate) => candidate.id === threadId)?.[slot] ?? null;
-}
-/** Compared the way the engine writes and the battle resolver folds handles (case-insensitive, slashes unified). */
-function foldedHandle(value: string): string {
-  return value.replaceAll("\\", "/").trim().toLowerCase();
-}
-/** Every form a context actor handle can take for an item: sprite id, item key, source file or actor id. */
-function itemMatchesHandle(value: SpriteActor, wanted: string): boolean {
-  return foldedHandle(value.id) === wanted || foldedHandle(itemKey(value)) === wanted || foldedHandle(value.source) === wanted ||
-    (value.actorId !== null && value.actorId !== undefined && String(value.actorId) === wanted);
-}
-/** Every form a context actor handle can take for a party player: sprite id, actor id, actor name, sprite or actor source. */
-function playerMatchesHandle(state: GameState | undefined, value: SpriteActor, wanted: string): boolean {
-  if (foldedHandle(value.id) === wanted || foldedHandle(value.source) === wanted) return true;
-  if (value.actorId === null || value.actorId === undefined) return false;
-  if (String(value.actorId) === wanted) return true;
-  const record = state?.actors.actors.find((actor) => actor.id === value.actorId);
-  return record !== undefined && (foldedHandle(record.name) === wanted || foldedHandle(record.source) === wanted);
-}
 function itemIdForThread(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string {
-  const context = threadContextHandle(state, threadId, arg);
-  if (context !== undefined) {
-    if (context !== null) {
-      const wanted = foldedHandle(context);
-      const item = state?.sprites.items.find((value) => itemMatchesHandle(value, wanted));
-      if (item !== undefined) return item.id;
-    }
-    return context ?? String(arg);
+  if (typeof arg === "string" && arg.toLowerCase() === "source") {
+    const handle = state?.vm.threads.find((candidate) => candidate.id === threadId)?.source;
+    const source = state?.sprites.items.find((candidate) => candidate.id === handle || itemKey(candidate) === handle);
+    if (source !== undefined) return source.id;
   }
   return itemIdFor(state?.sprites, arg);
-}
-/** A player id from any accepted handle, including the thread's `source`/`target` (E-94/E-95); or null. */
-function playerIdForThread(state: GameState | undefined, threadId: number | undefined, arg: number | string | undefined): string | null {
-  const context = threadContextHandle(state, threadId, arg);
-  if (context !== undefined) {
-    if (context === null) return null;
-    const wanted = foldedHandle(context);
-    return state?.sprites.players.find((value) => playerMatchesHandle(state, value, wanted))?.id ?? null;
-  }
-  if (typeof arg !== "number" && typeof arg !== "string") return null;
-  const byId = state?.sprites.players.find((value) => value.id === String(arg));
-  if (byId !== undefined) return byId.id;
-  const index = typeof arg === "number" ? arg : Number(arg);
-  if (Number.isInteger(index) && (typeof arg === "number" || arg.trim() !== "")) {
-    return (state?.sprites.players.find((value) => value.index === index) ?? state?.sprites.players[index])?.id ?? null;
-  }
-  return null;
 }
 function playerId(view: CommandView, arg: number | string): string {
   return playerIdFor(view.state?.sprites, arg);
