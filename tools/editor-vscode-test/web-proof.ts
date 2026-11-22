@@ -7,6 +7,7 @@ import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
+import { pollPageFrames } from "./frame-poll.ts";
 import { runVscodeArtProof } from "./art-proof.ts";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 import { runVscodeContextualHelpProof } from "./contextual-help-proof.ts";
@@ -36,14 +37,27 @@ type NewProjectHistoryProofHost = {
   previewTrace?(): readonly string[];
 };
 
+/** The first frame showing the packaged player's screen; a replaced frame is re-enumerated, not a failure (#3257). */
+async function findPlayerFrame(page: Page, label: string): Promise<Frame> {
+  const outcome = await pollPageFrames<Frame, true>({
+    label,
+    frames: () => page.frames(),
+    describe: (frame) => `${frame.name()} (${frame.url()})`,
+    probe: async (frame) => await frame.locator("#screen").count() > 0 ? true : null,
+    accept: (reports) => reports.length > 0,
+  });
+  return outcome.reports[0]!.frame;
+}
+
 async function verifyHostRunHash(page: Page, frame: Frame, expect: Expect): Promise<void> {
-  let handleFrame: Frame | undefined;
-  await expect.poll(async () => {
-    for (const candidate of page.frames()) {
-      if (await candidate.locator("#tkr-run-handle-snapshot").count() > 0) { handleFrame = candidate; return true; }
-    }
-    return false;
-  }, { timeout: 30_000 }).toBe(true);
+  const handleOutcome = await pollPageFrames<Frame, true>({
+    label: "Run-handle proof panel",
+    frames: () => page.frames(),
+    describe: (candidate) => `${candidate.name()} (${candidate.url()})`,
+    probe: async (candidate) => await candidate.locator("#tkr-run-handle-snapshot").count() > 0 ? true : null,
+    accept: (reports) => reports.length > 0,
+  });
+  const handleFrame = handleOutcome.reports[0]?.frame;
   if (handleFrame === undefined) throw new Error("Run-handle proof panel was not found");
   let lastObserved: { liveHash: string | undefined; liveTick: number | undefined; snapshotHash: string | null; status: unknown } =
     { liveHash: undefined, liveTick: undefined, snapshotHash: null, status: null };
@@ -121,15 +135,7 @@ export async function runVscodeLaunchProof(
   await expect(editor.getByRole("status")).toHaveText("Unsaved changes");
   await runCommand(page, expect, "Test: Run Example Game");
   await expect.poll(readBacking, { timeout: 30_000 }).toEqual(expectedBytes);
-  let player: Frame | undefined;
-  await expect.poll(async () => {
-    for (const frame of page.frames()) {
-      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
-    }
-    return false;
-  }, { timeout: 30_000 }).toBe(true);
-  const playerFrame = player as Frame | undefined;
-  if (playerFrame === undefined) throw new Error("Player frame was not found");
+  const playerFrame = await findPlayerFrame(page, "Player frame");
   const live = async () => await playerFrame.evaluate(() => Reflect.get(window, "__live") as {
     tick: number; board: string | null; player: unknown; stateHash: string;
   } | undefined);
@@ -147,15 +153,7 @@ export async function runVscodeProgramProof(page: Page, expect: Expect, workbenc
   await expect(page.locator(".monaco-workbench")).toBeVisible();
   await runVscodeContextualHelpProof(page, expect, workbenchUrl);
   await runCommand(page, expect, "Test: Run Example Program");
-  let player: Frame | undefined;
-  await expect.poll(async () => {
-    for (const frame of page.frames()) {
-      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
-    }
-    return false;
-  }, { timeout: 30_000 }).toBe(true);
-  const frame = player as Frame | undefined;
-  if (frame === undefined) throw new Error("Program player frame was not found");
+  const frame = await findPlayerFrame(page, "Program player frame");
   const scene = async () => await frame.evaluate(() => {
     const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string; font?: { size: number }; source?: { asset?: string } }> } } } | undefined;
     const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
@@ -189,15 +187,7 @@ export async function runVscodeBoardProof(page: Page, expect: Expect, workbenchU
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
   await runCommand(page, expect, "Test: Run Example Board");
-  let player: Frame | undefined;
-  await expect.poll(async () => {
-    for (const frame of page.frames()) {
-      if (await frame.locator("#screen").count() > 0) { player = frame; return true; }
-    }
-    return false;
-  }, { timeout: 30_000 }).toBe(true);
-  const frame = player as Frame | undefined;
-  if (frame === undefined) throw new Error("Board player frame was not found");
+  const frame = await findPlayerFrame(page, "Board player frame");
   const scene = async () => await frame.evaluate(() => {
     const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
     const live = Reflect.get(window, "__live") as { board: string | null; stateHash: string; player: unknown } | undefined;
@@ -301,7 +291,7 @@ export async function runVscodeGuardProof(
   await runCommand(page, expect, "Test: Run Example Program");
   await expect(page.getByText(/Program launch refused:.*save/i)).toBeVisible({ timeout: 30_000 });
   expect(await readBacking()).toEqual(original);
-  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count().catch(() => 0)))).not.toContain(1);
   await runCommand(page, expect, "Test: Allow Saves");
   await editor.getByRole("button", { name: "Save", exact: true }).click();
   await expect(editor.locator(".tkr-settings-state")).toHaveText("All changes saved");
@@ -314,7 +304,7 @@ export async function runVscodeGuardProof(
   await expect.poll(readBacking, { timeout: 30_000 }).toEqual(raced);
   await runCommand(page, expect, "Test: Resume Program Read");
   await expect(page.getByText(/Program launch refused:.*changed/i)).toBeVisible({ timeout: 30_000 });
-  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count()))).not.toContain(1);
+  expect(await Promise.all(page.frames().map((frame) => frame.locator("#screen").count().catch(() => 0)))).not.toContain(1);
 }
 
 type WizardGroupRecord = {
@@ -469,8 +459,12 @@ export async function runVscodeNewProjectProof(
   await expect(async () => {
     const titles: string[] = [];
     for (const frame of page.frames()) {
-      const title = frame.getByRole("textbox", { name: "Game title", exact: true });
-      if (await title.isVisible()) titles.push(await title.inputValue({ timeout: 1_000 }));
+      try {
+        const title = frame.getByRole("textbox", { name: "Game title", exact: true });
+        if (await title.isVisible()) titles.push(await title.inputValue({ timeout: 1_000 }));
+      } catch {
+        // A frame replaced by the workspace conversion is skipped; the next slice re-enumerates (#3257).
+      }
     }
     expect(titles).toContain("Native wizard quest");
   }).toPass({ timeout: 60_000, intervals: [100, 250, 500, 1_000] });
@@ -713,24 +707,30 @@ async function proveNativeTextSaveFailure(
 }
 
 async function verifyHistoryPreview(page: Page, expect: Expect, expectedTitle: string): Promise<void> {
-  let preview: Frame | undefined;
-  let previewTitle: Locator | undefined;
-  await expect.poll(async () => {
-    for (const frame of page.frames()) {
+  // A settings webview can be replaced while it mounts, so the poll re-enumerates instead of querying a gone frame (#3257).
+  const outcome = await pollPageFrames<Frame, { readonly title: string; readonly disabled: boolean; readonly note: string | null }>({
+    label: "Read-only History game-settings frame",
+    frames: () => page.frames(),
+    describe: (frame) => `${frame.name()} (${frame.url()})`,
+    probe: async (frame) => {
+      if (await frame.getByRole("heading", { name: "Game settings", exact: true }).count() === 0) return null;
       const title = frame.getByRole("textbox", { name: "Game title", exact: true });
-      if (await frame.getByRole("heading", { name: "Game settings", exact: true }).count() > 0
-        && await title.count() > 0 && await title.isDisabled() && await title.inputValue() === expectedTitle) {
-        preview = frame;
-        previewTitle = title;
-        return true;
-      }
-    }
-    return false;
-  }, { timeout: 30_000 }).toBe(true);
-  if (preview === undefined || previewTitle === undefined) throw new Error("The History command did not open the shared editor in read-only mode.");
-  await expect(previewTitle).toHaveValue(expectedTitle);
-  await expect(previewTitle).toBeDisabled();
-  await expect(preview.getByRole("note")).toContainText("Read only");
+      if (await title.count() === 0) return null;
+      const note = frame.getByRole("note");
+      return {
+        title: await title.inputValue(),
+        disabled: await title.isDisabled(),
+        note: await note.count() > 0 ? await note.first().textContent() : null,
+      };
+    },
+    accept: (reports) => reports.some((report) => report.value.title === expectedTitle
+      && report.value.disabled
+      && (report.value.note ?? "").includes("Read only")),
+  });
+  const mounted = outcome.reports.find((report) => report.value.title === expectedTitle)?.value;
+  if (mounted === undefined) throw new Error("The History command did not open the shared editor in read-only mode.");
+  expect(mounted.disabled).toBe(true);
+  expect(mounted.note).toContain("Read only");
 }
 async function expectNativeHistoryRestorePaused(
   host: NewProjectHistoryProofHost,
@@ -815,35 +815,70 @@ function assertBoardPreviewRequestIdentity(historyHost: NewProjectHistoryProofHo
   expect(identity, `The History preview did not originate from ${sourcePath}.`).toBeDefined();
 }
 
+/** A frame's name or URL, answering "gone" if it was replaced while the diagnostic was read (#3257). */
+async function safeFrameText(read: () => string): Promise<string> {
+  try {
+    return read();
+  } catch {
+    return "<frame detached>";
+  }
+}
+
 async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath: string, expectedTile: string, historyHost: NewProjectHistoryProofHost, beforeRender: () => Promise<void>): Promise<string> {
   assertBoardPreviewRequestIdentity(historyHost, sourcePath, expect);
+  interface PreviewProbe {
+    readonly readOnly: boolean;
+    readonly tile: string | null;
+    readonly readonlyAttribute: string | null;
+    readonly readOnlyText: string | null;
+    readonly brushDisabled: boolean;
+  }
   let preview: Frame | undefined;
+  let mounted: PreviewProbe | undefined;
   try {
-    await expect.poll(async () => {
-      const boardFrames: Frame[] = [];
-      for (const frame of page.frames()) {
+    // A preview webview can be replaced between enumeration and a query, so the poll re-enumerates on detachment
+    // and names what vanished if the deadline expires (#3257). A matching preview is accepted only once it is fully
+    // mounted read-only, so the checks below never query a frame the poll did not just prove.
+    const outcome = await pollPageFrames<Frame, PreviewProbe>({
+      label: "Native read-only History frame",
+      frames: () => page.frames(),
+      describe: (frame) => `${frame.name()} (${frame.url()})`,
+      probe: async (frame) => {
         const board = frame.getByRole("region", { name: "Board", exact: true });
-        if (await board.count() > 0 && await board.isVisible().catch(() => false)) boardFrames.push(frame);
-      }
-      const readOnlyFrames: Frame[] = [];
-      const writableFrames: Frame[] = [];
-      for (const frame of boardFrames) {
+        if (await board.count() === 0 || !await board.isVisible()) return null;
         const note = frame.getByRole("note").filter({ hasText: "Read only:" });
-        if (await note.count() > 0 && await note.isVisible().catch(() => false)) readOnlyFrames.push(frame);
-        else writableFrames.push(frame);
-      }
-      const matchingPreviews: Frame[] = [];
-      for (const frame of readOnlyFrames) {
+        if (!(await note.count() > 0 && await note.isVisible())) return { readOnly: false, tile: null, readonlyAttribute: null, readOnlyText: null, brushDisabled: false };
         const tile = frame.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
-        if (await tile.count() > 0 && await tile.inputValue().catch(() => "") === expectedTile) matchingPreviews.push(frame);
-      }
-      preview = matchingPreviews[0];
-      return writableFrames.length === 1 && matchingPreviews.length === 1;
-    }, { timeout: 30_000, intervals: [100, 250, 500, 1_000] }).toBe(true);
+        const tileValue = await tile.count() > 0 ? await tile.inputValue() : null;
+        const readOnlyRegion = frame.locator(".tkr-board-readonly");
+        const readOnlyText = await readOnlyRegion.count() > 0 ? await readOnlyRegion.textContent() : null;
+        const brush = frame.locator(".tkr-board-brush");
+        const brushDisabled = await brush.count() > 0 && await brush.isDisabled();
+        return {
+          readOnly: true,
+          tile: tileValue,
+          readonlyAttribute: tileValue === null ? null : await tile.getAttribute("readonly"),
+          readOnlyText,
+          brushDisabled,
+        };
+      },
+      accept: (reports) => {
+        const writable = reports.filter((report) => !report.value.readOnly);
+        const matching = reports.filter((report) => report.value.readOnly
+          && report.value.tile === expectedTile
+          && report.value.readonlyAttribute === ""
+          && (report.value.readOnlyText ?? "").includes("Saved version")
+          && report.value.brushDisabled);
+        preview = matching[0]?.frame;
+        mounted = matching[0]?.value;
+        return writable.length === 1 && matching.length === 1;
+      },
+    });
+    if (mounted === undefined) throw new Error(`The native History preview for ${expectedTile} did not mount beside its writable originating board editor. Detached: ${outcome.detached.join(" | ") || "nothing"}`);
   } catch (error) {
     const frames = await Promise.all(page.frames().map(async (frame) => ({
-      name: frame.name(),
-      url: frame.url(),
+      name: await safeFrameText(() => frame.name()),
+      url: await safeFrameText(() => frame.url()),
       boards: await frame.locator(".tkr-board").count().catch(() => -1),
       bitmapCanvases: await frame.locator("canvas.tkr-bitmap-canvas").count().catch(() => -1),
       readOnlyNotes: await frame.locator(".tkr-board-readonly, .tkr-bitmap-readonly").count().catch(() => -1),
@@ -853,12 +888,12 @@ async function verifyBoardHistoryPreview(page: Page, expect: Expect, sourcePath:
     const trace = historyHost.previewTrace?.().join("\n") ?? "No preview RPC trace was captured.";
     throw new Error(`Native read-only History frame did not mount. Tabs: ${JSON.stringify(tabs)}. Frames: ${JSON.stringify(frames)}. Correlated preview stages:\n${trace}\n${String(error)}`);
   }
-  if (preview === undefined) throw new Error(`The native History preview for ${expectedTile} did not mount beside its writable originating board editor.`);
-  await expect(preview.locator(".tkr-board-readonly")).toContainText("Saved version");
-  const previewTile = preview.getByRole("textbox", { name: "Tile for column 1, row 1", exact: true });
-  await expect(previewTile).toHaveAttribute("readonly", "");
-  await expect(preview.locator(".tkr-board-brush")).toBeDisabled();
-  await expect(preview.locator(".tkr-board-readonly")).toContainText("Read only");
+  if (preview === undefined || mounted === undefined) throw new Error(`The native History preview for ${expectedTile} did not mount beside its writable originating board editor.`);
+  // The poll accepted this preview only with these values; assert them without a new query that could hit a replacement.
+  expect(mounted.readOnlyText).toContain("Saved version");
+  expect(mounted.readOnlyText).toContain("Read only");
+  expect(mounted.readonlyAttribute).toBe("");
+  expect(mounted.brushDisabled).toBe(true);
   await beforeRender();
   const previewState = preview.locator(".tkr-board-preview-state");
   try {
@@ -2294,7 +2329,12 @@ async function logFrameDiagnostics(page: Page, reason: string): Promise<void> {
     } catch (error) {
       body = `<read failed: ${error instanceof Error ? error.message : String(error)}>`;
     }
-    return { name: frame.name(), url: frame.url(), parentUrl: frame.parentFrame()?.url() ?? null, body };
+    return {
+      name: await safeFrameText(() => frame.name()),
+      url: await safeFrameText(() => frame.url()),
+      parentUrl: await safeFrameText(() => frame.parentFrame()?.url() ?? "<no parent>"),
+      body,
+    };
   }));
   console.error(`[vscode-web:frame-diagnostic] ${reason}: ${JSON.stringify(frames, null, 2)}`);
 }
@@ -2323,8 +2363,12 @@ async function waitForWritableEditorFrame(page: Page, label: string, fieldName: 
   while (Date.now() < deadline) {
     candidates = [];
     for (const frame of page.frames()) {
-      const field = frame.getByRole("textbox", { name: fieldName, exact: true });
-      if (await field.count() > 0 && await field.isVisible().catch(() => false) && await field.isEditable().catch(() => false)) candidates.push(frame);
+      try {
+        const field = frame.getByRole("textbox", { name: fieldName, exact: true });
+        if (await field.count() > 0 && await field.isVisible().catch(() => false) && await field.isEditable().catch(() => false)) candidates.push(frame);
+      } catch {
+        // A webview replaced during the scan is simply absent for this slice; the next slice re-enumerates (#3257).
+      }
     }
     if (selectedTabLabel === undefined && candidates.length > 0) return candidates[0]!;
     if (selectedTabLabel !== undefined && candidates.length === 1) {
@@ -2468,7 +2512,11 @@ async function waitForBytesPanelFrame(page: Page, panelId: string): Promise<Fram
 
 async function findBytesPanelFrame(page: Page, selector: string): Promise<Frame | null> {
   for (const frame of page.frames()) {
-    if (await frame.locator(selector).count() > 0) return frame;
+    try {
+      if (await frame.locator(selector).count() > 0) return frame;
+    } catch {
+      // A replaced panel frame is absent for this slice; the caller re-enumerates on its next bounded slice (#3257).
+    }
   }
   return null;
 }
@@ -2885,24 +2933,35 @@ export async function runVscodeConnectedAuthoringProof(page: Page, expect: Expec
       await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).toBeVisible();
       await expect(page.locator(".editor-instance .monaco-editor").last()).toContainText(text);
     },
-    writeProgram: async (path, text, before) => {
+    // The native tab's own dirty marker is the workbench's document state: VS Code clears it only when the buffer
+    // equals its saved revision, so undo and save are observed rather than waited out (#3322, #3337).
+    documentState: async (path) => {
+      const tab = page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first();
+      await expect(tab).toBeVisible();
+      return await tab.evaluate((element) => element.classList.contains("dirty")) ? "dirty" : "clean";
+    },
+    writeProgram: async (path, text, before, awaitState) => {
       await focusWorkbench(page);
       await openNativeQuickOpenFile(page, expect, path);
       const editor = page.locator(".editor-instance .monaco-editor").last();
       await expect(editor.locator(".view-lines")).toBeVisible();
+      await awaitState("clean");
       await editor.click();
       await page.keyboard.press("ControlOrMeta+A");
       // Native Monaco needs a real paste transaction so VS Code, not raw CDP insertion, owns undo.
       await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(workbenchUrl).origin });
       await page.evaluate((value) => navigator.clipboard.writeText(value), text);
       await page.keyboard.press("ControlOrMeta+V");
+      await awaitState("dirty");
       await expect(editor).toContainText(text.split("\n")[0]!);
       await runCommand(page, expect, "Undo");
+      await awaitState("clean");
       await expect(editor).toContainText(before.split("\n")[0]!);
       await runCommand(page, expect, "Redo");
+      await awaitState("dirty");
       await expect(editor).toContainText(text.split("\n")[0]!);
       await runCommand(page, expect, "File: Save");
-      await expect(page.getByRole("tab", { selected: true }).filter({ hasText: path.split("/").at(-1)! }).first()).not.toHaveClass(/dirty/);
+      await awaitState("clean");
     },
     runSavedBoardSetup: () => launchSaved("Connected board test"),
     runGame: () => launchSaved("Connected game start-up"),
