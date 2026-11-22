@@ -80,7 +80,7 @@ contracts.
 
 ## Implementation notes and proposed rulings
 
-Every proposed choice below remains **Proposed ruling (pending owner review)**, except P-19, which is settled; the scene records the observable consequence and the rejected alternative:
+Every proposed choice below remains **Proposed ruling (pending owner review)** except P-19 and the two notes the owner decided on 2026-11-22 (facing after an accepted crossing; a refused crossing's own queue entry), which are settled; the scene records the observable consequence and the rejected alternative:
 
 - P-1/P-3/P-4: cadence begins on command, 4 px advances use 1/256 fixed-point
   vectors, and blocked/reached steps end independently. Evidence: E-22/E-23
@@ -202,7 +202,7 @@ Every proposed choice below remains **Proposed ruling (pending owner review)**, 
   listener without dispatching, and a deferred check would let a step commit
   before the rule it is supposed to enforce runs. Consequence for authors: while
   a blocking board program is live, a linked edge is blocked and its refused
-  entry is consumed (see the next note). Pinned by
+  entry is consumed (see the fourth note below). Pinned by
   `packages/core/test/engine-edge-preflight.test.ts`, "R-66/R-68: a linked
   refusal under a live blocking program is refused before beforeEnter and keeps
   the queue": `beforeEnter` is not observed, exactly one
