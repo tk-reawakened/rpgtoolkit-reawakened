@@ -30,6 +30,7 @@ import { planPrefetch, prefetchSignature, type PrefetchFacts } from "../prefetch
 import { readBattleBackground } from "../formats/battle/battle-background.ts";
 import { BinaryReader } from "../formats/binary/reader.ts";
 import type { MainFile } from "../formats/main-file/model.ts";
+import type { LegacyFont } from "../formats/font/model.ts";
 import { readLegacyFont } from "../formats/font/reader.ts";
 import { gateTrueType, readTrueTypeFont, type TrueTypeFont } from "../formats/font/truetype.ts";
 import type { AssetKind } from "../formats/main-file/layout.ts";
@@ -440,6 +441,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   let mainKey: AssetKey | null = null;
   const installedFonts = new Map<AssetKey, Uint8Array>();
   const parsedFonts = new WeakMap<Uint8Array, TrueTypeFont | null>();
+  const parsedBitmapFonts = new WeakMap<Uint8Array, LegacyFont>();
   const cache = new Map<AssetKey, Uint8Array>(init.initialAssets ?? []);
   // Source resolution is synchronous; installed sources remain physically available when Load hides newer keys.
   const programSources = new Map<AssetKey, Uint8Array>();
@@ -2626,6 +2628,18 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     }
     return null;
   }
+  /** An installed project font as the rasteriser reads it: a bitmap font decoded once per byte buffer, a TrueType face parsed once. */
+  function installedFontAsset(key: AssetKey, bytes: Uint8Array): RasterAsset {
+    if (!key.toLowerCase().endsWith(".fnt")) return layoutFont(key) ?? bytes;
+    let font = parsedBitmapFonts.get(bytes);
+    if (font === undefined) {
+      const parsed = readLegacyFont(bytes, key);
+      if (!parsed.ok) return bytes;
+      font = parsed.value;
+      parsedBitmapFonts.set(bytes, font);
+    }
+    return font;
+  }
   function rasterAssets(assets = new Map<AssetKey, RasterAsset>()): Map<AssetKey, RasterAsset> {
     for (const key of cache.keys()) {
       if (deferredRestoreDecode.has(key)) continue;
@@ -2641,7 +2655,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       const asset = decodedBundled.get(key);
       if (asset !== undefined && asset !== null) assets.set(key, asset);
     }
-    for (const [key, bytes] of installedFonts) assets.set(key, layoutFont(key) ?? bytes);
+    for (const [key, bytes] of installedFonts) assets.set(key, installedFontAsset(key, bytes));
     for (const [key, texture] of decodedImages) assets.set(key, texture);
     for (const [key, texture] of decodedTiles) assets.set(key, texture);
     return assets;
@@ -3474,7 +3488,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       state.world = { ...state.world, movement: movementDefaults(mainFile) };
       if (root.kind === "game") root = { kind: "game", projectPath: mainFile.projectPath };
       refreshGameId();
-      for (const key of [...privateFontKeys(index, root), ...programKeys(index, root)]) request(key, key.endsWith(".ttf") ? "font" : "program");
+      for (const key of [...privateFontKeys(index, root), ...programKeys(index, root)]) request(key, key.endsWith(".ttf") || key.endsWith(".fnt") ? "font" : "program");
       if (mainFile.initChar !== "") {
         const resolved = resolveAsset(index, root, "characters", mainFile.initChar);
         if (!resolved.ok) {
@@ -3496,12 +3510,22 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       for (const key of programs) if (readProgramSource(key) === undefined) request(key, "program");
       if (!initialCharacterResolved || ![...fonts, ...programs].every((key) => cache.has(key))) return false;
       for (const key of fonts) {
-        const gated = gateTrueType(cache.get(key) ?? new Uint8Array(), key);
-        if (!gated.ok) {
-          diagnostics.push({ code: "font.rejected", file: key, line: gated.error.offset, message: gated.error.message });
-          continue;
+        const bytes = cache.get(key) ?? new Uint8Array();
+        if (key.endsWith(".fnt")) {
+          const parsed = readLegacyFont(bytes, key);
+          if (!parsed.ok) {
+            diagnostics.push({ code: "font.rejected", file: key, line: parsed.error.offset, message: parsed.error.message });
+            continue;
+          }
+          parsedBitmapFonts.set(bytes, parsed.value);
+        } else {
+          const gated = gateTrueType(bytes, key);
+          if (!gated.ok) {
+            diagnostics.push({ code: "font.rejected", file: key, line: gated.error.offset, message: gated.error.message });
+            continue;
+          }
         }
-        installedFonts.set(key, cache.get(key) ?? new Uint8Array());
+        installedFonts.set(key, bytes);
         boot.fonts.push(key);
       }
       const manifest = pluginManifestFor(mainFile, mainKey, init.packageCatalogue ?? []);

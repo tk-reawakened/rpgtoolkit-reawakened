@@ -1235,6 +1235,30 @@ test("a scripted game boots from start.prg to its first board with the ruled eff
   equal(state.vm.threads.some((thread) => thread.kind === "board" && thread.status !== "finished"), true);
 });
 
+test("boot installs a project bitmap font, requests it with the other fonts, and skips an invalid .fnt with font.rejected (#1939)", () => {
+  const rows = Array.from({ length: 2048 }, (_, index) => ` ${index % 256} `);
+  const valid = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n");
+  const truncated = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows.slice(0, 2047)].join("\r\n") + "\r\n");
+  const notAFont = encoder.encode("not a bitmap font");
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    fonts: { "Good.ttf": liberation, "mine.fnt": valid, "Short.fnt": truncated, "Text.fnt": notAFont },
+    boards: { "start.brd": { tiles: [8, 8] } },
+    programs: { "start.prg": 'font("mine")\nwidth = gettextwidth("abc")\nend()\n' },
+  });
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  const result = run(engine, game.files, 30);
+  deepEqual(result.requests.filter((key) => key.startsWith("font/")), ["font/good.ttf", "font/mine.fnt", "font/short.fnt", "font/text.fnt"], "every font under Font\\ is requested in index order");
+  deepEqual(result.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.file]), [["font.rejected", "font/short.fnt"], ["font.rejected", "font/text.fnt"]], "only the files that are not Toolkit 2 bitmap fonts are rejected");
+  const state = doubles.state();
+  equal(state.engine.boot?.stage, "running", "a rejected font does not stop the game");
+  deepEqual(state.engine.boot?.fonts, ["font/good.ttf", "font/mine.fnt"]);
+  deepEqual(state.ui.font, { asset: "font/mine.fnt", size: 20, bold: false, italic: false }, "font(\"mine\") selects the installed bitmap font by its file name and keeps the 3.1 initial size");
+  equal(state.vm.globals.width, 60, "its text is measured with the bitmap advance of one size (20) per character");
+});
+
 test("a Toolkit 2 main file selects its dialect for startup and later project program files", () => {
   const game = authorGame({
     mainMinor: 2,

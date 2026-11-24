@@ -43,7 +43,7 @@ function unwrap<T>(result: { readonly ok: true; readonly value: T } | { readonly
 }
 
 /** A 3.1 package whose start program draws `Hello` in the project's own font, with the files the host would serve. */
-function project(fontBytes: Uint8Array): { readonly files: Map<AssetKey, Uint8Array>; readonly paths: readonly string[] } {
+function project(fontBytes: Uint8Array, fontFile = "custom.ttf"): { readonly files: Map<AssetKey, Uint8Array>; readonly paths: readonly string[] } {
   const files = new Map<AssetKey, Uint8Array>();
   const paths: string[] = [];
   const add = (path: string, bytes: Uint8Array): void => {
@@ -64,7 +64,7 @@ function project(fontBytes: Uint8Array): { readonly files: Map<AssetKey, Uint8Ar
     ...createEmptyCharacter(), minor: 5, name: "Hero", movementAnimations: Array(8).fill(""), battleStances: Array(6).fill(""),
   })));
   add("Prg/start.prg", encoder.encode('font("custom")\ntext(1, 1, "Hello")\nwait()\nend()'));
-  add("Font/custom.ttf", fontBytes);
+  add(`Font/${fontFile}`, fontBytes);
   return { files, paths };
 }
 
@@ -163,4 +163,34 @@ test("a project face wins over a bundled face of the same key, and bytes that do
   const decoded = gameFontProvider(bundled, () => liberation)(key);
   ok(decoded !== undefined && decoded !== bundledFace, "the project's own decoded face is used");
   equal(gameFontProvider(bundled, () => new Uint8Array([1, 2, 3, 4]))(key), bundledFace, "an undecodable project buffer falls back to the bundled face");
+});
+
+/** A Toolkit 2 bitmap font whose only inked glyph is `H`, a full 8 × 8 block. */
+function blockFont(): Uint8Array {
+  const lines = ["RPGTLKIT FONT", "2", "0"];
+  for (let code = 0; code < 256; code += 1) for (let row = 0; row < 8; row += 1) lines.push(code === 72 ? " 255 " : " 0 ");
+  return encoder.encode(`${lines.join("\r\n")}\r\n`);
+}
+
+test("the live renderer receives an installed project bitmap font decoded once, and its ink is the font's own (#1939)", () => {
+  const font = blockFont();
+  const { files, paths } = project(font, "custom.fnt");
+  const { engine, latest } = boot(files, paths);
+  const command = textCommand(engine);
+  const key = assetKey("Font/custom.fnt");
+  equal(command.font.asset, key, "font(\"custom\") selects the project's bitmap font");
+  deepEqual(latest()?.engine.boot?.fonts, [key], "the engine installed it");
+
+  const provider = liveProvider(files, latest);
+  const face = provider(key);
+  ok(face !== undefined && !(face instanceof Uint8Array) && "values" in face, "the renderer gets a decoded bitmap font, not bytes");
+  equal(provider(key), face, "one decoded font is shared across frames");
+
+  const ink = textInk(command, face);
+  ok(ink !== null);
+  // The 3.1 initial size is 20: the one inked glyph, H, is a full block, so it covers exactly the 20 × 20 pixels at the text origin.
+  const expected = Array.from({ length: 400 }, (_, index) => ({ x: index % 20, y: Math.floor(index / 20), coverage: 255 }));
+  deepEqual([...ink].sort((a, b) => a.y - b.y || a.x - b.x), expected, "Hello draws the block for H and nothing for the empty glyphs");
+  const bundledOnly = textInk(command, fontProvider(bundledFiles).get(assetKey(DEFAULT_FONT_ASSET)));
+  ok(bundledOnly !== null && JSON.stringify(bundledOnly) !== JSON.stringify(ink), "and not the bundled default font's reading of the same text");
 });

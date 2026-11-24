@@ -7,7 +7,7 @@
  * as the hashes is what lets two hosts be compared channel by channel instead of by a hash.
  */
 
-import { assetKey, DEFAULT_FONT_ASSET, rasterizePresentation, readTrueTypeFont, type AssetKey, type DrawList, type HostDisplayGeometry, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
+import { assetKey, DEFAULT_FONT_ASSET, rasterizePresentation, readLegacyFont, readTrueTypeFont, type AssetKey, type DrawList, type HostDisplayGeometry, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
 import { createWebgl2Renderer } from "@tk-reawakened/render-webgl2";
 import { decodeAssetTexture, parseClosingPlan, runClosingFrames } from "@tk-reawakened/runner-harness";
 
@@ -53,8 +53,8 @@ export function renderClosingDemoFrame(options: {
   const fonts = new Map<AssetKey, RasterAsset>(options.fonts);
   for (const [path, bytes] of options.files) {
     const key = assetKey(path);
-    if (!key.endsWith(".ttf")) continue;
-    const font = readTrueTypeFont(bytes, path);
+    if (!key.endsWith(".ttf") && !key.endsWith(".fnt")) continue;
+    const font = key.endsWith(".fnt") ? readLegacyFont(bytes, path) : readTrueTypeFont(bytes, path);
     if (font.ok) fonts.set(key, font.value);
   }
   const geometry: HostDisplayGeometry = {

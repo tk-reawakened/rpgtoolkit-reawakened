@@ -253,13 +253,14 @@ export function gameFontProvider(
   bundled: ReadonlyMap<AssetKey, RasterAsset>,
   project: (asset: AssetKey) => Uint8Array | null | undefined,
 ): (asset: AssetKey) => RasterAsset | undefined {
-  const decoded = new WeakMap<Uint8Array, TrueTypeFont | null>();
+  const decoded = new WeakMap<Uint8Array, RasterAsset | null>();
   return (asset) => {
     const bytes = project(asset);
     if (bytes !== null && bytes !== undefined) {
       let font = decoded.get(bytes);
       if (font === undefined) {
-        const parsed = readTrueTypeFont(bytes, asset);
+        // A project `.fnt` is a bitmap font (docs/spec/engine/display-input-audio.md#reawakened-project-bitmap-fonts); anything else is TrueType.
+        const parsed = asset.endsWith(".fnt") ? readLegacyFont(bytes, asset) : readTrueTypeFont(bytes, asset);
         font = parsed.ok ? parsed.value : null;
         decoded.set(bytes, font);
       }
@@ -284,7 +285,7 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
   const projectFonts = new Map<AssetKey, Uint8Array>();
   for (const [path, bytes] of options.files) {
     const key = assetKey(path);
-    if (key.endsWith(".ttf")) projectFonts.set(key, bytes);
+    if (key.endsWith(".ttf") || key.endsWith(".fnt")) projectFonts.set(key, bytes);
   }
   const fonts = gameFontProvider(options.fonts ?? new Map(), (asset) => projectFonts.get(asset));
   const list = frame.drawList as DrawList;
