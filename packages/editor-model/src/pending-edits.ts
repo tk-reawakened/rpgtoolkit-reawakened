@@ -10,11 +10,15 @@
  */
 
 /**
- * Why a host is settling a view's work (ADR 0022 D11.2): an explicit save (Save, Save All, Ctrl+S, a save-on-close)
- * applies the field the author is still typing in; autosave and a hot-exit backup must not commit mid-gesture; a revert
- * drops text typed against the version being discarded.
+ * Why a host is settling a view's work (ADR 0022 D11.2). An explicit save (Save, Save All, Ctrl+S, a save-on-close)
+ * applies the field the author is still typing in; autosave and a hot-exit backup must not commit mid-gesture; `query`
+ * asks only for the dirty state, before a revert's question; `revert` drops text typed against the version being
+ * discarded. A caller that passes nothing keeps the behaviour this registry had before the reason existed.
  */
-export type SettleReason = "explicit" | "autosave" | "revert";
+export type SettleReason = "explicit" | "autosave" | "revert" | "query";
+
+/** What a settlement found: `ok` when nothing refused, else the first refusal's sentence for the host to show. */
+export type SettleOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 /** One view's submitted-but-unacknowledged edits. */
 export interface PendingEditWork {
@@ -22,6 +26,8 @@ export interface PendingEditWork {
   busy(): boolean;
   /** Resolves once `busy()` is false. It never rejects: an edit the document refused is reported by the view itself. */
   idle(reason?: SettleReason): Promise<void>;
+  /** Work the host must not save through (a field the file cannot store); `null` when there is none. */
+  refusal?(): string | null;
 }
 
 /** What a view needs to take part: register its work, and wait for every view's work (its own Save waits for its siblings). */
@@ -30,8 +36,16 @@ export interface PendingEdits {
   register(work: PendingEditWork): () => void;
   /** Whether any registered view is busy. */
   busy(): boolean;
-  /** Resolves once no registered view is busy, including work submitted while waiting. */
-  settle(reason?: SettleReason): Promise<void>;
+  /** Resolves once no registered view is busy, including work submitted while waiting, and says whether one refused. */
+  settle(reason?: SettleReason): Promise<SettleOutcome>;
+}
+
+function refusalOf(works: readonly PendingEditWork[]): SettleOutcome {
+  for (const work of works) {
+    const message = work.refusal?.();
+    if (message !== undefined && message !== null) return { ok: false, message };
+  }
+  return { ok: true };
 }
 
 export function createPendingEdits(): PendingEdits {
@@ -43,20 +57,19 @@ export function createPendingEdits(): PendingEdits {
       return () => void works.delete(work);
     },
     busy,
-    async settle(reason = "explicit") {
-      // Every registered view hears the reason, busy or not: an explicit save applies the field being typed in, which is
-      // work no view reports as busy because the document does not hold it yet.
+    async settle(reason) {
+      // Every registered view hears the reason, busy or not: an explicit save applies the field being typed in, which no
+      // view reports as busy because the document does not hold it yet.
       for (let round = 0; round < 8; round += 1) {
         const registered = [...works];
-        if (registered.length === 0) return;
+        if (registered.length === 0) return { ok: true };
         await Promise.all(registered.map((work) => work.idle(reason)));
-        if (!busy()) return;
+        if (!busy()) return refusalOf(registered);
       }
+      return refusalOf([...works]);
     },
   };
 }
-
-/** The counter a view keeps for its own submissions: `begin` when a user's edit is accepted, call the result when the document has answered. */
 export interface EditTracker extends PendingEditWork {
   begin(): () => void;
 }

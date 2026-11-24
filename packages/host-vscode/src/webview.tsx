@@ -103,8 +103,10 @@ api.postMessage({ type: "ready" });
 // Ctrl/Cmd+S while a field is focused belongs to this editor: VS Code's Save All only visits dirty documents, so a clean
 // one with a field still being typed in would otherwise be skipped. The focused view's own Save applies the field first.
 window.addEventListener("keydown", (event) => {
-  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
-  const save = document.querySelector<HTMLButtonElement>("[data-editor-save]");
+  // Save As (Ctrl/Cmd+Shift+S) and other chords are not this editor's save, and the key belongs to the focused editor.
+  if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "s") return;
+  const surface = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tkr-editor]") : null;
+  const save = surface?.querySelector<HTMLButtonElement>("[data-editor-save]") ?? null;
   if (save === null || save.disabled) return;
   event.preventDefault();
   save.click();

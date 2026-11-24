@@ -235,7 +235,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** Track a webview of this document; the returned function forgets it (its panel was disposed). */
-  attachWebview(post: (requestId: string) => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
+  attachWebview(post: (requestId: string, reason?: "explicit" | "autosave" | "revert" | "query") => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
     const target: SettleTarget = { post, waiting: new Map(), ...(notify === undefined ? {} : { notify }) };
     this.#views.add(target);
     return () => {
@@ -247,8 +247,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** A webview answered a `settle` request: every edit it had accepted has reached this model. */
-  viewSettled(requestId: string): void {
-    for (const view of this.#views) view.waiting.get(requestId)?.(true);
+  viewSettled(requestId: string, settled = true, message?: string): void {
+    for (const view of this.#views) view.waiting.get(requestId)?.(settled, message);
   }
 
   /**
@@ -262,21 +262,22 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * messages, and a view destroyed before it can be asked is no longer tracked. Those windows remain known gaps in
    * ADR 0022, #2613 and #2652.
    */
-  async settleViews(): Promise<string | null> {
+  async settleViews(reason: "explicit" | "autosave" | "revert" | "query" = "explicit"): Promise<string | null> {
     const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
-    const answers = [...this.#views].map((view) => new Promise<boolean>((resolve) => {
+    const answers = [...this.#views].map((view) => new Promise<string | null>((resolve) => {
       const requestId = `settle-${++this.#nextSettle}`;
       const timer = startTimer(() => answer(false));
-      const answer = (settled: boolean): void => {
+      const answer = (settled: boolean, message?: string): void => {
         timer.cancel();
         view.waiting.delete(requestId);
-        resolve(settled);
+        // A refusal is the view saying what it could not store; a failed hand-off keeps the #2613 sentence.
+        resolve(message ?? (settled ? null : "the editor could not confirm that it handed over its accepted edits"));
       };
       view.waiting.set(requestId, answer);
-      void view.post(requestId).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
+      void view.post(requestId, reason).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
     }));
-    if ((await Promise.all(answers)).every((settled) => settled)) return null;
-    return "the editor could not confirm that it handed over its accepted edits";
+    for (const message of await Promise.all(answers)) if (message !== null) return message;
+    return null;
   }
 
   /**
@@ -502,10 +503,11 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
 /** One webview of a document, and the `settle` requests it has not yet answered. */
 interface SettleTarget {
-  post(requestId: string): PromiseLike<boolean>;
+  post(requestId: string, reason?: "explicit" | "autosave" | "revert" | "query"): PromiseLike<boolean>;
   /** A message sent outside a request/answer pair, such as a source visit's tile. */
   notify?(message: BridgeMessage): void;
-  readonly waiting: Map<string, (settled: boolean) => void>;
+  /** A hand-off answer: `settled` is false when the view could not confirm its accepted edits; the message is a reason it refuses. */
+  readonly waiting: Map<string, (settled: boolean, message?: string) => void>;
 }
 
 /** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
@@ -852,13 +854,15 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own
       // edits after the save point, which `revert` mirrors (D3.6). First require every live webview to hand over its
       // accepted edits; if that cannot be confirmed, leave the model untouched.
-      const unsettled = await document.settleViews();
+      // The user chose to discard, so text typed against the discarded version goes with it.
+      const unsettled = await document.settleViews("revert");
       if (unsettled !== null) throw new Error(`Could not revert ${document.model.identity.path}: ${unsettled}. Nothing was reverted.`);
       const result = await document.model.revert();
       if (!result.ok) throw new Error(result.failure.message);
     },
     async backupCustomDocument(document, destination) {
-      const unsettled = await document.settleViews();
+      // A hot-exit backup must not commit a half-typed field: autosave leaves the gesture alone (ADR 0022 D11.2).
+      const unsettled = await document.settleViews("autosave");
       if (unsettled !== null) throw new Error(`Could not back up ${document.model.identity.path}: ${unsettled}. No backup was written.`);
       const id = await port.writeBackup(destination, document.model.serialize());
       return { id, delete: () => port.deleteBackup(destination) };
@@ -896,7 +900,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
         void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
       });
-      const detach = document.attachWebview((requestId) => webview.postMessage({ type: "settle", requestId }), (message) => { void webview.postMessage(message); });
+      const detach = document.attachWebview((requestId, reason) => webview.postMessage({ type: "settle", requestId, ...(reason === undefined ? {} : { reason }) }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));

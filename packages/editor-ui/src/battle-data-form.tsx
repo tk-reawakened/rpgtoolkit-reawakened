@@ -37,7 +37,7 @@ export interface BattleDataNavigation {
 
 export interface BattleDataFormProps<Snapshot extends DocumentSnapshot<Command>, Command> extends BattleDataNavigation {
   readonly doc: ViewDocument<Snapshot, Command>;
-  readonly fs: Pick<FileSystemService, "readProject">;
+  readonly fs: Pick<FileSystemService, "readProject"> & Partial<Pick<FileSystemService, "list">>;
   readonly capabilities: ReadonlySet<Capability>;
   readonly pendingEdits: PendingEdits;
   readonly onEdited: (event: DocumentEdited) => void;
@@ -157,7 +157,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
         const written = await doc.save();
         setMessage(written.ok ? saved : written.failure.message);
       } else {
-        if (choice === "reload") setDrafts({});
+        if (choice === "reload") publishDrafts({});
         setMessage(null);
       }
     } catch (error) { setMessage(problem(error)); }
@@ -180,8 +180,11 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   };
   /** Leave a text field: a changed value is one edit; an unchanged one is dropped without touching the document. */
   const commitText = async (key: string, text: string, current: string, build: (value: string) => Command): Promise<void> => {
-    if (text === current) { clearDraft(key, text); return; }
-    if (await run(build(text))) clearDraft(key, text);
+    // The draft is what the author typed; `text` may be that draft re-encoded (a description's line endings), so the
+    // draft is cleared by its own text, or it would linger as a phantom that refuses every save.
+    const typed = draftsRef.current[key] ?? text;
+    if (text === current) { clearDraft(key, typed); return; }
+    if (await run(build(text))) clearDraft(key, typed);
   };
   /** Leave a number field: the document says whether the value fits, and its sentence is shown when it does not. */
   const commitNumber = async (key: string, text: string, current: number, build: (value: number) => Command): Promise<void> => {
@@ -327,7 +330,8 @@ export type LinkedFile =
   | { readonly state: "checking" }
   | { readonly state: "found"; readonly bytes: Uint8Array; readonly path: string }
   | { readonly state: "missing"; readonly path: string; readonly message: string }
-  | { readonly state: "invalid"; readonly message: string };
+  | { readonly state: "invalid"; readonly message: string }
+  | { readonly state: "collision"; readonly message: string };
 
 /**
  * Read the saved file a reference names, the way the game resolves it: its folder, the extension the author may have left
@@ -372,7 +376,13 @@ export function useLinkedFile(
         if (fs.list !== undefined) {
           try {
             const resolved = await resolveDocumentPath({ list: (folderPath: string) => fs.list!(folderPath) }, candidate);
-            if (resolved.ok && resolved.exists) path = resolved.path;
+            if (!resolved.ok) {
+              // Two files differ only in case: the reference names neither, so the form says so instead of previewing
+              // whichever spelling happens to read.
+              if (active) setLinked({ state: "collision", message: resolved.kind === "case-conflict" ? resolved.message : resolved.error.message });
+              return;
+            }
+            if (resolved.exists) path = resolved.path;
           } catch { /* a listing that fails leaves the candidate's own spelling */ }
         }
         let result: Awaited<ReturnType<typeof fs.readProject>>;
@@ -437,6 +447,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
       {navigation.open !== undefined && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
     </p>
     {linked.state === "checking" && <p role="status">Checking {(drafts[id] ?? value).trim()}…</p>}
+    {linked.state === "collision" && <p role="status">{linked.message} The reference is kept as typed; rename one of the files.</p>}
     {linked.state === "invalid" && <p role="status">{linked.message} The reference is kept as typed. Choose the file, or type a file inside this folder.</p>}
     {linked.state === "missing" && <p role="status">{linked.path} is not in the project ({linked.message}). The reference is kept as typed.</p>}
     {linked.state === "found" && children}

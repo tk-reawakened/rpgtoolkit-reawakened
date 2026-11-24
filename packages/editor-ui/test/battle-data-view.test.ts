@@ -330,3 +330,30 @@ test("a mixed-case file name in the project is found from a lower-case reference
     await until(() => root.textContent?.includes("Burn: 3 rounds") === true, "the stored spelling Burn.STE is found from burn.ste");
   } finally { handle.dispose(); root.remove(); }
 });
+
+test("a query settle leaves the drafts alone and only a real revert drops them", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await view.pendingEdits.settle("query");
+    equal(field(view.root, "Damage (FP)").value, "-30", "the revert question does not touch the field");
+    equal(view.doc.getSnapshot().damage, 12);
+    await view.pendingEdits.settle("autosave");
+    equal(view.doc.getSnapshot().damage, 12, "autosave leaves the gesture alone");
+    await view.pendingEdits.settle("explicit");
+    equal(view.doc.getSnapshot().damage, -30, "an explicit save applies it");
+  } finally { view.dispose(); }
+});
+
+test("a description edit leaves no phantom draft behind, so Save stays available", async () => {
+  const twoLines = new Uint8Array([...patched(fireball, {}).slice(0, 0x43), ...Uint8Array.from("One\r\nTwo\0", (c) => c.charCodeAt(0))]);
+  const view = await mountWithPending({ [SPC]: twoLines, [STE]: burn });
+  try {
+    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+    ok(area, "the description is a multi-line field");
+    await act(() => { area.value = "One\nTwo!"; area.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    equal(button(view.root, "Save").disabled, false, "no invisible draft keeps Save disabled");
+    equal(view.doc.getSnapshot().description, "One\r\nTwo!", "the file's own line endings are kept");
+  } finally { view.dispose(); }
+});
