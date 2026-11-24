@@ -240,19 +240,33 @@ test("the bitmap font editor draws a glyph with the pointer and the keyboard, pr
 
 test("New font… makes an empty version 2.0 font in the Font folder, and a cancelled dialog writes nothing", async ({ page }) => {
   await openWorkbench(page);
+  const dialog = page.getByRole("dialog");
+  const startNewFont = async (): Promise<void> => {
+    await page.getByRole("button", { name: "New font…", exact: true }).click();
+    await expect(dialog).toContainText("If another application creates the same path after that check, the write may replace that file.");
+    await expect(dialog.getByRole("textbox")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  };
   const created = "Font/created.fnt";
-  await page.getByRole("button", { name: "New font…", exact: true }).click();
+  await startNewFont();
   await page.getByRole("dialog").getByRole("textbox").fill(created);
   await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
   expect(await readProjectFile(page, created).catch(() => null)).toBeNull();
   const unrelated = "Misc/Font/unrelated.fnt";
-  await page.getByRole("button", { name: "New font…", exact: true }).click();
+  await startNewFont();
   await page.getByRole("dialog").getByRole("textbox").fill(unrelated);
   await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("dialog")).toContainText("A font for this game goes in Font.");
   expect(await readProjectFile(page, unrelated).catch(() => null)).toBeNull();
   await page.getByRole("dialog").getByRole("button", { name: "OK", exact: true }).click();
-  await page.getByRole("button", { name: "New font…", exact: true }).click();
+  await startNewFont();
+  await dialog.getByRole("textbox").fill("Font/RETRO.FNT");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog).toContainText("already exists");
+  expect(await readProjectFile(page, PATH)).toEqual(ORIGINAL);
+  expect(await readProjectFile(page, "Font/RETRO.FNT").catch(() => null)).toBeNull();
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await startNewFont();
   await page.getByRole("dialog").getByRole("textbox").fill(created);
   await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
   await expect(editor(page)).toBeVisible();

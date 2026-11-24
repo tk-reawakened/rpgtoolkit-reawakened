@@ -50,9 +50,9 @@ export function fontDestinationProblem(path: string, layout: ProjectLayout): str
 }
 
 /**
- * Create the font at `path` with all 256 glyphs empty, never over a file. Existing path components keep their stored
- * spelling. The host write is not an atomic exclusive create, so a file another program makes between the check and the
- * write can be replaced.
+ * Create the font at `path` with all 256 glyphs empty, refusing an existing path when the check detects one. Existing
+ * path components keep their stored spelling. Another application can create the destination after that check; the
+ * ordinary write may replace that file.
  */
 export async function createFontFile(fs: NewFontStorage, path: string, layout: ProjectLayout): Promise<CreateFontResult> {
   const invalid = fontDestinationProblem(path, layout);

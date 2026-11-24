@@ -387,6 +387,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     return result.value.files[0]!.path;
   };
   const newFont = async (): Promise<string | null> => {
+    await tell("New font checks for an existing path before writing. If another application creates the same path after that check, the write may replace that file.");
     const chosen = await services.dialogs.pickSavePath({ document: "the new font", suggested: await suggestFontPath(services.fs, projectLayout) });
     if (chosen === null) return null;
     const result = await createFontFile(services.fs, chosen, projectLayout);
