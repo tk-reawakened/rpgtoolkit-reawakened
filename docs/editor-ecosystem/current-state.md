@@ -12,7 +12,7 @@ Very little editor exists as running code: one document (the main game file) wit
 
 | Package | What it holds today | Evidence |
 |---|---|---|
-| `platform-services` | The host door: `capabilities` (six flags), `fs`, `project`, `settings`, `document.edited`, `dialogs` (added by 11.3), and an in-memory double for tests that scripts both dialogs. `run`, `export`, `clipboard`, `language` and `shell` are named by AD-20 and not declared yet; each waits for its first caller. | `packages/platform-services/src/services.ts` |
+| `platform-services` | The host door: `capabilities` (six flags), `fs`, `project`, `settings`, `document.edited`, `dialogs` (added by 11.3), an optional text `clipboard` (`readText`, `writeText`; capability `clipboard`; added by 13.13 for the [board clipboard](../editor-features.md#p1-board-clipboard)), and an in-memory double for tests that scripts both dialogs and the clipboard. `run`, `export`, `language` and `shell` are named by AD-20 and not declared yet; each waits for its first caller. | `packages/platform-services/src/services.ts` |
 | `editor-model` | Document identity (ADR 0022 D1) and **one** document type, `MainDocument`, for the main game file. Its command set is one command, `SetGameTitleCommand`. It keeps bytes plus an edit stack and saves through the same-version writer. | `packages/editor-model/src/main-document.ts` |
 | `editor-ui` | `mount(el, ctx) -> { dispose }`, a settings view in Preact and TSX, and a hook that binds a view to a document. | `packages/editor-ui/src/` |
 | `native-data` and its tools | The native-document checker, the extension registry (one row, `.tkranm`), the animation clip reader and writer, rename, and an importer from the legacy clip. | `packages/native-data*/src/` |
