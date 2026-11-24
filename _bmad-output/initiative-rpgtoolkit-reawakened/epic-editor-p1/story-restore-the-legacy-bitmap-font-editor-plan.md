@@ -58,3 +58,10 @@ Each is also written into `docs/` in this ticket's first commit.
 **Not proved in VS Code, and filed as [#3375](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3375):** undo/redo from inside the VS Code custom editor. The font view has no undo control (editor actions belong to the host) and this VS Code web build offers no `Edit: Undo` row while focus is in the custom editor's webview, so there is no real workbench gesture to press. Undo/redo are proved in the browser host and at the document and view level; the VS Code gesture is the issue's acceptance evidence.
 
 **Toolchain note for the VS Code lane:** `extensions/rpgcode` and `extensions/editor` are outside the pnpm workspace, so a fresh worktree needs `npm install` in each and `node packages/host-vscode/build.mjs` before `extensions/editor/build.mjs`.
+
+## Gates re-run after the real-host proofs (2026-11-24)
+
+- `pnpm test:strict`: **5810 pass, 0 fail, 0 skipped**. The first run failed one test — `packages/host-vscode/test/custom-editor-events.test.ts`, which enumerates the kinds it edits and so did not know the new `tkr.font` provider; adding `font` to that list restored its invariant (fixed in `e3a3f6642`).
+- `pnpm golden`, `pnpm golden:bun`, `pnpm closing` (8/8 after the explained baseline pin), `pnpm lint`, `pnpm graph`, `pnpm licence`, `pnpm provenance`, `pnpm catalogue:check`, `pnpm editor-ui-toolchain:check`, `pnpm adr:numbering:check`, `pnpm fixtures:author:check`, `pnpm fixtures:test`.
+- Real hosts: `tools/browser/tests/editor-font.spec.ts` 2/2 in Chromium; the focused VS Code web font proof passes; the unmodified full VS Code web acceptance suite passes against the same build.
+- `pnpm script:dogfood` is not applicable: this change touches no RPGCode source, script-tool input or indexed symbol. `desktop:input`, the Android proof and `desktop:measure` were not run (no emulator or GPU host here, and the change alters no input geometry or desktop loop).
