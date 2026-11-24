@@ -241,6 +241,7 @@ function assignTiles(board: Board, assignments: readonly TileAssignment[]): Boar
   };
   const changes: [number, number][] = [];
   for (const [cell, tile] of final) {
+    if (board.lut[board.tileMatrix[cell] ?? -1] === tile) continue;
     const index = lookup(tile);
     if (board.tileMatrix[cell] !== index) changes.push([cell, index]);
   }
@@ -415,7 +416,7 @@ export function planShadeCells(board: Board, cells: readonly ShadeCell[], limits
       return { ok: false, message: `A shade is three whole numbers from ${limits.min} to ${limits.max}.` };
     }
   }
-  let changed = board.shadeLayers.length === 0;
+  let changed = false;
   for (const cell of cells) {
     const at = (cell.y * grid.width + cell.x) * 3;
     if (values[at] !== cell.r || values[at + 1] !== cell.g || values[at + 2] !== cell.b) changed = true;
