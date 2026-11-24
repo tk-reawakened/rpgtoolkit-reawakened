@@ -512,7 +512,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         path: file.path,
         result: file.status === "written" ? "restored" as const
           : file.status === "already-as-wanted" ? "already-as-wanted" as const
-            : file.status === "kept-uncertain" ? "kept-uncertain" as const
+            : file.status === "kept-uncertain" || file.status === "kept-changed" ? file.status
               : file.status === "uncovered" ? "uncovered" as const : "failed" as const,
         ...(file.message === null ? {} : { message: file.message }),
       })),

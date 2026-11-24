@@ -1,8 +1,9 @@
-import { foldPath } from "@tk-reawakened/core";
+import { BinaryReader, foldPath, projectScriptDialect, readMainFile } from "@tk-reawakened/core";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { diffLines, type LineChange } from "./history-support.ts";
 import { programCodec, type ProgramModel } from "./program-document.ts";
 import type { WizardHistory } from "./wizard-history.ts";
+import { resolveDocumentPath } from "./workspace.ts";
 
 /**
  * Reviewed script workflows (story 13.16, docs/spec/engine/rpgcode-tooling.md#tool-11): format, normalise capitalisation,
@@ -151,6 +152,8 @@ export interface ScriptWorkflowEnvironment {
   readonly fs: ScriptWorkflowFileSystem;
   /** The selected main file's URI as the server knows it, so a request is matched to that project and no older one. */
   readonly projectMainUri?: string;
+  /** Workspace-relative path of that same main file, for checking the bytes before apply. */
+  readonly projectMainPath?: string;
   /** Refuse when the selected project changes or its workbench closes before apply. */
   isProjectCurrent?(): boolean;
   /** `null` when the host has no language server: every workflow then says so and changes nothing. */
@@ -205,6 +208,7 @@ export interface ScriptWorkflowPlan {
   readonly destinations: ReadonlyMap<string, Uint8Array | null>;
   /** Exact saved source bytes read for the proposal; open programs are checked through their live text instead. */
   readonly sources: ReadonlyMap<string, Uint8Array>;
+  readonly mainBytes: Uint8Array | null;
   /** Set when the whole workflow cannot run (no language server, the search failed, or it was cancelled); there are then no entries. */
   readonly unavailable: string | null;
 }
@@ -247,7 +251,7 @@ export async function listWorkflowPrograms(fs: Pick<FileSystemService, "list">, 
       const path = folder === "" ? entry.name : `${folder}/${entry.name}`;
       if (entry.kind === "link") continue;
       if (entry.kind === "directory") {
-        if (Object.hasOwn(SKIPPED_FOLDERS, entry.name)) continue;
+        if (Object.hasOwn(SKIPPED_FOLDERS, foldPath(entry.name))) continue;
         const problem = await visit(path);
         if (problem !== null) return problem;
       } else if (isProgramName(entry.name)) {
@@ -288,21 +292,29 @@ interface Source {
   readonly bytes: Uint8Array | null;
 }
 
+async function requireExactPath(fs: ScriptWorkflowFileSystem, path: string): Promise<void> {
+  const resolved = await resolveDocumentPath(fs, path);
+  if (!resolved.ok) throw new Error(resolved.kind === "read" ? resolved.error.message : resolved.message);
+  if (resolved.path !== path) throw new Error(`${path} has a different stored spelling (${resolved.path}); it was not changed.`);
+}
+
 async function sourceOf(env: ScriptWorkflowEnvironment, path: string): Promise<Source | { readonly entry: ScriptWorkflowEntry }> {
-  const editor = env.openPrograms().find((program) => foldPath(program.path) === foldPath(path));
-  if (editor?.busy?.() === true) return { entry: entryOf(path, { state: "failed", message: `${path} has an edit still in progress. Try again once it settles.` }) };
-  if (editor !== undefined) return { text: editor.text(), open: true, bytes: null };
+  try { await requireExactPath(env.fs, path); }
+  catch (error) { return { entry: entryOf(path, { state: "failed", message: String(error) }) }; }
   const read = await env.fs.read(path);
-  if (!read.ok) return { entry: entryOf(path, { state: "failed", message: `Could not read ${path}: ${read.error.message}` }) };
-  if (read.value.length > 0 && read.value[0] === 0) {
+  if (read.ok && read.value[0] === 0) {
     return { entry: entryOf(path, { state: "skipped", message: "A compiled program has no source text to rewrite." }) };
   }
+  const editor = env.openPrograms().find((program) => program.path === path);
+  if (editor?.busy?.() === true) return { entry: entryOf(path, { state: "failed", message: `${path} has an edit still in progress. Try again once it settles.` }) };
+  if (editor !== undefined && (read.ok || read.error.code === "not-found")) return { text: editor.text(), open: true, bytes: null };
+  if (!read.ok) return { entry: entryOf(path, { state: "failed", message: `Could not read ${path}: ${read.error.message}` }) };
   const model = programCodec.read(read.value, path);
   if (!model.ok) return { entry: entryOf(path, { state: "failed", message: `Could not read ${path}: ${model.error.message}` }) };
   return { text: model.value.text, open: false, bytes: read.value.slice() };
 }
 
-async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransformProvider, transform: ScriptTransformId, path: string, source: Source): Promise<ScriptWorkflowEntry> {
+async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransformProvider, transform: ScriptTransformId, path: string, source: Source, dialect: "tk2" | "tk3" | null): Promise<ScriptWorkflowEntry> {
   let answer: ScriptTransformAnswer;
   try {
     answer = await provider.transform({
@@ -313,6 +325,7 @@ async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransfor
       workspacePath: path,
       ...(env.projectMainUri === undefined ? {} : { projectMainUri: env.projectMainUri }),
     });
+    if (answer.established && dialect !== null && answer.dialect !== dialect) throw new Error("The selected project's dialect changed during planning. Review the current project again.");
   } catch (error) {
     return entryOf(path, { state: "failed", original: source.text, open: source.open, message: `The language server could not answer for ${path}: ${error instanceof Error ? error.message : String(error)}` });
   }
@@ -341,8 +354,18 @@ async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransfor
  * kept in the plan as `failed` with the reason; it never stops the others.
  */
 export async function planScriptWorkflow(env: ScriptWorkflowEnvironment, transform: ScriptTransformId, scope: ScriptWorkflowScope, control: PlanControl = {}): Promise<ScriptWorkflowPlan> {
-  const unavailable = (message: string): ScriptWorkflowPlan => ({ transform, scope, entries: [], destinations: new Map(), sources: new Map(), unavailable: message });
+  const unavailable = (message: string): ScriptWorkflowPlan => ({ transform, scope, entries: [], destinations: new Map(), sources: new Map(), mainBytes: null, unavailable: message });
   if (env.provider === null) return unavailable(env.unavailableReason === undefined ? NO_PROVIDER : `${env.unavailableReason} Nothing was changed.`);
+  let mainBytes: Uint8Array | null = null;
+  let dialect: "tk2" | "tk3" | null = null;
+  if (env.projectMainPath !== undefined) {
+    const read = await env.fs.read(env.projectMainPath);
+    if (!read.ok) return unavailable(`Could not read the selected project's main file: ${read.error.message}. Nothing was changed.`);
+    const parsed = readMainFile(new BinaryReader(read.value, env.projectMainPath));
+    if (!parsed.ok) return unavailable(`Could not read the selected project's main file: ${parsed.error.message}. Nothing was changed.`);
+    mainBytes = read.value.slice();
+    dialect = projectScriptDialect(parsed.value);
+  }
   let paths: readonly string[];
   if (scope.kind === "program") paths = [scope.path];
   else {
@@ -358,12 +381,14 @@ export async function planScriptWorkflow(env: ScriptWorkflowEnvironment, transfo
     control.onProgress?.({ done: entries.length, total: paths.length, path });
     const source = await sourceOf(env, path);
     if ("entry" in source) { entries.push(source.entry); continue; }
-    const entry = await planFile(env, env.provider, transform, path, source);
+    const entry = await planFile(env, env.provider, transform, path, source, dialect);
     if (entry.state === "ready" && !(entry.open && entry.target === "in-place")) {
       if (source.bytes !== null) sources.set(path, source.bytes);
       if (entry.target === "in-place") {
         destinations.set(path, source.bytes);
       } else {
+        try { await requireExactPath(env.fs, entry.destination); }
+        catch (error) { entries.push({ ...entry, state: "failed", included: false, message: String(error) }); continue; }
         const read = await env.fs.read(entry.destination);
         if (!read.ok && read.error.code !== "not-found") {
           entries.push({ ...entry, state: "failed", included: false, message: `Could not read ${entry.destination}: ${read.error.message}` });
@@ -375,7 +400,7 @@ export async function planScriptWorkflow(env: ScriptWorkflowEnvironment, transfo
     entries.push(entry);
   }
   control.onProgress?.({ done: paths.length, total: paths.length, path: "" });
-  return { transform, scope, entries, destinations, sources, unavailable: null };
+  return { transform, scope, entries, destinations, sources, mainBytes, unavailable: null };
 }
 
 export interface ScriptApplyFailure {
@@ -392,6 +417,7 @@ export interface ScriptWorkflowOutcome {
   readonly unchanged: number;
   readonly skipped: readonly string[];
   readonly failed: readonly ScriptApplyFailure[];
+  readonly recoveryWarnings: readonly ScriptApplyFailure[];
   /** One sentence for the status line, with the counts. */
   readonly summary: string;
 }
@@ -420,7 +446,7 @@ export interface ScriptReviewSession {
   cancel(): boolean;
 }
 
-function describe(entries: readonly ScriptWorkflowEntry[], applied: ScriptWorkflowOutcome["applied"], failed: readonly ScriptApplyFailure[]): ScriptWorkflowOutcome {
+function describe(entries: readonly ScriptWorkflowEntry[], applied: ScriptWorkflowOutcome["applied"], failed: readonly ScriptApplyFailure[], recoveryWarnings: readonly ScriptApplyFailure[]): ScriptWorkflowOutcome {
   const leftOut = entries.filter((entry) => entry.state === "ready" && !entry.included).map((entry) => entry.path);
   const refused = entries.filter((entry) => entry.state === "refused").map((entry) => entry.path);
   const skipped = entries.filter((entry) => entry.state === "skipped").map((entry) => entry.path);
@@ -432,7 +458,8 @@ function describe(entries: readonly ScriptWorkflowEntry[], applied: ScriptWorkfl
   if (refused.length > 0) parts.push(`${refused.length} refused and left as they were`);
   if (skipped.length > 0) parts.push(`${skipped.length} skipped`);
   if (failed.length > 0) parts.push(`${failed.length} failed and left as they were`);
-  return { applied, leftOut, refused, unchanged, skipped, failed, summary: `${parts.join("; ")}.` };
+  if (recoveryWarnings.length > 0) parts.push(`${recoveryWarnings.length} recovery ${recoveryWarnings.length === 1 ? "warning" : "warnings"}`);
+  return { applied, leftOut, refused, unchanged, skipped, failed, recoveryWarnings, summary: `${parts.join("; ")}.` };
 }
 
 function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
@@ -442,7 +469,7 @@ function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
   return true;
 }
 
-type ApplyOneResult = { readonly via: "edit" | "write" | "copy" } | { readonly failure: string };
+type ApplyOneResult = { readonly via: "edit" | "write" | "copy"; readonly recoveryWarning?: string } | { readonly failure: string };
 
 /** The bytes of `path` after replacing the text of `model` by `text`, keeping the file's line endings and encoding. */
 function rewritten(model: ProgramModel, text: string, label: string): { readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false; readonly message: string } {
@@ -470,7 +497,8 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
   };
 
   const findOpen = (path: string): OpenScriptProgram | undefined =>
-    env.openPrograms().find((program) => foldPath(program.path) === foldPath(path));
+    env.openPrograms().find((program) => program.path === path);
+  const anyOpen = (path: string): boolean => env.openPrograms().some((program) => foldPath(program.path) === foldPath(path));
   const hasReviewedText = (editor: OpenScriptProgram | undefined, entry: ScriptWorkflowEntry): boolean =>
     editor !== undefined && editor.busy?.() !== true && editor.text() === entry.original;
   const projectChanged = "The selected project changed after the review; nothing further was written. Review the current project again.";
@@ -484,6 +512,8 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (read.error.code === "not-found") return null;
     throw new Error(`Could not read ${path}: ${read.error.message}`);
   };
+  const mainIsCurrent = async (): Promise<boolean> =>
+    env.projectMainPath === undefined || sameBytes(await readBytes(env.projectMainPath), plan.mainBytes);
   interface PreparedWrite {
     readonly sourceBytes: Uint8Array | null;
     readonly before: Uint8Array | null;
@@ -491,16 +521,19 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
   }
   const prepareWrite = async (entry: ScriptWorkflowEntry): Promise<PreparedWrite> => {
     if (env.isProjectCurrent?.() === false) throw new Error(projectChanged);
+    if (!(await mainIsCurrent())) throw new Error(projectChanged);
+    await requireExactPath(env.fs, entry.destination);
     const before = plan.destinations.get(entry.destination) ?? null;
     const [sourceBytes, held] = entry.target === "in-place"
       ? await readBytes(entry.path).then((bytes) => [bytes, bytes] as const)
       : await Promise.all([readBytes(entry.path), readBytes(entry.destination)]);
     if (!sameBytes(held, before)) throw new Error(destinationChanged(entry));
     const opened = findOpen(entry.path);
-    if (entry.open ? !hasReviewedText(opened, entry) : opened !== undefined || !sameBytes(sourceBytes, plan.sources.get(entry.path) ?? null)) {
-      throw new Error(opened !== undefined && !entry.open ? `${entry.path} was opened in an editor during the review; it was not written.` : sourceChanged(entry));
+    const openConflict = !entry.open && anyOpen(entry.path);
+    if (entry.open ? !hasReviewedText(opened, entry) : openConflict || !sameBytes(sourceBytes, plan.sources.get(entry.path) ?? null)) {
+      throw new Error(openConflict ? `${entry.path} was opened in an editor during the review; it was not written.` : sourceChanged(entry));
     }
-    if (entry.target === "copy" && findOpen(entry.destination) !== undefined) throw new Error(`${entry.destination} is open in an editor; it was not written.`);
+    if (entry.target === "copy" && anyOpen(entry.destination)) throw new Error(`${entry.destination} is open in an editor; it was not written.`);
     const base = sourceBytes === null ? null : programCodec.read(sourceBytes, entry.path);
     if (base !== null && (!base.ok || base.value.compiled !== null)) throw new Error(`${entry.path} is no longer a readable text program.`);
     const model = base?.value ?? { text: "", breaks: [], compiled: null };
@@ -513,11 +546,13 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
     const result = entry.result!;
     const label = `${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`;
-    const editor = entry.open && entry.target === "in-place" ? findOpen(entry.path) : undefined;
+    await requireExactPath(env.fs, entry.destination);
     if (entry.open && entry.target === "in-place") {
-      if (editor === undefined) return { failure: `${entry.path} was closed after the review; it was not changed. Run the workflow again to see its current text.` };
-      if (!hasReviewedText(editor, entry)) return { failure: sourceChanged(entry) };
-      const done = await editor.replace(label, result);
+      const [projectCurrent, saved] = await Promise.all([mainIsCurrent(), readBytes(entry.path)]);
+      if (!projectCurrent || env.isProjectCurrent?.() === false) return { failure: projectChanged };
+      const currentEditor = findOpen(entry.path);
+      if (saved?.[0] === 0 || currentEditor === undefined || !hasReviewedText(currentEditor, entry)) return { failure: sourceChanged(entry) };
+      const done = await currentEditor.replace(label, result);
       return done.ok ? { via: "edit" } : { failure: `${entry.path} could not be edited: ${done.message}` };
     }
     if (prepared === undefined) return { failure: `${entry.destination} was not prepared for writing.` };
@@ -527,25 +562,39 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       const made = await env.fs.createFolder(entry.destination.slice(0, slash));
       if (!made.ok) return { failure: `Could not make the folder for ${entry.destination}: ${made.error.message}` };
     }
+    await requireExactPath(env.fs, entry.destination);
+    if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
     // Do this after every other await. There is no cross-file filesystem transaction, so this is an optimistic check.
-    const [source, destination] = entry.target === "in-place"
-      ? await readBytes(entry.path).then((held) => [held, held] as const)
-      : await Promise.all([readBytes(entry.path), readBytes(entry.destination)]);
+    const [projectCurrent, source, destination] = await Promise.all([
+      mainIsCurrent(),
+      readBytes(entry.path),
+      entry.target === "copy" ? readBytes(entry.destination) : Promise.resolve(before),
+    ]);
+    if (!projectCurrent) return { failure: projectChanged };
     if (!sameBytes(source, sourceBytes)) return { failure: sourceChanged(entry) };
     if (!sameBytes(destination, before)) return { failure: destinationChanged(entry) };
     const opened = findOpen(entry.path);
-    if (entry.open ? !hasReviewedText(opened, entry) : opened !== undefined) {
-      return { failure: opened !== undefined && !entry.open ? `${entry.path} was opened in an editor during the apply; it was not written.` : sourceChanged(entry) };
+    const openConflict = !entry.open && anyOpen(entry.path);
+    if (entry.open ? !hasReviewedText(opened, entry) : openConflict) {
+      return { failure: openConflict ? `${entry.path} was opened in an editor during the apply; it was not written.` : sourceChanged(entry) };
     }
-    if (entry.target === "copy" && findOpen(entry.destination) !== undefined) {
+    if (entry.target === "copy" && anyOpen(entry.destination)) {
       return { failure: `${entry.destination} was opened in an editor during the apply; it was not written.` };
     }
     if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
     const written = await env.fs.write(entry.destination, bytes);
     if (!written.ok) return { failure: `Could not write ${entry.destination}: ${written.error.message}. ${entry.path} is as it was.` };
     if (groupId !== null && env.history !== null) {
-      const recorded = await env.history.written(groupId, entry.destination, bytes);
-      if (!recorded.ok) return { failure: `${entry.destination} was written, but its history could not be recorded: ${recorded.message}` };
+      const receiptFailed = (message: string): ApplyOneResult => ({
+        via: entry.target === "copy" ? "copy" : "write",
+        recoveryWarning: `${entry.destination} was written, but its recovery receipt could not be recorded: ${message}`,
+      });
+      try {
+        const recorded = await env.history.written(groupId, entry.destination, bytes);
+        if (!recorded.ok) return receiptFailed(recorded.message);
+      } catch (error) {
+        return receiptFailed(error instanceof Error ? error.message : String(error));
+      }
     }
     return { via: entry.target === "copy" ? "copy" : "write" };
   };
@@ -578,12 +627,13 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       return true;
     },
     async apply() {
-      if (phase !== "reviewing") return outcome ?? describe(entries, [], []);
+      if (phase !== "reviewing") return outcome ?? describe(entries, [], [], []);
       phase = "applying";
       changed();
       const chosen = entries.filter((entry) => entry.state === "ready" && entry.included);
       const applied: { path: string; destination: string; via: "edit" | "write" | "copy" }[] = [...(outcome?.applied ?? [])];
       const failed: ScriptApplyFailure[] = [];
+      const recoveryWarnings = [...(outcome?.recoveryWarnings ?? [])];
       const prepared = new Map<string, PreparedWrite>();
       const toWrite = chosen.filter((entry) => !(entry.open && entry.target === "in-place"));
       for (const entry of toWrite) {
@@ -632,10 +682,11 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
           update(entry.path, { message: done.failure });
         } else {
           applied.push({ path: entry.path, destination: entry.destination, via: done.via });
-          update(entry.path, { state: "applied", message: done.via === "edit" ? "Edited in the open editor; not saved yet." : done.via === "copy" ? `Written to ${entry.destination}.` : "Written." });
+          if (done.recoveryWarning !== undefined) recoveryWarnings.push({ path: entry.path, message: done.recoveryWarning });
+          update(entry.path, { state: "applied", message: done.recoveryWarning ?? (done.via === "edit" ? "Edited in the open editor; not saved yet." : done.via === "copy" ? `Written to ${entry.destination}.` : "Written.") });
         }
       }
-      outcome = describe(entries, applied, failed);
+      outcome = describe(entries, applied, failed, recoveryWarnings);
       // A failure keeps the review open, showing it, so the author can try again; otherwise the run is done.
       phase = failed.length > 0 ? "reviewing" : "done";
       changed();

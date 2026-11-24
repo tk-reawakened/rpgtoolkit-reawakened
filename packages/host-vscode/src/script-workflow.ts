@@ -59,6 +59,7 @@ export interface ScriptWorkflowHostEnvironment {
   readonly activeProgram: string | null;
   /** The selected main file's URI, so the request is matched to that project. */
   readonly projectMainUri?: string;
+  readonly projectMainPath?: string;
   readonly isProjectCurrent?: () => boolean;
 }
 
@@ -137,6 +138,7 @@ function environmentOf(env: ScriptWorkflowHostEnvironment): ScriptWorkflowEnviro
     openPrograms: () => env.openPrograms(),
     root: env.root,
     ...(env.projectMainUri === undefined ? {} : { projectMainUri: env.projectMainUri }),
+    ...(env.projectMainPath === undefined ? {} : { projectMainPath: env.projectMainPath }),
     ...(env.isProjectCurrent === undefined ? {} : { isProjectCurrent: env.isProjectCurrent }),
   };
 }
@@ -189,12 +191,12 @@ export async function runScriptWorkflow(transform: ScriptTransformId, env: Scrip
     return { kind: "cancelled" };
   }
   let outcome = await session.apply();
-  let problems = [...problemsOf(session.getSnapshot().entries), ...outcome.failed.map((failure) => failure.message)];
+  let problems = [...problemsOf(session.getSnapshot().entries), ...outcome.failed.map((failure) => failure.message), ...outcome.recoveryWarnings.map((warning) => warning.message)];
   await ui.report(summaryOf(transform, scope, session.getSnapshot().plan, outcome), problems, problems.length > 0);
   // A file that failed stays selected, so trying again covers exactly those files and never a program already written.
-  while (outcome.failed.length > 0 && await ui.retry(problems)) {
+  while (outcome.failed.length > 0 && await ui.retry(outcome.failed.map(({ message }) => message))) {
     outcome = await session.apply();
-    problems = [...problemsOf(session.getSnapshot().entries), ...outcome.failed.map((failure) => failure.message)];
+    problems = [...problemsOf(session.getSnapshot().entries), ...outcome.failed.map((failure) => failure.message), ...outcome.recoveryWarnings.map((warning) => warning.message)];
     await ui.report(summaryOf(transform, scope, session.getSnapshot().plan, outcome), problems, problems.length > 0);
   }
   return { kind: "applied", outcome };

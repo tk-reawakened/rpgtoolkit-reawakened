@@ -134,6 +134,11 @@ function Review({ session, transform, onClose }: { readonly session: ScriptRevie
           {snapshot.outcome.failed.map((failure) => <li key={failure.path}>{failure.message}</li>)}
         </ul>
       )}
+      {snapshot.outcome === null || snapshot.outcome.recoveryWarnings.length === 0 ? null : (
+        <ul aria-label="Recovery warnings" role="alert">
+          {snapshot.outcome.recoveryWarnings.map((warning) => <li key={warning.path}>{warning.message}</li>)}
+        </ul>
+      )}
       <div class="tkr-script-actions">
         <button type="button" class="tkr-script-all" disabled={applying || finished || ready.length === 0} onClick={() => session.setAllIncluded(true)}>Select all</button>
         <button type="button" class="tkr-script-none" disabled={applying || finished || ready.length === 0} onClick={() => session.setAllIncluded(false)}>Select none</button>

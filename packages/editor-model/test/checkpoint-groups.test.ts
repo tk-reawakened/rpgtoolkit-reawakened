@@ -172,9 +172,28 @@ test("reviewed script capture publishes every intent or none and never replays a
   const restored = await afterCrash.restore(id); ok(restored.ok);
   deepEqual(host.bytesOf(batch[0]!.path), batch[0]!.bytes, "a matching intent without a write receipt does not prove ownership");
   deepEqual(host.bytesOf(batch[1]!.path), bytes("edited externally"), "restore does not touch an unrelated edit");
-  deepEqual(restored.value.files.map((file) => file.status), ["kept-uncertain", "kept-uncertain"]);
+  deepEqual(restored.value.files.map((file) => file.status), ["kept-uncertain", "kept-changed"]);
   const recorded = await afterCrash.registerWritten(id, batch[0]!.path, batch[0]!.bytes); ok(recorded.ok);
   const restoredWithReceipt = await afterCrash.restore(id); ok(restoredWithReceipt.ok);
   equal(host.bytesOf(batch[0]!.path), undefined, "a restore removes a matching copy once its write was recorded");
-  deepEqual(restoredWithReceipt.value.files.map((file) => file.status), ["written", "kept-uncertain"]);
+  deepEqual(restoredWithReceipt.value.files.map((file) => file.status), ["written", "kept-changed"]);
+  const forced = await afterCrash.restore(id, { only: [batch[1]!.path], deleteUncertain: [batch[1]!.path] }); ok(forced.ok);
+  equal(forced.value.files[0]?.status, "kept-changed");
+  deepEqual(host.bytesOf(batch[1]!.path), bytes("edited externally"));
+});
+
+test("a reviewed checkpoint never accepts receipts for another spelling or restores a renamed alias", async () => {
+  const { host, env } = fixture();
+  const groups = createCheckpointGroups(env);
+  const path = "Misc/a.anm";
+  const alias = "Misc/A.anm";
+  const reviewed = bytes("reviewed");
+  equal((await groups.prepareScripts([{ path: alias, bytes: reviewed }], "Format")).ok, false);
+  const group = await groups.prepareScripts([{ path, bytes: reviewed }], "Format"); ok(group.ok);
+  host.seed(path, reviewed);
+  equal((await groups.registerWritten(group.value.id, alias, reviewed)).ok, false);
+  ok((await groups.registerWritten(group.value.id, path, reviewed)).ok);
+  ok((await host.fs.rename(path, alias)).ok);
+  equal((await groups.restore(group.value.id)).ok, false);
+  deepEqual(host.bytesOf(alias), reviewed);
 });

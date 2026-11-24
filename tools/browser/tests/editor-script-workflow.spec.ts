@@ -110,8 +110,10 @@ test("the reviewed script workflow shows what would change in a real Monaco host
   });
   expect(wrapped).toBe(true);
 
-  // Cancel writes nothing: both programs are byte-identical, and no recovery group was recorded.
-  await dialog.getByRole("button", { name: "Cancel" }).click();
+  // The global capture shortcut must not open an editor command palette behind the modal or steal Escape.
+  await page.keyboard.press("ControlOrMeta+Shift+P");
+  await expect(page.getByRole("combobox", { name: "Search commands and files" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   expect(await storedText(page, MESSY)).toBe(MESSY_TEXT);
   expect(await storedText(page, OTHER)).toBe(OTHER_TEXT);

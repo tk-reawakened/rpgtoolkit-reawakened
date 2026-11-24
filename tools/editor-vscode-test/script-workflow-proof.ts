@@ -101,6 +101,20 @@ export async function runVscodeScriptWorkflowProof(
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect.poll(() => bytes(CLEAN)).toBe('x = 1\n#MWIN("leave prefix")\nmwin("cleanup")\n');
 
+  // A fresh project selection signal is insufficient: replacing the selected .gam in place changes the dialect.
+  const modernBytes = await read(MODERN);
+  await write(CLEAN, encode(CLEANUP));
+  await start("Clean up");
+  await review(CLEAN);
+  await apply();
+  const consent = page.getByRole("button", { name: "Continue", exact: true });
+  await expect(consent).toBeVisible();
+  await write(MODERN, await read(LEGACY));
+  await consent.click();
+  await expect(page.locator(".notification-toast").filter({ hasText: /selected project changed/i }).first()).toBeVisible();
+  expect(await bytes(CLEAN)).toBe(CLEANUP);
+  await write(MODERN, modernBytes);
+
   await write(OLD, encode(OLD_TEXT));
   await project("review-legacy.gam");
   await openNativeQuickOpenFile(page, expect, OLD);

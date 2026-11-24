@@ -6,7 +6,7 @@ export interface CheckpointFile {
   path: string;
   before: string | null;
   after: string | null;
-  status: "pending" | "writing" | "written" | "failed" | "already-as-wanted" | "kept-uncertain" | "uncovered";
+  status: "pending" | "writing" | "written" | "failed" | "already-as-wanted" | "kept-uncertain" | "kept-changed" | "uncovered";
   message: string | null;
 }
 export interface CheckpointUncovered { readonly path: string; readonly reason: "type" | "size"; readonly size: number }
@@ -162,7 +162,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     for (const file of group.files) {
       if (typeof file !== "object" || file === null || typeof file.path !== "string" || !validPath(file.path)
         || ![file.before, file.after].every((key) => key === null || typeof key === "string" && digestPattern.test(key))
-        || !["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "uncovered"].includes(file.status)
+        || !["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "kept-changed", "uncovered"].includes(file.status)
         || !(file.message === null || typeof file.message === "string") || seen.has(foldPath(file.path))) throw new Error("Invalid recovery manifest entry.");
       seen.add(foldPath(file.path));
     }
@@ -183,7 +183,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
           if (!update.files.every((file, i) => file.path === group.files[i]!.path && file.before === group.files[i]!.before
             && (file.after === null || digestPattern.test(file.after))
             && (group.reason !== "before-script" || file.after === group.files[i]!.after)
-            && ["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "uncovered"].includes(file.status)
+            && ["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "kept-changed", "uncovered"].includes(file.status)
             && (file.message === null || typeof file.message === "string"))) continue;
           group.files = update.files;
           break;
@@ -196,12 +196,16 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     readonly name?: string | null;
     readonly restores?: string | null;
     readonly uncovered?: readonly CheckpointUncovered[];
+    readonly exactPaths?: boolean;
   } = {}): Promise<CheckpointGroup> => {
     if (targets.length === 0 && reason !== "named") throw new Error("A checkpoint needs at least one destination.");
     const seen = new Set<string>();
     const prepared: { path: string; before: Uint8Array | null; after: Uint8Array | null }[] = [];
     for (const target of targets) {
       const path = await canonical(target.path);
+      if ((reason === "before-script" || options.exactPaths === true) && path !== target.path) {
+        throw new Error(`${target.path} has a different stored spelling (${path}); it was not changed.`);
+      }
       if (seen.has(foldPath(path))) throw new Error(`Duplicate destination: ${path}`);
       seen.add(foldPath(path));
       const before = await current(path);
@@ -239,7 +243,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     await Promise.all(group.files.map((file) => contents(file.before)));
     for (let index = 0; index < group.files.length; index++) {
       const file = group.files[index]!;
-      if (["written", "already-as-wanted", "kept-uncertain", "uncovered"].includes(file.status)) continue;
+      if (["written", "already-as-wanted", "kept-uncertain", "kept-changed", "uncovered"].includes(file.status)) continue;
       try {
         if (await canonical(file.path) !== file.path) throw new Error(`Destination spelling changed: ${file.path}`);
         const now = await currentHash(file.path);
@@ -294,7 +298,9 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         const group = await load(id);
         if (group.reason !== "before-wizard" && group.reason !== "before-script") throw new Error(`Checkpoint group ${id} does not accept wizard writes.`);
         const canonicalPath = await canonical(path);
-        const file = group.files.find((entry) => foldPath(entry.path) === foldPath(canonicalPath));
+        const file = group.files.find((entry) => group.reason === "before-script"
+          ? canonicalPath === path && entry.path === path
+          : foldPath(entry.path) === foldPath(canonicalPath));
         if (file === undefined) throw new Error(`${path} was not in checkpoint group ${id}.`);
         if (group.reason === "before-script") {
           if (file.after !== (bytes === null ? null : await hash(bytes))) throw new Error(`${path} does not match its reviewed result.`);
@@ -358,7 +364,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
             outcomes.set(file.path, { status: "already-as-wanted", message: "Already as wanted" });
           } else if (source.reason === "before-script" && desiredHash !== null && actualHash !== file.after) {
             targets.push({ path: file.path, bytes: actual, expectedBefore });
-            outcomes.set(file.path, { status: "kept-uncertain", message: "The file no longer matches either reviewed version, so it was kept." });
+            outcomes.set(file.path, { status: "kept-changed", message: "The existing file no longer matches either reviewed version, so it was kept." });
           } else if (desiredHash === null && actual !== null && actualHash !== registeredAfter && !deleteUncertain.has(foldPath(file.path))) {
             targets.push({ path: file.path, bytes: actual, expectedBefore });
             outcomes.set(file.path, { status: "kept-uncertain", message: "The file no longer matches the bytes recorded by this operation, so it was kept." });
@@ -367,7 +373,9 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
           }
         }
         if (targets.length === 0) throw new Error("No checkpoint files were selected for restore.");
-        const group = await capture(targets, "before-restore", { restores: id, uncovered: source.uncovered });
+        const group = await capture(targets, "before-restore", {
+          restores: id, uncovered: source.uncovered, exactPaths: source.reason === "before-script",
+        });
         for (const file of group.files) {
           const outcome = outcomes.get(file.path);
           if (outcome !== undefined) { file.status = outcome.status; file.message = outcome.message; }

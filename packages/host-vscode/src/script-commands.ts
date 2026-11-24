@@ -238,7 +238,7 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
           })),
           root: projectRootIn(folder.uri, main),
           activeProgram: activePath,
-          ...(main === undefined ? {} : { projectMainUri: main.toString() }),
+          ...(main === undefined ? {} : { projectMainUri: main.toString(), projectMainPath: main.path.slice(folder.uri.path.replace(/\/?$/, "/").length) }),
           isProjectCurrent: () => {
             const first = vscode.workspace.workspaceFolders?.[0]?.uri;
             return first !== undefined && configuredMain(first)?.toString() === main?.toString();

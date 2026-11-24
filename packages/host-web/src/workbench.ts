@@ -362,6 +362,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       openPrograms: openScriptPrograms,
       root: main === null ? "" : rootFolderOf(main),
       ...(mainUri === undefined ? {} : { projectMainUri: mainUri }),
+      ...(main === null ? {} : { projectMainPath: main }),
       isProjectCurrent: () => !disposed,
     };
     const snapshot = tabs.getSnapshot();
@@ -375,6 +376,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     overlay.setAttribute("aria-label", `${SCRIPT_TRANSFORM_INFO[transform].name} (reviewed)`);
     // The page, not the workbench element: a re-render of the shell must never take the open review away.
     doc.body.append(overlay);
+    const wasInert = element.hasAttribute("inert");
+    element.setAttribute("inert", "");
     await new Promise<void>((resolve) => {
       const close = (): void => {
         // Only the review that owns the overlay may close it: a late callback from a cancelled review must never tear
@@ -384,6 +387,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         handle.dispose();
         lease?.release();
         overlay.remove();
+        if (!wasInert) element.removeAttribute("inert");
         void tree.refresh();
         if (before instanceof HTMLElement) before.focus();
         resolve();

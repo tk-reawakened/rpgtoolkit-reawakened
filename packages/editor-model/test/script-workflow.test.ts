@@ -1,4 +1,5 @@
 import { deepEqual, equal, match, ok } from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import {
@@ -449,4 +450,111 @@ test("an apply cannot continue after checkpoint confirmation switches the select
   ok(outcome.failed.length > 0 && outcome.failed.every(({ message }) => message.includes("selected project changed")));
   equal(edits, 0);
   equal(text(host.bytesOf("Prg/b.prg")), "MESSY b\n");
+});
+
+test("same-path main replacement during checkpoint consent prevents both buffer edits and disk writes", async () => {
+  const host = project();
+  const main = "Main/game.gam";
+  const fixture = (name: string) => new Uint8Array(readFileSync(new URL(`../../../docs/spec/examples/versions/main/${name}`, import.meta.url)));
+  host.seed(main, fixture("main_minor9.gam"));
+  const ordinary = env(host);
+  let edits = 0;
+  const environment = env(host, {
+    projectMainPath: main,
+    isProjectCurrent: () => true,
+    history: {
+      ...ordinary.history!,
+      async prepareScripts() {
+        host.seed(main, fixture("main_tk2_text.gam"));
+        return { ok: true, groupId: "g1" };
+      },
+    },
+    openPrograms: () => [{ path: "Prg/a.prg", text: () => "MESSY open", replace: async () => { edits++; return { ok: true }; } }],
+  });
+  const plan = await planScriptWorkflow(environment, "format", { kind: "project" });
+  const review = createScriptReview(environment, plan);
+  review.setIncluded("Prg/old.prg", false);
+  const outcome = await review.apply();
+  deepEqual(outcome.applied, []);
+  ok(outcome.failed.length >= 2 && outcome.failed.every(({ message }) => message.includes("selected project changed")));
+  equal(edits, 0);
+  equal(text(host.bytesOf("Prg/b.prg")), "MESSY b\n");
+});
+
+test("an existing destination with different case is never checkpointed under one name and written under another", async () => {
+  const host = createMemoryPlatformServices({ files: {
+    "Prg/old.prg": bytes("OLD\n"), ".TKR-MIGRATED/3.1/Prg/old.prg": bytes("Keep this copy"),
+  } });
+  const environment = env(host);
+  const plan = await planScriptWorkflow(environment, "update", { kind: "project" });
+  equal(plan.entries[0]?.state, "failed");
+  match(plan.entries[0]?.message ?? "", /different stored spelling.*\.TKR-MIGRATED/);
+  deepEqual((await createScriptReview(environment, plan).apply()).applied, []);
+  deepEqual(environment.groups, []);
+  equal(text(host.bytesOf(".TKR-MIGRATED/3.1/Prg/old.prg")), "Keep this copy");
+});
+
+test("case-colliding sources are refused instead of presenting one open buffer as two programs", async () => {
+  const host = createMemoryPlatformServices({ files: { "Prg/Main.prg": bytes("MESSY\n") } });
+  const calls: ScriptTransformQuestion[] = [];
+  let edited = false;
+  const environment = env(host, {
+    fs: { ...host.fs, list: (path) => path === "Prg"
+      ? Promise.resolve({ ok: true, value: [{ name: "Main.prg", kind: "file" }, { name: "main.prg", kind: "file" }] })
+      : host.fs.list(path) },
+    provider: provider(calls),
+    openPrograms: () => [{ path: "Prg/Main.prg", text: () => "MESSY open", replace: async () => { edited = true; return { ok: true }; } }],
+  });
+  const plan = await planScriptWorkflow(environment, "format", { kind: "project" });
+  deepEqual(states(plan.entries), { "Prg/Main.prg": "failed", "Prg/main.prg": "failed" });
+  ok(plan.entries.every((entry) => entry.message?.includes("differ only in case")));
+  deepEqual(calls, []);
+  deepEqual((await createScriptReview(environment, plan).apply()).applied, []);
+  equal(edited, false);
+});
+
+test("a compiled program open as native text is skipped before consulting the provider", async () => {
+  const host = project();
+  const calls: ScriptTransformQuestion[] = [];
+  const environment = env(host, {
+    provider: provider(calls),
+    openPrograms: () => [{ path: "Prg/compiled.prg", text: () => "MESSY", replace: async () => { throw new Error("must not edit"); } }],
+  });
+  const plan = await planScriptWorkflow(environment, "format", { kind: "program", path: "Prg/compiled.prg" });
+  equal(plan.entries[0]?.state, "skipped");
+  deepEqual(calls, []);
+  deepEqual((await createScriptReview(environment, plan).apply()).applied, []);
+});
+
+test("a receipt failure reports the successful write and does not retry it alongside a refused write", async () => {
+  const host = project();
+  const normal = env(host);
+  const writes: string[] = [];
+  let failOther = true;
+  const environment = env(host, {
+    history: { ...normal.history!, async written(_group, path) {
+      if (path === "Prg/a.prg") throw new Error("receipt storage stopped");
+      return { ok: true };
+    } },
+    fs: { ...host.fs, async write(path, data) {
+      writes.push(path);
+      if (path === "Prg/b.prg" && failOther) return { ok: false, error: { code: "io-error", message: "target write refused" } };
+      return await host.fs.write(path, data);
+    } },
+  });
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "project" }));
+  review.setIncluded("Prg/old.prg", false);
+  review.setIncluded("Prg/sub/deep.rnc", false);
+  const first = await review.apply();
+  deepEqual(first.applied.map(({ path }) => path), ["Prg/a.prg"]);
+  deepEqual(first.failed.map(({ path }) => path), ["Prg/b.prg"]);
+  match(first.recoveryWarnings[0]?.message ?? "", /was written.*receipt storage stopped/);
+  equal(text(host.bytesOf("Prg/a.prg")), "tidy\r\nline two\r\n");
+  equal(review.getSnapshot().selected, 1);
+  failOther = false;
+  const retried = await review.apply();
+  deepEqual(retried.failed, []);
+  deepEqual(retried.applied.map(({ path }) => path), ["Prg/a.prg", "Prg/b.prg"]);
+  deepEqual(retried.recoveryWarnings, first.recoveryWarnings);
+  deepEqual(writes, ["Prg/a.prg", "Prg/b.prg", "Prg/b.prg"]);
 });
