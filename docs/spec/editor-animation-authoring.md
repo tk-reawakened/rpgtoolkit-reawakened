@@ -18,6 +18,8 @@ A failed target write stops the commit. The editor lists each written, failed, s
 
 For a reviewed script batch ([TOOL-11](engine/rpgcode-tooling.md#tool-11-review)), a `before-script` group publishes all prior and intended bytes together and is restore-only. Recovery does not replay the rewrite without its live review. Restore reports `kept-changed` and offers no deletion when an existing destination no longer matches either reviewed version. An uncertain new copy remains `kept-uncertain`; automatic deletion requires its write receipt.
 
+If a reviewed script destination now has a different spelling, restore reports that file as `kept-changed` without reading or writing the alias and still restores the other selected files. The reverse checkpoint records the refusal but does not make the refused file eligible for retry, deletion or reversal.
+
 **Restore group** is one action with a separate result for every file: restored, already as wanted or failed. It reinstates the original bytes and removes only files recorded as created by that operation. Before restoring, it records a new `before-restore` group, including any file it will remove, so restoring the restore can reinstate those files. Every restore remains retryable and no cross-file atomic rollback is promised.
 
 Recovery must coordinate with authoritative open documents. Existing content is restored through accepted edits and the normal save lifecycle, preserving unsaved work and conflicts. A file that cannot safely be replaced or removed while open is refused with instructions to resolve or close that document; recovery must never write underneath an unsaved document or redirect a deletion after a project switch.
