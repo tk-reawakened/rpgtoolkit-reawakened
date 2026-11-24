@@ -194,3 +194,14 @@ test("the live renderer receives an installed project bitmap font decoded once, 
   const bundledOnly = textInk(command, fontProvider(bundledFiles).get(assetKey(DEFAULT_FONT_ASSET)));
   ok(bundledOnly !== null && JSON.stringify(bundledOnly) !== JSON.stringify(ink), "and not the bundled default font's reading of the same text");
 });
+
+test("a .fnt outside a Font folder is not a project font the renderer or the replay ever loads (#1939)", async () => {
+  const { isProjectFontPath } = await import("../src/index.ts");
+  equal(isProjectFontPath("Font/retro.fnt"), true);
+  equal(isProjectFontPath("Game/Example/Font/retro.fnt"), true);
+  equal(isProjectFontPath("font/retro.fnt"), true, "the folder is compared ASCII case-insensitively, as asset paths are");
+  equal(isProjectFontPath("Misc/outside.fnt"), false, "a font elsewhere in the project is not installed by the engine");
+  equal(isProjectFontPath("Bitmap/Font/retro.png"), false);
+  equal(isProjectFontPath("Font/retro.ttf"), false);
+  equal(isProjectFontPath("retro.fnt"), false, "a font has a folder");
+});

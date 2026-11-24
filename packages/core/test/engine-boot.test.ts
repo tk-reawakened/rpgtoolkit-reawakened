@@ -4390,3 +4390,60 @@ test("boot keeps simultaneous asset requests waiting across delayed replies and 
 
 
 
+
+test("font() picks an installed project font over a same-named file elsewhere in the project (#1939)", () => {
+  const rows = Array.from({ length: 2048 }, (_, index) => ` ${index % 7} `);
+  const font = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n");
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    fonts: { "retro.fnt": font },
+    boards: { "start.brd": { tiles: [8, 8] } },
+    assets: { "Boards/retro.brd": boardBytes({ tiles: [8, 8] }) },
+    programs: { "start.prg": 'font("retro")\nasset = "done"\nwait()\n' },
+  });
+  // The index holds both names, and the board sorts first: only the installed-font rule can pick the font.
+  ok(game.index.keys.some((key) => key === "boards/retro.brd"));
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  run(engine, game.files, 4);
+  deepEqual(doubles.state().ui.font.asset, "font/retro.fnt", "the installed font wins over Boards/retro.brd");
+});
+
+test("a project font the host cannot supply is reported and skipped, and the game still starts (#1939)", () => {
+  const rows = Array.from({ length: 2048 }, () => " 0 ");
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    fonts: { "retro.fnt": encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n") },
+    boards: { "start.brd": { tiles: [8, 8] } },
+    programs: { "start.prg": "started = 1\nwait()\n" },
+  });
+  // The index still lists the font, but the host has no bytes for it: startup must not stall on it.
+  game.files.delete(assetKey("font/retro.fnt"));
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  const result = run(engine, game.files, 10);
+  deepEqual(result.diagnostics.filter((diagnostic) => diagnostic.code === "font.rejected").map((diagnostic) => [diagnostic.file, diagnostic.message]), [
+    ["font/retro.fnt", "font not found: font/retro.fnt"],
+  ]);
+  const state = doubles.state();
+  equal(state.engine.boot?.stage !== "stopped", true, `the game started without the font (stage ${state.engine.boot?.stage})`);
+  deepEqual(state.engine.boot?.fonts, []);
+  equal(state.vm.globals.started, 1, "its startup program ran");
+});
+
+test("a restored game keeps the fonts this session installed, whatever list the older save carries (#1939)", () => {
+  const rows = Array.from({ length: 2048 }, (_, index) => ` ${index % 5} `);
+  const font = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n");
+  const capture = recoveryCandidateWithDurableState({ ...PAUSED_RECOVERY_GAME, fonts: { "retro.fnt": font } });
+  const text = new TextDecoder().decode(capture.candidate);
+  // A save made by an older build lists no project fonts; the session still has one installed and can draw with it.
+  const older = text.replace(/"fonts":\[[^\]]*\]/, '"fonts":[]');
+  ok(older !== text, "the candidate carries the font list");
+  const doubles = makeDoubles();
+  const engine = bootEngine(capture.game, doubles, undefined, undefined, new TextEncoder().encode(older));
+  const result = run(engine, capture.game.files, 40);
+  equal(result.diagnostics.some((diagnostic) => diagnostic.code === "restore.shape"), false, "the candidate restored");
+  deepEqual(doubles.state().engine.boot?.fonts, ["font/retro.fnt"], "the session's installed list is restored, not the save's empty one");
+});

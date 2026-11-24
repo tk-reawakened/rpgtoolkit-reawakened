@@ -10,6 +10,7 @@
 import { assetKey, DEFAULT_FONT_ASSET, rasterizePresentation, readLegacyFont, readTrueTypeFont, type AssetKey, type DrawList, type HostDisplayGeometry, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
 import { createWebgl2Renderer } from "@tk-reawakened/render-webgl2";
 import { decodeAssetTexture, parseClosingPlan, runClosingFrames } from "@tk-reawakened/runner-harness";
+import { isProjectFontPath } from "./index.ts";
 
 export type ClosingFrame = {
   readonly tick: number;
@@ -53,7 +54,8 @@ export function renderClosingDemoFrame(options: {
   const fonts = new Map<AssetKey, RasterAsset>(options.fonts);
   for (const [path, bytes] of options.files) {
     const key = assetKey(path);
-    if (!key.endsWith(".ttf") && !key.endsWith(".fnt")) continue;
+    // A font is a project `.ttf`, or a `.fnt` in a `Font` folder as the engine installs it; anything else is not a face.
+    if (!key.endsWith(".ttf") && !isProjectFontPath(key)) continue;
     const font = key.endsWith(".fnt") ? readLegacyFont(bytes, path) : readTrueTypeFont(bytes, path);
     if (font.ok) fonts.set(key, font.value);
   }

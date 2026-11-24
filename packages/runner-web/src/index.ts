@@ -249,6 +249,12 @@ export function fontProvider(files: ClosingFiles): ReadonlyMap<AssetKey, RasterA
  * and shared, because the renderer would otherwise re-parse raw bytes for every text command of every frame; a buffer
  * that does not decode is remembered as absent.
  */
+/** A project bitmap font lives in a `Font` folder, as the engine installs it; one elsewhere is not a font the game has. */
+export function isProjectFontPath(path: string): boolean {
+  const parts = path.toLowerCase().split("/");
+  return parts.length >= 2 && parts[parts.length - 2] === "font" && (parts[parts.length - 1] ?? "").endsWith(".fnt");
+}
+
 export function gameFontProvider(
   bundled: ReadonlyMap<AssetKey, RasterAsset>,
   project: (asset: AssetKey) => Uint8Array | null | undefined,
@@ -285,7 +291,7 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
   const projectFonts = new Map<AssetKey, Uint8Array>();
   for (const [path, bytes] of options.files) {
     const key = assetKey(path);
-    if (key.endsWith(".ttf") || key.endsWith(".fnt")) projectFonts.set(key, bytes);
+    if (key.endsWith(".ttf") || isProjectFontPath(key)) projectFonts.set(key, bytes);
   }
   const fonts = gameFontProvider(options.fonts ?? new Map(), (asset) => projectFonts.get(asset));
   const list = frame.drawList as DrawList;

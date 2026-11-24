@@ -440,6 +440,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   let initialCharacterResolved = true;
   let mainKey: AssetKey | null = null;
   const installedFonts = new Map<AssetKey, Uint8Array>();
+  /** Fonts the host could not supply; boot does not wait for them and never installs them. */
+  const missingFontKeys = new Set<AssetKey>();
   const parsedFonts = new WeakMap<Uint8Array, TrueTypeFont | null>();
   const parsedBitmapFonts = new WeakMap<Uint8Array, LegacyFont>();
   const cache = new Map<AssetKey, Uint8Array>(init.initialAssets ?? []);
@@ -691,7 +693,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       applyCanvasText(lower === "text", effect.args);
       return;
     }
-    applyUiEffect(state, effect.name, effect.args, (name) => resolveFontAsset(name, index.keys), (owner, message) => {
+    // A font the project installed under Font\ wins over a same-named file elsewhere (Boards/retro.brd vs Font/retro.fnt).
+    applyUiEffect(state, effect.name, effect.args, (name) => resolveFontAsset(name, installedFonts.keys()) ?? resolveFontAsset(name, index.keys), (owner, message) => {
       const thread = state.vm.threads.find((candidate) => candidate.id === owner);
       const location = thread === undefined ? null : threadLocation(thread);
       diagnostics.push({ code: "a11y.surface", file: location?.file ?? mainKey ?? "", line: location?.line ?? 0, message });
@@ -1675,6 +1678,9 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       }
 
       startupServicesReady = true;
+      // The fonts this session installed are the session's: a save may carry an older list, but what the engine and
+      // every renderer can actually draw has not changed, so both must be told the same installed inventory.
+      if (state.engine.boot !== undefined) state.engine.boot = { ...state.engine.boot, fonts: [...installedFonts.keys()] };
       if (projection !== null) audio.load(projection);
       init.spriteRuntime?.bindState(state.sprites, state.vm, resolveSpriteProgram, state.world.board ?? null);
       clearPathfindingCache();
@@ -2470,6 +2476,19 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         deferredRestoreDecode.add(entry.key);
       }
       if (restoreAssetRequests.size === 0) finishSavedAssetRestore();
+      return;
+    }
+    if (entry.kind === "font") {
+      // A project font the host cannot provide is a reported refusal: the game still starts, without it.
+      if (record.event.bytes === null) {
+        // The font is requested in two boot stages; a host that declines it is told once, not twice.
+        if (!missingFontKeys.has(entry.key)) {
+          missingFontKeys.add(entry.key);
+          diagnostics.push({ code: "font.rejected", file: entry.key, line: 0, message: `font not found: ${entry.key}` });
+        }
+      } else {
+        cacheAsset(entry.key, new Uint8Array(record.event.bytes));
+      }
       return;
     }
     if (entry.kind === "initial-character") {
@@ -3508,9 +3527,11 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       const programs = programKeys(index, root);
       for (const key of fonts) request(key, "font");
       for (const key of programs) if (readProgramSource(key) === undefined) request(key, "program");
-      if (!initialCharacterResolved || ![...fonts, ...programs].every((key) => cache.has(key))) return false;
+      if (!initialCharacterResolved || ![...fonts, ...programs].every((key) => cache.has(key) || missingFontKeys.has(key))) return false;
       for (const key of fonts) {
-        const bytes = cache.get(key) ?? new Uint8Array();
+        const supplied = cache.get(key);
+        if (supplied === undefined && missingFontKeys.has(key)) continue;
+        const bytes = supplied ?? new Uint8Array();
         if (key.endsWith(".fnt")) {
           const parsed = readLegacyFont(bytes, key);
           if (!parsed.ok) {
