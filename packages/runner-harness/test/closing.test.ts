@@ -11,6 +11,7 @@ import {
   closingLedgerRows,
   formatClosingBaseline,
   parseClosingPlan,
+  runClosingFrames,
   runClosingGame,
   runClosingSuite,
   type ClosingGamePlan,
@@ -82,6 +83,20 @@ test("an authored game boots, enters its board and gives the same hashes for eve
   deepEqual([...run.images.keys()], [title.png, board.png]);
   const again = runClosingGame(PLAN, GAME, authoredFiles(), bundled);
   deepEqual(again.record, run.record);
+});
+
+test("closing frames keep the installed faces from their own capture, even when a later main-file switch clears them", () => {
+  const files = authoredFiles();
+  const font = bundled.get("media/fonts/tkr-8x8.fnt")!;
+  files.set("Font/Heading/retro.fnt", font);
+  files.set("Misc/Font/unrelated.fnt", font);
+  files.set("Prg/start.prg", utf8Encode('font("retro")\ntext(1, 1, "hello")\nwait()\nmainfile("missing.gam")\nend()\n'));
+  const run = runClosingFrames({ ...PLAN, frames: [{ label: "title", tick: 5 }, { label: "after-switch", tick: 11 }] }, GAME, files, bundled);
+  const title = run.frames.find((frame) => frame.label === "title");
+  deepEqual(title?.fonts, ["font/heading/retro.fnt"]);
+  ok(title?.drawList.commands.some((command) => command.kind === "text" && command.font.asset === "font/heading/retro.fnt") === true);
+  equal(run.diagnostics.some((diagnostic) => diagnostic.file === "missing.gam"), true);
+  deepEqual(run.frames.find((frame) => frame.label === "after-switch")?.fonts, []);
 });
 
 test("closing observation fires for booted games, preserves frames and records deterministic program boundaries", () => {

@@ -10,6 +10,7 @@ export type { NewProjectViewProps } from "./new-project-view.tsx";
 export { SpriteView, type SpriteViewDocument, type SpriteViewProps } from "./sprite-view.tsx";
 export { AnimationView, type AnimationViewDocument, type AnimationViewProps } from "./animation-view.tsx";
 export { NativeClipView, type NativeClipViewDocument, type NativeClipViewProps } from "./native-clip-view.tsx";
+export { FontView, type FontViewDocument, type FontViewProps } from "./font-view.tsx";
 export { NativeGeometryView, type NativeGeometryViewDocument, type NativeGeometryViewProps } from "./native-geometry-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
 export type { RunSetupOutcome, RunSetupStore, RunViewProps } from "./run-view.tsx";

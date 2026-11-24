@@ -49,6 +49,8 @@ export interface ShellProps {
   readonly onNewAnimation?: () => void;
   readonly onRecovery?: () => void;
   readonly onNewProgram?: () => void;
+  /** Make a new bitmap font (T-65); the host asks for its name in the project's Font folder and opens it. */
+  readonly onNewFont?: () => void;
   /** Open the editor preferences dialog (T-08) when offered by the host. */
   readonly onOpenPreferences?: () => void;
   /** Shared tileset browser context for the right inspector dock (T-24). */
@@ -82,7 +84,7 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onNewFont, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
@@ -124,7 +126,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
         </>
       }
       panels={{
-        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onImportBoard === undefined ? {} : { onImportBoard })} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewAnimation === undefined ? {} : { onNewAnimation })} {...(onRecovery === undefined ? {} : { onRecovery })} {...(onNewProgram === undefined ? {} : { onNewProgram })} />,
+        files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onImportBoard === undefined ? {} : { onImportBoard })} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewAnimation === undefined ? {} : { onNewAnimation })} {...(onRecovery === undefined ? {} : { onRecovery })} {...(onNewProgram === undefined ? {} : { onNewProgram })} {...(onNewFont === undefined ? {} : { onNewFont })} />,
         game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
         ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
         ...(creatorTests === undefined ? {} : { tests: <TestsView controller={creatorTests} /> }),

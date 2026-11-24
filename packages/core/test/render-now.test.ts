@@ -581,3 +581,80 @@ test("get() returns a pressed key once and never again, and clearbuffer() emptie
   equal(game.state().vm.globals.count, 1, "one press is one key");
   equal(game.state().input.keys.length, 0, "the claimed key left the queue");
 });
+
+/** A Toolkit 2 bitmap font file (docs/spec/formats/legacy/text-formats.md#font-toolkit-2-text) with the given glyph rows and every other glyph empty. */
+function bitmapFontFile(glyphs: Readonly<Record<number, readonly number[]>>): Uint8Array {
+  const lines = ["RPGTLKIT FONT", "2", "0"];
+  for (let code = 0; code < 256; code += 1) for (let row = 0; row < 8; row += 1) lines.push(` ${glyphs[code]?.[row] ?? 0} `);
+  return encoder.encode(`${lines.join("\r\n")}\r\n`);
+}
+
+/**
+ * The pixels docs/spec/engine/display-input-audio.md#reawakened-bitmap-font-ink gives one glyph at size `s`, written here
+ * from the spec's sentences and independently of `legacyInk`: each set source cell covers its stretched box, italics shift
+ * a source row right, bold adds the pixel to the right.
+ */
+function specInk(rows: readonly number[], s: number, bold: boolean, italic: boolean): Set<string> {
+  const ink = new Set<string>();
+  for (let sy = 0; sy < 8; sy += 1) {
+    for (let sx = 0; sx < 8; sx += 1) {
+      if (((rows[sy] ?? 0) >> (7 - sx) & 1) === 0) continue;
+      const shift = italic ? Math.floor((7 - sy) * s / 32) : 0;
+      const columns = [Math.floor(sx * s / 8), Math.max(Math.floor(sx * s / 8) + 1, Math.floor((sx + 1) * s / 8))] as const;
+      const lines = [Math.floor(sy * s / 8), Math.max(Math.floor(sy * s / 8) + 1, Math.floor((sy + 1) * s / 8))] as const;
+      for (let y = lines[0]; y < lines[1]; y += 1) {
+        for (let x = columns[0] + shift; x < columns[1] + shift; x += 1) {
+          ink.add(`${x},${y}`);
+          if (bold) ink.add(`${x + 1},${y}`);
+        }
+      }
+    }
+  }
+  return ink;
+}
+
+/** The lit pixels of the top-left `size` × `size` corner of the frame, as the same `x,y` keys. */
+function litPixels(game: Game, width: number, height: number): Set<string> {
+  const frame = game.frame();
+  const lit = new Set<string>();
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) if (pixel(frame, x, y)[0] === 255) lit.add(`${x},${y}`);
+  return lit;
+}
+
+const EDITED_A = [0x80, 0x40, 0x20, 0x13, 0x08, 0x04, 0x02, 0x81] as const;
+
+test("a project .fnt in Font\\ is installed and font() draws its glyphs hard-edged at 8 and 20 pixels in every style (#1939)", () => {
+  const font = bitmapFontFile({ 65: EDITED_A });
+  const draw = (style: string, size: number): Game => boot(`font("mine")\nfontsize(${size})\ncolorrgb(255,255,255)\n${style}text(1,1,"A")\nwait()\n`, { "Font/mine.fnt": font });
+  for (const size of [8, 20]) {
+    for (const [style, bold, italic] of [["", false, false], ["bold(1)\n", true, false], ["italics(1)\n", false, true], ["bold(1)\nitalics(1)\n", true, true]] as const) {
+      const game = draw(style, size);
+      deepEqual(game.state().engine.boot?.fonts, ["font/mine.fnt"], "the engine installed the project font");
+      const lit = litPixels(game, 40, 40);
+      deepEqual([...lit].sort(), [...specInk(EDITED_A, size, bold, italic)].sort(), `size ${size}${bold ? ", bold" : ""}${italic ? ", italics" : ""}`);
+    }
+  }
+});
+
+test("a project .fnt's underline is the separate line on the last row of its line, and its width is the bitmap advance (#1939)", () => {
+  const font = bitmapFontFile({ 65: EDITED_A });
+  for (const [size, bold] of [[8, false], [20, false], [20, true]] as const) {
+    const advance = size + (bold ? 1 : 0);
+    // `text` places by cell, so a line is `size` tall; `pixelText` places by pixel, so it is `max(16, size)` tall.
+    for (const [place, lineHeight] of [['text(1,1,"A")', size], ['pixelText(0,0,"A")', Math.max(16, size)]] as const) {
+      const game = boot(`font("mine")\nfontsize(${size})\ncolorrgb(255,255,255)\nbold(${bold ? 1 : 0})\nunderline(1)\n${place}\nwidth = gettextwidth("AA")\nwait()\n`, { "Font/mine.fnt": font });
+      const expected = specInk(EDITED_A, size, bold, false);
+      for (let x = 0; x < advance; x += 1) expected.add(`${x},${lineHeight - 1}`);
+      deepEqual([...litPixels(game, 48, 24)].sort(), [...expected].sort(), `${place} at size ${size}${bold ? ", bold" : ""}: ink plus a line from the first to the last advance pixel`);
+      equal(game.state().vm.globals.width, 2 * advance, "a bitmap font measures size (plus one when bold) per character, not a TrueType metric");
+    }
+  }
+});
+
+test("the pixels a project .fnt draws follow the glyph rows the file holds, so an edited and saved glyph is what the game shows (#1939)", () => {
+  const edited = bitmapFontFile({ 65: EDITED_A });
+  const other = bitmapFontFile({ 65: [0xff, 0, 0, 0, 0, 0, 0, 0] });
+  const program = 'font("mine")\nfontsize(8)\ncolorrgb(255,255,255)\ntext(1,1,"A")\nwait()\n';
+  deepEqual([...litPixels(boot(program, { "Font/mine.fnt": edited }), 8, 8)].sort(), [...specInk(EDITED_A, 8, false, false)].sort());
+  deepEqual([...litPixels(boot(program, { "Font/mine.fnt": other }), 8, 8)].sort(), [...specInk([0xff, 0, 0, 0, 0, 0, 0, 0], 8, false, false)].sort(), "the same program draws the other font's glyph");
+});

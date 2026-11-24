@@ -119,4 +119,19 @@ test("resolveFontAsset prefers an exact path, then a family match, then the Libe
   equal(resolveFontAsset("sans-serif", keys), assetKey("media/fonts/LiberationSans-Regular.ttf"));
   equal(resolveFontAsset("Comic Sans MS", keys), null, "an unknown family resolves to nothing, so the caller falls back");
   equal(resolveFontAsset("", keys), null);
+  const upper = assetKey("Font/Élan.fnt");
+  const lower = assetKey("Font/élan.fnt");
+  equal(resolveFontAsset("ÉLAN", [lower, upper]), upper, "family matching folds ASCII only");
+  equal(resolveFontAsset("FONT/élan.FNT", [upper, lower]), lower, "exact paths preserve non-ASCII case");
+  const spaced = assetKey("Font/Retro Bold.fnt");
+  const dashed = assetKey("Font/Retro-Bold.fnt");
+  equal(resolveFontAsset("RETRO BOLD", [dashed, spaced]), spaced, "the exact basename beats a family alias");
+  equal(resolveFontAsset("retro-bold", [spaced, dashed]), dashed, "punctuation in the exact basename is significant");
+});
+
+test("resolveFontAsset checks an exact key before a nested path suffix, regardless of index order", () => {
+  const nested = assetKey("Font/A/Font/retro.fnt");
+  const exact = assetKey("Font/retro.fnt");
+  equal(resolveFontAsset("FONT/Retro.FNT", [nested, exact]), exact);
+  equal(resolveFontAsset("FONT/Retro.FNT", [nested]), nested, "a suffix is still valid when there is no exact key");
 });

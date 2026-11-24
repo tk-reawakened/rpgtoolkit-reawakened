@@ -46,6 +46,7 @@ import { NewProjectView, type NewProjectViewProps } from "./new-project-view.tsx
 import { PreferencesView, type PreferencesViewProps } from "./preferences-view.tsx";
 import { SettingsView } from "./settings-view.tsx";
 import { TileBitmapView } from "./tile-bitmap-view.tsx";
+import { FontView, type FontViewDocument } from "./font-view.tsx";
 import { SpriteView, type SpriteViewDocument } from "./sprite-view.tsx";
 import type { BoardPropertiesNavigation } from "./board-properties-view.tsx";
 import type { TilesetBrowserContext } from "./tileset-browser.tsx";
@@ -112,7 +113,7 @@ export interface TileBitmapViewDocument extends ViewDocument<TileBitmapDocumentS
 /** What a host gives a view when it mounts it (ADR 0025 decision 4). */
 export interface ViewContext {
   /** The document the view shows and edits. The view never owns it. */
-  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeGeometryViewDocument;
+  readonly document: ViewDocument | BoardViewDocument | TileBitmapViewDocument | FontViewDocument | SpriteViewDocument | TilesetArtViewDocument | AnimationViewDocument | ProgramViewDocument | NativeClipViewDocument | NativeGeometryViewDocument;
   /**
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
@@ -156,6 +157,10 @@ function isTilesetArtView(document: ViewContext["document"]): document is Tilese
 
 function isTileBitmapView(document: ViewContext["document"]): document is TileBitmapViewDocument {
   return document.kind === "tile-bitmap";
+}
+
+function isFontView(document: ViewContext["document"]): document is FontViewDocument {
+  return document.kind === "font";
 }
 
 function isProgramView(document: ViewContext["document"]): document is ProgramViewDocument {
@@ -232,6 +237,8 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       onEdited,
       ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
     });
+  } else if (isFontView(document)) {
+    view = createElement(FontView, { doc: document, capabilities, onEdited, pendingEdits });
   } else if (isSpriteView(document)) {
     view = createElement(Fragment, null,
       createElement(SpriteView, { doc: document, fs: fs!, capabilities, onEdited, pendingEdits, ...ctx.navigation }),
@@ -283,7 +290,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   } else {
     throw new Error(`No editor view is registered for document kind "${document.kind}".`);
   }
-  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack" };
+  const titles: Readonly<Record<string, string>> = { board: "Board", tileset: "Tileset", "tile-bitmap": "Tile bitmap", font: "Bitmap font", character: "Character", item: "Item", program: "Program", animation: "Animation", main: "Game settings", "native-tile": "Native tile", "native-asset-pack": "Native asset pack" };
   let assetRevision = 0;
   const display = (): void => render(createElement(AssetRefreshContext.Provider, { value: assetRevision },
     createElement("div", { class: "tkr-editor-surface", "data-tkr-editor": titles[document.kind] ?? document.kind }, view)), el);

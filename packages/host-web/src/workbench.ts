@@ -13,6 +13,8 @@ import {
   createWizardHistory,
   HISTORY_SETTING_IDS,
   createProgramFile,
+  createFontFile,
+  suggestFontPath,
   createProjectTree,
   createTabs,
   createVisits,
@@ -101,6 +103,12 @@ export interface Workbench {
    */
   newProgram(): Promise<string | null>;
   newAnimation(): Promise<string | null>;
+  /**
+   * Make a new bitmap font (T-65) and open it in a tab. The author names it in the Save dialog, which starts from the first
+   * free name in the project's Font folder; the file is version 2.0 with all 256 glyphs empty and is never made over a file.
+   * Resolves with the new font's path, or `null` when nothing was made.
+   */
+  newFont(): Promise<string | null>;
   /** The layout as identifiers and numbers. */
   saveLayout(): SavedLayout;
   dispose(): void;
@@ -378,6 +386,20 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     await tree.refresh(); await openPath(result.value.files[0]!.path);
     return result.value.files[0]!.path;
   };
+  const newFont = async (): Promise<string | null> => {
+    await tell("New font checks for an existing path before writing. If another application creates the same path after that check, the write may replace that file.");
+    const chosen = await services.dialogs.pickSavePath({ document: "the new font", suggested: await suggestFontPath(services.fs, projectLayout) });
+    if (chosen === null) return null;
+    const result = await createFontFile(services.fs, chosen, projectLayout);
+    if (!result.ok) {
+      await tell(result.message);
+      return null;
+    }
+    await tree.refresh();
+    await openPath(result.path);
+    return result.path;
+  };
+
   const recovery = (): void => {
     const dialog = document.createElement("dialog");
     const content = document.createElement("div");
@@ -521,6 +543,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     onNewAnimation: () => { void newAnimation(); },
     onRecovery: recovery,
     onNewProgram: () => { void newProgram(); },
+    onNewFont: () => { void newFont(); },
     onOpenPreferences: () => { workbench.openPreferences(); },
     onEditorElement: (editorElement) => {
       slot = editorElement;
@@ -612,6 +635,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     newBoard,
     newProgram,
     newAnimation,
+    newFont,
     saveLayout,
     dispose() {
       openPrefs?.();

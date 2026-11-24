@@ -1,5 +1,5 @@
 import type { AnimationAuthoring, AnimationCommand, AnimationBitmap, CheckpointEntry, CheckpointGroup } from "@tk-reawakened/editor-model";
-import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { platformError, type Capability, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
 
@@ -72,6 +72,8 @@ export function isSpriteSnapshot(snapshot: BridgedSnapshot, kind: string): snaps
 }
 
 export type AnimationActionResult = PlatformResult<CheckpointGroup | readonly CheckpointEntry[] | void>;
+type HistoryDirection = "undo" | "redo";
+type WorkbenchHistoryResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 export type BridgeMessage =
   | { readonly type: "initialize"; readonly kind: string; readonly snapshot: BridgedSnapshot; readonly capabilities: readonly Capability[]; readonly browserState: BrowserState; readonly boardPreferences: EditorPreferences; readonly initialBoardPath?: string; readonly sourceTile?: number; readonly readOnly?: boolean }
   /** A source visit asked for a one-based tile: every live view of this document selects it without changing the document. */
@@ -80,7 +82,9 @@ export type BridgeMessage =
   | { readonly type: "snapshot"; readonly snapshot: BridgedSnapshot }
   | { readonly type: "browser-state"; readonly changes: BrowserStatePatch }
   | { readonly type: "edit-result"; readonly requestId: string; readonly result: ApplyResult; readonly snapshot: BridgedSnapshot }
+  | { readonly type: "font-edit-result"; readonly requestId: string; readonly result: ApplyResult }
   | { readonly type: "save-result"; readonly requestId: string; readonly result: SaveResult; readonly snapshot: BridgedSnapshot }
+  | { readonly type: "workbench-history-result"; readonly requestId: string; readonly result: WorkbenchHistoryResult }
   | { readonly type: "conflict-result"; readonly requestId: string; readonly result: ConflictResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "preview-result"; readonly requestId: string; readonly picture: BoardPicture }
   | { readonly type: "read-project-result"; readonly requestId: string; readonly result: PlatformResult<Uint8Array> }
@@ -100,6 +104,7 @@ export type EditorHostRequest =
   | { readonly type: "ready" }
   | { readonly type: "edit"; readonly command: unknown; readonly requestId: string }
   | { readonly type: "save"; readonly requestId: string }
+  | { readonly type: "workbench-history"; readonly requestId: string; readonly direction: HistoryDirection }
   | { readonly type: "resolve-conflict"; readonly choice: ConflictChoice; readonly requestId: string }
   | { readonly type: "preview"; readonly requestId: string; readonly request?: BoardPreviewRequest }
   | { readonly type: "read-project"; readonly requestId: string; readonly path: string }
@@ -130,6 +135,7 @@ export interface BridgedDocument {
   browserRead(path: string): Promise<PlatformResult<Uint8Array>>;
   didEdit(editId: string): void;
   saveThroughWorkbench(): Promise<SaveResult>;
+  runHistory?(direction: HistoryDirection): Promise<WorkbenchHistoryResult>;
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult>;
   /** The picture of the board or tile bitmap as the one compositor draws it from the project's files, a board with only the layers and background the request shows; only those two have one. */
   preview(request?: BoardPreviewRequest): Promise<BoardPicture>;
@@ -185,7 +191,20 @@ export async function handleEditorHostRequest(
       ? document.model.apply(request.command as never)
       : { ok: false, rejection: { reason: "invalid", message: `That is not an edit this ${document.model.kind} document understands.` } };
     if (result.ok) document.didEdit(result.editId);
-    await postMessage({ type: "edit-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
+    // Font snapshots publish through the subscription, independently of acknowledgements. A late reply must not
+    // replace a newer snapshot (for example, one produced by native Undo while a reply was in flight).
+    if (document.model.kind === "font") await postMessage({ type: "font-edit-result", requestId: request.requestId, result });
+    else await postMessage({ type: "edit-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
+  } else if (request.type === "workbench-history") {
+    let result: WorkbenchHistoryResult;
+    try {
+      result = document.model.kind === "font" && document.runHistory !== undefined
+        ? await document.runHistory(request.direction)
+        : { ok: false, message: "Undo and Redo are not available for this document." };
+    } catch (error) {
+      result = { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+    await postMessage({ type: "workbench-history-result", requestId: request.requestId, result });
   } else if (request.type === "save") {
     const result = await document.saveThroughWorkbench();
     await postMessage({ type: "save-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
@@ -285,6 +304,8 @@ export async function handleHistoryPreviewRequest(
       result: { ok: false, rejection: { reason: "read-only", message: denied } },
       snapshot: document.model.getSnapshot(),
     });
+  } else if (request.type === "workbench-history") {
+    await postMessage({ type: "workbench-history-result", requestId: request.requestId, result: { ok: false, message: denied } });
   } else if (request.type === "save") {
     await postMessage({
       type: "save-result",
@@ -393,6 +414,7 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (!("requestId" in value) || typeof value.requestId !== "string") return false;
   if (value.type === "browser-list" || value.type === "browser-read" || value.type === "read-project") return "path" in value && isProjectPath(value.path);
   if (value.type === "save" || value.type === "return-visit" || value.type === "settled") return true;
+  if (value.type === "workbench-history") return "direction" in value && (value.direction === "undo" || value.direction === "redo");
   if (value.type === "import-as-scene") return true;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
   if (value.type === "visit" || value.type === "visit-reference") return "path" in value && typeof value.path === "string" && value.path !== "";
@@ -418,6 +440,7 @@ export class RemoteDocument {
   private readonly pendingEditResults = new Map<string, (result: ApplyResult) => void>();
   private readonly pendingSaves = new Map<string, (result: SaveResult) => void>();
   private readonly pendingResolutions = new Map<string, (result: ConflictResult) => void>();
+  private readonly pendingHistory = new Map<string, (result: WorkbenchHistoryResult) => void>();
   private readonly pendingPreviews = new Map<string, (picture: BoardPicture) => void>();
   private readonly pendingVisits = new Map<string, (outcome: VisitOutcome) => void>();
   private readonly pendingReturns = new Map<string, (outcome: ReturnOutcome) => void>();
@@ -435,6 +458,8 @@ export class RemoteDocument {
    * preview leaves it out, so its board view offers no import button.
    */
   readonly importAsScene?: () => Promise<PlatformResult<void>>;
+  readonly undo?: () => Promise<WorkbenchHistoryResult>;
+  readonly redo?: () => Promise<WorkbenchHistoryResult>;
   /**
    * The edits the views of this document have accepted but not yet handed over (#2613). A view registers here; the
    * extension host's `settle` request waits for it, so a save or close never leaves a queued edit behind.
@@ -464,6 +489,10 @@ export class RemoteDocument {
       if (!this.applyingBrowserState) this.vscode.postMessage({ type: "browser-context", changes });
     });
     if (live) this.importAsScene = () => this.requestImportAsScene();
+    if (live && kind === "font") {
+      this.undo = () => this.requestHistory("undo");
+      this.redo = () => this.requestHistory("redo");
+    }
   }
 
   getSnapshot(): BridgedSnapshot { return this.snapshot; }
@@ -589,6 +618,14 @@ export class RemoteDocument {
     });
   }
 
+  private requestHistory(direction: HistoryDirection): Promise<WorkbenchHistoryResult> {
+    const requestId = `workbench-history-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingHistory.set(requestId, resolve);
+      this.vscode.postMessage({ type: "workbench-history", direction, requestId });
+    });
+  }
+
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult> {
     const requestId = `resolve-${++this.nextRequest}`;
     return new Promise((resolve) => {
@@ -650,6 +687,8 @@ export class RemoteDocument {
     if (message.type === "initialize") return;
     // A source visit is a view instruction, not a document snapshot: the page's own listener selects the tile.
     if (message.type === "source-target") return;
+    if (message.type === "workbench-history-result") return void this.settle(this.pendingHistory, message.requestId, message.result);
+    if (message.type === "font-edit-result") return void this.settle(this.pendingEditResults, message.requestId, message.result);
     this.snapshot = message.type === "save-result" && !message.result.ok && message.snapshot.saveError === null
       ? { ...message.snapshot, saving: false, saveError: message.result.failure }
       : message.snapshot;
