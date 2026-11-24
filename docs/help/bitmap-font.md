@@ -2,6 +2,8 @@
 
 A bitmap font is the game's own lettering: 256 characters, each drawn as an 8 × 8 grid of square pixels. Open a `.fnt` file from the project, or choose **New font…** in the Files panel (in VS Code, **RPG Toolkit: New font**) to make one.
 
+New font checks whether the path already exists before writing. Both hosts warn that another application can still create the same path after that check; the write may replace that file.
+
 ## Choosing a character
 
 The character strip shows all 256 slots in order: slot 0 is the top left, then across each row and down. A slot with a drawn glyph is bold. Click a slot, or use the arrow keys: Left and Right move one slot, Up and Down move 16, Home and End go to the ends of the row, and Ctrl+Home and Ctrl+End go to the first and last character. Choosing a slot changes nothing in the font.
