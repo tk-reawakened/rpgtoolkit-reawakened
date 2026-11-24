@@ -28,6 +28,11 @@ export const FONT_PREVIEW_MAX_SIZE = 128;
 export const FONT_PREVIEW_MAX_TEXT = 200;
 /** A line wraps at words once it would be wider than this many pixels. */
 export const FONT_PREVIEW_WRAP_WIDTH = 512;
+/**
+ * The largest side of the picture, in pixels. A canvas is limited per device (mobile browsers refuse a few thousand
+ * pixels on a side), so the sample stops at this side and says it did rather than asking for a canvas the device cannot make.
+ */
+export const FONT_PREVIEW_MAX_SIDE = 2048;
 /** The sample a preview starts with. */
 export const FONT_PREVIEW_SAMPLE = "The quick brown fox jumps over the lazy dog 0123456789";
 
@@ -47,7 +52,7 @@ export interface FontPreviewOptions {
 
 /** The picture, straight RGBA with an opaque background, or why none could be made. */
 export type FontPicture =
-  | { readonly ok: true; readonly width: number; readonly height: number; readonly rgba: Uint8Array }
+  | { readonly ok: true; readonly width: number; readonly height: number; readonly rgba: Uint8Array; readonly truncated: boolean }
   | { readonly ok: false; readonly message: string };
 
 const PREVIEW_ASSET = assetKey("font/preview.fnt");
@@ -85,10 +90,15 @@ export function previewFontText(values: ArrayLike<number>, options: FontPreviewO
   // `text()` lays a line out one size tall; the layout and the emitted commands must agree, so both are given the same options.
   const layout = { lineHeight: options.size, maxWidth: FONT_PREVIEW_WRAP_WIDTH };
   const measured = layoutText(options.text, ref, layout);
+  // Only the lines that fit the side limit are drawn; the caller is told so it can say the sample was cut short.
+  const lineHeight = Math.max(1, options.size);
+  const lines = Math.max(1, Math.floor((FONT_PREVIEW_MAX_SIDE - 2 * PADDING) / lineHeight));
+  const shown = measured.lines.length > lines ? { ...measured, lines: measured.lines.slice(0, lines), height: lines * lineHeight } : measured;
+  const truncated = measured.lines.length > lines;
   // Italics lean the top row right of its advance by `floor(7 * size / 32)`.
   const lean = options.italic ? Math.floor((7 * options.size) / 32) : 0;
-  const width = Math.max(1, measured.width + lean + 2 * PADDING);
-  const height = Math.max(options.size, measured.height) + 2 * PADDING;
+  const width = Math.max(1, Math.min(FONT_PREVIEW_MAX_SIDE, shown.width + lean + 2 * PADDING));
+  const height = Math.max(options.size, shown.height) + 2 * PADDING;
   const list: DrawList = {
     protocolVersion: 3,
     tick: 0,
@@ -101,5 +111,5 @@ export function previewFontText(values: ArrayLike<number>, options: FontPreviewO
     marginCommands: [],
   };
   const drawn = rasterize(list, new Map([[PREVIEW_ASSET, fontOf(values)]]));
-  return drawn.error === null ? { ok: true, width: drawn.width, height: drawn.height, rgba: drawn.rgba } : { ok: false, message: drawn.error };
+  return drawn.error === null ? { ok: true, width: drawn.width, height: drawn.height, rgba: drawn.rgba, truncated } : { ok: false, message: drawn.error };
 }

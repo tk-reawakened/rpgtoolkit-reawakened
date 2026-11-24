@@ -47,20 +47,7 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
     } else {
       mountedView = mount(documentRoot(), {
         // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
-        // A bitmap font opts in to the workbench's own undo and redo, because its grid has no native history of its own.
-        document: event.data.kind === "font"
-          ? {
-            kind: remote.kind,
-            identity: remote.identity,
-            getSnapshot: () => remote.getSnapshot(),
-            subscribe: (listener: () => void) => remote.subscribe(listener),
-            apply: (command: never) => remote.apply(command),
-            save: () => remote.save(),
-            resolveConflict: (choice: Parameters<typeof remote.resolveConflict>[0]) => remote.resolveConflict(choice),
-            undo: () => remote.historyUndo(),
-            redo: () => remote.historyRedo(),
-          } as unknown as ViewContext["document"]
-          : remote as unknown as ViewContext["document"],
+        document: remote as unknown as ViewContext["document"],
         services,
         animationAuthoring: remote.animationAuthoring,
         browser: {

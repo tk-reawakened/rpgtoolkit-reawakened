@@ -7,14 +7,16 @@ import {
   FONT_SLOTS,
   fontCharacterOf,
   fontGlyphRows,
+  fontLinePixels,
   fontPixelOf,
+  fontRowsAfter,
   fontRowsWithPixel,
   fontSlotName,
   inkedGlyphCount,
   previewFontText,
   type ApplyResult,
   type ConflictChoice,
-  type HistoryResult,
+  type FontPixelChange,
   type FontCommand,
   type FontDocumentSnapshot,
   type PendingEdits,
@@ -32,7 +34,6 @@ const GLYPH_SIDE = 8;
 const STRIP_COLUMNS = 16;
 const ZOOMS = [1, 2, 3, 4] as const;
 const DEFAULT_SLOT = 65;
-const EMPTY_ROWS: readonly number[] = [0, 0, 0, 0, 0, 0, 0, 0];
 
 type Tool = "draw" | "erase";
 
@@ -40,9 +41,13 @@ type Tool = "draw" | "erase";
  * What the font view needs beyond the shared surface: the host's own undo and redo, when it has them. A host that leaves
  * them out owns history itself (VS Code's workbench), and the view then shows no Undo or Redo button.
  */
+export type FontHistoryOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
+
 export interface FontViewDocument extends ViewDocument<FontDocumentSnapshot, FontCommand> {
-  undo?(): HistoryResult | Promise<HistoryResult>;
-  redo?(): HistoryResult | Promise<HistoryResult>;
+  /** The host's own undo and redo. It is the host's stack (VS Code's working copy, the browser workbench's), never a
+   * second one here, so the host's dirty state and its own Undo stay in step. */
+  undo?(): FontHistoryOutcome | Promise<FontHistoryOutcome>;
+  redo?(): FontHistoryOutcome | Promise<FontHistoryOutcome>;
 }
 
 export interface FontViewProps {
@@ -53,12 +58,18 @@ export interface FontViewProps {
   readonly pendingEdits: PendingEdits;
 }
 
-/** An unfinished pointer stroke: the glyph's rows as they were, and the rows with every cell painted so far. */
+/**
+ * An unfinished pointer stroke: the glyph's rows as they were when it began, every cell it has passed, the last cell
+ * (so a fast move interpolates the cells it jumped over), and the rows it would leave.
+ */
 interface Stroke {
   readonly pointerId: number;
   readonly glyph: number;
   readonly base: readonly number[];
   readonly ink: boolean;
+  readonly cells: Map<string, FontPixelChange>;
+  lastX: number;
+  lastY: number;
   rows: readonly number[];
 }
 
@@ -153,11 +164,12 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
       return;
     }
     sourceContext.putImageData(new ImageData(new Uint8ClampedArray(picture.rgba), picture.width, picture.height), 0, 0);
-    target.width = picture.width * zoom;
-    target.height = picture.height * zoom;
-    // Enlarging copies each pixel as a square: no smoothing, so the picture is still the pixels the game draws.
+    // The backing canvas stays 1:1 (a phone refuses a canvas of a few thousand pixels on a side); the zoom is a CSS
+    // enlargement with nearest-neighbour sampling, so the squares stay crisp and the picture is still the game's pixels.
+    target.width = picture.width;
+    target.height = picture.height;
     context.imageSmoothingEnabled = false;
-    context.drawImage(source, 0, 0, target.width, target.height);
+    context.drawImage(source, 0, 0);
     setCanvasIssue(null);
   }, [picture, zoom]);
 
@@ -174,9 +186,10 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
 
   const run = (command: FontCommand): Promise<boolean> => {
     const finish = submitted.current.begin();
-    // The next edit of this glyph starts from these rows until the host has answered, so a second stroke never undoes the first.
-    const pending = inflight.current.get(command.glyph) ?? { rows: command.rows, waiting: 0 };
-    pending.rows = command.rows;
+    // The rows this glyph will have once the queued commands land, built from the document as it is now plus every command
+    // still unanswered; a second stroke starts from them, and another view's pixels of the same glyph are never overwritten.
+    const pending = inflight.current.get(command.glyph) ?? { rows: fontGlyphRows(doc.getSnapshot().values, command.glyph), waiting: 0 };
+    pending.rows = fontRowsAfter(pending.rows, command);
     pending.waiting += 1;
     inflight.current.set(command.glyph, pending);
     setAnswers((count) => count + 1);
@@ -233,21 +246,32 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
   /** Put the tool's result on one pixel as one edit; a pixel that already is that is not an edit. */
   const toolAt = (x: number, y: number, which: Tool): void => {
     if (!canEdit) return;
-    const next = fontRowsWithPixel(savedRows, x, y, which === "draw");
-    if (!sameRows(next, savedRows)) void run({ type: "set-font-glyph", glyph: slot, rows: next });
+    const ink = which === "draw";
+    if (fontPixelOf(savedRows, x, y) === ink) return;
+    void run({ type: "set-font-pixels", glyph: slot, pixels: [{ x, y, ink }] });
   };
 
+  /** Paint every cell between the stroke's last cell and `(x, y)`, so a fast drag skips none of them. */
   const paint = (x: number, y: number): void => {
     const current = stroke.current;
     if (current === null) return;
-    const next = fontRowsWithPixel(current.rows, x, y, current.ink);
-    if (sameRows(next, current.rows)) return;
+    let changed = false;
+    for (const cell of fontLinePixels(current.lastX, current.lastY, x, y)) {
+      const key = `${cell.x},${cell.y}`;
+      if (current.cells.has(key)) continue;
+      current.cells.set(key, { x: cell.x, y: cell.y, ink: current.ink });
+      changed = true;
+    }
+    current.lastX = x;
+    current.lastY = y;
+    if (!changed) return;
+    const next = fontRowsAfter(current.base, { type: "set-font-pixels", glyph: current.glyph, pixels: [...current.cells.values()] });
     current.rows = next;
     setDraft(next);
   };
 
   const beginStroke = (pointerId: number, x: number, y: number): void => {
-    stroke.current = { pointerId, glyph: slot, base: savedRows, ink: tool === "draw", rows: savedRows };
+    stroke.current = { pointerId, glyph: slot, base: savedRows, ink: tool === "draw", cells: new Map(), lastX: x, lastY: y, rows: savedRows };
     setCursor({ x, y });
     setRefusal(null);
     paint(x, y);
@@ -257,8 +281,8 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
       endStroke.current = null;
       stroke.current = null;
       setDraft(null);
-      if (commit && current !== null && !sameRows(current.rows, current.base)) {
-        void latest.current.run({ type: "set-font-glyph", glyph: current.glyph, rows: current.rows });
+      if (commit && current !== null && current.cells.size > 0 && !sameRows(current.rows, current.base)) {
+        void latest.current.run({ type: "set-font-pixels", glyph: current.glyph, pixels: [...current.cells.values()] });
       }
     };
     const up = (event: PointerEvent): void => { if (event.pointerId === pointerId) finish(true); };
@@ -274,12 +298,27 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
     };
   };
 
-  /** The host's undo or redo (the document's own stack, which the host exposes); nothing happens without one. */
+  /**
+   * The host's undo or redo. It waits for this view's own queued edits to land first, so an answer that arrives late can
+   * never make the host undo an earlier edit than the one the person just made; nothing happens without a host route.
+   */
   const history = (direction: "undo" | "redo"): void => {
     const call = direction === "undo" ? doc.undo : doc.redo;
     if (call === undefined) return;
     setRefusal(null);
-    void Promise.resolve(call.call(doc)).catch((error: unknown) => setRefusal(error instanceof Error ? error.message : String(error)));
+    const finish = submitted.current.begin();
+    const operation = queue.current.then(async () => {
+      try {
+        const outcome = await call.call(doc);
+        if (outcome !== undefined && !outcome.ok) setRefusal(outcome.message);
+      } catch (error) {
+        setRefusal(error instanceof Error ? error.message : String(error));
+      } finally {
+        finish();
+      }
+    });
+    queue.current = operation.then(() => undefined);
+    void operation;
   };
 
   const moveCursor = (dx: number, dy: number): void => {
@@ -303,6 +342,9 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
       .finally(() => setResolving(false));
   };
 
+  // Undo must reach a stroke the host has not answered yet: it is enabled by this view's own queued edits too, and the
+  // host call waits for them (never taking back an earlier edit than the one the person just made).
+  const pendingOwn = inflight.current.size > 0;
   const failure = snapshot.saveError;
   const slotRow = slot >> 4;
   const slotColumn = slot & (STRIP_COLUMNS - 1);
@@ -404,13 +446,13 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
                 {entry === "draw" ? "Draw" : "Erase"}
               </button>
             ))}
-            <button type="button" class="tkr-font-clear" disabled={!canEdit || glyphEmpty} onClick={() => { cancelStroke(); void run({ type: "set-font-glyph", glyph: slot, rows: EMPTY_ROWS }); }}>
+            <button type="button" class="tkr-font-clear" disabled={!canEdit || glyphEmpty} onClick={() => { cancelStroke(); void run({ type: "clear-font-glyph", glyph: slot }); }}>
               Clear glyph
             </button>
             {doc.undo === undefined || doc.redo === undefined ? null : (
               <>
-                <button type="button" class="tkr-font-undo" aria-keyshortcuts="Control+Z" disabled={!snapshot.canUndo || !canEdit} onClick={() => history("undo")}>Undo</button>
-                <button type="button" class="tkr-font-redo" aria-keyshortcuts="Control+Y" disabled={!snapshot.canRedo || !canEdit} onClick={() => history("redo")}>Redo</button>
+                <button type="button" class="tkr-font-undo" aria-keyshortcuts="Control+Z" disabled={(!snapshot.canUndo && !pendingOwn) || !canEdit} onClick={() => history("undo")}>Undo</button>
+                <button type="button" class="tkr-font-redo" aria-keyshortcuts="Control+Y" disabled={(!snapshot.canRedo && !pendingOwn) || !canEdit} onClick={() => history("redo")}>Redo</button>
               </>
             )}
           </div>
@@ -557,12 +599,13 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
           {sizeProblem === null ? null : <p class="tkr-font-error" role="alert">{sizeProblem} The picture still shows {size} pixels.</p>}
           <div class="tkr-font-picture">
             {picture.ok ? (
-              <canvas ref={canvas} class="tkr-font-canvas" role="img" aria-label="The sample text as the game draws it" hidden={canvasIssue !== null} />
+              <canvas ref={canvas} class="tkr-font-canvas" data-zoom={String(zoom)} role="img" aria-label="The sample text as the game draws it" hidden={canvasIssue !== null} />
             ) : (
               <p class="tkr-font-preview-state" role="status">No picture: {picture.message}</p>
             )}
           </div>
           {canvasIssue === null ? null : <p class="tkr-font-preview-state" role="status">Picture unavailable: {canvasIssue}</p>}
+          {picture.ok && picture.truncated ? <p class="tkr-font-preview-state" role="status">The sample is shown in part: the rest needs a picture larger than this editor draws.</p> : null}
           <p class="tkr-font-help">The sample, size, styles and zoom are only for looking. They are not saved and never change the font.</p>
         </div>
       </div>

@@ -38,21 +38,35 @@ import type { DocumentIdentity } from "./identity.ts";
 export const FONT_SLOTS = FONT_GLYPH_COUNT;
 export const FONT_GLYPH_SIDE = FONT_GLYPH_WIDTH;
 
+/** One pixel of a glyph: column `x`, row `y` (0 to 7 each, top left first), set to ink or cleared. */
+export interface FontPixelChange {
+  readonly x: number;
+  readonly y: number;
+  readonly ink: boolean;
+}
+
 /**
- * Replace the eight rows of one character's glyph. A stroke, a keyboard toggle and Clear glyph are all this one
- * command, so one Undo takes any of them back whole. `rows` are the glyph's rows top first; bit 7 of a row is the
- * leftmost pixel and 1 is ink (the file's own order).
+ * Draw or erase pixels of one character's glyph. A stroke is one command with every cell it passed over, so one Undo
+ * takes the whole stroke back; because the pixels are applied to the glyph as it is now, another view of the same font
+ * editing other pixels of the same glyph keeps its work. A keyboard action is one command with one pixel.
  */
-export interface SetFontGlyphCommand {
-  readonly type: "set-font-glyph";
+export interface SetFontPixelsCommand {
+  readonly type: "set-font-pixels";
   /** The character code, 0 to 255. */
   readonly glyph: number;
-  /** Eight whole numbers, each 0 to 255. */
-  readonly rows: readonly number[];
+  /** The pixels to set, each to ink or to empty; a repeated pixel keeps its last mark. */
+  readonly pixels: readonly FontPixelChange[];
+}
+
+/** Empty one character's whole glyph. Clear glyph is its own intent, so it is its own command. */
+export interface ClearFontGlyphCommand {
+  readonly type: "clear-font-glyph";
+  /** The character code, 0 to 255. */
+  readonly glyph: number;
 }
 
 /** Every command a bitmap font document accepts. Plain data, so a stack of them can be stored and replayed. */
-export type FontCommand = SetFontGlyphCommand;
+export type FontCommand = SetFontPixelsCommand | ClearFontGlyphCommand;
 
 /**
  * What a bitmap font adds to the shared snapshot: plain JSON a view draws from and a host posts to a webview. `values`
@@ -69,28 +83,91 @@ export type FontDocumentSnapshot = DocumentSnapshot<FontCommand> & FontDocumentF
 export type FontDocument = EditorDocument<FontDocumentSnapshot, FontCommand>;
 export type FontOpenResult = GenericOpenResult<FontDocument>;
 
-const isRow = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 255;
 const isGlyph = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value < FONT_GLYPH_COUNT;
+
+const isSide = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value >= 0 && value < FONT_GLYPH_WIDTH;
+const isPixel = (value: unknown): boolean => typeof value === "object" && value !== null
+  && "x" in value && isSide(value.x) && "y" in value && isSide(value.y)
+  && "ink" in value && typeof value.ink === "boolean";
+/**
+ * Whether every entry of an array is a defined member. A sparse array's holes are skipped by `every`, so a
+ * `new Array(8)` would otherwise pass as eight pixels and then clear the glyph when applied.
+ */
+const everyDefined = <T>(values: readonly T[], accept: (value: T) => boolean): boolean => {
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    if (value === undefined || !accept(value)) return false;
+  }
+  return true;
+};
 
 /** The reason a command cannot be applied to any font, or `null` when it has the right shape. */
 function shapeProblem(command: FontCommand): string | null {
   if (!isGlyph(command.glyph)) return `A character is a whole number from 0 to ${FONT_GLYPH_COUNT - 1}.`;
-  if (!Array.isArray(command.rows) || command.rows.length !== FONT_GLYPH_HEIGHT || !command.rows.every(isRow)) {
-    return `A glyph is ${FONT_GLYPH_HEIGHT} rows, each a whole number from 0 to 255.`;
-  }
+  if (command.type === "clear-font-glyph") return null;
+  if (!Array.isArray(command.pixels) || command.pixels.length === 0) return "A stroke changes at least one pixel.";
+  if (!everyDefined(command.pixels, (pixel: unknown) => isPixel(pixel))) return `A pixel is a column and a row from 0 to ${FONT_GLYPH_WIDTH - 1} and whether it is ink.`;
   return null;
 }
 
-function sameRows(model: LegacyFont, glyph: number, rows: readonly number[]): boolean {
-  for (let row = 0; row < FONT_GLYPH_HEIGHT; row += 1) if (model.values[glyph * FONT_GLYPH_HEIGHT + row] !== rows[row]) return false;
-  return true;
+/** Whether the glyph of `model` already looks exactly as these pixels would leave it. */
+function samePixels(model: LegacyFont, command: SetFontPixelsCommand): boolean {
+  const rows = fontGlyphRows(model.values, command.glyph);
+  return everyDefined(command.pixels, (pixel) => fontPixelOf(rows, pixel.x, pixel.y) === pixel.ink);
 }
 
 function apply(model: LegacyFont, command: FontCommand): LegacyFont {
-  if (shapeProblem(command) !== null || sameRows(model, command.glyph, command.rows)) return model;
+  if (shapeProblem(command) !== null) return model;
+  // A command that changes nothing returns the very same model, so `refuse` can tell it apart and no edit is recorded.
+  if (command.type === "clear-font-glyph") {
+    if (fontGlyphRows(model.values, command.glyph).every((row) => row === 0)) return model;
+  } else if (samePixels(model, command)) {
+    return model;
+  }
+  const base = command.glyph * FONT_GLYPH_HEIGHT;
   const values = model.values.slice();
-  values.set(command.rows, command.glyph * FONT_GLYPH_HEIGHT);
+  if (command.type === "clear-font-glyph") {
+    values.fill(0, base, base + FONT_GLYPH_HEIGHT);
+  } else {
+    for (let index = 0; index < command.pixels.length; index += 1) {
+      const pixel = command.pixels[index]!;
+      const bit = 1 << (FONT_GLYPH_WIDTH - 1 - pixel.x);
+      const row = values[base + pixel.y] ?? 0;
+      values[base + pixel.y] = pixel.ink ? (row | bit) & 0xff : row & ~bit & 0xff;
+    }
+  }
   return { ...model, values };
+}
+
+/** `rows` with `command` applied, for a view's own preview before the host has answered; it never mutates `rows`. */
+export function fontRowsAfter(rows: readonly number[], command: FontCommand): number[] {
+  const next = rows.slice();
+  if (command.type === "clear-font-glyph") return next.map(() => 0);
+  if (shapeProblem(command) !== null) return next;
+  for (let index = 0; index < command.pixels.length; index += 1) {
+    const pixel = command.pixels[index]!;
+    next[pixel.y] = fontRowsWithPixel(next, pixel.x, pixel.y, pixel.ink)[pixel.y] ?? 0;
+  }
+  return next;
+}
+
+/** Every cell of the 8 × 8 grid a straight stroke from `(fromX, fromY)` to `(toX, toY)` passes through, in order. */
+export function fontLinePixels(fromX: number, fromY: number, toX: number, toY: number): { readonly x: number; readonly y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+  let x = fromX;
+  let y = fromY;
+  const dx = Math.abs(toX - fromX);
+  const dy = -Math.abs(toY - fromY);
+  const sx = fromX < toX ? 1 : -1;
+  const sy = fromY < toY ? 1 : -1;
+  let error = dx + dy;
+  for (;;) {
+    if (x >= 0 && y >= 0 && x < FONT_GLYPH_WIDTH && y < FONT_GLYPH_HEIGHT) cells.push({ x, y });
+    if (x === toX && y === toY) return cells;
+    const twice = error * 2;
+    if (twice >= dy) { error += dy; x += sx; }
+    if (twice <= dx) { error += dx; y += sy; }
+  }
 }
 
 /** The character a slot shows in a label, or `null` for one with no printable shape (controls, the soft hyphen, the C1 block). */
@@ -108,7 +185,9 @@ export function fontSlotName(code: number): string {
 function refuse(next: LegacyFont, command: FontCommand, previous: LegacyFont): Rejection | null {
   const problem = shapeProblem(command);
   if (problem !== null) return { reason: "invalid", message: problem };
-  return next === previous ? { reason: "invalid", message: `The glyph of ${fontSlotName(command.glyph)} already looks like that.` } : null;
+  if (next !== previous) return null;
+  if (command.type === "clear-font-glyph") return { reason: "invalid", message: `The glyph of ${fontSlotName(command.glyph)} is already empty.` };
+  return { reason: "invalid", message: `Those pixels of ${fontSlotName(command.glyph)} already look like that.` };
 }
 
 function readOnlyReason(model: LegacyFont, bytes: Uint8Array): ReadOnlyReason | null {
@@ -161,11 +240,20 @@ export const fontCodec: DocumentCodec<LegacyFont, FontCommand, FontDocumentField
   write: (model) => ok(utf8Encode(writeLegacyFont(model))),
   readOnlyReason,
   isCommand: (value): value is FontCommand => {
-    if (typeof value !== "object" || value === null || !("type" in value) || value.type !== "set-font-glyph") return false;
-    return "glyph" in value && typeof value.glyph === "number" && "rows" in value && Array.isArray(value.rows) && value.rows.every((row) => typeof row === "number");
+    if (typeof value !== "object" || value === null || !("type" in value) || !("glyph" in value) || typeof value.glyph !== "number") return false;
+    if (value.type === "clear-font-glyph") return true;
+    if (value.type !== "set-font-pixels" || !("pixels" in value) || !Array.isArray(value.pixels)) return false;
+    return everyDefined(value.pixels, (pixel: unknown) => typeof pixel === "object" && pixel !== null
+      && "x" in pixel && typeof pixel.x === "number" && "y" in pixel && typeof pixel.y === "number"
+      && "ink" in pixel && typeof pixel.ink === "boolean");
   },
   apply,
-  label: (command) => `${command.rows.every((row) => row === 0) ? "Clear" : "Edit"} ${fontSlotName(command.glyph)}`,
+  label: (command) => {
+    if (command.type === "clear-font-glyph") return `Clear ${fontSlotName(command.glyph)}`;
+    const ink = command.pixels.some((pixel) => pixel.ink);
+    const count = command.pixels.length;
+    return `${ink ? "Draw" : "Erase"} ${count} pixel${count === 1 ? "" : "s"} of ${fontSlotName(command.glyph)}`;
+  },
   refuse,
   summary: (model) => `Bitmap font, ${inkedGlyphCount(model.values)} of ${FONT_GLYPH_COUNT} characters drawn`,
   fields: (model) => {

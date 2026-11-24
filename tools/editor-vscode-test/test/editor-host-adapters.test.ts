@@ -24,11 +24,6 @@ test("VS Code bridge validates animation asset reads and generated bitmap destin
   ok(isEditorHostRequest({ type: "animation-action", requestId: "write-1", action: "commit", bitmaps: [{ path: "Bitmap/frame.tbm", bytes: new Uint8Array([1, 2, 3]) }] }));
   ok(!isEditorHostRequest({ type: "animation-action", requestId: "write-2", action: "commit", bitmaps: [{ path: "../frame.tbm", bytes: new Uint8Array([1]) }] }));
   ok(!isEditorHostRequest({ type: "animation-action", requestId: "write-3", action: "commit", bitmaps: [{ path: "Bitmap/frame.tbm", bytes: [1, 2, 3] }] }));
-  // The view asks the workbench for its own undo and redo; both are requests with an id and nothing else (#3375).
-  ok(isEditorHostRequest({ type: "undo", requestId: "undo-1" }));
-  ok(isEditorHostRequest({ type: "redo", requestId: "redo-1" }));
-  ok(!isEditorHostRequest({ type: "undo" }));
-  ok(!isEditorHostRequest({ type: "undo", requestId: 7 }));
 });
 
 test("real web and VS Code adapters keep mounted title edits dirty and named after write rejection", async () => {

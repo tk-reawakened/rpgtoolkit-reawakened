@@ -8,6 +8,9 @@ import {
   createDocumentIdentity,
   createPendingEdits,
   fontGlyphRows,
+  fontLinePixels,
+  fontPixelOf,
+  newFontBytes,
   openFontDocument,
   type ApplyResult,
   type FontDocument,
@@ -211,7 +214,7 @@ test("keyboard: arrows move the cursor, Space or Enter uses the tool once, Delet
   await settle();
   deepEqual(fontGlyphRows(s.doc.getSnapshot().values, 65), [0x80, 0, 0, 0, 0, 0, 0, 0x01]);
   equal(s.doc.getSnapshot().edits.length, 1, "one keyboard action is one edit");
-  equal(s.doc.getSnapshot().edits[0]?.label, "Edit character 65 (“A”)");
+  equal(s.doc.getSnapshot().edits[0]?.label, "Draw 1 pixel of character 65 (“A”)");
   equal(state(s.el), "Unsaved changes");
   equal(s.host.editedEvents.length, 1, "the host was told");
 
@@ -315,7 +318,7 @@ test("a stroke is dropped when the document changes under it, and another pointe
   await act(() => { pixel(s.el, 6, 4).dispatchEvent(pointer("pointerenter", { pointerId: 2 })); });
   equal(inkAt(s.el), "0,0 4,4 5,4", "a second pointer paints nothing");
   // An edit from elsewhere (a script, another view of the same document) changes this glyph under the stroke.
-  ok(s.doc.apply({ type: "set-font-glyph", glyph: 65, rows: [0x80, 0x40, 0, 0, 0, 0, 0, 0] }).ok);
+  ok(s.doc.apply({ type: "set-font-pixels", glyph: 65, pixels: [{ x: 1, y: 1, ink: true }] }).ok);
   await settle();
   equal(inkAt(s.el), "0,0 1,1", "the stroke was dropped, not merged over the new rows");
   await release(pixel(s.el, 5, 4));
@@ -484,4 +487,86 @@ test("every control of the editor is a named button, field or group so the comma
     notEqual(name.trim(), "", `${element.className} has an accessible name`);
   }
   equal(s.el.querySelectorAll("[style]").length, 0, "no style attribute (ADR 0025 decision 6)");
+});
+
+test("two views of one font edit different pixels of the same glyph, and neither overwrites the other", async () => {
+  const s = await setup();
+  await show(s);
+  const other = document.createElement("div");
+  document.body.append(other);
+  await act(() => { mount(other, { document: s.view, services: s.host, pendingEdits: s.pending }); });
+  await settle();
+
+  // Each view paints one pixel of A: a whole-glyph command from a stale copy would have erased the other's pixel.
+  await act(() => { control<HTMLButtonElement>(s.el, '[data-pixel="1,1"]').click(); });
+  await settle();
+  await act(() => { control<HTMLButtonElement>(other, '[data-pixel="6,6"]').click(); });
+  await settle();
+  const rows = fontGlyphRows(s.doc.getSnapshot().values, 65);
+  equal(fontPixelOf(rows, 1, 1), true, "the first view's pixel");
+  equal(fontPixelOf(rows, 6, 6), true, "the second view's pixel, applied to what the glyph had become");
+  equal(inkAt(s.el).includes("1,1") && inkAt(s.el).includes("6,6"), true, "both views show both pixels");
+  equal(inkAt(other).includes("1,1") && inkAt(other).includes("6,6"), true);
+  ok(s.doc.undo().ok);
+  await settle();
+  equal(fontPixelOf(fontGlyphRows(s.doc.getSnapshot().values, 65), 1, 1), true, "one Undo takes back one view's stroke only");
+  equal(fontPixelOf(fontGlyphRows(s.doc.getSnapshot().values, 65), 6, 6), false);
+});
+
+test("a fast drag paints every cell it crossed, as one edit, so no intermediate pixel is skipped", async () => {
+  const s = await setup(newFontBytes());
+  await show(s);
+  await press(pixel(s.el, 0, 0));
+  // One jump from the corner to the opposite one: the pointer never entered the cells between.
+  await enter(pixel(s.el, 7, 7));
+  await release(pixel(s.el, 7, 7));
+  const rows = fontGlyphRows(s.doc.getSnapshot().values, 65);
+  const diagonal = fontLinePixels(0, 0, 7, 7);
+  equal(diagonal.length, 8);
+  for (const cell of diagonal) equal(fontPixelOf(rows, cell.x, cell.y), true, `the stroke passed ${cell.x},${cell.y}`);
+  equal(s.doc.getSnapshot().edits.length, 1, "the whole drag is one edit");
+});
+
+test("Undo waits for this view's own late edits, so it takes back the last stroke and never an earlier one", async () => {
+  const s = await setup(newFontBytes());
+  await show(s);
+  s.gate.holding = true;
+  // Stroke one, then stroke two, both unanswered when Undo is pressed.
+  await press(pixel(s.el, 0, 0));
+  await release(pixel(s.el, 0, 0));
+  await press(pixel(s.el, 0, 1));
+  await release(pixel(s.el, 0, 1));
+  equal(s.doc.getSnapshot().edits.length, 0, "the host has not answered");
+  await act(() => { control<HTMLButtonElement>(s.el, ".tkr-font-undo").click(); });
+  equal(s.doc.getSnapshot().edits.length, 0, "Undo waits for the strokes it must follow");
+  s.gate.holding = false;
+  await act(() => { for (const answer of s.gate.queue.splice(0)) answer(); });
+  await s.pending.settle();
+  await settle();
+  const rows = fontGlyphRows(s.doc.getSnapshot().values, 65);
+  equal(fontPixelOf(rows, 0, 0), true, "the first stroke stays");
+  equal(fontPixelOf(rows, 0, 1), false, "the last stroke is the one undone");
+  equal(s.doc.getSnapshot().edits.length, 1);
+  equal(inkAt(s.el), "0,0", "and the grid shows what the font holds");
+});
+
+test("the buttons, the keyboard and the host's own history are one stack: each takes back the same edit", async () => {
+  const s = await setup(newFontBytes());
+  await show(s);
+  const undo = () => control<HTMLButtonElement>(s.el, ".tkr-font-undo");
+  await act(() => { pixel(s.el, 2, 2).click(); });
+  await settle();
+  await key(pixel(s.el, 2, 2), "ArrowRight");
+  await key(pixel(s.el, 3, 2), " ");
+  await settle();
+  equal(inkAt(s.el), "2,2 3,2");
+  await act(() => { undo().click(); });
+  await settle();
+  equal(inkAt(s.el), "2,2", "the button takes back the keyboard's edit");
+  // The host's own undo (what the menu calls) takes back the pointer's edit next: one stack, not two.
+  await act(() => { for (const answer of [s.doc.undo()]) ok(answer.ok); });
+  await settle();
+  equal(inkAt(s.el), "", "the same stack reached through the host");
+  equal(undo().disabled, true);
+  equal(control<HTMLButtonElement>(s.el, ".tkr-font-redo").disabled, false);
 });

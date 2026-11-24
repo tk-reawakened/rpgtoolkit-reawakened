@@ -16,6 +16,8 @@ import {
   fontCodec,
   fontDestinationProblem,
   fontGlyphRows,
+  fontLinePixels,
+  fontRowsAfter,
   fontPixelOf,
   fontRowsWithPixel,
   fontSlotName,
@@ -52,7 +54,20 @@ async function open(bytes: Uint8Array = ORIGINAL): Promise<{ readonly host: Memo
   return { host, doc: opened.document };
 }
 
-const draw = (glyph: number, rows: readonly number[]): FontCommand => ({ type: "set-font-glyph", glyph, rows });
+/** The pixels that turn `rows` into the glyph: every set bit of the row list, as one stroke. */
+const pixelsFor = (glyph: number, rows: readonly number[]): FontCommand => ({
+  type: "set-font-pixels",
+  glyph,
+  pixels: rows.flatMap((row, y) => Array.from({ length: 8 }, (_, x) => x).filter((x) => ((row >> (7 - x)) & 1) === 1).map((x) => ({ x, y, ink: true }))),
+});
+/** The pixels that clear every set bit of `rows`. */
+const eraseFor = (glyph: number, rows: readonly number[]): FontCommand => ({
+  type: "set-font-pixels",
+  glyph,
+  pixels: rows.flatMap((row, y) => Array.from({ length: 8 }, (_, x) => x).filter((x) => ((row >> (7 - x)) & 1) === 1).map((x) => ({ x, y, ink: false }))),
+});
+const clear = (glyph: number): FontCommand => ({ type: "clear-font-glyph", glyph });
+const draw = pixelsFor;
 
 test("the font kind claims .fnt, and an unedited font round-trips byte for byte, including the file the spec cites and the bundled default", async () => {
   equal(kindForPath("Font/retro.FNT")?.id, "font");
@@ -93,85 +108,142 @@ test("pixels at opposite corners of two glyphs are saved as the rows the format 
   equal(doc.getSnapshot().dirty, true);
   deepEqual(host.bytesOf(PATH), ORIGINAL, "nothing is written before Save");
   ok((await doc.save()).ok);
+  // A stroke adds ink to the glyph as it is, so each corner pixel is OR-ed into the row the file already held.
   const expected = fontText((glyph, row) => {
-    if (glyph === 65) return row === 0 ? 0x80 : row === 7 ? 0x01 : 0;
-    if (glyph === 200) return row === 0 ? 0x01 : row === 7 ? 0x80 : 0;
+    if (glyph === 65) return original(glyph, row) | (row === 0 ? 0x80 : row === 7 ? 0x01 : 0);
+    if (glyph === 200) return original(glyph, row) | (row === 0 ? 0x01 : row === 7 ? 0x80 : 0);
     return original(glyph, row);
   });
-  deepEqual(host.bytesOf(PATH), encoder.encode(expected), "exactly two glyphs changed");
+  deepEqual(host.bytesOf(PATH), encoder.encode(expected), "exactly two glyphs changed, their other pixels kept");
   const reopened = await openFontDocument(host.fs, identity);
   ok(reopened.ok);
   equal(reopened.document.getSnapshot().dirty, false);
-  deepEqual(fontGlyphRows(reopened.document.getSnapshot().values, 65), [0x80, 0, 0, 0, 0, 0, 0, 0x01]);
+  deepEqual(fontGlyphRows(reopened.document.getSnapshot().values, 65), [0x80, 0, 0, 0, 0, 0, 0, 0x01].map((row, index) => row | original(65, index)));
   deepEqual(fontGlyphRows(reopened.document.getSnapshot().values, 66), [0, 1, 2, 3, 4, 5, 6, 7].map((row) => original(66, row)), "an untouched glyph is intact");
 });
 
 test("undo and redo take one glyph edit back and forward whole, and each edit is named by its character", async () => {
   const { doc } = await open();
   const before = [...doc.getSnapshot().values];
+  const saved = fontGlyphRows(doc.getSnapshot().values, 65);
+  const drawn = fontRowsAfter(saved, draw(65, [0xff, 0xff, 0, 0, 0, 0, 0, 0]));
   const first = doc.apply(draw(65, [0xff, 0xff, 0, 0, 0, 0, 0, 0]));
   ok(first.ok);
-  equal(doc.getSnapshot().edits.at(-1)?.label, "Edit character 65 (“A”)");
-  const cleared = doc.apply(draw(65, [0, 0, 0, 0, 0, 0, 0, 0]));
+  equal(doc.getSnapshot().edits.at(-1)?.label, "Draw 16 pixels of character 65 (“A”)");
+  const cleared = doc.apply(clear(65));
   ok(cleared.ok);
   equal(doc.getSnapshot().edits.at(-1)?.label, "Clear character 65 (“A”)");
   ok(doc.undo().ok);
-  deepEqual(fontGlyphRows(doc.getSnapshot().values, 65), [0xff, 0xff, 0, 0, 0, 0, 0, 0]);
+  deepEqual(fontGlyphRows(doc.getSnapshot().values, 65), drawn);
   ok(doc.undo().ok);
   deepEqual([...doc.getSnapshot().values], before);
   equal(doc.getSnapshot().dirty, false, "back at the saved state");
   ok(doc.redo().ok);
-  deepEqual(fontGlyphRows(doc.getSnapshot().values, 65), [0xff, 0xff, 0, 0, 0, 0, 0, 0]);
+  deepEqual(fontGlyphRows(doc.getSnapshot().values, 65), drawn, "redo puts the stroke back over the saved glyph");
   equal(doc.getSnapshot().dirty, true);
 });
 
-test("a command that is not a whole glyph, names no character or changes nothing is refused and the snapshot is the very same", async () => {
+test("a stroke with no pixel, a pixel outside the cell, a sparse pixel list or a no-op is refused, and the snapshot is the very same", async () => {
   const { doc } = await open();
   const before = doc.getSnapshot();
   const rows = fontGlyphRows(before.values, 10);
-  for (const bad of [
-    draw(256, rows),
-    draw(-1, rows),
-    draw(1.5, rows),
-    draw(10, rows.slice(0, 7)),
-    draw(10, [...rows, 0]),
-    draw(10, [...rows.slice(0, 7), 256]),
-    draw(10, [...rows.slice(0, 7), -1]),
-    draw(10, [...rows.slice(0, 7), 1.5]),
-  ]) {
-    const result = doc.apply(bad);
-    ok(!result.ok, JSON.stringify(bad));
+  const sparse = new Array(8);
+  const bad: unknown[] = [
+    { type: "set-font-pixels", glyph: 256, pixels: [{ x: 0, y: 0, ink: true }] },
+    { type: "set-font-pixels", glyph: -1, pixels: [{ x: 0, y: 0, ink: true }] },
+    { type: "set-font-pixels", glyph: 1.5, pixels: [{ x: 0, y: 0, ink: true }] },
+    { type: "set-font-pixels", glyph: 10, pixels: [] },
+    { type: "set-font-pixels", glyph: 10, pixels: [{ x: 8, y: 0, ink: true }] },
+    { type: "set-font-pixels", glyph: 10, pixels: [{ x: 0, y: 8, ink: true }] },
+    { type: "set-font-pixels", glyph: 10, pixels: [{ x: 0, y: 0, ink: "yes" }] },
+    // A sparse list has holes where its pixels should be: `every` skips them, so a strict check must not.
+    { type: "set-font-pixels", glyph: 10, pixels: sparse },
+    { type: "clear-font-glyph", glyph: 256 },
+  ];
+  for (const command of bad) {
+    const result = doc.apply(command as never);
+    ok(!result.ok, JSON.stringify(command));
     equal(result.rejection.reason, "invalid");
     ok(result.rejection.message.length > 0);
   }
-  const same = doc.apply(draw(10, rows));
+  // The pixels of glyph 10 as it already is: nothing to change.
+  const ink = rows.flatMap((row, y) => Array.from({ length: 8 }, (_, x) => x).filter((x) => ((row >> (7 - x)) & 1) === 1).map((x) => ({ x, y, ink: true })));
+  const same = doc.apply({ type: "set-font-pixels", glyph: 10, pixels: ink });
   ok(!same.ok);
-  match(same.rejection.message, /already looks like that/);
-  equal(doc.getSnapshot(), before, "nothing changed");
+  match(same.rejection.message, /already look like that/);
+  // A glyph is cleared only once: the second clear is refused, not recorded.
+  const emptied = doc.apply({ type: "clear-font-glyph", glyph: 10 });
+  ok(emptied.ok);
+  const again = doc.apply({ type: "clear-font-glyph", glyph: 10 });
+  ok(!again.ok);
+  match(again.rejection.message, /already empty/);
+  ok(doc.undo().ok);
+  equal(doc.getSnapshot().edits.length, 0);
+  deepEqual([...doc.getSnapshot().values], [...before.values], "nothing changed by the refusals");
+});
+
+test("two strokes from a stale copy of the glyph keep each other's pixels, and one stroke is one edit", async () => {
+  const { doc } = await open(newFontBytes());
+  const stale = fontGlyphRows(doc.getSnapshot().values, 65);
+  equal(stale.every((row) => row === 0), true, "the empty glyph a second view read");
+  // A second view read the glyph before the first stroke landed, so both would send whole rows from `stale`.
+  ok(doc.apply({ type: "set-font-pixels", glyph: 65, pixels: [{ x: 1, y: 1, ink: true }] }).ok);
+  ok(doc.apply({ type: "set-font-pixels", glyph: 65, pixels: [{ x: 6, y: 6, ink: true }] }).ok);
+  const rows = fontGlyphRows(doc.getSnapshot().values, 65);
+  equal(fontPixelOf(rows, 1, 1), true, "the first stroke's pixel survives the second");
+  equal(fontPixelOf(rows, 6, 6), true, "and the second is applied to what the glyph is now");
+  equal(fontPixelOf(stale, 1, 1), false, "the stale copy it started from never had it");
+  ok(doc.undo().ok);
+  equal(fontPixelOf(fontGlyphRows(doc.getSnapshot().values, 65), 1, 1), true, "one Undo takes back one stroke");
+  equal(fontPixelOf(fontGlyphRows(doc.getSnapshot().values, 65), 6, 6), false);
 });
 
 test("isCommand accepts only the shape a webview may send", () => {
-  ok(fontCodec.isCommand({ type: "set-font-glyph", glyph: 3, rows: [0, 0, 0, 0, 0, 0, 0, 0] }));
-  ok(!fontCodec.isCommand({ type: "set-font-glyph", glyph: "3", rows: [] }));
-  ok(!fontCodec.isCommand({ type: "set-font-glyph", glyph: 3, rows: "00000000" }));
-  ok(!fontCodec.isCommand({ type: "other", glyph: 3, rows: [] }));
+  ok(fontCodec.isCommand({ type: "set-font-pixels", glyph: 3, pixels: [{ x: 0, y: 0, ink: true }] }));
+  ok(fontCodec.isCommand({ type: "clear-font-glyph", glyph: 3 }));
+  ok(!fontCodec.isCommand({ type: "set-font-pixels", glyph: "3", pixels: [] }));
+  ok(!fontCodec.isCommand({ type: "set-font-pixels", glyph: 3, pixels: [{ x: 0, y: 0, ink: 1 }] }));
+  ok(!fontCodec.isCommand({ type: "set-font-pixels", glyph: 3, pixels: new Array(8) }));
+  ok(!fontCodec.isCommand({ type: "set-font-glyph", glyph: 3, rows: [0, 0, 0, 0, 0, 0, 0, 0] }));
+  ok(!fontCodec.isCommand({ type: "other", glyph: 3 }));
   ok(!fontCodec.isCommand(null));
+});
+
+test("fontRowsAfter previews a command on the rows a view holds, without mutating them, and fontLinePixels interpolates a drag", () => {
+  const rows = [0x80, 0, 0, 0, 0, 0, 0, 0];
+  const after = fontRowsAfter(rows, { type: "set-font-pixels", glyph: 65, pixels: [{ x: 3, y: 2, ink: true }, { x: 0, y: 0, ink: false }] });
+  deepEqual(after, [0x00, 0, 0x10, 0, 0, 0, 0, 0]);
+  deepEqual(rows, [0x80, 0, 0, 0, 0, 0, 0, 0], "the rows a view holds are untouched");
+  deepEqual(fontRowsAfter(rows, { type: "clear-font-glyph", glyph: 65 }), [0, 0, 0, 0, 0, 0, 0, 0]);
+  deepEqual(fontLinePixels(0, 0, 3, 0), [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }]);
+  const diagonal = fontLinePixels(0, 0, 7, 7);
+  deepEqual([diagonal[0], diagonal.at(-1)], [{ x: 0, y: 0 }, { x: 7, y: 7 }]);
+  equal(diagonal.length, 8, "a diagonal passes one cell per row, none skipped");
+  deepEqual(fontLinePixels(4, 4, 4, 4), [{ x: 4, y: 4 }], "a press with no move is one cell");
+  const steep = fontLinePixels(0, 0, 1, 7);
+  equal(steep.length, 8);
+  for (let index = 1; index < steep.length; index += 1) {
+    const previous = steep[index - 1]!;
+    const cell = steep[index]!;
+    equal(Math.abs(cell.x - previous.x) <= 1 && Math.abs(cell.y - previous.y) <= 1, true, "no gap between consecutive cells");
+  }
 });
 
 test("a refused save keeps every glyph edit, still unsaved, and the next save writes them (ADR 0022 D3.3)", async () => {
   const { host, doc } = await open();
+  const savedRows65 = fontGlyphRows(doc.getSnapshot().values, 65);
   ok(doc.apply(draw(65, [0xff, 0, 0, 0, 0, 0, 0, 0])).ok);
   host.failWrites({ code: "io-error", message: "the disk is full" });
   const refused = await doc.save();
   ok(!refused.ok);
   equal(refused.failure.kind, "write");
   equal(doc.getSnapshot().dirty, true);
-  deepEqual(fontGlyphRows(doc.getSnapshot().values, 65), [0xff, 0, 0, 0, 0, 0, 0, 0], "the edit is still in the document");
+  deepEqual(fontGlyphRows(doc.getSnapshot().values, 65), fontRowsAfter(savedRows65, draw(65, [0xff, 0, 0, 0, 0, 0, 0, 0])), "the edit is still in the document");
   deepEqual(host.bytesOf(PATH), ORIGINAL);
   host.failWrites(null);
   ok((await doc.save()).ok);
   equal(doc.getSnapshot().dirty, false);
-  deepEqual(fontGlyphRows((await openFontDocument(host.fs, identity) as { document: FontDocument }).document.getSnapshot().values, 65), [0xff, 0, 0, 0, 0, 0, 0, 0]);
+  deepEqual(fontGlyphRows((await openFontDocument(host.fs, identity) as { document: FontDocument }).document.getSnapshot().values, 65), fontRowsAfter(savedRows65, draw(65, [0xff, 0, 0, 0, 0, 0, 0, 0])));
 });
 
 test("a file the writer would not reproduce byte for byte opens read-only with the reason, and is never converted", async () => {
@@ -181,7 +253,7 @@ test("a file the writer would not reproduce byte for byte opens read-only with t
   const snapshot = doc.getSnapshot();
   equal(snapshot.readOnly?.code, "no-same-version-writer");
   match(snapshot.readOnly?.message ?? "", /first difference is at offset/);
-  const refused = doc.apply(draw(65, [1, 1, 1, 1, 1, 1, 1, 1]));
+  const refused = doc.apply(clear(65));
   ok(!refused.ok);
   equal(refused.rejection.reason, "read-only");
   const saved = await doc.save();

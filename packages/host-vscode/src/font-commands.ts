@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { runNewFont } from "./new-font.ts";
+import { fontProjectLayout, runNewFont } from "./new-font.ts";
 import { createVscodeServices } from "./services.ts";
 
 /** What a script or keybinding may pass to `tkr.newFont` to skip the question: the font's project path. */
@@ -21,9 +21,11 @@ export function registerFontCommands(context: vscode.ExtensionContext, generatio
     const folder = folders.length === 1 ? folders[0]! : (await vscode.window.showQuickPick(folders.map((item) => ({ label: item.name, item })), { title: "New font: project", ignoreFocusOut: true }))?.item;
     if (folder === undefined) return;
     const services = createVscodeServices(folder.uri, context, generation);
+    // The suggestion is where this game's own fonts live, so a `Main/` + `Game/<project>/` game gets the right path.
+    const layout = await fontProjectLayout(services.fs, folder.uri.toString());
     const outcome = await runNewFont({
       fs: services.fs,
-      layout: { projectFolder: "" },
+      layout,
       ui: {
         input: (question) => args?.path !== undefined ? Promise.resolve(args.path) : Promise.resolve(vscode.window.showInputBox({
           title: question.title,

@@ -82,7 +82,6 @@ export type BridgeMessage =
   | { readonly type: "edit-result"; readonly requestId: string; readonly result: ApplyResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "save-result"; readonly requestId: string; readonly result: SaveResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "conflict-result"; readonly requestId: string; readonly result: ConflictResult; readonly snapshot: BridgedSnapshot }
-  | { readonly type: "history-result"; readonly requestId: string; readonly result: HistoryResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "preview-result"; readonly requestId: string; readonly picture: BoardPicture }
   | { readonly type: "read-project-result"; readonly requestId: string; readonly result: PlatformResult<Uint8Array> }
   | { readonly type: "visit-result"; readonly requestId: string; readonly outcome: VisitOutcome }
@@ -102,9 +101,6 @@ export type EditorHostRequest =
   | { readonly type: "edit"; readonly command: unknown; readonly requestId: string }
   | { readonly type: "save"; readonly requestId: string }
   | { readonly type: "resolve-conflict"; readonly choice: ConflictChoice; readonly requestId: string }
-  /** Undo or redo the latest accepted edit through the document's own stack (the workbench's command, from the view). */
-  | { readonly type: "undo"; readonly requestId: string }
-  | { readonly type: "redo"; readonly requestId: string }
   | { readonly type: "preview"; readonly requestId: string; readonly request?: BoardPreviewRequest }
   | { readonly type: "read-project"; readonly requestId: string; readonly path: string }
   | { readonly type: "visit"; readonly requestId: string; readonly path: string }
@@ -190,10 +186,6 @@ export async function handleEditorHostRequest(
       : { ok: false, rejection: { reason: "invalid", message: `That is not an edit this ${document.model.kind} document understands.` } };
     if (result.ok) document.didEdit(result.editId);
     await postMessage({ type: "edit-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
-  } else if (request.type === "undo" || request.type === "redo") {
-    // The view asks for the workbench's own history: the document's stack decides what can be taken back.
-    const result = request.type === "undo" ? document.model.undo() : document.model.redo();
-    await postMessage({ type: "history-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   } else if (request.type === "save") {
     const result = await document.saveThroughWorkbench();
     await postMessage({ type: "save-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
@@ -293,10 +285,6 @@ export async function handleHistoryPreviewRequest(
       result: { ok: false, rejection: { reason: "read-only", message: denied } },
       snapshot: document.model.getSnapshot(),
     });
-  } else if (request.type === "undo" || request.type === "redo") {
-    // The view asks for the workbench's own history: the document's stack decides what can be taken back.
-    const result = request.type === "undo" ? document.model.undo() : document.model.redo();
-    await postMessage({ type: "history-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   } else if (request.type === "save") {
     await postMessage({
       type: "save-result",
@@ -404,7 +392,7 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "browser-context") return "changes" in value && isBrowserStatePatch(value.changes);
   if (!("requestId" in value) || typeof value.requestId !== "string") return false;
   if (value.type === "browser-list" || value.type === "browser-read" || value.type === "read-project") return "path" in value && isProjectPath(value.path);
-  if (value.type === "save" || value.type === "return-visit" || value.type === "settled" || value.type === "undo" || value.type === "redo") return true;
+  if (value.type === "save" || value.type === "return-visit" || value.type === "settled") return true;
   if (value.type === "import-as-scene") return true;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
   if (value.type === "visit" || value.type === "visit-reference") return "path" in value && typeof value.path === "string" && value.path !== "";
@@ -430,7 +418,6 @@ export class RemoteDocument {
   private readonly pendingEditResults = new Map<string, (result: ApplyResult) => void>();
   private readonly pendingSaves = new Map<string, (result: SaveResult) => void>();
   private readonly pendingResolutions = new Map<string, (result: ConflictResult) => void>();
-  private readonly pendingHistory = new Map<string, (result: HistoryResult) => void>();
   private readonly pendingPreviews = new Map<string, (picture: BoardPicture) => void>();
   private readonly pendingVisits = new Map<string, (outcome: VisitOutcome) => void>();
   private readonly pendingReturns = new Map<string, (outcome: ReturnOutcome) => void>();
@@ -602,25 +589,6 @@ export class RemoteDocument {
     });
   }
 
-  /**
-   * Undo the latest accepted edit through the workbench's stack. A view opts in by mapping this to its own `undo`, so a
-   * host that owns history for other kinds (the board says so and shows no button) is unchanged.
-   */
-  historyUndo(): Promise<HistoryResult> {
-    const requestId = `undo-${++this.nextRequest}`;
-    return new Promise((resolve) => {
-      this.pendingHistory.set(requestId, resolve);
-      this.vscode.postMessage({ type: "undo", requestId });
-    });
-  }
-
-  historyRedo(): Promise<HistoryResult> {
-    const requestId = `redo-${++this.nextRequest}`;
-    return new Promise((resolve) => {
-      this.pendingHistory.set(requestId, resolve);
-      this.vscode.postMessage({ type: "redo", requestId });
-    });
-  }
 
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult> {
     const requestId = `resolve-${++this.nextRequest}`;
@@ -689,7 +657,6 @@ export class RemoteDocument {
     if (message.type === "edit-result") this.settle(this.pendingEditResults, message.requestId, message.result);
     else if (message.type === "save-result") this.settle(this.pendingSaves, message.requestId, message.result);
     else if (message.type === "conflict-result") this.settle(this.pendingResolutions, message.requestId, message.result);
-    else if (message.type === "history-result") this.settle(this.pendingHistory, message.requestId, message.result);
     this.notify();
   }
 

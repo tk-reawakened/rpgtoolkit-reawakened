@@ -2426,6 +2426,11 @@ fieldset.tkr-web-project-controls {
   box-shadow: var(--tkr-shadow-stage);
 }
 
+/* The picture is drawn 1:1 and enlarged by the layout, so a phone never needs a canvas of thousands of pixels a side. */
+.tkr-font-canvas[data-zoom="2"] { zoom: 2; }
+.tkr-font-canvas[data-zoom="3"] { zoom: 3; }
+.tkr-font-canvas[data-zoom="4"] { zoom: 4; }
+
 .tkr-font-error,
 .tkr-font-conflict {
   margin: 0;

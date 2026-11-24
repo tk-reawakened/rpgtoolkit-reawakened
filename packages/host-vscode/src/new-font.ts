@@ -1,4 +1,5 @@
-import { createFontFile, suggestFontPath, type NewFontStorage, type ProjectLayout } from "@tk-reawakened/editor-model";
+import { createFontFile, projectLayoutOfMain, suggestFontPath, type NewFontStorage, type ProjectLayout } from "@tk-reawakened/editor-model";
+import type { FileSystemService } from "@tk-reawakened/platform-services";
 
 /**
  * The new-font question (T-65) for a host with no form of its own: one input box, cancellable, that starts from the first
@@ -19,6 +20,29 @@ export interface NewFontEnvironment {
 export type NewFontOutcome =
   | { readonly ok: true; readonly path: string }
   | { readonly ok: false; readonly reason: "cancelled" | "refused"; readonly message: string };
+
+/**
+ * The project layout a new font belongs in: where the game's main file says its project folder is, so a game laid out as
+ * `Main/` plus `Game/<project>/` gets `Game/<project>/Font`, exactly where the engine installs it; the root when there is
+ * no main file or its folder is not in the project. The first `.gam` found is the game, as the link resolver treats it.
+ */
+export async function fontProjectLayout(fs: Pick<FileSystemService, "list" | "readProject">, projectId: string): Promise<ProjectLayout> {
+  const pending = [""];
+  const seen = new Set<string>();
+  while (pending.length > 0) {
+    const directory = pending.pop()!;
+    if (seen.has(directory)) continue;
+    seen.add(directory);
+    const listing = await fs.list(directory);
+    if (!listing.ok) continue;
+    for (const entry of listing.value) {
+      const path = directory === "" ? entry.name : `${directory}/${entry.name}`;
+      if (entry.kind === "directory") pending.push(path);
+      else if (entry.kind === "file" && path.toLowerCase().endsWith(".gam")) return await projectLayoutOfMain(fs, projectId, path);
+    }
+  }
+  return { projectFolder: "" };
+}
 
 /** Ask for the font's path (it starts as a suggestion) and create it with all 256 glyphs empty. */
 export async function runNewFont(env: NewFontEnvironment): Promise<NewFontOutcome> {

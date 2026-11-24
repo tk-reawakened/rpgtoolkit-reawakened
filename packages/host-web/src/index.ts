@@ -1,6 +1,7 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import type { HistoryResult } from "@tk-reawakened/editor-model";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type FontViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
@@ -293,6 +294,11 @@ export const openGameSettings = openEditor;
  * project's files by the one board compositor (AD-29). The workspace types a document by its lifecycle only, so the
  * kind is what says which command and snapshot types it has.
  */
+/** The workspace's own undo/redo result, as the font view reports it. */
+function historyOutcome(result: HistoryResult): { readonly ok: true } | { readonly ok: false; readonly message: string } {
+  return result.ok ? { ok: true } : { ok: false, message: `There is nothing to ${result.reason === "read-only" ? "change: the font is read-only" : result.reason === "nothing-to-undo" ? "undo" : "redo"}.` };
+}
+
 function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
   if (document.kind === "font") {
@@ -306,8 +312,9 @@ function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard
       apply: (command) => font.apply(command),
       save: () => font.save(),
       resolveConflict: (choice) => font.resolveConflict(choice),
-      undo: () => font.undo(),
-      redo: () => font.redo(),
+      // The workbench keeps the undo and redo stacks (its menu and palette use them), so the view asks the workbench.
+      undo: () => historyOutcome(project.workspace.undo(document)),
+      redo: () => historyOutcome(project.workspace.redo(document)),
     };
     return view;
   }
