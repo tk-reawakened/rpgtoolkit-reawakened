@@ -178,7 +178,7 @@ test("the text area shows the document's LF text; typing becomes one labelled ed
   // Typing not yet handed to the document: the workspace's Save waits for it.
   equal(s.pending.busy(), true);
   equal(textOf(s), "x = 1\ny = 2\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 1\ny = 22\n");
   equal(s.doc.getSnapshot().edits.at(-1)!.label, "Typing");
   equal(s.host.editedEvents.length, 1);
@@ -710,7 +710,7 @@ test("an edit the document refuses is said in an alert and the text area goes ba
   const s = await setup();
   show(s);
   await type(s.el, "x = 1\ny = 2\n\u2603");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   await settled();
   equal(textOf(s), "x = 1\ny = 2\n");
   equal(area(s.el).value, "x = 1\ny = 2\n");
@@ -854,7 +854,7 @@ test("a host with no language service says so, and the text edits and saves", as
   show(s);
   match(noteOf(s.el), /not available in this host/);
   await type(s.el, "x = 9\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   await act(async () => { await named(s.el, "Save").click(); });
   await settled();
   deepEqual(s.host.bytesOf(PATH), bytes("x = 9\r\n"));
@@ -981,7 +981,7 @@ test("LSP request errors are announced as status and do not stop editing", async
   await settled();
   equal(s.el.querySelector(".tkr-program-language-note[role=status]")?.textContent?.trim(), "Language request textDocument/hover failed: hover failed");
   spy.edit(0, 0, "z");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "zx = 1\ny = 2\n");
 });
 
@@ -1023,7 +1023,7 @@ test("a surface change reaches the server as full text with a rising version, th
   equal(changes.length, 1);
   deepEqual(changes[0]!.params, { textDocument: { uri: "file:///project/Prg/intro.prg", version: 2 }, contentChanges: [{ text: "x = 1\ny = 2\nz" }] });
   equal(textOf(s), "x = 1\ny = 2\n", "the document has not taken the burst yet");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 1\ny = 2\nz");
   equal(spy.calls.filter((call) => call.startsWith("setText")).length, 0, "the surface already held the text, so it is not rewritten");
   handle.dispose();
@@ -1095,7 +1095,7 @@ test("typing in either shared view refreshes bookmarks in both views", async (t)
     timers.enable({ apis: ["setTimeout"] });
     try {
       spy.edit(0, spy.text().length, text);
-      await act(() => s.pending.settle());
+      await act(async () => { await s.pending.settle(); });
       timers.tick(300);
     } finally {
       timers.reset();
@@ -1135,7 +1135,7 @@ test("a server that cannot start leaves editing alone and the note says why", as
   await settled();
   match(noteOf(s.el), /Language features are unavailable: the worker could not start/);
   await type(s.el, "x = 7\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 7\n");
 });
 
@@ -1151,7 +1151,7 @@ test("a server that stops later clears the bookmarks and diagnostics and leaves 
   equal(s.el.querySelectorAll(".tkr-program-bookmarks button").length, 0);
   match(noteOf(s.el), /Language features stopped: The server crashed\./);
   await type(s.el, "x = 8\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 8\n");
 });
 
@@ -1161,7 +1161,7 @@ test("a code editor that throws on start leaves a plain text area and the note s
   ok(area(s.el) !== null);
   match(noteOf(s.el), /code editor could not start \(worker blocked\)/);
   await type(s.el, "x = 5\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 5\n");
 });
 
@@ -1179,9 +1179,9 @@ test("#2768 a net-zero burst preserves the identity used by the next replacement
   const handle = show(s);
   await type(s.el, "y");
   await type(s.el, "x");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   await type(s.el, "z");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "z");
   handle.dispose();
 });
@@ -1198,7 +1198,7 @@ for (const [original, edited, replacement] of [["x", "xa", "xb"], ["x", "ax", "b
     await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
     await type(s.el, replacement!);
     first.release.resolve();
-    await act(() => s.pending.settle());
+    await act(async () => { await s.pending.settle(); });
     equal(textOf(s), replacement);
     await s.doc.save();
     const expected = original!.includes("\r") ? "bx\r\ny\nz\r" : replacement!;
@@ -1221,7 +1221,7 @@ test("#2769 Redo after a net-zero queued Save preserves the newer unchanged iden
   await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
   await type(s.el, "z");
   first.release.resolve();
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "za");
   deepEqual(s.host.bytesOf(PATH), bytes("x"));
   handle.dispose();

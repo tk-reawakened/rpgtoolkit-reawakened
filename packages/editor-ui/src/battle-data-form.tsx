@@ -125,6 +125,11 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   // a revert drops text typed against the version being discarded, with the message that named it.
   useEffect(() => pendingEdits.register({
     busy: () => submitted.current.busy(),
+    // Asked on every settlement: a field the file cannot store refuses the host's save with its reason, so a host save
+    // cannot report success while that text is left behind.
+    refusal: () => Object.keys(draftsRef.current).length > 0
+      ? "A field still holds text this file cannot store, so nothing was saved. Correct it or discard it."
+      : null,
     idle: async (reason) => {
       if (reason === "revert") {
         if (Object.keys(draftsRef.current).length > 0) { publishDrafts({}); setMessage(null); }
@@ -270,10 +275,13 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   // Each line keeps the ending the stored text used, and a line the author adds takes the last one; a description with
   // mixed endings is therefore not rewritten into one convention.
   const endings = value.match(/\r\n|\n|\r/g) ?? [];
+  const storedLines = value.split(/\r\n|\n|\r/).length;
   const asWritten = (text: string): string => {
     const lines = text.split("\n");
-    const last = endings.at(-1) ?? "\n";
-    return lines.map((line, index) => index === lines.length - 1 ? line : `${line}${endings[index] ?? last}`).join("");
+    // A one-for-one edit keeps every line's own ending; a field whose lines were inserted or removed cannot be mapped
+    // back, so the file's last ending is used rather than inventing a mixture that never existed.
+    const ending = (index: number): string => (lines.length === storedLines ? endings[index] : endings.at(-1)) ?? "\n";
+    return lines.map((line, index) => index === lines.length - 1 ? line : `${line}${ending(index)}`).join("");
   };
   registerField(id, () => {
     const draft = drafts[id];

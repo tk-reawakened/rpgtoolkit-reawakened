@@ -72,11 +72,15 @@ export function linkedFileCandidates(folder: string, reference: string, extensio
   const typed = `${base}/${withoutFolder}`;
   const hasExtension = extensions.some((extension) => typed.toLowerCase().endsWith(extension));
   // The game appends the type's extension when the author left it off, so the completed path is tried first.
-  const complete = hasExtension || extensions.length === 0 ? [typed] : [`${typed}${extensions[0]}`, typed];
+  // The runtime appends the type's extension when the author left it off, so an extensionless reference names the
+  // completed file only; the extensionless spelling is never what the game loads.
+  const complete = hasExtension || extensions.length === 0 ? [typed] : [`${typed}${extensions[0]}`];
   // The folder keeps its stored spelling (a project may hold `StatusE`), while the legacy file name is ASCII lower case.
   const lowerFile = (path: string): string => {
     const cut = path.lastIndexOf("/");
-    return `${path.slice(0, cut + 1)}${path.slice(cut + 1).toLowerCase()}`;
+    return `${path.slice(0, cut + 1)}${path.slice(cut + 1).replace(/[A-Z]/g, (letter) => letter.toLowerCase())}`;
   };
-  return [...new Set([...complete, ...complete.map(lowerFile), ...complete.map((path) => path.toLowerCase())])];
+  // ASCII folding only: the engine compares names ASCII-folded, so `CAFÉ.STE` must not be looked up as a different name.
+  const foldAscii = (text: string): string => text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  return [...new Set([...complete, ...complete.map(lowerFile), ...complete.map(foldAscii)])];
 }

@@ -66,7 +66,8 @@ export function createPendingEdits(): PendingEdits {
         await Promise.all(registered.map((work) => work.idle(reason)));
         if (!busy()) return refusalOf(registered);
       }
-      return refusalOf([...works]);
+      // Still busy after every round: the host must not save over work it could not see settle.
+      return { ok: false, message: "the editor is still handing over its accepted edits; save again in a moment" };
     },
   };
 }

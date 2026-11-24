@@ -262,7 +262,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * messages, and a view destroyed before it can be asked is no longer tracked. Those windows remain known gaps in
    * ADR 0022, #2613 and #2652.
    */
-  async settleViews(reason: "explicit" | "autosave" | "revert" | "query" = "explicit"): Promise<string | null> {
+  async settleViews(reason: "explicit" | "autosave" | "revert" | "query" = "autosave"): Promise<string | null> {
     const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
     const answers = [...this.#views].map((view) => new Promise<string | null>((resolve) => {
       const requestId = `settle-${++this.#nextSettle}`;
@@ -425,7 +425,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * before it records the save is outside the provider's reach (ADR 0022 D14.6, #2225).
    */
   async save(): Promise<SaveResult> {
-    const unsettled = await this.settleViews();
+    // VS Code hands a custom document no save reason, and `files.autoSave` drives this same path (ADR 0022 D14.1), so a
+    // save from here must not commit a half-typed field: the view's own Save and Ctrl/Cmd+S do that explicitly.
+    const unsettled = await this.settleViews("autosave");
     if (unsettled !== null) {
       const path = this.model.identity.path;
       const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled}. Nothing was written and the edits it holds stay unsaved; save again.` } };
@@ -854,11 +856,12 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own
       // edits after the save point, which `revert` mirrors (D3.6). First require every live webview to hand over its
       // accepted edits; if that cannot be confirmed, leave the model untouched.
-      // The user chose to discard, so text typed against the discarded version goes with it.
-      const unsettled = await document.settleViews("revert");
+      const unsettled = await document.settleViews("query");
       if (unsettled !== null) throw new Error(`Could not revert ${document.model.identity.path}: ${unsettled}. Nothing was reverted.`);
       const result = await document.model.revert();
       if (!result.ok) throw new Error(result.failure.message);
+      // Only a revert that really reloaded the file discards what the author typed against the old version.
+      await document.settleViews("revert");
     },
     async backupCustomDocument(document, destination) {
       // A hot-exit backup must not commit a half-typed field: autosave leaves the gesture alone (ADR 0022 D11.2).

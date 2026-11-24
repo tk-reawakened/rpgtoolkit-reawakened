@@ -27,11 +27,12 @@ const STATUS_EDITED = (() => {
 interface ProofWindow extends Window { __tkrTestFolder?: FileSystemDirectoryHandle }
 
 /** The shipped editor page over a seeded origin-private project folder, opened the way a person does it. */
-async function openWorkbench(page: Page): Promise<void> {
+async function openWorkbench(page: Page, extra: readonly { readonly path: string; readonly bytes: number[] }[] = []): Promise<void> {
   const files = [
     { path: "Main/example.gam", bytes: bytes("game/Main/example.gam") },
     { path: "SpcMove/fireball.spc", bytes: FIREBALL },
     { path: "StatusE/burn.ste", bytes: BURN },
+    ...extra,
   ];
   const folderName = `TkrBattleData-${randomUUID()}`;
   await page.addInitScript(async ({ inputs, name }) => {
@@ -120,6 +121,18 @@ test("the linked status effect opens in its own tab, saves there, and the move's
   await page.getByRole("button", { name: "Return to board" }).click();
   await expect(move).toBeVisible();
   await expect(move.getByText("Burn: 3 rounds; restores 5 HP each round.")).toBeVisible();
+});
+
+test("two files that differ only in case are reported as a collision in a real case-sensitive project folder", async ({ page }) => {
+  // OPFS is case-sensitive, so both spellings live side by side and the reference names neither.
+  await openWorkbench(page, [{ path: "StatusE/Burn.STE", bytes: BURN }]);
+  await openFile(page, "SpcMove", "fireball.spc");
+  const editor = page.locator('[data-tkr-editor="Special move"]');
+  await expect(editor.getByText("differ only in case")).toBeVisible();
+  await expect(editor.getByRole("button", { name: "Open status effect" })).toBeDisabled();
+  await expect(editor.getByText("Burn: 3 rounds")).toHaveCount(0);
+  // The reference is untouched: the file still holds burn.ste and the form still holds it.
+  expect(await readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
 });
 
 test("a value the field cannot hold is refused with its reason, is never saved, and is discarded on request", async ({ page }) => {
