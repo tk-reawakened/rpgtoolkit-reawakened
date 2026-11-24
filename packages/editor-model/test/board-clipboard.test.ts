@@ -557,6 +557,7 @@ test("a clipped rotated-isometric selection whose bounding box starts on an abse
   ok(await s.editor.copy());
   const clip = parseClip(s.host.clipboardText);
   ok(clip.ok && clip.value.kind === "region");
+  ok(clip.value.origin !== null, "a copied region records where it came from");
   deepEqual([clip.value.origin.x, clip.value.origin.y, clip.value.width, clip.value.height], [0, 0, 8, 8]);
   s.editor.setLayer(1);
   s.editor.setCursor(s.centre);
