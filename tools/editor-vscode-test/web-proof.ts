@@ -3137,11 +3137,23 @@ export async function runVscodeFontProof(page: Page, expect: Expect, workbenchUr
   await panel.locator(".tkr-font-size").fill("8");
   await expect(panel.locator(".tkr-font-state")).toHaveText("Unsaved changes");
 
-  // Undo is not proved here: the font view offers no undo control of its own (the project's editor actions are the host's),
-  // and in this VS Code web build the palette offers no "Edit: Undo" row while focus is in the custom editor's webview, so
-  // there is no real workbench gesture to press. Undo and Redo are proved through the browser workbench's Edit menu in
-  // tools/browser/tests/editor-font.spec.ts and at the document and view level in the editor-model and editor-ui tests;
-  // the gap is filed as its own issue rather than hidden behind this proof.
+  // Undo and Redo through the workbench's own commands: the provider handed each accepted edit to VS Code's undo stack
+  // when it fired the custom-document edit (`custom-editor.ts`, `didEdit`), so the workbench undoes it by its editId.
+  await runCommandMatching(page, expect, "Undo", "Undo", false);
+  await expect.poll(() => inkOf(panel)).toBe("0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
+  await runCommandMatching(page, expect, "Redo", "Redo", false);
+  await expect.poll(() => inkOf(panel)).toBe("6,0 0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
+  // The keyboard's undo and redo from the grid: the webview is the shared editor view, so the keys reach the workbench.
+  await panel.locator('[data-pixel="7,0"]').focus();
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => inkOf(panel)).toBe("0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
+  await page.keyboard.press("Control+y");
+  await expect.poll(() => inkOf(panel)).toBe("6,0 0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
+  // The editor's own Undo and Redo buttons are the workbench's history through the bridge.
+  await panel.locator(".tkr-font-undo").click();
+  await expect.poll(() => inkOf(panel)).toBe("0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
+  await panel.locator(".tkr-font-redo").click();
+  await expect.poll(() => inkOf(panel)).toBe("6,0 0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
 
   // Save writes the edited glyph only; every other glyph is the file's own.
   await panel.getByRole("button", { name: "Save", exact: true }).click();

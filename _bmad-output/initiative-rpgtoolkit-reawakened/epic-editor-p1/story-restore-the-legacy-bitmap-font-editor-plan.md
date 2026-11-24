@@ -65,3 +65,15 @@ Each is also written into `docs/` in this ticket's first commit.
 - `pnpm golden`, `pnpm golden:bun`, `pnpm closing` (8/8 after the explained baseline pin), `pnpm lint`, `pnpm graph`, `pnpm licence`, `pnpm provenance`, `pnpm catalogue:check`, `pnpm editor-ui-toolchain:check`, `pnpm adr:numbering:check`, `pnpm fixtures:author:check`, `pnpm fixtures:test`.
 - Real hosts: `tools/browser/tests/editor-font.spec.ts` 2/2 in Chromium; the focused VS Code web font proof passes; the unmodified full VS Code web acceptance suite passes against the same build.
 - `pnpm script:dogfood` is not applicable: this change touches no RPGCode source, script-tool input or indexed symbol. `desktop:input`, the Android proof and `desktop:measure` were not run (no emulator or GPU host here, and the change alters no input geometry or desktop loop).
+
+## Undo and redo in both hosts (#3375 closed in this PR)
+
+The first VS Code run failed with no `Edit: Undo` row. Two things were behind it: the palette row is `Undo` (not `Edit: Undo`), and, more importantly, **Ctrl+Z inside a custom editor's webview went nowhere** — the workbench does not forward it into the iframe. That left the acceptance's "undo … with keyboard" unproven in the VS Code host.
+
+Fixed in the shared seam rather than per view:
+
+- `packages/host-vscode/src/document-bridge.ts`: the view may ask the workbench for its own history (`{ type: "undo" | "redo", requestId }`), answered by `document.model.undo()/redo()` with a `history-result`. `RemoteDocument` gained `historyUndo()`/`historyRedo()` — **not** `undo`/`redo`, so a view that deliberately leaves history to the host (the board, which shows no button and says to use the workbench's Undo) is unchanged; `board-canvas-hosts.test.ts` still passes. The font view opts in through a forwarding adapter in `webview.tsx` for the `font` kind only.
+- `packages/editor-ui/src/font-view.tsx`: `FontViewDocument` accepts the host's `undo`/`redo`; the glyph panel shows **Undo** and **Redo** (with `aria-keyshortcuts`), and Ctrl+Z, Ctrl+Y and Ctrl+Shift+Z act from the grid. The view skips the keys when the workbench around it already handled them (`event.defaultPrevented`), so the browser host's global binding and the view never undo twice.
+- `packages/host-web/src/index.ts`: the browser host's font view gets the document's own stack, like a board's.
+
+Proofs: `tools/browser/tests/editor-font.spec.ts` presses Ctrl+Z/Ctrl+Y and clicks both buttons; the VS Code web proof does the same through the real bridge and the workbench's own `Undo`/`Redo` commands, and `pnpm test:strict` is 5811 pass / 0 fail / 0 skipped. Unit level: `packages/editor-ui/test/font-view.test.ts` (buttons, keys, stack length) and `tools/editor-vscode-test/test/editor-host-adapters.test.ts` (the new request shape).

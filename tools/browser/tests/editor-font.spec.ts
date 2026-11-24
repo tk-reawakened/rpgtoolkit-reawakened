@@ -203,6 +203,17 @@ test("the bitmap font editor draws a glyph with the pointer and the keyboard, pr
   await expect.poll(() => ink(page)).toBe("0,0");
   await menuCommand(page, "Redo");
   await expect.poll(() => ink(page)).toBe("0,0 0,1 1,1 2,1");
+  // The keyboard's own undo and redo do the same, from the grid.
+  await editor(page).locator('[data-pixel="7,0"]').focus();
+  await page.keyboard.press("Control+z");
+  await expect.poll(() => ink(page)).toBe("0,0");
+  await page.keyboard.press("Control+y");
+  await expect.poll(() => ink(page)).toBe("0,0 0,1 1,1 2,1");
+  // The editor's own Undo and Redo buttons are the host's history too.
+  await editor(page).locator(".tkr-font-undo").click();
+  await expect.poll(() => ink(page)).toBe("0,0");
+  await editor(page).locator(".tkr-font-redo").click();
+  await expect.poll(() => ink(page)).toBe("0,0 0,1 1,1 2,1");
   await expect(state(page)).toHaveText("Unsaved changes");
 
   // Save, and the file holds exactly the edited glyph; every other glyph is the file's own.

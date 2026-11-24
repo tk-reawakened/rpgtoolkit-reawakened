@@ -164,6 +164,16 @@ export function WorkbenchCommandBar({
         event.preventDefault();
         event.stopPropagation();
         registry.execute("file.save");
+      } else if (cmdOrCtrl && !event.altKey && !event.isComposing && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
+        // The workbench's own undo and redo, except where the browser or the code editor owns the key: a text field keeps
+        // its native undo, and a Monaco surface keeps its own stack.
+        const target = event.target instanceof Element ? event.target : null;
+        if (target !== null && target.closest("input, textarea, select, [contenteditable='true'], .monaco-editor") === null) {
+          const redo = event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z");
+          event.preventDefault();
+          event.stopPropagation();
+          registry.execute(redo ? "edit.redo" : "edit.undo");
+        }
       } else if (event.key === "Escape" && menuOpen) {
         event.preventDefault();
         setMenuOpen(false);
