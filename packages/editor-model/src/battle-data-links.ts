@@ -50,6 +50,7 @@ export function linkReferenceProblem(reference: string): string | null {
   if (/^\/|^[A-Za-z]:/.test(slashed)) return "A reference is relative to its own folder and cannot start with a separator or a drive.";
   const segments = slashed.split("/");
   if (segments.some((segment) => segment === "." || segment === "..")) return "A reference cannot step out of its folder with a \".\" or \"..\" segment.";
+  if (segments.some((segment) => segment === "")) return "A reference cannot hold an empty folder name.";
   return null;
 }
 
@@ -62,9 +63,14 @@ export function linkReferenceProblem(reference: string): string | null {
 export function linkedFileCandidates(folder: string, reference: string, extensions: readonly string[]): readonly string[] {
   const base = folder.replace(/\/+$/, "");
   const inside = reference.trim().split("\\").join("/").replace(/^\/+/, "");
-  const typed = `${base}/${inside}`;
+  // A reference that repeats the type folder (`StatusE\burn.ste`) names the same file as the bare name, so the folder
+  // prefix is dropped before looking it up.
+  const head = base.slice(base.lastIndexOf("/") + 1).toLowerCase();
+  const withoutFolder = inside.split("/")[0]?.toLowerCase() === head ? inside.split("/").slice(1).join("/") : inside;
+  const typed = `${base}/${withoutFolder}`;
   const hasExtension = extensions.some((extension) => typed.toLowerCase().endsWith(extension));
-  const complete = hasExtension || extensions.length === 0 ? [typed] : [typed, `${typed}${extensions[0]}`];
+  // The game appends the type's extension when the author left it off, so the completed path is tried first.
+  const complete = hasExtension || extensions.length === 0 ? [typed] : [`${typed}${extensions[0]}`, typed];
   // The folder keeps its stored spelling (a project may hold `StatusE`), while the legacy file name is ASCII lower case.
   const lowerFile = (path: string): string => {
     const cut = path.lastIndexOf("/");

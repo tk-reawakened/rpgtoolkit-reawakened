@@ -54,6 +54,8 @@ export interface BattleDataFormBase<Command> {
   setDraft(key: string, text: string): void;
   /** Drop one field's typed text, for a change that replaced it (a Choose). */
   dropDraft(key: string): void;
+  /** Drop every draft, for an author who chooses not to apply a refused field. */
+  discardDrafts(): void;
   /** Apply one command and tell the host; resolves true when the document accepted it. */
   run(command: Command): Promise<boolean>;
   save(): Promise<void>;
@@ -86,10 +88,8 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const [resolving, setResolving] = useState(false);
   // The draft map is kept ref-authoritative: a host save runs outside a render, so `busy()` must see a commit at once.
   const draftsRef = useRef<Readonly<Record<string, string>>>({});
-  const pendingDrafts = useRef(false);
   const publishDrafts = (next: Readonly<Record<string, string>>): void => {
     draftsRef.current = next;
-    pendingDrafts.current = Object.keys(next).length > 0;
     setDrafts(next);
   };
   const fields = useRef(new Map<string, () => Promise<void>>());
@@ -119,37 +119,20 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
       if (draftsRef.current[key] === undefined) continue;
       await submit();
     }
-    // A draft the document refused keeps its text and its reason, but must not hold the host's save open for ever.
-    pendingDrafts.current = false;
   };
-  useEffect(() => pendingEdits.register({
-    busy: () => pendingDrafts.current || submitted.current.busy(),
-    idle: async () => { await flush(); await submitted.current.idle(); },
-  }), [pendingEdits]);
-  // An undo, a revert (a VS Code Revert File) or any other accepted edit makes drafts typed against the newer model
-  // stale: they are dropped with the message that named them, so the field shows the document again and Save is free.
-  const head = snapshot.edits.at(-1)?.editId ?? null;
-  const lastHead = useRef<{ readonly head: string | null }>({ head });
-  useEffect(() => {
-    if (lastHead.current.head === head) return;
-    lastHead.current = { head };
-    if (Object.keys(draftsRef.current).length > 0) {
-      publishDrafts({});
-      setMessage(null);
-    }
-  }, [head]);
-
+  useEffect(() => pendingEdits.register({ busy: () => submitted.current.busy(), idle: () => submitted.current.idle() }), [pendingEdits]);
   const save = async (): Promise<void> => {
     try {
       await flush();
+      if (Object.keys(draftsRef.current).length > 0) {
+        setMessage("Nothing was saved: a field above still holds text this file cannot store. Correct it or discard it first.");
+        return;
+      }
       // This view's Save needs no host settlement: it applies its own drafts and waits for its own acknowledgements. The
       // host's Save All, Ctrl+S, revert and close settle the shared registry, which flushes drafts through `idle()`.
       await submitted.current.idle();
-      // A draft the document refused keeps its reason on screen: saving the rest must not hide why that field stayed out.
-      const refused = Object.keys(draftsRef.current).length > 0;
       const result = await doc.save();
-      if (!result.ok) setMessage(result.failure.message);
-      else if (!refused) setMessage(saved);
+      setMessage(result.ok ? saved : result.failure.message);
     } catch (error) { setMessage(problem(error)); }
   };
   const resolve = async (choice: "keep-local" | "reload"): Promise<void> => {
@@ -168,6 +151,8 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     finally { setResolving(false); }
   };
   const setDraft = (key: string, text: string): void => publishDrafts({ ...draftsRef.current, [key]: text });
+  /** Throw away the text a refused field holds, so the file's value shows and saving can finish. */
+  const discardDrafts = (): void => { publishDrafts({}); setMessage(null); };
   const dropDraft = (key: string): void => {
     if (draftsRef.current[key] === undefined) return;
     const next = { ...draftsRef.current };
@@ -202,7 +187,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     return () => { if (fields.current.get(key) === submit) fields.current.delete(key); };
   };
   return {
-    snapshot, drafts, message, resolving, setMessage, setDraft, dropDraft, run, save, resolve,
+    snapshot, drafts, message, resolving, setMessage, setDraft, dropDraft, discardDrafts, run, save, resolve,
     commitText, commitNumber, registerField,
     disabled: snapshot.readOnly !== null || snapshot.conflict !== null,
   };
@@ -225,7 +210,9 @@ export function SaveBar<Command>({ form, capabilities }: {
       <button type="button" disabled={resolving || snapshot.readOnly !== null} onClick={() => void resolve("keep-local")}>{capabilities.has("conflictAutoSave") ? "Save my version" : "Keep my version"}</button>
       {capabilities.has("conflictReload") && snapshot.conflict.externalTitle !== null && <button type="button" disabled={resolving} onClick={() => void resolve("reload")}>Use the version on disk</button>}
     </section>}
-    {message !== null && (snapshot.conflict === null || !message.startsWith(snapshot.conflict.message)) && <p role="alert">{message}</p>}
+    {message !== null && (snapshot.conflict === null || !message.startsWith(snapshot.conflict.message)) && <p role="alert">{message}{Object.keys(form.drafts).length > 0
+      ? <> <button type="button" onClick={() => form.discardDrafts()}>Discard the unapplied text</button></>
+      : null}</p>}
   </>;
 }
 
@@ -264,8 +251,14 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   readonly command: (value: string) => Command;
 }): JSX.Element {
   const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
-  const newline = value.includes("\r\n") ? "\r\n" : "\n";
-  const asWritten = (text: string): string => text.split("\n").join(newline);
+  // Each line keeps the ending the stored text used, and a line the author adds takes the last one; a description with
+  // mixed endings is therefore not rewritten into one convention.
+  const endings = value.match(/\r\n|\n|\r/g) ?? [];
+  const asWritten = (text: string): string => {
+    const lines = text.split("\n");
+    const last = endings.at(-1) ?? "\n";
+    return lines.map((line, index) => index === lines.length - 1 ? line : `${line}${endings[index] ?? last}`).join("");
+  };
   registerField(id, () => {
     const draft = drafts[id];
     return draft === undefined ? Promise.resolve() : commitText(id, asWritten(draft), value, command);
@@ -393,7 +386,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   const { drafts, setDraft, dropDraft, commitText, registerField, run, disabled, snapshot, setMessage } = form;
   registerField(id, () => {
     const draft = drafts[id];
-    return draft === undefined ? Promise.resolve() : commitText(id, draft.trim(), value, command);
+    return draft === undefined ? Promise.resolve() : commitText(id, draft, value, command);
   });
   const busy = disabled || snapshot.saving;
   const origin = snapshot.identity.path;
@@ -413,7 +406,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     <legend>{label}</legend>
     <p>
       <label>{label} file
-        <input type="text" aria-label={`${label} file`} value={drafts[id] ?? value} disabled={busy} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitText(id, event.currentTarget.value.trim(), value, command)} />
+        <input type="text" aria-label={`${label} file`} value={drafts[id] ?? value} disabled={busy} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitText(id, event.currentTarget.value, value, command)} />
       </label>
       {hint !== undefined && <small> {hint}</small>}
     </p>

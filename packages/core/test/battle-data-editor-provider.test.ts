@@ -6,10 +6,13 @@
 // touch (docs/spec/formats/battle-data.md#battle-data-editor-rules).
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
-import { BinaryReader, assetKey, readSpecialMove, readStatusEffect, writeSpecialMove, writeStatusEffect, type SpecialMove, type StatusEffect } from "@tk-reawakened/core";
+import { readFileSync } from "node:fs";
+import { BinaryReader, assetKey, readEnemy, readSpecialMove, readStatusEffect, writeEnemy, writeSpecialMove, writeStatusEffect, type SpecialMove, type StatusEffect } from "@tk-reawakened/core";
 import { actor, awaitMenu, bootUiRig, entries, gameFiles, ui, type UiRig } from "./battle-ui-rig.ts";
 
 const authored = gameFiles().files;
+/** The bytes the editor saved for the authored enemy's move and its linked status, reopened from its own fixture. */
+const fixture = (name: string): Uint8Array => new Uint8Array(readFileSync(new URL(`./fixtures/editor/${name}`, import.meta.url)));
 const readMove = (path: string): SpecialMove => {
   const read = readSpecialMove(new BinaryReader(authored.get(assetKey(path))!));
   ok(read.ok, path);
@@ -130,7 +133,7 @@ test("a negative per-round HP amount the editor stored heals the afflicted fight
 // "Tests stay fast").
 //
 // - Rule: an ordinary unit test finishes in under 1 second individually.
-// - Where: the four cases in this file.
+// - Where: the five cases in this file.
 // - Why: the story's acceptance is "each format opens, edits, saves, reopens and loads through the chosen real battle
 //   provider using an authored enemy fixture". These cases boot the whole `stock_battle` game through the real engine with
 //   the core suite's authored rig, because the provider's own behaviour (which moves the Special list holds, what a signed
@@ -141,5 +144,45 @@ test("a negative per-round HP amount the editor stored heals the afflicted fight
 //   remove the engine boot without removing the proof. The paper work over the same documents is the fast half and lives
 //   in `packages/editor-model/test/battle-data-documents.test.ts` (16 cases, whole file under 0.5 s), which also asserts
 //   these files are byte-for-byte what `writeSpecialMove` / `writeStatusEffect` produce.
-// - Measured bound (do not let it grow): 0.5-1.3 s per case on the development machine, 2026-11-24; the limit this
-//   exception may not exceed is 2 s per case. The file's total is about 4.5 s.
+// - Measured bound (do not let it grow): 0.5-1.3 s per case for the four menu cases, and 2.6-7 s for the authored-enemy
+//   case, which plays several whole turns on the development machine, 2026-11-24; the limit this exception may not
+//   exceed is 2 s per menu case and 12 s for the enemy case. The file's total is about 12 s.
+
+test("an authored enemy that lists the editor's saved move uses it in the fight, and the move's linked status ticks on the party", () => {
+  // The bytes are the editor's own save, committed under test/fixtures/editor and tied back to the documents by
+  // `packages/editor-model/test/battle-data-documents.test.ts`. The enemy is authored here: the rig's slime, taught one
+  // move and the AI level that always reaches for it.
+  const move = fixture("burner.spc");
+  const status = fixture("burn.ste");
+  const slime = readEnemy(new BinaryReader(authored.get(assetKey("Enemy/slime.ene"))!));
+  ok(slime.ok);
+  const taught = writeEnemy({ ...slime.value, specialMoves: ["burner.spc"], aiLevel: 3 });
+  ok(taught.ok);
+  const rig = boot({
+    "SpcMove/burner.spc": move,
+    "StatusE/burn.ste": status,
+    "Enemy/slime.ene": taught.value,
+  }, { slimeHp: 400 });
+  awaitMenu(rig);
+  const hero = () => actor(rig, "hero.tem");
+  const enemy = () => actor(rig, "slime.ene");
+  const hpBefore = hero().stats.hp;
+  const smpBefore = enemy().stats.smp;
+  // The party takes its turns (Fight, then the first enemy) so the enemies' charges fill and the taught slime acts.
+  for (let turn = 0; turn < 8 && hero().statuses["burn.ste"] === undefined; turn += 1) {
+    awaitMenu(rig);
+    rig.press("ENTER", 6);
+    rig.press("ENTER", 6);
+    rig.tick(180);
+  }
+  rig.until(() => hero().statuses["burn.ste"] !== undefined, 20000);
+  ok(hero().stats.hp <= hpBefore - 10, `the saved move's damage landed on the party (${hpBefore} -> ${hero().stats.hp})`);
+  equal(enemy().stats.smp, smpBefore, "the saved cost of 0 was paid");
+  ok(hero().statuses["burn.ste"]! >= 1, `the saved link applied its stored rounds (${hero().statuses["burn.ste"]} left)`);
+  const roundsLeft = hero().statuses["burn.ste"]!;
+  const afterMove = hero().stats.hp;
+  rig.until(() => hero().stats.hp < afterMove, 20000);
+  equal(hero().stats.hp, afterMove - 3, "the stored per-round HP amount ticked on the hero's turn");
+  equal(hero().statuses["burn.ste"], roundsLeft - 1, "and one of its stored rounds was used");
+  deepEqual(rig.diagnostics, []);
+});

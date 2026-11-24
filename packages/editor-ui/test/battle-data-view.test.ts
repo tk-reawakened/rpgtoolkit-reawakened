@@ -206,16 +206,34 @@ async function mountWithPending(files: Record<string, Uint8Array>, pick?: string
   return { root, host, doc: opened.document, pendingEdits, dispose: () => { handle.dispose(); root.remove(); } };
 }
 
-test("the host's save applies a field the author is still typing in, instead of writing the document without it", async () => {
+test("the view's Save applies a field the author is still typing in, instead of writing the document without it", async () => {
   const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
   try {
     // Typed but not left: no change event, so the document does not hold it yet.
     await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); });
     deepEqual(view.doc.serialize(), fireball, "nothing is in the document yet");
-    // The host's Save All / Ctrl+S path: settle the views' pending work, then save.
-    await view.pendingEdits.settle();
-    ok((await view.doc.save()).ok);
+    await act(() => button(view.root, "Save").click());
+    await settle();
     deepEqual(view.host.bytesOf(SPC), patched(fireball, { [FP]: [0xe2, 0xff, 0xff, 0xff] }), "the typed damage reached the file");
+  } finally { view.dispose(); }
+});
+
+test("a refused field refuses the view's save with its reason and offers to discard the text", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "9999999999"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    ok(view.root.textContent?.includes("Nothing was saved"), "the save says it did not happen");
+    deepEqual(view.host.bytesOf(SPC), fireball, "the file kept its bytes");
+    const discard = [...view.root.querySelectorAll("button")].find((candidate) => candidate.textContent === "Discard the unapplied text");
+    ok(discard, "the author can discard the refused text");
+    await act(() => discard.click());
+    await settle();
+    equal(field(view.root, "Damage (FP)").value, "12");
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    ok(view.root.textContent?.includes("Special move saved."));
   } finally { view.dispose(); }
 });
 

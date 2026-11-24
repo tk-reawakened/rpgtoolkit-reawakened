@@ -4,7 +4,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { BinaryReader, readSpecialMove, readStatusEffect, writeSpecialMove, writeStatusEffect } from "@tk-reawakened/core";
+import { BinaryReader, createEmptySpecialMove, readSpecialMove, readStatusEffect, writeSpecialMove, writeStatusEffect } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import {
   createDocumentIdentity,
@@ -290,4 +290,40 @@ test("the saved bytes are exactly the core writer's output, which is what the re
   const moveWritten = writeSpecialMove({ ...moveRead.value, damage: -12 });
   ok(moveWritten.ok);
   deepEqual(move.serialize(), moveWritten.value);
+});
+
+test("the committed editor fixtures are exactly what these documents save and reopen", async () => {
+  // The provider proof in packages/core reads these two files as the editor's output; this case is what makes that claim
+  // true: the same base, the same commands, the same bytes — and the reopened document reads them back field for field.
+  const fixture = (name: string): Uint8Array => new Uint8Array(readFileSync(new URL(`../../core/test/fixtures/editor/${name}`, import.meta.url)));
+  const moveBase = writeSpecialMove({ ...createEmptySpecialMove(), minor: 3 });
+  ok(moveBase.ok);
+  const host = createMemoryPlatformServices({ files: { [SPC]: moveBase.value } });
+  const move = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(move.ok);
+  for (const command of [
+    { type: "set-special-move-text", field: "name", value: "Burner" },
+    { type: "set-special-move-amount", field: "damage", value: 10 },
+    { type: "set-special-move-text", field: "statusEffect", value: "burn.ste" },
+    { type: "set-special-move-text", field: "description", value: "Scorches the target." },
+  ] as const) ok(move.document.apply(command).ok, JSON.stringify(command));
+  ok((await move.document.save()).ok);
+  deepEqual(host.bytesOf(SPC), fixture("burner.spc"));
+
+  const statusBase = writeStatusEffect({ magic: "RPGTLKIT STATUSE", major: 2, minor: 2, name: "", rounds: 0, speedUp: 0, slowDown: 0, disable: 0, hpEnabled: 0, hpPerRound: 0, smpEnabled: 0, smpPerRound: 0, runProgram: 0, program: "", residue: new Uint8Array() });
+  ok(statusBase.ok);
+  const statusHost = createMemoryPlatformServices({ files: { [STE]: statusBase.value } });
+  const status = await openStatusEffectDocument(statusHost.fs, createDocumentIdentity("memory-project", STE));
+  ok(status.ok);
+  for (const command of [
+    { type: "set-status-effect-text", field: "name", value: "Burn" },
+    { type: "set-status-effect-number", field: "rounds", value: 2 },
+    { type: "set-status-effect-flag", field: "hpEnabled", enabled: true },
+    { type: "set-status-effect-number", field: "hpPerRound", value: 3 },
+  ] as const) ok(status.document.apply(command).ok, JSON.stringify(command));
+  ok((await status.document.save()).ok);
+  deepEqual(statusHost.bytesOf(STE), fixture("burn.ste"));
+  const reopened = await openSpecialMoveDocument(createMemoryPlatformServices({ files: { [SPC]: fixture("burner.spc") } }).fs, createDocumentIdentity("memory-project", SPC));
+  ok(reopened.ok);
+  deepEqual([reopened.document.getSnapshot().name, reopened.document.getSnapshot().damage, reopened.document.getSnapshot().statusEffect], ["Burner", 10, "burn.ste"]);
 });
