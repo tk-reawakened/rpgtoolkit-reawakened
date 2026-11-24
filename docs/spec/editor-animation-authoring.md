@@ -26,6 +26,8 @@ Recovery must coordinate with authoritative open documents. Existing content is 
 
 A refusal is a per-file result in reviewed script recovery, not a reason to stop restoring eligible files. For example, a generated copy that is open cannot be removed; close it and retry that file from the original checkpoint. The reverse checkpoint records files that were not changed as no-ops, including refusals, files already as wanted, and files kept because they changed or were uncertain. Reversing must never write or delete such a file, even if it has since changed again. The dedicated animation wizard's native-document guard still refuses its operation outright.
 
+Undo Restore reverses only entries with a durable `written` receipt, and only while the destination still matches that receipt. Pending, interrupted, failed and already-matching rows may have stored intent, but intent does not authorize reversing them. Report the files kept for this reason without touching their current bytes.
+
 Group manifests and their referenced contents remain until the author explicitly deletes the group. This scoped provider does not select an autosave merge window, retention floor, capacity cap or thinning policy. The editor offers to ignore its history folder without silently changing ignore files. Distribution export excludes all history manifests and contents.
 
 ## References
