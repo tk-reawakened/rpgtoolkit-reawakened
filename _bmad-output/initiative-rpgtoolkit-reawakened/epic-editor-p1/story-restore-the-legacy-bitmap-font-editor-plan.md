@@ -45,7 +45,7 @@ The engineer's notes flag a suspected legacy scaling failure above 8 px and desc
 
 ## Implementation notes (2026-11-24)
 
-**Implemented on the draft branch.** `packages/editor-model/src/font-document.ts` (`font`, `.fnt`, `legacy-text`), `font-preview.ts` (sample picture using `emitText` and core `rasterize`), `font-support.ts` (New Font), the kind registry and `asFontDocument`, the conformance row, `packages/editor-ui/src/font-view.tsx` and its stylesheet, browser New Font and the VS Code `tkr.font` and `tkr.newFont` contributions, help, and runtime installation and replay (`privateFontKeys`, `installedProjectFonts`).
+**Implemented on the draft branch.** `packages/editor-model/src/font-document.ts` (`font`, `.fnt`, `legacy-text`), `font-preview.ts` (lays out text with `layoutText`, builds draw commands for the retained lines and uses the core rasterizer), `font-support.ts` (New Font), the kind registry and `asFontDocument`, the conformance row, `packages/editor-ui/src/font-view.tsx` and its stylesheet, browser New Font and the VS Code `tkr.font` and `tkr.newFont` contributions, help, and runtime installation and replay (`privateFontKeys`, `installedProjectFonts`).
 
 **Implementation decisions.** The grid previews a stroke against the latest rows it has received, but submits the complete cell intent even if those rows already match; stale snapshots cannot discard the user's mark. The authoritative document computes the result, preserving untouched cells and declining no-ops. Later edits do not wait for earlier acknowledgements, while the pending-edit tracker still protects save and close (#2613). The preview uses the core rasteriser and `text()` line height; size, sample, styles and zoom are view state. A host without a 2D canvas reports that limitation. Version 2.0 follows ADR 0022 D2 row 1 as `legacy-text`; another readable version opens read-only.
 
@@ -86,7 +86,7 @@ The initial experiments mixed a view-driven undo with native undo and did not es
 
 **New Font path.** `projectLayoutOfMain` reads the selected game's main file and determines whether its type folders live at the project root or under `Game/<project>/`. New Font suggests that layout's reserved `Font` folder. Proof: `packages/host-vscode/test/new-font.test.ts`.
 
-**Preview size.** The bitmap-glyph canvas is drawn at 1:1 and enlarged by layout (`data-zoom` classes). `FONT_PREVIEW_MAX_SIDE` (2048) bounds the picture, and the view reports whether it shows only part of the sample. Proof: the model truncation case and the real-browser zoom step.
+**Preview size.** The bitmap-glyph canvas is drawn at 1:1 and enlarged by layout (`data-zoom` classes). `FONT_PREVIEW_MAX_SIDE` (2048) bounds the picture, and the view reports whether it shows only part of the sample. The model test covers truncation; the view and host conformance tests cover zoom without dirtying the font. Chromium checks the sample pixels at 8 and 20 px, not zoom.
 
 **Engine.** `font()` looks first in the installed project fonts, so an unrelated `Boards/retro.brd` cannot shadow `Font/retro.fnt`. Save restoration keeps the live session's font inventory. Missing font bytes report `font.rejected` and do not stall startup. Bitmap rows and version fields must be whole numbers; e.g. `128oops` is refused. Proofs: `engine-boot.test.ts`, `runner-web/test/game-fonts.test.ts` and `format-font.test.ts`.
 
