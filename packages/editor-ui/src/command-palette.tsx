@@ -14,7 +14,7 @@ import {
 } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import { AUTHORING_GUIDE_MARKDOWN, LIGHTS_SHADING_HELP_MARKDOWN, SAVING_HELP_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
+import { AUTHORING_GUIDE_MARKDOWN, BITMAP_FONT_HELP_MARKDOWN, LIGHTS_SHADING_HELP_MARKDOWN, SAVING_HELP_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
 import { focusedFieldHelp, HelpDocument, type HelpInvokerRef } from "./help-document.tsx";
 import { IconAction } from "./icon-action.tsx";
 import { connectEditorCommands } from "./editor-commands.ts";
@@ -262,6 +262,12 @@ export function WorkbenchCommandBar({
         category: "Help",
         label: "Lights and shading on a board",
         run: () => setHelpDocument({ title: "Lights and shading on a board", markdown: LIGHTS_SHADING_HELP_MARKDOWN }),
+      },
+      {
+        id: "help.bitmapFont",
+        category: "Help",
+        label: "Drawing a bitmap font",
+        run: () => setHelpDocument({ title: "Drawing a bitmap font", markdown: BITMAP_FONT_HELP_MARKDOWN }),
       },
       {
         id: "help.whatsNew",

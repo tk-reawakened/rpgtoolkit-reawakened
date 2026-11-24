@@ -15,6 +15,7 @@
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
     "onCustomEditor:tkr.animation",
+    "onCustomEditor:tkr.font",
     "onCustomEditor:tkr.nativeClip",
     "onCustomEditor:tkr.nativeScene",
     "onCustomEditor:tkr.nativeGeometry",
@@ -35,6 +36,7 @@
     "onCommand:tkr.startBoard",
     "onCommand:tkr.testProgram",
     "onCommand:tkr.newAnimation",
+    "onCommand:tkr.newFont",
     "onCommand:tkr.runSavedTests",
     "onCommand:tkr.animationRecovery",
     "onDebugResolve:tkr",
@@ -127,6 +129,11 @@
         "category": "TK Reawakened"
       },
       {
+        "command": "tkr.newFont",
+        "title": "New font",
+        "category": "TK Reawakened"
+      },
+      {
         "command": "tkr.animationRecovery",
         "title": "Project recovery",
         "category": "TK Reawakened"
@@ -204,6 +211,16 @@
         "selector": [
           {
             "filenamePattern": "*.anm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.font",
+        "displayName": "RPG Toolkit Bitmap Font Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.fnt"
           }
         ],
         "priority": "default"

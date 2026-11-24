@@ -110,6 +110,7 @@ export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
   "tkr.board": ["board"],
   "tkr.tileset": ["tileset"],
   "tkr.tileBitmap": ["tile-bitmap"],
+  "tkr.font": ["font"],
   "tkr.animation": ["animation"],
 } as const;
 

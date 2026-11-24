@@ -85,6 +85,7 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
   const [italic, setItalic] = useState(false);
   const [underline, setUnderline] = useState(false);
   const [zoom, setZoom] = useState<(typeof ZOOMS)[number]>(1);
+  const [canvasIssue, setCanvasIssue] = useState<string | null>(null);
   const [savePending, setSavePending] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -129,19 +130,27 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
 
   useLayoutEffect(() => {
     const target = canvas.current;
-    if (!picture.ok || target === null || typeof ImageData === "undefined") return;
+    if (!picture.ok || target === null) return;
+    if (typeof ImageData === "undefined") {
+      setCanvasIssue("This host cannot build pixel buffers, so the sample text cannot be drawn.");
+      return;
+    }
     const context = target.getContext("2d");
     const source = document.createElement("canvas");
     source.width = picture.width;
     source.height = picture.height;
     const sourceContext = source.getContext("2d");
-    if (context === null || sourceContext === null) return;
+    if (context === null || sourceContext === null) {
+      setCanvasIssue("This host has no 2D canvas, so the sample text cannot be drawn.");
+      return;
+    }
     sourceContext.putImageData(new ImageData(new Uint8ClampedArray(picture.rgba), picture.width, picture.height), 0, 0);
     target.width = picture.width * zoom;
     target.height = picture.height * zoom;
     // Enlarging copies each pixel as a square: no smoothing, so the picture is still the pixels the game draws.
     context.imageSmoothingEnabled = false;
     context.drawImage(source, 0, 0, target.width, target.height);
+    setCanvasIssue(null);
   }, [picture, zoom]);
 
   useEffect(() => {
@@ -511,11 +520,12 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
           {sizeProblem === null ? null : <p class="tkr-font-error" role="alert">{sizeProblem} The picture still shows {size} pixels.</p>}
           <div class="tkr-font-picture">
             {picture.ok ? (
-              <canvas ref={canvas} class="tkr-font-canvas" role="img" aria-label="The sample text as the game draws it" />
+              <canvas ref={canvas} class="tkr-font-canvas" role="img" aria-label="The sample text as the game draws it" hidden={canvasIssue !== null} />
             ) : (
               <p class="tkr-font-preview-state" role="status">No picture: {picture.message}</p>
             )}
           </div>
+          {canvasIssue === null ? null : <p class="tkr-font-preview-state" role="status">Picture unavailable: {canvasIssue}</p>}
           <p class="tkr-font-help">The sample, size, styles and zoom are only for looking. They are not saved and never change the font.</p>
         </div>
       </div>

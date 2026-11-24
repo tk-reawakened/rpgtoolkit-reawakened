@@ -3,7 +3,7 @@ type: feature
 title: "Restore the legacy bitmap font editor"
 ticket: 20
 tracker_id: "#1939"
-status: draft
+status: built
 risk: medium
 ---
 
@@ -36,3 +36,15 @@ Each is also written into `docs/` in this ticket's first commit.
 3. **New font starts empty.** *Lands in:* `docs/editor-features.md#t-65-bitmap-font-editor`. A new font has all 256 glyphs empty at version 2.0. *Evidence:* the format has no default content; the bundled `media/fonts/tkr-8x8.fnt` is an engine asset the editor cannot read. *Rejected alternative:* copy the bundled default font into every new project font; it bakes a second copy of generated glyphs into the editor bundle. *If ruled otherwise:* only the new-font bytes change.
 4. **A stroke is one edit; the character is one `set-font-glyph` command.** A pointer drag across cells commits one command carrying the glyph's eight new rows, so one Undo takes back the stroke. *Evidence:* the tileset artwork editor commits a stroke as one command (`paint-tileset-pixels`). *Rejected alternative:* one command per pixel, which makes undo take a stroke back one pixel at a time.
 5. **The kind's storage class is `"legacy-text"` and it follows ADR 0022 D2 row 1.** *Lands in:* ADR 0026 implementation notes.
+
+## Implementation notes (2026-11-24)
+
+**Landed.** `packages/editor-model/src/font-document.ts` (the `font` kind, `.fnt`, `legacy-text`), `font-preview.ts` (the sample picture through `emitText` + core `rasterize`), `font-support.ts` (`New font`), the registry row and `asFontDocument`, the conformance row, `packages/editor-ui/src/font-view.tsx` and its stylesheet section, the Files-panel `New font…` button, the browser workbench `newFont`, the VS Code `tkr.font` custom editor and `tkr.newFont`, the help page and CHANGELOG entry, and the engine's installation of a project `.fnt` (`privateFontKeys`, `installedFontAssets`, runner-web decode).
+
+**Decisions taken and why.** A stroke is one `set-font-glyph` command carrying the glyph's eight rows, so one Undo takes a stroke back whole; a keyboard action is one such command. The view keeps each glyph's submitted-but-unanswered rows and builds the next edit on them, so a second stroke never undoes a first while a host answers late (#2613's pending-edit rule also covers save and close). The preview lays out as `text()` does (one size per line) and is drawn by the core rasteriser rather than by a second renderer; the size, sample, styles and zoom are view state only. A host without a 2D canvas says so instead of showing a blank canvas. `.fnt` follows ADR 0022 D2 row 1 even though it is text, because it has a same-version writer; its `StorageClass` is the new `legacy-text`.
+
+**Evidence.** Model: `packages/editor-model/test/font-document.test.ts` (round trips, opposite-corner edits saved as the format's rows, untouched glyphs intact, refusals, refused save keeps edits, read-only open, preview equals the spec's pixels at 8 and 20 px in every style, new-font bytes). Engine: `packages/core/test/render-now.test.ts` and `engine-boot.test.ts` (the glyph drawn by `font()` at 8 and 20 px in every style, underline rows, bitmap metrics, install and `font.rejected`). Runner: `packages/runner-web/test/game-fonts.test.ts`. View: `packages/editor-ui/test/font-view.test.ts`. Hosts: `tools/editor-vscode-test/test/font-hosts.test.ts` (browser host, VS Code desktop and VS Code for the Web: edit at opposite corners by pointer and keyboard, save, close, reopen, file equals hand-written bytes, an untouched glyph intact, preview settings leave the document clean).
+
+**Not proved here (and why).** The preview's pixels are proved against the core rasteriser in the model test and the engine's `font()` in the core tests, not in the headless host lanes: their DOM shim has no 2D canvas, so those lanes check the view reports the missing canvas and leaves the document clean. A real-browser Playwright case for the editor surface (and a VS Code web proof) is the remaining host-lane work before the ready-for-review gate. `tkr.newFont` and the workbench `New font…` are covered by the shared `createFontFile` contract test; their dialogs are host chrome.
+
+**Gates run locally (2026-11-24, Node 26.13.0):** `tsc -b`, every package's `typecheck:tests`, `pnpm graph`, `pnpm lint` (eslint + core deps), `pnpm licence`, `pnpm provenance`, `pnpm catalogue:check`, `pnpm editor-ui-toolchain:check`, `pnpm adr:numbering:check`, `pnpm golden`, `pnpm golden:bun`, `pnpm closing`; focused suites listed above (299 passing, 9 pre-existing skips). Not run: `pnpm test:strict` over the whole repository, `fixtures:author:check`, `fixtures:test`, `browser:test`, `script:dogfood`, the Android/desktop proof.
