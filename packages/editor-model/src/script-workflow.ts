@@ -3,7 +3,7 @@ import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { diffLines, type LineChange } from "./history-support.ts";
 import { programCodec, type ProgramModel } from "./program-document.ts";
 import type { WizardHistory } from "./wizard-history.ts";
-import { resolveDocumentPath } from "./workspace.ts";
+import { checkpointFilePath } from "./checkpoint-groups.ts";
 
 /**
  * Reviewed script workflows (story 13.16, docs/spec/engine/rpgcode-tooling.md#tool-11): format, normalise capitalisation,
@@ -293,9 +293,8 @@ interface Source {
 }
 
 async function requireExactPath(fs: ScriptWorkflowFileSystem, path: string): Promise<void> {
-  const resolved = await resolveDocumentPath(fs, path);
-  if (!resolved.ok) throw new Error(resolved.kind === "read" ? resolved.error.message : resolved.message);
-  if (resolved.path !== path) throw new Error(`${path} has a different stored spelling (${resolved.path}); it was not changed.`);
+  const resolved = await checkpointFilePath((parent) => fs.list(parent), path);
+  if (resolved !== path) throw new Error(`${path} has a different stored spelling (${resolved}); it was not changed.`);
 }
 
 async function sourceOf(env: ScriptWorkflowEnvironment, path: string): Promise<Source | { readonly entry: ScriptWorkflowEntry }> {
@@ -523,6 +522,7 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (env.isProjectCurrent?.() === false) throw new Error(projectChanged);
     if (!(await mainIsCurrent())) throw new Error(projectChanged);
     await requireExactPath(env.fs, entry.destination);
+    if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
     const before = plan.destinations.get(entry.destination) ?? null;
     const [sourceBytes, held] = entry.target === "in-place"
       ? await readBytes(entry.path).then((bytes) => [bytes, bytes] as const)
@@ -550,6 +550,8 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (entry.open && entry.target === "in-place") {
       const [projectCurrent, saved] = await Promise.all([mainIsCurrent(), readBytes(entry.path)]);
       if (!projectCurrent || env.isProjectCurrent?.() === false) return { failure: projectChanged };
+      await requireExactPath(env.fs, entry.path);
+      if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
       const currentEditor = findOpen(entry.path);
       if (saved?.[0] === 0 || currentEditor === undefined || !hasReviewedText(currentEditor, entry)) return { failure: sourceChanged(entry) };
       const done = await currentEditor.replace(label, result);
@@ -558,13 +560,15 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (prepared === undefined) return { failure: `${entry.destination} was not prepared for writing.` };
     const { before, sourceBytes, bytes } = prepared;
     if (entry.target === "copy") {
+      await requireExactPath(env.fs, entry.path);
       const slash = entry.destination.lastIndexOf("/");
       const made = await env.fs.createFolder(entry.destination.slice(0, slash));
       if (!made.ok) return { failure: `Could not make the folder for ${entry.destination}: ${made.error.message}` };
     }
     await requireExactPath(env.fs, entry.destination);
     if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
-    // Do this after every other await. There is no cross-file filesystem transaction, so this is an optimistic check.
+    // Compare live bytes after folder preparation, then make a final link/identity check before dispatching the write.
+    // The provider's list/read/write calls are not a cross-file transaction.
     const [projectCurrent, source, destination] = await Promise.all([
       mainIsCurrent(),
       readBytes(entry.path),
@@ -573,6 +577,8 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (!projectCurrent) return { failure: projectChanged };
     if (!sameBytes(source, sourceBytes)) return { failure: sourceChanged(entry) };
     if (!sameBytes(destination, before)) return { failure: destinationChanged(entry) };
+    if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
+    await requireExactPath(env.fs, entry.destination);
     const opened = findOpen(entry.path);
     const openConflict = !entry.open && anyOpen(entry.path);
     if (entry.open ? !hasReviewedText(opened, entry) : openConflict) {

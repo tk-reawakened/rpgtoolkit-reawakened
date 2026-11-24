@@ -558,3 +558,58 @@ test("a receipt failure reports the successful write and does not retry it along
   deepEqual(retried.recoveryWarnings, first.recoveryWarnings);
   deepEqual(writes, ["Prg/a.prg", "Prg/b.prg", "Prg/b.prg"]);
 });
+
+for (const swap of ["directory-during-consent", "file-during-read"] as const) {
+  test(`migration refuses a same-byte symbolic link (${swap}) before an unsafe filesystem operation`, async () => {
+    const host = project();
+    const destination = `${MIGRATED_FOLDER}/Prg/old.prg`;
+    const redirected = "Elsewhere/unrelated.prg";
+    const original = host.bytesOf(destination)!;
+    host.seed(redirected, original);
+    let linked = false;
+    let folderCalls = 0;
+    let writeCalls = 0;
+    const linkParent = swap === "directory-during-consent" ? "" : `${MIGRATED_FOLDER}/Prg`;
+    const linkName = swap === "directory-during-consent" ? ".tkr-migrated" : "old.prg";
+    const standard = env(host);
+    const environment = env(host, {
+      history: {
+        ...standard.history!,
+        async prepareScripts() {
+          if (swap === "directory-during-consent") linked = true;
+          return { ok: true, groupId: "g1" };
+        },
+      },
+      fs: {
+        ...host.fs,
+        async list(path) {
+          const entries = await host.fs.list(path);
+          if (!entries.ok || path !== linkParent || !linked) return entries;
+          return { ok: true, value: entries.value.map((entry) => entry.name === linkName ? { ...entry, kind: "link" } : entry) };
+        },
+        async read(path) {
+          if (path === destination && swap === "file-during-read" && folderCalls > 0) linked = true;
+          return await host.fs.read(path === destination && linked ? redirected : path);
+        },
+        async createFolder(path) {
+          folderCalls++;
+          return await host.fs.createFolder(path);
+        },
+        async write(path, value) {
+          writeCalls++;
+          return await host.fs.write(path === destination && linked ? redirected : path, value);
+        },
+      },
+    });
+    const plan = await planScriptWorkflow(environment, "update", { kind: "program", path: "Prg/old.prg" });
+    equal(plan.entries[0]?.state, "ready");
+    const outcome = await createScriptReview(environment, plan).apply();
+    equal(linked, true);
+    equal(folderCalls, swap === "directory-during-consent" ? 0 : 1);
+    equal(writeCalls, 0);
+    deepEqual(outcome.applied, []);
+    match(outcome.failed[0]?.message ?? "", /symbolic link/);
+    deepEqual(host.bytesOf(redirected), original);
+    deepEqual(host.bytesOf(destination), original);
+  });
+}

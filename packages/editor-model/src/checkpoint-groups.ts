@@ -52,6 +52,56 @@ const message = (error: unknown): string => error instanceof Error ? error.messa
 function validPath(path: string): boolean {
   return path.length > 0 && !/[\\\u0000-\u001f:]/.test(path) && path.split("/").every((part) => part !== "" && part !== "." && part !== "..") && foldPath(path.split("/")[0]!) !== ROOT;
 }
+
+class CheckpointPathConflict extends Error {}
+
+/** Resolve each segment without following links; a missing suffix keeps its proposed spelling. */
+export async function checkpointFilePath(list: FileSystemService["list"], path: string): Promise<string> {
+  if (!validPath(path)) throw new CheckpointPathConflict(`Invalid checkpoint destination: ${path}`);
+  let parent = "";
+  const parts = path.split("/");
+  for (let i = 0; i < parts.length; i++) {
+    const listed = await list(parent);
+    if (!listed.ok) {
+      if (listed.error.code !== "not-found") throw new Error(listed.error.message);
+      return [parent, ...parts.slice(i)].filter(Boolean).join("/");
+    }
+    const matches = listed.value.filter((entry) => foldPath(entry.name) === foldPath(parts[i]!));
+    if (matches.length > 1) throw new CheckpointPathConflict(`${path} has entries that differ only in case; it is ambiguous.`);
+    const found = matches[0];
+    if (found?.kind === "link") throw new CheckpointPathConflict(`${path} crosses a symbolic link at ${found.name}; it was not changed.`);
+    if (found !== undefined && (i < parts.length - 1 ? found.kind !== "directory" : found.kind !== "file")) {
+      throw new CheckpointPathConflict(`File/directory collision at ${path}.`);
+    }
+    parent = [parent, found?.name ?? parts[i]!].filter(Boolean).join("/");
+  }
+  return parent;
+}
+
+type CaptureTarget = CheckpointTarget | { readonly path: string; readonly kept: string };
+interface RestoreOptions {
+  readonly only?: readonly string[];
+  readonly deleteUncertain?: readonly string[];
+  readonly confirmBefore?: (paths: readonly string[]) => Promise<ReadonlyMap<string, Uint8Array | null> | null>;
+}
+const spellingChanged = (path: string, actual: string): string =>
+  `${path} has a different stored spelling (${actual}); it was not changed.`;
+
+function unrestoredFile(file: CheckpointFile): string | null {
+  return file.status === "kept-changed" && file.before === null && file.after === null
+    ? file.message ?? "No change to reverse for this path."
+    : null;
+}
+
+async function pathConflict(canonical: (path: string) => Promise<string>, path: string): Promise<string | null> {
+  try {
+    const resolved = await canonical(path);
+    return resolved === path ? null : spellingChanged(path, resolved);
+  } catch (error) {
+    if (error instanceof CheckpointPathConflict) return error.message;
+    throw error;
+  }
+}
 function unwrap<T>(result: PlatformResult<T>): T { if (!result.ok) throw new Error(result.error.message); return result.value; }
 function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
   if (a === null || b === null) return a === b;
@@ -122,25 +172,8 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     if (!digestPattern.test(value)) throw new Error("History requires a valid SHA-256 digest.");
     return value;
   };
-  // Resolve every segment using the same ASCII identity as documents, rejecting aliases and links.
-  const canonical = async (path: string): Promise<string> => {
-    if (!validPath(path)) throw new Error(`Invalid checkpoint destination: ${path}`);
-    let parent = "";
-    const parts = path.split("/");
-    for (let i = 0; i < parts.length; i++) {
-      const listed = await fs.listProject(projectId, parent);
-      if (!listed.ok) {
-        if (listed.error.code !== "not-found") throw new Error(listed.error.message);
-        return [parent, ...parts.slice(i)].filter(Boolean).join("/");
-      }
-      const matches = listed.value.filter((entry) => foldPath(entry.name) === foldPath(parts[i]!));
-      if (matches.length > 1) throw new Error(`Case-insensitive aliases make ${path} ambiguous.`);
-      const found = matches[0];
-      if (found !== undefined && (found.kind === "link" || (i < parts.length - 1 ? found.kind !== "directory" : found.kind !== "file"))) throw new Error(`File/directory collision at ${path}.`);
-      parent = [parent, found?.name ?? parts[i]!].filter(Boolean).join("/");
-    }
-    return parent;
-  };
+  const canonical = (path: string): Promise<string> =>
+    checkpointFilePath((parent) => fs.listProject(projectId, parent), path);
   const current = async (path: string): Promise<Uint8Array | null> => {
     if (env.current !== undefined) return await env.current(path);
     const bytes = await fs.readProject(projectId, path);
@@ -192,7 +225,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     }
     return group;
   };
-  const capture = async (targets: readonly CheckpointTarget[], reason: CheckpointGroup["reason"], options: {
+  const capture = async (targets: readonly CaptureTarget[], reason: CheckpointGroup["reason"], options: {
     readonly name?: string | null;
     readonly restores?: string | null;
     readonly uncovered?: readonly CheckpointUncovered[];
@@ -200,21 +233,28 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
   } = {}): Promise<CheckpointGroup> => {
     if (targets.length === 0 && reason !== "named") throw new Error("A checkpoint needs at least one destination.");
     const seen = new Set<string>();
-    const prepared: { path: string; before: Uint8Array | null; after: Uint8Array | null }[] = [];
+    const prepared: { path: string; before: Uint8Array | null; after: Uint8Array | null; kept: string | null }[] = [];
     for (const target of targets) {
-      const path = await canonical(target.path);
-      if ((reason === "before-script" || options.exactPaths === true) && path !== target.path) {
-        throw new Error(`${target.path} has a different stored spelling (${path}); it was not changed.`);
+      if (seen.has(foldPath(target.path))) throw new Error(`Duplicate destination: ${target.path}`);
+      seen.add(foldPath(target.path));
+      if ("kept" in target) {
+        prepared.push({ path: target.path, before: null, after: null, kept: target.kept });
+        continue;
       }
-      if (seen.has(foldPath(path))) throw new Error(`Duplicate destination: ${path}`);
-      seen.add(foldPath(path));
+      const conflict = options.exactPaths === true ? await pathConflict(canonical, target.path) : null;
+      if (conflict !== null) {
+        prepared.push({ path: target.path, before: null, after: null, kept: conflict });
+        continue;
+      }
+      const path = options.exactPaths === true ? target.path : await canonical(target.path);
+      if (reason === "before-script" && path !== target.path) throw new Error(spellingChanged(target.path, path));
       const before = await current(path);
       if ("expectedBefore" in target && !sameBytes(before, target.expectedBefore)) throw new Error(`${path} changed since review; choose the version again.`);
       if (reason !== "named" && !sameBytes(before, target.bytes)) {
         const refused = await env.guard(path, target.bytes === null, target.bytes);
         if (refused !== null) throw new Error(refused);
       }
-      prepared.push({ path, before, after: reason === "named" ? before?.slice() ?? null : target.bytes?.slice() ?? null });
+      prepared.push({ path, before, after: reason === "named" ? before?.slice() ?? null : target.bytes?.slice() ?? null, kept: null });
     }
     const collisions = prepared.filter((file) => file.before !== null).map((file) => file.path);
     if ((reason === "before-wizard" || reason === "before-script") && collisions.length > 0 && !await env.consent(collisions)) throw new Error("Cancelled; no target files changed.");
@@ -230,8 +270,8 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       path: file.path,
       before: file.before === null ? null : await store(file.before),
       after: file.after === null ? null : await store(file.after),
-      status: reason === "named" ? "written" : "pending",
-      message: null,
+      status: file.kept !== null ? "kept-changed" : reason === "named" ? "written" : "pending",
+      message: file.kept,
     });
     await captureManifest(group);
     return group;
@@ -267,7 +307,9 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         const bytes = intended[index]!;
         const lateRefusal = await env.guard(file.path, bytes === null, bytes);
         if (lateRefusal !== null) throw new Error(lateRefusal);
-        if (env.write !== undefined) unwrap(await env.write(file.path, bytes, { groupId: group.id, expected: await contents(file.before) }));
+        const expected = env.write === undefined ? null : await contents(file.before);
+        if (await canonical(file.path) !== file.path) throw new Error(`Destination spelling changed: ${file.path}`);
+        if (env.write !== undefined) unwrap(await env.write(file.path, bytes, { groupId: group.id, expected }));
         else if (bytes !== null) unwrap(await fs.writeProject(projectId, file.path, bytes));
         else if (now !== null) unwrap(await fs.deleteProject(projectId, file.path));
         file.status = "written";
@@ -340,19 +382,34 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     async retry(id: string): Promise<PlatformResult<CheckpointGroup>> {
       try { return platformOk(await execute(await load(id))); } catch (error) { return platformError("io-error", message(error)); }
     },
-    async restore(id: string, options: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[]; readonly expectedBefore?: ReadonlyMap<string, Uint8Array | null> } = {}): Promise<PlatformResult<CheckpointGroup>> {
+    async restore(id: string, options: RestoreOptions = {}): Promise<PlatformResult<CheckpointGroup>> {
       try {
         const source = await load(id);
         const only = options.only === undefined ? null : new Set(options.only.map(foldPath));
         const deleteUncertain = new Set(options.deleteUncertain?.map(foldPath) ?? []);
-        const targets: CheckpointTarget[] = [];
+        const selected = source.files.filter((file) => only === null || only.has(foldPath(file.path)));
+        if (selected.length === 0) throw new Error("No checkpoint files were selected for restore.");
+        const previousRefusals = new Map<string, string>();
+        const eligible: string[] = [];
+        for (const file of selected) {
+          const kept = unrestoredFile(file) ?? (source.reason === "before-script" ? await pathConflict(canonical, file.path) : null);
+          if (kept === null) eligible.push(file.path);
+          else previousRefusals.set(file.path, kept);
+        }
+        const expected = await options.confirmBefore?.(eligible);
+        if (expected === null) throw new Error("Cancelled: nothing was changed.");
+        const targets: CaptureTarget[] = [];
         const outcomes = new Map<string, { readonly status: CheckpointFile["status"]; readonly message: string }>();
-        for (const file of source.files) {
-          if (only !== null && !only.has(foldPath(file.path))) continue;
+        for (const file of selected) {
           const desiredHash = source.reason === "named" ? file.after : file.before;
           const desired = await contents(desiredHash);
+          const kept = previousRefusals.get(file.path) ?? (source.reason === "before-script" ? await pathConflict(canonical, file.path) : null);
+          if (kept !== null) {
+            targets.push({ path: file.path, kept });
+            continue;
+          }
           const actual = await current(file.path);
-          if (options.expectedBefore?.has(file.path) && !sameBytes(actual, options.expectedBefore.get(file.path)!)) {
+          if (expected?.has(file.path) && !sameBytes(actual, expected.get(file.path)!)) {
             throw new Error(`${file.path} changed after restore confirmation, so it was not restored. Choose the version again.`);
           }
           const actualHash = actual === null ? null : await hash(actual);
@@ -372,13 +429,12 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
             targets.push({ path: file.path, bytes: desired, expectedBefore });
           }
         }
-        if (targets.length === 0) throw new Error("No checkpoint files were selected for restore.");
         const group = await capture(targets, "before-restore", {
           restores: id, uncovered: source.uncovered, exactPaths: source.reason === "before-script",
         });
         for (const file of group.files) {
           const outcome = outcomes.get(file.path);
-          if (outcome !== undefined) { file.status = outcome.status; file.message = outcome.message; }
+          if (outcome !== undefined && file.status !== "kept-changed") { file.status = outcome.status; file.message = outcome.message; }
         }
         if (outcomes.size > 0) await persist(group);
         return platformOk(await execute(group));
@@ -429,7 +485,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     createNamedCheckpoint: (name: string, targets: readonly CheckpointTarget[], uncovered?: readonly CheckpointUncovered[]) => serial(() => api.createNamedCheckpoint(name, targets, uncovered)),
     preview: (id: string, path: string, version?: "before" | "after") => serial(() => api.preview(id, path, version)),
     retry: (id: string) => serial(() => api.retry(id)),
-    restore: (id: string, options?: { readonly only?: readonly string[]; readonly deleteUncertain?: readonly string[]; readonly expectedBefore?: ReadonlyMap<string, Uint8Array | null> }) => serial(() => api.restore(id, options)),
+    restore: (id: string, options?: RestoreOptions) => serial(() => api.restore(id, options)),
     list: () => serial(() => api.list()),
     deleteGroup: (id: string) => serial(() => api.deleteGroup(id)),
     ignoreHistory: () => serial(() => api.ignoreHistory()),

@@ -159,3 +159,39 @@ test("the Monaco host reviews and writes a nested Toolkit 2.x migration copy wit
   expect(await storedText(page, source)).toBe(old);
   expect(await storedText(page, destination)).toBe('MWIN("Hello legacy")\r\n');
 });
+
+test("save and undo shortcuts do not act on an unsaved Monaco program behind a script review", async ({ page }) => {
+  await installProject(page, [
+    { path: "Main/example.gam", bytes: main },
+    { path: OTHER, bytes: Array.from(Buffer.from(OTHER_TEXT, "latin1")) },
+  ]);
+  await page.goto(PAGE);
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Prg, folder, closed", exact: true }).press("ArrowRight");
+  await page.getByRole("treeitem", { name: /^other\.prg, program editor/ }).dblclick();
+  const editor = page.locator(".monaco-editor .view-lines");
+  await expect(editor).toContainText('mwin("second")');
+  await editor.locator(".view-line").first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.insertText(" // Unsaved review proof");
+  await expect(editor).toContainText("Unsaved review proof");
+
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Format \(reviewed\)/ }).click();
+  const dialog = page.locator(".tkr-script-workflow");
+  const cancel = dialog.getByRole("button", { name: "Cancel" });
+  await cancel.focus(); // The page-level undo deliberately ignores inputs; test from a modal button.
+  await page.keyboard.press("ControlOrMeta+S");
+  await page.keyboard.press("ControlOrMeta+Z");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(editor).toContainText("Unsaved review proof");
+  expect(await storedText(page, OTHER)).toBe(OTHER_TEXT);
+
+  // Outside the review the normal keyboard save still persists exactly this unsaved change.
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect.poll(() => storedText(page, OTHER)).toContain("Unsaved review proof");
+});

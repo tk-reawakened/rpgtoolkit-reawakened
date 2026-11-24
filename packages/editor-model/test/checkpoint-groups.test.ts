@@ -194,6 +194,8 @@ test("a reviewed checkpoint never accepts receipts for another spelling or resto
   equal((await groups.registerWritten(group.value.id, alias, reviewed)).ok, false);
   ok((await groups.registerWritten(group.value.id, path, reviewed)).ok);
   ok((await host.fs.rename(path, alias)).ok);
-  equal((await groups.restore(group.value.id)).ok, false);
+  const restored = await groups.restore(group.value.id); ok(restored.ok);
+  equal(restored.value.files[0]?.status, "kept-changed");
+  deepEqual(restored.value.files.map(({ before, after }) => [before, after]), [[null, null]]);
   deepEqual(host.bytesOf(alias), reviewed);
 });

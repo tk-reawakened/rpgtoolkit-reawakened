@@ -844,3 +844,38 @@ test("history usage counts shared checkpoint groups and immutable progress/conte
   ok(after.distinctContents > before.distinctContents, "group content hashes are reported");
   workspace.dispose();
 });
+
+test("script History keeps a case-renamed destination and restores the rest, including on reverse", async () => {
+  const a = "Prg/a.prg";
+  const alias = "Prg/A.prg";
+  const b = "Prg/b.prg";
+  const bytes = (source: string) => new TextEncoder().encode(source);
+  const beforeA = bytes("MWIN(\"A\")\n");
+  const beforeB = bytes("MWIN(\"B\")\n");
+  const afterA = bytes("mwin(\"A\")\n");
+  const afterB = bytes("mwin(\"B\")\n");
+  const { host, workspace } = setUp({ files: { [a]: beforeA, [b]: beforeB } });
+  host.answerQuestions("continue");
+  const checkpoint = await workspace.checkpoints.prepareScripts([{ path: a, bytes: afterA }, { path: b, bytes: afterB }], "Format");
+  ok(checkpoint.ok);
+  for (const [path, data] of [[a, afterA], [b, afterB]] as const) {
+    host.seed(path, data);
+    ok((await workspace.checkpoints.registerWritten(checkpoint.value.id, path, data)).ok);
+  }
+  ok((await host.fs.rename(a, alias)).ok);
+
+  const restored = await workspace.restoreHistoryGroup(checkpoint.value.id);
+  ok(restored.restoreGroupId !== null);
+  deepEqual(restored.files.map(({ path, result }) => [path, result]), [[a, "kept-changed"], [b, "restored"]]);
+  match(restored.files[0]?.message ?? "", /different stored spelling \(Prg\/A\.prg\)/);
+  deepEqual(host.bytesOf(alias), afterA);
+  deepEqual(host.bytesOf(b), beforeB);
+
+  // The refused row remains a durable no-op even if the original spelling is available by the time of reversal.
+  ok((await host.fs.rename(alias, a)).ok);
+  const reversed = await workspace.restoreHistoryGroup(restored.restoreGroupId, { deleteUncertain: [a] });
+  deepEqual(reversed.files.map(({ path, result }) => [path, result]), [[a, "kept-changed"], [b, "restored"]]);
+  deepEqual(host.bytesOf(a), afterA);
+  deepEqual(host.bytesOf(b), afterB);
+  workspace.dispose();
+});

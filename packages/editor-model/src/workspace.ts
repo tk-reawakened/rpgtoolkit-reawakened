@@ -560,9 +560,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       const source = listed.value.find((entry) => entry.id === groupId);
       if (source === undefined || !("files" in source)) return { groupId, restoreGroupId: null, files: [{ path: "", result: "failed", message: "Checkpoint group does not exist or is unreadable." }] };
       const selected = source.files.map((file) => file.path).filter((path) => restoreOptions?.only === undefined || restoreOptions.only.includes(path));
-      const expectedBefore = await confirmUnsaved(selected);
-      if (expectedBefore === null) return declined(groupId, selected);
-      const result = await checkpoints.restore(groupId, { ...restoreOptions, expectedBefore });
+      const result = await checkpoints.restore(groupId, { ...restoreOptions, confirmBefore: confirmUnsaved });
       return result.ok ? checkpointReport(groupId, result.value) : { groupId, restoreGroupId: null, files: selected.map((path) => ({ path, result: "failed" as const, message: result.error.message })) };
     },
     async createNamedCheckpoint(name) {
