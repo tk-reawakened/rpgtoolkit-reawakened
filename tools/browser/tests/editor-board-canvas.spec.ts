@@ -361,3 +361,54 @@ test("focused editor palette, shared Save and keyboard result visibility", async
   await page.locator(".tkr-board-controls").scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("board-controls-narrow.png") });
 });
+
+test("production browser board export downloads the current view and full board from the registered action", async ({ page }) => {
+  await installFolder(page, [{ path: "Game/example.gam", bytes: validMain }, { path: "Tiles/village.tst", bytes: tileset }]);
+  await page.goto(EDITOR_URL);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await page.getByRole("button", { name: "New board…" }).click();
+  const create = page.getByRole("dialog", { name: "New board" });
+  await create.getByLabel("Name", { exact: true }).fill("export-proof");
+  await create.getByLabel("Width in tiles").fill("8");
+  await create.getByLabel("Height in tiles").fill("8");
+  await create.getByLabel("Layers").fill("2");
+  await create.getByRole("button", { name: "Create board" }).click();
+
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Board: Export PNG");
+  await page.getByRole("button", { name: "Edit Board: Export PNG…", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Export board image" });
+  await expect(dialog).toBeVisible();
+  const canvas = page.locator("canvas.tkr-board-canvas");
+  const [canvasWidth, canvasHeight] = await canvas.evaluate((element) => [(element as HTMLCanvasElement).width, (element as HTMLCanvasElement).height]);
+  await dialog.getByRole("button", { name: "Prepare PNG" }).click();
+  await expect(dialog.getByRole("button", { name: "Download PNG" })).toBeEnabled();
+  const viewDownloadPromise = page.waitForEvent("download");
+  await dialog.getByRole("button", { name: "Download PNG" }).click();
+  const viewDownload = await viewDownloadPromise;
+  expect(viewDownload.suggestedFilename()).toBe("export-proof.png");
+  const viewPath = await viewDownload.path();
+  if (viewPath === null) throw new Error("The browser did not provide the exported PNG file");
+  const viewPng = readFileSync(viewPath);
+  expect([...viewPng.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  const viewHeader = new DataView(viewPng.buffer, viewPng.byteOffset, viewPng.byteLength);
+  expect(viewHeader.getUint32(16)).toBe(canvasWidth);
+  expect(viewHeader.getUint32(20)).toBe(canvasHeight);
+
+  const wholeDialogButton = page.getByRole("button", { name: "Export PNG…" });
+  await wholeDialogButton.click();
+  const wholeDialog = page.getByRole("dialog", { name: "Export board image" });
+  await wholeDialog.getByLabel("Whole board").check();
+  await wholeDialog.getByRole("button", { name: "Prepare PNG" }).click();
+  await expect(wholeDialog.getByRole("button", { name: "Download PNG" })).toBeEnabled();
+  const wholeDownloadPromise = page.waitForEvent("download");
+  await wholeDialog.getByRole("button", { name: "Download PNG" }).click();
+  const wholeDownload = await wholeDownloadPromise;
+  const wholePath = await wholeDownload.path();
+  if (wholePath === null) throw new Error("The browser did not provide the whole-board PNG file");
+  const wholePng = readFileSync(wholePath);
+  const wholeHeader = new DataView(wholePng.buffer, wholePng.byteOffset, wholePng.byteLength);
+  expect(wholeHeader.getUint32(16)).toBe(256);
+  expect(wholeHeader.getUint32(20)).toBe(256);
+});
