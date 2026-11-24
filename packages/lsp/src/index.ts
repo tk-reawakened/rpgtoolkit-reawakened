@@ -180,7 +180,9 @@ export function createServer(connection: ServerConnection, options: ServerOption
   let project: ProjectModel = NO_PROJECT;
   /** Any project notification has been processed, even one that reports a problem; waiting past it would hang. */
   let projectArrived = false;
-  /** Requests that must be answered after the client's project snapshot arrives (a startup race, not an unassessed file). */
+  /** The main file of the snapshot the server holds, folded, or `null` when the snapshot has none. */
+  let projectMain: string | null = null;
+  /** Requests that must wait for a snapshot of the project they were planned against (startup, or a selection change). */
   const projectWaiters = new Set<() => void>();
   let projectLint: ProjectLint | undefined;
 
@@ -277,6 +279,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
     if (snapshot === undefined || snapshot.revision <= project.revision) return;
     project = projectModel(snapshot);
     projectArrived = true;
+    projectMain = snapshot.main === null ? null : foldAscii(snapshot.main.uri);
     for (const wake of [...projectWaiters]) wake();
     projectWaiters.clear();
     publishProject();
@@ -554,8 +557,18 @@ export function createServer(connection: ServerConnection, options: ServerOption
     }
     // A client that has a project says so; its snapshot is one notification away, and answering before it arrives would
     // report every program as unassessed. A client with no project is refused at once.
-    if (params.awaitProject === true && project.kind === "none" && !projectArrived) {
-      await new Promise<void>((resolve) => { projectWaiters.add(resolve); });
+    // Wait once for the snapshot this request was planned against: at startup none has arrived, and after a selection
+    // change the server still holds the previous project, whose dialect must not assess a file of the new one.
+    const wanted = params.project?.main === undefined ? null : params.project.main;
+    const matches = (): boolean => projectArrived && (wanted === null
+      ? project.kind !== "none"
+      : projectMain !== null && projectMain === foldAscii(wanted));
+    if (params.awaitProject === true && !matches()) {
+      await new Promise<void>((resolve) => {
+        projectWaiters.add(resolve);
+        // A snapshot that names no project (a read failure) wakes the waiter too: answering "unassessed" is better than
+        // waiting forever for a project that will not arrive.
+      });
     }
     const context = documentContext(project, document.uri, document.languageId === "rpgcode-tk2" ? "rpgcode-tk2" : "rpgcode");
     const indentWidth = Number.isInteger(params.indentWidth) && params.indentWidth! > 0 ? params.indentWidth : undefined;

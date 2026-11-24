@@ -240,7 +240,7 @@ test("both hosts plan the same change from the same project and apply the same b
       fs: web.services.fs,
       provider: scriptProviderOver((params) => client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => client.uriOf(path)),
       history: null,
-      openPrograms: [],
+      openPrograms: () => [],
       root: "",
       activeProgram: null,
     }, ui as never);
@@ -265,7 +265,7 @@ test("the VS Code review lists only programs that change, with the comparison in
     fs: web.services.fs,
     provider,
     history: null,
-    openPrograms: [],
+    openPrograms: () => [],
     root: "",
     activeProgram: null,
   }, ui as never);
@@ -328,7 +328,7 @@ test("cancelling in either host writes nothing and records nothing", async () =>
       fs: web.services.fs,
       provider: scriptProviderOver((params) => leased.lease.client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => leased.lease.client.uriOf(path)),
       history: null,
-      openPrograms: [],
+      openPrograms: () => [],
       root: "",
       activeProgram: null,
     }, ui as never);
@@ -353,7 +353,7 @@ test("in VS Code, an open program receives one edit and no direct write", async 
       fs: web.services.fs,
       provider: scriptProviderOver((params) => leased.lease.client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => leased.lease.client.uriOf(path)),
       history: null,
-      openPrograms: [{ path: "Prg/messy.prg", text: () => documentText, replace: async (label, next) => { edits.push({ label, text: next }); documentText = next; return { ok: true }; } }],
+      openPrograms: () => [{ path: "Prg/messy.prg", text: () => documentText, replace: async (label, next) => { edits.push({ label, text: next }); documentText = next; return { ok: true }; } }],
       root: "",
       activeProgram: "Prg/messy.prg",
     }, ui as never);

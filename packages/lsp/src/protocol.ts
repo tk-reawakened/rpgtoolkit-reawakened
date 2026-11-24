@@ -35,6 +35,8 @@ export type ScriptTransformParams = {
    * arrives during startup is assessed rather than reported as unassessed.
    */
   readonly awaitProject?: boolean;
+  /** The running project the caller planned against; a snapshot for another (or no) project is not that one. */
+  readonly project?: { readonly main: string };
 };
 
 /** One inventory file: its root-relative path in its original spelling, its document URI and its bytes. */

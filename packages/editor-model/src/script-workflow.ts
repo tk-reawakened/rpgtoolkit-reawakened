@@ -103,6 +103,8 @@ export interface ScriptTransformQuestion {
   readonly awaitProject?: boolean;
   /** The path inside the host's project (workspace-relative), which is what its `uriOf` maps; defaults to `path`. */
   readonly workspacePath?: string;
+  /** The running project's main file URI the request was planned against, so a selection change is not missed. */
+  readonly projectMainUri?: string;
 }
 
 /** The language server's side of the workflow. Rejects when the server cannot answer. */
@@ -126,6 +128,7 @@ export function scriptProviderOver(
         text: question.text,
         indentWidth: question.indentWidth,
         ...(question.awaitProject === true ? { awaitProject: true } : {}),
+        ...(question.projectMainUri === undefined ? {} : { project: { main: question.projectMainUri } }),
       }));
       if (answer === null) throw new Error("The language server's answer was not a script transform result.");
       if (answer.transform !== question.transform) throw new Error(`The language server answered ${answer.transform} to a ${question.transform} question.`);
@@ -149,6 +152,8 @@ export interface ScriptWorkflowEnvironment {
   readonly fs: ScriptWorkflowFileSystem;
   /** Whether a running project is selected, so each request may wait for its snapshot (TOOL-1). */
   readonly projectSelected?: boolean;
+  /** The selected main file's URI as the server knows it, so a request is matched to that project and no older one. */
+  readonly projectMainUri?: string;
   /** `null` when the host has no language server: every workflow then says so and changes nothing. */
   readonly provider: ScriptTransformProvider | null;
   /** Why `provider` is `null`, in a sentence for the author (the server did not start, say); a plain "no language server" when absent. */
@@ -307,6 +312,7 @@ async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransfor
       indentWidth: env.indentWidth ?? 4,
       ...(env.projectSelected === true ? { awaitProject: true } : {}),
       workspacePath: path,
+      ...(env.projectMainUri === undefined ? {} : { projectMainUri: env.projectMainUri }),
     });
   } catch (error) {
     return entryOf(path, { state: "failed", original: source.text, open: source.open, message: `The language server could not answer for ${path}: ${error instanceof Error ? error.message : String(error)}` });
@@ -453,6 +459,38 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     entries = entries.map((entry) => (entry.path === path ? { ...entry, ...patch } : entry));
   };
 
+  /** The bytes every saved file will receive, built and validated before the first write. */
+  const prepared = new Map<string, Uint8Array>();
+
+  /** Build one entry's bytes from the source as it is now, with the same checks the write itself relies on. */
+  const prepareWrite = async (entry: ScriptWorkflowEntry, expected: ReadonlyMap<string, Uint8Array | null>): Promise<{ readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false; readonly message: string }> => {
+    const label = `${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`;
+    const source = env.openPrograms().find((program) => foldPath(program.path) === foldPath(entry.path));
+    let model: ProgramModel;
+    if (entry.open) {
+      if (source === undefined || source.text() !== entry.original) return { ok: false, message: `${entry.path} changed since the review (changed-since-review); no copy was written. Run the workflow again to see its new result.` };
+      const read = await env.fs.read(entry.path);
+      const base = read.ok ? programCodec.read(read.value, entry.path) : null;
+      model = base !== null && base.ok ? base.value : { text: "", breaks: [], compiled: null };
+    } else {
+      const read = await env.fs.read(entry.path);
+      if (!read.ok) return { ok: false, message: `Could not read ${entry.path} again before writing: ${read.error.message}` };
+      const parsed = programCodec.read(read.value, entry.path);
+      if (!parsed.ok || parsed.value.compiled !== null || parsed.value.text !== entry.original) {
+        return { ok: false, message: `${entry.path} changed since the review (changed-since-review); it was not written. Run the workflow again to see its new result.` };
+      }
+      model = parsed.value;
+    }
+    // The destination is checked before the bytes are recorded and again before the write: a copy another program changed
+    // is never replaced, and only a target that is still what the plan saw may be recorded as recoverable.
+    const current = await env.fs.read(entry.destination);
+    if (!sameBytes(current.ok ? current.value : null, expected.get(entry.destination) ?? null)) {
+      return { ok: false, message: `${entry.destination} changed while the review was open or during the apply; it was not written. Run the workflow again to see its new content.` };
+    }
+    const built = rewritten(model, entry.result!, label);
+    return built.ok ? { ok: true, bytes: built.bytes } : { ok: false, message: `${entry.path} could not be written: ${built.message}` };
+  };
+
   const applyOne = async (entry: ScriptWorkflowEntry, groupId: string | null, expected: ReadonlyMap<string, Uint8Array | null>): Promise<ApplyOneResult> => {
     const result = entry.result!;
     const label = `${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`;
@@ -463,35 +501,8 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       const done = await editor.replace(label, result);
       return done.ok ? { via: "edit" } : { failure: `${entry.path} could not be edited: ${done.message}` };
     }
-    // A saved file, or the saved original of a converted copy: it must still be what the plan was made from.
-    const source = entry.open ? env.openPrograms().find((program) => foldPath(program.path) === foldPath(entry.path)) : undefined;
-    let model: ProgramModel | null = null;
-    if (entry.open) {
-      if (source === undefined || source.text() !== entry.original) return { failure: `${entry.path} changed since the review (changed-since-review); no copy was written. Run the workflow again to see its new result.` };
-      const read = await env.fs.read(entry.path);
-      const base = read.ok ? programCodec.read(read.value, entry.path) : null;
-      model = base !== null && base.ok ? base.value : { text: "", breaks: [], compiled: null };
-    } else {
-      const read = await env.fs.read(entry.path);
-      if (!read.ok) return { failure: `Could not read ${entry.path} again before writing: ${read.error.message}` };
-      const parsed = programCodec.read(read.value, entry.path);
-      if (!parsed.ok || parsed.value.compiled !== null || parsed.value.text !== entry.original) {
-        return { failure: `${entry.path} changed since the review (changed-since-review); it was not written. Run the workflow again to see its new result.` };
-      }
-      model = parsed.value;
-    }
-    const built = rewritten(model, result, label);
-    if (!built.ok) return { failure: `${entry.path} could not be written: ${built.message}` };
-    // Write-ahead: the bytes about to be written are recorded first, so a crash between this and the write leaves a group
-    // whose retry writes the intended result, never the old content back over a file the workflow already wrote.
-    if (groupId !== null) {
-      // Fail closed: without write-ahead intent a crash could not be recovered from, so nothing is written.
-      if (env.history?.intent === undefined) {
-        return { failure: `${entry.destination} was not written: this host's recovery history cannot record the intended content before writing, so a crash could not be recovered from.` };
-      }
-      const recorded = await env.history.intent(groupId, entry.destination, built.bytes);
-      if (!recorded.ok) return { failure: `${entry.destination} was not written: its intended content could not be recorded first (${recorded.message}).` };
-    }
+    const bytes = prepared.get(entry.path);
+    if (bytes === undefined) return { failure: `${entry.destination} was not written: its intended content was not prepared before the batch began.` };
     if (entry.target === "copy") {
       const slash = entry.destination.lastIndexOf("/");
       const made = await env.fs.createFolder(entry.destination.slice(0, slash));
@@ -501,15 +512,15 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     // opened in an editor while this run was reading and building.
     const current = await env.fs.read(entry.destination);
     if (!sameBytes(current.ok ? current.value : null, expected.get(entry.destination) ?? null)) {
-      return { failure: `${entry.destination} changed during the apply; it was not written. Run the workflow again to see its new content.` };
+      return { failure: `${entry.destination} changed while the review was open or during the apply; it was not written. Run the workflow again to see its new content.` };
     }
     if (!entry.open && env.openPrograms().some((program) => foldPath(program.path) === foldPath(entry.path))) {
       return { failure: `${entry.path} was opened in an editor during the apply; it was not written. Run the workflow again.` };
     }
-    const written = await env.fs.write(entry.destination, built.bytes);
+    const written = await env.fs.write(entry.destination, bytes);
     if (!written.ok) return { failure: `Could not write ${entry.destination}: ${written.error.message}. ${entry.path} is as it was.` };
     if (groupId !== null && env.history !== null) {
-      const recorded = await env.history.written(groupId, entry.destination, built.bytes);
+      const recorded = await env.history.written(groupId, entry.destination, bytes);
       if (!recorded.ok) return { failure: `${entry.destination} was written, but its history could not be recorded: ${recorded.message}` };
     }
     return { via: entry.target === "copy" ? "copy" : "write" };
@@ -549,6 +560,7 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       const chosen = entries.filter((entry) => entry.state === "ready" && entry.included);
       const applied: { path: string; destination: string; via: "edit" | "write" | "copy" }[] = [...(outcome?.applied ?? [])];
       const failed: ScriptApplyFailure[] = [];
+      const excluded = new Set<string>();
       // What every written destination holds now, and which programs an editor opened after the plan: both are compared
       // again just before writing, so a copy another program changed is never overwritten.
       const before = plan.destinations;
@@ -560,8 +572,39 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
         const group = await env.history.begin(`${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`, toWrite.map((entry) => entry.destination));
         if (group.ok) groupId = group.groupId;
         else blocked = `its recovery checkpoint could not be recorded: ${group.message}. Nothing was written.`;
+        // Every intent is built and recorded before the first write: a crash halfway through then leaves a group whose
+        // retry writes each file's intended result, never an old content back over one already written.
+      }
+      // Every saved file's bytes are built and validated before the first write, so a change to a source or destination
+      // found now leaves that program out instead of half-writing the batch.
+      for (const entry of toWrite) {
+        if (blocked !== null) break;
+        const build = await prepareWrite(entry, before);
+        if (!build.ok) {
+          failed.push({ path: entry.path, message: build.message });
+          update(entry.path, { message: build.message });
+          excluded.add(entry.path);
+          continue;
+        }
+        prepared.set(entry.path, build.bytes);
+      }
+      // A host that keeps recovery history also records every intent before the first write; one that cannot record
+      // intent writes nothing at all (a crash between write and receipt would be unrecoverable).
+      if (blocked === null && groupId !== null && toWrite.some((entry) => !excluded.has(entry.path))) {
+        if (env.history?.intent === undefined) {
+          blocked = "this host's recovery history cannot record intended content before writing, so a crash could not be recovered from. Nothing was written.";
+        } else {
+          for (const entry of toWrite) {
+            if (excluded.has(entry.path)) continue;
+            const bytes = prepared.get(entry.path)!;
+            const recorded = await env.history.intent(groupId, entry.destination, bytes);
+            if (!recorded.ok) { blocked = `${entry.destination}: its intended content could not be recorded before writing (${recorded.message}). Nothing was written.`; break; }
+          }
+        }
+        if (blocked !== null) prepared.clear();
       }
       for (const entry of chosen) {
+        if (excluded.has(entry.path)) continue;
         if (blocked !== null) {
           failed.push({ path: entry.path, message: `${entry.path}: ${blocked}` });
           update(entry.path, { message: blocked });

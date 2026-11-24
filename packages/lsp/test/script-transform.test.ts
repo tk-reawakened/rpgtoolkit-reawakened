@@ -163,3 +163,15 @@ test("a project snapshot that reports a problem ends the wait instead of hanging
   equal(answer.status, "refused");
   equal(answer.reason?.code, "unassessed");
 });
+
+test("a request is matched to the project it was planned against, not an older snapshot", async () => {
+  const lsp = server();
+  lsp.project(MODERN.snapshot(1));
+  // The selection moves to a Toolkit 2 project; the request was planned against the 3.1 one and must not be assessed by
+  // the stale snapshot, nor by the new project it does not belong to.
+  const pending = lsp.ask({ transform: "format", textDocument: { uri: MODERN.uri("Prg/main.prg") }, text: MESSY, awaitProject: true, project: { main: "Main/game.gam" } });
+  lsp.project({ revision: 2, main: null, problem: "the new project could not be read" });
+  const answer = await pending;
+  equal(answer.status, "refused");
+  equal(answer.reason?.code, "unassessed");
+});

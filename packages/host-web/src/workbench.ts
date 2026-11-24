@@ -336,6 +336,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     for (const document of workspace.documents()) if (document.kind === "program") await workspace.pendingEdits(document).settle();
     let lease: LanguageLease | null = null;
     let provider: ScriptTransformProvider | null = null;
+    let mainUri: string | undefined;
     let unavailableReason: string | undefined;
     if (services.language === undefined || !services.capabilities.has("languageServer")) {
       unavailableReason = "This host has no language server, so programs cannot be formatted or updated here.";
@@ -345,6 +346,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         lease = leased.lease;
         const { client } = leased.lease;
         provider = scriptProviderOver((params) => client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => client.uriOf(path));
+        mainUri = main === null ? undefined : client.uriOf(main);
       } else unavailableReason = `The language server did not start: ${leased.message}.`;
     }
     if (disposed) {
@@ -359,6 +361,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       openPrograms: openScriptPrograms,
       root: main === null ? "" : rootFolderOf(main),
       projectSelected: main !== null,
+      ...(mainUri === undefined ? {} : { projectMainUri: mainUri }),
     };
     const snapshot = tabs.getSnapshot();
     const activePath = snapshot.tabs.find((tab) => tab.key === snapshot.active)?.path ?? null;

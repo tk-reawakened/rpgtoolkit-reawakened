@@ -80,9 +80,17 @@ function whitespaceOnly(before: string, after: string): boolean {
   return before !== after && before.replace(/[ \t]+/g, "") === after.replace(/[ \t]+/g, "");
 }
 
+/** Whether the leading white space of any line differs; a diff setting that ignores white space would hide that too. */
+function indentationDiffers(before: string, after: string): boolean {
+  const leading = (text: string): string[] => text.split("\n").map((line) => /^[ \t]*/.exec(line)![0]);
+  const a = leading(before);
+  const b = leading(after);
+  return a.length !== b.length || a.some((value, index) => value !== b[index]);
+}
+
 /** `text` with spaces and tabs made visible, but only when the change is white space alone and the diff would hide it. */
 function whitespaceVisible(before: string, after: string, text: string): string {
-  return whitespaceOnly(before, after) ? text.replace(/ /g, "\u00b7").replace(/\t/g, "\u2192\t") : text;
+  return whitespaceOnly(before, after) || indentationDiffers(before, after) ? text.replace(/ /g, "\u00b7").replace(/\t/g, "\u2192\t") : text;
 }
 
 /** Open VS Code's own diff editor for one program: the planned original on the left, the result on the right. */
@@ -97,7 +105,7 @@ async function showDiff(item: ScriptReviewItem): Promise<void> {
   const result = vscode.Uri.parse(`${DIFF_SCHEME}:${encodeURIComponent(item.path)}?side=result&review=${nonce}`, true);
   diffSides.set(original.toString(), whitespaceVisible(item.original, item.result, item.original));
   diffSides.set(result.toString(), whitespaceVisible(item.original, item.result, item.result));
-  const title = whitespaceOnly(item.original, item.result) ? `${item.path}: original ↔ result (spaces shown as ·, tabs as →)` : `${item.path}: original ↔ result`;
+  const title = whitespaceOnly(item.original, item.result) || indentationDiffers(item.original, item.result) ? `${item.path}: original ↔ result (spaces shown as ·, tabs as →)` : `${item.path}: original ↔ result`;
   await vscode.commands.executeCommand("vscode.diff", original, result, title);
 }
 
@@ -186,6 +194,11 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
       const workspace = workspaceFor(folder.uri);
       const open = openPrograms(folder.uri);
       const extension = await activatedLanguageExtension();
+      const selectedMain = vscode.workspace.getConfiguration("rpgcode").get<string>("project", "").trim();
+      // The same URI the RPGCode extension puts in its snapshot (the resolved setting, relative to the first folder).
+      const mainUri = selectedMain === "" ? undefined : (/^[A-Za-z][A-Za-z0-9+.-]+:/.test(selectedMain) && !/^[A-Za-z]:[\\/]/.test(selectedMain)
+        ? vscode.Uri.parse(selectedMain, true)
+        : vscode.Uri.joinPath(vscode.workspace.workspaceFolders?.[0]?.uri ?? folder.uri, ...selectedMain.split(/[\\/]/).filter((part) => part !== ""))).toString();
       const active = vscode.window.activeTextEditor?.document;
       const activePath = active === undefined ? null : open.find((program) => program.document === active)?.path ?? null;
       const uris = new Map(open.map((program) => [program.path, program.document]));
@@ -210,14 +223,16 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
             },
           ...(extension === undefined ? { unavailableReason: "The RPGCode language extension is not installed, so programs cannot be formatted or updated here. Nothing was changed." } : {}),
           history: createWizardHistory(workspace.checkpoints),
-          openPrograms: open.map((program): OpenScriptProgram => ({
+          // Resolved per call: a program opened while the review is open must be seen before it is written.
+          openPrograms: (): readonly OpenScriptProgram[] => openPrograms(folder.uri).map((program) => ({
             path: program.path,
             text: () => lfText(program.document),
             replace: (_label, text) => replaceDocument(program.document, text),
           })),
           root: projectRootIn(folder.uri),
           activeProgram: activePath,
-          projectSelected: vscode.workspace.getConfiguration("rpgcode").get<string>("project", "").trim() !== "",
+          projectSelected: selectedMain !== "",
+          ...(mainUri === undefined ? {} : { projectMainUri: mainUri }),
         },
         ui(),
       );
@@ -246,7 +261,8 @@ function projectRootIn(folder: vscode.Uri): string {
   const rootPath = above.slice(above.lastIndexOf("/") + 1).toLowerCase() === "main" ? above.slice(0, above.lastIndexOf("/") + 1) : parent;
   const root = rootPath.replace(/\/?$/, "/");
   // `fs` paths have no trailing separator: "Game/", never "Game/" with the slash left on.
-  return root.startsWith(base) ? decodeURIComponent(root.slice(base.length)).replace(/\/$/, "") : "";
+  // `Uri.path` is already decoded, so a folder named `Game 100%` must not be decoded a second time.
+  return root.startsWith(base) ? root.slice(base.length).replace(/\/$/, "") : "";
 }
 
 async function pickFolder(folders: readonly vscode.WorkspaceFolder[]): Promise<vscode.WorkspaceFolder | undefined> {

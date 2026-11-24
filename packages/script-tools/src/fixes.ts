@@ -372,6 +372,7 @@ export function legacyPrefixLines(source: string): readonly UnsupportedFragment[
     const code = withoutStrings(text);
     for (let at = 0; at < code.length - 1; at++) {
       if (!inBlock && code[at] === "/" && code[at + 1] === "/") break;
+      if (!inBlock && code[at] === "*" && code[at + 1] === "*") break;
       if (!inBlock && code[at] === "/" && code[at + 1] === "*") { inBlock = true; at++; }
       else if (inBlock && code[at] === "*" && code[at + 1] === "/") { inBlock = false; at++; }
     }

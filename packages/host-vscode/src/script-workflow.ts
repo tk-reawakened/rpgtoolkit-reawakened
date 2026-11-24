@@ -53,11 +53,14 @@ export interface ScriptWorkflowHostEnvironment {
   readonly provider: ScriptWorkflowEnvironment["provider"] | null;
   readonly unavailableReason?: string;
   readonly history: WizardHistory | null;
-  readonly openPrograms: readonly OpenScriptProgram[];
+  /** Resolved again at every check, so a program opened during the run is seen (never a fixed list). */
+  readonly openPrograms: () => readonly OpenScriptProgram[];
   readonly root: string;
   readonly activeProgram: string | null;
   /** A running project is selected, so the server should wait for its snapshot rather than refuse as unassessed. */
   readonly projectSelected?: boolean;
+  /** The selected main file's URI, so the request is matched to that project. */
+  readonly projectMainUri?: string;
 }
 
 export type ScriptWorkflowSummary =
@@ -132,9 +135,10 @@ function environmentOf(env: ScriptWorkflowHostEnvironment): ScriptWorkflowEnviro
     provider: env.provider,
     ...(env.unavailableReason === undefined ? {} : { unavailableReason: env.unavailableReason }),
     history: env.history,
-    openPrograms: () => env.openPrograms,
+    openPrograms: () => env.openPrograms(),
     root: env.root,
     ...(env.projectSelected === true ? { projectSelected: true } : {}),
+    ...(env.projectMainUri === undefined ? {} : { projectMainUri: env.projectMainUri }),
   };
 }
 

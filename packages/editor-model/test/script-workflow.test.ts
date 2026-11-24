@@ -217,7 +217,7 @@ test("a file that changed since the plan is not written, and the others still ar
   await host.fs.write("Prg/a.prg", bytes("MESSY edited elsewhere\n"));
   const outcome = await review.apply();
   deepEqual(outcome.failed.map((item) => item.path), ["Prg/a.prg"]);
-  match(outcome.failed[0]!.message, /changed while the review was open/);
+  match(outcome.failed[0]!.message, /changed since the review|changed while the review was open/);
   equal(text(host.bytesOf("Prg/a.prg")), "MESSY edited elsewhere\n", "the newer file is kept");
   equal(text(host.bytesOf("Prg/b.prg")), "tidy b\n");
   equal(review.getSnapshot().phase, "reviewing", "the review stays open so the failure can be seen");
@@ -288,6 +288,7 @@ test("a destination another program changed while the review was open is never o
   const gate = new Promise<void>((resolve) => { releaseCheckpoint = resolve; });
   const history: WizardHistory = {
     async begin(name, planned) { await gate; return { ok: true, groupId: `g-${name}` }; },
+    async intent() { return { ok: true }; },
     async written() { return { ok: true }; },
   };
   const environment = env(host, { history });
@@ -299,7 +300,7 @@ test("a destination another program changed while the review was open is never o
   const outcome = await applying;
   equal(text(host.bytesOf(`${MIGRATED_FOLDER}/Prg/old.prg`)), "written elsewhere\n", "the newer copy is kept");
   deepEqual(outcome.failed.map((item) => item.path), ["Prg/old.prg"]);
-  match(outcome.failed[0]!.message, /changed while the review was open/);
+  match(outcome.failed[0]!.message, /changed since the review|changed while the review was open/);
 });
 
 test("a program opened after the plan is not written behind its editor, and a failed checkpoint stops every file", async () => {
@@ -367,7 +368,7 @@ test("a host whose history cannot record intent before writing writes nothing, r
   const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "program", path: "Prg/a.prg" }));
   const outcome = await review.apply();
   deepEqual(outcome.applied, []);
-  match(outcome.failed[0]!.message, /cannot record the intended content before writing/);
+  match(outcome.failed[0]!.message, /cannot record intended content before writing/);
   equal(text(host.bytesOf("Prg/a.prg")), "MESSY\r\nline two\r\n");
 });
 

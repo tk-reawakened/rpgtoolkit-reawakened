@@ -78,6 +78,12 @@ test("the reviewed script workflow shows what would change in a real Monaco host
 
   const dialog = page.locator(".tkr-script-workflow");
   await expect(dialog).toBeVisible();
+  // Focus starts on the checked radio (the project's own choice is a different one), and Shift+Tab from it wraps to the
+  // dialog's last control rather than leaving the modal.
+  await expect(page.getByRole("radio", { name: /Every program in the project/ })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  const wrappedBack = await page.evaluate(() => document.querySelector(".tkr-script-workflow")?.contains(document.activeElement) === true);
+  expect(wrappedBack).toBe(true);
   await expect(dialog).toContainText("You will see what would change in each program before anything is written");
   await dialog.getByLabel(/Every program in the project/).check();
   await dialog.getByRole("button", { name: "Check programs" }).click();

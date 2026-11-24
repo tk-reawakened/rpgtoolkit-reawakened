@@ -242,7 +242,17 @@ export function ScriptWorkflowView({ transform, activeProgram, plan, review, onC
         }
         // A modal keeps Tab inside itself: the page behind it has no controls the author can reach by keyboard.
         if (event.key === "Tab") {
-          const focusable = [...(root.current?.querySelectorAll<HTMLElement>("a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex=\"-1\"])") ?? [])];
+          const all = [...(root.current?.querySelectorAll<HTMLElement>("a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex=\"-1\"])") ?? [])];
+          // A radio group is a single Tab stop: only the checked radio takes focus, never an unchecked one earlier in the
+          // group (which would make Shift+Tab from the real first stop skip the trap and leave the dialog).
+          const radios = new Set<string>();
+          const focusable = all.filter((element) => {
+            if (!(element instanceof HTMLInputElement) || element.type !== "radio") return true;
+            if (!element.checked) return false;
+            if (radios.has(element.name)) return false;
+            radios.add(element.name);
+            return true;
+          });
           if (focusable.length === 0) return;
           const first = focusable[0]!;
           const last = focusable.at(-1)!;
