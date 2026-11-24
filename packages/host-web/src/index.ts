@@ -295,6 +295,7 @@ export const openGameSettings = openEditor;
  */
 function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
+  if (document.kind === "font") return document as unknown as ViewDocument;
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
   if (document.kind === "native-clip") return document as unknown as NativeClipViewDocument;

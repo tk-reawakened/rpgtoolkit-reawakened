@@ -2226,6 +2226,223 @@ fieldset.tkr-web-project-controls {
   font-size: var(--tkr-text-xs);
 }
 
+/* 8b. Bitmap Font Editor (.tkr-font) --------------------------------------- */
+.tkr-font {
+  container-type: inline-size;
+  container-name: font-editor;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.875rem;
+  color: var(--tkr-fg-primary);
+  font-family: var(--tkr-font-sans);
+  min-inline-size: 0;
+}
+
+.tkr-font-header-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+}
+
+.tkr-font-heading,
+.tkr-font-glyph-heading,
+.tkr-font-preview-heading {
+  margin: 0;
+  font-size: var(--tkr-text-lg);
+  font-weight: 600;
+}
+
+.tkr-font-glyph-heading,
+.tkr-font-preview-heading {
+  font-size: var(--tkr-text-sm);
+}
+
+.tkr-font-summary,
+.tkr-font-readonly,
+.tkr-font-host-note,
+.tkr-font-state,
+.tkr-font-help,
+.tkr-font-glyph-note {
+  margin: 0;
+  font-size: var(--tkr-text-xs);
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-font-workspace {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(18rem, 22rem) minmax(16rem, 20rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  min-inline-size: 0;
+}
+
+.tkr-font-strip-panel,
+.tkr-font-glyph-panel,
+.tkr-font-preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-inline-size: 0;
+}
+
+/* The character strip (T-65): 16 slots per row, each a number over its character, so a whole font is one look. */
+.tkr-font-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.5rem;
+  overflow: auto;
+  max-block-size: 46vh;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-font-strip [role="row"] {
+  display: flex;
+  gap: 2px;
+}
+
+.tkr-font-strip [role="gridcell"] {
+  flex: 0 0 auto;
+}
+
+.tkr-font-slot {
+  box-sizing: border-box;
+  inline-size: 1.75rem;
+  block-size: 2rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  line-height: 1;
+}
+
+.tkr-font-slot-code {
+  font-family: var(--tkr-font-mono);
+  font-size: 0.5625rem;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-font-slot-char {
+  font-size: 0.8125rem;
+}
+
+.tkr-font-slot-drawn .tkr-font-slot-char {
+  font-weight: 600;
+}
+
+.tkr-font-slot-selected {
+  background: var(--tkr-accent-subtle) !important;
+  border-color: var(--tkr-selection-border) !important;
+  color: var(--tkr-accent-subtle-fg) !important;
+}
+
+/* The glyph grid (T-65): eight square pixels per row, enlarged for the pointer, so the glyph reads as its 8 × 8 cell. */
+.tkr-font-grid {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.25rem;
+  align-self: start;
+  background: var(--tkr-bg-stage);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+  touch-action: none;
+}
+
+.tkr-font-grid [role="row"] {
+  display: flex;
+  gap: 1px;
+}
+
+.tkr-font-pixel {
+  box-sizing: border-box;
+  inline-size: 2rem;
+  block-size: 2rem;
+  padding: 0;
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: 0;
+  background: var(--tkr-bg-panel);
+}
+
+.tkr-font-pixel-on {
+  background: var(--tkr-fg-primary) !important;
+}
+
+.tkr-font-pixel-cursor {
+  outline: 2px solid var(--tkr-selection-border);
+  outline-offset: -2px;
+}
+
+.tkr-font-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+  padding: 0.375rem 0.625rem;
+  background: var(--tkr-bg-panel);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-font-row label,
+.tkr-font-style {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: var(--tkr-text-xs);
+  font-weight: 600;
+  color: var(--tkr-fg-muted);
+}
+
+.tkr-font-size {
+  inline-size: 4.5rem;
+}
+
+.tkr-font-sample {
+  flex: 1 1 12rem;
+  min-inline-size: 8rem;
+}
+
+.tkr-font-picture {
+  display: flex;
+  align-items: flex-start;
+  padding: 0.75rem;
+  overflow: auto;
+  background: var(--tkr-bg-stage);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-md);
+}
+
+.tkr-font-canvas {
+  image-rendering: pixelated;
+  box-shadow: var(--tkr-shadow-stage);
+}
+
+.tkr-font-error,
+.tkr-font-conflict {
+  margin: 0;
+  padding: 0.375rem 0.625rem;
+  color: var(--tkr-danger);
+  background: var(--tkr-danger-subtle);
+  border: 1px solid var(--tkr-danger);
+  border-radius: var(--tkr-radius-sm);
+  font-size: var(--tkr-text-xs);
+}
+
+.tkr-font-save:not(:disabled) {
+  align-self: flex-start;
+  background: var(--tkr-accent-subtle);
+  border-color: var(--tkr-selection-border);
+}
+
 /* 9. Sprite & Character Authoring (.tkr-sprite-graphics, .tkr-character-authoring) */
 .tkr-sprite-graphics,
 .tkr-character-authoring {
@@ -2763,6 +2980,12 @@ fieldset.tkr-web-project-controls {
   }
 }
 
+@container font-editor (max-width: 860px) {
+  .tkr-font-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 860px) {
   .tkr-workbench-body {
     grid-template-columns: minmax(0, 1fr);
@@ -2784,6 +3007,7 @@ fieldset.tkr-web-project-controls {
   }
   .tkr-board-workspace,
   .tkr-bitmap-workspace,
+  .tkr-font-workspace,
   .tkr-sprite-bases {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2802,9 +3026,12 @@ fieldset.tkr-web-project-controls {
   .tkr-board-cell-selected,
   .tkr-board-grid [role="gridcell"][aria-selected="true"] > .tkr-board-cell,
   .tkr-bitmap-cell-selected,
+  .tkr-font-slot-selected,
+  .tkr-font-pixel-cursor,
   .tkr-tileset-browser-source-selected,
   .tkr-board-save:not(:disabled),
   .tkr-bitmap-save:not(:disabled),
+  .tkr-font-save:not(:disabled),
   .tkr-tileset-art-save:not(:disabled),
   .tkr-sprite-save:not(:disabled),
   .tkr-character-save:not(:disabled),

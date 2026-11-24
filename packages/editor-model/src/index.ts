@@ -244,6 +244,40 @@ export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePrevi
 export { asAnimationDocument, asBoardDocument, asMainDocument, asNativeClipDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { asTerrainSceneDocument } from "./kinds.ts";
 export { asNativeGeometryDocument } from "./kinds.ts";
+export { asFontDocument } from "./kinds.ts";
+export {
+  createFontDocument,
+  FONT_GLYPH_SIDE,
+  FONT_SLOTS,
+  fontCharacterOf,
+  fontCodec,
+  fontGlyphRows,
+  fontPixelOf,
+  fontRowsWithPixel,
+  fontSlotName,
+  inkedGlyphCount,
+  newFontBytes,
+  openFontDocument,
+  type FontCommand,
+  type FontDocument,
+  type FontDocumentFields,
+  type FontDocumentSnapshot,
+  type FontOpenResult,
+  type SetFontGlyphCommand,
+} from "./font-document.ts";
+export {
+  FONT_PREVIEW_BACKGROUND,
+  FONT_PREVIEW_INK,
+  FONT_PREVIEW_MAX_SIZE,
+  FONT_PREVIEW_MAX_TEXT,
+  FONT_PREVIEW_MIN_SIZE,
+  FONT_PREVIEW_SAMPLE,
+  fontPreviewProblem,
+  previewFontText,
+  type FontPicture,
+  type FontPreviewOptions,
+} from "./font-preview.ts";
+export { createFontFile, fontDestinationProblem, fontFileName, suggestFontPath, type CreateFontResult, type NewFontStorage } from "./font-support.ts";
 export type { AssetPack, GeometryPoint, GeometrySolid, GeometryUnder, NativeTile, NativeTileSample, OwnerGeometry } from "@tk-reawakened/native-data";
 export type { Scene, SceneTerrainCellTile } from "@tk-reawakened/native-data";
 export { setSceneTerrain, readScene, setScenePackPlacements } from "@tk-reawakened/native-data";
