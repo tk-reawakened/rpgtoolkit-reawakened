@@ -2,13 +2,17 @@
 // active game's own Font folder, so a `Main/` + `Game/<project>/` game gets the right path — a project with several games
 // asks which one instead of taking whichever the listing reached first.
 import { deepEqual, equal, ok } from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { createEmptyMainFile, writeMainFile } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { fontDestinationProblem } from "@tk-reawakened/editor-model";
 import { fontGames, runNewFont, type NewFontUi } from "../src/new-font.ts";
 
 const text = (value: string): Uint8Array => Uint8Array.from(value, (ch) => ch.charCodeAt(0));
+const exampleMain = readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url));
+const examplePath = "Game\\Example\\\0";
+const projectPathAt = exampleMain.indexOf(examplePath);
+ok(projectPathAt >= 0, "the authored fixture contains its nul-terminated projectPath");
 
 function ask(answer: string | undefined): { readonly ui: NewFontUi; readonly seen: { title: string; prompt: string; value: string; validate: (value: string) => string | null }[] } {
   const seen: { title: string; prompt: string; value: string; validate: (value: string) => string | null }[] = [];
@@ -25,9 +29,12 @@ function ask(answer: string | undefined): { readonly ui: NewFontUi; readonly see
 
 /** A main file whose own project folder is `projectPath` ("" for a root-layout game). */
 function mainFileWith(projectPath: string): Uint8Array {
-  const written = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath, movementControls: 5, movementScanCodes: [0xcd, 0, 0xd0, 0, 0xcb, 0, 0xc8, 0] });
-  if (!written.ok) throw new Error(written.error.message);
-  return new Uint8Array(written.value);
+  // The .gam format stores projectPath as a NUL-terminated string (main-file.md, row 6).
+  return Buffer.concat([
+    exampleMain.subarray(0, projectPathAt),
+    Buffer.from(`${projectPath}\0`, "ascii"),
+    exampleMain.subarray(projectPathAt + examplePath.length),
+  ]);
 }
 
 test("the suggested path is the active game's own Font folder, so a project game keeps its folder", async () => {
