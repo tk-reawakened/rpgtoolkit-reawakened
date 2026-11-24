@@ -277,17 +277,24 @@ test("Ctrl+Z and Ctrl+Y on the layer list leave the board history alone", async 
   const s = await setup();
   ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: 0, y: 0, tile: GRASS }] })).ok);
   await settle();
-  const bytes = s.doc.serialize();
-  const edits = s.doc.getSnapshot().edits.length;
   const layerSelect = s.el.querySelector<HTMLSelectElement>(".tkr-board-layer-row select");
   ok(layerSelect);
-  // Each key is checked on its own: pressing undo and redo in turn could hide one of them running.
-  for (const key of ["z", "y"]) {
-    await act(() => layerSelect.focus());
-    await press(s, { key, ctrlKey: true }, layerSelect);
-    deepEqual(s.doc.serialize(), bytes, `Ctrl+${key.toUpperCase()} must not run from a focused list`);
-    equal(s.doc.getSnapshot().edits.length, edits);
-  }
+  // Something to undo: Ctrl+Z would take the tile away.
+  const drawn = s.doc.serialize();
+  const edits = s.doc.getSnapshot().edits.length;
+  await act(() => layerSelect.focus());
+  await press(s, { key: "z", ctrlKey: true }, layerSelect);
+  deepEqual(s.doc.serialize(), drawn, "Ctrl+Z must not undo from a focused list");
+  equal(s.doc.getSnapshot().edits.length, edits);
+  // Something to redo: undo the draw, so Ctrl+Y would put it back.
+  ok(s.doc.undo(s.doc.getSnapshot().edits.at(-1)!.editId).ok);
+  await settle();
+  const undone = s.doc.serialize();
+  equal(boardTileAt(s.doc.getSnapshot(), 0, 0, 0), "");
+  await act(() => layerSelect.focus());
+  await press(s, { key: "y", ctrlKey: true }, layerSelect);
+  deepEqual(s.doc.serialize(), undone, "Ctrl+Y must not redo from a focused list");
+  equal(boardTileAt(s.doc.getSnapshot(), 0, 0, 0), "");
   // The clipboard keys still reach the board from the same control.
   await act(() => layerSelect.focus());
   await press(s, { key: "a", ctrlKey: true }, layerSelect);

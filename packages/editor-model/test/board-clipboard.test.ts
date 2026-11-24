@@ -2,6 +2,7 @@
 // tiles and shading and whole vectors, programs, sprites and images copy, cut and paste as single edits that undo, redo
 // and survive a reload, while partial point sets and lights are refused without changing the board or the clipboard.
 import { deepEqual, equal, match, notEqual, ok } from "node:assert/strict";
+import { BinaryReader, readBoard, writeBoard } from "@tk-reawakened/core";
 import { test } from "node:test";
 import type { PlatformError } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
@@ -882,4 +883,57 @@ test("a sparse paste that changes nothing still clears the old selection", async
   equal(await s.editor.paste(), false, "the only covered cell already shows the tile");
   match(s.editor.getState().message!.text, /Nothing changed/);
   equal(s.editor.getState().selection, null, "the old selection is cleared, so a cut cannot take unrelated cells");
+});
+
+test("an all-zero shade paste on a board without shading creates no layer, no edit and no undo step", async () => {
+  const s = rig();
+  equal(s.doc.getSnapshot().shadeLayers.length, 0, "the board starts without shading");
+  const a = near(s.centre, 0, 0);
+  s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", origin: { x: a.x, y: a.y }, width: 1, height: 1, tiles: [GRASS], shades: [[0, 0, 0]] });
+  s.editor.setCursor(a);
+  ok(await s.editor.paste(), "the tile is pasted");
+  equal(s.doc.getSnapshot().shadeLayers.length, 0, "a zero shade on a board without a shading layer creates none");
+  equal(boardTileAt(s.doc.getSnapshot(), 0, a.x, a.y), GRASS);
+  const bytes = s.doc.serialize();
+  const edits = s.doc.getSnapshot().edits.length;
+  equal(await s.editor.paste(), false, "the second paste changes nothing");
+  match(s.editor.getState().message!.text, /already show that/);
+  deepEqual(s.doc.serialize(), bytes, "no layer, no dirty change and no undo step");
+  equal(s.doc.getSnapshot().edits.length, edits);
+  equal(s.reload().getSnapshot().shadeLayers.length, 0);
+});
+
+test("pasting the reference a cell already stores keeps its own lookup-table slot", async () => {
+  const built = buildNewBoard({ name: "t", coordSystem: "2d", pixelCoordinates: false, width: 2, height: 2, layers: 1, backgroundImage: "", template: null });
+  ok(built.ok);
+  const read = readBoard(new BinaryReader(built.bytes));
+  ok(read.ok);
+  // A table that names the same reference twice, with the first cell stored through the later slot.
+  const model = { ...read.value, lut: [...read.value.lut, GRASS, GRASS], tileRuns: [{ lutIndex: read.value.lut.length + 1, count: 1, marker: true }, { lutIndex: 0, count: 3, marker: true }] };
+  const duplicate = model.lut.length - 1;
+  const written = writeBoard({ ...model, tileMatrix: [duplicate, 0, 0, 0] });
+  ok(written.ok);
+  const host = createMemoryPlatformServices({ files: { "Boards/t.brd": written.value }, capabilities: ["clipboard"] });
+  const identity = createDocumentIdentity("memory-project", "Boards/t.brd");
+  const opened = createBoardDocument(host.fs, identity, written.value);
+  ok(opened.ok);
+  const doc = opened.document;
+  equal(boardTileAt(doc.getSnapshot(), 0, 0, 0), GRASS);
+  equal(doc.getSnapshot().lut.filter((reference) => reference === GRASS).length, 2, "the table really holds it twice");
+  const bytes = doc.serialize();
+  const edits = doc.getSnapshot().edits.length;
+  const editor = createBoardEditor({
+    board: () => doc.getSnapshot(),
+    apply: (command) => doc.apply(command),
+    brush: () => null,
+    pickTile: () => false,
+    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    clipboard: { readText: async () => ({ ok: true, value: JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", origin: { x: 0, y: 0 }, width: 1, height: 1, tiles: [GRASS], shades: null }) }), writeText: async () => ({ ok: true, value: undefined }) },
+  });
+  editor.setCursor({ x: 0, y: 0 });
+  equal(await editor.paste(), false, "the cell already stores that reference");
+  match(editor.getState().message!.text, /already show that/);
+  deepEqual(doc.serialize(), bytes, "the duplicate slot is not normalised, so nothing changed");
+  equal(doc.getSnapshot().edits.length, edits);
+  deepEqual(doc.getSnapshot().tileMatrix.slice(0, 1), [duplicate]);
 });

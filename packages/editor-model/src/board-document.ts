@@ -241,6 +241,8 @@ function assignTiles(board: Board, assignments: readonly TileAssignment[]): Boar
   };
   const changes: [number, number][] = [];
   for (const [cell, tile] of final) {
+    // A cell whose stored reference already is this tile keeps its own lookup-table index: a table may hold the same
+    // reference twice, and normalising to the first copy would be an edit that changes no tile.
     if (board.lut[board.tileMatrix[cell] ?? -1] === tile) continue;
     const index = lookup(tile);
     if (board.tileMatrix[cell] !== index) changes.push([cell, index]);
@@ -416,6 +418,7 @@ export function planShadeCells(board: Board, cells: readonly ShadeCell[], limits
       return { ok: false, message: `A shade is three whole numbers from ${limits.min} to ${limits.max}.` };
     }
   }
+  // A board without a shading layer reads as zeros, so asking for zeros changes nothing and creates no layer.
   let changed = false;
   for (const cell of cells) {
     const at = (cell.y * grid.width + cell.x) * 3;
