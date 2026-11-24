@@ -44,6 +44,10 @@ Lands in: `docs/spec/engine/rpgcode-tooling.md#tool-4` (separable jobs) and the 
 - Gates observed green: `tsc -b`, `lint` (eslint + core deps), `test:strict` (5802 passed, no skips), `fixtures:author:check`, `fixtures:test`, `fixtures:check`, `golden`, `closing` (8/8), `script:dogfood`, `graph`, `licence`, `provenance`, `catalogue:check`, `command-docs:check`, `help-content --check` (regenerated once, deliberately), `build:outputs:check`, `adr:numbering:check`, `vscode-web:test`, editor-program browser spec.
 - Not run: `editor-acceptance`, desktop input/parity and Android proofs (no device/emulator here); `golden:bun` run separately.
 
+## Review findings closed (head 5d7585077e)
+
+Independent surface and model review reported ten plus seven issues; all are fixed on this branch with tests, except none outstanding: formatter indentation is ASCII spaces/tabs only; a Toolkit 2.x source with nothing to rewrite must still lower the same in both readings; a star comment is a whole-line comment for the `#` scanner; a failed checkpoint aborts the whole apply; destination bytes are compared again before writing; a file opened after the plan is refused; copies land under the project root and the server is asked with root-relative paths; `rpgcode/projectState` + `awaitProject` close the startup snapshot race; VS Code activates the language extension, sends the Toolkit 2 language mode, roots the scan at the selected `.gam`, shows a genuine diff editor and retries exactly the failed files; the browser dialog keeps focus and its teardown is bound to the review that owns it.
+
 ## Defect filed
 
 #3364: a dialog mounted on the workbench element could be removed by a shell re-render (the review vanished mid-apply). The review now mounts on the page; the other workbench dialogs should follow.
