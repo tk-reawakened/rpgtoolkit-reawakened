@@ -1239,19 +1239,20 @@ test("boot installs a project bitmap font, requests it with the other fonts, and
   const rows = Array.from({ length: 2048 }, (_, index) => ` ${index % 256} `);
   const valid = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n");
   const truncated = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows.slice(0, 2047)].join("\r\n") + "\r\n");
+  const unsupported = encoder.encode(["RPGTLKIT FONT", "3", "1", ...rows].join("\r\n") + "\r\n");
   const notAFont = encoder.encode("not a bitmap font");
   const game = authorGame({
     startup: "start.prg",
     initChar: "hero.tem",
-    fonts: { "Good.ttf": liberation, "mine.fnt": valid, "Short.fnt": truncated, "Text.fnt": notAFont },
+    fonts: { "Good.ttf": liberation, "mine.fnt": valid, "Short.fnt": truncated, "Text.fnt": notAFont, "Version.fnt": unsupported },
     boards: { "start.brd": { tiles: [8, 8] } },
     programs: { "start.prg": 'font("mine")\nwidth = gettextwidth("abc")\nend()\n' },
   });
   const doubles = makeDoubles();
   const engine = bootEngine(game, doubles);
   const result = run(engine, game.files, 30);
-  deepEqual(result.requests.filter((key) => key.startsWith("font/")), ["font/good.ttf", "font/mine.fnt", "font/short.fnt", "font/text.fnt"], "every font under Font\\ is requested in index order");
-  deepEqual(result.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.file]), [["font.rejected", "font/short.fnt"], ["font.rejected", "font/text.fnt"]], "only the files that are not Toolkit 2 bitmap fonts are rejected");
+  deepEqual(result.requests.filter((key) => key.startsWith("font/")), ["font/good.ttf", "font/mine.fnt", "font/short.fnt", "font/text.fnt", "font/version.fnt"], "every font under Font\\ is requested in index order");
+  deepEqual(result.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.file]), [["font.rejected", "font/short.fnt"], ["font.rejected", "font/text.fnt"], ["font.rejected", "font/version.fnt"]], "only supported Toolkit 2 bitmap fonts are installed");
   const state = doubles.state();
   equal(state.engine.boot?.stage, "running", "a rejected font does not stop the game");
   deepEqual(state.engine.boot?.fonts, ["font/good.ttf", "font/mine.fnt"]);

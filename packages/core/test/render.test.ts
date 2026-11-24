@@ -123,4 +123,8 @@ test("resolveFontAsset prefers an exact path, then a family match, then the Libe
   const lower = assetKey("Font/élan.fnt");
   equal(resolveFontAsset("ÉLAN", [lower, upper]), upper, "family matching folds ASCII only");
   equal(resolveFontAsset("FONT/élan.FNT", [upper, lower]), lower, "exact paths preserve non-ASCII case");
+  const spaced = assetKey("Font/Retro Bold.fnt");
+  const dashed = assetKey("Font/Retro-Bold.fnt");
+  equal(resolveFontAsset("RETRO BOLD", [dashed, spaced]), spaced, "the exact basename beats a family alias");
+  equal(resolveFontAsset("retro-bold", [spaced, dashed]), dashed, "punctuation in the exact basename is significant");
 });

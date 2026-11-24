@@ -82,6 +82,7 @@ export type BridgeMessage =
   | { readonly type: "snapshot"; readonly snapshot: BridgedSnapshot }
   | { readonly type: "browser-state"; readonly changes: BrowserStatePatch }
   | { readonly type: "edit-result"; readonly requestId: string; readonly result: ApplyResult; readonly snapshot: BridgedSnapshot }
+  | { readonly type: "font-edit-result"; readonly requestId: string; readonly result: ApplyResult }
   | { readonly type: "save-result"; readonly requestId: string; readonly result: SaveResult; readonly snapshot: BridgedSnapshot }
   | { readonly type: "workbench-history-result"; readonly requestId: string; readonly result: WorkbenchHistoryResult }
   | { readonly type: "conflict-result"; readonly requestId: string; readonly result: ConflictResult; readonly snapshot: BridgedSnapshot }
@@ -190,7 +191,10 @@ export async function handleEditorHostRequest(
       ? document.model.apply(request.command as never)
       : { ok: false, rejection: { reason: "invalid", message: `That is not an edit this ${document.model.kind} document understands.` } };
     if (result.ok) document.didEdit(result.editId);
-    await postMessage({ type: "edit-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
+    // Font snapshots publish through the subscription, independently of acknowledgements. A late reply must not
+    // replace a newer snapshot (for example, one produced by native Undo while a reply was in flight).
+    if (document.model.kind === "font") await postMessage({ type: "font-edit-result", requestId: request.requestId, result });
+    else await postMessage({ type: "edit-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   } else if (request.type === "workbench-history") {
     let result: WorkbenchHistoryResult;
     try {
@@ -684,6 +688,7 @@ export class RemoteDocument {
     // A source visit is a view instruction, not a document snapshot: the page's own listener selects the tile.
     if (message.type === "source-target") return;
     if (message.type === "workbench-history-result") return void this.settle(this.pendingHistory, message.requestId, message.result);
+    if (message.type === "font-edit-result") return void this.settle(this.pendingEditResults, message.requestId, message.result);
     this.snapshot = message.type === "save-result" && !message.result.ok && message.snapshot.saveError === null
       ? { ...message.snapshot, saving: false, saveError: message.result.failure }
       : message.snapshot;

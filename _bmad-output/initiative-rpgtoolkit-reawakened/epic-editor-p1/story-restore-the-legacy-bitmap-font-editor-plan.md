@@ -125,7 +125,7 @@ wrote.
 
 **VS Code Undo/Redo (#3375).** With the grid focused, use VS Code's native shortcuts (Cmd+Z and Cmd+Shift+Z on macOS).
 The earlier Control-key proof used the wrong modifier on macOS. A custom command bridge duplicated VS Code's own
-dispatch and could show an “undo or redo operation running” dialog, so no bridge ships. The real vscode.dev proof
+dispatch and could show an “undo or redo operation running” dialog, so no bridge shipped in that pass. The real vscode.dev proof
 checks native key Undo/Redo, the tab's dirty marker going from set to clear when undoing back to saved content, and close
 without a save prompt or any change to the saved bytes.
 
@@ -137,3 +137,11 @@ without a save prompt or any change to the saved bytes.
 - **#3404:** Both New Font routes validate against the selected project's reserved `Font` destination before writing. Chromium proves `Misc/Font/` cannot masquerade as the root game's font folder.
 - **#3405:** Font path and family lookup use the asset resolver's ASCII folding, preserving the distinction between `Élan` and `élan`.
 - **#3375:** The grid now consumes its Undo/Redo shortcuts before VS Code's bubbling forwarder and queues them behind its accepted stroke edits. The extension only dispatches the native command for the active font URI; the workbench's existing history callback owns edit reversal and dirty state. The conformance test holds an acknowledgement after the first edit is registered, queues a second stroke and Undo, then proves only the second stroke is undone. The real workbench checks keyboard and palette share one stack and still closes cleanly after Undo.
+
+## Fifth-pass review fixes
+
+- **#3375:** A completed stroke reaches VS Code's native edit stack without waiting for an earlier reply. The grid still sequences its own Undo/Redo requests; direct workbench Undo (such as from the command palette) can take back the latest stroke even with acknowledgements held. Font snapshots travel separately so late replies cannot roll back the Undo view.
+- **#3408:** Release submits all traversed cells, even when the view's stale rows match the stroke. The document, not the view, decides whether the command changes anything.
+- **#3409:** Exact ASCII-folded basenames win before the separator-insensitive family alias.
+- **#3410:** VS Code identifies the active game using the editor's ASCII-folded document identity, which does not conflate `Élan` and `élan`.
+- **#3411:** Boot reports and skips bitmap fonts other than version 2.0; the editor can still inspect a structurally readable non-2.0 file.

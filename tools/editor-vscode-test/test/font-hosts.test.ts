@@ -284,6 +284,30 @@ test("VS Code grid Undo waits for an applied edit's held acknowledgement and the
   await until(() => ink(tab) === "0,0 1,1 2,2");
 });
 
+test("VS Code native Undo sees both completed strokes while edit acknowledgements are held", async () => {
+  document.body.replaceChildren();
+  const { createVscodeBoardProofHost } = await import("../conformance/vscode-host.ts");
+  const host = createVscodeBoardProofHost(false, gam, { [PATH]: ORIGINAL }, act);
+  const tab = await host.open(PATH);
+  await until(() => tab.element.querySelector("[data-pixel]") !== null);
+  const gate = tab.holdEditResults();
+  try {
+    await stroke(tab, [1, 1], []);
+    await tab.delivered();
+    equal(tab.workbenchDirty(), true, "the native stack has the first edit, and its acknowledgement is withheld");
+    await stroke(tab, [2, 2], []);
+    await tab.delivered();
+    await until(() => ink(tab) === "0,0 1,1 2,2");
+    await tab.undoFromWorkbench();
+    await until(() => ink(tab) === "0,0 1,1");
+    equal(tab.workbenchDirty(), true, "native Undo undid the newer stroke; the first stays dirty");
+  } finally {
+    gate.release();
+  }
+  await host.settle();
+  equal(ink(tab), "0,0 1,1", "late replies cannot restore a pre-Undo snapshot");
+});
+
 test("New font makes a version 2.0 font with all glyphs empty through the host's filesystem contract, and refuses an existing path", async () => {
   // Both hosts write through the same platform-services contract their editors use; the file it writes is the one the
   // engine installs and the editor opens.

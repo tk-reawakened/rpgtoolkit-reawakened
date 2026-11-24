@@ -256,7 +256,7 @@ class Webview {
       const page = this.#page;
       if (page === null) return Promise.resolve(false);
       const copy = structuredClone(message);
-      if (this.#heldEditResults !== null && copy.type === "edit-result") {
+      if (this.#heldEditResults !== null && (copy.type === "edit-result" || copy.type === "font-edit-result")) {
         this.#heldEditResults.push(copy);
         return Promise.resolve(true);
       }
@@ -874,6 +874,7 @@ export interface BoardProofTab {
   /** Resolves once every message the webview has sent has reached the extension host. */
   delivered(): Promise<void>;
   holdEditResults(): { release(): void };
+  undoFromWorkbench(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -899,6 +900,7 @@ export function createVscodeBoardProofHost(desktop: boolean, gam: Uint8Array, fi
         picture: () => editor.webview.picture(),
         delivered: () => editor.webview.delivered(),
         holdEditResults: () => editor.webview.holdEditResults(),
+        undoFromWorkbench: () => editor.undo(),
         close: async () => { await editor.close("discard"); },
       };
     },

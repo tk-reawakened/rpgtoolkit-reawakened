@@ -90,21 +90,12 @@ function widthOf(glyphs: readonly GlyphAdvance[]): number {
 /**
  * Resolve a `font(name)` argument against the assets the project actually ships
  * (docs/spec/engine/rpgcode-functions.md#reawakened-rule-owner-fontref-facing-font-semantics):
- * an exact path, then an ASCII-case-insensitive family match, then the documented
- * Liberation substitution, and `null` when nothing resolves so the caller can
- * fall back.
+ * an exact path or basename, then an ASCII-case-insensitive family alias, then
+ * the documented Liberation substitution, and `null` when nothing resolves.
  */
 export function resolveFontAsset(name: string, keys: Iterable<AssetKey>): AssetKey | null {
   const folded = foldPath(name.trim());
   if (folded === "") return null;
-  const familyOf = (key: AssetKey): string =>
-    key.slice(key.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "").replace(/[-_\s]/g, "");
-  const wanted = folded.replace(/[-_\s]/g, "");
-  const all = [...keys];
-  const exact = all.find((key) => key === folded || key.endsWith(`/${folded}`));
-  if (exact !== undefined) return exact;
-  const byFamily = all.find((key) => familyOf(key) === wanted);
-  if (byFamily !== undefined) return byFamily;
   const substitute = folded === "arial" || folded === "sans-serif" || folded === "liberation sans"
     ? "liberationsans"
     : folded === "times new roman" || folded === "serif" || folded === "liberation serif"
@@ -112,8 +103,22 @@ export function resolveFontAsset(name: string, keys: Iterable<AssetKey>): AssetK
       : folded === "courier new" || folded === "monospace" || folded === "liberation mono"
         ? "liberationmono"
         : "";
-  if (substitute === "") return null;
-  return all.find((key) => familyOf(key).startsWith(substitute)) ?? null;
+  const suffix = `/${folded}`;
+  const wanted = folded.replace(/[-_\s]/g, "");
+  let basenameMatch: AssetKey | undefined;
+  let familyMatch: AssetKey | undefined;
+  let substitution: AssetKey | undefined;
+  for (const key of keys) {
+    if (key === folded || key.endsWith(suffix)) return key;
+    const start = key.lastIndexOf("/") + 1;
+    const dot = key.lastIndexOf(".");
+    const basename = key.slice(start, dot > start ? dot : undefined);
+    if (basenameMatch === undefined && basename === folded) basenameMatch = key;
+    const family = basename.replace(/[-_\s]/g, "");
+    if (familyMatch === undefined && family === wanted) familyMatch = key;
+    if (substitution === undefined && substitute !== "" && family.startsWith(substitute)) substitution = key;
+  }
+  return basenameMatch ?? familyMatch ?? substitution ?? null;
 }
 
 /** Resolve a named project font, applying the documented family aliases. */

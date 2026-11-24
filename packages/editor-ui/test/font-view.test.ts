@@ -349,6 +349,22 @@ test("a stroke retains an already traversed pixel when another view draws and th
   equal(fontPixelOf(fontGlyphRows(s.doc.getSnapshot().values, 65), 4, 4), true);
 });
 
+test("release sends stroke intent even when the view has not received the latest Undo snapshot", async () => {
+  const s = await setup();
+  ok(s.doc.apply({ type: "set-font-pixels", glyph: 65, pixels: [{ x: 4, y: 4, ink: true }] }).ok);
+  const matched = s.doc.getSnapshot();
+  let hold = true;
+  await show({ ...s, view: { ...s.view, getSnapshot: () => hold ? matched : s.doc.getSnapshot() } });
+  await press(pixel(s.el, 4, 4));
+  ok(s.doc.undo().ok);
+  await settle();
+  equal(inkAt(s.el), "0,0 4,4", "the view still has the matching revision");
+  await release(pixel(s.el, 4, 4));
+  hold = false;
+  equal(s.doc.getSnapshot().edits.length, 1, "release reached the authoritative document as a new edit");
+  equal(fontPixelOf(fontGlyphRows(s.doc.getSnapshot().values, 65), 4, 4), true);
+});
+
 test("the host's Undo and Redo are one button and one keyboard shortcut, from the grid, and follow the document's stack", async () => {
   const s = await setup();
   await show(s);
@@ -452,7 +468,7 @@ test("a refused save keeps every glyph edit in the document and the view, and Sa
   deepEqual(s.host.bytesOf(PATH), encoder.encode(fontText((glyph, row) => (glyph === 65 && row === 3 ? 0x10 : original(glyph, row)))));
 });
 
-test("edits wait for the host's answer: the view reports them as pending, applies them in order and Save waits for them", async () => {
+test("edits are sent in input order without waiting for the first answer; Save still tracks both", async () => {
   const s = await setup();
   await show(s);
   s.gate.holding = true;
@@ -462,6 +478,7 @@ test("edits wait for the host's answer: the view reports them as pending, applie
   await release(pixel(s.el, 2, 2));
   equal(s.pending.busy(), true, "the host's save and close would wait for these");
   equal(s.doc.getSnapshot().edits.length, 0, "the document has not heard yet");
+  equal(s.gate.queue.length, 2, "the first unacknowledged edit does not hold back a second");
   s.gate.holding = false;
   await act(() => { for (const release of s.gate.queue.splice(0)) release(); });
   await s.pending.settle();

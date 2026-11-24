@@ -30,7 +30,7 @@ import { planPrefetch, prefetchSignature, type PrefetchFacts } from "../prefetch
 import { readBattleBackground } from "../formats/battle/battle-background.ts";
 import { BinaryReader } from "../formats/binary/reader.ts";
 import type { MainFile } from "../formats/main-file/model.ts";
-import type { LegacyFont } from "../formats/font/model.ts";
+import { FONT_SUBVERSION, FONT_VERSION, type LegacyFont } from "../formats/font/model.ts";
 import { readLegacyFont } from "../formats/font/reader.ts";
 import { gateTrueType, readTrueTypeFont, type TrueTypeFont } from "../formats/font/truetype.ts";
 import type { AssetKind } from "../formats/main-file/layout.ts";
@@ -3544,6 +3544,10 @@ export function createEngine(init: EngineInit): WithProjectFonts<Engine | OnRequ
           const parsed = readLegacyFont(bytes, key);
           if (!parsed.ok) {
             diagnostics.push({ code: "font.rejected", file: key, line: parsed.error.offset, message: parsed.error.message });
+            continue;
+          }
+          if (parsed.value.version !== FONT_VERSION || parsed.value.subversion !== FONT_SUBVERSION) {
+            diagnostics.push({ code: "font.rejected", file: key, line: 2, message: `unsupported bitmap font version ${parsed.value.version}.${parsed.value.subversion}; expected ${FONT_VERSION}.${FONT_SUBVERSION}` });
             continue;
           }
           parsedBitmapFonts.set(bytes, parsed.value);

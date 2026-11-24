@@ -1,4 +1,4 @@
-import { createFontFile, fontDestinationProblem, projectLayoutOfMain, suggestFontPath, type ProjectLayout } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createFontFile, fontDestinationProblem, projectLayoutOfMain, suggestFontPath, type ProjectLayout } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
 /**
@@ -32,8 +32,6 @@ export interface FontGame {
   readonly layout: ProjectLayout;
 }
 
-const fold = (path: string): string => path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-
 /**
  * Every game of the project — each `.gam` file, with the layout its own main file names. A project may hold several, so the
  * caller picks one rather than taking whichever the listing reached first.
@@ -51,7 +49,7 @@ export async function fontGames(fs: Pick<FileSystemService, "list" | "readProjec
     for (const entry of listing.value) {
       const path = directory === "" ? entry.name : `${directory}/${entry.name}`;
       if (entry.kind === "directory") pending.push(path);
-      else if (entry.kind === "file" && path.toLowerCase().endsWith(".gam")) games.push({ main: path, layout: await projectLayoutOfMain(fs, projectId, path) });
+      else if (entry.kind === "file" && /\.gam$/i.test(path)) games.push({ main: path, layout: await projectLayoutOfMain(fs, projectId, path) });
     }
   }
   return games.sort((left, right) => left.main.localeCompare(right.main));
@@ -61,7 +59,11 @@ export async function fontGames(fs: Pick<FileSystemService, "list" | "readProjec
 export async function runNewFont(env: NewFontEnvironment): Promise<NewFontOutcome> {
   try {
     const games = await fontGames(env.fs, env.projectId);
-    const active = env.activeGame === undefined ? undefined : games.find((game) => fold(game.main) === fold(env.activeGame!));
+    const gameNamed = (path: string): FontGame | undefined => {
+      const key = createDocumentIdentity(env.projectId, path.trim().replace(/[/\\]+$/, "")).key;
+      return games.find((game) => createDocumentIdentity(env.projectId, game.main).key === key);
+    };
+    const active = env.activeGame === undefined ? undefined : gameNamed(env.activeGame);
     let game: FontGame | undefined = active;
     if (game === undefined && games.length > 1) {
       // More than one game and none named: ask, instead of writing into whichever game the listing reached first.
@@ -70,10 +72,10 @@ export async function runNewFont(env: NewFontEnvironment): Promise<NewFontOutcom
         title: "New font: which game?",
         prompt: `This project has ${games.length} games. Type the one the font belongs to: ${names.join(", ")}.`,
         value: names[0] ?? "",
-        validate: (value) => (games.some((candidate) => fold(candidate.main) === fold(value.trim())) ? null : `Type one of: ${names.join(", ")}.`),
+        validate: (value) => (gameNamed(value) === undefined ? `Type one of: ${names.join(", ")}.` : null),
       });
       if (answer === undefined) return { ok: false, reason: "cancelled", message: "No font was created." };
-      game = games.find((candidate) => fold(candidate.main) === fold(answer.trim()));
+      game = gameNamed(answer);
       if (game === undefined) return { ok: false, reason: "cancelled", message: "No font was created." };
     }
     const layout: ProjectLayout = game?.layout ?? games[0]?.layout ?? { projectFolder: "" };

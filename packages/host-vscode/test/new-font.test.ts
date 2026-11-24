@@ -77,6 +77,20 @@ test("two games are never guessed: the open one is used, and with none open the 
   equal(asked.seen[0]!.validate("main/ONE.gam"), null, "a game is matched without regard to A-Z case");
 });
 
+test("the active game's path folds ASCII case without conflating Unicode filenames", async () => {
+  const host = createMemoryPlatformServices({ files: {
+    "Main/Élan.gam": mainFileWith("Game/Upper"),
+    "Main/élan.gam": mainFileWith("Game/Lower"),
+    "Game/Upper/Boards/start.brd": text(""),
+    "Game/Lower/Boards/start.brd": text(""),
+  } });
+  for (const [main, folder] of [["MAIN/ÉLAN.GAM", "Upper"], ["MAIN/éLAN.GAM", "Lower"]] as const) {
+    const picked = ask("");
+    deepEqual(await runNewFont({ fs: host.fs, projectId: "memory-project", activeGame: main, ui: picked.ui }), { ok: true, path: `Game/${folder}/Font/new-font.fnt` });
+    equal(picked.seen.length, 1, "the active game was found");
+  }
+});
+
 test("a root layout game suggests Font/, a taken name gets the next one, and a dismissed question writes nothing", async () => {
   const host = createMemoryPlatformServices({ files: { "Main/test.gam": mainFileWith(""), "Font/new-font.fnt": text("x") } });
   const games = await fontGames(host.fs, "memory-project");
