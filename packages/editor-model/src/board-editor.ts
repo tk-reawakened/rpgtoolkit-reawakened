@@ -47,7 +47,7 @@ import {
   translatedObject,
   type BoardObject,
 } from "./board-object-tools.ts";
-import { clearRegion, copyObjects, copyRegion, parseClip, pasteAnchor, pasteObjects, pasteRegion, serializeClip, type BoardClip } from "./board-clipboard.ts";
+import { clearRegion, copyObjects, copyRegion, parseClip, pasteObjects, pasteRegion, regionStillHolds, serializeClip, type BoardClip } from "./board-clipboard.ts";
 import { sameStoredValue } from "./board-document.ts";
 import type { ClipboardService } from "@tk-reawakened/platform-services";
 
@@ -642,44 +642,51 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     info(describeClip(made.clip, "Copied"));
     return true;
   };
+  /** Whether the board still holds exactly what a cut took: the same slots with the same records, or the same tiles and shade. */
+  const stillHolds = (source: ClipSource & { readonly ok: true }): boolean => {
+    const board = options.board();
+    if (source.clip.kind === "objects") {
+      const records = board[source.clip.family];
+      return source.indices.length === source.clip.objects.length
+        && source.indices.every((index, at) => sameStoredValue(records[index], source.clip.kind === "objects" ? source.clip.objects[at] : undefined));
+    }
+    return source.region !== null && regionStillHolds(board, source.clip, source.region.layer, source.region.rect);
+  };
   const cutToClipboard = async (confirmRemoval: (removal: { readonly family: BoardObjectKind; readonly count: number }) => Promise<boolean>): Promise<boolean> => {
     if (state.busy) return false;
     if (lightsRefused("cut")) return false;
-    const first = clipSource("cut");
-    if (!first.ok) { error(first.message); return false; }
+    // The source is frozen here: what the question asks about, what the clipboard receives and what is removed are the same
+    // selection, and a change that lands while the cut waits refuses the whole cut instead of cutting something else.
+    const source = clipSource("cut");
+    if (!source.ok) { error(source.message); return false; }
     const service = hostClipboard();
     if (service === null) return false;
-    if (first.clip.kind === "objects") {
-      const removal = { family: first.clip.family, count: first.clip.objects.length };
+    if (source.clip.kind === "objects") {
+      const removal = { family: source.clip.family, count: source.clip.objects.length };
       if (!(await confirmRemoval(removal))) { info("Cut cancelled. Nothing was changed."); return false; }
+      if (state.busy) return false;
+      if (lightsRefused("cut")) return false;
+      if (!stillHolds(source)) { error("The board changed while the cut was being asked about, so the copied selection is not the same any more. Nothing was cut. Select it again."); return false; }
     }
-    // What is selected may have changed while the question was open, so what is cut is what is selected now.
-    const made = clipSource("cut");
-    if (!made.ok) { error(made.message); return false; }
-    const wrote = await service.writeText(serializeClip(made.clip));
+    const wrote = await service.writeText(serializeClip(source.clip));
     if (!wrote.ok) { error(`Nothing was cut: ${wrote.error.message}`); return false; }
+    if (state.busy) return false;
+    if (lightsRefused("cut")) return false;
+    if (!stillHolds(source)) { error("The board changed while the cut was being written, so the copied selection is not the same any more. Nothing was cut. Select it again."); return false; }
     const board = options.board();
-    // Writing the clipboard awaited: the document may have changed under the selection (an undo, a reload, another view).
-    // What is removed is what was copied, at the slots that still hold it, or nothing at all.
-    if (made.clip.kind === "objects") {
-      const records = board[made.clip.family];
-      const stillThere = made.indices.length === made.clip.objects.length
-        && made.indices.every((index, at) => sameStoredValue(records[index], made.clip.kind === "objects" ? made.clip.objects[at] : undefined));
-      if (!stillThere) { error("The board changed while the cut was being written, so the copied slots are not the same any more. Nothing was cut. Copy again."); return false; }
-    }
-    if (made.clip.kind === "region" && made.region !== null) {
-      const edit = clearRegion(board, made.region.layer, made.region.rect);
+    if (source.clip.kind === "region" && source.region !== null) {
+      const edit = clearRegion(board, source.region.layer, source.region.rect);
       const changed = await commit("cut", { ok: true, cells: edit.cells, shadeCells: edit.shadeCells });
-      if (changed) info(describeClip(made.clip, "Cut"));
+      if (changed) info(describeClip(source.clip, "Cut"));
       return changed;
     }
-    if (made.clip.kind === "objects") {
-      const family = made.clip.family;
-      const taken = new Set(made.indices);
+    if (source.clip.kind === "objects") {
+      const family = source.clip.family;
+      const taken = new Set(source.indices);
       const changed = await commitObjects(objectFields(family, board[family].filter((_, index) => !taken.has(index))), null);
       if (changed) {
         publish({ pointSelection: [] });
-        info(`${describeClip(made.clip, "Cut")} Later ${family} were renumbered; undo restores them.`);
+        info(`${describeClip(source.clip, "Cut")} Later ${family} were renumbered; undo restores them.`);
       }
       return changed;
     }
@@ -692,20 +699,31 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     if (service === null) return false;
     const read = await service.readText();
     if (!read.ok) { error(`Nothing was pasted: ${read.error.message}`); return false; }
+    // Reading the clipboard awaited: the user may have started something else, or turned to the lights.
+    if (state.busy) { error("Another edit is being applied, so nothing was pasted."); return false; }
+    if (lightsRefused("pasted")) return false;
     const parsed = parseClip(read.value);
     if (!parsed.ok) { error(`${parsed.message} Nothing was changed.`); return false; }
     const clip = parsed.value;
     const board = options.board();
     if (clip.kind === "region") {
       if (state.mode !== "tiles") { error("The clipboard holds a region of cells. Switch to Tiles (1) to paste it. Nothing was changed."); return false; }
-      const anchor = pasteAnchor(board, clip, state.cursor);
-      const outcome = pasteRegion(board, state.layer, clip, anchor);
+      const { layer, cursor } = state;
+      // The cursor is the anchor; a clip that cannot fit there (a rotated-isometric selection whose bounding box starts on a
+      // cell with no place on the picture, or the whole grid) pastes where it was copied from instead.
+      let anchor = cursor;
+      let outcome = pasteRegion(board, layer, clip, cursor);
+      if (!outcome.ok && (clip.origin.x !== cursor.x || clip.origin.y !== cursor.y)) {
+        const atOrigin = pasteRegion(board, layer, clip, clip.origin);
+        if (atOrigin.ok) { anchor = clip.origin; outcome = atOrigin; }
+      }
       if (!outcome.ok) { error(outcome.message); return false; }
-      const { layer } = state;
-      // The destination is selected whether or not it changed, so "copy, paste, copy again" takes the pasted cells.
-      publish({ selection: { layer, rect: { x0: anchor.x, y0: anchor.y, x1: anchor.x + clip.width - 1, y1: anchor.y + clip.height - 1 } } });
+      const empty = outcome.edit.cells.length === 0 && outcome.edit.shadeCells.length === 0;
       const changed = await commit("paste", { ok: true, cells: outcome.edit.cells, shadeCells: outcome.edit.shadeCells });
-      if (changed) info(describeClip(clip, "Pasted"));
+      // The destination is selected when the cells were written, and when they already showed exactly that: "copy, paste,
+      // copy again" takes the pasted cells. A refused edit selects nothing.
+      if (changed || empty) publish({ selection: { layer, rect: { x0: anchor.x, y0: anchor.y, x1: anchor.x + clip.width - 1, y1: anchor.y + clip.height - 1 } } });
+      if (changed) info(`${describeClip(clip, "Pasted")}${anchor === cursor ? "" : ` It did not fit at the cursor, so it went back where it was copied from (column ${anchor.x + 1}, row ${anchor.y + 1}).`}`);
       return changed;
     }
     if (state.mode !== clip.family) {

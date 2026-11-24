@@ -133,23 +133,21 @@ for (const [name, system] of LAYOUTS) {
     equal(boardTileAt(s.reload().getSnapshot(), 0, a.x, a.y), "", "the cut survives a reload");
   });
 
-  test(`${name}: a region that would land partly off the board is refused whole, changing nothing`, async () => {
+  test(`${name}: a region that does not fit at the cursor goes back where it was copied from`, async () => {
     const s = rig(system);
     const a = near(s.centre, 0, 0);
     ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...a, tile: GRASS }] })).ok);
     await s.select(a, near(a, 1, 1));
     ok(await s.editor.copy());
-    const bytes = s.doc.serialize();
-    const edits = s.doc.getSnapshot().edits.length;
     const board = s.doc.getSnapshot();
     let corner = a;
     for (let y = 0; y < board.grid.height; y += 1) for (let x = 0; x < board.grid.width; x += 1) if (cellOnBoard(board, x, y) && x + y >= corner.x + corner.y) corner = { x, y };
     s.editor.setCursor(corner);
-    equal(await s.editor.paste(), false);
-    equal(s.editor.getState().message?.kind, "error");
-    match(s.editor.getState().message!.text, /does not fit/);
-    deepEqual(s.doc.serialize(), bytes);
-    equal(s.doc.getSnapshot().edits.length, edits);
+    s.editor.setLayer(1);
+    equal(await s.editor.paste(), true, "the clip fits where it came from, so it is pasted there");
+    match(s.editor.getState().message!.text, /did not fit at the cursor/);
+    equal(boardTileAt(s.doc.getSnapshot(), 1, a.x, a.y), GRASS);
+    deepEqual(s.editor.getState().selection?.rect, { x0: a.x, y0: a.y, x1: a.x + 1, y1: a.y + 1 });
   });
 }
 
@@ -536,4 +534,134 @@ test("a pasted object's selection drops the previous object's point indices", as
   s.host.clipboardText = "sentinel";
   ok(await s.editor.copy(), "a whole pasted vector can be copied again");
   match(s.editor.getState().message!.text, /Copied 1 vector/);
+});
+
+test("a clipped rotated-isometric selection whose bounding box starts on an absent cell still pastes back", async () => {
+  const s = rig("iso-rotated");
+  // The two visible ends of the diagonal: their stored bounding box starts at (0, 0), which has no place on the picture.
+  const first: Cell = { x: 0, y: 7 };
+  const last: Cell = { x: 7, y: 0 };
+  ok(cellOnBoard(s.doc.getSnapshot(), first.x, first.y) && cellOnBoard(s.doc.getSnapshot(), last.x, last.y));
+  ok(!cellOnBoard(s.doc.getSnapshot(), 0, 0), "the stored corner really is off the picture");
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...first, tile: GRASS }, { layer: 0, ...last, tile: ROCK }] })).ok);
+  await s.select(first, last);
+  ok(await s.editor.copy());
+  const clip = parseClip(s.host.clipboardText);
+  ok(clip.ok && clip.value.kind === "region");
+  deepEqual([clip.value.origin.x, clip.value.origin.y, clip.value.width, clip.value.height], [0, 0, 8, 8]);
+  s.editor.setLayer(1);
+  s.editor.setCursor(s.centre);
+  ok(await s.editor.paste(), "the clip goes back to the cells it was copied from");
+  deepEqual([boardTileAt(s.doc.getSnapshot(), 1, first.x, first.y), boardTileAt(s.doc.getSnapshot(), 1, last.x, last.y)], [GRASS, ROCK]);
+});
+
+test("a region cut whose cells changed while the clipboard was written clears nothing", async () => {
+  const built = buildNewBoard({ name: "t", coordSystem: "2d", pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  const host = createMemoryPlatformServices({ files: { "Boards/t.brd": built.bytes }, capabilities: ["clipboard"] });
+  const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), built.bytes);
+  ok(opened.ok);
+  const doc = opened.document;
+  ok((await doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: 1, y: 1, tile: GRASS }] })).ok);
+  let release = (): void => {};
+  let writing = false;
+  const editor = createBoardEditor({
+    board: () => doc.getSnapshot(),
+    apply: (command) => doc.apply(command),
+    brush: () => null,
+    pickTile: () => false,
+    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    clipboard: {
+      readText: async () => ({ ok: true, value: "" }),
+      writeText: async () => {
+        writing = true;
+        await new Promise<void>((resolve) => { release = resolve; });
+        return { ok: true, value: undefined };
+      },
+    },
+  });
+  editor.selectAll();
+  const cut = editor.cut(async () => true);
+  for (let turn = 0; turn < 20 && !writing; turn += 1) await Promise.resolve();
+  ok(writing);
+  ok((await doc.apply({ type: "set-tile", layer: 0, x: 1, y: 1, tile: ROCK })).ok, "someone changes a copied cell during the write");
+  const after = doc.serialize();
+  release();
+  equal(await cut, false);
+  match(editor.getState().message!.text, /changed while the cut was being written/);
+  deepEqual(doc.serialize(), after, "the changed cell is still there");
+  equal(boardTileAt(doc.getSnapshot(), 0, 1, 1), ROCK);
+});
+
+test("a cut of an object whose slot was replaced during the question cuts nothing", async () => {
+  const s = rig();
+  const points = [{ x: 32, y: 32 }, { x: 96, y: 32 }];
+  ok((await s.doc.apply({ type: "set-board-fields", fields: {
+    vectors: [{ ...defaultBoardObject("vectors", 1, { x: 32, y: 32 }, points), handle: "A" }, { ...defaultBoardObject("vectors", 1, { x: 0, y: 0 }, points), handle: "B" }],
+  } })).ok);
+  s.editor.setMode("vectors");
+  s.editor.selectObject(0);
+  s.host.clipboardText = "sentinel";
+  let reordered: string | null = null;
+  const cut = s.editor.cut(async () => {
+    // While the question is open, another view reorders the family: slot 0 now holds B.
+    const records = s.doc.getSnapshot().vectors;
+    ok((await s.doc.apply({ type: "set-board-fields", fields: { vectors: [records[1]!, records[0]!] } })).ok);
+    reordered = s.doc.serialize().length.toString();
+    return true;
+  });
+  equal(await cut, false);
+  match(s.editor.getState().message!.text, /changed while the cut was being asked about/);
+  equal(s.host.clipboardText, "sentinel", "nothing was written to the clipboard either");
+  ok(reordered !== null);
+  equal(s.doc.serialize().length, Number(reordered), "no third edit removed anything after the reorder");
+  deepEqual(s.doc.getSnapshot().vectors.map((record) => record.handle), ["B", "A"], "the reorder stands; neither record was cut");
+});
+
+test("a paste the file refuses leaves the selection as it was", async () => {
+  const s = rig();
+  const a = near(s.centre, 0, 0);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...a, tile: GRASS }] })).ok);
+  s.editor.selectAll();
+  const before = s.editor.getState().selection;
+  const bytes = s.doc.serialize();
+  const edits = s.doc.getSnapshot().edits.length;
+  // A tile reference the board file cannot store (Windows-1252 refuses it), so the edit is a validation failure, not a no-op.
+  s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", origin: { x: 0, y: 0 }, width: 1, height: 1, tiles: ["🌿"], shades: null });
+  equal(await s.editor.paste(), false);
+  equal(s.editor.getState().message?.kind, "error");
+  deepEqual(s.editor.getState().selection, before, "a refused paste selects nothing");
+  deepEqual(s.doc.serialize(), bytes);
+  equal(s.doc.getSnapshot().edits.length, edits);
+});
+
+test("turning to the lights while the clipboard is read refuses the paste", async () => {
+  const built = buildNewBoard({ name: "t", coordSystem: "2d", pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  const host = createMemoryPlatformServices({ files: { "Boards/t.brd": built.bytes }, capabilities: ["clipboard"] });
+  const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), built.bytes);
+  ok(opened.ok);
+  const doc = opened.document;
+  let lights = false;
+  let release = (): void => {};
+  const clipText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", origin: { x: 0, y: 0 }, width: 1, height: 1, tiles: [GRASS], shades: null });
+  const editor = createBoardEditor({
+    board: () => doc.getSnapshot(),
+    apply: (command) => doc.apply(command),
+    brush: () => null,
+    pickTile: () => false,
+    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    lightsActive: () => lights,
+    clipboard: {
+      readText: () => new Promise((resolve) => { release = () => resolve({ ok: true, value: clipText }); }),
+      writeText: async () => ({ ok: true, value: undefined }),
+    },
+  });
+  const bytes = doc.serialize();
+  const paste = editor.paste();
+  lights = true;
+  release();
+  equal(await paste, false);
+  match(editor.getState().message!.text, /Lights cannot be/);
+  deepEqual(doc.serialize(), bytes);
 });

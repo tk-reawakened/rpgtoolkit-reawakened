@@ -25,6 +25,8 @@ export type ClipShade = readonly [number, number, number];
 /** A rectangle of cells: row by row, `null` where the stored grid has no place on the picture (an isometric gap). */
 export interface RegionClip {
   readonly kind: "region";
+  /** The stored cell the region's top-left cell was copied from; a paste falls back to it when the cursor placement does not fit. */
+  readonly origin: { readonly x: number; readonly y: number };
   readonly width: number;
   readonly height: number;
   /** Each cell's tile reference (`""` is the empty cell), `width × height` of them, or `null` for a cell that was off the board. */
@@ -95,7 +97,20 @@ function parseClipText(text: string): ClipResult<BoardClip> {
         return fail("The clipboard's region does not hold one shade for each of its cells.");
       }
     }
-    return { ok: true, value: { kind: "region", width, height, tiles: tiles as (string | null)[], shades: shades as RegionClip["shades"] } };
+    const origin = clip.origin;
+    return {
+      ok: true,
+      value: {
+        kind: "region",
+        origin: typeof origin === "object" && origin !== null && isWhole((origin as Record<string, unknown>).x, 0, BOARD_MAX_CELLS) && isWhole((origin as Record<string, unknown>).y, 0, BOARD_MAX_CELLS)
+          ? { x: (origin as { x: number }).x, y: (origin as { y: number }).y }
+          : { x: 0, y: 0 },
+        width,
+        height,
+        tiles: tiles as (string | null)[],
+        shades: shades as RegionClip["shades"],
+      },
+    };
   }
   if (clip.kind === "objects") {
     const family = clip.family;
@@ -133,7 +148,7 @@ export function copyRegion(board: ClipBoard, layer: number, rect: CellRect): Cli
       shades.push(on && shade !== null ? [shade[at] ?? 0, shade[at + 1] ?? 0, shade[at + 2] ?? 0] : null);
     }
   }
-  return { ok: true, value: { kind: "region", width, height, tiles, shades: shade === null ? null : shades } };
+  return { ok: true, value: { kind: "region", origin: { x: rect.x0, y: rect.y0 }, width, height, tiles, shades: shade === null ? null : shades } };
 }
 
 /** The cells a region clip changes, as one edit's tile and shade writes. */
@@ -146,12 +161,22 @@ export interface RegionEdit {
 export type RegionOutcome = { readonly ok: true; readonly edit: RegionEdit } | { readonly ok: false; readonly message: string };
 
 /**
- * Where a region clip's top-left cell goes: on `cursor`, except that a clip covering the whole stored grid has exactly one
- * placement, its own origin, so it pastes there whatever the cursor is (on an isometric board the stored corner cell has no
- * place on the picture, so the pointer can never reach it).
+ * Whether the cells a region was copied from still hold exactly what the clip took. A cut removes only what it copied: when
+ * the board changed under the selection (an undo, a reload, another view) while the cut waited, nothing is cleared.
  */
-export function pasteAnchor(board: { readonly grid: { readonly width: number; readonly height: number } }, clip: RegionClip, cursor: Cell): Cell {
-  return clip.width === board.grid.width && clip.height === board.grid.height ? { x: 0, y: 0 } : cursor;
+export function regionStillHolds(board: ClipBoard, clip: RegionClip, layer: number, rect: CellRect): boolean {
+  const now = copyRegion(board, layer, rect);
+  if (!now.ok) return false;
+  const current = now.value;
+  const carriedShade = clip.shades !== null;
+  if (current.width !== clip.width || current.height !== clip.height || (current.shades !== null) !== carriedShade) return false;
+  if (current.tiles.length !== clip.tiles.length || current.tiles.some((tile, at) => tile !== clip.tiles[at])) return false;
+  if (!carriedShade || current.shades === null || clip.shades === null) return true;
+  return current.shades.every((shade, at) => {
+    const was = clip.shades![at] ?? null;
+    if (shade === null || was === null) return shade === was;
+    return shade[0] === was[0] && shade[1] === was[1] && shade[2] === was[2];
+  });
 }
 
 /** Put a region clip with its top-left cell on `at`. Refused whole when any of its cells would land off the board or its shade cannot be placed. */

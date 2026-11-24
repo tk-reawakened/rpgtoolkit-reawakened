@@ -235,3 +235,40 @@ test("the clipboard shortcuts work from a select-point checkbox, while a text fi
   equal(s.el.querySelector(".tkr-board-message"), null, "the board did not act on Ctrl+V in a text field");
   s.dispose();
 });
+
+test("a focused select keeps Delete and Backspace: only the clipboard keys are handed to the board", async () => {
+  const s = await setup();
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: 0, y: 0, tile: GRASS }] })).ok);
+  await settle();
+  await act(() => button(s, ".tkr-board-select-all").click());
+  const layerSelect = s.el.querySelector<HTMLSelectElement>(".tkr-board-layer-row select");
+  ok(layerSelect);
+  const bytes = s.doc.serialize();
+  for (const key of ["Backspace", "Delete"]) {
+    await act(() => layerSelect.focus());
+    await press(s, { key }, layerSelect);
+  }
+  deepEqual(s.doc.serialize(), bytes, "a focused layer list must not erase the selection");
+  equal(boardTileAt(s.doc.getSnapshot(), 0, 0, 0), GRASS);
+  // The clipboard keys do still work from it.
+  await act(() => layerSelect.focus());
+  await press(s, { key: "c", ctrlKey: true }, layerSelect);
+  match(message(s), /Copied/);
+  s.dispose();
+});
+
+test("Select all points is offered only in the region modes", async () => {
+  const s = await setup();
+  equal(s.el.querySelector(".tkr-board-select-all-points"), null, "Tiles mode has no region points");
+  for (const mode of ["vectors", "programs"]) {
+    await act(() => button(s, `[data-board-mode="${mode}"]`).click());
+    await settle();
+    ok(s.el.querySelector(".tkr-board-select-all-points"), `${mode} offers it`);
+  }
+  for (const mode of ["sprites", "images"]) {
+    await act(() => button(s, `[data-board-mode="${mode}"]`).click());
+    await settle();
+    equal(s.el.querySelector(".tkr-board-select-all-points"), null, `${mode} has no region points`);
+  }
+  s.dispose();
+});

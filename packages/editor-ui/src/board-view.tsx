@@ -79,14 +79,19 @@ function cellText(tile: string | null): string {
   return tile === null || tile === "" ? "·" : tile;
 }
 
+function typing(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+}
+
 /** The input types that take typed text, where Ctrl+A, Ctrl+C, Ctrl+X and Ctrl+V belong to the field, not the board. */
 const TEXT_INPUTS: ReadonlySet<string> = new Set(["text", "search", "url", "tel", "email", "password", "number", "date", "datetime-local", "month", "week", "time"]);
 
 /**
- * Whether a key event belongs to a text field. Only fields that take typed text keep their own clipboard and select-all;
- * a checkbox, radio, range, colour or a `<select>` is a control whose keys stay the board's.
+ * Whether a control takes typed text. Only the clipboard and select-all keys are handed to the board from other controls
+ * (a checkbox, radio, range, colour or a `<select>`); every other key keeps the strict `typing` guard, so a focused control
+ * never deletes cells or switches tools.
  */
-function typing(target: EventTarget | null): boolean {
+function textEntry(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable || target.tagName === "TEXTAREA") return true;
   return target instanceof HTMLInputElement && (target.type === "" || TEXT_INPUTS.has(target.type));
@@ -373,15 +378,17 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   };
 
   const onShortcut = (event: KeyboardEvent): void => {
-    if (typing(event.target) || event.defaultPrevented
-      || (event.target instanceof Element && event.target.closest("dialog[open]") !== null)) return;
+    if (event.defaultPrevented || (event.target instanceof Element && event.target.closest("dialog[open]") !== null)) return;
+    const editing = typing(event.target);
     const command = event.ctrlKey || event.metaKey;
-    if (!event.altKey && state.pending?.kind === "object-path" && event.key === "Enter") {
+    if (!editing && !event.altKey && state.pending?.kind === "object-path" && event.key === "Enter") {
       event.preventDefault();
       void editor.finishObjectPath(event.ctrlKey);
       return;
     }
     if (command && !event.altKey) {
+      // Only the clipboard and select-all keys reach the board from a control that is not a text field.
+      if (textEntry(event.target)) return;
       const key = event.key.toLowerCase();
       if (key === "z" && canHistory) {
         event.preventDefault();
@@ -404,7 +411,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       }
       return;
     }
-    if (event.altKey) return;
+    if (editing || event.altKey) return;
     const modeIndex = ["1", "2", "3", "4", "5"].indexOf(event.key);
     if (modeIndex >= 0) {
       event.preventDefault();
@@ -583,7 +590,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         <button type="button" class="tkr-board-clipboard-cut" aria-keyshortcuts="Control+X" disabled={readOnly || state.busy} onClick={() => { void editor.cut(askCut); }}>Cut</button>
         <button type="button" class="tkr-board-clipboard-paste" aria-keyshortcuts="Control+V" disabled={readOnly || state.busy} onClick={() => { void editor.paste(); }}>Paste</button>
         <button type="button" class="tkr-board-select-all" aria-keyshortcuts="Control+A" onClick={() => editor.selectAll()}>Select all</button>
-        <button type="button" class="tkr-board-select-all-points" hidden={state.mode === "tiles"} disabled={state.busy || state.objectSelection === null} onClick={() => editor.selectAllPoints()}>Select all points</button>
+        {polygonMode ? <button type="button" class="tkr-board-select-all-points" disabled={state.busy || state.objectSelection === null} onClick={() => editor.selectAllPoints()}>Select all points</button> : null}
       </div>
       {cutAsk === null ? null : (
         <dialog ref={cutDialog} aria-labelledby={`${ids}-cut-title`} onClose={() => { cutAsk.answer(false); setCutAsk(null); }}>
