@@ -382,3 +382,24 @@ test("inserting a line keeps every surviving description separator as the file w
     equal(new TextDecoder("windows-1252").decode(saved.slice(0x43, saved.length - 1)), "One\r\nInserted\r\nTwo", "the surviving separator is unchanged and the added line copies it");
   } finally { view.dispose(); }
 });
+
+test("a status reference without its extension resolves as the runtime does, and a program reference does not", async () => {
+  // `statusdata` appends `.ste`; `executeProgram` loads the exact reference. The form must follow each one, or Open would
+  // lead to a file the game never runs.
+  const host = createMemoryPlatformServices({ files: { [SPC]: fireball, [STE]: burn, "Prg/fireball.prg": new Uint8Array([0x2f, 0x2f, 0x20, 0x78]) } });
+  const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(opened.ok);
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, { document: opened.document, services: host, pendingEdits: createPendingEdits(), navigation: { open: async () => null } });
+  await settle();
+  try {
+    await act(() => { const input = field(root, "Status effect file"); input.value = "burn"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await until(() => root.textContent?.includes("Burn: 3 rounds") === true, "an extensionless status resolves, as the runtime appends .ste");
+    await act(() => { const input = field(root, "Program file"); input.value = "fireball"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await until(() => root.textContent?.includes("Prg/fireball is not in the project") === true, "an extensionless program is not completed");
+    const programs = field(root, "Program file").closest("fieldset");
+    ok(programs !== null);
+    equal(button(programs as HTMLElement, "Open program").disabled, true, "Open is never offered for a file the game will not load");
+  } finally { handle.dispose(); root.remove(); }
+});

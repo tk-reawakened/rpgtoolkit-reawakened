@@ -60,7 +60,12 @@ export function linkReferenceProblem(reference: string): string | null {
  * the spelling as written, then with the kind's own extension, then each of those ASCII-lowercased — the spelling every
  * legacy file is stored in. It never guesses outside the folder: `folder` is the reserved folder's project path.
  */
-export function linkedFileCandidates(folder: string, reference: string, extensions: readonly string[]): readonly string[] {
+export function linkedFileCandidates(
+  folder: string,
+  reference: string,
+  extensions: readonly string[],
+  complete: boolean,
+): readonly string[] {
   const base = folder.replace(/\/+$/, "");
   const inside = reference.trim().split("\\").join("/").replace(/^\/+/, "");
   // A reference that repeats the type folder (`StatusE\burn.ste`) names the same file as the bare name, so the folder
@@ -72,9 +77,10 @@ export function linkedFileCandidates(folder: string, reference: string, extensio
   const typed = `${base}/${withoutFolder}`;
   const hasExtension = extensions.some((extension) => typed.toLowerCase().endsWith(extension));
   // The game appends the type's extension when the author left it off, so the completed path is tried first.
-  // The runtime appends the type's extension when the author left it off, so an extensionless reference names the
-  // completed file only; the extensionless spelling is never what the game loads.
-  const complete = hasExtension || extensions.length === 0 ? [typed] : [`${typed}${extensions[0]}`];
+  // Only where the runtime appends the extension itself (a status effect is read through `statusdata`) does an
+  // extensionless reference name the completed file. A program is loaded by its exact reference, so completing it would
+  // preview a file the game never runs.
+  const candidates = hasExtension || extensions.length === 0 || !complete ? [typed] : [`${typed}${extensions[0]}`];
   // The folder keeps its stored spelling (a project may hold `StatusE`), while the legacy file name is ASCII lower case.
   const lowerFile = (path: string): string => {
     const cut = path.lastIndexOf("/");
@@ -82,5 +88,5 @@ export function linkedFileCandidates(folder: string, reference: string, extensio
   };
   // ASCII folding only: the engine compares names ASCII-folded, so `CAFÉ.STE` must not be looked up as a different name.
   const foldAscii = (text: string): string => text.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
-  return [...new Set([...complete, ...complete.map(lowerFile), ...complete.map(foldAscii)])];
+  return [...new Set([...candidates, ...candidates.map(lowerFile), ...candidates.map(foldAscii)])];
 }

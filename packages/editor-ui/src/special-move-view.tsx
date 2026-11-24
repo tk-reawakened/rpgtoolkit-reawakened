@@ -30,9 +30,9 @@ export function SpecialMoveView(props: SpecialMoveViewProps): JSX.Element {
   const { fs, pickAsset, open, capabilities } = props;
   const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }) };
   const { projectId, path } = snapshot.identity;
-  const statusFile = useLinkedFile(fs, projectId, path, "statusEffects", snapshot.statusEffect, [".ste"]);
-  const animationFile = useLinkedFile(fs, projectId, path, "animations", snapshot.animation, [".anm"]);
-  const programFile = useLinkedFile(fs, projectId, path, "programs", snapshot.program, [".prg"]);
+  const statusFile = useLinkedFile(fs, projectId, path, "statusEffects", snapshot.statusEffect, [".ste"], true);
+  const animationFile = useLinkedFile(fs, projectId, path, "animations", snapshot.animation, [".anm"], false);
+  const programFile = useLinkedFile(fs, projectId, path, "programs", snapshot.program, [".prg"], false);
   const linkedStatus = statusFile.state === "found" ? describeLinkedStatusEffect(statusFile.bytes, statusFile.path) : null;
   return <main class="tkr-battle-data-editor" aria-label="Special move">
     <header><h1>Special move</h1></header>

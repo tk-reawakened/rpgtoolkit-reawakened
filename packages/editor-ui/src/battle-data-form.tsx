@@ -385,15 +385,17 @@ export function useLinkedFile(
   kind: AssetKind,
   reference: string,
   extensions: readonly string[],
+  /** Whether the runtime itself appends the extension when the author left it off; false loads the exact reference. */
+  completeExtension: boolean,
 ): LinkedFile {
   const assetRevision = useContext(AssetRefreshContext);
   // A caller writes its extension list inline, so the effect keys on the list's content: a new array of the same
   // extensions must not start the read again on every render.
-  const extensionKey = extensions.join(",");
+  const extensionKey = `${extensions.join(",")}|${completeExtension ? "complete" : "exact"}`;
   const [linked, setLinked] = useState<LinkedFile>({ state: "none" });
   useEffect(() => {
     let active = true;
-    const wanted = extensionKey === "" ? [] : extensionKey.split(",");
+    const wanted = extensions.join(",") === "" ? [] : extensions.join(",").split(",");
     const trimmed = reference.trim();
     if (trimmed === "") {
       setLinked({ state: "none" });
@@ -408,7 +410,7 @@ export function useLinkedFile(
     setLinked({ state: "checking" });
     void (async () => {
       let missing: { readonly path: string; readonly message: string } | null = null;
-      for (const candidate of linkedFileCandidates(folder, trimmed, wanted)) {
+      for (const candidate of linkedFileCandidates(folder, trimmed, wanted, completeExtension)) {
         let path = candidate;
         // The project stores one spelling of a name; a host that can list folders finds it, so `Burn.STE` on disk is
         // found from `burn.ste` even where the file system is case-sensitive.
@@ -437,7 +439,7 @@ export function useLinkedFile(
       if (active) setLinked({ state: "missing", path: missing!.path, message: missing!.message });
     })();
     return () => { active = false; };
-  }, [fs, projectId, documentPath, kind, reference, extensionKey, assetRevision]);
+  }, [fs, projectId, documentPath, kind, reference, extensionKey, completeExtension, assetRevision]);
   return linked;
 }
 
