@@ -397,6 +397,10 @@ export class BinaryDocument<Model, Command, Fields extends object = Record<never
     if (this.#readOnly !== null) return { ok: false, rejection: { reason: "read-only", message: this.#readOnly.message } };
     const read = this.#codec.read(bytes.slice(), this.identity.path);
     if (!read.ok) return { ok: false, rejection: { reason: "invalid", message: `That version is not a file this editor reads: ${read.error.message}` } };
+    const readOnly = this.#codec.readOnlyReason(read.value, bytes);
+    if (readOnly !== null) {
+      return { ok: false, rejection: { reason: "read-only", message: `Cannot restore this version in the open editor: ${readOnly.message} Close the file to restore its original bytes.` } };
+    }
     const record: StackRecord<Command, Model> = { editId: `edit-${this.#nextId}`, label, command: { type: "restore-version" }, restored: read.value };
     this.#nextId += 1;
     this.#stack = [...this.#stack.slice(0, this.#applied), record];

@@ -28,4 +28,8 @@ The picture is drawn with the game's own rule. Each glyph pixel becomes a square
 
 Use the glyph panel's **Undo** and **Redo** buttons to take back or restore a stroke or a keyboard edit. With the grid focused, use Ctrl+Z and Ctrl+Y, or Cmd+Z and Cmd+Shift+Z on macOS. These controls use the host's history. Save writes the file and keeps every character you did not touch exactly as it was. Only version 2.0 fonts can be edited. If you open another readable version, or a file the editor cannot write back byte for byte, you can inspect it but not change it.
 
+In VS Code, wait for an Undo or Redo to finish before invoking another one from the Command Palette. If VS Code warns that an undo or redo is already running, it did not queue your command. Wait for the change to appear and then invoke the command again.
+
+If History rejects a restore because the selected version can only be inspected, close the font and restore it from History. This recovers the original bytes without converting them. Reopen the font to inspect it.
+
 Save the font in the project's `Font` folder to use it in the game. Then `font("name")` selects it by its file name, and `text()` draws with it, in the game and in a runner, the same way as the picture above.
