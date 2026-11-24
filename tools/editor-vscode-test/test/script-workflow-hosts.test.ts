@@ -133,6 +133,14 @@ function inProcessServer(root: MemoryDirectory, main: string): LanguageService {
   };
 }
 
+/** A user who answers every question: the checkpoint's "Replace these files?" with Replace, anything else with its first choice. */
+const dialogs = {
+  async ask(question: { readonly choices: readonly { readonly id: string }[]; readonly cancel: string }) {
+    return question.choices.some((choice) => choice.id === "replace") ? "replace" : question.choices[0]?.id ?? question.cancel;
+  },
+  async pickSavePath() { return null; },
+};
+
 function project() {
   const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("project", control);
@@ -141,7 +149,7 @@ function project() {
   root.put("Prg/second.prg", bytes(OTHER));
   root.put("Prg/clean.prg", bytes(CLEAN));
   const language = inProcessServer(root, "Main/example.gam");
-  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:script-workflow", name: "Scripts" }, { language });
+  const web = createFolderProject(root as unknown as FileSystemDirectoryHandle, { id: "web:script-workflow", name: "Scripts" }, { language, dialogs });
   document.body.replaceChildren();
   const element = document.createElement("div");
   document.body.append(element);

@@ -368,7 +368,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     overlay.setAttribute("role", "dialog");
     overlay.setAttribute("aria-modal", "true");
     overlay.setAttribute("aria-label", `${SCRIPT_TRANSFORM_INFO[transform].name} (reviewed)`);
-    element.append(overlay);
+    // The page, not the workbench element: a re-render of the shell must never take the open review away.
+    doc.body.append(overlay);
     await new Promise<void>((resolve) => {
       const close = (): void => {
         if (closeScripts === null) return;
