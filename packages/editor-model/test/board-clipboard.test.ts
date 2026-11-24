@@ -708,7 +708,7 @@ test("a stale editor snapshot cannot cut: the stored board enforces the cut's re
   for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
   release();
   equal(await cut, false, "the stored board refuses a cut whose slots are not what the editor read");
-  match(editor.getState().message!.text, /board changed while the cut was being prepared/);
+  match(editor.getState().message!.text, /board changed since this edit was prepared/);
   deepEqual(authoritative.serialize(), afterChange);
   deepEqual(authoritative.getSnapshot().vectors.map((record) => record.handle), ["B", "A"]);
   ok(!host.clipboardText.includes("tkr-board-clipboard"));
@@ -736,7 +736,7 @@ test("a stale editor snapshot cannot cut a changed region cell either", async ()
   editor.pointerUp({ x: 0, y: 0 }, {});
   editor.selectAll();
   equal(await editor.cut(async () => true), false);
-  match(editor.getState().message!.text, /board changed while the cut was being prepared/);
+  match(editor.getState().message!.text, /board changed since this edit was prepared/);
   deepEqual(authoritative.serialize(), afterChange);
   equal(boardTileAt(authoritative.getSnapshot(), 0, a.x, a.y), ROCK, "the cell the other view wrote is untouched");
   ok(board.grid.width > 0);
@@ -812,4 +812,74 @@ test("a no-op paste that falls back reports where the destination is", async () 
   equal(await s.editor.paste(), false, "the cells at the origin already show it");
   deepEqual(s.doc.serialize(), bytes);
   match(s.editor.getState().message!.text, new RegExp(`Nothing changed: those cells at column ${a.x + 1}, row ${a.y + 1} already show that`));
+});
+
+test("a stale editor snapshot cannot paste objects over what another view added", async () => {
+  const s = rig();
+  const points = [{ x: 32, y: 32 }, { x: 96, y: 32 }];
+  ok((await s.doc.apply({ type: "set-board-fields", fields: { vectors: [{ ...defaultBoardObject("vectors", 1, { x: 32, y: 32 }, points), handle: "A" }] } })).ok);
+  const stale = s.doc.getSnapshot();
+  // Another view appends B before this one pastes.
+  const authoritative = s.doc;
+  ok((await authoritative.apply({ type: "set-board-fields", fields: { vectors: [...stale.vectors, { ...defaultBoardObject("vectors", 1, { x: 0, y: 0 }, points), handle: "B" }] } })).ok);
+  const afterChange = authoritative.serialize();
+  const editor = createBoardEditor({
+    board: () => stale,
+    apply: (command) => authoritative.apply(command),
+    brush: () => null,
+    pickTile: () => false,
+    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    clipboard: {
+      readText: async () => ({
+        ok: true,
+        value: JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "objects", family: "vectors", objects: [{ ...defaultBoardObject("vectors", 1, { x: 32, y: 32 }, points), handle: "C" }] }),
+      }),
+      writeText: async () => ({ ok: true, value: undefined }),
+    },
+  });
+  editor.setMode("vectors");
+  equal(await editor.paste(), false, "a paste built on a stale family is refused");
+  match(editor.getState().message!.text, /board changed since this edit was prepared/);
+  deepEqual(authoritative.serialize(), afterChange, "the object another view added is still there");
+  deepEqual(authoritative.getSnapshot().vectors.map((record) => record.handle), ["A", "B"]);
+});
+
+test("a region paste writes every covered cell, so a stale view cannot skip one the host changed", async () => {
+  const s = rig();
+  const a = near(s.centre, 0, 0);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...a, tile: GRASS }] })).ok);
+  const stale = s.doc.getSnapshot();
+  const authoritative = s.doc;
+  ok((await authoritative.apply({ type: "set-tile", layer: 0, x: a.x, y: a.y, tile: ROCK })).ok);
+  const editor = createBoardEditor({
+    board: () => stale,
+    apply: (command) => authoritative.apply(command),
+    brush: () => null,
+    pickTile: () => false,
+    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    clipboard: {
+      readText: async () => ({
+        ok: true,
+        value: JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", origin: { x: a.x, y: a.y }, width: 1, height: 1, tiles: [GRASS], shades: null }),
+      }),
+      writeText: async () => ({ ok: true, value: undefined }),
+    },
+  });
+  editor.setCursor(a);
+  ok(await editor.paste());
+  equal(boardTileAt(authoritative.getSnapshot(), 0, a.x, a.y), GRASS, "the cell the other view changed is written, not skipped");
+});
+
+test("a sparse paste that changes nothing still clears the old selection", async () => {
+  const s = rig();
+  const a = near(s.centre, 1, 1);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: a.x, y: a.y, tile: GRASS }] })).ok);
+  // Something else is selected: a later cut must not take it after a paste that lands elsewhere.
+  await s.select(near(s.centre, -2, -2), near(s.centre, -1, -1));
+  ok(s.editor.getState().selection !== null);
+  s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", origin: { x: a.x - 1, y: a.y }, width: 2, height: 1, tiles: [null, GRASS], shades: null });
+  s.editor.setCursor({ x: a.x - 1, y: a.y });
+  equal(await s.editor.paste(), false, "the only covered cell already shows the tile");
+  match(s.editor.getState().message!.text, /Nothing changed/);
+  equal(s.editor.getState().selection, null, "the old selection is cleared, so a cut cannot take unrelated cells");
 });

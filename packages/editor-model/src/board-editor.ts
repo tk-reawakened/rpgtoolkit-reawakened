@@ -303,14 +303,15 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   const viewportTo = (viewport: Viewport): void => publish({ viewport: clampViewport(options.board(), viewport) });
 
   /** Apply a finished gesture as one edit. Answers whether the document changed. */
-  const commit = async (gesture: TileGesture, outcome: ToolOutcome, precondition?: BoardPrecondition): Promise<boolean> => {
+  /** Apply one tile edit, publishing what happened; a no-op (the stored board already shows it) is information, not an error. */
+  const applyTiles = async (gesture: TileGesture, outcome: ToolOutcome, precondition?: BoardPrecondition): Promise<ApplyResult> => {
     if (!outcome.ok) {
       publish({ pending: null, message: { kind: "error", text: outcome.message } });
-      return false;
+      return { ok: false, rejection: { reason: "invalid", message: outcome.message } };
     }
     if (outcome.cells.length === 0 && (outcome.shades === undefined || outcome.shades.length === 0) && (outcome.shadeCells === undefined || outcome.shadeCells.length === 0)) {
       publish({ pending: null, message: { kind: "info", text: "Nothing changed: those cells already show that." } });
-      return false;
+      return { ok: false, rejection: { reason: "invalid", message: "Those cells already show that.", unchanged: true } };
     }
     publish({ pending: null, busy: true, message: null });
     let result: ApplyResult;
@@ -327,12 +328,14 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       result = { ok: false, rejection: { reason: "invalid", message: thrown instanceof Error ? thrown.message : String(thrown) } };
     }
     if (!result.ok) {
-      publish({ busy: false, message: { kind: "error", text: `Nothing was changed: ${result.rejection.message}` } });
-      return false;
+      publish({ busy: false, message: result.rejection.unchanged === true ? { kind: "info", text: result.rejection.message } : { kind: "error", text: `Nothing was changed: ${result.rejection.message}` } });
+      return result;
     }
     publish({ busy: false, message: null });
-    return true;
+    return result;
   };
+  const commit = async (gesture: TileGesture, outcome: ToolOutcome, precondition?: BoardPrecondition): Promise<boolean> =>
+    (await applyTiles(gesture, outcome, precondition)).ok;
 
   const needTile = (): string | null => {
     const brush = options.brush();
@@ -743,20 +746,20 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         if (atOrigin.ok) { anchor = origin; outcome = atOrigin; }
       }
       if (!outcome.ok) { error(origin === null ? `${outcome.message} The clipboard does not say where it was copied from, so it can only be pasted at the cursor.` : outcome.message); return false; }
-      const empty = outcome.edit.cells.length === 0 && outcome.edit.shadeCells.length === 0;
-      const changed = await commit("paste", { ok: true, cells: outcome.edit.cells, shadeCells: outcome.edit.shadeCells });
+      const result = await applyTiles("paste", { ok: true, cells: outcome.edit.cells, shadeCells: outcome.edit.shadeCells });
+      // The stored board decides whether anything changed; a no-op paste still selects its destination, so "copy, paste,
+      // copy again" takes the pasted cells. A refused paste selects nothing.
+      const settled = result.ok || result.rejection.unchanged === true;
       // A copied region with gaps (a rotated-isometric bounding box) cannot be expressed by a rectangle, so selecting one
-      // would let a following cut remove cells that were never pasted: no selection is made for it.
+      // would let a following cut remove cells that were never pasted: the selection is cleared instead.
       const sparse = clip.tiles.some((tile) => tile === null);
-      const settled = anchor.x !== cursor.x || anchor.y !== cursor.y;
+      if (settled) publish({ selection: sparse ? null : { layer, rect: { x0: anchor.x, y0: anchor.y, x1: anchor.x + clip.width - 1, y1: anchor.y + clip.height - 1 } } });
+      const moved = anchor.x !== cursor.x || anchor.y !== cursor.y;
       const where = `column ${anchor.x + 1}, row ${anchor.y + 1}`;
-      const moved = settled ? ` It did not fit at the cursor, so it went back where it was copied from (${where}).` : "";
-      const gaps = sparse ? " The copied region has gaps, so no cells are selected; select the cells you want to copy or cut." : "";
-      if (!sparse && (changed || empty)) publish({ selection: { layer, rect: { x0: anchor.x, y0: anchor.y, x1: anchor.x + clip.width - 1, y1: anchor.y + clip.height - 1 } } });
-      else if (sparse && changed) publish({ selection: null });
-      if (changed) info(`${describeClip(clip, "Pasted")}${moved}${gaps}`);
-      else if (empty) info(`${settled ? `Nothing changed: those cells at ${where} already show that.` : "Nothing changed: those cells already show that."}${gaps}`);
-      return changed;
+      const note = `${moved ? ` It did not fit at the cursor, so it went back where it was copied from (${where}).` : ""}${sparse ? " The copied region has gaps, so no cells are selected; select the cells you want to copy or cut." : ""}`;
+      if (result.ok) info(`${describeClip(clip, "Pasted")}${note}`);
+      else if (settled) info(`${moved ? `Nothing changed: those cells at ${where} already show that.` : "Nothing changed: those cells already show that."}${sparse ? " The copied region has gaps, so no cells are selected; select the cells you want to copy or cut." : ""}`);
+      return result.ok;
     }
     if (state.mode !== clip.family) {
       const modes = ["tiles", "vectors", "programs", "sprites", "images"];
@@ -767,7 +770,8 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     if (!records.ok) { error(records.message); return false; }
     const first = board[clip.family].length;
     const group = clip.objects.length > 1 ? clip.objects.map((_, index) => first + index) : [];
-    const changed = await commitObjects(objectFields(clip.family, records.value), { kind: clip.family, index: first }, group);
+    // Appending to the family this editor read only: a stale copy must not overwrite what another view added meanwhile.
+    const changed = await commitObjects(objectFields(clip.family, records.value), { kind: clip.family, index: first }, group, { [clip.family]: board[clip.family] } as BoardPrecondition);
     if (changed) info(`${describeClip(clip, "Pasted")} They keep their position and layer; use Select to move them.`);
     return changed;
   };

@@ -202,12 +202,10 @@ export function pasteRegion(board: ClipBoard, layer: number, clip: RegionClip, a
       if (!cellOnBoard(board, x, y)) {
         return fail(`The copied region is ${clip.width} × ${clip.height} cells and does not fit with its corner at column ${at.x + 1}, row ${at.y + 1}. Nothing was changed.`);
       }
-      if (boardTileAt(board, layer, x, y) !== tile) cells.push({ layer, x, y, tile });
+      // Every covered cell is named, even where this view already shows it: the stored board decides what changed.
+      cells.push({ layer, x, y, tile });
       const shade = clip.shades?.[row * clip.width + column];
-      if (shade !== null && shade !== undefined && current !== null) {
-        const index = (y * board.grid.width + x) * 3;
-        if (current[index] !== shade[0] || current[index + 1] !== shade[1] || current[index + 2] !== shade[2]) shadeCells.push({ x, y, r: shade[0], g: shade[1], b: shade[2] });
-      }
+      if (shade !== null && shade !== undefined && current !== null) shadeCells.push({ x, y, r: shade[0], g: shade[1], b: shade[2] });
     }
   }
   return { ok: true, edit: { cells, shadeCells } };

@@ -505,7 +505,7 @@ function storedTile(board: Board, layer: number, x: number, y: number): string |
 /** Why a command's precondition is not met, or `null` when it is (or there is none). */
 function unmetPrecondition(previous: Board, precondition: BoardPrecondition | undefined): string | null {
   if (precondition === undefined) return null;
-  const changed = "The board changed while the cut was being prepared, so what it would remove is not what was copied. Nothing was changed. Select it again.";
+  const changed = "The board changed since this edit was prepared, so applying it would change something that was not read. Nothing was changed.";
   for (const cell of precondition.cells ?? []) {
     if (storedTile(previous, cell.layer, cell.x, cell.y) !== cell.tile) return changed;
   }
@@ -533,13 +533,13 @@ function refuse(next: Board, command: BoardCommand, previous: Board): Rejection 
   if (command.type === "set-shade-cells") {
     const planned = planShadeCells(previous, command.cells);
     if (!planned.ok) return { reason: "invalid", message: planned.message };
-    if (next === previous) return { reason: "invalid", message: "Those cells already have that shade." };
+    if (next === previous) return { reason: "invalid", message: "Those cells already have that shade.", unchanged: true };
     const written = writeBoard(next);
     if (!written.ok) return { reason: "invalid", message: written.error.message };
     return null;
   }
   if (command.type === "set-board-fields") {
-    if (next === previous) return { reason: "invalid", message: "The board settings are unchanged." };
+    if (next === previous) return { reason: "invalid", message: "The board settings are unchanged.", unchanged: true };
     if (command.fields.lights !== undefined && !isLights(command.fields.lights)) {
       return { reason: "invalid", message: "A light is a spotlight with three nodes or a gradient with two, and two colours with channels from −255 to 255." };
     }
@@ -576,7 +576,7 @@ function refuse(next: Board, command: BoardCommand, previous: Board): Rejection 
     if (!planned.ok) return { reason: "invalid", message: planned.message };
   }
   if (next === previous) {
-    return { reason: "invalid", message: assignments.length === 1 ? "That cell already shows that tile." : "Those cells already show those tiles." };
+    return { reason: "invalid", unchanged: true, message: assignments.length === 1 ? "That cell already shows that tile." : "Those cells already show those tiles." };
   }
   if (next.lut.length > MAX_LUT_ENTRIES) {
     return { reason: "invalid", message: `The board already names ${MAX_LUT_ENTRIES} different tiles; it cannot name another.` };

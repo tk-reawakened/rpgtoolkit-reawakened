@@ -281,12 +281,13 @@ test("Ctrl+Z and Ctrl+Y on the layer list leave the board history alone", async 
   const edits = s.doc.getSnapshot().edits.length;
   const layerSelect = s.el.querySelector<HTMLSelectElement>(".tkr-board-layer-row select");
   ok(layerSelect);
-  for (const init of [{ key: "z", ctrlKey: true }, { key: "y", ctrlKey: true }]) {
+  // Each key is checked on its own: pressing undo and redo in turn could hide one of them running.
+  for (const key of ["z", "y"]) {
     await act(() => layerSelect.focus());
-    await press(s, init, layerSelect);
+    await press(s, { key, ctrlKey: true }, layerSelect);
+    deepEqual(s.doc.serialize(), bytes, `Ctrl+${key.toUpperCase()} must not run from a focused list`);
+    equal(s.doc.getSnapshot().edits.length, edits);
   }
-  deepEqual(s.doc.serialize(), bytes, "an undo or redo must not run from a focused list");
-  equal(s.doc.getSnapshot().edits.length, edits);
   // The clipboard keys still reach the board from the same control.
   await act(() => layerSelect.focus());
   await press(s, { key: "a", ctrlKey: true }, layerSelect);

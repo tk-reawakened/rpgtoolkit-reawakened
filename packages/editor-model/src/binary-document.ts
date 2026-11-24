@@ -118,6 +118,11 @@ export interface DocumentSnapshot<Command = unknown> {
 export interface Rejection {
   readonly reason: "read-only" | "invalid";
   readonly message: string;
+  /**
+   * The command was well formed and would change nothing (the board already shows it). A caller that wants to treat the
+   * no-op as a successful non-edit — a paste selecting its destination, say — can, and says so in its own words.
+   */
+  readonly unchanged?: true;
 }
 
 export type ApplyResult =
