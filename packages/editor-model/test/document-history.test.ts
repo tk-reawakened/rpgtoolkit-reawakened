@@ -879,3 +879,72 @@ test("script History keeps a case-renamed destination and restores the rest, inc
   deepEqual(host.bytesOf(b), afterB);
   workspace.dispose();
 });
+
+test("restore keeps an open generated program, removes the closed copy, and retries only the refused path", async () => {
+  const openPath = ".tkr-migrated/3.1/Prg/open.prg";
+  const closedPath = ".tkr-migrated/3.1/Prg/closed.prg";
+  const bytes = new TextEncoder().encode('mwin("Converted")\n');
+  const { host, workspace } = setUp();
+  const checkpoint = await workspace.checkpoints.prepareScripts([{ path: openPath, bytes }, { path: closedPath, bytes }], "Update older syntax");
+  ok(checkpoint.ok);
+  for (const path of [openPath, closedPath]) {
+    host.seed(path, bytes);
+    ok((await workspace.checkpoints.registerWritten(checkpoint.value.id, path, bytes)).ok);
+  }
+  const open = await workspace.open(openPath);
+  ok(open.ok);
+
+  const restored = await workspace.restoreHistoryGroup(checkpoint.value.id);
+  ok(restored.restoreGroupId !== null);
+  deepEqual(restored.files.map(({ path, result }) => [path, result]), [[openPath, "failed"], [closedPath, "restored"]]);
+  match(restored.files[0]?.message ?? "", /is open.*Close it/);
+  deepEqual(host.bytesOf(openPath), bytes);
+  equal(host.bytesOf(closedPath), undefined);
+
+  const durable = await workspace.checkpoints.retry(restored.restoreGroupId);
+  ok(durable.ok);
+  equal(durable.value.files[0]?.status, "failed", "retry the original operation, not a no-op row in its reverse checkpoint");
+  deepEqual(host.bytesOf(openPath), bytes);
+  workspace.release(open.document);
+  const retry = await workspace.restoreHistoryGroup(checkpoint.value.id, { only: [openPath] });
+  deepEqual(retry.files.map(({ path, result }) => [path, result]), [[openPath, "restored"]]);
+  equal(host.bytesOf(openPath), undefined);
+  workspace.dispose();
+});
+
+test("undo restores only changed files and cannot redirect a path renamed after restore", async () => {
+  const kept = "Prg/kept.prg";
+  const renamed = "Prg/renamed.prg";
+  const alias = "Prg/Renamed.prg";
+  const reversible = "Prg/reversible.prg";
+  const already = "Prg/already.prg";
+  const bytes = (text: string) => new TextEncoder().encode(text);
+  const original = bytes('MWIN("Original")\n');
+  const formatted = bytes('mwin("Original")\n');
+  const paths = [kept, renamed, reversible, already];
+  const { host, workspace } = setUp({ files: Object.fromEntries(paths.map((path) => [path, original])) });
+  host.answerQuestions("continue");
+  const checkpoint = await workspace.checkpoints.prepareScripts(paths.map((path) => ({ path, bytes: formatted })), "Format");
+  ok(checkpoint.ok);
+  for (const path of [kept, renamed, reversible]) {
+    host.seed(path, formatted);
+    ok((await workspace.checkpoints.registerWritten(checkpoint.value.id, path, formatted)).ok);
+  }
+  host.seed(kept, bytes("First external edit\n"));
+  const forward = await workspace.restoreHistoryGroup(checkpoint.value.id);
+  ok(forward.restoreGroupId !== null);
+  deepEqual(forward.files.map(({ result }) => result), ["kept-changed", "restored", "restored", "already-as-wanted"]);
+  const later = bytes("Later unrelated edit\n");
+  host.seed(kept, later);
+  host.seed(already, later);
+  ok((await host.fs.rename(renamed, alias)).ok);
+
+  const reverse = await workspace.restoreHistoryGroup(forward.restoreGroupId);
+  deepEqual(reverse.files.map(({ result }) => result), ["kept-changed", "kept-changed", "restored", "kept-changed"]);
+  match(reverse.files[1]?.message ?? "", /different stored spelling/);
+  deepEqual(host.bytesOf(kept), later);
+  deepEqual(host.bytesOf(already), later);
+  deepEqual(host.bytesOf(alias), original);
+  deepEqual(host.bytesOf(reversible), formatted);
+  workspace.dispose();
+});

@@ -78,7 +78,9 @@ export async function checkpointFilePath(list: FileSystemService["list"], path: 
   return parent;
 }
 
-type CaptureTarget = CheckpointTarget | { readonly path: string; readonly kept: string };
+type RestoreNoOp = { readonly status: "failed" | "kept-changed" | "kept-uncertain" | "already-as-wanted"; readonly message: string };
+type CaptureTarget = CheckpointTarget | { readonly path: string; readonly noOp: RestoreNoOp };
+const noOp = (path: string, status: RestoreNoOp["status"], message: string): CaptureTarget => ({ path, noOp: { status, message } });
 interface RestoreOptions {
   readonly only?: readonly string[];
   readonly deleteUncertain?: readonly string[];
@@ -87,10 +89,9 @@ interface RestoreOptions {
 const spellingChanged = (path: string, actual: string): string =>
   `${path} has a different stored spelling (${actual}); it was not changed.`;
 
-function unrestoredFile(file: CheckpointFile): string | null {
-  return file.status === "kept-changed" && file.before === null && file.after === null
-    ? file.message ?? "No change to reverse for this path."
-    : null;
+function notRestored(file: CheckpointFile): boolean {
+  return file.status === "kept-changed" || file.status === "kept-uncertain" || file.status === "already-as-wanted"
+    || (file.status === "failed" && file.before === null && file.after === null);
 }
 
 async function pathConflict(canonical: (path: string) => Promise<string>, path: string): Promise<string | null> {
@@ -215,8 +216,9 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
           if (update.schema !== 1 || update.id !== id || !Array.isArray(update.files) || update.files.length !== group.files.length) continue;
           if (!update.files.every((file, i) => file.path === group.files[i]!.path && file.before === group.files[i]!.before
             && (file.after === null || digestPattern.test(file.after))
-            && (group.reason !== "before-script" || file.after === group.files[i]!.after)
+            && (group.reason === "before-wizard" || file.after === group.files[i]!.after)
             && ["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "kept-changed", "uncovered"].includes(file.status)
+            && (group.reason !== "before-restore" || !notRestored(group.files[i]!) || file.status === group.files[i]!.status)
             && (file.message === null || typeof file.message === "string"))) continue;
           group.files = update.files;
           break;
@@ -229,32 +231,35 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     readonly name?: string | null;
     readonly restores?: string | null;
     readonly uncovered?: readonly CheckpointUncovered[];
-    readonly exactPaths?: boolean;
   } = {}): Promise<CheckpointGroup> => {
     if (targets.length === 0 && reason !== "named") throw new Error("A checkpoint needs at least one destination.");
     const seen = new Set<string>();
-    const prepared: { path: string; before: Uint8Array | null; after: Uint8Array | null; kept: string | null }[] = [];
+    const restoring = reason === "before-restore";
+    const prepared: { path: string; before: Uint8Array | null; after: Uint8Array | null; noOp: RestoreNoOp | null }[] = [];
     for (const target of targets) {
       if (seen.has(foldPath(target.path))) throw new Error(`Duplicate destination: ${target.path}`);
       seen.add(foldPath(target.path));
-      if ("kept" in target) {
-        prepared.push({ path: target.path, before: null, after: null, kept: target.kept });
+      if ("noOp" in target) {
+        prepared.push({ path: target.path, before: null, after: null, noOp: target.noOp });
         continue;
       }
-      const conflict = options.exactPaths === true ? await pathConflict(canonical, target.path) : null;
+      const conflict = restoring ? await pathConflict(canonical, target.path) : null;
       if (conflict !== null) {
-        prepared.push({ path: target.path, before: null, after: null, kept: conflict });
+        prepared.push({ path: target.path, before: null, after: null, noOp: { status: "kept-changed", message: conflict } });
         continue;
       }
-      const path = options.exactPaths === true ? target.path : await canonical(target.path);
+      const path = restoring ? target.path : await canonical(target.path);
       if (reason === "before-script" && path !== target.path) throw new Error(spellingChanged(target.path, path));
       const before = await current(path);
-      if ("expectedBefore" in target && !sameBytes(before, target.expectedBefore)) throw new Error(`${path} changed since review; choose the version again.`);
-      if (reason !== "named" && !sameBytes(before, target.bytes)) {
-        const refused = await env.guard(path, target.bytes === null, target.bytes);
-        if (refused !== null) throw new Error(refused);
+      const refused = "expectedBefore" in target && !sameBytes(before, target.expectedBefore)
+        ? `${path} changed since review; choose the version again.`
+        : reason !== "named" && !sameBytes(before, target.bytes) ? await env.guard(path, target.bytes === null, target.bytes) : null;
+      if (refused !== null) {
+        if (!restoring) throw new Error(refused);
+        prepared.push({ path, before: null, after: null, noOp: { status: "failed", message: refused } });
+        continue;
       }
-      prepared.push({ path, before, after: reason === "named" ? before?.slice() ?? null : target.bytes?.slice() ?? null, kept: null });
+      prepared.push({ path, before, after: reason === "named" ? before?.slice() ?? null : target.bytes?.slice() ?? null, noOp: null });
     }
     const collisions = prepared.filter((file) => file.before !== null).map((file) => file.path);
     if ((reason === "before-wizard" || reason === "before-script") && collisions.length > 0 && !await env.consent(collisions)) throw new Error("Cancelled; no target files changed.");
@@ -270,8 +275,8 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       path: file.path,
       before: file.before === null ? null : await store(file.before),
       after: file.after === null ? null : await store(file.after),
-      status: file.kept !== null ? "kept-changed" : reason === "named" ? "written" : "pending",
-      message: file.kept,
+      status: file.noOp?.status ?? (reason === "named" ? "written" : "pending"),
+      message: file.noOp?.message ?? null,
     });
     await captureManifest(group);
     return group;
@@ -283,7 +288,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     await Promise.all(group.files.map((file) => contents(file.before)));
     for (let index = 0; index < group.files.length; index++) {
       const file = group.files[index]!;
-      if (["written", "already-as-wanted", "kept-uncertain", "kept-changed", "uncovered"].includes(file.status)) continue;
+      if (file.status === "written" || file.status === "uncovered" || (group.reason === "before-restore" && notRestored(file))) continue;
       try {
         if (await canonical(file.path) !== file.path) throw new Error(`Destination spelling changed: ${file.path}`);
         const now = await currentHash(file.path);
@@ -392,51 +397,43 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         const previousRefusals = new Map<string, string>();
         const eligible: string[] = [];
         for (const file of selected) {
-          const kept = unrestoredFile(file) ?? (source.reason === "before-script" ? await pathConflict(canonical, file.path) : null);
+          const kept = source.reason === "before-restore" && notRestored(file)
+            ? file.status === "already-as-wanted" ? "The previous restore did not change this file; there is nothing to undo." : file.message ?? "No change to reverse for this path."
+            : await pathConflict(canonical, file.path);
           if (kept === null) eligible.push(file.path);
           else previousRefusals.set(file.path, kept);
         }
         const expected = await options.confirmBefore?.(eligible);
         if (expected === null) throw new Error("Cancelled: nothing was changed.");
         const targets: CaptureTarget[] = [];
-        const outcomes = new Map<string, { readonly status: CheckpointFile["status"]; readonly message: string }>();
         for (const file of selected) {
           const desiredHash = source.reason === "named" ? file.after : file.before;
           const desired = await contents(desiredHash);
-          const kept = previousRefusals.get(file.path) ?? (source.reason === "before-script" ? await pathConflict(canonical, file.path) : null);
+          const kept = previousRefusals.get(file.path) ?? await pathConflict(canonical, file.path);
           if (kept !== null) {
-            targets.push({ path: file.path, kept });
+            targets.push(noOp(file.path, "kept-changed", kept));
             continue;
           }
           const actual = await current(file.path);
           if (expected?.has(file.path) && !sameBytes(actual, expected.get(file.path)!)) {
-            throw new Error(`${file.path} changed after restore confirmation, so it was not restored. Choose the version again.`);
+            targets.push(noOp(file.path, "failed", `${file.path} changed after restore confirmation, so it was not restored. Choose the version again.`));
+            continue;
           }
           const actualHash = actual === null ? null : await hash(actual);
           const expectedBefore = actual;
           // Reviewed intent is not a receipt that a previously absent file was actually created by this operation.
           const registeredAfter = source.reason === "before-script" && file.status !== "written" ? null : file.after;
           if (actualHash === desiredHash) {
-            targets.push({ path: file.path, bytes: actual, expectedBefore });
-            outcomes.set(file.path, { status: "already-as-wanted", message: "Already as wanted" });
+            targets.push(noOp(file.path, "already-as-wanted", "Already as wanted"));
           } else if (source.reason === "before-script" && desiredHash !== null && actualHash !== file.after) {
-            targets.push({ path: file.path, bytes: actual, expectedBefore });
-            outcomes.set(file.path, { status: "kept-changed", message: "The existing file no longer matches either reviewed version, so it was kept." });
+            targets.push(noOp(file.path, "kept-changed", "The existing file no longer matches either reviewed version, so it was kept."));
           } else if (desiredHash === null && actual !== null && actualHash !== registeredAfter && !deleteUncertain.has(foldPath(file.path))) {
-            targets.push({ path: file.path, bytes: actual, expectedBefore });
-            outcomes.set(file.path, { status: "kept-uncertain", message: "The file no longer matches the bytes recorded by this operation, so it was kept." });
+            targets.push(noOp(file.path, "kept-uncertain", "The file no longer matches the bytes recorded by this operation, so it was kept."));
           } else {
             targets.push({ path: file.path, bytes: desired, expectedBefore });
           }
         }
-        const group = await capture(targets, "before-restore", {
-          restores: id, uncovered: source.uncovered, exactPaths: source.reason === "before-script",
-        });
-        for (const file of group.files) {
-          const outcome = outcomes.get(file.path);
-          if (outcome !== undefined && file.status !== "kept-changed") { file.status = outcome.status; file.message = outcome.message; }
-        }
-        if (outcomes.size > 0) await persist(group);
+        const group = await capture(targets, "before-restore", { restores: id, uncovered: source.uncovered });
         return platformOk(await execute(group));
       } catch (error) { return platformError("io-error", message(error)); }
     },

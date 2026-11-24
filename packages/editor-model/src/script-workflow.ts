@@ -513,6 +513,11 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
   };
   const mainIsCurrent = async (): Promise<boolean> =>
     env.projectMainPath === undefined || sameBytes(await readBytes(env.projectMainPath), plan.mainBytes);
+  const verifyPaths = async (entry: ScriptWorkflowEntry): Promise<void> => {
+    if (env.projectMainPath !== undefined) await requireExactPath(env.fs, env.projectMainPath);
+    if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
+    await requireExactPath(env.fs, entry.destination);
+  };
   interface PreparedWrite {
     readonly sourceBytes: Uint8Array | null;
     readonly before: Uint8Array | null;
@@ -546,12 +551,12 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
     const result = entry.result!;
     const label = `${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`;
-    await requireExactPath(env.fs, entry.destination);
+    await verifyPaths(entry);
     if (entry.open && entry.target === "in-place") {
+      if ((await readBytes(entry.path))?.[0] === 0) return { failure: sourceChanged(entry) };
+      await verifyPaths(entry);
       const [projectCurrent, saved] = await Promise.all([mainIsCurrent(), readBytes(entry.path)]);
       if (!projectCurrent || env.isProjectCurrent?.() === false) return { failure: projectChanged };
-      await requireExactPath(env.fs, entry.path);
-      if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
       const currentEditor = findOpen(entry.path);
       if (saved?.[0] === 0 || currentEditor === undefined || !hasReviewedText(currentEditor, entry)) return { failure: sourceChanged(entry) };
       const done = await currentEditor.replace(label, result);
@@ -560,25 +565,23 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (prepared === undefined) return { failure: `${entry.destination} was not prepared for writing.` };
     const { before, sourceBytes, bytes } = prepared;
     if (entry.target === "copy") {
-      await requireExactPath(env.fs, entry.path);
       const slash = entry.destination.lastIndexOf("/");
       const made = await env.fs.createFolder(entry.destination.slice(0, slash));
       if (!made.ok) return { failure: `Could not make the folder for ${entry.destination}: ${made.error.message}` };
     }
-    await requireExactPath(env.fs, entry.destination);
-    if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
-    // Compare live bytes after folder preparation, then make a final link/identity check before dispatching the write.
-    // The provider's list/read/write calls are not a cross-file transaction.
-    const [projectCurrent, source, destination] = await Promise.all([
-      mainIsCurrent(),
-      readBytes(entry.path),
-      entry.target === "copy" ? readBytes(entry.destination) : Promise.resolve(before),
-    ]);
+    if (entry.target === "copy") await verifyPaths(entry);
+    const readTargets = async (): Promise<readonly [Uint8Array | null, Uint8Array | null]> =>
+      await Promise.all([readBytes(entry.path), entry.target === "copy" ? readBytes(entry.destination) : before]);
+    const [initialSource, initialDestination] = await readTargets();
+    if (!sameBytes(initialSource, sourceBytes)) return { failure: sourceChanged(entry) };
+    if (!sameBytes(initialDestination, before)) return { failure: destinationChanged(entry) };
+    await verifyPaths(entry);
+    // Resample after the final path walk, since a provider can change bytes while that walk is suspended.
+    // The remaining read-to-dispatch gap is optimistic: the filesystem does not expose compare-and-write.
+    const [projectCurrent, [source, destination]] = await Promise.all([mainIsCurrent(), readTargets()]);
     if (!projectCurrent) return { failure: projectChanged };
     if (!sameBytes(source, sourceBytes)) return { failure: sourceChanged(entry) };
     if (!sameBytes(destination, before)) return { failure: destinationChanged(entry) };
-    if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
-    await requireExactPath(env.fs, entry.destination);
     const opened = findOpen(entry.path);
     const openConflict = !entry.open && anyOpen(entry.path);
     if (entry.open ? !hasReviewedText(opened, entry) : openConflict) {

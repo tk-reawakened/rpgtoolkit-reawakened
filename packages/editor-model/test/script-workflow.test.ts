@@ -613,3 +613,62 @@ for (const swap of ["directory-during-consent", "file-during-read"] as const) {
     deepEqual(host.bytesOf(destination), original);
   });
 }
+
+for (const race of ["open-main", "closed-main", "closed-source", "copy-destination"] as const) {
+  test(`review apply resamples bytes changed during the final path listing (${race})`, async () => {
+    const host = project();
+    const copy = race === "copy-destination";
+    const source = copy ? "Prg/old.prg" : "Prg/a.prg";
+    const destination = copy ? `${MIGRATED_FOLDER}/${source}` : source;
+    const parent = destination.slice(0, destination.lastIndexOf("/"));
+    const main = "Main/game.gam";
+    const mainFixture = (name: string) => new Uint8Array(readFileSync(new URL(`../../../docs/spec/examples/versions/main/${name}`, import.meta.url)));
+    host.seed(main, mainFixture("main_minor9.gam"));
+    let arm = false;
+    let sampled = false;
+    let writes = 0;
+    let edits = 0;
+    let arrived!: () => void;
+    let release!: () => void;
+    const listing = new Promise<void>((resolve) => { arrived = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const usual = env(host);
+    const environment = env(host, {
+      ...(copy ? {} : { projectMainPath: main }),
+      openPrograms: () => race === "open-main" ? [{ path: source, text: () => "MESSY open", replace: async () => { edits++; return { ok: true }; } }] : [],
+      history: { ...usual.history!, async prepareScripts() { arm = true; return { ok: true, groupId: "g1" }; } },
+      fs: {
+        ...host.fs,
+        async read(path) {
+          const data = await host.fs.read(path);
+          if (arm && path === destination) sampled = true;
+          return data;
+        },
+        async list(path) {
+          if (arm && sampled && path === parent) {
+            arm = false;
+            arrived();
+            await gate;
+          }
+          return await host.fs.list(path);
+        },
+        async write(path, data) { writes++; return await host.fs.write(path, data); },
+      },
+    });
+    const plan = await planScriptWorkflow(environment, copy ? "update" : "format", { kind: "program", path: source });
+    equal(plan.entries[0]?.state, "ready");
+    if (race === "open-main") arm = true;
+    const applying = createScriptReview(environment, plan).apply();
+    await listing;
+    const replaceMain = race.endsWith("-main");
+    const modified = replaceMain ? mainFixture("main_tk2_text.gam") : bytes("Externally replaced\n");
+    const changed = replaceMain ? main : destination;
+    host.seed(changed, modified);
+    release();
+    const outcome = await applying;
+    equal(writes + edits, 0);
+    deepEqual(outcome.applied, []);
+    match(outcome.failed[0]?.message ?? "", replaceMain ? /selected project changed/ : /changed/);
+    deepEqual(host.bytesOf(changed), modified);
+  });
+}
