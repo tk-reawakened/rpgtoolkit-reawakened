@@ -141,14 +141,15 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       ok(reopened.element.textContent?.includes("Heals 5 HP each round"));
     });
 
-    test("a value that does not fit is refused with the reason and nothing is written", async () => {
+    test("a value that does not fit refuses the host's own save with its reason and writes nothing", async () => {
       const proof = host();
       const tab = await openReady(proof, SPC, "Damage (FP)");
       await type(tab, "Damage (FP)", "9999999999");
       ok(tab.element.textContent?.includes("whole number from -2147483648 to 2147483647"));
-      equal(tab.workbenchDirty(), false);
-      equal(await tab.saveFromWorkbench(), true);
-      ok(same(await proof.disk(SPC), fireball));
+      // The host asked for an explicit save; the view cannot store the field, so the save is refused rather than
+      // reported as written without it. VS Code keeps the document unsaved, the browser reports a failed entry.
+      equal(await tab.saveFromWorkbench(), false, "the host save is refused");
+      ok(same(await proof.disk(SPC), fireball), "nothing was written");
     });
   });
 }

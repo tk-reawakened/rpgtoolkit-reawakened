@@ -14,7 +14,10 @@
  * applies the field the author is still typing in; autosave and a hot-exit backup must not commit mid-gesture; a revert
  * drops text typed against the version being discarded.
  */
-export type SettleReason = "explicit" | "autosave" | "revert";
+export type SettleReason = "explicit" | "autosave" | "revert" | "query";
+
+/** What a settlement found: `ok` when nothing refused, else the first refusal's sentence for the host to show. */
+export type SettleOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 /** One view's submitted-but-unacknowledged edits. */
 export interface PendingEditWork {
@@ -22,6 +25,8 @@ export interface PendingEditWork {
   busy(): boolean;
   /** Resolves once `busy()` is false. It never rejects: an edit the document refused is reported by the view itself. */
   idle(reason?: SettleReason): Promise<void>;
+  /** A reason the host must not save through: work the author has not resolved (a field the file cannot store). */
+  refusal?(): string | null;
 }
 
 /** What a view needs to take part: register its work, and wait for every view's work (its own Save waits for its siblings). */
@@ -31,7 +36,15 @@ export interface PendingEdits {
   /** Whether any registered view is busy. */
   busy(): boolean;
   /** Resolves once no registered view is busy, including work submitted while waiting. */
-  settle(reason?: SettleReason): Promise<void>;
+  settle(reason?: SettleReason): Promise<SettleOutcome>;
+}
+
+function refusalOf(works: readonly PendingEditWork[]): SettleOutcome {
+  for (const work of works) {
+    const message = work.refusal?.();
+    if (message !== null && message !== undefined) return { ok: false, message };
+  }
+  return { ok: true };
 }
 
 export function createPendingEdits(): PendingEdits {
@@ -48,10 +61,11 @@ export function createPendingEdits(): PendingEdits {
       // work no view reports as busy because the document does not hold it yet.
       for (let round = 0; round < 8; round += 1) {
         const registered = [...works];
-        if (registered.length === 0) return;
+        if (registered.length === 0) return { ok: true };
         await Promise.all(registered.map((work) => work.idle(reason)));
-        if (!busy()) return;
+        if (!busy()) return refusalOf(registered);
       }
+      return refusalOf([...works]);
     },
   };
 }

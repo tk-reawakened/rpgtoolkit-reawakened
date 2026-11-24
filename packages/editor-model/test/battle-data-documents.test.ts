@@ -326,4 +326,8 @@ test("the committed editor fixtures are exactly what these documents save and re
   const reopened = await openSpecialMoveDocument(createMemoryPlatformServices({ files: { [SPC]: fixture("burner.spc") } }).fs, createDocumentIdentity("memory-project", SPC));
   ok(reopened.ok);
   deepEqual([reopened.document.getSnapshot().name, reopened.document.getSnapshot().damage, reopened.document.getSnapshot().statusEffect], ["Burner", 10, "burn.ste"]);
+  const reopenedStatus = await openStatusEffectDocument(createMemoryPlatformServices({ files: { [STE]: fixture("burn.ste") } }).fs, createDocumentIdentity("memory-project", STE));
+  ok(reopenedStatus.ok);
+  const statusSnapshot = reopenedStatus.document.getSnapshot();
+  deepEqual([statusSnapshot.name, statusSnapshot.rounds, statusSnapshot.hpEnabled, statusSnapshot.hpPerRound], ["Burn", 2, true, 3]);
 });
