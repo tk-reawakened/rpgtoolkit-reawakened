@@ -194,15 +194,15 @@ Follow a placed item's graphics and local programs to their source editors, then
 
 **T-41 Test run with fixtures.** Run the current program in the engine. **Test preferences** supply a font, font size, message-window graphic, a set of party members and a board, so the program can run without the rest of the game. *Reawakened:* the test preferences are a saved program-test setup in `.tkr/launch.json` (ADR 0022 D8.7).
 
-**T-42 Indent wizard.** Re-indent code by brace depth (indent width configurable).
+**T-42 Indent wizard.** Re-indent code by brace depth (indent width configurable). *Reawakened:* the formatter of TOOL-4, offered as a reviewed workflow ([TOOL-11](spec/engine/rpgcode-tooling.md#tool-11)).
 
-**T-43 RPGCode Update Wizard.** Converts pre-3.1 programs project-wide, file by file with per-file opt-out: quote unquoted string arguments and map keys; change `=` to `==` in comparisons; strip `!`/`$` sigils; modernise comment styles.
+**T-43 RPGCode Update Wizard.** Converts pre-3.1 programs project-wide, file by file with per-file opt-out: quote unquoted string arguments and map keys; change `=` to `==` in comparisons; strip `!`/`$` sigils; modernise comment styles. *Reawakened:* offered as the reviewed `update` workflow of [TOOL-11](spec/engine/rpgcode-tooling.md#tool-11), over the conversion contract of [rpgcode-dialects.md](spec/engine/rpgcode-dialects.md#tk2-conversion-contract); a Toolkit 2.x original is never overwritten, its 3.1 result is written as a copy.
 
-**T-44 Cleanup wizards.** *Auto-command wizard*: remove legacy `#` prefixes and wrap loose dialogue lines in message-window calls. *Cleanup wizard*: run all cleanups on every program in the project. Both claim to preserve behaviour.
+**T-44 Cleanup wizards.** *Auto-command wizard*: remove legacy `#` prefixes and wrap loose dialogue lines in message-window calls. *Cleanup wizard*: run all cleanups on every program in the project. Both claim to preserve behaviour. *Reawakened:* the reviewed `cleanup` workflow of [TOOL-11](spec/engine/rpgcode-tooling.md#tool-11); a stage that is not proved to preserve behaviour is skipped and named.
 
 **T-45 Visual event builder.** An alternative, form-based way to write a program. Pick commands from categories (Text, Display, Player, Fight, Control, Items, Variable manipulation, Input, Info; about 160 command templates). Fill typed parameters (file pickers that know the right folder, numbers, strings). Insert or delete lines. **Build to RPGCode**. A small visual screen-layout canvas comes with it. This was a lesser-used tool. Include it if the rebuild targets beginners.
 
-**T-46 Capitalisation / formatting helpers.** Normalise built-in names to canonical case.
+**T-46 Capitalisation / formatting helpers.** Normalise built-in names to canonical case. *Reawakened:* the `canonical-case` workflow of [TOOL-11](spec/engine/rpgcode-tooling.md#tool-11), which changes spelling and never indentation.
 
 ---
 
