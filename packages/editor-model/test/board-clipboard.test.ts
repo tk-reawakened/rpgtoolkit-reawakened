@@ -153,7 +153,7 @@ for (const [name, system] of LAYOUTS) {
   });
 }
 
-test("select all in Tiles mode copies the whole layer and a paste with its corner anywhere else is refused", async () => {
+test("select all in Tiles mode copies the whole layer, which pastes at its own origin whatever the cursor is", async () => {
   const s = rig();
   ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: 0, y: 0, tile: GRASS }, { layer: 0, x: 7, y: 7, tile: ROCK }] })).ok);
   s.editor.selectAll();
@@ -165,8 +165,9 @@ test("select all in Tiles mode copies the whole layer and a paste with its corne
   equal(boardTileAt(s.doc.getSnapshot(), 0, 7, 7), ROCK, "the source layer is unchanged");
   s.editor.setCursor({ x: 1, y: 1 });
   const bytes = s.doc.serialize();
-  equal(await s.editor.paste(), false);
+  equal(await s.editor.paste(), false, "pasting the same grid twice changes nothing");
   deepEqual(s.doc.serialize(), bytes);
+  deepEqual(s.editor.getState().selection?.rect, { x0: 0, y0: 0, x1: 7, y1: 7 }, "the whole grid is still the selection");
 });
 
 test("a board with more than one shading layer copies tiles only, says so, and refuses a shaded clip", async () => {
@@ -369,7 +370,8 @@ test("paste refuses foreign, newer and malformed clipboard text, a wrong mode an
 
 test("the new set-tiles fields are validated and labelled by the board codec", () => {
   ok(boardCodec.isCommand({ type: "set-tiles", gesture: "paste", cells: [], shadeCells: [{ x: 0, y: 0, r: 1, g: 2, b: 3 }] }));
-  ok(!boardCodec.isCommand({ type: "set-tiles", gesture: "paste", cells: [], shadeCells: [{ x: 0, y: 0, r: 999, g: 2, b: 3 }] }));
+  ok(boardCodec.isCommand({ type: "set-tiles", gesture: "paste", cells: [], shadeCells: [{ x: 0, y: 0, r: 999, g: 2, b: 3 }] }), "a baked shade is a stored i16");
+  ok(!boardCodec.isCommand({ type: "set-tiles", gesture: "paste", cells: [], shadeCells: [{ x: 0, y: 0, r: 40_000, g: 2, b: 3 }] }));
   ok(!boardCodec.isCommand({ type: "set-tiles", gesture: "paste", cells: [], shadeCells: "no" }));
   equal(boardCodec.label({ type: "set-tiles", gesture: "cut", cells: [{ layer: 0, x: 0, y: 0, tile: "" }] }), "Cut 1 cell on layer 1");
   notEqual(boardCodec.label({ type: "set-tiles", gesture: "paste", cells: [], shadeCells: [{ x: 0, y: 0, r: 1, g: 1, b: 1 }, { x: 1, y: 0, r: 1, g: 1, b: 1 }] }), "");
@@ -387,4 +389,151 @@ test("a pasted group is shown as selected and ends with the next selection, a re
   s.editor.selectObject(0);
   deepEqual(s.editor.getState().objectGroup, []);
   notEqual(state.objectGroup, s.editor.getState().objectGroup);
+});
+
+test("a baked shade beyond ±255 survives copy and paste, because the board stores it as an i16", async () => {
+  const s = rig();
+  ok((await s.doc.apply({ type: "set-board-fields", fields: { shadeLayers: [{ castLayer: 2, records: [{ runCount: 64, r: 300, g: -400, b: 0 }] }] } })).ok);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: 2, y: 2, tile: GRASS }] })).ok);
+  s.editor.selectAll();
+  ok(await s.editor.copy());
+  const clip = parseClip(s.host.clipboardText);
+  ok(clip.ok && clip.value.kind === "region");
+  ok(clip.value.shades !== null && clip.value.shades.some((shade) => shade !== null && shade[0] === 300 && shade[1] === -400));
+  s.editor.setLayer(1);
+  ok(await s.editor.paste(), "a shade past the painted ±255 is stored data, not a refusal");
+  deepEqual(shadeAt(s.doc.getSnapshot(), { x: 2, y: 2 }), { r: 300, g: -400, b: 0 });
+  deepEqual(shadeAt(s.reload().getSnapshot(), { x: 2, y: 2 }), { r: 300, g: -400, b: 0 }, "the saved file holds it exactly");
+  ok(s.doc.apply({ type: "set-tiles", gesture: "paste", cells: [], shadeCells: [{ x: 3, y: 3, r: 300, g: 1, b: 1 }] }).ok);
+  const beyond = s.doc.apply({ type: "set-tiles", gesture: "paste", cells: [], shadeCells: [{ x: 3, y: 3, r: 40_000, g: 1, b: 1 }] });
+  equal(beyond.ok, false, "a channel the i16 record cannot hold is still refused");
+});
+
+for (const [name, system] of LAYOUTS) {
+  test(`${name}: select all copies the whole stored grid and pastes it on another layer at its own origin`, async () => {
+    const s = rig(system);
+    ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...s.centre, tile: GRASS }] })).ok);
+    s.editor.selectAll();
+    ok(await s.editor.copy());
+    s.editor.setLayer(1);
+    // A cell the pointer can reach, which on the iso-rotated layout is never the stored corner (0, 0).
+    s.editor.setCursor(s.centre);
+    ok(await s.editor.paste());
+    const board = s.doc.getSnapshot();
+    deepEqual([boardTileAt(board, 1, s.centre.x, s.centre.y), boardTileAt(board, 0, s.centre.x, s.centre.y)], [GRASS, GRASS], "the whole grid lands on the same stored cells, one layer up");
+    const selection = s.editor.getState().selection;
+    ok(selection !== null);
+    deepEqual([selection.rect.x0, selection.rect.y0], [0, 0], "the pasted grid is selected at its origin");
+  });
+}
+
+test("clipboard text that is not a version number is refused, never thrown", async () => {
+  const s = rig();
+  const bytes = s.doc.serialize();
+  for (const version of [{ toString: null }, null, ["1"], { a: 1 }]) {
+    s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version, kind: "region", width: 1, height: 1, tiles: [GRASS], shades: null });
+    equal(await s.editor.paste(), false);
+    match(s.editor.getState().message!.text, /version/);
+    deepEqual(s.doc.serialize(), bytes);
+  }
+  s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", width: { toString: null }, height: 1, tiles: [], shades: null });
+  equal(await s.editor.paste(), false);
+  match(s.editor.getState().message!.text, /valid size/);
+});
+
+test("pasting where the cells already show what was copied still selects the destination", async () => {
+  const s = rig();
+  const a = near(s.centre, 0, 0);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...a, tile: GRASS }, { layer: 0, ...near(a, 1, 0), tile: ROCK }] })).ok);
+  await s.select(a, near(a, 1, 0));
+  ok(await s.editor.copy());
+  const bytes = s.doc.serialize();
+  const edits = s.doc.getSnapshot().edits.length;
+  s.editor.setCursor(a);
+  equal(await s.editor.paste(), false, "nothing changed, so no edit was made");
+  deepEqual(s.doc.serialize(), bytes);
+  equal(s.doc.getSnapshot().edits.length, edits);
+  const selection = s.editor.getState().selection;
+  ok(selection !== null, "the destination is selected so a second copy takes it");
+  deepEqual([selection.rect.x0, selection.rect.y0, selection.rect.x1, selection.rect.y1], [a.x, a.y, a.x + 1, a.y]);
+});
+
+test("select all with no visible object clears the earlier selection instead of keeping it for a cut", async () => {
+  const s = rig();
+  const points = [{ x: 32, y: 32 }, { x: 96, y: 32 }];
+  ok((await s.doc.apply({ type: "set-board-fields", fields: { vectors: [defaultBoardObject("vectors", 1, { x: 32, y: 32 }, points)] } })).ok);
+  s.editor.setMode("vectors");
+  s.editor.selectObject(0);
+  equal(s.editor.getState().objectSelection?.index, 0);
+  s.editor.setLayer(1);
+  s.editor.selectAll();
+  equal(s.editor.getState().objectSelection, null);
+  deepEqual(s.editor.getState().objectGroup, []);
+  match(s.editor.getState().message!.text, /nothing was selected/);
+  const bytes = s.doc.serialize();
+  s.host.clipboardText = "sentinel";
+  equal(await s.editor.cut(s.confirm), false);
+  match(s.editor.getState().message!.text, /Select a whole vector first/);
+  equal(s.host.clipboardText, "sentinel");
+  deepEqual(s.doc.serialize(), bytes);
+});
+
+test("a cut whose slots changed while the clipboard was written removes nothing", async () => {
+  const built = buildNewBoard({ name: "t", coordSystem: "2d", pixelCoordinates: false, width: 8, height: 8, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  const host = createMemoryPlatformServices({ files: { "Boards/t.brd": built.bytes }, capabilities: ["clipboard"] });
+  const opened = createBoardDocument(host.fs, createDocumentIdentity("memory-project", "Boards/t.brd"), built.bytes);
+  ok(opened.ok);
+  const doc = opened.document;
+  const points = [{ x: 32, y: 32 }, { x: 96, y: 32 }];
+  ok((await doc.apply({ type: "set-board-fields", fields: {
+    vectors: [defaultBoardObject("vectors", 1, { x: 32, y: 32 }, points), { ...defaultBoardObject("vectors", 1, { x: 0, y: 0 }, points), handle: "second" }],
+  } })).ok);
+  let release = (): void => {};
+  let writing = false;
+  const editor = createBoardEditor({
+    board: () => doc.getSnapshot(),
+    apply: (command) => doc.apply(command),
+    brush: () => null,
+    pickTile: () => false,
+    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    clipboard: {
+      readText: async () => ({ ok: true, value: "" }),
+      writeText: async () => {
+        writing = true;
+        await new Promise<void>((resolve) => { release = resolve; });
+        return { ok: true, value: undefined };
+      },
+    },
+  });
+  editor.setMode("vectors");
+  editor.selectObject(0);
+  const cut = editor.cut(async () => true);
+  for (let turn = 0; turn < 20 && !writing; turn += 1) await Promise.resolve();
+  ok(writing, "the cut waits for the clipboard write");
+  const records = doc.getSnapshot().vectors;
+  ok((await doc.apply({ type: "set-board-fields", fields: { vectors: [records[1]!, records[0]!] } })).ok);
+  const after = doc.serialize();
+  release();
+  equal(await cut, false);
+  match(editor.getState().message!.text, /changed while the cut was being written/);
+  deepEqual(doc.serialize(), after, "no vector was removed");
+});
+
+test("a pasted object's selection drops the previous object's point indices", async () => {
+  const s = rig();
+  const four = [{ x: 32, y: 32 }, { x: 96, y: 32 }, { x: 96, y: 96 }, { x: 32, y: 96 }];
+  const three = [{ x: 160, y: 32 }, { x: 192, y: 32 }, { x: 192, y: 64 }];
+  ok((await s.doc.apply({ type: "set-board-fields", fields: { vectors: [defaultBoardObject("vectors", 1, { x: 32, y: 32 }, four), defaultBoardObject("vectors", 1, { x: 160, y: 32 }, three)] } })).ok);
+  s.editor.setMode("vectors");
+  s.editor.selectObject(0);
+  s.editor.selectAllPoints();
+  ok(await s.editor.copy());
+  s.editor.selectObject(1);
+  s.editor.selectPoints([0, 1, 2]);
+  ok(await s.editor.paste());
+  deepEqual(s.editor.getState().pointSelection, [], "the pasted vector starts with no points selected");
+  s.host.clipboardText = "sentinel";
+  ok(await s.editor.copy(), "a whole pasted vector can be copied again");
+  match(s.editor.getState().message!.text, /Copied 1 vector/);
 });

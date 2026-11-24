@@ -259,6 +259,16 @@ function assignTiles(board: Board, assignments: readonly TileAssignment[]): Boar
 
 const SHADE_MIN = -255;
 const SHADE_MAX = 255;
+/** The stored range of a shade channel (a board's shade records are `i16`; baking a light can take one past ±255). */
+export const STORED_SHADE_MIN = -32_768;
+export const STORED_SHADE_MAX = 32_767;
+/** The range `planShadeCells` checks a channel against: the typed brush's ±255 unless a caller allows the stored range. */
+export interface ShadeLimits {
+  readonly min: number;
+  readonly max: number;
+}
+const PAINTABLE: ShadeLimits = { min: SHADE_MIN, max: SHADE_MAX };
+const STORED_SHADE: ShadeLimits = { min: STORED_SHADE_MIN, max: STORED_SHADE_MAX };
 
 /** One shade layer's cells, three channels each, row by row, in 32 bits so that sums of many shades are exact until they are checked against ±255; `null` when its records cover more cells than the grid (a file the editor will not rewrite). */
 export function decodeShade(layer: BoardShadeLayer, cells: number): Int32Array | null {
@@ -368,8 +378,8 @@ function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonl
   return { ok: true, layers };
 }
 
-/** The shade layers after setting `cells`, or why they cannot be set. */
-export function planShadeCells(board: Board, cells: readonly ShadeCell[]): { readonly ok: true; readonly layers: readonly BoardShadeLayer[] } | { readonly ok: false; readonly message: string } {
+/** The shade layers after setting `cells`, or why they cannot be set. `limits` is ±255 unless a caller allows the stored range. */
+export function planShadeCells(board: Board, cells: readonly ShadeCell[], limits: ShadeLimits = PAINTABLE): { readonly ok: true; readonly layers: readonly BoardShadeLayer[] } | { readonly ok: false; readonly message: string } {
   if (board.shadeLayers.length > 1) return { ok: false, message: "This board has more than one shading layer; only one is meaningful, so the shading cannot be painted." };
   const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
   const count = grid.width * grid.height;
@@ -380,8 +390,8 @@ export function planShadeCells(board: Board, cells: readonly ShadeCell[]): { rea
     if (!Number.isInteger(cell.x) || !Number.isInteger(cell.y) || cell.x < 0 || cell.y < 0 || cell.x >= grid.width || cell.y >= grid.height) {
       return { ok: false, message: `Column ${cell.x}, row ${cell.y} is outside the board, so it cannot be shaded.` };
     }
-    if (![cell.r, cell.g, cell.b].every((channel) => Number.isInteger(channel) && channel >= SHADE_MIN && channel <= SHADE_MAX)) {
-      return { ok: false, message: `A shade is three whole numbers from ${SHADE_MIN} to ${SHADE_MAX}.` };
+    if (![cell.r, cell.g, cell.b].every((channel) => Number.isInteger(channel) && channel >= limits.min && channel <= limits.max)) {
+      return { ok: false, message: `A shade is three whole numbers from ${limits.min} to ${limits.max}.` };
     }
   }
   let changed = board.shadeLayers.length === 0;
@@ -424,7 +434,7 @@ function applyCommand(board: Board, command: BoardCommand): Board {
     return planned.ok && planned.layers !== tiled.shadeLayers ? { ...tiled, shadeLayers: planned.layers } : tiled;
   })();
   if (command.shadeCells === undefined || command.shadeCells.length === 0) return tinted;
-  const painted = planShadeCells(tinted, command.shadeCells);
+  const painted = planShadeCells(tinted, command.shadeCells, STORED_SHADE);
   return painted.ok && painted.layers !== tinted.shadeLayers ? { ...tinted, shadeLayers: painted.layers } : tinted;
 }
 
@@ -507,7 +517,7 @@ function refuse(next: Board, command: BoardCommand, previous: Board): Rejection 
     if (!planned.ok) return { reason: "invalid", message: planned.message };
   }
   if (command.type === "set-tiles" && command.shadeCells !== undefined && command.shadeCells.length > 0) {
-    const planned = planShadeCells(previous, command.shadeCells);
+    const planned = planShadeCells(previous, command.shadeCells, STORED_SHADE);
     if (!planned.ok) return { reason: "invalid", message: planned.message };
   }
   if (next === previous) {
@@ -600,6 +610,11 @@ function isPoint(value: unknown): boolean {
     && "y" in value && typeof value.y === "number" && Number.isInteger(value.y);
 }
 
+/** A stored shade channel: a whole number the board's `i16` shade record holds (a baked light may pass ±255). */
+function isStoredShadeChannel(value: unknown): boolean {
+  return typeof value === "number" && Number.isInteger(value) && value >= STORED_SHADE_MIN && value <= STORED_SHADE_MAX;
+}
+
 function isShadeChannel(value: unknown): boolean {
   return typeof value === "number" && Number.isInteger(value) && value >= SHADE_MIN && value <= SHADE_MAX;
 }
@@ -675,7 +690,7 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
       && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment)
       && (!("shades" in value) || value.shades === undefined || (Array.isArray(value.shades) && value.shades.length <= BOARD_MAX_CELLS && value.shades.every(isShade)))
       && (!("shadeCells" in value) || value.shadeCells === undefined || (Array.isArray(value.shadeCells) && value.shadeCells.length <= BOARD_MAX_CELLS
-        && value.shadeCells.every((cell: unknown) => isPoint(cell) && ["r", "g", "b"].every((channel) => isShadeChannel((cell as Record<string, unknown>)[channel])))));
+        && value.shadeCells.every((cell: unknown) => isPoint(cell) && ["r", "g", "b"].every((channel) => isStoredShadeChannel((cell as Record<string, unknown>)[channel])))));
   },
   apply: applyCommand,
   refuse,

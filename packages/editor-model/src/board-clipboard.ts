@@ -1,5 +1,5 @@
 import { BOARD_MAX_CELLS } from "@tk-reawakened/core";
-import { boardTileAt, decodeShade, isBoardObjectRecords, type BoardDocumentFields, type ShadeCell, type TileAssignment } from "./board-document.ts";
+import { boardTileAt, decodeShade, isBoardObjectRecords, STORED_SHADE_MAX, STORED_SHADE_MIN, type BoardDocumentFields, type ShadeCell, type TileAssignment } from "./board-document.ts";
 import { cellOnBoard, type Cell } from "./board-geometry.ts";
 import type { BoardObjectKind } from "./board-objects.ts";
 import type { BoardObject } from "./board-object-tools.ts";
@@ -19,7 +19,7 @@ export const BOARD_CLIPBOARD_FORMAT = "tkr-board-clipboard";
 /** The version this editor writes and reads; text of any other version is refused. */
 export const BOARD_CLIPBOARD_VERSION = 1;
 
-/** A shade as the clipboard stores it: red, green and blue, each a whole number from −255 to 255. */
+/** A shade as the clipboard stores it: red, green and blue, each a stored `i16` whole number (a painted shade is −255…255; baking a light can take one past that). */
 export type ClipShade = readonly [number, number, number];
 
 /** A rectangle of cells: row by row, `null` where the stored grid has no place on the picture (an isometric gap). */
@@ -56,6 +56,21 @@ const isWhole = (value: unknown, min: number, max: number): value is number => t
 
 /** Read clipboard text: a clip this editor wrote, or the reason the text is not one. */
 export function parseClip(text: string): ClipResult<BoardClip> {
+  try {
+    return parseClipText(text);
+  } catch {
+    // No clipboard text may throw at a caller: whatever a page or another program put there is refused with a reason.
+    return fail("The clipboard does not hold board data. Copy a region of cells or whole vectors, programs, sprites or images from a board first.");
+  }
+}
+
+/** The version in words, whatever the clipboard put there (`String()` of a JSON object with a null `toString` throws). */
+function versionWords(version: unknown): string {
+  if (typeof version === "number" || typeof version === "string") return String(version);
+  return "an unknown version";
+}
+
+function parseClipText(text: string): ClipResult<BoardClip> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -67,7 +82,7 @@ export function parseClip(text: string): ClipResult<BoardClip> {
   }
   const clip = parsed as Record<string, unknown>;
   if (clip.version !== BOARD_CLIPBOARD_VERSION) {
-    return fail(`The clipboard holds board data of version ${String(clip.version)}, and this editor reads version ${BOARD_CLIPBOARD_VERSION}, so nothing was pasted.`);
+    return fail(`The clipboard holds board data of version ${versionWords(clip.version)}, and this editor reads version ${BOARD_CLIPBOARD_VERSION}, so nothing was pasted.`);
   }
   if (clip.kind === "region") {
     const { width, height, tiles, shades } = clip;
@@ -76,7 +91,7 @@ export function parseClip(text: string): ClipResult<BoardClip> {
     if (!Array.isArray(tiles) || tiles.length !== cells || !tiles.every((tile) => tile === null || typeof tile === "string")) return fail("The clipboard's region does not hold one tile for each of its cells.");
     if (shades !== null) {
       if (!Array.isArray(shades) || shades.length !== cells
-        || !shades.every((shade) => shade === null || (Array.isArray(shade) && shade.length === 3 && shade.every((channel) => isWhole(channel, -255, 255))))) {
+        || !shades.every((shade) => shade === null || (Array.isArray(shade) && shade.length === 3 && shade.every((channel) => isWhole(channel, STORED_SHADE_MIN, STORED_SHADE_MAX))))) {
         return fail("The clipboard's region does not hold one shade for each of its cells.");
       }
     }
@@ -129,6 +144,15 @@ export interface RegionEdit {
 
 /** Everything a paste or cut of a region would write, or why it is refused (nothing is changed when it is). */
 export type RegionOutcome = { readonly ok: true; readonly edit: RegionEdit } | { readonly ok: false; readonly message: string };
+
+/**
+ * Where a region clip's top-left cell goes: on `cursor`, except that a clip covering the whole stored grid has exactly one
+ * placement, its own origin, so it pastes there whatever the cursor is (on an isometric board the stored corner cell has no
+ * place on the picture, so the pointer can never reach it).
+ */
+export function pasteAnchor(board: { readonly grid: { readonly width: number; readonly height: number } }, clip: RegionClip, cursor: Cell): Cell {
+  return clip.width === board.grid.width && clip.height === board.grid.height ? { x: 0, y: 0 } : cursor;
+}
 
 /** Put a region clip with its top-left cell on `at`. Refused whole when any of its cells would land off the board or its shade cannot be placed. */
 export function pasteRegion(board: ClipBoard, layer: number, clip: RegionClip, at: Cell): RegionOutcome {

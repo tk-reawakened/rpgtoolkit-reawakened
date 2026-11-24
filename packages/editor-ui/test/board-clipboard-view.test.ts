@@ -87,8 +87,9 @@ const button = (s: Setup, selector: string): HTMLButtonElement => {
   if (found === null) throw new Error(`no ${selector}`);
   return found;
 };
-const press = async (s: Setup, init: KeyboardEventInit): Promise<void> => {
-  await act(() => { s.el.querySelector(".tkr-board-brush-state, .tkr-board-note")!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })); });
+const press = async (s: Setup, init: KeyboardEventInit, target?: Element): Promise<void> => {
+  const element = target ?? s.el.querySelector(".tkr-board-brush-state, .tkr-board-note")!;
+  await act(() => { element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })); });
   await settle();
 };
 const message = (s: Setup): string => s.el.querySelector(".tkr-board-message")?.textContent ?? "";
@@ -206,5 +207,31 @@ test("a host without a clipboard says so instead of keeping a private copy", asy
   await settle();
   match(message(s), /cannot reach the system clipboard/);
   deepEqual(s.doc.serialize(), bytes);
+  s.dispose();
+});
+
+test("the clipboard shortcuts work from a select-point checkbox, while a text field keeps its own keys", async () => {
+  const s = await setup();
+  const points = [{ x: 32, y: 32 }, { x: 96, y: 32 }, { x: 96, y: 96 }];
+  ok((await s.doc.apply({ type: "set-board-fields", fields: { vectors: [vector(points)] } })).ok);
+  await mode(s, "vectors");
+  await act(() => button(s, ".tkr-board-select-all").click());
+  const box = s.el.querySelector<HTMLInputElement>('[aria-label="Select point 1"]');
+  ok(box);
+  await act(() => box.focus());
+  await press(s, { key: "c", ctrlKey: true }, box);
+  match(message(s), /Copied 1 vector/, "a checkbox is not a text field, so Ctrl+C copies the board selection");
+  // Ticking one point makes the selection partial: the same shortcut now explains the refusal instead of copying.
+  await act(() => box.click());
+  await settle();
+  await press(s, { key: "c", ctrlKey: true }, box);
+  match(message(s), /partial set of points/);
+  // A field that takes typed text keeps Ctrl+V: the board does not paste behind it.
+  await mode(s, "tiles");
+  const field = s.el.querySelector<HTMLInputElement>('input[type="text"]');
+  ok(field);
+  await act(() => field.focus());
+  await press(s, { key: "v", ctrlKey: true }, field);
+  equal(s.el.querySelector(".tkr-board-message"), null, "the board did not act on Ctrl+V in a text field");
   s.dispose();
 });

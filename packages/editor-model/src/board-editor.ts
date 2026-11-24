@@ -47,7 +47,8 @@ import {
   translatedObject,
   type BoardObject,
 } from "./board-object-tools.ts";
-import { clearRegion, copyObjects, copyRegion, parseClip, pasteObjects, pasteRegion, serializeClip, type BoardClip } from "./board-clipboard.ts";
+import { clearRegion, copyObjects, copyRegion, parseClip, pasteAnchor, pasteObjects, pasteRegion, serializeClip, type BoardClip } from "./board-clipboard.ts";
+import { sameStoredValue } from "./board-document.ts";
 import type { ClipboardService } from "@tk-reawakened/platform-services";
 
 /**
@@ -418,7 +419,8 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
         error(`Nothing was changed: ${result.rejection.message}`);
         return false;
       }
-      publish({ pending: null, objectSelection: selection, objectGroup: group, message: null });
+      const kept = selection !== null && selection.kind === state.objectSelection?.kind && selection.index === state.objectSelection.index;
+      publish({ pending: null, objectSelection: selection, objectGroup: group, pointSelection: kept ? state.pointSelection : [], message: null });
       return true;
     } catch (thrown) {
       error(thrown instanceof Error ? thrown.message : String(thrown));
@@ -657,6 +659,14 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     const wrote = await service.writeText(serializeClip(made.clip));
     if (!wrote.ok) { error(`Nothing was cut: ${wrote.error.message}`); return false; }
     const board = options.board();
+    // Writing the clipboard awaited: the document may have changed under the selection (an undo, a reload, another view).
+    // What is removed is what was copied, at the slots that still hold it, or nothing at all.
+    if (made.clip.kind === "objects") {
+      const records = board[made.clip.family];
+      const stillThere = made.indices.length === made.clip.objects.length
+        && made.indices.every((index, at) => sameStoredValue(records[index], made.clip.kind === "objects" ? made.clip.objects[at] : undefined));
+      if (!stillThere) { error("The board changed while the cut was being written, so the copied slots are not the same any more. Nothing was cut. Copy again."); return false; }
+    }
     if (made.clip.kind === "region" && made.region !== null) {
       const edit = clearRegion(board, made.region.layer, made.region.rect);
       const changed = await commit("cut", { ok: true, cells: edit.cells, shadeCells: edit.shadeCells });
@@ -688,14 +698,14 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     const board = options.board();
     if (clip.kind === "region") {
       if (state.mode !== "tiles") { error("The clipboard holds a region of cells. Switch to Tiles (1) to paste it. Nothing was changed."); return false; }
-      const outcome = pasteRegion(board, state.layer, clip, state.cursor);
+      const anchor = pasteAnchor(board, clip, state.cursor);
+      const outcome = pasteRegion(board, state.layer, clip, anchor);
       if (!outcome.ok) { error(outcome.message); return false; }
-      const { layer, cursor } = state;
+      const { layer } = state;
+      // The destination is selected whether or not it changed, so "copy, paste, copy again" takes the pasted cells.
+      publish({ selection: { layer, rect: { x0: anchor.x, y0: anchor.y, x1: anchor.x + clip.width - 1, y1: anchor.y + clip.height - 1 } } });
       const changed = await commit("paste", { ok: true, cells: outcome.edit.cells, shadeCells: outcome.edit.shadeCells });
-      if (changed) {
-        publish({ selection: { layer, rect: { x0: cursor.x, y0: cursor.y, x1: cursor.x + clip.width - 1, y1: cursor.y + clip.height - 1 } } });
-        info(describeClip(clip, "Pasted"));
-      }
+      if (changed) info(describeClip(clip, "Pasted"));
       return changed;
     }
     if (state.mode !== clip.family) {
@@ -1063,7 +1073,11 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       if (state.mode !== "tiles") {
         const kind = state.mode;
         const indices = board[kind].flatMap((object, index) => objectVisible(kind, object) ? [index] : []);
-        if (indices.length === 0) return info(`There are no visible ${kind} on this layer to select.`);
+        // Nothing to select clears what was selected: a hidden earlier selection must never be copied or cut by accident.
+        if (indices.length === 0) {
+          publish({ objectSelection: null, objectGroup: [], pointSelection: [], pending: null, message: { kind: "info", text: `There are no visible ${kind} on this layer, so nothing was selected.` } });
+          return;
+        }
         publish({ objectSelection: { kind, index: indices[0]! }, objectGroup: indices, pointSelection: [], pending: null, message: { kind: "info", text: `Selected ${indices.length} ${kind}.` } });
         return;
       }

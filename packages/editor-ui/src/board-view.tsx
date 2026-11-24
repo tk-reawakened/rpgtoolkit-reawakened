@@ -79,8 +79,17 @@ function cellText(tile: string | null): string {
   return tile === null || tile === "" ? "·" : tile;
 }
 
+/** The input types that take typed text, where Ctrl+A, Ctrl+C, Ctrl+X and Ctrl+V belong to the field, not the board. */
+const TEXT_INPUTS: ReadonlySet<string> = new Set(["text", "search", "url", "tel", "email", "password", "number", "date", "datetime-local", "month", "week", "time"]);
+
+/**
+ * Whether a key event belongs to a text field. Only fields that take typed text keep their own clipboard and select-all;
+ * a checkbox, radio, range, colour or a `<select>` is a control whose keys stay the board's.
+ */
 function typing(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target.tagName === "TEXTAREA") return true;
+  return target instanceof HTMLInputElement && (target.type === "" || TEXT_INPUTS.has(target.type));
 }
 
 /** The brush the retained selection makes: a tile or animation, or a loaded tile bitmap stamp. */
@@ -574,6 +583,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         <button type="button" class="tkr-board-clipboard-cut" aria-keyshortcuts="Control+X" disabled={readOnly || state.busy} onClick={() => { void editor.cut(askCut); }}>Cut</button>
         <button type="button" class="tkr-board-clipboard-paste" aria-keyshortcuts="Control+V" disabled={readOnly || state.busy} onClick={() => { void editor.paste(); }}>Paste</button>
         <button type="button" class="tkr-board-select-all" aria-keyshortcuts="Control+A" onClick={() => editor.selectAll()}>Select all</button>
+        <button type="button" class="tkr-board-select-all-points" hidden={state.mode === "tiles"} disabled={state.busy || state.objectSelection === null} onClick={() => editor.selectAllPoints()}>Select all points</button>
       </div>
       {cutAsk === null ? null : (
         <dialog ref={cutDialog} aria-labelledby={`${ids}-cut-title`} onClose={() => { cutAsk.answer(false); setCutAsk(null); }}>
@@ -595,7 +605,6 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         <button type="button" disabled={readOnly || state.busy || state.objectSelection === null} onClick={() => { void editor.subdivideObject(); }}>Subdivide segments (Z)</button>
         <button type="button" disabled={readOnly || state.busy || state.objectSelection === null} onClick={() => editor.resumeObjectPath()}>Resume drawing (X)</button>
         <button type="button" disabled={readOnly || state.busy || state.pointSelection.length === 0} onClick={() => { void editor.deletePoints(); }}>Delete selected points</button>
-        <button type="button" disabled={state.busy || state.objectSelection === null} onClick={() => editor.selectAllPoints()}>Select all points</button>
         {state.pending?.kind === "object-path" ? <>
           <button type="button" disabled={state.busy} onClick={() => { void editor.finishObjectPath(false); }}>Finish closed</button>
           <button type="button" disabled={state.busy} onClick={() => { void editor.finishObjectPath(true); }}>Finish open</button>
