@@ -506,3 +506,4 @@ export {
 } from "./launch-setups.ts";
 export * from "./board-lights.ts";
 export * from "./board-shade-tools.ts";
+export * from "./board-clipboard.ts";

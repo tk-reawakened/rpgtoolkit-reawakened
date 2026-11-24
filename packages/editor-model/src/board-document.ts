@@ -57,24 +57,47 @@ export interface ShadeAssignment {
 }
 
 /** What the gesture that made a `set-tiles` command was, for the words an undo menu shows. */
-export type TileGesture = "draw" | "erase" | "flood" | "rectangle" | "stamp" | "move" | "copy";
+export type TileGesture = "draw" | "erase" | "flood" | "rectangle" | "stamp" | "move" | "copy" | "cut" | "paste";
 
 /**
  * Put many tiles in one edit: one gesture of the canvas (a drag, a flood fill, a rectangle, a stamp, a move or copy) is
  * one command, so one undo takes it all back. A cell named twice takes the later tile; a cell that already shows its tile
  * is left alone; the command is refused when it changes nothing.
  */
+/**
+ * What a command requires of the *stored* board before it applies — a compare-and-set. A cut removes only what it copied:
+ * the requirement is checked here, against the authoritative model, so an editor view holding a stale snapshot cannot
+ * remove something it did not copy (the split VS Code views case).
+ */
+export interface BoardPrecondition {
+  /** These cells must still show these tiles (on these layers). */
+  readonly cells?: readonly TileAssignment[];
+  /** These cells must still have these shade channels (their one shading layer's values). */
+  readonly shadeCells?: readonly ShadeCell[];
+  /** These stored object slots must still be exactly these records. */
+  readonly vectors?: Board["vectors"];
+  readonly programs?: Board["programs"];
+  readonly sprites?: Board["sprites"];
+  readonly images?: Board["images"];
+}
+
 export interface SetTilesCommand {
   readonly type: "set-tiles";
   readonly gesture: TileGesture;
+  /** What the stored board must still hold for this command to apply (a cut's copied cells). Absent for an ordinary edit. */
+  readonly precondition?: BoardPrecondition;
   readonly cells: readonly TileAssignment[];
   /** Tints set in the same edit (a tile bitmap stamp places its cells' tints with its tiles). Absent when there are none. */
   readonly shades?: readonly ShadeAssignment[];
+  /** Cells set directly in the board's one shading layer in the same edit (a pasted or cut region's shade). Absent when there are none. */
+  readonly shadeCells?: readonly ShadeCell[];
 }
 
 /** An accepted edit to board-owned settings or stored object records. */
 export interface SetBoardFieldsCommand {
   readonly type: "set-board-fields";
+  /** What the stored board must still hold for this command to apply (a cut's copied object slots). Absent for an ordinary edit. */
+  readonly precondition?: BoardPrecondition;
   readonly fields: {
     readonly links?: Board["links"];
     readonly threads?: Board["threads"];
@@ -218,6 +241,9 @@ function assignTiles(board: Board, assignments: readonly TileAssignment[]): Boar
   };
   const changes: [number, number][] = [];
   for (const [cell, tile] of final) {
+    // A cell whose stored reference already is this tile keeps its own lookup-table index: a table may hold the same
+    // reference twice, and normalising to the first copy would be an edit that changes no tile.
+    if (board.lut[board.tileMatrix[cell] ?? -1] === tile) continue;
     const index = lookup(tile);
     if (board.tileMatrix[cell] !== index) changes.push([cell, index]);
   }
@@ -257,6 +283,16 @@ function assignTiles(board: Board, assignments: readonly TileAssignment[]): Boar
 
 const SHADE_MIN = -255;
 const SHADE_MAX = 255;
+/** The stored range of a shade channel (a board's shade records are `i16`; baking a light can take one past ±255). */
+export const STORED_SHADE_MIN = -32_768;
+export const STORED_SHADE_MAX = 32_767;
+/** The range `planShadeCells` checks a channel against: the typed brush's ±255 unless a caller allows the stored range. */
+export interface ShadeLimits {
+  readonly min: number;
+  readonly max: number;
+}
+const PAINTABLE: ShadeLimits = { min: SHADE_MIN, max: SHADE_MAX };
+const STORED_SHADE: ShadeLimits = { min: STORED_SHADE_MIN, max: STORED_SHADE_MAX };
 
 /** One shade layer's cells, three channels each, row by row, in 32 bits so that sums of many shades are exact until they are checked against ±255; `null` when its records cover more cells than the grid (a file the editor will not rewrite). */
 export function decodeShade(layer: BoardShadeLayer, cells: number): Int32Array | null {
@@ -366,8 +402,8 @@ function planShades(board: Board, shades: readonly ShadeAssignment[]): { readonl
   return { ok: true, layers };
 }
 
-/** The shade layers after setting `cells`, or why they cannot be set. */
-export function planShadeCells(board: Board, cells: readonly ShadeCell[]): { readonly ok: true; readonly layers: readonly BoardShadeLayer[] } | { readonly ok: false; readonly message: string } {
+/** The shade layers after setting `cells`, or why they cannot be set. `limits` is ±255 unless a caller allows the stored range. */
+export function planShadeCells(board: Board, cells: readonly ShadeCell[], limits: ShadeLimits = PAINTABLE): { readonly ok: true; readonly layers: readonly BoardShadeLayer[] } | { readonly ok: false; readonly message: string } {
   if (board.shadeLayers.length > 1) return { ok: false, message: "This board has more than one shading layer; only one is meaningful, so the shading cannot be painted." };
   const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
   const count = grid.width * grid.height;
@@ -378,11 +414,12 @@ export function planShadeCells(board: Board, cells: readonly ShadeCell[]): { rea
     if (!Number.isInteger(cell.x) || !Number.isInteger(cell.y) || cell.x < 0 || cell.y < 0 || cell.x >= grid.width || cell.y >= grid.height) {
       return { ok: false, message: `Column ${cell.x}, row ${cell.y} is outside the board, so it cannot be shaded.` };
     }
-    if (![cell.r, cell.g, cell.b].every((channel) => Number.isInteger(channel) && channel >= SHADE_MIN && channel <= SHADE_MAX)) {
-      return { ok: false, message: `A shade is three whole numbers from ${SHADE_MIN} to ${SHADE_MAX}.` };
+    if (![cell.r, cell.g, cell.b].every((channel) => Number.isInteger(channel) && channel >= limits.min && channel <= limits.max)) {
+      return { ok: false, message: `A shade is three whole numbers from ${limits.min} to ${limits.max}.` };
     }
   }
-  let changed = board.shadeLayers.length === 0;
+  // A board without a shading layer reads as zeros, so asking for zeros changes nothing and creates no layer.
+  let changed = false;
   for (const cell of cells) {
     const at = (cell.y * grid.width + cell.x) * 3;
     if (values[at] !== cell.r || values[at + 1] !== cell.g || values[at + 2] !== cell.b) changed = true;
@@ -417,9 +454,13 @@ function applyCommand(board: Board, command: BoardCommand): Board {
   }
   if (command.type === "set-tile") return assignTiles(board, [command]);
   const tiled = assignTiles(board, command.cells);
-  if (command.shades === undefined || command.shades.length === 0) return tiled;
-  const planned = planShades(tiled, command.shades);
-  return planned.ok && planned.layers !== tiled.shadeLayers ? { ...tiled, shadeLayers: planned.layers } : tiled;
+  const tinted = command.shades === undefined || command.shades.length === 0 ? tiled : (() => {
+    const planned = planShades(tiled, command.shades);
+    return planned.ok && planned.layers !== tiled.shadeLayers ? { ...tiled, shadeLayers: planned.layers } : tiled;
+  })();
+  if (command.shadeCells === undefined || command.shadeCells.length === 0) return tinted;
+  const painted = planShadeCells(tinted, command.shadeCells, STORED_SHADE);
+  return painted.ok && painted.layers !== tinted.shadeLayers ? { ...tinted, shadeLayers: painted.layers } : tinted;
 }
 
 function readOnlyReason(model: Board, bytes: Uint8Array): ReadOnlyReason | null {
@@ -458,17 +499,51 @@ export function sameStoredValue(left: unknown, right: unknown): boolean {
     && keys.every((key) => Object.hasOwn(second, key) && sameStoredValue(first[key], second[key]));
 }
 
+/** The tile a stored cell shows now, `null` when the cell is outside the board. */
+function storedTile(board: Board, layer: number, x: number, y: number): string | null {
+  const cell = cellIndex(board, layer, x, y);
+  if (cell === null) return null;
+  return board.lut[board.tileMatrix[cell] ?? -1] ?? "";
+}
+
+/** Why a command's precondition is not met, or `null` when it is (or there is none). */
+function unmetPrecondition(previous: Board, precondition: BoardPrecondition | undefined): string | null {
+  if (precondition === undefined) return null;
+  const changed = "The board changed since this edit was prepared, so applying it would change something that was not read. Nothing was changed.";
+  for (const cell of precondition.cells ?? []) {
+    if (storedTile(previous, cell.layer, cell.x, cell.y) !== cell.tile) return changed;
+  }
+  const shadeCells = precondition.shadeCells ?? [];
+  if (shadeCells.length > 0) {
+    const layer = previous.shadeLayers.length === 1 ? previous.shadeLayers[0]! : null;
+    const grid = boardGrid(previous.sizeX, previous.sizeY, previous.coordType);
+    const values = layer === null ? null : decodeShade(layer, grid.width * grid.height);
+    if (layer === null || values === null) return changed;
+    for (const cell of shadeCells) {
+      const at = (cell.y * grid.width + cell.x) * 3;
+      if (values[at] !== cell.r || values[at + 1] !== cell.g || values[at + 2] !== cell.b) return changed;
+    }
+  }
+  for (const family of ["vectors", "programs", "sprites", "images"] as const) {
+    const wanted = precondition[family];
+    if (wanted !== undefined && !sameStoredValue(previous[family], wanted)) return changed;
+  }
+  return null;
+}
+
 function refuse(next: Board, command: BoardCommand, previous: Board): Rejection | null {
+  const unmet = unmetPrecondition(previous, command.type === "set-tile" || command.type === "set-shade-cells" ? undefined : command.precondition);
+  if (unmet !== null) return { reason: "invalid", message: unmet };
   if (command.type === "set-shade-cells") {
     const planned = planShadeCells(previous, command.cells);
     if (!planned.ok) return { reason: "invalid", message: planned.message };
-    if (next === previous) return { reason: "invalid", message: "Those cells already have that shade." };
+    if (next === previous) return { reason: "invalid", message: "Those cells already have that shade.", unchanged: true };
     const written = writeBoard(next);
     if (!written.ok) return { reason: "invalid", message: written.error.message };
     return null;
   }
   if (command.type === "set-board-fields") {
-    if (next === previous) return { reason: "invalid", message: "The board settings are unchanged." };
+    if (next === previous) return { reason: "invalid", message: "The board settings are unchanged.", unchanged: true };
     if (command.fields.lights !== undefined && !isLights(command.fields.lights)) {
       return { reason: "invalid", message: "A light is a spotlight with three nodes or a gradient with two, and two colours with channels from −255 to 255." };
     }
@@ -500,8 +575,12 @@ function refuse(next: Board, command: BoardCommand, previous: Board): Rejection 
     const planned = planShades(previous, command.shades);
     if (!planned.ok) return { reason: "invalid", message: planned.message };
   }
+  if (command.type === "set-tiles" && command.shadeCells !== undefined && command.shadeCells.length > 0) {
+    const planned = planShadeCells(previous, command.shadeCells, STORED_SHADE);
+    if (!planned.ok) return { reason: "invalid", message: planned.message };
+  }
   if (next === previous) {
-    return { reason: "invalid", message: assignments.length === 1 ? "That cell already shows that tile." : "Those cells already show those tiles." };
+    return { reason: "invalid", unchanged: true, message: assignments.length === 1 ? "That cell already shows that tile." : "Those cells already show those tiles." };
   }
   if (next.lut.length > MAX_LUT_ENTRIES) {
     return { reason: "invalid", message: `The board already names ${MAX_LUT_ENTRIES} different tiles; it cannot name another.` };
@@ -567,7 +646,7 @@ const OBJECT_FIELDS: Readonly<Record<BoardObjectKind, { readonly strings: readon
   images: { strings: ["file"], numbers: ["left", "top", "layer", "drawType", "reserved"] },
 };
 
-function isObjectRecords(value: unknown, kind: BoardObjectKind): boolean {
+export function isBoardObjectRecords(value: unknown, kind: BoardObjectKind): boolean {
   if (!Array.isArray(value)) return false;
   const fields = OBJECT_FIELDS[kind];
   return value.every((entry: unknown) => {
@@ -590,6 +669,11 @@ function isPoint(value: unknown): boolean {
     && "y" in value && typeof value.y === "number" && Number.isInteger(value.y);
 }
 
+/** A stored shade channel: a whole number the board's `i16` shade record holds (a baked light may pass ±255). */
+function isStoredShadeChannel(value: unknown): boolean {
+  return typeof value === "number" && Number.isInteger(value) && value >= STORED_SHADE_MIN && value <= STORED_SHADE_MAX;
+}
+
 function isShadeChannel(value: unknown): boolean {
   return typeof value === "number" && Number.isInteger(value) && value >= SHADE_MIN && value <= SHADE_MAX;
 }
@@ -608,6 +692,17 @@ function isLights(value: unknown): boolean {
   });
 }
 
+/** A command's compare-and-set requirement, as sent over a bridge: known fields only, each of its stored shape. */
+function isPrecondition(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const precondition = value as Record<string, unknown>;
+  if (!Object.keys(precondition).every((key) => ["cells", "shadeCells", "vectors", "programs", "sprites", "images"].includes(key))) return false;
+  if (precondition.cells !== undefined && !(Array.isArray(precondition.cells) && precondition.cells.length <= BOARD_MAX_CELLS && precondition.cells.every(isAssignment))) return false;
+  if (precondition.shadeCells !== undefined && !(Array.isArray(precondition.shadeCells) && precondition.shadeCells.length <= BOARD_MAX_CELLS
+    && precondition.shadeCells.every((cell: unknown) => isPoint(cell) && ["r", "g", "b"].every((channel) => isStoredShadeChannel((cell as Record<string, unknown>)[channel]))))) return false;
+  return (["vectors", "programs", "sprites", "images"] as const).every((family) => precondition[family] === undefined || isBoardObjectRecords(precondition[family], family));
+}
+
 function isShadeLayers(value: unknown): boolean {
   if (!Array.isArray(value)) return false;
   return value.every((entry: unknown) => {
@@ -619,7 +714,7 @@ function isShadeLayers(value: unknown): boolean {
   });
 }
 
-const GESTURES: readonly string[] = ["draw", "erase", "flood", "rectangle", "stamp", "move", "copy"];
+const GESTURES: readonly string[] = ["draw", "erase", "flood", "rectangle", "stamp", "move", "copy", "cut", "paste"];
 
 const GESTURE_WORDS: Readonly<Record<TileGesture, string>> = {
   draw: "Draw",
@@ -629,6 +724,8 @@ const GESTURE_WORDS: Readonly<Record<TileGesture, string>> = {
   stamp: "Stamp",
   move: "Move",
   copy: "Copy",
+  cut: "Cut",
+  paste: "Paste",
 };
 
 /** The board's codec. */
@@ -646,22 +743,26 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
     }
     if (value.type === "set-board-fields" && "fields" in value && typeof value.fields === "object" && value.fields !== null) {
       const fields = value.fields as Record<string, unknown>;
-      return Object.keys(fields).every((key) => ["links", "threads", "constants", "layerTitles", "properties", "vectors", "programs", "sprites", "images", "lights", "shadeLayers"].includes(key))
+      return ("precondition" in value ? value.precondition === undefined || isPrecondition(value.precondition) : true)
+        && Object.keys(fields).every((key) => ["links", "threads", "constants", "layerTitles", "properties", "vectors", "programs", "sprites", "images", "lights", "shadeLayers"].includes(key))
         && (fields.links === undefined || isBoardLinks(fields.links))
         && (fields.threads === undefined || (Array.isArray(fields.threads) && fields.threads.every((entry) => typeof entry === "string")))
         && (fields.constants === undefined || (Array.isArray(fields.constants) && fields.constants.every((entry) => typeof entry === "string")))
         && (fields.layerTitles === undefined || (Array.isArray(fields.layerTitles) && fields.layerTitles.every((entry) => typeof entry === "string")))
         && (fields.properties === undefined || isBoardProperties(fields.properties))
-        && (fields.vectors === undefined || isObjectRecords(fields.vectors, "vectors"))
-        && (fields.programs === undefined || isObjectRecords(fields.programs, "programs"))
-        && (fields.sprites === undefined || isObjectRecords(fields.sprites, "sprites"))
-        && (fields.images === undefined || isObjectRecords(fields.images, "images"))
+        && (fields.vectors === undefined || isBoardObjectRecords(fields.vectors, "vectors"))
+        && (fields.programs === undefined || isBoardObjectRecords(fields.programs, "programs"))
+        && (fields.sprites === undefined || isBoardObjectRecords(fields.sprites, "sprites"))
+        && (fields.images === undefined || isBoardObjectRecords(fields.images, "images"))
         && (fields.lights === undefined || isLights(fields.lights))
         && (fields.shadeLayers === undefined || isShadeLayers(fields.shadeLayers));
     }
     return value.type === "set-tiles" && "gesture" in value && typeof value.gesture === "string" && GESTURES.includes(value.gesture)
       && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment)
-      && (!("shades" in value) || value.shades === undefined || (Array.isArray(value.shades) && value.shades.length <= BOARD_MAX_CELLS && value.shades.every(isShade)));
+      && (!("shades" in value) || value.shades === undefined || (Array.isArray(value.shades) && value.shades.length <= BOARD_MAX_CELLS && value.shades.every(isShade)))
+      && (!("precondition" in value) || value.precondition === undefined || isPrecondition(value.precondition))
+      && (!("shadeCells" in value) || value.shadeCells === undefined || (Array.isArray(value.shadeCells) && value.shadeCells.length <= BOARD_MAX_CELLS
+        && value.shadeCells.every((cell: unknown) => isPoint(cell) && ["r", "g", "b"].every((channel) => isStoredShadeChannel((cell as Record<string, unknown>)[channel])))));
   },
   apply: applyCommand,
   refuse,
@@ -669,7 +770,8 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
     if (command.type === "set-board-fields") return command.fields.lights !== undefined || command.fields.shadeLayers !== undefined ? "Edit lights and shading" : "Edit board properties";
     if (command.type === "set-shade-cells") return `Shade ${command.cells.length} ${command.cells.length === 1 ? "cell" : "cells"}`;
     if (command.type === "set-tiles") {
-      return `${GESTURE_WORDS[command.gesture]} ${command.cells.length} ${command.cells.length === 1 ? "cell" : "cells"} on layer ${command.cells[0] === undefined ? 0 : command.cells[0].layer + 1}`;
+      const count = Math.max(command.cells.length, command.shadeCells?.length ?? 0);
+      return `${GESTURE_WORDS[command.gesture]} ${count} ${count === 1 ? "cell" : "cells"} on layer ${command.cells[0] === undefined ? 0 : command.cells[0].layer + 1}`;
     }
     return `Put ${command.tile === "" ? "an empty cell" : `"${command.tile}"`} at layer ${command.layer}, column ${command.x}, row ${command.y}`;
   },

@@ -117,7 +117,7 @@ export interface ViewContext {
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
-  readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject">; readonly language?: PlatformServices["language"] };
+  readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject">; readonly language?: PlatformServices["language"]; readonly clipboard?: PlatformServices["clipboard"] };
   /** Persistent wizard and recovery operations owned by the authoritative document host. */
   readonly animationAuthoring?: AnimationAuthoring;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
@@ -207,6 +207,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       onEdited,
       ...(ctx.browser === undefined ? {} : { browser: ctx.browser }),
       pendingEdits,
+      ...(ctx.services.clipboard === undefined ? {} : { clipboard: ctx.services.clipboard }),
       ...(ctx.boardPreferences === undefined ? {} : { preferences: ctx.boardPreferences }),
       ...(ctx.navigation === undefined ? {} : { navigation: ctx.navigation }),
     });
