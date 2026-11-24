@@ -26,8 +26,11 @@ export interface PendingEditWork {
   busy(): boolean;
   /** Resolves once `busy()` is false. It never rejects: an edit the document refused is reported by the view itself. */
   idle(reason?: SettleReason): Promise<void>;
-  /** Work the host must not save through (a field the file cannot store); `null` when there is none. */
-  refusal?(): string | null;
+  /**
+   * Work the host must not *save* through (a field the file cannot store), for this reason only: a backup, a query or a
+   * revert still settle accepted edits and never apply or reject a draft, so they never refuse.
+   */
+  refusal?(reason: SettleReason | undefined): string | null;
 }
 
 /** What a view needs to take part: register its work, and wait for every view's work (its own Save waits for its siblings). */
@@ -40,9 +43,9 @@ export interface PendingEdits {
   settle(reason?: SettleReason): Promise<SettleOutcome>;
 }
 
-function refusalOf(works: readonly PendingEditWork[]): SettleOutcome {
+function refusalOf(works: readonly PendingEditWork[], reason: SettleReason | undefined): SettleOutcome {
   for (const work of works) {
-    const message = work.refusal?.();
+    const message = work.refusal?.(reason);
     if (message !== undefined && message !== null) return { ok: false, message };
   }
   return { ok: true };
@@ -64,7 +67,7 @@ export function createPendingEdits(): PendingEdits {
         const registered = [...works];
         if (registered.length === 0) return { ok: true };
         await Promise.all(registered.map((work) => work.idle(reason)));
-        if (!busy()) return refusalOf(registered);
+        if (!busy()) return refusalOf(registered, reason);
       }
       // Still busy after every round: the host must not save over work it could not see settle.
       return { ok: false, message: "the editor is still handing over its accepted edits; save again in a moment" };

@@ -74,6 +74,43 @@ export interface BattleDataForm<Snapshot extends DocumentSnapshot<Command>, Comm
 
 const problem = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
+/**
+ * Write `edited` (LF lines, as a textarea gives them) with the endings `stored` used, line by line: a line that survives
+ * keeps its own ending, a line the author added takes the ending of the line it replaced or of the one before it, and the
+ * file's last ending is the fallback. Inserting or deleting a line therefore leaves every other separator untouched.
+ */
+export function restoreLineEndings(stored: string, edited: string): string {
+  const oldLines = stored.split(/\r\n|\n|\r/);
+  const breaks = stored.match(/\r\n|\n|\r/g) ?? [];
+  const lines = edited.split("\n");
+  // Longest common subsequence of line contents: the survivors keep their index into `breaks`.
+  const kept: number[] = new Array(lines.length).fill(-1);
+  const table: number[][] = Array.from({ length: oldLines.length + 1 }, () => new Array<number>(lines.length + 1).fill(0));
+  for (let i = oldLines.length - 1; i >= 0; i -= 1) {
+    for (let j = lines.length - 1; j >= 0; j -= 1) {
+      table[i]![j] = oldLines[i] === lines[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+    }
+  }
+  for (let i = 0, j = 0; i < oldLines.length && j < lines.length;) {
+    if (oldLines[i] === lines[j]) { kept[j] = i; i += 1; j += 1; }
+    else if (table[i + 1]![j]! >= table[i]![j + 1]!) i += 1;
+    else j += 1;
+  }
+  const fallback = breaks.at(-1) ?? "\n";
+  let previous = -1;
+  return lines.map((line, index) => {
+    if (index === lines.length - 1) return line;
+    const survivor = kept[index] ?? -1;
+    let source: number = survivor !== -1 && survivor < breaks.length ? survivor : -1;
+    if (source === -1) {
+      // A new line takes the ending of the line it follows, so an insertion copies its neighbour rather than the file.
+      source = previous >= 0 && previous < breaks.length ? previous : -1;
+    }
+    if (source !== -1) previous = source;
+    return `${line}${source === -1 ? fallback : breaks[source]}`;
+  }).join("");
+}
+
 /** Whole numbers only: a decimal point or an exponent would be rounded into a value the author did not type. */
 const WHOLE_NUMBER = /^[+-]?\d+$/;
 
@@ -127,7 +164,9 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     busy: () => submitted.current.busy(),
     // Asked on every settlement: a field the file cannot store refuses the host's save with its reason, so a host save
     // cannot report success while that text is left behind.
-    refusal: () => Object.keys(draftsRef.current).length > 0
+    // Only an explicit save is refused, and only while a draft remains that the file could not store: a backup, a query
+    // before a revert's question and the revert itself settle the accepted edits without judging the field.
+    refusal: (reason) => reason === "explicit" && Object.keys(draftsRef.current).length > 0
       ? "A field still holds text this file cannot store, so nothing was saved. Correct it or discard it."
       : null,
     idle: async (reason) => {
@@ -274,15 +313,7 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
   // Each line keeps the ending the stored text used, and a line the author adds takes the last one; a description with
   // mixed endings is therefore not rewritten into one convention.
-  const endings = value.match(/\r\n|\n|\r/g) ?? [];
-  const storedLines = value.split(/\r\n|\n|\r/).length;
-  const asWritten = (text: string): string => {
-    const lines = text.split("\n");
-    // A one-for-one edit keeps every line's own ending; a field whose lines were inserted or removed cannot be mapped
-    // back, so the file's last ending is used rather than inventing a mixture that never existed.
-    const ending = (index: number): string => (lines.length === storedLines ? endings[index] : endings.at(-1)) ?? "\n";
-    return lines.map((line, index) => index === lines.length - 1 ? line : `${line}${ending(index)}`).join("");
-  };
+  const asWritten = (text: string): string => restoreLineEndings(value, text);
   registerField(id, () => {
     const draft = drafts[id];
     return draft === undefined ? Promise.resolve() : commitText(id, asWritten(draft), value, command);

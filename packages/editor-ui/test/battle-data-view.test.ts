@@ -357,3 +357,28 @@ test("a description edit leaves no phantom draft behind, so Save stays available
     equal(view.doc.getSnapshot().description, "One\r\nTwo!", "the file's own line endings are kept");
   } finally { view.dispose(); }
 });
+
+test("a backup or query settle neither refuses nor applies a refused draft, and an explicit save refuses only then", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "9999999999"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await view.pendingEdits.settle("query");
+    equal(await view.pendingEdits.settle("autosave").then((outcome) => outcome.ok), true, "a backup is not refused for a field it does not judge");
+    ok((await view.pendingEdits.settle("explicit")).ok === false, "an explicit save is refused while the draft cannot be stored");
+    equal(field(view.root, "Damage (FP)").value, "9999999999", "the text stays for the author");
+  } finally { view.dispose(); }
+});
+
+test("inserting a line keeps every surviving description separator as the file wrote it", async () => {
+  // The stored description is "One\r\nTwo": a mixed-ending file is not needed to prove the separators survive an insert.
+  const stored = new Uint8Array([...patched(fireball, {}).slice(0, 0x43), ...Uint8Array.from("One\r\nTwo\0", (c) => c.charCodeAt(0))]);
+  const view = await mountWithPending({ [SPC]: stored, [STE]: burn });
+  try {
+    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+    ok(area);
+    await act(() => { area.value = "One\nInserted\nTwo"; area.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    const saved = view.doc.serialize();
+    equal(new TextDecoder("windows-1252").decode(saved.slice(0x43, saved.length - 1)), "One\r\nInserted\r\nTwo", "the surviving separator is unchanged and the added line copies it");
+  } finally { view.dispose(); }
+});

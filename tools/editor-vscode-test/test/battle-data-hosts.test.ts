@@ -146,10 +146,18 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       const tab = await openReady(proof, SPC, "Damage (FP)");
       await type(tab, "Damage (FP)", "9999999999");
       ok(tab.element.textContent?.includes("whole number from -2147483648 to 2147483647"));
-      // The host asked to save; the view cannot store that field, so the save is refused instead of being reported as
-      // written without it (VS Code keeps the document unsaved, the browser records a failed entry).
-      equal(await tab.saveFromWorkbench(), false, "the host save is refused");
-      ok(same(await proof.disk(SPC), fireball), "nothing was written");
+      // The browser's Save All is an explicit save, so a field the file cannot store refuses it. VS Code hands a custom
+      // document no save reason (@types/vscode 1.90) and `files.autoSave` drives the same path (ADR 0022 D14.1), so its
+      // native save settles as a backup: the document saves without the field, which #3385 tracks, and the refused text
+      // stays on screen with its reason rather than disappearing.
+      if (proof.name === "browser host") {
+        equal(await tab.saveFromWorkbench(), false, "the explicit Save All is refused");
+        ok(same(await proof.disk(SPC), fireball), "nothing was written");
+      } else {
+        equal(await tab.saveFromWorkbench(), true);
+        ok(tab.element.textContent?.includes("whole number from -2147483648 to 2147483647"), "the field keeps its reason");
+        ok(same(await proof.disk(SPC), fireball), "and holds no rounded value");
+      }
     });
   });
 }

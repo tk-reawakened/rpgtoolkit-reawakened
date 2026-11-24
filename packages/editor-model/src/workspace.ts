@@ -343,8 +343,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     }
     // A document-level close cannot invalidate a model still owned by views.
     if (view === undefined && attached !== undefined && attached.size > 0) return { closed: false, reason: "cancelled" };
-    // Complete every submitted request before deciding whether this document is dirty and what to ask about.
-    await pendingEditsOf(document).settle();
+    // Complete every submitted request before deciding whether this document is dirty and what to ask about. A
+    // settlement that could not complete, or a field the file cannot store, closes nothing.
+    const settled = await pendingEditsOf(document).settle("explicit");
+    if (!settled.ok) return { closed: false, reason: "save-failed", failure: { document: document.identity.path, kind: "format", code: null, message: settled.message } };
     const snapshot = document.getSnapshot();
     if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
       const path = document.identity.path;
@@ -708,7 +710,9 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       return reverted;
     },
     async saveAs(document) {
-      await pendingEditsOf(document).settle();
+      // A field the file cannot store refuses the copy too: nothing is written from a document whose settlement failed.
+      const settled = await pendingEditsOf(document).settle("explicit");
+      if (!settled.ok) return { ok: false, reason: "failed", failure: { document: document.identity.path, message: settled.message } };
       const source = document.identity.path;
       const requested = await dialogs.pickSavePath({ document: source, suggested: source });
       if (requested === null) return { ok: false, reason: "cancelled" };
