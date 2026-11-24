@@ -93,3 +93,38 @@ Proofs: `tools/browser/tests/editor-font.spec.ts` presses Ctrl+Z/Ctrl+Y and clic
 **Engine.** (i) `font()` now resolves against the fonts the project installed first, so `Boards/retro.brd` cannot shadow `Font/retro.fnt`. (ii) A restored game keeps the session's installed font list instead of the save's older one, so core and renderer agree after Load. (iii) `runScriptedFrame` and the closing replay accept a `.fnt` only in a `Font` folder, as the engine installs them. (iv) A project font the host cannot supply is reported once (`font.rejected`) and skipped; startup no longer stalls on it. (v) A row value is the whole line (`^\d{1,3}$`), so `128oops` is refused rather than read as 128, and the version lines are whole numbers. Proofs: `engine-boot.test.ts` (shadowing, missing font, restore) and `runner-web/test/game-fonts.test.ts` (folder rule); reader proofs in `format-font.test.ts`.
 
 **Real shipped player.** `tools/browser/tests/project-font.spec.ts` now boots the shipped player page with a package that ships `Font/retro.fnt` written the way Save writes it, and compares the canvas pixels with that font's ink and against the bundled fallback: the player draws the project font's glyph, not another face.
+
+## Review fixes after head 2c4d0012e (2026-11-24, third pass)
+
+**A stroke under a change is rebased, not dropped.** When a snapshot for its glyph arrives mid-drag (another view, an
+undo, a reload), the stroke's cells are applied to the rows that arrived, so the pointer keeps painting and the other
+view's pixels survive; only losing the right to edit (read-only, a conflict) drops it. View test: an outside edit lands
+mid-stroke, the grid shows both, the stroke continues, and its release is one edit carrying only its own cells.
+
+**New font never guesses between games.** Every `.gam` is a game with the layout its own main files names; the host's
+open game wins, a project with two games asks which one (naming them), and the chosen path is checked again before the
+write — a font outside the chosen game's folders or outside a `Font` folder is refused with the reason. Proof: two games
+with no active one shows the question, an answer outside the first game is refused.
+
+**The preview draws only the lines it holds.** The retained-line slice is what is emitted (the same line and glyph data
+`emitText` uses), the picture is exactly those lines plus the padding, and a clipped line can no longer reach into it.
+Test: 198 characters at 128 px truncate, and no ink is found in the bottom padding rows.
+
+**A pixel command is compared by the rows it ends on.** `[ink(x,y), erase(x,y)]` leaves the glyph unchanged, so no edit is
+recorded (an intermediate comparison would have recorded a no-op). Test: the refusal, no edit, `dirty` false.
+
+**The replay uses the boot inventory, not a folder guess.** `runClosingFrames` now returns the run's installed font keys
+(`engine.boot.fonts`), and both the scripted and closing presenters decode exactly those. The old heuristic both rejected
+`Font/Heading/heading.fnt` (installed by the engine) and accepted `Misc/Font/elsewhere.fnt` (not installed); test covers
+both directions. The open streamed player converts a failed `.fnt`/`.ttf` fetch into a null reply, so the engine reports
+`font.rejected` and starts without it, while a required asset's failure still stops the load.
+
+**The shipped-player proof ships the editor's own bytes.** Instead of formatting a font by hand, the spec creates the file
+with `createFontFile`, edits glyph A through the real document's `set-font-pixels`, saves, and packages the bytes `save()`
+wrote.
+
+**VS Code Undo/Redo (#3375).** With the grid focused, use VS Code's native shortcuts (Cmd+Z and Cmd+Shift+Z on macOS).
+The earlier Control-key proof used the wrong modifier on macOS. A custom command bridge duplicated VS Code's own
+dispatch and could show an “undo or redo operation running” dialog, so no bridge ships. The real vscode.dev proof
+checks native key Undo/Redo, the tab's dirty marker going from set to clear when undoing back to saved content, and close
+without a save prompt or any change to the saved bytes.

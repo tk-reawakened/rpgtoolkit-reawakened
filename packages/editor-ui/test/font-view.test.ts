@@ -17,7 +17,7 @@ import {
   type PendingEdits,
 } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import type { FontViewDocument } from "../src/font-view.tsx";
+import type { FontHistoryOutcome, FontViewDocument } from "../src/font-view.tsx";
 import type { mount as mountView, ViewHandle } from "../src/mount.ts";
 
 const PATH = "Font/retro.fnt";
@@ -56,6 +56,9 @@ interface Setup {
   readonly gate: { holding: boolean; readonly queue: (() => void)[] };
 }
 
+const historyOf = (result: { readonly ok: true } | { readonly ok: false; readonly reason: string }): FontHistoryOutcome =>
+  (result.ok ? { ok: true } : { ok: false, message: result.reason });
+
 async function setup(bytes: Uint8Array = ORIGINAL): Promise<Setup> {
   const host = createMemoryPlatformServices({ files: { [PATH]: bytes } });
   const opened = await openFontDocument(host.fs, identity);
@@ -74,8 +77,9 @@ async function setup(bytes: Uint8Array = ORIGINAL): Promise<Setup> {
     },
     save: () => doc.save(),
     resolveConflict: (choice) => doc.resolveConflict(choice),
-    undo: () => doc.undo(),
-    redo: () => doc.redo(),
+    // The host's own stack, standing in for it: the document's undo as the workbench would expose it, in the view's words.
+    undo: async () => historyOf(await doc.undo()),
+    redo: async () => historyOf(await doc.redo()),
   };
   const el = document.createElement("div");
   document.body.append(el);
@@ -310,19 +314,25 @@ test("Erase strokes clear ink, a stroke that changes nothing is no edit, and Esc
   equal(s.doc.getSnapshot().edits.length, 1);
 });
 
-test("a stroke is dropped when the document changes under it, and another pointer's events are ignored", async () => {
+test("a change under a running stroke is rebased onto, so the pointer keeps painting and the other view's pixels stay", async () => {
   const s = await setup();
   await show(s);
   await press(pixel(s.el, 4, 4));
   await enter(pixel(s.el, 5, 4));
   await act(() => { pixel(s.el, 6, 4).dispatchEvent(pointer("pointerenter", { pointerId: 2 })); });
   equal(inkAt(s.el), "0,0 4,4 5,4", "a second pointer paints nothing");
-  // An edit from elsewhere (a script, another view of the same document) changes this glyph under the stroke.
+  // An edit from elsewhere (a script, another view of the same document) arrives while the pointer is still down.
   ok(s.doc.apply({ type: "set-font-pixels", glyph: 65, pixels: [{ x: 1, y: 1, ink: true }] }).ok);
   await settle();
-  equal(inkAt(s.el), "0,0 1,1", "the stroke was dropped, not merged over the new rows");
-  await release(pixel(s.el, 5, 4));
-  equal(s.doc.getSnapshot().edits.length, 1, "only the outside edit exists");
+  equal(inkAt(s.el), "0,0 1,1 4,4 5,4", "the arrival is shown with the stroke still on it, not instead of it");
+  // The stroke keeps painting after the rebase, and its release is one edit carrying only its own cells.
+  await enter(pixel(s.el, 6, 4));
+  equal(inkAt(s.el), "0,0 1,1 4,4 5,4 6,4");
+  await release(pixel(s.el, 6, 4));
+  equal(s.doc.getSnapshot().edits.length, 2, "the outside edit plus the stroke");
+  const rows = fontGlyphRows(s.doc.getSnapshot().values, 65);
+  for (const [x, y] of [[1, 1], [4, 4], [5, 4], [6, 4]] as const) equal(fontPixelOf(rows, x, y), true, `${x},${y} is inked`);
+  equal(s.doc.getSnapshot().dirty, true);
 });
 
 test("the host's Undo and Redo are one button and one keyboard shortcut, from the grid, and follow the document's stack", async () => {

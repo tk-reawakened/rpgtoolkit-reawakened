@@ -8,6 +8,8 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { createDocumentIdentity, createFontFile, openFontDocument } from "@tk-reawakened/editor-model";
+import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import {
   createEmptyBoard,
   createEmptyCharacter,
@@ -188,16 +190,31 @@ test("a project TrueType face in the package is what the live WebGL renderer dra
   expect(mismatches(pixels, fallback, command.rgb, background), "the canvas is not the bitmap fallback's reading of the glyph IDs").toBeGreaterThan(20);
 });
 
-/** A Toolkit 2 font whose only inked glyph is A, a full 8 × 8 block: exactly the bytes the editor's Save writes. */
-function blockBitmapFont(): Uint8Array {
-  const lines = ["RPGTLKIT FONT", "2", "0"];
-  for (let glyph = 0; glyph < 256; glyph += 1) for (let row = 0; row < 8; row += 1) lines.push(glyph === 65 ? " 255 " : " 0 ");
-  return encoder.encode(`${lines.join("\r\n")}\r\n`);
+/**
+ * The bytes the editor's own Save writes for a font whose only inked glyph is A, a full 8 × 8 block: the file is made by
+ * `createFontFile`, the pixels go through the real document's `set-font-pixels` command, and `save()` writes it. Nothing
+ * here formats a font by hand, so the player proof cannot agree with a writer the editor does not have.
+ */
+async function editorSavedBitmapFont(): Promise<Uint8Array> {
+  const host = createMemoryPlatformServices();
+  const created = await createFontFile(host.fs, "Font/retro.fnt");
+  if (!created.ok) throw new Error(created.message);
+  const opened = await openFontDocument(host.fs, createDocumentIdentity("memory-project", created.path));
+  if (!opened.ok) throw new Error(opened.error.message);
+  const pixels = [];
+  for (let y = 0; y < 8; y += 1) for (let x = 0; x < 8; x += 1) pixels.push({ x, y, ink: true });
+  const applied = opened.document.apply({ type: "set-font-pixels", glyph: 65, pixels });
+  if (!applied.ok) throw new Error(applied.rejection.message);
+  const saved = await opened.document.save();
+  if (!saved.ok) throw new Error(saved.failure.message);
+  const bytes = host.bytesOf(created.path);
+  if (bytes === undefined) throw new Error("the editor's save wrote no file");
+  return new Uint8Array(bytes);
 }
 
 test("a bitmap font saved in the project's Font folder is what the shipped player draws with font() (#1939)", async ({ page }) => {
-  // The font is written the way the editor's Save writes it: a hand-built toolkit 2 file in Font/retro.fnt.
-  const savedFont = blockBitmapFont();
+  // The font is the editor's own output: create, edit glyph A through the document, save — then ship those bytes.
+  const savedFont = await editorSavedBitmapFont();
   const fixture = gamePackage({
     facePath: "Font/retro.fnt",
     faceBytes: savedFont,

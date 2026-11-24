@@ -249,10 +249,20 @@ export function fontProvider(files: ClosingFiles): ReadonlyMap<AssetKey, RasterA
  * and shared, because the renderer would otherwise re-parse raw bytes for every text command of every frame; a buffer
  * that does not decode is remembered as absent.
  */
-/** A project bitmap font lives in a `Font` folder, as the engine installs it; one elsewhere is not a font the game has. */
-export function isProjectFontPath(path: string): boolean {
-  const parts = path.toLowerCase().split("/");
-  return parts.length >= 2 && parts[parts.length - 2] === "font" && (parts[parts.length - 1] ?? "").endsWith(".fnt");
+/**
+ * The package's own faces a captured run actually installed, by key: the engine's boot inventory
+ * (`engine.boot.fonts`), not a guess from the path. The rule is the engine's own — every `.ttf` and `.fnt` under the
+ * project's `Font` folder and its descendants — so `Font/Heading/retro.fnt` is installed and `Misc/Font/retro.fnt` is not,
+ * and a replay decodes exactly the faces the frame can name (#1939).
+ */
+export function installedProjectFonts(files: ReadonlyMap<string, Uint8Array>, installed: readonly AssetKey[]): Map<AssetKey, Uint8Array> {
+  const wanted = new Set(installed);
+  const fonts = new Map<AssetKey, Uint8Array>();
+  for (const [path, bytes] of files) {
+    const key = assetKey(path);
+    if (wanted.has(key)) fonts.set(key, bytes);
+  }
+  return fonts;
 }
 
 export function gameFontProvider(
@@ -288,11 +298,8 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
   const frame = run.frames.find((candidate) => candidate.tick === (options.tick ?? 120)) ?? run.frames.at(-1);
   if (frame === undefined) throw new Error(`runner-web: ${options.game} captured no frame`);
   const renderer = createWebgl2Renderer(options.gl);
-  const projectFonts = new Map<AssetKey, Uint8Array>();
-  for (const [path, bytes] of options.files) {
-    const key = assetKey(path);
-    if (key.endsWith(".ttf") || isProjectFontPath(key)) projectFonts.set(key, bytes);
-  }
+  // The run's own boot inventory: the faces this game installed, so a `.fnt` elsewhere in the package cannot reach the screen.
+  const projectFonts = installedProjectFonts(options.files, run.fonts);
   const fonts = gameFontProvider(options.fonts ?? new Map(), (asset) => projectFonts.get(asset));
   const list = frame.drawList as DrawList;
   const geometry = { content: { width: list.width, height: list.height }, game: { x: 0, y: 0, width: list.width, height: list.height }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };

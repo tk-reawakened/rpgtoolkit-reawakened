@@ -10,7 +10,7 @@
 import { assetKey, DEFAULT_FONT_ASSET, rasterizePresentation, readLegacyFont, readTrueTypeFont, type AssetKey, type DrawList, type HostDisplayGeometry, type RasterAsset, type RasterSurfaces, type SurfaceId } from "@tk-reawakened/core";
 import { createWebgl2Renderer } from "@tk-reawakened/render-webgl2";
 import { decodeAssetTexture, parseClosingPlan, runClosingFrames } from "@tk-reawakened/runner-harness";
-import { isProjectFontPath } from "./index.ts";
+import { installedProjectFonts } from "./index.ts";
 
 export type ClosingFrame = {
   readonly tick: number;
@@ -52,11 +52,10 @@ export function renderClosingDemoFrame(options: {
   // The draw list's TrueType glyph IDs only mean something against the face that made them, so the package's own faces
   // are decoded once and win over a bundled face of the same key (docs/spec/engine/runners.md#draw-list).
   const fonts = new Map<AssetKey, RasterAsset>(options.fonts);
-  for (const [path, bytes] of options.files) {
-    const key = assetKey(path);
-    // A font is a project `.ttf`, or a `.fnt` in a `Font` folder as the engine installs it; anything else is not a face.
-    if (!key.endsWith(".ttf") && !isProjectFontPath(key)) continue;
-    const font = key.endsWith(".fnt") ? readLegacyFont(bytes, path) : readTrueTypeFont(bytes, path);
+  // The faces the run installed, so the package's own font is the one the draw list names (and a `.fnt` the engine did not
+  // install never is).
+  for (const [key, bytes] of installedProjectFonts(options.files, run.fonts)) {
+    const font = key.endsWith(".fnt") ? readLegacyFont(bytes, key) : readTrueTypeFont(bytes, key);
     if (font.ok) fonts.set(key, font.value);
   }
   const geometry: HostDisplayGeometry = {

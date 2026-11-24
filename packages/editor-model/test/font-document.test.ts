@@ -182,6 +182,18 @@ test("a stroke with no pixel, a pixel outside the cell, a sparse pixel list or a
   deepEqual([...doc.getSnapshot().values], [...before.values], "nothing changed by the refusals");
 });
 
+test("a stroke that marks then erases one cell leaves the glyph unchanged, so no edit is recorded", async () => {
+  const { doc } = await open(newFontBytes());
+  const before = doc.getSnapshot();
+  // A drag that passes a cell and comes back: its pixels carry both directions, and the rows it ends on are the rows it began on.
+  const result = doc.apply({ type: "set-font-pixels", glyph: 65, pixels: [{ x: 3, y: 3, ink: true }, { x: 3, y: 3, ink: false }] });
+  ok(!result.ok);
+  match(result.rejection.message, /already look like that/);
+  equal(doc.getSnapshot().edits.length, 0, "no edit was recorded");
+  deepEqual(doc.getSnapshot().values, before.values, "the rows are the rows it began on");
+  equal(doc.getSnapshot().dirty, false);
+});
+
 test("two strokes from a stale copy of the glyph keep each other's pixels, and one stroke is one edit", async () => {
   const { doc } = await open(newFontBytes());
   const stale = fontGlyphRows(doc.getSnapshot().values, 65);
@@ -363,6 +375,28 @@ test("the preview refuses a size or sample outside what it draws, and wraps a lo
   ok(wide.ok);
   ok(wide.width <= 512 + 2 * 4, "a long line wraps instead of making an unbounded picture");
   ok(wide.height > 20 + 2 * 4, "and takes more lines");
+});
+
+test("a sample taller than the largest picture keeps only the lines it draws, and no clipped line reaches the padding", () => {
+  // Every glyph inked, so a line that drew past the retained ones would show in the padding rows.
+  const values = new Uint8Array(2048).fill(0xff);
+  // 198 characters at 128 px wrap into far more lines than a 2048-pixel side holds (the sample limit is 200).
+  const text = "A ".repeat(99).trimEnd();
+  const picture = previewFontText(values, { text, size: 128, bold: false, italic: false, underline: false });
+  ok(picture.ok);
+  equal(picture.truncated, true, "the sample says it was cut");
+  const lines = Math.floor((2048 - 2 * 4) / 128);
+  equal(picture.height, lines * 128 + 2 * 4, "the picture is the retained lines plus the padding, nothing more");
+  ok(picture.height <= 2048);
+  const background = [FONT_PREVIEW_BACKGROUND.r, FONT_PREVIEW_BACKGROUND.g, FONT_PREVIEW_BACKGROUND.b, 255];
+  let inPadding = 0;
+  for (let y = picture.height - 4; y < picture.height; y += 1) {
+    for (let x = 0; x < picture.width; x += 1) {
+      const offset = (y * picture.width + x) * 4;
+      if ([...picture.rgba.slice(offset, offset + 4)].join() !== background.join()) inPadding += 1;
+    }
+  }
+  equal(inPadding, 0, "a clipped line does not leak into the bottom padding");
 });
 
 test("a new font is version 2.0 with 2048 empty rows, in the exact layout of the format", () => {

@@ -1,20 +1,21 @@
 // The new-font question of the VS Code host (T-65): the model makes the file, the host only asks, and the suggestion is the
-// project's own Font folder from the game's main file, so a `Main/` + `Game/<project>/` game gets the right path.
+// active game's own Font folder, so a `Main/` + `Game/<project>/` game gets the right path — a project with several games
+// asks which one instead of taking whichever the listing reached first.
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createEmptyMainFile, writeMainFile } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { fontProjectLayout, runNewFont, type NewFontUi } from "../src/new-font.ts";
+import { fontGames, fontTargetProblem, runNewFont, type NewFontUi } from "../src/new-font.ts";
 
 const text = (value: string): Uint8Array => Uint8Array.from(value, (ch) => ch.charCodeAt(0));
 
-function ask(answer: string | undefined): { readonly ui: NewFontUi; readonly seen: { value: string; validate: (value: string) => string | null }[] } {
-  const seen: { value: string; validate: (value: string) => string | null }[] = [];
+function ask(answer: string | undefined): { readonly ui: NewFontUi; readonly seen: { title: string; prompt: string; value: string; validate: (value: string) => string | null }[] } {
+  const seen: { title: string; prompt: string; value: string; validate: (value: string) => string | null }[] = [];
   return {
     seen,
     ui: {
       input: (question) => {
-        seen.push({ value: question.value, validate: question.validate });
+        seen.push({ title: question.title, prompt: question.prompt, value: question.value, validate: question.validate });
         return Promise.resolve(answer === undefined ? undefined : answer === "" ? question.value : answer);
       },
     },
@@ -28,7 +29,7 @@ function mainFileWith(projectPath: string): Uint8Array {
   return new Uint8Array(written.value);
 }
 
-test("the suggested path is the game's own Font folder, so a project game keeps its folder", async () => {
+test("the suggested path is the active game's own Font folder, so a project game keeps its folder", async () => {
   // A game laid out as Main/ plus Game/<project>/: the main file says which folder holds its type folders.
   const host = createMemoryPlatformServices({
     files: {
@@ -36,34 +37,70 @@ test("the suggested path is the game's own Font folder, so a project game keeps 
       "Game/Example/Font/existing.fnt": text("x"),
     },
   });
-  const layout = await fontProjectLayout(host.fs, "memory-project");
-  equal(layout.projectFolder, "Game/Example", "the main file's own project folder");
+  const games = await fontGames(host.fs, "memory-project");
+  deepEqual(games.map((game) => game.main), ["Main/test.gam"]);
+  equal(games[0]!.layout.projectFolder, "Game/Example", "the main file's own project folder");
   const { ui, seen } = ask("");
-  const outcome = await runNewFont({ fs: host.fs, layout, ui });
+  const outcome = await runNewFont({ fs: host.fs, projectId: "memory-project", activeGame: "Main/test.gam", ui });
   deepEqual(outcome, { ok: true, path: "Game/Example/Font/new-font.fnt" });
   equal(seen[0]!.value, "Game/Example/Font/new-font.fnt");
   ok(host.bytesOf("Game/Example/Font/new-font.fnt") !== undefined);
 });
 
+test("two games are never guessed: the open one is used, and with none open the question names both and takes an answer", async () => {
+  const host = createMemoryPlatformServices({
+    files: {
+      "Main/one.gam": mainFileWith("One"),
+      "Main/two.gam": mainFileWith("Two"),
+      "Game/One/Font/one.fnt": text("x"),
+      "Game/Two/Font/two.fnt": text("x"),
+    },
+  });
+  const games = await fontGames(host.fs, "memory-project");
+  deepEqual(games.map((game) => [game.main, game.layout.projectFolder]), [["Main/one.gam", "Game/One"], ["Main/two.gam", "Game/Two"]]);
+  // The host knows which game is open: no question about it.
+  const open = ask("");
+  deepEqual(await runNewFont({ fs: host.fs, projectId: "memory-project", activeGame: "Main/two.gam", ui: open.ui }), { ok: true, path: "Game/Two/Font/new-font.fnt" });
+  equal(open.seen.length, 1, "only the path question");
+  equal(open.seen[0]!.value, "Game/Two/Font/new-font.fnt");
+  // None open: the game is asked, then the path.
+  const asked = ask("Main/one.gam");
+  const created = await runNewFont({ fs: host.fs, projectId: "memory-project", ui: { input: (question) => {
+    asked.seen.push({ title: question.title, prompt: question.prompt, value: question.value, validate: question.validate });
+    const answer = question.title.includes("which game") ? "Main/one.gam" : question.value;
+    return Promise.resolve(answer);
+  } } });
+  deepEqual(created, { ok: true, path: "Game/One/Font/new-font.fnt" });
+  ok(asked.seen[0]!.prompt.includes("Main/one.gam") && asked.seen[0]!.prompt.includes("Main/two.gam"), asked.seen[0]!.prompt);
+  equal(asked.seen[0]!.validate("Main/three.gam"), "Type one of: Main/one.gam, Main/two.gam.");
+  equal(asked.seen[0]!.validate("main/ONE.gam"), null, "a game is matched without regard to A-Z case");
+});
+
 test("a root layout game suggests Font/, a taken name gets the next one, and a dismissed question writes nothing", async () => {
   const host = createMemoryPlatformServices({ files: { "Main/test.gam": mainFileWith(""), "Font/new-font.fnt": text("x") } });
-  equal((await fontProjectLayout(host.fs, "memory-project")).projectFolder, "", "a game with no project folder keeps the root");
+  const games = await fontGames(host.fs, "memory-project");
+  equal(games[0]!.layout.projectFolder, "", "a game with no project folder keeps the root");
   const { ui, seen } = ask("");
-  const outcome = await runNewFont({ fs: host.fs, layout: { projectFolder: "" }, ui });
+  const outcome = await runNewFont({ fs: host.fs, projectId: "memory-project", activeGame: "Main/test.gam", ui });
   deepEqual(outcome, { ok: true, path: "Font/new-font 2.fnt" });
   equal(seen[0]!.value, "Font/new-font 2.fnt");
   const dismissed = ask(undefined);
-  const cancelled = await runNewFont({ fs: host.fs, layout: { projectFolder: "" }, ui: dismissed.ui });
+  const cancelled = await runNewFont({ fs: host.fs, projectId: "memory-project", ui: dismissed.ui });
   deepEqual(cancelled, { ok: false, reason: "cancelled", message: "No font was created." });
 });
 
-test("a path outside a Font folder is refused with the reason, and the question validates the extension", async () => {
-  const host = createMemoryPlatformServices();
-  const { ui, seen } = ask("Prg/retro.fnt");
-  const outcome = await runNewFont({ fs: host.fs, layout: { projectFolder: "" }, ui });
+test("a path outside the chosen game's folders, or outside a Font folder, is refused with the reason", async () => {
+  const host = createMemoryPlatformServices({ files: { "Main/one.gam": mainFileWith("One"), "Main/two.gam": mainFileWith("Two"), "Game/One/Font/one.fnt": text("x"), "Game/Two/Font/two.fnt": text("x") } });
+  const layout = (await fontGames(host.fs, "memory-project")).find((game) => game.main === "Main/one.gam")!.layout;
+  equal(fontTargetProblem("Game/Two/Font/retro.fnt", layout), "A font for this game goes in Game/One/Font.", "another game's folder is another game's");
+  equal(fontTargetProblem("Game/One/Misc/Font/retro.fnt", layout), "A font for this game goes in Game/One/Font.");
+  equal(fontTargetProblem("Game/One/Font/retro.fnt", { projectFolder: "" }), "A font for this game goes in Font.");
+  equal(fontTargetProblem("Prg/retro.fnt", layout), "A font goes in a Font folder, such as Font/retro.fnt.");
+  equal(fontTargetProblem("Game/One/Font/Heading/retro.fnt", layout), "A font goes in a Font folder, such as Font/retro.fnt.", "the model's rule is a font directly in Font/");
+  const { ui, seen } = ask("Game/Two/Font/retro.fnt");
+  const outcome = await runNewFont({ fs: host.fs, projectId: "memory-project", activeGame: "Main/one.gam", ui });
   ok(!outcome.ok);
   equal(outcome.reason, "refused");
-  ok(/Font folder/.test(outcome.message), outcome.message);
-  equal(seen[0]!.validate("Font/retro.fnt"), null);
-  equal(seen[0]!.validate("Font/retro.png"), "A font's name ends in .fnt.");
+  equal(seen[0]!.validate("Game/One/Font/retro.fnt"), null);
+  equal(seen[0]!.validate("Game/One/Font/retro.png"), "A font's name ends in .fnt.");
 });

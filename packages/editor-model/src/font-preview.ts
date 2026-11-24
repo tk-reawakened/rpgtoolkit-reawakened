@@ -1,6 +1,6 @@
 import {
   assetKey,
-  emitText,
+  type DrawCommand,
   FONT_MAGIC,
   FONT_SUBVERSION,
   FONT_TOTAL_VALUES,
@@ -95,10 +95,11 @@ export function previewFontText(values: ArrayLike<number>, options: FontPreviewO
   const lines = Math.max(1, Math.floor((FONT_PREVIEW_MAX_SIDE - 2 * PADDING) / lineHeight));
   const shown = measured.lines.length > lines ? { ...measured, lines: measured.lines.slice(0, lines), height: lines * lineHeight } : measured;
   const truncated = measured.lines.length > lines;
+  // Only the retained lines are drawn: a clipped last line would otherwise reach past `shown.height` into the padding.
   // Italics lean the top row right of its advance by `floor(7 * size / 32)`.
   const lean = options.italic ? Math.floor((7 * options.size) / 32) : 0;
   const width = Math.max(1, Math.min(FONT_PREVIEW_MAX_SIDE, shown.width + lean + 2 * PADDING));
-  const height = Math.max(options.size, shown.height) + 2 * PADDING;
+  const height = shown.height + 2 * PADDING;
   const list: DrawList = {
     protocolVersion: 3,
     tick: 0,
@@ -106,7 +107,15 @@ export function previewFontText(values: ArrayLike<number>, options: FontPreviewO
     height,
     commands: [
       { kind: "fill", rgb: FONT_PREVIEW_BACKGROUND },
-      ...emitText(options.text, PADDING, PADDING, FONT_PREVIEW_INK, ref, { ...layout, underline: options.underline }),
+      ...shown.lines.flatMap((line) => {
+        // The commands `emitText` makes, for the lines the picture holds (same line and glyph data, so the layout and the
+        // picture cannot disagree).
+        const commands: DrawCommand[] = [{ kind: "text", x: PADDING, y: PADDING + line.y, text: line.text, font: ref, rgb: FONT_PREVIEW_INK, advances: [...line.glyphs] }];
+        if (options.underline === true && line.width > 0) {
+          commands.push({ kind: "line", x1: PADDING, y1: PADDING + line.y + layout.lineHeight - 1, x2: PADDING + line.width - 1, y2: PADDING + line.y + layout.lineHeight - 1, rgb: FONT_PREVIEW_INK });
+        }
+        return commands;
+      }),
     ],
     marginCommands: [],
   };

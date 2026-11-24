@@ -65,7 +65,8 @@ export interface FontViewProps {
 interface Stroke {
   readonly pointerId: number;
   readonly glyph: number;
-  readonly base: readonly number[];
+  /** The rows the stroke is drawn over: the glyph's rows when it began, and the rows that arrived under it (rebased). */
+  base: readonly number[];
   readonly ink: boolean;
   readonly cells: Map<string, FontPixelChange>;
   lastX: number;
@@ -228,10 +229,22 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
       setDraft(null);
     }
   };
-  // A change under an unfinished stroke (an undo, a reload, a conflict) leaves nothing half painted.
+  // A change that arrives under an unfinished stroke — another view of this glyph, an undo, a reload — is rebased onto:
+  // the stroke's cells are applied to the rows that arrived, so the pointer keeps painting and the other view's pixels
+  // survive. Only losing the right to edit (read-only, a conflict) drops the stroke.
   useLayoutEffect(() => {
     const current = stroke.current;
-    if (current !== null && (!canEdit || !sameRows(current.base, inflight.current.get(current.glyph)?.rows ?? fontGlyphRows(snapshot.values, current.glyph)))) cancelStroke();
+    if (current === null) return;
+    if (!canEdit) {
+      cancelStroke();
+      return;
+    }
+    const incoming = inflight.current.get(current.glyph)?.rows ?? fontGlyphRows(snapshot.values, current.glyph);
+    if (sameRows(current.base, incoming)) return;
+    current.base = incoming;
+    for (const [key, cell] of [...current.cells]) if (fontPixelOf(incoming, cell.x, cell.y) === cell.ink) current.cells.delete(key);
+    current.rows = fontRowsAfter(incoming, { type: "set-font-pixels", glyph: current.glyph, pixels: [...current.cells.values()] });
+    setDraft(current.cells.size === 0 ? null : current.rows);
   }, [snapshot.values, canEdit]);
   useEffect(() => cancelStroke, []);
 
@@ -451,12 +464,12 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
             </button>
             {doc.undo === undefined || doc.redo === undefined ? null : (
               <>
-                <button type="button" class="tkr-font-undo" aria-keyshortcuts="Control+Z" disabled={(!snapshot.canUndo && !pendingOwn) || !canEdit} onClick={() => history("undo")}>Undo</button>
-                <button type="button" class="tkr-font-redo" aria-keyshortcuts="Control+Y" disabled={(!snapshot.canRedo && !pendingOwn) || !canEdit} onClick={() => history("redo")}>Redo</button>
+                <button type="button" class="tkr-font-undo" aria-keyshortcuts="Control+Z Meta+Z" disabled={(!snapshot.canUndo && !pendingOwn) || !canEdit} onClick={() => history("undo")}>Undo</button>
+                <button type="button" class="tkr-font-redo" aria-keyshortcuts="Control+Y Meta+Shift+Z" disabled={(!snapshot.canRedo && !pendingOwn) || !canEdit} onClick={() => history("redo")}>Redo</button>
               </>
             )}
           </div>
-          <p id={`${ids}-grid-help`} class="tkr-font-help">Press and drag to draw or erase. From the keyboard, arrow keys move the cursor, Space or Enter uses the tool, Delete erases, Ctrl+Z and Ctrl+Y undo and redo, and Escape cancels a stroke.</p>
+          <p id={`${ids}-grid-help`} class="tkr-font-help">Press and drag to draw or erase. From the keyboard, arrow keys move the cursor, Space or Enter uses the tool, Delete erases, and Escape cancels a stroke. Use Ctrl+Z and Ctrl+Y (Cmd+Z and Cmd+Shift+Z on macOS) to undo and redo.</p>
           <div
             ref={grid}
             class="tkr-font-grid"

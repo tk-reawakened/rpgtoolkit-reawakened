@@ -3046,12 +3046,13 @@ export async function runVscodeFontProof(page: Page, expect: Expect, workbenchUr
     await expect(opened.locator(".tkr-font-slot")).toHaveCount(256);
     return opened;
   };
+  const fontTab = page.getByRole("tab", { name: /host-proof\.fnt/ });
   const close = async (): Promise<void> => {
-    if (await page.getByRole("tab").filter({ hasText: "host-proof.fnt" }).count()) {
-      await runCommand(page, expect, "View: Close Editor");
-      await expect(page.getByRole("tab").filter({ hasText: "host-proof.fnt" })).toHaveCount(0);
-      await page.waitForTimeout(150);
-    }
+    await expect(fontTab).toHaveCount(1);
+    await runCommand(page, expect, "View: Close Editor");
+    const dialog = page.getByRole("dialog");
+    expect(await dialog.allTextContents(), "close must not prompt for a save").toEqual([]);
+    await expect(fontTab).toHaveCount(0);
   };
   const inkOf = async (editor: Locator): Promise<string> => await editor.evaluate((element) =>
     [...(element as HTMLElement).querySelectorAll<HTMLElement>("[data-pixel]")]
@@ -3071,8 +3072,18 @@ export async function runVscodeFontProof(page: Page, expect: Expect, workbenchUr
   });
 
   // New font: a cancelled question writes nothing, the accepted one creates the file and opens its editor.
+  // The proof workspace holds two games (the played one and the adapter's second main file), so the command asks which
+  // game the font belongs to before it asks for the path: the question is answered, not bypassed.
+  const answerGame = async (): Promise<void> => {
+    const game = page.getByRole("textbox", { name: "New font: which game?" });
+    if (await game.count() === 0) return;
+    await expect(page.locator(".quick-input-widget")).toContainText("games. Type the one the font belongs to");
+    await game.fill("Main/example.gam");
+    await game.press("Enter");
+  };
   for (const action of ["Escape", "Enter"] as const) {
     await runCommandMatching(page, expect, "TK Reawakened: New font", "TK Reawakened: New font", false, "New font");
+    await answerGame();
     const input = page.getByRole("textbox", { name: "New font" });
     await expect(page.locator(".quick-input-widget")).toContainText("A folder named Font");
     await input.fill(FONT_PROOF_PATH);
@@ -3145,12 +3156,13 @@ export async function runVscodeFontProof(page: Page, expect: Expect, workbenchUr
   await panel.locator(".tkr-font-size").fill("8");
   await expect(panel.locator(".tkr-font-state")).toHaveText("Unsaved changes");
 
-  // Undo and Redo are VS Code's own: the view offers no history of its own here, so the workbench's commands are what take
-  // the edit back, through the same stack its dirty marker follows. (Ctrl+Z inside the webview is not forwarded by this
-  // build, which is #3375's remaining part.)
-  await runCommandMatching(page, expect, "Undo", "Undo", false);
+  // Real keyboard events with the bitmap grid focused must move the native working-copy stack.
+  const historyKey = process.platform === "darwin" ? "Meta" : "Control";
+  await panel.locator('[data-pixel="7,0"]').focus();
+  await expect(panel.locator('[data-pixel="7,0"]')).toBeFocused();
+  await page.keyboard.press(`${historyKey}+z`);
   await expect.poll(() => inkOf(panel)).toBe("0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
-  await runCommandMatching(page, expect, "Redo", "Redo", false);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+z" : "Control+y");
   await expect.poll(() => inkOf(panel)).toBe("6,0 0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
 
   // Save writes the edited glyph only; every other glyph is the file's own.
@@ -3172,9 +3184,11 @@ export async function runVscodeFontProof(page: Page, expect: Expect, workbenchUr
   await panel.locator(".tkr-font-slot").nth(67).click();
   await panel.locator('[data-pixel="3,3"]').click();
   await expect(panel.locator(".tkr-font-state")).toHaveText("Unsaved changes");
-  await runCommandMatching(page, expect, "Undo", "Undo", false);
+  await expect(panel.locator('[data-pixel="3,3"]')).toBeFocused();
+  await expect.poll(() => fontTab.evaluate((tab) => tab.classList.contains("dirty"))).toBe(true);
+  await page.keyboard.press(`${historyKey}+z`);
   await expect(panel.locator(".tkr-font-state")).toHaveText("All changes saved");
+  await expect.poll(() => fontTab.evaluate((tab) => tab.classList.contains("dirty"))).toBe(false);
   await close();
-  expect(await page.getByRole("dialog").count(), "no save prompt after undoing the only change").toBe(0);
   expect([...(await read(FONT_PROOF_PATH)) ?? []]).toEqual(fontProofBytes((glyph, row) => (glyph === 65 ? rows[row] ?? 0 : 0)));
 }

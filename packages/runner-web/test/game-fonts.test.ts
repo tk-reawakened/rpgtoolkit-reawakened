@@ -195,13 +195,19 @@ test("the live renderer receives an installed project bitmap font decoded once, 
   ok(bundledOnly !== null && JSON.stringify(bundledOnly) !== JSON.stringify(ink), "and not the bundled default font's reading of the same text");
 });
 
-test("a .fnt outside a Font folder is not a project font the renderer or the replay ever loads (#1939)", async () => {
-  const { isProjectFontPath } = await import("../src/index.ts");
-  equal(isProjectFontPath("Font/retro.fnt"), true);
-  equal(isProjectFontPath("Game/Example/Font/retro.fnt"), true);
-  equal(isProjectFontPath("font/retro.fnt"), true, "the folder is compared ASCII case-insensitively, as asset paths are");
-  equal(isProjectFontPath("Misc/outside.fnt"), false, "a font elsewhere in the project is not installed by the engine");
-  equal(isProjectFontPath("Bitmap/Font/retro.png"), false);
-  equal(isProjectFontPath("Font/retro.ttf"), false);
-  equal(isProjectFontPath("retro.fnt"), false, "a font has a folder");
+test("a replay decodes the faces the run installed, not every .fnt that looks like one (#1939)", async () => {
+  const { installedProjectFonts } = await import("../src/index.ts");
+  const files = new Map([
+    ["Font/retro.fnt", new Uint8Array([1])],
+    ["Font/Heading/heading.fnt", new Uint8Array([2])],
+    ["Misc/Font/elsewhere.fnt", new Uint8Array([3])],
+    ["Font/face.ttf", new Uint8Array([4])],
+    ["Prg/level1.prg", new Uint8Array([5])],
+  ]);
+  const installed = [assetKey("Font/retro.fnt"), assetKey("Font/Heading/heading.fnt"), assetKey("Font/face.ttf")];
+  const fonts = installedProjectFonts(files, installed);
+  deepEqual([...fonts.keys()].sort(), installed.slice().sort(), "a descendant of Font/ is installed; one outside it is not");
+  equal(fonts.has(assetKey("Misc/Font/elsewhere.fnt")), false, "the engine never installs a .fnt outside its Font folder");
+  equal(installedProjectFonts(files, []).size, 0, "no inventory, no package face");
+  equal(installedProjectFonts(files, installed).get(assetKey("Font/retro.fnt"))?.length, 1, "the bytes travel with the key");
 });

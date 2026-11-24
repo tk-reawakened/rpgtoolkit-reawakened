@@ -238,6 +238,8 @@ type Trace = {
   readonly ticks: number;
   readonly stalled: boolean;
   readonly bootStage: string | null;
+  /** The font keys the engine installed at boot: the faces a draw list's text commands can name. */
+  readonly fonts: readonly AssetKey[];
   readonly board: string | null;
   readonly diagnostics: readonly ClosingDiagnostic[];
   readonly checkpoints: readonly { readonly tick: number; readonly stateHash: string }[];
@@ -376,6 +378,8 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
     ticks: tick,
     stalled,
     bootStage: state?.engine.boot?.stage ?? (stalled ? "stopped" : null),
+    // The boot record's font list is the engine's installed keys (`privateFontKeys`), branded here for its consumers.
+    fonts: (state?.engine.boot?.fonts ?? []) as unknown as readonly AssetKey[],
     board: state?.world.board?.key ?? null,
     diagnostics,
     checkpoints,
@@ -445,6 +449,8 @@ export type ClosingFrameWithDrawList = ClosingFrameRecord & {
 export type ClosingFrameRun = {
   readonly ticks: number;
   readonly stalled: boolean;
+  /** The font keys the engine installed at boot — the only package faces the captured draw lists can name. */
+  readonly fonts: readonly AssetKey[];
   readonly board: string | null;
   readonly diagnostics: readonly ClosingDiagnostic[];
   readonly frames: readonly ClosingFrameWithDrawList[];
@@ -469,6 +475,7 @@ export function runClosingFrames(
   return {
     ticks: trace.ticks,
     stalled: trace.stalled,
+    fonts: trace.fonts,
     board: trace.board,
     diagnostics: trace.diagnostics,
     frames: trace.captures.map((capture) => ({ ...capture.frame, drawList: capture.drawList, surfaces: capture.surfaces, pixels: capture.image.rgba })),

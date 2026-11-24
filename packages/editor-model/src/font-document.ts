@@ -112,8 +112,11 @@ function shapeProblem(command: FontCommand): string | null {
 
 /** Whether the glyph of `model` already looks exactly as these pixels would leave it. */
 function samePixels(model: LegacyFont, command: SetFontPixelsCommand): boolean {
+  // The rows as they end, not each pixel against the original: `[ink(x,y), erase(x,y)]` leaves the glyph as it was, and that
+  // is not an edit (an intermediate comparison would record a no-op as a change).
   const rows = fontGlyphRows(model.values, command.glyph);
-  return everyDefined(command.pixels, (pixel) => fontPixelOf(rows, pixel.x, pixel.y) === pixel.ink);
+  const after = fontRowsAfter(rows, command);
+  return after.every((row, index) => row === rows[index]);
 }
 
 function apply(model: LegacyFont, command: FontCommand): LegacyFont {
