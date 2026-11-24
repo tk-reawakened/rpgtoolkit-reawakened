@@ -52,7 +52,7 @@ interface Setup {
   readonly view: FontViewDocument;
   readonly el: HTMLElement;
   readonly pending: PendingEdits;
-  /** While `holding`, edits wait here and reach the document only when released, as a host's slow answer does. */
+  /** While `holding`, the document receives each command, but the view's acknowledgement waits here. */
   readonly gate: { holding: boolean; readonly queue: (() => void)[] };
 }
 
@@ -71,9 +71,9 @@ async function setup(bytes: Uint8Array = ORIGINAL): Promise<Setup> {
     getSnapshot: () => doc.getSnapshot(),
     subscribe: (listener) => doc.subscribe(listener),
     apply: (command) => {
-      if (!gate.holding) return doc.apply(command);
-      const answered = new Promise<ApplyResult>((resolve) => { gate.queue.push(() => resolve(doc.apply(command))); });
-      return answered;
+      const result = doc.apply(command);
+      if (!gate.holding) return result;
+      return new Promise<ApplyResult>((resolve) => { gate.queue.push(() => resolve(result)); });
     },
     save: () => doc.save(),
     resolveConflict: (choice) => doc.resolveConflict(choice),
@@ -477,7 +477,7 @@ test("edits are sent in input order without waiting for the first answer; Save s
   await press(pixel(s.el, 2, 2));
   await release(pixel(s.el, 2, 2));
   equal(s.pending.busy(), true, "the host's save and close would wait for these");
-  equal(s.doc.getSnapshot().edits.length, 0, "the document has not heard yet");
+  equal(s.doc.getSnapshot().edits.length, 2, "the document has both committed edits, even while the view awaits both replies");
   equal(s.gate.queue.length, 2, "the first unacknowledged edit does not hold back a second");
   s.gate.holding = false;
   await act(() => { for (const release of s.gate.queue.splice(0)) release(); });
@@ -568,7 +568,7 @@ test("a fast drag paints every cell it crossed, as one edit, so no intermediate 
   equal(s.doc.getSnapshot().edits.length, 1, "the whole drag is one edit");
 });
 
-test("Undo waits for this view's own late edits, so it takes back the last stroke and never an earlier one", async () => {
+test("Undo takes back the newest committed stroke without waiting for the view's late acknowledgements", async () => {
   const s = await setup(newFontBytes());
   await show(s);
   s.gate.holding = true;
@@ -577,9 +577,9 @@ test("Undo waits for this view's own late edits, so it takes back the last strok
   await release(pixel(s.el, 0, 0));
   await press(pixel(s.el, 0, 1));
   await release(pixel(s.el, 0, 1));
-  equal(s.doc.getSnapshot().edits.length, 0, "the host has not answered");
+  equal(s.doc.getSnapshot().edits.length, 2, "the host has both strokes but has not replied");
   await act(() => { control<HTMLButtonElement>(s.el, ".tkr-font-undo").click(); });
-  equal(s.doc.getSnapshot().edits.length, 0, "Undo waits for the strokes it must follow");
+  equal(s.doc.getSnapshot().edits.length, 1, "Undo already took back the newest stroke");
   s.gate.holding = false;
   await act(() => { for (const answer of s.gate.queue.splice(0)) answer(); });
   await s.pending.settle();

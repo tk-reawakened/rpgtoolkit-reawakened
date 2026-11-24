@@ -90,8 +90,8 @@ function widthOf(glyphs: readonly GlyphAdvance[]): number {
 /**
  * Resolve a `font(name)` argument against the assets the project actually ships
  * (docs/spec/engine/rpgcode-functions.md#reawakened-rule-owner-fontref-facing-font-semantics):
- * an exact path or basename, then an ASCII-case-insensitive family alias, then
- * the documented Liberation substitution, and `null` when nothing resolves.
+ * an exact asset key, then a path suffix, exact basename, family alias, or
+ * documented Liberation substitution. Returns `null` if nothing resolves.
  */
 export function resolveFontAsset(name: string, keys: Iterable<AssetKey>): AssetKey | null {
   const folded = foldPath(name.trim());
@@ -105,11 +105,16 @@ export function resolveFontAsset(name: string, keys: Iterable<AssetKey>): AssetK
         : "";
   const suffix = `/${folded}`;
   const wanted = folded.replace(/[-_\s]/g, "");
+  let suffixMatch: AssetKey | undefined;
   let basenameMatch: AssetKey | undefined;
   let familyMatch: AssetKey | undefined;
   let substitution: AssetKey | undefined;
   for (const key of keys) {
-    if (key === folded || key.endsWith(suffix)) return key;
+    if (key === folded) return key;
+    if (key.endsWith(suffix)) {
+      suffixMatch ??= key;
+      continue;
+    }
     const start = key.lastIndexOf("/") + 1;
     const dot = key.lastIndexOf(".");
     const basename = key.slice(start, dot > start ? dot : undefined);
@@ -118,7 +123,7 @@ export function resolveFontAsset(name: string, keys: Iterable<AssetKey>): AssetK
     if (familyMatch === undefined && family === wanted) familyMatch = key;
     if (substitution === undefined && substitute !== "" && family.startsWith(substitute)) substitution = key;
   }
-  return basenameMatch ?? familyMatch ?? substitution ?? null;
+  return suffixMatch ?? basenameMatch ?? familyMatch ?? substitution ?? null;
 }
 
 /** Resolve a named project font, applying the documented family aliases. */

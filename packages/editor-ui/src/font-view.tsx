@@ -90,9 +90,8 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
     return `tkr-font-${viewsMade}`;
   });
   const submitted = useRef(createEditTracker());
-  const latestHistory = useRef<Promise<void> | null>(null);
-  const pendingWrites = useRef(new Set<Promise<void>>());
-  const [pendingOwn, setPendingOwn] = useState(false);
+  const [pendingWrites, setPendingWrites] = useState(0);
+  const pendingOwn = pendingWrites > 0;
   useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
 
   const [slot, setSlot] = useState(DEFAULT_SLOT);
@@ -182,34 +181,24 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
     }
   });
 
-  const run = (command: FontCommand): void => {
+  const run = async (command: FontCommand): Promise<void> => {
     const finish = submitted.current.begin();
-    const apply = async (): Promise<void> => {
-      try {
-        const result: ApplyResult = await doc.apply(command);
-        if (!result.ok) {
-          setRefusal(result.rejection.message);
-          return;
-        }
-        setRefusal(null);
-        const edit = doc.getSnapshot().edits.find((entry) => entry.editId === result.editId);
-        onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? "Edit the bitmap font" });
-      } catch (error) {
-        setRefusal(error instanceof Error ? error.message : String(error));
-      } finally {
-        finish();
+    setPendingWrites((count) => count + 1);
+    try {
+      const result: ApplyResult = await doc.apply(command);
+      if (!result.ok) {
+        setRefusal(result.rejection.message);
+        return;
       }
-    };
-    // Submit a finished stroke immediately, even if a previous reply is slow: native workbench Undo must see both.
-    // Only a history action requested here earlier can hold a later edit back.
-    const barrier = latestHistory.current;
-    const operation = barrier === null ? apply() : barrier.then(apply);
-    pendingWrites.current.add(operation);
-    setPendingOwn(true);
-    void operation.then(() => {
-      pendingWrites.current.delete(operation);
-      if (pendingWrites.current.size === 0) setPendingOwn(false);
-    });
+      setRefusal(null);
+      const edit = doc.getSnapshot().edits.find((entry) => entry.editId === result.editId);
+      onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? "Edit the bitmap font" });
+    } catch (error) {
+      setRefusal(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPendingWrites((count) => count - 1);
+      finish();
+    }
   };
   const latest = useRef(run);
   latest.current = run;
@@ -300,30 +289,20 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
     };
   };
 
-  /**
-   * The host's undo or redo. It waits for this view's own queued edits to land first, so an answer that arrives late can
-   * never make the host undo an earlier edit than the one the person just made; nothing happens without a host route.
-   */
-  const history = (direction: "undo" | "redo"): void => {
+  // Send history immediately, in the same message order as edits. The host owns and sequences the actual operations.
+  const history = async (direction: "undo" | "redo"): Promise<void> => {
     const call = direction === "undo" ? doc.undo : doc.redo;
     if (call === undefined) return;
     setRefusal(null);
     const finish = submitted.current.begin();
-    const previous = latestHistory.current;
-    const operation = Promise.all([previous, ...pendingWrites.current]).then(async () => {
-      try {
-        const outcome = await call.call(doc);
-        if (outcome !== undefined && !outcome.ok) setRefusal(outcome.message);
-      } catch (error) {
-        setRefusal(error instanceof Error ? error.message : String(error));
-      } finally {
-        finish();
-      }
-    });
-    latestHistory.current = operation;
-    void operation.then(() => {
-      if (latestHistory.current === operation) latestHistory.current = null;
-    });
+    try {
+      const outcome = await call.call(doc);
+      if (!outcome.ok) setRefusal(outcome.message);
+    } catch (error) {
+      setRefusal(error instanceof Error ? error.message : String(error));
+    } finally {
+      finish();
+    }
   };
 
   const moveCursor = (dx: number, dy: number): void => {

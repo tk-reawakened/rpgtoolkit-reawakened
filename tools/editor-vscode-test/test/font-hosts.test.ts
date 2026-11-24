@@ -248,7 +248,7 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
   });
 }
 
-test("VS Code grid Undo waits for an applied edit's held acknowledgement and then undoes the newer stroke", async () => {
+test("VS Code grid Undo reaches the native stack in edit order without waiting for acknowledgements", async () => {
   document.body.replaceChildren();
   const { createVscodeBoardProofHost } = await import("../conformance/vscode-host.ts");
   const host = createVscodeBoardProofHost(false, gam, { [PATH]: ORIGINAL }, act);
@@ -269,7 +269,8 @@ test("VS Code grid Undo waits for an applied edit's held acknowledgement and the
       });
       equal(forwarded, false, "the VS Code shell must not receive a duplicate, unqueued shortcut");
       await tab.delivered();
-      equal(tab.workbenchDirty(), true, "the history request has not undone the first edit");
+      await until(() => ink(tab) === "0,0 1,1");
+      equal(tab.workbenchDirty(), true, "grid Undo already took back the latest stroke");
     } finally {
       window.removeEventListener("keydown", forward);
     }
@@ -306,6 +307,33 @@ test("VS Code native Undo sees both completed strokes while edit acknowledgement
   }
   await host.settle();
   equal(ink(tab), "0,0 1,1", "late replies cannot restore a pre-Undo snapshot");
+});
+
+test("VS Code orders a stroke, grid Undo, another stroke and palette Undo with both edit acknowledgements withheld", async () => {
+  document.body.replaceChildren();
+  const { createVscodeBoardProofHost } = await import("../conformance/vscode-host.ts");
+  const host = createVscodeBoardProofHost(false, gam, { [PATH]: ORIGINAL }, act);
+  const tab = await host.open(PATH);
+  await until(() => tab.element.querySelector("[data-pixel]") !== null);
+  const gate = tab.holdEditResults();
+  try {
+    await stroke(tab, [1, 1], []);
+    await tab.delivered();
+    equal(tab.workbenchDirty(), true, "first stroke registered without an acknowledgement");
+    await act(() => {
+      pixel(tab, 1, 1).dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true, cancelable: true }));
+    });
+    await stroke(tab, [2, 2], []);
+    await tab.delivered();
+    await until(() => ink(tab) === "0,0 2,2");
+    await tab.undoFromWorkbench();
+    await until(() => ink(tab) === "0,0");
+    equal(tab.workbenchDirty(), false, "the palette took back the second stroke; both are gone");
+  } finally {
+    gate.release();
+  }
+  await host.settle();
+  equal(ink(tab), "0,0", "late acknowledgements did not restore either stroke");
 });
 
 test("New font makes a version 2.0 font with all glyphs empty through the host's filesystem contract, and refuses an existing path", async () => {

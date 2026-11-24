@@ -128,3 +128,10 @@ test("resolveFontAsset prefers an exact path, then a family match, then the Libe
   equal(resolveFontAsset("RETRO BOLD", [dashed, spaced]), spaced, "the exact basename beats a family alias");
   equal(resolveFontAsset("retro-bold", [spaced, dashed]), dashed, "punctuation in the exact basename is significant");
 });
+
+test("resolveFontAsset checks an exact key before a nested path suffix, regardless of index order", () => {
+  const nested = assetKey("Font/A/Font/retro.fnt");
+  const exact = assetKey("Font/retro.fnt");
+  equal(resolveFontAsset("FONT/Retro.FNT", [nested, exact]), exact);
+  equal(resolveFontAsset("FONT/Retro.FNT", [nested]), nested, "a suffix is still valid when there is no exact key");
+});

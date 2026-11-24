@@ -274,6 +274,24 @@ test("a file the writer would not reproduce byte for byte opens read-only with t
   deepEqual(host.bytesOf(PATH), compact, "the file is untouched");
 });
 
+test("a structurally readable font with an unsupported version can be inspected but not changed or saved", async () => {
+  const bytes = encoder.encode(fontText(original, ["RPGTLKIT FONT", "3", "1"]));
+  const { host, doc } = await open(bytes);
+  const snapshot = doc.getSnapshot();
+  equal(snapshot.version, 3);
+  equal(snapshot.subversion, 1);
+  deepEqual(fontGlyphRows(snapshot.values, 65), Array.from({ length: 8 }, (_, row) => original(65, row)));
+  equal(snapshot.readOnly?.code, "no-same-version-writer");
+  match(snapshot.readOnly?.message ?? "", /3\.1 can be inspected, but only version 2\.0 can be edited/);
+  const edit = doc.apply(clear(65));
+  ok(!edit.ok);
+  equal(edit.rejection.reason, "read-only");
+  const save = await doc.save();
+  ok(!save.ok);
+  equal(save.failure.kind, "read-only");
+  deepEqual(host.bytesOf(PATH), bytes);
+});
+
 test("a file that is not a bitmap font is not opened", async () => {
   const host = createMemoryPlatformServices({ files: { [PATH]: encoder.encode("RPGTLKIT TILE\r\n2\r\n0\r\n") } });
   const opened = await openFontDocument(host.fs, identity);

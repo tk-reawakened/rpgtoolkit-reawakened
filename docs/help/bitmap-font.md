@@ -26,6 +26,6 @@ The picture is drawn with the game's own rule. Each glyph pixel becomes a square
 
 ## Saving and using the font
 
-Use the glyph panel's **Undo** and **Redo** buttons to take back or restore a stroke or a keyboard edit. With the grid focused, use Ctrl+Z and Ctrl+Y, or Cmd+Z and Cmd+Shift+Z on macOS. These controls use the host's history and wait for edits already submitted from the grid. Save writes the file and keeps every character you did not touch exactly as it was. A font file the editor cannot write back byte for byte is shown read-only with the reason, and is never converted.
+Use the glyph panel's **Undo** and **Redo** buttons to take back or restore a stroke or a keyboard edit. With the grid focused, use Ctrl+Z and Ctrl+Y, or Cmd+Z and Cmd+Shift+Z on macOS. These controls use the host's history. Save writes the file and keeps every character you did not touch exactly as it was. Only version 2.0 fonts can be edited. If you open another readable version, or a file the editor cannot write back byte for byte, you can inspect it but not change it.
 
 Save the font in the project's `Font` folder to use it in the game. Then `font("name")` selects it by its file name, and `text()` draws with it, in the game and in a runner, the same way as the picture above.

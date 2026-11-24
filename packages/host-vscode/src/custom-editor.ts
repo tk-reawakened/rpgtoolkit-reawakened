@@ -544,6 +544,7 @@ export interface GameEditorProvider<Uri extends UriLike> {
 
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
+  const fontOperations = new WeakMap<GameDocument<Uri>, Promise<void>>();
   const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession }>();
   const hostDocuments = new WeakMap<AnyDocument, GameDocument<Uri>>();
   /** The live document of each open identity, so a host command outside an editor reaches its settled state. */
@@ -907,6 +908,20 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const detach = document.attachWebview((requestId) => webview.postMessage({ type: "settle", requestId }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
+        if (document.model.kind === "font" && (message.type === "edit" || message.type === "workbench-history")) {
+          // Order the operations at the shared document, not in an iframe awaiting replies. A history call must
+          // complete in VS Code before the next stroke is registered, even if either webview receives its reply late.
+          const apply = () => handleEditorHostRequest(document, message, (reply) => { void webview.postMessage(reply); });
+          const previous = fontOperations.get(document);
+          const operation = previous === undefined ? apply() : previous.then(apply, apply);
+          fontOperations.set(document, operation);
+          try {
+            await operation;
+          } finally {
+            if (fontOperations.get(document) === operation) fontOperations.delete(document);
+          }
+          return;
+        }
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));
       });
       const disposal = webview.onDidDispose(() => {

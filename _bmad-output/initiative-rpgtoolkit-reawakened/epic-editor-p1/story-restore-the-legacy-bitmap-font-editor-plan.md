@@ -145,3 +145,9 @@ without a save prompt or any change to the saved bytes.
 - **#3409:** Exact ASCII-folded basenames win before the separator-insensitive family alias.
 - **#3410:** VS Code identifies the active game using the editor's ASCII-folded document identity, which does not conflate `Élan` and `élan`.
 - **#3411:** Boot reports and skips bitmap fonts other than version 2.0; the editor can still inspect a structurally readable non-2.0 file.
+
+## Sixth-pass review fixes
+
+- **#3375:** The shared VS Code document orders incoming font edits and native grid history requests before sending replies. The view sends both immediately; the next stroke cannot overtake the native command. With both edit acknowledgements withheld, the regression checks stroke A, grid Undo, stroke B, then native workbench Undo: the grid Undo removes A, the workbench Undo removes B, and the saved working copy is clean.
+- **#3413:** An exact font asset key wins even when a longer path with the same suffix comes first in the inventory.
+- **#3414:** Readable unsupported versions open for inspection with a version-specific read-only reason. Editing or saving them is refused without touching the file.

@@ -31,7 +31,8 @@ import type { DocumentIdentity } from "./identity.ts";
  * file's bytes plus a command stack over the `LegacyFont` the core reader returns. A Toolkit 2 font is text, but its
  * format has a same-version writer, so it follows the first row of ADR 0022 D2: `editor-model` owns the bytes and the
  * commands. The model keeps all 2048 stored rows and the version, so `writeLegacyFont` puts back every row a command
- * did not touch. A file the writer does not reproduce byte for byte opens read-only (ADR 0022 D2.1).
+ * did not touch. A file opens read-only if its version is unsupported or the writer cannot reproduce it byte for byte
+ * (ADR 0022 D2.1).
  */
 
 /** The number of character slots, and the side of one glyph, re-stated for views that read only `editor-model`. */
@@ -194,6 +195,12 @@ function refuse(next: LegacyFont, command: FontCommand, previous: LegacyFont): R
 }
 
 function readOnlyReason(model: LegacyFont, bytes: Uint8Array): ReadOnlyReason | null {
+  if (model.version !== FONT_VERSION || model.subversion !== FONT_SUBVERSION) {
+    return {
+      code: "no-same-version-writer",
+      message: `Bitmap font version ${model.version}.${model.subversion} can be inspected, but only version ${FONT_VERSION}.${FONT_SUBVERSION} can be edited and used in the game.`,
+    };
+  }
   const first = firstDifference(utf8Encode(writeLegacyFont(model)), bytes);
   if (first === null) return null;
   return {
