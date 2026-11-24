@@ -2,6 +2,7 @@
 // lifecycle promises of ADR 0022 D2 and D3 are proved per kind and not re-argued per editor. Each case uses the smallest
 // authored fixture for its kind and no engine (the owner's test-speed rule).
 import { deepEqual, equal, ok } from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { ANIMATION_MAGIC, TILE_BITMAP_MAGIC, writeAnimation, writeTileBitmap, utf8Encode } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
@@ -134,6 +135,20 @@ const CASES: readonly KindCase[] = [
     bytes: utf8Encode("contract: scene\nversion: 1.0.0-pre.2\n# Keep the pond editable\nprojection: 2d\nsize: {width: 1, height: 1}\nfloors: [{id: ground}]\n"),
     accepted: { type: "edit-scene-terrain", terrain: { tileOverrides: [{ floor: "ground", cell: [0, 0], tile: { legacy: "bank.tst1" } }] } },
     rejected: { type: "edit-scene-terrain", terrain: { tileOverrides: [{ floor: "ground", cell: [1, 0], tile: { legacy: "bank.tst1" } }] } },
+  },
+  {
+    kind: "special-move",
+    path: "SpcMove/fireball.spc",
+    bytes: new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/game/Game/Example/SpcMove/fireball.spc", import.meta.url))),
+    accepted: { type: "set-special-move-usable", context: "battle", usable: true },
+    rejected: { type: "set-special-move-amount", field: "damage", value: 2_147_483_648 },
+  },
+  {
+    kind: "status-effect",
+    path: "StatusE/burn.ste",
+    bytes: new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/game/Game/Example/StatusE/burn.ste", import.meta.url))),
+    accepted: { type: "set-status-effect-number", field: "hpPerRound", value: -2 },
+    rejected: { type: "set-status-effect-number", field: "hpPerRound", value: 32_768 },
   },
 ];
 

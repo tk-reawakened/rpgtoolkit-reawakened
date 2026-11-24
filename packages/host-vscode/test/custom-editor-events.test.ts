@@ -21,7 +21,7 @@ test("custom editor change notifications reach each registered view type without
     events.push(event);
     received.set(viewType, events);
   }));
-  const edits: Event[] = ["main", "character", "item", "board", "tileset", "tile-bitmap", "animation"]
+  const edits: Event[] = ["main", "character", "item", "board", "tileset", "tile-bitmap", "animation", "special-move", "status-effect"]
     .map((kind) => ({ document: { model: { kind } }, label: `${kind} edit` }));
 
   for (const edit of edits) for (const listener of sourceListeners) listener(edit);

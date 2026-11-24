@@ -244,6 +244,39 @@ export { createTileSourcePreviewer, type TilePreviewPixels, type TileSourcePrevi
 export { asAnimationDocument, asBoardDocument, asMainDocument, asNativeClipDocument, asProgramDocument, asTileBitmapDocument, DOCUMENT_KINDS, extensionOf, kindById, kindForPath, type AnyCommand, type AnyDocument, type DocumentKind, type StorageClass } from "./kinds.ts";
 export { asTerrainSceneDocument } from "./kinds.ts";
 export { asNativeGeometryDocument } from "./kinds.ts";
+export { asSpecialMoveDocument, asStatusEffectDocument } from "./kinds.ts";
+export {
+  createSpecialMoveDocument,
+  openSpecialMoveDocument,
+  SPECIAL_MOVE_AMOUNT_FIELDS,
+  SPECIAL_MOVE_TEXT_FIELDS,
+  specialMoveCodec,
+  type SpecialMoveAmountField,
+  type SpecialMoveCommand,
+  type SpecialMoveDocument,
+  type SpecialMoveDocumentFields,
+  type SpecialMoveDocumentSnapshot,
+  type SpecialMoveOpenResult,
+  type SpecialMoveTextField,
+  type SpecialMoveUseContext,
+} from "./special-move-document.ts";
+export {
+  createStatusEffectDocument,
+  openStatusEffectDocument,
+  STATUS_EFFECT_FLAG_FIELDS,
+  STATUS_EFFECT_NUMBER_FIELDS,
+  STATUS_EFFECT_TEXT_FIELDS,
+  statusEffectCodec,
+  type StatusEffectCommand,
+  type StatusEffectDocument,
+  type StatusEffectDocumentFields,
+  type StatusEffectDocumentSnapshot,
+  type StatusEffectFlagField,
+  type StatusEffectNumberField,
+  type StatusEffectOpenResult,
+  type StatusEffectTextField,
+} from "./status-effect-document.ts";
+export { describeLinkedStatusEffect, type LinkedStatusEffect } from "./battle-data-links.ts";
 export type { AssetPack, GeometryPoint, GeometrySolid, GeometryUnder, NativeTile, NativeTileSample, OwnerGeometry } from "@tk-reawakened/native-data";
 export type { Scene, SceneTerrainCellTile } from "@tk-reawakened/native-data";
 export { setSceneTerrain, readScene, setScenePackPlacements } from "@tk-reawakened/native-data";

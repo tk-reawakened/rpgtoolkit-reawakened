@@ -399,7 +399,7 @@ class Webview {
       }
       page.handle = mount(page.element, {
         document: remote as unknown as ViewContext["document"],
-        services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities) },
+        services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities), fs: { readProject: (projectId, path) => remote.readProject(projectId, path) } },
         browser: {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
@@ -412,6 +412,16 @@ class Webview {
         },
         boardPreferences: remote.boardPreferences,
         pendingEdits: remote.pendingEdits,
+        // As `webview.tsx` supplies it for the special move and status effect forms: choose a file, and open a checked project path.
+        ...(message.kind === "special-move" || message.kind === "status-effect" ? {
+          navigation: {
+            pickAsset: (request: Parameters<typeof remote.pickAsset>[0]) => remote.pickAsset(request),
+            open: async (path: string) => {
+              const outcome = await remote.visit(path);
+              return outcome.ok ? null : outcome.message;
+            },
+          },
+        } : {}),
       });
       if (message.sourceTile !== undefined) page.handle.revealTile?.(message.sourceTile);
       return;

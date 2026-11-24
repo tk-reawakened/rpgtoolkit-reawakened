@@ -82,9 +82,9 @@ export interface SpecialMove {
   readonly program: string;
   /** The SMP drained from the target (an `i32`, docs/spec/formats/battle-data.md#special-move-spc. */
   readonly targetSmpDrain: number;
-  /** Whether the move may be used in battle: the raw `i8` is kept verbatim, non-zero is true and `-1` is possible(docs/spec/formats/README.md#primitive-encoding, docs/spec/formats/battle-data.md#special-move-spc. */
+  /** The raw `i8` battle byte, kept verbatim: **0 is usable in battle** and any non-zero value (1, or -1 in old files) is not usable (docs/spec/formats/battle-data.md#special-move-spc, docs/spec/formats/README.md#primitive-encoding). */
   readonly usableInBattle: number;
-  /** Whether the move may be used from the menu: the raw `i8` is kept verbatim, non-zero is true and `-1` is possible(docs/spec/formats/README.md#primitive-encoding, docs/spec/formats/battle-data.md#special-move-spc. */
+  /** The raw `i8` menu byte, kept verbatim: **0 is usable from the menu** and any non-zero value (1, or -1 in old files) is not usable (docs/spec/formats/battle-data.md#special-move-spc, docs/spec/formats/README.md#primitive-encoding). */
   readonly usableFromMenu: number;
   /** The status effect the move applies, by handle(docs/spec/formats/battle-data.md#special-move-spc). */
   readonly statusEffect: string;

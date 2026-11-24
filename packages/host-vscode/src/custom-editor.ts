@@ -111,6 +111,7 @@ export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
   "tkr.tileset": ["tileset"],
   "tkr.tileBitmap": ["tile-bitmap"],
   "tkr.animation": ["animation"],
+  "tkr.battleData": ["special-move", "status-effect"],
 } as const;
 
 /** What a webview panel gives the provider. */

@@ -80,6 +80,16 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
             get initialBoardPath() { return remote.initialBoardPath ?? ""; },
           },
         } : {}),
+        ...(remote.kind === "special-move" || remote.kind === "status-effect" ? {
+          // The forms hand over the project-relative path of the file they checked, so the visit opens it as it is.
+          navigation: {
+            pickAsset: (request: Parameters<typeof remote.pickAsset>[0]) => remote.pickAsset(request),
+            open: async (path: string) => {
+              const outcome = await remote.visit(path);
+              return outcome.ok ? null : outcome.message;
+            },
+          },
+        } : {}),
       });
     }
     // A source visit that opened this document names the tile its first view selects, without touching the document.
