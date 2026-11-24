@@ -231,6 +231,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     readonly name?: string | null;
     readonly restores?: string | null;
     readonly uncovered?: readonly CheckpointUncovered[];
+    readonly isolateRefusals?: boolean;
   } = {}): Promise<CheckpointGroup> => {
     if (targets.length === 0 && reason !== "named") throw new Error("A checkpoint needs at least one destination.");
     const seen = new Set<string>();
@@ -255,7 +256,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         ? `${path} changed since review; choose the version again.`
         : reason !== "named" && !sameBytes(before, target.bytes) ? await env.guard(path, target.bytes === null, target.bytes) : null;
       if (refused !== null) {
-        if (!restoring) throw new Error(refused);
+        if (options.isolateRefusals !== true) throw new Error(refused);
         prepared.push({ path, before: null, after: null, noOp: { status: "failed", message: refused } });
         continue;
       }
@@ -390,6 +391,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     async restore(id: string, options: RestoreOptions = {}): Promise<PlatformResult<CheckpointGroup>> {
       try {
         const source = await load(id);
+        const isolateRefusals = source.reason === "before-script" || source.reason === "before-restore";
         const only = options.only === undefined ? null : new Set(options.only.map(foldPath));
         const deleteUncertain = new Set(options.deleteUncertain?.map(foldPath) ?? []);
         const selected = source.files.filter((file) => only === null || only.has(foldPath(file.path)));
@@ -416,7 +418,9 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
           }
           const actual = await current(file.path);
           if (expected?.has(file.path) && !sameBytes(actual, expected.get(file.path)!)) {
-            targets.push(noOp(file.path, "failed", `${file.path} changed after restore confirmation, so it was not restored. Choose the version again.`));
+            const refused = `${file.path} changed after restore confirmation, so it was not restored. Choose the version again.`;
+            if (!isolateRefusals) throw new Error(refused);
+            targets.push(noOp(file.path, "failed", refused));
             continue;
           }
           const actualHash = actual === null ? null : await hash(actual);
@@ -433,7 +437,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
             targets.push({ path: file.path, bytes: desired, expectedBefore });
           }
         }
-        const group = await capture(targets, "before-restore", { restores: id, uncovered: source.uncovered });
+        const group = await capture(targets, "before-restore", { restores: id, uncovered: source.uncovered, isolateRefusals });
         return platformOk(await execute(group));
       } catch (error) { return platformError("io-error", message(error)); }
     },
