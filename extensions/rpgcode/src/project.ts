@@ -14,7 +14,7 @@ import { encodeBase64, isHookAssetPath, isProgramPath, projectRootUri, PROJECT_N
 const SECTION = "rpgcode";
 const SETTING = "project";
 const SELECT_COMMAND = "rpgcode.selectProject";
-const SKIPPED_FOLDERS = new Set(["node_modules", ".git"]);
+const SKIPPED_FOLDERS = new Set(["node_modules", ".git", ".tkr-migrated"]);
 /** A bound on the inventory, so a mis-selected folder (a whole drive) is reported instead of read. */
 const MAX_FILES = 20_000;
 const MAX_SEARCH_DEPTH = 4;

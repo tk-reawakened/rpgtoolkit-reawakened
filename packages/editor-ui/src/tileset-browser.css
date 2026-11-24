@@ -2747,6 +2747,178 @@ fieldset.tkr-web-project-controls {
   overflow-y: auto;
 }
 
+/* Reviewed script workflows (story 13.16, docs/spec/engine/rpgcode-tooling.md#tool-11) */
+.tkr-picker-overlay > .tkr-script-workflow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  inline-size: min(100%, 70rem);
+  max-block-size: 90dvh;
+  padding: 1rem;
+  background: var(--tkr-bg-elevated);
+  color: var(--tkr-fg-primary);
+  border: 1px solid var(--tkr-border-strong);
+  border-radius: var(--tkr-radius-md);
+  box-shadow: var(--tkr-shadow-menu);
+  overflow: hidden;
+}
+
+.tkr-script-title {
+  margin: 0;
+  font-size: var(--tkr-text-lg);
+}
+
+.tkr-script-plain,
+.tkr-script-count,
+.tkr-script-outcome,
+.tkr-script-progress,
+.tkr-script-note,
+.tkr-script-message,
+.tkr-script-refusal {
+  margin: 0;
+  color: var(--tkr-fg-muted);
+  font-size: var(--tkr-text-sm);
+}
+
+.tkr-script-outcome,
+.tkr-script-unavailable {
+  color: var(--tkr-fg-primary);
+}
+
+.tkr-script-failures {
+  margin: 0;
+  padding-inline-start: 1.25rem;
+  color: var(--tkr-danger);
+  font-size: var(--tkr-text-sm);
+}
+
+.tkr-script-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+}
+
+.tkr-script-actions,
+.tkr-script-footer {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.tkr-script-footer {
+  justify-content: flex-end;
+}
+
+.tkr-script-body {
+  display: grid;
+  grid-template-columns: minmax(12rem, 18rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  min-block-size: 12rem;
+  overflow: hidden;
+}
+
+.tkr-script-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  overflow-y: auto;
+}
+
+.tkr-script-file {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.tkr-script-file[data-shown="true"] {
+  background: var(--tkr-accent-subtle);
+}
+
+.tkr-script-nobox {
+  inline-size: 1rem;
+  flex: none;
+}
+
+.tkr-script-show {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-inline-size: 0;
+  flex: 1;
+  text-align: start;
+}
+
+.tkr-script-file-state {
+  color: var(--tkr-fg-muted);
+  font-size: var(--tkr-text-xs);
+}
+
+.tkr-script-file[data-state="failed"] .tkr-script-file-state {
+  color: var(--tkr-danger);
+}
+
+.tkr-script-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow: auto;
+  min-inline-size: 0;
+}
+
+.tkr-script-detail-title,
+.tkr-script-detail h4 {
+  margin: 0;
+  font-size: var(--tkr-text-md);
+}
+
+.tkr-script-steps,
+.tkr-script-reviews ul,
+.tkr-script-unsupported ul {
+  margin: 0;
+  padding-inline-start: 1.25rem;
+  font-size: var(--tkr-text-sm);
+}
+
+.tkr-script-diff {
+  font-family: var(--tkr-font-mono);
+  font-size: var(--tkr-text-sm);
+  border: 1px solid var(--tkr-border-subtle);
+  border-radius: var(--tkr-radius-sm);
+  overflow: auto;
+}
+
+.tkr-script-line {
+  display: grid;
+  grid-template-columns: 3rem 3rem 1.5rem minmax(0, 1fr);
+  white-space: pre;
+}
+
+.tkr-script-line-added {
+  background: var(--tkr-accent-subtle);
+  color: var(--tkr-accent-subtle-fg);
+}
+
+.tkr-script-line-removed {
+  background: var(--tkr-danger-subtle);
+}
+
+.tkr-script-gutter {
+  color: var(--tkr-fg-muted);
+  text-align: end;
+  padding-inline-end: 0.5rem;
+}
+
+.tkr-script-fold {
+  padding-inline: 0.5rem;
+  color: var(--tkr-fg-muted);
+  background: var(--tkr-bg-surface);
+}
+
 /* 11. Responsive Narrow Viewports & Container Queries ---------------------- */
 @container board-editor (max-width: 960px) {
   .tkr-board-workspace {

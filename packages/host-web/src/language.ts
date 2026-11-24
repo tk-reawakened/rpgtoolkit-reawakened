@@ -20,7 +20,7 @@ import {
 
 /** A bound on the inventory, so a mis-selected folder is reported instead of read (the early extension's limit). */
 const MAX_FILES = 20_000;
-const SKIPPED_FOLDERS = new Set(["node_modules", ".git", ".tkr-history", ".tkr-exports"]);
+const SKIPPED_FOLDERS = new Set(["node_modules", ".git", ".tkr-history", ".tkr-exports", ".tkr-migrated"]);
 const SNAPSHOT_DEBOUNCE_MS = 500;
 
 /** The URI the server knows project file `path` by: `file:///project/` and the encoded path, so a name with a space is one URI. */
@@ -33,7 +33,7 @@ function messageOf(error: unknown): string {
 }
 
 /** The folder, relative to the project, that holds the running project's files (TOOL-1 "Root"). */
-function rootFolderOf(main: string): string {
+export function rootFolderOf(main: string): string {
   const folder = main.includes("/") ? main.slice(0, main.lastIndexOf("/")) : "";
   const name = folder.slice(folder.lastIndexOf("/") + 1);
   if (name.toLowerCase() === "main") return folder.includes("/") ? folder.slice(0, folder.lastIndexOf("/")) : "";

@@ -34,11 +34,19 @@ export type FormatDialect = "tk3" | "tk2";
 
 export type FormatSkipReason = "tk2-dialect";
 
+/** The two jobs of the formatter; an omitted job is on. */
+export type FormatJobs = { readonly indent?: boolean; readonly capitalisation?: boolean };
+
 export type FormatOptions = {
   /** Spaces per brace depth; default four. */
   readonly indentWidth?: number;
   /** The dialect the source is written in. Required, so no caller formats TK2 text by accident. */
   readonly dialect: FormatDialect;
+  /**
+   * Which of the two jobs to run (docs/spec/engine/rpgcode-tooling.md#tool-4); both when absent. `capitalisation`
+   * alone never changes a line's leading white space, and `indent` alone never changes a spelling.
+   */
+  readonly jobs?: FormatJobs;
 };
 
 export type FormatResult = {
@@ -76,6 +84,8 @@ function isOpaqueLine(text: string): boolean {
 export function formatSource(source: string, options: FormatOptions): FormatResult {
   if (options.dialect === "tk2") return { text: source, changed: false, skipped: "tk2-dialect" };
   const indentWidth = options.indentWidth ?? 4;
+  const reindent = options.jobs?.indent ?? true;
+  const capitalisation = options.jobs?.capitalisation ?? true;
   const names = canonicalNames();
   const lines = source.split("\n");
   // A file the scanner cannot read still gets its indentation; names are left as written.
@@ -121,15 +131,13 @@ export function formatSource(source: string, options: FormatOptions): FormatResu
         if (!names.has(written.toLowerCase()) || written === written.toLowerCase()) continue;
         // A label's spelling is its identity and is left alone (STX-5).
         if (isLabelToken(text, token.col)) continue;
-        replacements.push({ from: token.col - 1, to: token.endCol, text: written.toLowerCase() });
+        if (capitalisation) replacements.push({ from: token.col - 1, to: token.endCol, text: written.toLowerCase() });
       }
       const trimmed = text.trimStart();
       const continuation = trimmed.startsWith("_");
-      const leader = text.length - trimmed.length;
-      if (!continuation && !trimmed.startsWith("#")) {
+      if (reindent && !continuation && !trimmed.startsWith("#")) {
         const body = applyReplacements(text, replacements);
-        const target = `${" ".repeat(indentWidth * depths[index]!)}${body.trimStart()}`;
-        return target;
+        return `${" ".repeat(indentWidth * depths[index]!)}${body.trimStart()}`;
       }
     }
     return applyReplacements(text, replacements);

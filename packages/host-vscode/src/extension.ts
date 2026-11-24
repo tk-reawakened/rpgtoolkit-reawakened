@@ -13,6 +13,7 @@ import { registerVscodeGameRunner } from "./player.ts";
 import { registerRunDebugger } from "./run-debug.ts";
 import { registerGameView } from "./game-view.ts";
 import { runNewBoard, type NewBoardUi } from "./new-board.ts";
+import { registerScriptWorkflowCommands } from "./script-commands.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
 import { registerImportBoardAsScene } from "./import-board-scene.ts";
 import { boardPreviewRootForPath, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
@@ -249,6 +250,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     }
   }));
   registerNewBoard(context, () => generation, (uri) => core.workspaceFor({ uri, key: uri.toString() }).workspace);
+  registerScriptWorkflowCommands(context, () => generation, (uri) => core.workspaceFor({ uri, key: uri.toString() }).workspace);
   // The History command (#2833): the shared workspace does the work; VS Code only picks and reports.
   context.subscriptions.push(vscode.commands.registerCommand("tkr.history", async () => {
     const activeTextEditorUri = vscode.window.activeTextEditor?.document.uri;

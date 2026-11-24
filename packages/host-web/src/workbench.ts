@@ -1,7 +1,19 @@
+import { SCRIPT_TRANSFORM_REQUEST } from "@tk-reawakened/lsp/protocol";
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import {
   createAnimationFile, createCheckpointGroups,
   asMainDocument,
+  asProgramDocument,
+  createScriptReview,
+  planScriptWorkflow,
+  SCRIPT_TRANSFORM_IDS,
+  SCRIPT_TRANSFORM_INFO,
+  scriptProviderOver,
+  type OpenScriptProgram,
+  type ScriptTransformId,
+  type ScriptTransformProvider,
+  type ScriptWorkflowEnvironment,
+  type WorkbenchCommand,
   asksBeforeCreating,
   createAssetPicker,
   createBoardFile,
@@ -43,8 +55,9 @@ import {
   type Visits,
   DEFAULT_WORKBENCH_PANELS,
 } from "@tk-reawakened/editor-model";
-import { createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountShell, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
+import { rootFolderOf } from "./language.ts";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
 /** The setting that keeps the layout: panel identifiers, sides, visibility and sizes only (ADR 0022 D7.1). */
@@ -101,6 +114,13 @@ export interface Workbench {
    */
   newProgram(): Promise<string | null>;
   newAnimation(): Promise<string | null>;
+  /**
+   * Review and apply a script workflow (story 13.16, T-42, T-43, T-44, T-46): format, normalise capitalisation, update
+   * older syntax or clean up, over the program in front or every program in the project. The language server's result for
+   * each program is shown beside the original, the author can leave any program out or cancel, and nothing is written
+   * until Apply (docs/spec/engine/rpgcode-tooling.md#tool-11). Resolves when the review closes.
+   */
+  reviewScripts(transform: ScriptTransformId): Promise<void>;
   /** The layout as identifiers and numbers. */
   saveLayout(): SavedLayout;
   dispose(): void;
@@ -292,6 +312,103 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const tell = (message: string): Promise<unknown> =>
     services.dialogs.ask({ message, detail: "Nothing else was changed.", choices: [{ id: "ok", label: "OK" }], cancel: "ok" });
 
+  let closeScripts: (() => void) | null = null;
+  let scriptsBusy = false;
+
+  /** The programs open in a tab, as the workflow reads and edits them; a compiled program has no text and is not one. */
+  const openScriptPrograms = (): readonly OpenScriptProgram[] =>
+    workspace.documents().filter((document) => document.kind === "program").flatMap((document) => {
+      const program = asProgramDocument(document);
+      if (program.getSnapshot().compiled) return [];
+      return [{
+        path: program.identity.path,
+        text: () => program.getSnapshot().text,
+        replace: async (label, next) => {
+          if (workspace.pendingEdits(document).busy()) return { ok: false as const, message: "it has typing that is still being applied; try again in a moment" };
+          const result = program.apply({ type: "edit-text", label, edits: [{ from: 0, to: program.getSnapshot().text.length, text: next }] });
+          return result.ok ? { ok: true as const } : { ok: false as const, message: result.rejection.message };
+        },
+      }];
+    });
+
+  const runScriptReview = async (transform: ScriptTransformId): Promise<void> => {
+    // Typing a view has sent but the document has not answered is settled first, so the plan reads what the author sees.
+    for (const document of workspace.documents()) if (document.kind === "program") await workspace.pendingEdits(document).settle();
+    let lease: LanguageLease | null = null;
+    let provider: ScriptTransformProvider | null = null;
+    let unavailableReason: string | undefined;
+    if (services.language === undefined || !services.capabilities.has("languageServer")) {
+      unavailableReason = "This host has no language server, so programs cannot be formatted or updated here.";
+    } else {
+      const leased = await leaseLanguageClient(services.language, main === null ? null : { main });
+      if (leased.ok) {
+        lease = leased.lease;
+        const { client } = leased.lease;
+        provider = scriptProviderOver((params) => client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => client.uriOf(path));
+      } else unavailableReason = `The language server did not start: ${leased.message}.`;
+    }
+    if (disposed) {
+      lease?.release();
+      return;
+    }
+    const environment: ScriptWorkflowEnvironment = {
+      fs: services.fs,
+      provider,
+      ...(unavailableReason === undefined ? {} : { unavailableReason }),
+      history: createWizardHistory(workspace.checkpoints),
+      openPrograms: openScriptPrograms,
+      root: main === null ? "" : rootFolderOf(main),
+    };
+    const snapshot = tabs.getSnapshot();
+    const activePath = snapshot.tabs.find((tab) => tab.key === snapshot.active)?.path ?? null;
+    const doc = element.ownerDocument;
+    const before = doc.activeElement;
+    const overlay = doc.createElement("div");
+    overlay.className = "tkr-picker-overlay";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", `${SCRIPT_TRANSFORM_INFO[transform].name} (reviewed)`);
+    element.append(overlay);
+    await new Promise<void>((resolve) => {
+      const close = (): void => {
+        if (closeScripts === null) return;
+        closeScripts = null;
+        handle.dispose();
+        lease?.release();
+        overlay.remove();
+        void tree.refresh();
+        if (before instanceof HTMLElement) before.focus();
+        resolve();
+      };
+      const handle = mountScriptWorkflow(overlay, {
+        transform,
+        activeProgram: activePath !== null && /\.(prg|rnc)$/i.test(activePath) ? activePath : null,
+        plan: (scope, control) => planScriptWorkflow(environment, transform, scope, control),
+        review: (plan) => createScriptReview(environment, plan),
+        onClose: close,
+      });
+      closeScripts = close;
+    });
+  };
+
+  const reviewScripts = async (transform: ScriptTransformId): Promise<void> => {
+    if (scriptsBusy || disposed) return;
+    scriptsBusy = true;
+    try {
+      await runScriptReview(transform);
+    } finally {
+      scriptsBusy = false;
+    }
+  };
+
+  /** Every reviewed script workflow is a command of the menu and the palette (ADR 0038). */
+  const scriptCommands: readonly WorkbenchCommand[] = SCRIPT_TRANSFORM_IDS.map((id) => ({
+    id: `script.${id}`,
+    category: "Edit",
+    label: `${SCRIPT_TRANSFORM_INFO[id].name} (reviewed)…`,
+    run: () => reviewScripts(id),
+  }));
+
   const newBoard = async (): Promise<string | null> => {
     if (openNewBoard !== null || disposed) return null;
     const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
@@ -479,6 +596,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
+    extraCommands: scriptCommands,
     creatorTests,
     ...(options.main === undefined ? {} : { main: options.main }),
     runSetups: {
@@ -612,10 +730,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     newBoard,
     newProgram,
     newAnimation,
+    reviewScripts,
     saveLayout,
     dispose() {
       openPrefs?.();
       openNewBoard?.();
+      closeScripts?.();
       disposed = true;
       project.setRunPresenter(null);
       launcher.dispose();

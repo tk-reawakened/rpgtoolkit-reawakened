@@ -27,6 +27,8 @@ import {
   formatSource,
   indexLintProject,
   legacyFixes,
+  SCRIPT_TRANSFORMS,
+  transformSource,
   lint,
   classifyProgram,
   programBookmarks,
@@ -43,7 +45,7 @@ import {
 } from "@tk-reawakened/script-tools";
 import { documentationText, signatureHelp } from "./signature-help.ts";
 import { documentContext, NO_PROJECT, projectLoader, projectModel, readSnapshot, type DocumentContext, type ProjectModel } from "./project.ts";
-import { PROJECT_NOTIFICATION } from "./protocol.ts";
+import { PROJECT_NOTIFICATION, SCRIPT_TRANSFORM_REQUEST, type ScriptTransformParams } from "./protocol.ts";
 import { encodeSemanticTokens, SEMANTIC_LEGEND } from "./semantic-tokens.ts";
 import { CONFIG_CODE, documentLint, readProjectLintConfig } from "./lint-publish.ts";
 import { TextDocument } from "vscode-languageserver-textdocument";
@@ -132,7 +134,8 @@ export type LanguageServer = {
 
 type ProjectLint = { readonly files: ReadonlySet<string>; readonly result: LintResult };
 
-export { PROJECT_NOTIFICATION } from "./protocol.ts";
+export { PROJECT_NOTIFICATION, SCRIPT_TRANSFORM_REQUEST } from "./protocol.ts";
+export type { ScriptTransformId, ScriptTransformParams } from "./protocol.ts";
 export { encodeSemanticTokens, SEMANTIC_LEGEND } from "./semantic-tokens.ts";
 export type { ProjectSnapshot, ProjectSnapshotFile } from "./protocol.ts";
 export type { ProjectModel } from "./project.ts";
@@ -527,6 +530,31 @@ export function createServer(connection: ServerConnection, options: ServerOption
       symbols.push({ name: bookmark.name, kind: SymbolKind.String, range, selectionRange: range });
     }
     return symbols.sort((left, right) => left.range.start.line - right.range.start.line || left.range.start.character - right.range.start.character);
+  });
+
+  /**
+   * The reviewed script transforms (docs/spec/engine/rpgcode-tooling.md#tool-11). The text comes with the request, so a
+   * program the editor has not opened can be asked about; its dialect is the running project's when the URI is one of
+   * the project's programs, otherwise the language mode's. The answer is a proposal; nothing is edited.
+   */
+  connection.onRequest(SCRIPT_TRANSFORM_REQUEST, (params: ScriptTransformParams) => {
+    const document = params?.textDocument;
+    const transform = SCRIPT_TRANSFORMS.find((id) => id === params?.transform);
+    if (transform === undefined || typeof document?.uri !== "string" || typeof params.text !== "string") {
+      throw new Error(`${SCRIPT_TRANSFORM_REQUEST} needs a transform (${SCRIPT_TRANSFORMS.join(", ")}), a textDocument.uri and the text`);
+    }
+    const context = documentContext(project, document.uri, document.languageId === "rpgcode-tk2" ? "rpgcode-tk2" : "rpgcode");
+    const indentWidth = Number.isInteger(params.indentWidth) && params.indentWidth! > 0 ? params.indentWidth : undefined;
+    return {
+      uri: document.uri,
+      ...transformSource({
+        transform,
+        text: params.text,
+        dialect: context.dialect,
+        established: context.kind === "assessed",
+        ...(indentWidth === undefined ? {} : { indentWidth }),
+      }),
+    };
   });
 
   connection.onRequest("textDocument/semanticTokens/full", (params: { readonly textDocument: { readonly uri: string } }) => {

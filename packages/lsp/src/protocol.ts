@@ -10,6 +10,23 @@
 /** The notification a client sends with a new project snapshot. */
 export const PROJECT_NOTIFICATION = "rpgcode/project";
 
+/**
+ * The request a client sends to run one reviewed script transform on a text
+ * (docs/spec/engine/rpgcode-tooling.md#tool-11-transforms). The server answers with the text the transform would give
+ * and never changes a document.
+ */
+export const SCRIPT_TRANSFORM_REQUEST = "rpgcode/scriptTransform";
+
+export type ScriptTransformId = "format" | "canonical-case" | "update" | "cleanup";
+
+export type ScriptTransformParams = {
+  readonly transform: ScriptTransformId;
+  readonly textDocument: { readonly uri: string; readonly languageId?: "rpgcode" | "rpgcode-tk2" };
+  /** The source with `LF` line breaks. */
+  readonly text: string;
+  readonly indentWidth?: number;
+};
+
 /** One inventory file: its root-relative path in its original spelling, its document URI and its bytes. */
 export type ProjectSnapshotFile = {
   readonly path: string;

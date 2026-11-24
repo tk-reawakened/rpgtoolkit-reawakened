@@ -1,6 +1,6 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import type { Capability, DialogService, LanguageService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
@@ -44,6 +44,11 @@ export interface WebProjectOptions {
    * it the host declares no `languageServer` capability and programs edit without language features.
    */
   readonly languageWorkerUrl?: string;
+  /**
+   * The language service to use instead of starting this deployment's worker. A host that runs the server another way,
+   * and a cross-package test that runs it in process, supply it here; `languageWorkerUrl` is then ignored.
+   */
+  readonly language?: LanguageService;
   /** The code editor for programs, made by the page (it imports Monaco); a plain text area when absent. */
   readonly codeEditor?: TextSurfaceFactory;
   /** Where the user layer of the editor settings is kept; the page's `localStorage` by default, memory when there is none. */
@@ -146,11 +151,15 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   // The language service learns of every write through the same door the documents save through.
   let written: (path: string) => void = () => {};
   const files = createWebFileSystem(root, project.id);
-  const fs = bindProjectFileSystem(project.id, options.languageWorkerUrl === undefined ? files : notifyOnChange(files, (path) => written(path)), () => active);
-  const language = options.languageWorkerUrl === undefined ? undefined : createWebLanguageService(fs, { workerUrl: options.languageWorkerUrl });
+  // A language service, supplied or worker-backed, learns of writes through the same door the documents save through. A
+  // supplied one may not watch them (a test's in-process server reads a fresh project per request), so only the worker's
+  // own service is told.
+  const fromWorker = options.language === undefined && options.languageWorkerUrl !== undefined;
+  const fs = bindProjectFileSystem(project.id, fromWorker || options.language !== undefined ? notifyOnChange(files, (path) => written(path)) : files, () => active);
+  const language = options.language ?? (options.languageWorkerUrl === undefined ? undefined : createWebLanguageService(fs, { workerUrl: options.languageWorkerUrl }));
   if (language !== undefined) {
     capabilities.add("languageServer");
-    written = language.notifyWritten;
+    if (fromWorker) written = (language as WebLanguageService).notifyWritten;
   }
   let runPresenter: RunPresenter | null = null;
   const dialogs = options.dialogs ?? pageDialogs();

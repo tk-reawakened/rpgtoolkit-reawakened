@@ -1,0 +1,278 @@
+import { deepEqual, equal, match, ok } from "node:assert/strict";
+import test from "node:test";
+import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import {
+  createScriptReview,
+  MIGRATED_FOLDER,
+  planScriptWorkflow,
+  readScriptTransformAnswer,
+  scriptProviderOver,
+  type OpenScriptProgram,
+  type ScriptTransformAnswer,
+  type ScriptTransformProvider,
+  type ScriptTransformQuestion,
+  type ScriptWorkflowEnvironment,
+  type WizardHistory,
+} from "../src/index.ts";
+
+/**
+ * Story 13.16 (docs/spec/engine/rpgcode-tooling.md#tool-11-review): the plan, the per-file opt-out, cancel, the apply
+ * and the failure retention, over a scripted language server. The real server is exercised against the same flow in
+ * `tools/editor-vscode-test/test/script-workflow-hosts.test.ts`.
+ */
+
+const bytes = (text: string): Uint8Array => Uint8Array.from(text, (ch) => ch.charCodeAt(0));
+const text = (value: Uint8Array | undefined): string | undefined => (value === undefined ? undefined : String.fromCharCode(...value));
+
+function answer(question: ScriptTransformQuestion, fields: Partial<ScriptTransformAnswer> = {}): ScriptTransformAnswer {
+  return { uri: `file:///${question.path}`, transform: question.transform, status: "unchanged", text: question.text, dialect: "tk3", established: true, target: "in-place", steps: [], reviews: [], unsupported: [], ...fields };
+}
+
+/** A language server that upper-cases `MESSY` text, refuses `refuse` and fails `boom`. */
+function provider(calls: ScriptTransformQuestion[] = []): ScriptTransformProvider {
+  return {
+    async transform(question) {
+      calls.push(question);
+      if (question.path.endsWith("boom.prg")) throw new Error("the server stopped");
+      if (question.path.endsWith("refuse.prg")) {
+        return answer(question, { status: "refused", dialect: "tk2", target: "copy", reason: { code: "unsupported-fragments", message: "has fragments" }, unsupported: [{ line: 2, code: "dialogue-quote", message: "a quote" }] });
+      }
+      if (question.text.includes("MESSY")) {
+        return answer(question, { status: "changed", text: question.text.replaceAll("MESSY", "tidy"), steps: [{ id: "format", title: "Format", applied: true }] });
+      }
+      if (question.text.includes("OLD")) {
+        return answer(question, { status: "changed", text: question.text.replaceAll("OLD", "new"), dialect: "tk2", target: "copy", reviews: [{ line: 1, index: "key", message: "check" }] });
+      }
+      return answer(question);
+    },
+  };
+}
+
+function project(files: Record<string, string> = {}) {
+  const host = createMemoryPlatformServices({
+    files: {
+      "Prg/a.prg": bytes("MESSY\r\nline two\r\n"),
+      "Prg/b.prg": bytes("MESSY b\n"),
+      "Prg/clean.prg": bytes("clean\n"),
+      "Prg/refuse.prg": bytes("one\ntwo \"q\"\n"),
+      "Prg/boom.prg": bytes("boom\n"),
+      "Prg/old.prg": bytes("OLD\n"),
+      "Prg/compiled.prg": Uint8Array.from([0, 1, 2]),
+      "Prg/sub/deep.rnc": bytes("MESSY deep\n"),
+      "Boards/x.brd": bytes("MESSY not a program"),
+      ".tkr-history/a.prg": bytes("MESSY history"),
+      ".tkr-migrated/3.1/Prg/old.prg": bytes("MESSY previous copy"),
+      ...Object.fromEntries(Object.entries(files).map(([path, value]) => [path, bytes(value)])),
+    },
+  });
+  return host;
+}
+
+function env(host: MemoryPlatformServices, extra: Partial<ScriptWorkflowEnvironment> = {}): ScriptWorkflowEnvironment & { groups: { name: string; planned: readonly string[]; written: string[] }[] } {
+  const groups: { name: string; planned: readonly string[]; written: string[] }[] = [];
+  const history: WizardHistory = {
+    async begin(name, planned) {
+      groups.push({ name, planned, written: [] });
+      return { ok: true, groupId: `g${groups.length}` };
+    },
+    async written(groupId, path) {
+      groups[Number(groupId.slice(1)) - 1]!.written.push(path);
+      return { ok: true };
+    },
+  };
+  return { fs: host.fs, provider: provider(), history, openPrograms: () => [], groups, ...extra };
+}
+
+const states = (entries: readonly { path: string; state: string }[]): Record<string, string> => Object.fromEntries(entries.map((entry) => [entry.path, entry.state]));
+
+test("a project plan lists every program once with its state, and writes nothing while planning", async () => {
+  const host = project();
+  const calls: ScriptTransformQuestion[] = [];
+  const environment = env(host, { provider: provider(calls) });
+  const plan = await planScriptWorkflow(environment, "format", { kind: "project" });
+  equal(plan.unavailable, null);
+  deepEqual(states(plan.entries), {
+    "Prg/a.prg": "ready",
+    "Prg/b.prg": "ready",
+    "Prg/boom.prg": "failed",
+    "Prg/clean.prg": "unchanged",
+    "Prg/compiled.prg": "skipped",
+    "Prg/old.prg": "ready",
+    "Prg/refuse.prg": "refused",
+    "Prg/sub/deep.rnc": "ready",
+  });
+  equal(calls.length, 7, "the compiled program is never sent to the server; the history, migrated and board files are not programs");
+  equal(calls.find((call) => call.path === "Prg/a.prg")?.text, "MESSY\nline two\n", "the server sees LF text");
+  equal(text(host.bytesOf("Prg/a.prg")), "MESSY\r\nline two\r\n", "planning wrote nothing");
+  equal(host.editedEvents.length, 0);
+  const a = plan.entries.find((entry) => entry.path === "Prg/a.prg")!;
+  equal(a.included, true, "a ready file starts ticked");
+  deepEqual(a.diff?.filter((line) => line.kind !== "same").map((line) => `${line.kind}:${line.text}`), ["removed:MESSY", "added:tidy"]);
+  const refused = plan.entries.find((entry) => entry.path === "Prg/refuse.prg")!;
+  equal(refused.included, false);
+  equal(refused.reason?.code, "unsupported-fragments");
+  deepEqual(refused.unsupported.map((fragment) => fragment.line), [2]);
+  const failed = plan.entries.find((entry) => entry.path === "Prg/boom.prg")!;
+  match(failed.message ?? "", /the server stopped/);
+  const old = plan.entries.find((entry) => entry.path === "Prg/old.prg")!;
+  equal(old.destination, `${MIGRATED_FOLDER}/Prg/old.prg`);
+  equal(old.target, "copy");
+  deepEqual(old.reviews.map((review) => review.index), ["key"]);
+});
+
+test("a program open in an editor is planned from its unsaved text, and a host without a language server plans nothing", async () => {
+  const host = project();
+  const open: OpenScriptProgram = { path: "Prg/clean.prg", text: () => "MESSY unsaved\n", replace: () => ({ ok: true }) };
+  const plan = await planScriptWorkflow(env(host, { openPrograms: () => [open] }), "format", { kind: "program", path: "Prg/clean.prg" });
+  equal(plan.entries.length, 1);
+  equal(plan.entries[0]!.state, "ready");
+  equal(plan.entries[0]!.open, true);
+  equal(plan.entries[0]!.original, "MESSY unsaved\n");
+  const none = await planScriptWorkflow(env(host, { provider: null }), "format", { kind: "project" });
+  deepEqual(none.entries, []);
+  match(none.unavailable ?? "", /no language server/);
+  const cancelled = await planScriptWorkflow(env(host), "format", { kind: "project" }, { cancelled: () => true });
+  match(cancelled.unavailable ?? "", /Cancelled\. Nothing was changed/);
+});
+
+test("the per-file opt-out: only ticked ready files are written, and the rest are reported as left out", async () => {
+  const host = project();
+  const environment = env(host);
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "project" }));
+  equal(review.getSnapshot().selected, 4);
+  review.setIncluded("Prg/b.prg", false);
+  review.setIncluded("Prg/clean.prg", true);
+  review.setIncluded("Prg/refuse.prg", true);
+  equal(review.getSnapshot().entries.find((entry) => entry.path === "Prg/clean.prg")!.included, false, "an unchanged file cannot be ticked");
+  equal(review.getSnapshot().entries.find((entry) => entry.path === "Prg/refuse.prg")!.included, false, "a refused file cannot be ticked");
+  review.setIncluded("Prg/sub/deep.rnc", false);
+  equal(review.getSnapshot().selected, 2);
+  const outcome = await review.apply();
+  deepEqual(outcome.applied.map((item) => `${item.via}:${item.path}`).sort(), ["copy:Prg/old.prg", "write:Prg/a.prg"]);
+  deepEqual([...outcome.leftOut].sort(), ["Prg/b.prg", "Prg/sub/deep.rnc"]);
+  deepEqual(outcome.refused, ["Prg/refuse.prg"]);
+  deepEqual(outcome.failed, [], "a planning failure is not an apply failure");
+  equal(text(host.bytesOf("Prg/a.prg")), "tidy\r\nline two\r\n", "the file's own CRLF line endings are kept");
+  equal(text(host.bytesOf("Prg/b.prg")), "MESSY b\n", "an unticked file is untouched");
+  equal(text(host.bytesOf("Prg/sub/deep.rnc")), "MESSY deep\n");
+  equal(text(host.bytesOf("Prg/refuse.prg")), "one\ntwo \"q\"\n", "a refused file is untouched");
+  equal(text(host.bytesOf("Prg/boom.prg")), "boom\n", "a file the server failed on is untouched");
+  match(outcome.summary, /2 programs updated/);
+  match(outcome.summary, /2 left out/);
+  match(outcome.summary, /1 refused/);
+  equal(review.getSnapshot().phase, "done");
+});
+
+test("a Toolkit 2.x conversion is written as a copy and never over its original", async () => {
+  const host = project();
+  const environment = env(host);
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "update", { kind: "program", path: "Prg/old.prg" }));
+  const outcome = await review.apply();
+  equal(text(host.bytesOf("Prg/old.prg")), "OLD\n", "the Toolkit 2.x original is untouched");
+  equal(text(host.bytesOf(`${MIGRATED_FOLDER}/Prg/old.prg`)), "new\n");
+  deepEqual(outcome.applied, [{ path: "Prg/old.prg", destination: `${MIGRATED_FOLDER}/Prg/old.prg`, via: "copy" }]);
+  match(outcome.summary, /1 converted copy written to \.tkr-migrated\/3\.1; the originals are untouched/);
+  deepEqual(environment.groups.map((group) => group.planned), [[`${MIGRATED_FOLDER}/Prg/old.prg`]], "the copy it replaces was checkpointed first");
+});
+
+test("closed files are checkpointed before they are written; an open editor gets one undoable edit and is not saved", async () => {
+  const host = project();
+  let editorText = "MESSY open\n";
+  const edits: { label: string; text: string }[] = [];
+  const open: OpenScriptProgram = { path: "Prg/b.prg", text: () => editorText, replace: (label, next) => { edits.push({ label, text: next }); editorText = next; return { ok: true }; } };
+  const environment = env(host, { openPrograms: () => [open] });
+  const plan = await planScriptWorkflow(environment, "format", { kind: "project" });
+  const review = createScriptReview(environment, plan);
+  for (const entry of plan.entries) if (entry.path !== "Prg/a.prg" && entry.path !== "Prg/b.prg") review.setIncluded(entry.path, false);
+  const outcome = await review.apply();
+  deepEqual(outcome.applied.map((item) => `${item.via}:${item.path}`).sort(), ["edit:Prg/b.prg", "write:Prg/a.prg"]);
+  deepEqual(edits, [{ label: "Format (reviewed)", text: "tidy open\n" }]);
+  equal(text(host.bytesOf("Prg/b.prg")), "MESSY b\n", "the open file's bytes on disk are the editor's to save");
+  deepEqual(environment.groups.map((group) => ({ name: group.name, planned: group.planned, written: group.written })), [{ name: "Format (reviewed)", planned: ["Prg/a.prg"], written: ["Prg/a.prg"] }]);
+});
+
+test("cancel writes nothing, records nothing and cannot be undone by a later apply", async () => {
+  const host = project();
+  const environment = env(host);
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "project" }));
+  const before = text(host.bytesOf("Prg/a.prg"));
+  equal(review.cancel(), true);
+  equal(review.getSnapshot().phase, "cancelled");
+  const outcome = await review.apply();
+  deepEqual(outcome.applied, []);
+  equal(text(host.bytesOf("Prg/a.prg")), before);
+  equal(host.editedEvents.length, 0);
+  deepEqual(environment.groups, [], "no checkpoint was recorded");
+});
+
+test("a file that changed since the plan is not written, and the others still are", async () => {
+  const host = project();
+  const environment = env(host);
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "project" }));
+  await host.fs.write("Prg/a.prg", bytes("MESSY edited elsewhere\n"));
+  const outcome = await review.apply();
+  deepEqual(outcome.failed.map((item) => item.path), ["Prg/a.prg"]);
+  match(outcome.failed[0]!.message, /changed since the review \(changed-since-review\)/);
+  equal(text(host.bytesOf("Prg/a.prg")), "MESSY edited elsewhere\n", "the newer file is kept");
+  equal(text(host.bytesOf("Prg/b.prg")), "tidy b\n");
+  equal(review.getSnapshot().phase, "reviewing", "the review stays open so the failure can be seen");
+});
+
+test("a failed write is retained with its reason, and a retry applies exactly the files that failed", async () => {
+  const host = project();
+  const environment = env(host);
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "project" }));
+  review.setIncluded("Prg/sub/deep.rnc", false);
+  review.setIncluded("Prg/old.prg", false);
+  host.failWrites({ kind: "io", message: "disk is read-only" } as never);
+  const first = await review.apply();
+  equal(first.failed.length, 2);
+  match(first.failed[0]!.message, /disk is read-only/);
+  equal(text(host.bytesOf("Prg/a.prg")), "MESSY\r\nline two\r\n", "a failed write leaves the file as it was");
+  equal(review.getSnapshot().phase, "reviewing", "the review stays open so the failure can be read");
+  deepEqual(review.getSnapshot().entries.filter((entry) => entry.path === "Prg/a.prg" || entry.path === "Prg/b.prg").map((entry) => [entry.path, entry.state, entry.included]), [["Prg/a.prg", "ready", true], ["Prg/b.prg", "ready", true]], "a failed file keeps its place and stays selected for a retry");
+  host.failWrites(null);
+  const second = await review.apply();
+  deepEqual(second.applied.map((item) => item.path).sort(), ["Prg/a.prg", "Prg/b.prg"]);
+  equal(text(host.bytesOf("Prg/a.prg")), "tidy\r\nline two\r\n");
+  equal(review.getSnapshot().phase, "done");
+});
+
+test("if the recovery checkpoint cannot be recorded nothing is written to disk", async () => {
+  const host = project();
+  const history: WizardHistory = { begin: async () => ({ ok: false, message: "history is full" }), written: async () => ({ ok: true }) };
+  const environment = env(host, { history });
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "project" }));
+  const outcome = await review.apply();
+  equal(outcome.applied.length, 0);
+  ok(outcome.failed.length >= 3);
+  match(outcome.failed[0]!.message, /recovery checkpoint could not be recorded: history is full\. Nothing was written/);
+  equal(text(host.bytesOf("Prg/a.prg")), "MESSY\r\nline two\r\n");
+});
+
+test("a result too large to compare is never applied", async () => {
+  const big = `${"line\n".repeat(2500)}`;
+  const host = project({ "Prg/big.prg": big });
+  const environment = env(host, { provider: { transform: async (question) => answer(question, { status: "changed", text: question.text.replaceAll("line", "LINE") }) } });
+  const plan = await planScriptWorkflow(environment, "format", { kind: "program", path: "Prg/big.prg" });
+  equal(plan.entries[0]!.state, "failed");
+  match(plan.entries[0]!.message ?? "", /too large to show a comparison/);
+});
+
+test("answers are checked at the boundary and a provider refuses an answer to another question", async () => {
+  const good: ScriptTransformAnswer = { uri: "file:///a.prg", transform: "format", status: "unchanged", text: "", dialect: "tk3", established: true, target: "in-place", steps: [], reviews: [], unsupported: [] };
+  deepEqual(readScriptTransformAnswer(good), good);
+  for (const bad of [null, {}, { ...good, status: "maybe" }, { ...good, target: "elsewhere" }, { ...good, steps: [{ id: 1 }] }, { ...good, unsupported: [{ line: "2", code: "x", message: "y" }] }, { ...good, text: 5 }]) {
+    equal(readScriptTransformAnswer(bad), null);
+  }
+  const wrong = scriptProviderOver(async () => ({ ...good, transform: "cleanup" }), (path) => `file:///${path}`);
+  await wrong.transform({ transform: "format", path: "a.prg", text: "", indentWidth: 4 }).then(
+    () => { throw new Error("should refuse"); },
+    (error: Error) => match(error.message, /answered cleanup to a format question/),
+  );
+  const garbage = scriptProviderOver(async () => "nope", (path) => path);
+  await garbage.transform({ transform: "format", path: "a.prg", text: "", indentWidth: 4 }).then(
+    () => { throw new Error("should refuse"); },
+    (error: Error) => match(error.message, /not a script transform result/),
+  );
+});
