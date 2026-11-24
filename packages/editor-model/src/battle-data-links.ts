@@ -36,3 +36,39 @@ export function describeLinkedStatusEffect(bytes: Uint8Array, path: string): Lin
   const rounds = `${status.rounds} round${status.rounds === 1 ? "" : "s"}`;
   return { ok: true, name, rounds: status.rounds, effects, text: `${name}: ${rounds}${effects.length === 0 ? "; no per-round effect is turned on" : `; ${effects.join("; ")}`}.` };
 }
+
+/**
+ * Why a reference a form holds cannot be looked up in the project, or `null` when it can (story 13.10). A stored
+ * reference names a file inside one reserved folder (`docs/spec/formats/README.md#paths-inside-files`), so a `..` or `.`
+ * segment, a leading separator or a drive letter escapes it: the form says so and sends no read, which a host may refuse
+ * without answering.
+ */
+export function linkReferenceProblem(reference: string): string | null {
+  const trimmed = reference.trim();
+  if (trimmed === "") return null;
+  const slashed = trimmed.split("\\").join("/");
+  if (/^\/|^[A-Za-z]:/.test(slashed)) return "A reference is relative to its own folder and cannot start with a separator or a drive.";
+  const segments = slashed.split("/");
+  if (segments.some((segment) => segment === "." || segment === "..")) return "A reference cannot step out of its folder with a \".\" or \"..\" segment.";
+  return null;
+}
+
+/**
+ * The project-relative paths to try for `reference`, most faithful first (story 13.10). The game itself resolves a
+ * stored reference by its folder, ignoring the extension the author left off and the case of the name, so the form tries
+ * the spelling as written, then with the kind's own extension, then each of those ASCII-lowercased — the spelling every
+ * legacy file is stored in. It never guesses outside the folder: `folder` is the reserved folder's project path.
+ */
+export function linkedFileCandidates(folder: string, reference: string, extensions: readonly string[]): readonly string[] {
+  const base = folder.replace(/\/+$/, "");
+  const inside = reference.trim().split("\\").join("/").replace(/^\/+/, "");
+  const typed = `${base}/${inside}`;
+  const hasExtension = extensions.some((extension) => typed.toLowerCase().endsWith(extension));
+  const complete = hasExtension || extensions.length === 0 ? [typed] : [typed, `${typed}${extensions[0]}`];
+  // The folder keeps its stored spelling (a project may hold `StatusE`), while the legacy file name is ASCII lower case.
+  const lowerFile = (path: string): string => {
+    const cut = path.lastIndexOf("/");
+    return `${path.slice(0, cut + 1)}${path.slice(cut + 1).toLowerCase()}`;
+  };
+  return [...new Set([...complete, ...complete.map(lowerFile), ...complete.map((path) => path.toLowerCase())])];
+}

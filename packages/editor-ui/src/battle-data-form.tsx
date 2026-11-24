@@ -1,7 +1,9 @@
 import {
   createEditTracker,
+  linkedFileCandidates,
+  linkReferenceProblem,
   projectLayoutForDocumentPath,
-  referencePath,
+  reservedFolder,
   type AssetKind,
   type DocumentSnapshot,
   type PendingEdits,
@@ -19,6 +21,11 @@ import { useDocumentSnapshot } from "./use-document.ts";
  * host an edit was accepted, the draft handling that keeps typing out of the document until a field is left, the
  * Save and conflict row, and a reference row with Choose, Open and a check that the linked file is in the project.
  * The documents own every rule about values; a refusal's own sentence is what the form shows.
+ *
+ * A field's draft is not an edit until it is committed, so a save — this view's Save, or the host's Save All, Ctrl+S,
+ * revert or close — first applies every field that still holds a draft (`flush`), and the view stays busy for the host's
+ * pending-edit settlement until it has. That way a host save can never write the document and silently leave the field
+ * the author was typing in behind.
  */
 
 export interface BattleDataNavigation {
@@ -45,12 +52,16 @@ export interface BattleDataFormBase<Command> {
   readonly disabled: boolean;
   setMessage(message: string | null): void;
   setDraft(key: string, text: string): void;
+  /** Drop one field's typed text, for a change that replaced it (a Choose). */
+  dropDraft(key: string): void;
   /** Apply one command and tell the host; resolves true when the document accepted it. */
   run(command: Command): Promise<boolean>;
   save(): Promise<void>;
   resolve(choice: "keep-local" | "reload"): Promise<void>;
   commitText(key: string, text: string, current: string, build: (value: string) => Command): Promise<void>;
   commitNumber(key: string, text: string, current: number, build: (value: number) => Command): Promise<void>;
+  /** Let a save apply this field's draft first, and take part in the host's pending-edit settlement. */
+  registerField(key: string, submit: () => Promise<void>): () => void;
 }
 
 /** `BattleDataFormBase` with the kind's own snapshot, which the views read their fields from. */
@@ -59,6 +70,9 @@ export interface BattleDataForm<Snapshot extends DocumentSnapshot<Command>, Comm
 }
 
 const problem = (error: unknown): string => error instanceof Error ? error.message : String(error);
+
+/** Whole numbers only: a decimal point or an exponent would be rounded into a value the author did not type. */
+const WHOLE_NUMBER = /^[+-]?\d+$/;
 
 export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Command>(
   { doc, pendingEdits, capabilities, onEdited }: Pick<BattleDataFormProps<Snapshot, Command>, "doc" | "pendingEdits" | "capabilities" | "onEdited">,
@@ -70,7 +84,15 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
-  useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
+  // The draft map is kept ref-authoritative: a host save runs outside a render, so `busy()` must see a commit at once.
+  const draftsRef = useRef<Readonly<Record<string, string>>>({});
+  const pendingDrafts = useRef(false);
+  const publishDrafts = (next: Readonly<Record<string, string>>): void => {
+    draftsRef.current = next;
+    pendingDrafts.current = Object.keys(next).length > 0;
+    setDrafts(next);
+  };
+  const fields = useRef(new Map<string, () => Promise<void>>());
   const saved = `${what[0]!.toUpperCase()}${what.slice(1)} saved.`;
 
   const run = (command: Command): Promise<boolean> => {
@@ -91,11 +113,43 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     queue.current = operation.then(() => undefined);
     return operation;
   };
+  /** Apply every field that still holds a draft, in form order. A field whose draft no longer differs commits nothing. */
+  const flush = async (): Promise<void> => {
+    for (const [key, submit] of [...fields.current]) {
+      if (draftsRef.current[key] === undefined) continue;
+      await submit();
+    }
+    // A draft the document refused keeps its text and its reason, but must not hold the host's save open for ever.
+    pendingDrafts.current = false;
+  };
+  useEffect(() => pendingEdits.register({
+    busy: () => pendingDrafts.current || submitted.current.busy(),
+    idle: async () => { await flush(); await submitted.current.idle(); },
+  }), [pendingEdits]);
+  // An undo, a revert (a VS Code Revert File) or any other accepted edit makes drafts typed against the newer model
+  // stale: they are dropped with the message that named them, so the field shows the document again and Save is free.
+  const head = snapshot.edits.at(-1)?.editId ?? null;
+  const lastHead = useRef<{ readonly head: string | null }>({ head });
+  useEffect(() => {
+    if (lastHead.current.head === head) return;
+    lastHead.current = { head };
+    if (Object.keys(draftsRef.current).length > 0) {
+      publishDrafts({});
+      setMessage(null);
+    }
+  }, [head]);
+
   const save = async (): Promise<void> => {
     try {
-      await pendingEdits.settle();
+      await flush();
+      // This view's Save needs no host settlement: it applies its own drafts and waits for its own acknowledgements. The
+      // host's Save All, Ctrl+S, revert and close settle the shared registry, which flushes drafts through `idle()`.
+      await submitted.current.idle();
+      // A draft the document refused keeps its reason on screen: saving the rest must not hide why that field stayed out.
+      const refused = Object.keys(draftsRef.current).length > 0;
       const result = await doc.save();
-      setMessage(result.ok ? saved : result.failure.message);
+      if (!result.ok) setMessage(result.failure.message);
+      else if (!refused) setMessage(saved);
     } catch (error) { setMessage(problem(error)); }
   };
   const resolve = async (choice: "keep-local" | "reload"): Promise<void> => {
@@ -113,13 +167,19 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     } catch (error) { setMessage(problem(error)); }
     finally { setResolving(false); }
   };
-  const setDraft = (key: string, text: string): void => setDrafts((previous) => ({ ...previous, [key]: text }));
-  const clearDraft = (key: string, text: string): void => setDrafts((previous) => {
-    if (previous[key] !== text) return previous;
-    const next = { ...previous };
+  const setDraft = (key: string, text: string): void => publishDrafts({ ...draftsRef.current, [key]: text });
+  const dropDraft = (key: string): void => {
+    if (draftsRef.current[key] === undefined) return;
+    const next = { ...draftsRef.current };
     delete next[key];
-    return next;
-  });
+    publishDrafts(next);
+  };
+  const clearDraft = (key: string, text: string): void => {
+    if (draftsRef.current[key] !== text) return;
+    const next = { ...draftsRef.current };
+    delete next[key];
+    publishDrafts(next);
+  };
   /** Leave a text field: a changed value is one edit; an unchanged one is dropped without touching the document. */
   const commitText = async (key: string, text: string, current: string, build: (value: string) => Command): Promise<void> => {
     if (text === current) { clearDraft(key, text); return; }
@@ -127,13 +187,23 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   };
   /** Leave a number field: the document says whether the value fits, and its sentence is shown when it does not. */
   const commitNumber = async (key: string, text: string, current: number, build: (value: number) => Command): Promise<void> => {
-    if (text.trim() === "") { setMessage("Enter a whole number before leaving this field."); return; }
-    const value = Number(text);
+    const trimmed = text.trim();
+    if (trimmed === "") { setMessage("Enter a whole number before leaving this field."); return; }
+    if (!WHOLE_NUMBER.test(trimmed)) {
+      setMessage("Enter a whole number: a decimal point or an exponent would be rounded into a value you did not type.");
+      return;
+    }
+    const value = Number(trimmed);
     if (value === current) { clearDraft(key, text); return; }
     if (await run(build(value))) clearDraft(key, text);
   };
+  const registerField = (key: string, submit: () => Promise<void>): (() => void) => {
+    fields.current.set(key, submit);
+    return () => { if (fields.current.get(key) === submit) fields.current.delete(key); };
+  };
   return {
-    snapshot, drafts, message, resolving, setMessage, setDraft, run, save, resolve, commitText, commitNumber,
+    snapshot, drafts, message, resolving, setMessage, setDraft, dropDraft, run, save, resolve,
+    commitText, commitNumber, registerField,
     disabled: snapshot.readOnly !== null || snapshot.conflict !== null,
   };
 }
@@ -143,10 +213,10 @@ export function SaveBar<Command>({ form, capabilities }: {
   readonly form: BattleDataFormBase<Command>;
   readonly capabilities: ReadonlySet<Capability>;
 }): JSX.Element {
-  const { snapshot, save, resolve, resolving, message, drafts } = form;
+  const { snapshot, save, resolve, resolving, message } = form;
   return <>
     <p>
-      <button type="button" data-editor-save="true" disabled={snapshot.saving || snapshot.readOnly !== null || snapshot.conflict !== null || Object.keys(drafts).length > 0} onClick={() => void save()}>Save</button>
+      <button type="button" data-editor-save="true" disabled={snapshot.saving || snapshot.readOnly !== null || snapshot.conflict !== null} onClick={() => void save()}>Save</button>
       {snapshot.dirty ? " Unsaved changes." : ""}
     </p>
     {snapshot.readOnly !== null && <p role="status">Read only: {snapshot.readOnly.message}</p>}
@@ -159,6 +229,7 @@ export function SaveBar<Command>({ form, capabilities }: {
   </>;
 }
 
+/** A one-line field, registered so a save applies its draft first. */
 export function TextRow<Command>({ form, id, label, value, hint, command }: {
   readonly form: BattleDataFormBase<Command>;
   readonly id: string;
@@ -167,10 +238,41 @@ export function TextRow<Command>({ form, id, label, value, hint, command }: {
   readonly hint?: string;
   readonly command: (value: string) => Command;
 }): JSX.Element {
-  const { drafts, setDraft, commitText, disabled, snapshot } = form;
+  const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
+  const commit = (text: string): Promise<void> => commitText(id, text, value, command);
+  // Registered during render, not in an effect: the map is a ref, so this neither loops nor lags a render behind.
+  registerField(id, () => drafts[id] === undefined ? Promise.resolve() : commitText(id, drafts[id]!, value, command));
   return <p>
     <label>{label}
-      <input type="text" aria-label={label} value={drafts[id] ?? value} disabled={disabled || snapshot.saving} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitText(id, event.currentTarget.value, value, command)} />
+      <input type="text" aria-label={label} value={drafts[id] ?? value} disabled={disabled || snapshot.saving} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commit(event.currentTarget.value)} />
+    </label>
+    {hint !== undefined && <small> {hint}</small>}
+  </p>;
+}
+
+/**
+ * A multi-line field. A stored description may hold CR and LF, which an `input` cannot: it is a `textarea`, shown with
+ * LF, and a commit writes the line endings the stored text uses, so editing a Windows-line-ending description keeps
+ * them instead of silently stripping every CR (story 13.10 follow-up).
+ */
+export function LinesRow<Command>({ form, id, label, value, hint, command }: {
+  readonly form: BattleDataFormBase<Command>;
+  readonly id: string;
+  readonly label: string;
+  readonly value: string;
+  readonly hint?: string;
+  readonly command: (value: string) => Command;
+}): JSX.Element {
+  const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
+  const newline = value.includes("\r\n") ? "\r\n" : "\n";
+  const asWritten = (text: string): string => text.split("\n").join(newline);
+  registerField(id, () => {
+    const draft = drafts[id];
+    return draft === undefined ? Promise.resolve() : commitText(id, asWritten(draft), value, command);
+  });
+  return <p>
+    <label>{label}
+      <textarea aria-label={label} rows={3} value={drafts[id] ?? value.split("\r\n").join("\n")} disabled={disabled || snapshot.saving} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitText(id, asWritten(event.currentTarget.value), value, command)} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
   </p>;
@@ -184,7 +286,8 @@ export function NumberRow<Command>({ form, id, label, value, hint, command }: {
   readonly hint?: string;
   readonly command: (value: number) => Command;
 }): JSX.Element {
-  const { drafts, setDraft, commitNumber, disabled, snapshot } = form;
+  const { drafts, setDraft, commitNumber, registerField, disabled, snapshot } = form;
+  registerField(id, () => drafts[id] === undefined ? Promise.resolve() : commitNumber(id, drafts[id]!, value, command));
   return <p>
     <label>{label}
       <input type="number" step="1" aria-label={label} value={drafts[id] ?? String(value)} disabled={disabled || snapshot.saving} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitNumber(id, event.currentTarget.value, value, command)} />
@@ -217,29 +320,60 @@ export type LinkedFile =
   | { readonly state: "none" }
   | { readonly state: "checking" }
   | { readonly state: "found"; readonly bytes: Uint8Array; readonly path: string }
-  | { readonly state: "missing"; readonly path: string; readonly message: string };
+  | { readonly state: "missing"; readonly path: string; readonly message: string }
+  | { readonly state: "invalid"; readonly message: string };
 
-/** Read the saved file a reference names, again whenever the reference or the saved assets change. A missing file is a value, never an error. */
-export function useLinkedFile(fs: Pick<FileSystemService, "readProject">, projectId: string, documentPath: string, kind: AssetKind, reference: string): LinkedFile {
+/**
+ * Read the saved file a reference names, the way the game resolves it: its folder, the extension the author may have left
+ * off, and ASCII case (story 13.10 follow-up). A reference that would leave its folder is a diagnostic, never a read: a
+ * host can refuse such a path without answering, which would leave the form waiting forever. Read again whenever the
+ * reference or the saved assets change.
+ */
+export function useLinkedFile(
+  fs: Pick<FileSystemService, "readProject">,
+  projectId: string,
+  documentPath: string,
+  kind: AssetKind,
+  reference: string,
+  extensions: readonly string[],
+): LinkedFile {
   const assetRevision = useContext(AssetRefreshContext);
+  // A caller writes its extension list inline, so the effect keys on the list's content: a new array of the same
+  // extensions must not start the read again on every render.
+  const extensionKey = extensions.join(",");
   const [linked, setLinked] = useState<LinkedFile>({ state: "none" });
   useEffect(() => {
     let active = true;
+    const wanted = extensionKey === "" ? [] : extensionKey.split(",");
     const trimmed = reference.trim();
     if (trimmed === "") {
       setLinked({ state: "none" });
       return () => { active = false; };
     }
-    const path = referencePath(projectLayoutForDocumentPath(documentPath), kind, trimmed);
+    const refused = linkReferenceProblem(trimmed);
+    if (refused !== null) {
+      setLinked({ state: "invalid", message: refused });
+      return () => { active = false; };
+    }
+    const folder = reservedFolder(projectLayoutForDocumentPath(documentPath), kind);
     setLinked({ state: "checking" });
-    void Promise.resolve(fs.readProject(projectId, path)).then((result) => {
-      if (!active) return;
-      setLinked(result.ok ? { state: "found", bytes: result.value, path } : { state: "missing", path, message: result.error.message });
-    }).catch((error: unknown) => {
-      if (active) setLinked({ state: "missing", path, message: problem(error) });
-    });
+    void (async () => {
+      let missing: { readonly path: string; readonly message: string } | null = null;
+      for (const path of linkedFileCandidates(folder, trimmed, wanted)) {
+        let result: Awaited<ReturnType<typeof fs.readProject>>;
+        try {
+          result = await fs.readProject(projectId, path);
+        } catch (error) {
+          result = { ok: false, error: { code: "unavailable", message: problem(error) } } as Awaited<ReturnType<typeof fs.readProject>>;
+        }
+        if (!active) return;
+        if (result.ok) { setLinked({ state: "found", bytes: result.value, path }); return; }
+        missing ??= { path, message: result.error.message };
+      }
+      if (active) setLinked({ state: "missing", path: missing!.path, message: missing!.message });
+    })();
     return () => { active = false; };
-  }, [fs, projectId, documentPath, kind, reference, assetRevision]);
+  }, [fs, projectId, documentPath, kind, reference, extensionKey, assetRevision]);
   return linked;
 }
 
@@ -256,12 +390,18 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   readonly command: (value: string) => Command;
   readonly children?: ComponentChildren;
 }): JSX.Element {
-  const { drafts, setDraft, commitText, run, disabled, snapshot, setMessage } = form;
+  const { drafts, setDraft, dropDraft, commitText, registerField, run, disabled, snapshot, setMessage } = form;
+  registerField(id, () => {
+    const draft = drafts[id];
+    return draft === undefined ? Promise.resolve() : commitText(id, draft.trim(), value, command);
+  });
   const busy = disabled || snapshot.saving;
   const origin = snapshot.identity.path;
   const choose = async (): Promise<void> => {
     const outcome = await navigation.pickAsset?.({ kind, extensions, field: `Choose ${label.toLowerCase()}` });
     if (outcome?.chosen !== true || form.snapshot.identity.path !== origin) return;
+    // The chosen file replaces whatever was typed, so the stale draft goes with it.
+    dropDraft(id);
     if (outcome.reference !== value) await run(command(outcome.reference));
   };
   const openLinked = async (): Promise<void> => {
@@ -273,7 +413,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     <legend>{label}</legend>
     <p>
       <label>{label} file
-        <input type="text" aria-label={`${label} file`} value={drafts[id] ?? value} disabled={busy} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitText(id, event.currentTarget.value, value, command)} />
+        <input type="text" aria-label={`${label} file`} value={drafts[id] ?? value} disabled={busy} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitText(id, event.currentTarget.value.trim(), value, command)} />
       </label>
       {hint !== undefined && <small> {hint}</small>}
     </p>
@@ -281,7 +421,8 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
       {navigation.pickAsset !== undefined && <button type="button" aria-label={`Choose ${label.toLowerCase()}`} disabled={busy} onClick={() => void choose()}>Choose…</button>}
       {navigation.open !== undefined && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
     </p>
-    {linked.state === "checking" && <p role="status">Checking {value.trim()}…</p>}
+    {linked.state === "checking" && <p role="status">Checking {(drafts[id] ?? value).trim()}…</p>}
+    {linked.state === "invalid" && <p role="status">{linked.message} The reference is kept as typed. Choose the file, or type a file inside this folder.</p>}
     {linked.state === "missing" && <p role="status">{linked.path} is not in the project ({linked.message}). The reference is kept as typed.</p>}
     {linked.state === "found" && children}
   </fieldset>;

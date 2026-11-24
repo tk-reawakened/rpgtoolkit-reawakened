@@ -126,8 +126,20 @@ test("a negative per-round HP amount the editor stored heals the afflicted fight
   deepEqual(rig.diagnostics, []);
 });
 
-// Guard-rail exception log (docs/guardrails.md#exceptions, #1896): the fast-test rule. These four cases boot the whole
-// stock_battle game through the real engine — the same rig the battle UI suite uses — because the acceptance is "loads
-// through the real battle provider", which no smaller test can show. Each case takes 0.5-1.3 s on the development
-// machine (measured 2026-11-24); the limit this exception may not exceed is 2 s per case. The paper work over the same
-// documents is in `packages/editor-model/test/battle-data-documents.test.ts` (15 cases, whole file under 0.5 s).
+// Guard-rail exception log (docs/guardrails.md#exceptions, owner rule 2026-11-11): the fast-test rule (AGENTS.md,
+// "Tests stay fast").
+//
+// - Rule: an ordinary unit test finishes in under 1 second individually.
+// - Where: the four cases in this file.
+// - Why: the story's acceptance is "each format opens, edits, saves, reopens and loads through the chosen real battle
+//   provider using an authored enemy fixture". These cases boot the whole `stock_battle` game through the real engine with
+//   the core suite's authored rig, because the provider's own behaviour (which moves the Special list holds, what a signed
+//   FP amount does to an actor, when a status ticks and where it clamps) exists only inside that running package. No
+//   smaller test can show it: a stubbed battle would be asserting the stub.
+// - Way out: a permanent exception. No fix is possible or wanted here. AGENTS.md allows a full-engine test that "covers
+//   only the smallest scenario needed to prove a cross-layer contract" and asks for the explanation above; a ticket cannot
+//   remove the engine boot without removing the proof. The paper work over the same documents is the fast half and lives
+//   in `packages/editor-model/test/battle-data-documents.test.ts` (16 cases, whole file under 0.5 s), which also asserts
+//   these files are byte-for-byte what `writeSpecialMove` / `writeStatusEffect` produce.
+// - Measured bound (do not let it grow): 0.5-1.3 s per case on the development machine, 2026-11-24; the limit this
+//   exception may not exceed is 2 s per case. The file's total is about 4.5 s.

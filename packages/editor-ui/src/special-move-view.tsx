@@ -1,6 +1,6 @@
 import { describeLinkedStatusEffect, type SpecialMoveCommand, type SpecialMoveDocumentSnapshot } from "@tk-reawakened/editor-model";
 import type { JSX } from "preact";
-import { FlagRow, LinkRow, NumberRow, SaveBar, TextRow, useBattleDataForm, useLinkedFile, type BattleDataFormProps } from "./battle-data-form.tsx";
+import { FlagRow, LinesRow, LinkRow, NumberRow, SaveBar, TextRow, useBattleDataForm, useLinkedFile, type BattleDataFormProps } from "./battle-data-form.tsx";
 import type { ViewDocument } from "./mount.ts";
 
 export type SpecialMoveViewDocument = ViewDocument<SpecialMoveDocumentSnapshot, SpecialMoveCommand>;
@@ -8,6 +8,7 @@ export type SpecialMoveViewProps = BattleDataFormProps<SpecialMoveDocumentSnapsh
 
 // The rows are generic in the command type; binding it here keeps each command's literal fields exact.
 const Text = TextRow<SpecialMoveCommand>;
+const Lines = LinesRow<SpecialMoveCommand>;
 const Amount = NumberRow<SpecialMoveCommand>;
 const Flag = FlagRow<SpecialMoveCommand>;
 const Link = LinkRow<SpecialMoveCommand>;
@@ -29,9 +30,9 @@ export function SpecialMoveView(props: SpecialMoveViewProps): JSX.Element {
   const { fs, pickAsset, open, capabilities } = props;
   const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }) };
   const { projectId, path } = snapshot.identity;
-  const statusFile = useLinkedFile(fs, projectId, path, "statusEffects", snapshot.statusEffect);
-  const animationFile = useLinkedFile(fs, projectId, path, "animations", snapshot.animation);
-  const programFile = useLinkedFile(fs, projectId, path, "programs", snapshot.program);
+  const statusFile = useLinkedFile(fs, projectId, path, "statusEffects", snapshot.statusEffect, [".ste"]);
+  const animationFile = useLinkedFile(fs, projectId, path, "animations", snapshot.animation, [".anm"]);
+  const programFile = useLinkedFile(fs, projectId, path, "programs", snapshot.program, [".prg"]);
   const linkedStatus = statusFile.state === "found" ? describeLinkedStatusEffect(statusFile.bytes, statusFile.path) : null;
   return <main class="tkr-battle-data-editor" aria-label="Special move">
     <header><h1>Special move</h1></header>
@@ -39,7 +40,7 @@ export function SpecialMoveView(props: SpecialMoveViewProps): JSX.Element {
     <fieldset>
       <legend>Move</legend>
       <Text form={form} id="name" label="Name" value={snapshot.name} command={(value) => ({ type: "set-special-move-text", field: "name", value })} />
-      <Text form={form} id="description" label="Description" value={snapshot.description} command={(value) => ({ type: "set-special-move-text", field: "description", value })} />
+      <Lines form={form} id="description" label="Description" value={snapshot.description} hint="Line breaks are kept as the file stores them." command={(value) => ({ type: "set-special-move-text", field: "description", value })} />
     </fieldset>
     <fieldset>
       <legend>What it does in a fight</legend>

@@ -276,7 +276,7 @@ export {
   type StatusEffectOpenResult,
   type StatusEffectTextField,
 } from "./status-effect-document.ts";
-export { describeLinkedStatusEffect, type LinkedStatusEffect } from "./battle-data-links.ts";
+export { describeLinkedStatusEffect, linkedFileCandidates, linkReferenceProblem, type LinkedStatusEffect } from "./battle-data-links.ts";
 export type { AssetPack, GeometryPoint, GeometrySolid, GeometryUnder, NativeTile, NativeTileSample, OwnerGeometry } from "@tk-reawakened/native-data";
 export type { Scene, SceneTerrainCellTile } from "@tk-reawakened/native-data";
 export { setSceneTerrain, readScene, setScenePackPlacements } from "@tk-reawakened/native-data";

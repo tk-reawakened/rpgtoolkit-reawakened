@@ -4,7 +4,7 @@ import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { createDocumentIdentity, openSpecialMoveDocument, openStatusEffectDocument, type SpecialMoveDocument } from "@tk-reawakened/editor-model";
+import { createDocumentIdentity, createPendingEdits, openSpecialMoveDocument, openStatusEffectDocument, type SpecialMoveDocument } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import type { mount as mountEditor } from "../src/index.ts";
 
@@ -122,7 +122,7 @@ test("a negative damage is stored as a signed value and described as healing; a 
     equal(view.root.querySelector("[role=alert]")?.textContent?.includes("whole number from -2147483648 to 2147483647"), true);
     equal(field(view.root, "Damage (FP)").value, "3000000000", "the typed value stays so it can be corrected");
     equal(view.doc.getSnapshot().damage, -30);
-    ok(button(view.root, "Save").disabled, "Save waits while a field holds an unapplied value");
+    equal(button(view.root, "Save").disabled, false, "a refused value keeps its text but does not block saving the rest");
   } finally { view.dispose(); }
 });
 
@@ -180,4 +180,104 @@ test("a Toolkit 2 text status effect shows its reason and every field is disable
     ok(field(root, "Disable").disabled);
     ok(button(root, "Save").disabled);
   } finally { handle.dispose(); root.remove(); }
+});
+
+// Story 13.10 follow-ups from independent review: a save must apply a focused draft, a link resolves the way the game
+// does, a reference that leaves its folder says so instead of waiting, a Choose replaces a stale draft, and an undo or a
+// revert drops drafts typed against the newer model.
+
+async function mountWithPending(files: Record<string, Uint8Array>, pick?: string) {
+  const pendingEdits = createPendingEdits();
+  const host = createMemoryPlatformServices({ files });
+  const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(opened.ok);
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: host,
+    pendingEdits,
+    navigation: {
+      open: async () => null,
+      ...(pick === undefined ? {} : { pickAsset: async () => ({ chosen: true as const, reference: pick }) }),
+    },
+  });
+  await settle();
+  return { root, host, doc: opened.document, pendingEdits, dispose: () => { handle.dispose(); root.remove(); } };
+}
+
+test("the host's save applies a field the author is still typing in, instead of writing the document without it", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    // Typed but not left: no change event, so the document does not hold it yet.
+    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+    deepEqual(view.doc.serialize(), fireball, "nothing is in the document yet");
+    // The host's Save All / Ctrl+S path: settle the views' pending work, then save.
+    await view.pendingEdits.settle();
+    ok((await view.doc.save()).ok);
+    deepEqual(view.host.bytesOf(SPC), patched(fireball, { [FP]: [0xe2, 0xff, 0xff, 0xff] }), "the typed damage reached the file");
+  } finally { view.dispose(); }
+});
+
+test("a linked file is found the way the game resolves it: a different case, or the extension left off", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    await until(() => view.root.textContent?.includes("Burn: 3 rounds") === true, "the stored spelling resolves");
+    await type(field(view.root, "Status effect file"), "BURN.STE");
+    await until(() => view.root.textContent?.includes("Burn: 3 rounds") === true, "an upper-case reference resolves");
+    await type(field(view.root, "Status effect file"), "burn");
+    await until(() => view.root.textContent?.includes("Burn: 3 rounds") === true, "a reference without its extension resolves");
+    const statusRow = field(view.root, "Status effect file").closest("fieldset");
+    ok(statusRow !== null && !statusRow.textContent?.includes("is not in the project"), "the status effect row reports nothing missing");
+  } finally { view.dispose(); }
+});
+
+test("a reference that steps out of its folder is named as such at once, never left on Checking", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    await type(field(view.root, "Status effect file"), "../burn.ste");
+    await until(() => view.root.textContent?.includes("cannot step out of its folder") === true, "the form explains the reference");
+    ok(!view.root.textContent?.includes("Checking"), "no read was sent, so nothing waits on one");
+    equal(button(view.root, "Open status effect").disabled, true);
+  } finally { view.dispose(); }
+});
+
+test("a Choose replaces the text that was typed, so the field and Save agree with the document", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn }, "burn.ste");
+  try {
+    await type(field(view.root, "Status effect file"), "not-a-file");
+    ok(view.root.textContent?.includes("is not in the project"), "the typed reference is reported as missing");
+    await act(() => button(view.root, "Choose status effect").click());
+    await settle();
+    equal(field(view.root, "Status effect file").value, "burn.ste");
+    equal(view.doc.getSnapshot().statusEffect, "burn.ste");
+    equal(button(view.root, "Save").disabled, false, "no stale draft keeps Save disabled");
+  } finally { view.dispose(); }
+});
+
+test("a decimal that would round into a whole number is refused, not silently rounded", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    await type(field(view.root, "Damage (FP)"), "2147483646.99999999");
+    ok(view.root.textContent?.includes("a decimal point or an exponent would be rounded"));
+    equal(view.doc.getSnapshot().damage, 12, "the document kept its value");
+    deepEqual(view.doc.serialize(), fireball);
+  } finally { view.dispose(); }
+});
+
+test("a description's Windows line endings survive an edit made in the multi-line field", async () => {
+  const twoLines = patched(fireball, {});
+  // The stored description starts at 0x44 and ends at the closing NUL before EOF; put "One\r\nTwo" there.
+  const description = [...twoLines].slice(0x43, twoLines.length - 1);
+  const withCrlf = new Uint8Array([...twoLines.slice(0, 0x43), ...Uint8Array.from("One\r\nTwo\0", (char) => char.charCodeAt(0))]);
+  void description;
+  const view = await mountWithPending({ [SPC]: withCrlf, [STE]: burn });
+  try {
+    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+    ok(area, "the description is a multi-line field");
+    await act(() => { area.value = "One\nTwo!"; area.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    const saved = view.doc.serialize();
+    equal(new TextDecoder("windows-1252").decode(saved.slice(0x43, saved.length - 1)), "One\r\nTwo!", "the file's own line endings are kept");
+  } finally { view.dispose(); }
 });

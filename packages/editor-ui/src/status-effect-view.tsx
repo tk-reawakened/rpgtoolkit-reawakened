@@ -28,7 +28,7 @@ export function StatusEffectView(props: StatusEffectViewProps): JSX.Element {
   const { snapshot } = form;
   const { fs, pickAsset, open, capabilities } = props;
   const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }) };
-  const programFile = useLinkedFile(fs, snapshot.identity.projectId, snapshot.identity.path, "programs", snapshot.program);
+  const programFile = useLinkedFile(fs, snapshot.identity.projectId, snapshot.identity.path, "programs", snapshot.program, [".prg"]);
   const raw = snapshot.rawFlags;
   const flag = (field: StatusEffectFlagField, label: string, checked: boolean): JSX.Element => (
     <Flag form={form} label={label} checked={checked} hint={`Stored value ${raw[field]}: any non-zero value is on.`} command={(enabled) => ({ type: "set-status-effect-flag", field, enabled })} />
