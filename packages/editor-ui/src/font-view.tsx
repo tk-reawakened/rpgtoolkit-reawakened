@@ -460,10 +460,16 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
                             event.preventDefault();
                             focusGrid.current = true;
                             setCursor({ x: event.key === "Home" ? 0 : GLYPH_SIDE - 1, y: cursor.y });
+                          } else if (event.key === " " || event.key === "Enter") {
+                            // The grid's cursor is the keyboard's position. The browser's own click would act on whichever
+                            // pixel still holds focus while the move is being drawn, so the key acts here and no click follows.
+                            event.preventDefault();
+                            setRefusal(null);
+                            toolAt(cursor.x, cursor.y, tool);
                           } else if (event.key === "Delete" || event.key === "Backspace") {
                             event.preventDefault();
                             setRefusal(null);
-                            toolAt(x, y, "erase");
+                            toolAt(cursor.x, cursor.y, "erase");
                           } else if (event.key === "Escape" && stroke.current !== null) {
                             event.preventDefault();
                             cancelStroke();
