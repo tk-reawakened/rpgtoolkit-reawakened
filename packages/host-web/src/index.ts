@@ -1,18 +1,18 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
-import type { HistoryResult } from "@tk-reawakened/editor-model";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type FontViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 import { createWebRunService, type RunPresenter } from "./run.ts";
-import { historyPolicyFrom, type HistoryPolicy } from "@tk-reawakened/editor-model";
+import { historyPolicyFrom, type HistoryPolicy, type HistoryResult } from "@tk-reawakened/editor-model";
 import { asTerrainSceneDocument } from "@tk-reawakened/editor-model";
 import { mountWebTerrainScene } from "./terrain-scene.ts";
+import type { FontViewDocument } from "@tk-reawakened/editor-ui";
 
 /**
  * A project open in the browser host. Its `workspace` is the host's workbench: one model per document, undo by `editId`,
