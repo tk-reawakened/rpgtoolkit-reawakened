@@ -48,7 +48,7 @@ function rig(transform: ScriptTransformId = "format") {
   const planned: ScriptWorkflowScope[] = [];
   const environment: ScriptWorkflowEnvironment = {
     fs: host.fs,
-    history: { begin: async () => ({ ok: true, groupId: "g1" }), written: async () => ({ ok: true }) },
+    history: { begin: async () => ({ ok: true, groupId: "g1" }), intent: async () => ({ ok: true }), written: async () => ({ ok: true }) },
     openPrograms: () => [],
     provider: {
       async transform(question) {

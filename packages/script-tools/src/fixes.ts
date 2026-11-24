@@ -367,8 +367,8 @@ export function legacyPrefixLines(source: string): readonly UnsupportedFragment[
       continue;
     }
     // A line whose first non-blank character is `*` is a star comment to the end of the line (LEX-4), so nothing in it
-    // opens or closes a block comment.
-    if (/^[ \t]*\*/.test(text)) continue;
+    // opens a block comment; inside a block, a leading `*/` still closes it.
+    if (!inBlock && /^[ \t]*\*/.test(text)) continue;
     const code = withoutStrings(text);
     for (let at = 0; at < code.length - 1; at++) {
       if (!inBlock && code[at] === "/" && code[at + 1] === "/") break;

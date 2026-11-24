@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { platformError, type FileSystemService } from "@tk-reawakened/platform-services";
-import { createCheckpointGroups, type CheckpointEnvironment } from "../src/index.ts";
+import { createCheckpointGroups, createWizardHistory, type CheckpointEnvironment } from "../src/index.ts";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 function fixture() {
@@ -142,4 +142,20 @@ test("torn capture entries remain diagnosable and deletable without hiding valid
   ok((await groups.deleteGroup("torn-2")).ok); equal(host.bytesOf(".tkr-history/groups/torn-2.json"), undefined);
   const remaining = await groups.list(); ok(remaining.ok); equal(remaining.value.length, 2);
   ok(remaining.value.every((entry) => !("error" in entry)));
+});
+
+test("an intent recorded before a crash makes retry write the result, while restore still returns the original (13.16)", async () => {
+  const { host, env } = fixture();
+  const history = createWizardHistory(createCheckpointGroups(env));
+  const begun = await history.begin("Format (reviewed)", ["Misc/a.anm"]); ok(begun.ok);
+  // The wizard records what it is about to write, then the process dies before the write.
+  const recorded = await history.intent(begun.groupId, "Misc/a.anm", bytes("formatted")); ok(recorded.ok);
+  deepEqual(host.bytesOf("Misc/a.anm"), bytes("original"), "nothing was written yet");
+  const afterCrash = createCheckpointGroups(env);
+  const group = (await afterCrash.list()).value.find((entry) => "files" in entry)!;
+  deepEqual((group as { files: { after: string | null; status: string }[] }).files.map((file) => file.status), ["writing"]);
+  const retried = await afterCrash.retry(begun.groupId); ok(retried.ok);
+  deepEqual(host.bytesOf("Misc/a.anm"), bytes("formatted"), "a retry writes the intended result, never the old content back over it");
+  const restored = await afterCrash.restore(begun.groupId); ok(restored.ok);
+  deepEqual(host.bytesOf("Misc/a.anm"), bytes("original"), "and restore still returns the original");
 });

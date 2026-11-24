@@ -117,6 +117,13 @@ export function transformSource(request: ScriptTransformRequest): ScriptTransfor
     if (refusal !== null) return refusal;
     const job = request.transform === "format" ? { indent: true, capitalisation: true } : { indent: false, capitalisation: true };
     const text = runFormat(request, job);
+    // A rewrite is offered only when the program it rewrites compiles to the same instructions: a file that does not
+    // compile must not be given a plausible-looking "formatted" version of code the engine would refuse.
+    if (text !== request.text && !sameInPlaceBehavior(request.text, text, options)) {
+      return refused(request, { code: "not-proven", message: "The program does not compile to the same instructions after this rewrite, so no rewrite is offered." }, {
+        unsupported: [{ line: null, code: "compile-error", message: "The source does not compile, so formatting it could hide a mistake; fix the compile error first." }],
+      });
+    }
     const id = request.transform === "format" ? "format" : "canonical-case";
     return finish(request, text, [{ id, title: request.transform === "format" ? FORMAT_TITLE : "Normalise capitalisation", applied: text !== request.text }], [], []);
   }

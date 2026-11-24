@@ -283,6 +283,26 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         return platformOk(await capture(targets, "before-wizard", { name }));
       } catch (error) { return platformError("io-error", message(error)); }
     },
+    /**
+     * Record what a wizard is about to write, before it writes it (write-ahead intent). A crash between this and the
+     * write leaves a group whose retry writes the intended bytes, never the old ones; restore still uses `before`.
+     */
+    async intent(id: string, path: string, bytes: Uint8Array | null): Promise<PlatformResult<CheckpointGroup>> {
+      try {
+        const group = await load(id);
+        if (group.reason !== "before-wizard") throw new Error(`Checkpoint group ${id} does not accept wizard writes.`);
+        const canonicalPath = await canonical(path);
+        const file = group.files.find((entry) => foldPath(entry.path) === foldPath(canonicalPath));
+        if (file === undefined) throw new Error(`${path} was not in checkpoint group ${id}.`);
+        file.after = bytes === null ? null : await store(bytes);
+        if (file.status === "pending") {
+          file.status = "writing";
+          file.message = "Write planned, not yet written";
+        }
+        await persist(group);
+        return platformOk(group);
+      } catch (error) { return platformError("io-error", message(error)); }
+    },
     async registerWritten(id: string, path: string, bytes: Uint8Array | null): Promise<PlatformResult<CheckpointGroup>> {
       try {
         const group = await load(id);
@@ -398,6 +418,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
   return {
     ...api,
     begin: (paths: readonly string[], name?: string | null) => serial(() => api.begin(paths, name)),
+    intent: (id: string, path: string, bytes: Uint8Array | null) => serial(() => api.intent(id, path, bytes)),
     registerWritten: (id: string, path: string, bytes: Uint8Array | null) => serial(() => api.registerWritten(id, path, bytes)),
     apply: (id: string) => serial(() => api.apply(id)),
     commit: (targets: readonly CheckpointTarget[]) => serial(() => api.commit(targets)),

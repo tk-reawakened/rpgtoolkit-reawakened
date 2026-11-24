@@ -178,6 +178,8 @@ export function createServer(connection: ServerConnection, options: ServerOption
   const documentation = commandDocumentation(plugins);
   const commandNames = publicCommandNames(plugins);
   let project: ProjectModel = NO_PROJECT;
+  /** Any project notification has been processed, even one that reports a problem; waiting past it would hang. */
+  let projectArrived = false;
   /** Requests that must be answered after the client's project snapshot arrives (a startup race, not an unassessed file). */
   const projectWaiters = new Set<() => void>();
   let projectLint: ProjectLint | undefined;
@@ -274,6 +276,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
     const snapshot = readSnapshot(params);
     if (snapshot === undefined || snapshot.revision <= project.revision) return;
     project = projectModel(snapshot);
+    projectArrived = true;
     for (const wake of [...projectWaiters]) wake();
     projectWaiters.clear();
     publishProject();
@@ -541,7 +544,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
    * program the editor has not opened can be asked about; its dialect is the running project's when the URI is one of
    * the project's programs, otherwise the language mode's. The answer is a proposal; nothing is edited.
    */
-  connection.onRequest(PROJECT_STATE_REQUEST, () => ({ revision: project.revision }));
+  connection.onRequest(PROJECT_STATE_REQUEST, () => ({ revision: project.revision, arrived: projectArrived }));
 
   connection.onRequest(SCRIPT_TRANSFORM_REQUEST, async (params: ScriptTransformParams) => {
     const document = params?.textDocument;
@@ -551,7 +554,7 @@ export function createServer(connection: ServerConnection, options: ServerOption
     }
     // A client that has a project says so; its snapshot is one notification away, and answering before it arrives would
     // report every program as unassessed. A client with no project is refused at once.
-    if (params.awaitProject === true && project.kind === "none") {
+    if (params.awaitProject === true && project.kind === "none" && !projectArrived) {
       await new Promise<void>((resolve) => { projectWaiters.add(resolve); });
     }
     const context = documentContext(project, document.uri, document.languageId === "rpgcode-tk2" ? "rpgcode-tk2" : "rpgcode");

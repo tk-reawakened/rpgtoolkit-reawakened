@@ -172,3 +172,20 @@ test("a star comment is a whole-line comment, so a # on the next line is still r
   deepEqual(result.unsupported.filter((fragment) => fragment.code === "legacy-prefix-line").map((fragment) => fragment.line), [2]);
   equal(result.text, source, "nothing proved a rewrite");
 });
+
+test("a block comment that closes on a star line does not hide the legacy # that follows", () => {
+  const source = "/* note\n */\n#mwin(\"dead\")\n";
+  const result = run("cleanup", source);
+  deepEqual(result.unsupported.filter((fragment) => fragment.code === "legacy-prefix-line").map((fragment) => fragment.line), [3]);
+});
+
+test("format refuses a program that does not compile instead of offering a plausible rewrite", () => {
+  const invalid = "IF (1) {\n";
+  const format = run("format", invalid);
+  equal(format.status, "refused");
+  equal(format.reason?.code, "not-proven");
+  equal(format.text, invalid);
+  ok(format.unsupported.some((fragment) => fragment.code === "compile-error"));
+  const tidy = run("canonical-case", "mwin(\"ok\")\n");
+  equal(tidy.status, "unchanged");
+});

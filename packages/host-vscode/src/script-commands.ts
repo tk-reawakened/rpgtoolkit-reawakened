@@ -61,6 +61,7 @@ function progress(message: string): () => void {
 }
 
 const DIFF_SCHEME = "tkr-script-diff";
+let diffSequence = 0;
 
 /** The two sides of every open comparison, by URI, so the diff editor reads exactly what the review showed. */
 const diffSides = new Map<string, string>();
@@ -74,17 +75,30 @@ function registerDiffDocuments(context: vscode.ExtensionContext): void {
   }));
 }
 
+/** Whether two texts differ only in white space, which VS Code's diff hides unless its setting says otherwise. */
+function whitespaceOnly(before: string, after: string): boolean {
+  return before !== after && before.replace(/[ \t]+/g, "") === after.replace(/[ \t]+/g, "");
+}
+
+/** `text` with spaces and tabs made visible, but only when the change is white space alone and the diff would hide it. */
+function whitespaceVisible(before: string, after: string, text: string): string {
+  return whitespaceOnly(before, after) ? text.replace(/ /g, "\u00b7").replace(/\t/g, "\u2192\t") : text;
+}
+
 /** Open VS Code's own diff editor for one program: the planned original on the left, the result on the right. */
 async function showDiff(item: ScriptReviewItem): Promise<void> {
   if (item.original === null || item.result === null) {
     await vscode.window.showInformationMessage(`${item.path} was not changed, so there is nothing to compare.`);
     return;
   }
-  const original = vscode.Uri.parse(`${DIFF_SCHEME}:${encodeURIComponent(item.path)}?side=original`, true);
-  const result = vscode.Uri.parse(`${DIFF_SCHEME}:${encodeURIComponent(item.path)}?side=result`, true);
-  diffSides.set(original.toString(), item.original);
-  diffSides.set(result.toString(), item.result);
-  await vscode.commands.executeCommand("vscode.diff", original, result, `${item.path}: original ↔ result`);
+  // A fresh identity for every comparison: reusing one would let an editor show an older review's content.
+  const nonce = `${Date.now().toString(36)}-${++diffSequence}`;
+  const original = vscode.Uri.parse(`${DIFF_SCHEME}:${encodeURIComponent(item.path)}?side=original&review=${nonce}`, true);
+  const result = vscode.Uri.parse(`${DIFF_SCHEME}:${encodeURIComponent(item.path)}?side=result&review=${nonce}`, true);
+  diffSides.set(original.toString(), whitespaceVisible(item.original, item.result, item.original));
+  diffSides.set(result.toString(), whitespaceVisible(item.original, item.result, item.result));
+  const title = whitespaceOnly(item.original, item.result) ? `${item.path}: original ↔ result (spaces shown as ·, tabs as →)` : `${item.path}: original ↔ result`;
+  await vscode.commands.executeCommand("vscode.diff", original, result, title);
 }
 
 /**
@@ -187,9 +201,10 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
               async transform(question) {
                 return await vscode.commands.executeCommand(TRANSFORM_COMMAND, {
                   transform: question.transform,
-                  textDocument: { uri: uriOf(question.path), ...(tk2Documents.has(question.path) ? { languageId: "rpgcode-tk2" } : {}) },
+                  textDocument: { uri: uriOf(question.workspacePath ?? question.path), ...(tk2Documents.has(question.path) ? { languageId: "rpgcode-tk2" } : {}) },
                   text: question.text,
                   indentWidth: question.indentWidth,
+                  ...(question.awaitProject === true ? { awaitProject: true } : {}),
                 });
               },
             },
@@ -218,9 +233,11 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
 function projectRootIn(folder: vscode.Uri): string {
   const configured = vscode.workspace.getConfiguration("rpgcode").get<string>("project", "").trim();
   if (configured === "") return "";
+  // A relative setting is written against the first workspace folder, which is how the RPGCode extension reads it.
+  const first = vscode.workspace.workspaceFolders?.[0]?.uri ?? folder;
   const main = /^[A-Za-z][A-Za-z0-9+.-]+:/.test(configured) && !/^[A-Za-z]:[\\/]/.test(configured)
     ? vscode.Uri.parse(configured, true)
-    : vscode.Uri.joinPath(folder, ...configured.split(/[\\/]/).filter((part) => part !== ""));
+    : vscode.Uri.joinPath(first, ...configured.split(/[\\/]/).filter((part) => part !== ""));
   const base = folder.path.replace(/\/?$/, "/");
   // The same root the language server uses: the folder above `Main`, else the `.gam`'s own folder (TOOL-1).
   const mainPath = main.path.replace(/\/?$/, "/");
@@ -228,7 +245,8 @@ function projectRootIn(folder: vscode.Uri): string {
   const above = parent.slice(0, -1);
   const rootPath = above.slice(above.lastIndexOf("/") + 1).toLowerCase() === "main" ? above.slice(0, above.lastIndexOf("/") + 1) : parent;
   const root = rootPath.replace(/\/?$/, "/");
-  return root.startsWith(base) ? decodeURIComponent(root.slice(base.length)) : "";
+  // `fs` paths have no trailing separator: "Game/", never "Game/" with the slash left on.
+  return root.startsWith(base) ? decodeURIComponent(root.slice(base.length)).replace(/\/$/, "") : "";
 }
 
 async function pickFolder(folders: readonly vscode.WorkspaceFolder[]): Promise<vscode.WorkspaceFolder | undefined> {

@@ -154,3 +154,12 @@ test("the shipped stdio server answers the request over its real transport", { t
     return true;
   });
 });
+
+test("a project snapshot that reports a problem ends the wait instead of hanging forever", async () => {
+  const lsp = server();
+  const pending = lsp.ask({ transform: "format", textDocument: { uri: MODERN.uri("Prg/main.prg") }, text: MESSY, awaitProject: true });
+  lsp.project({ revision: 1, main: null, problem: "the folder could not be read" });
+  const answer = await pending;
+  equal(answer.status, "refused");
+  equal(answer.reason?.code, "unassessed");
+});

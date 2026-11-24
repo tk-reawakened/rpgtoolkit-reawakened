@@ -20,7 +20,7 @@ export const SCRIPT_TRANSFORM_REQUEST = "rpgcode/scriptTransform";
 /** Ask which running project snapshot the server holds; `revision` 0 means none has arrived yet. */
 export const PROJECT_STATE_REQUEST = "rpgcode/projectState";
 
-export type ProjectState = { readonly revision: number };
+export type ProjectState = { readonly revision: number; readonly arrived: boolean };
 
 export type ScriptTransformId = "format" | "canonical-case" | "update" | "cleanup";
 

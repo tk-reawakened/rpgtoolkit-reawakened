@@ -238,6 +238,22 @@ export function ScriptWorkflowView({ transform, activeProgram, plan, review, onC
           event.preventDefault();
           event.stopPropagation();
           cancel();
+          return;
+        }
+        // A modal keeps Tab inside itself: the page behind it has no controls the author can reach by keyboard.
+        if (event.key === "Tab") {
+          const focusable = [...(root.current?.querySelectorAll<HTMLElement>("a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex=\"-1\"])") ?? [])];
+          if (focusable.length === 0) return;
+          const first = focusable[0]!;
+          const last = focusable.at(-1)!;
+          const active = document.activeElement;
+          if (event.shiftKey && (active === first || active === root.current)) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && active === last) {
+            event.preventDefault();
+            first.focus();
+          }
         }
       }}
     >

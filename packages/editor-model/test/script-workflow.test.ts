@@ -68,19 +68,24 @@ function project(files: Record<string, string> = {}) {
   return host;
 }
 
-function env(host: MemoryPlatformServices, extra: Partial<ScriptWorkflowEnvironment> = {}): ScriptWorkflowEnvironment & { groups: { name: string; planned: readonly string[]; written: string[] }[] } {
+function env(host: MemoryPlatformServices, extra: Partial<ScriptWorkflowEnvironment> = {}): ScriptWorkflowEnvironment & { groups: { name: string; planned: readonly string[]; written: string[] }[]; intents: { readonly path: string; readonly bytes: Uint8Array }[] } {
   const groups: { name: string; planned: readonly string[]; written: string[] }[] = [];
+  const intents: { readonly path: string; readonly bytes: Uint8Array }[] = [];
   const history: WizardHistory = {
     async begin(name, planned) {
       groups.push({ name, planned, written: [] });
       return { ok: true, groupId: `g${groups.length}` };
+    },
+    async intent(_groupId, path, bytes) {
+      intents.push({ path, bytes: bytes.slice() });
+      return { ok: true };
     },
     async written(groupId, path) {
       groups[Number(groupId.slice(1)) - 1]!.written.push(path);
       return { ok: true };
     },
   };
-  return { fs: host.fs, provider: provider(), history, openPrograms: () => [], groups, ...extra };
+  return { fs: host.fs, provider: provider(), history, openPrograms: () => [], groups, intents, ...extra };
 }
 
 const states = (entries: readonly { path: string; state: string }[]): Record<string, string> => Object.fromEntries(entries.map((entry) => [entry.path, entry.state]));
@@ -212,7 +217,7 @@ test("a file that changed since the plan is not written, and the others still ar
   await host.fs.write("Prg/a.prg", bytes("MESSY edited elsewhere\n"));
   const outcome = await review.apply();
   deepEqual(outcome.failed.map((item) => item.path), ["Prg/a.prg"]);
-  match(outcome.failed[0]!.message, /changed since the review \(changed-since-review\)/);
+  match(outcome.failed[0]!.message, /changed while the review was open/);
   equal(text(host.bytesOf("Prg/a.prg")), "MESSY edited elsewhere\n", "the newer file is kept");
   equal(text(host.bytesOf("Prg/b.prg")), "tidy b\n");
   equal(review.getSnapshot().phase, "reviewing", "the review stays open so the failure can be seen");
@@ -338,4 +343,54 @@ test("under a project root, the server is asked with root-relative paths and cop
   deepEqual(outcome.applied.map((item) => item.destination), ["Game/.tkr-migrated/3.1/Prg/old.prg"]);
   equal(text(host.bytesOf("Game/.tkr-migrated/3.1/Prg/old.prg")), "new\n");
   equal(text(host.bytesOf("Game/Prg/old.prg")), "OLD\n");
+});
+
+test("the bytes about to be written are recorded before the write, so a crash cannot leave a retry that restores the old content", async () => {
+  const host = project();
+  const environment = env(host);
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "program", path: "Prg/a.prg" }));
+  await review.apply();
+  const intent = environment.intents.find((item) => item.path === "Prg/a.prg");
+  ok(intent !== undefined, "the intended content was recorded");
+  // The recorded intent is exactly the bytes that were written, with the file's own CRLF endings.
+  deepEqual([...intent.bytes], [...host.bytesOf("Prg/a.prg")!]);
+  equal(text(intent.bytes), "tidy\r\nline two\r\n");
+  // And it is not the old content: a retry built from this group can only write the result.
+  equal(text(intent.bytes) === text(host.bytesOf("Prg/a.prg")), true);
+  ok(environment.intents.every((item) => text(item.bytes) !== "MESSY\r\nline two\r\n"), "no intent records the old bytes");
+});
+
+test("a host whose history cannot record intent before writing writes nothing, rather than risking an unrecoverable write", async () => {
+  const host = project();
+  const history: WizardHistory = { begin: async () => ({ ok: true, groupId: "g1" }), written: async () => ({ ok: true }) };
+  const environment = env(host, { history });
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "program", path: "Prg/a.prg" }));
+  const outcome = await review.apply();
+  deepEqual(outcome.applied, []);
+  match(outcome.failed[0]!.message, /cannot record the intended content before writing/);
+  equal(text(host.bytesOf("Prg/a.prg")), "MESSY\r\nline two\r\n");
+});
+
+test("a copy changed between the review and Apply is not overwritten", async () => {
+  const host = project();
+  const environment = env(host);
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "update", { kind: "program", path: "Prg/old.prg" }));
+  await host.fs.write(`${MIGRATED_FOLDER}/Prg/old.prg`, bytes("changed during review\n"));
+  const outcome = await review.apply();
+  deepEqual(outcome.failed.map((item) => item.path), ["Prg/old.prg"]);
+  equal(text(host.bytesOf(`${MIGRATED_FOLDER}/Prg/old.prg`)), "changed during review\n");
+});
+
+test("under a project root the host is given a workspace path for its URI, while the server gets its own root-relative one", async () => {
+  const host = createMemoryPlatformServices({ files: { "Game/Main/example.gam": bytes("gam"), "Game/Prg/old.prg": bytes("OLD\n") } });
+  const seen: { readonly path: string; readonly workspacePath?: string; readonly uri: string }[] = [];
+  const inner = provider();
+  const provider2 = scriptProviderOver(async (params) => {
+    // The server-side path travels in the request text's identity; the URI is the host's mapping of the workspace path.
+    return await inner.transform({ transform: params.transform, path: "Prg/old.prg", text: params.text, indentWidth: params.indentWidth, workspacePath: "Game/Prg/old.prg" });
+  }, (path) => { seen.push({ path, uri: `tkr://${path}` }); return `tkr://${path}`; });
+  const environment = env(host, { provider: provider2, root: "Game", projectSelected: true });
+  const plan = await planScriptWorkflow(environment, "update", { kind: "project" });
+  equal(plan.entries[0]!.destination, "Game/.tkr-migrated/3.1/Prg/old.prg");
+  ok(seen.some((item) => item.path === "Game/Prg/old.prg" && item.uri === "tkr://Game/Prg/old.prg"), "the URI is built from the workspace path");
 });

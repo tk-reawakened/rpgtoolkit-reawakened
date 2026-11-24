@@ -94,6 +94,16 @@ test("the reviewed script workflow shows what would change in a real Monaco host
   await expect(comparison.locator('[data-change="removed"]').filter({ hasText: 'MWIN("Hello")' })).toHaveCount(1);
   await expect(dialog.getByRole("button", { name: "Apply to 1 program" })).toBeEnabled();
 
+  // The dialog keeps the keyboard: Tab from its last control wraps to the first, and Shift+Tab from the first to the last.
+  const cancelButton = dialog.getByRole("button", { name: "Cancel" });
+  await cancelButton.focus();
+  await page.keyboard.press("Tab");
+  const wrapped = await page.evaluate(() => {
+    const dialogElement = document.querySelector(".tkr-script-workflow");
+    return dialogElement?.contains(document.activeElement) === true && document.activeElement?.textContent?.startsWith("Select all") === true;
+  });
+  expect(wrapped).toBe(true);
+
   // Cancel writes nothing: both programs are byte-identical, and no recovery group was recorded.
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toHaveCount(0);
