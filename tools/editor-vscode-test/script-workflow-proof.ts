@@ -122,6 +122,11 @@ export async function runVscodeScriptWorkflowProof(
   await review(OLD);
   await expect(row(OLD)).toContainText(COPY);
   await apply();
-  await expect.poll(() => bytes(COPY)).toBe('MWIN("legacy review")\n');
+  await expect.poll(async () => {
+    try { return await bytes(COPY); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }).toBe('MWIN("legacy review")\n');
   expect(await bytes(OLD)).toBe(OLD_TEXT);
 }

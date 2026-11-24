@@ -391,7 +391,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     async restore(id: string, options: RestoreOptions = {}): Promise<PlatformResult<CheckpointGroup>> {
       try {
         const source = await load(id);
-        const isolateRefusals = source.reason === "before-script" || source.reason === "before-restore";
+        const isolateRefusals = source.reason === "before-script";
         const only = options.only === undefined ? null : new Set(options.only.map(foldPath));
         const deleteUncertain = new Set(options.deleteUncertain?.map(foldPath) ?? []);
         const selected = source.files.filter((file) => only === null || only.has(foldPath(file.path)));
