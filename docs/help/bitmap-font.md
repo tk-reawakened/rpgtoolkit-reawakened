@@ -26,6 +26,6 @@ The picture is drawn with the game's own rule. Each glyph pixel becomes a square
 
 ## Saving and using the font
 
-Your changes are ordinary edits: Undo and Redo work, and Save writes the file. Saving keeps every character you did not touch exactly as it was. A font file the editor cannot write back byte for byte is shown read-only with the reason, and is never converted.
+Your changes are ordinary edits: **Undo** and **Redo** in the glyph panel, or Ctrl+Z and Ctrl+Y from the grid, take a stroke or a keyboard change back and forward, and Save writes the file. Saving keeps every character you did not touch exactly as it was. A font file the editor cannot write back byte for byte is shown read-only with the reason, and is never converted.
 
 Save the font in the project's `Font` folder to use it in the game. Then `font("name")` selects it by its file name, and `text()` draws with it, in the game and in a runner, the same way as the picture above.

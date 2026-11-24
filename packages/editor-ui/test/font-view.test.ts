@@ -71,6 +71,8 @@ async function setup(bytes: Uint8Array = ORIGINAL): Promise<Setup> {
     },
     save: () => doc.save(),
     resolveConflict: (choice) => doc.resolveConflict(choice),
+    undo: () => doc.undo(),
+    redo: () => doc.redo(),
   };
   const el = document.createElement("div");
   document.body.append(el);
@@ -318,6 +320,46 @@ test("a stroke is dropped when the document changes under it, and another pointe
   equal(inkAt(s.el), "0,0 1,1", "the stroke was dropped, not merged over the new rows");
   await release(pixel(s.el, 5, 4));
   equal(s.doc.getSnapshot().edits.length, 1, "only the outside edit exists");
+});
+
+test("the host's Undo and Redo are one button and one keyboard shortcut, from the grid, and follow the document's stack", async () => {
+  const s = await setup();
+  await show(s);
+  const undo = () => control<HTMLButtonElement>(s.el, ".tkr-font-undo");
+  const redo = () => control<HTMLButtonElement>(s.el, ".tkr-font-redo");
+  equal(undo().disabled, true, "nothing to undo on a clean font");
+  equal(redo().disabled, true);
+
+  // Two keyboard edits on empty pixels, so the stack has two steps.
+  await key(pixel(s.el, 0, 0), "ArrowDown");
+  await key(pixel(s.el, 0, 1), " ");
+  await settle();
+  await key(pixel(s.el, 0, 1), "ArrowRight");
+  await key(pixel(s.el, 1, 1), " ");
+  await settle();
+  equal(inkAt(s.el), "0,0 0,1 1,1");
+  equal(undo().disabled, false);
+
+  await act(() => { undo().click(); });
+  await settle();
+  equal(inkAt(s.el), "0,0 0,1", "the button takes the last edit back");
+  equal(redo().disabled, false);
+  await act(() => { redo().click(); });
+  await settle();
+  equal(inkAt(s.el), "0,0 0,1 1,1", "and redo puts it back");
+
+  // Ctrl+Z and Ctrl+Y from the grid do the same through the host.
+  await key(pixel(s.el, 1, 1), "z", { ctrlKey: true });
+  await settle();
+  equal(inkAt(s.el), "0,0 0,1");
+  await key(pixel(s.el, 1, 1), "y", { ctrlKey: true });
+  await settle();
+  equal(inkAt(s.el), "0,0 0,1 1,1");
+  await act(() => { undo().click(); });
+  await act(() => { undo().click(); });
+  await settle();
+  equal(inkAt(s.el), "0,0", "two undo steps return the font to its saved glyph");
+  equal(s.doc.getSnapshot().dirty, false);
 });
 
 test("Clear glyph empties the glyph as one edit and is unavailable when it is already empty", async () => {

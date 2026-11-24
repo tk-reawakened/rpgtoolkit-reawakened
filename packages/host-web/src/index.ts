@@ -2,7 +2,7 @@ import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
 import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type FontViewDocument, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
 import { createWebLanguageService, notifyOnChange, type WebLanguageService } from "./language.ts";
@@ -295,7 +295,22 @@ export const openGameSettings = openEditor;
  */
 function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
-  if (document.kind === "font") return document as unknown as ViewDocument;
+  if (document.kind === "font") {
+    // The browser workbench owns no stack of its own: Undo and Redo are the document's, as they are for a board.
+    const font = document as unknown as Required<Pick<FontViewDocument, "undo" | "redo">> & FontViewDocument;
+    const view: FontViewDocument = {
+      kind: font.kind,
+      identity: font.identity,
+      getSnapshot: () => font.getSnapshot(),
+      subscribe: (listener) => font.subscribe(listener),
+      apply: (command) => font.apply(command),
+      save: () => font.save(),
+      resolveConflict: (choice) => font.resolveConflict(choice),
+      undo: () => font.undo(),
+      redo: () => font.redo(),
+    };
+    return view;
+  }
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
   if (document.kind === "native-clip") return document as unknown as NativeClipViewDocument;

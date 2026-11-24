@@ -14,6 +14,7 @@ import {
   previewFontText,
   type ApplyResult,
   type ConflictChoice,
+  type HistoryResult,
   type FontCommand,
   type FontDocumentSnapshot,
   type PendingEdits,
@@ -35,7 +36,14 @@ const EMPTY_ROWS: readonly number[] = [0, 0, 0, 0, 0, 0, 0, 0];
 
 type Tool = "draw" | "erase";
 
-export type FontViewDocument = ViewDocument<FontDocumentSnapshot, FontCommand>;
+/**
+ * What the font view needs beyond the shared surface: the host's own undo and redo, when it has them. A host that leaves
+ * them out owns history itself (VS Code's workbench), and the view then shows no Undo or Redo button.
+ */
+export interface FontViewDocument extends ViewDocument<FontDocumentSnapshot, FontCommand> {
+  undo?(): HistoryResult | Promise<HistoryResult>;
+  redo?(): HistoryResult | Promise<HistoryResult>;
+}
 
 export interface FontViewProps {
   readonly doc: FontViewDocument;
@@ -266,6 +274,14 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
     };
   };
 
+  /** The host's undo or redo (the document's own stack, which the host exposes); nothing happens without one. */
+  const history = (direction: "undo" | "redo"): void => {
+    const call = direction === "undo" ? doc.undo : doc.redo;
+    if (call === undefined) return;
+    setRefusal(null);
+    void Promise.resolve(call.call(doc)).catch((error: unknown) => setRefusal(error instanceof Error ? error.message : String(error)));
+  };
+
   const moveCursor = (dx: number, dy: number): void => {
     focusGrid.current = true;
     setCursor({ x: Math.max(0, Math.min(GLYPH_SIDE - 1, cursor.x + dx)), y: Math.max(0, Math.min(GLYPH_SIDE - 1, cursor.y + dy)) });
@@ -391,8 +407,14 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
             <button type="button" class="tkr-font-clear" disabled={!canEdit || glyphEmpty} onClick={() => { cancelStroke(); void run({ type: "set-font-glyph", glyph: slot, rows: EMPTY_ROWS }); }}>
               Clear glyph
             </button>
+            {doc.undo === undefined || doc.redo === undefined ? null : (
+              <>
+                <button type="button" class="tkr-font-undo" aria-keyshortcuts="Control+Z" disabled={!snapshot.canUndo || !canEdit} onClick={() => history("undo")}>Undo</button>
+                <button type="button" class="tkr-font-redo" aria-keyshortcuts="Control+Y" disabled={!snapshot.canRedo || !canEdit} onClick={() => history("redo")}>Redo</button>
+              </>
+            )}
           </div>
-          <p id={`${ids}-grid-help`} class="tkr-font-help">Press and drag to draw or erase. From the keyboard, arrow keys move the cursor, Space or Enter uses the tool and Delete erases. Escape cancels a stroke.</p>
+          <p id={`${ids}-grid-help`} class="tkr-font-help">Press and drag to draw or erase. From the keyboard, arrow keys move the cursor, Space or Enter uses the tool, Delete erases, Ctrl+Z and Ctrl+Y undo and redo, and Escape cancels a stroke.</p>
           <div
             ref={grid}
             class="tkr-font-grid"
@@ -447,6 +469,15 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
                           toolAt(x, y, tool);
                         }}
                         onKeyDown={(event) => {
+                          // The host's own undo and redo, unless the workbench around this view already took the key.
+                          if (!event.defaultPrevented && (event.ctrlKey || event.metaKey) && !event.altKey && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
+                            const redo = event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z");
+                            if ((redo ? doc.redo : doc.undo) !== undefined) {
+                              event.preventDefault();
+                              history(redo ? "redo" : "undo");
+                            }
+                            return;
+                          }
                           if (event.ctrlKey || event.metaKey || event.altKey) return;
                           const step = event.key === "ArrowLeft" ? [-1, 0]
                             : event.key === "ArrowRight" ? [1, 0]
