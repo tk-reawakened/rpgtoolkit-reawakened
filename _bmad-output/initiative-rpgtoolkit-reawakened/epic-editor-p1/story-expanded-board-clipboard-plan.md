@@ -2,7 +2,7 @@
 type: feature
 title: "Expanded board clipboard"
 ticket: 13
-status: draft
+status: done
 risk: medium
 ---
 
@@ -43,3 +43,18 @@ Tests: `editor-model/test/board-clipboard.test.ts` (all three layouts, all four 
 **Fourth review round (2026-11-24, #3360).** Three more valid defects, all about a stale editor copy of the board: a region paste now names every covered cell and shade so the stored board decides what changed (a stale view no longer skips a cell another view changed), an object paste requires the family exactly as it was read (a concurrent add is not overwritten; the paste is refused), and a sparse paste clears the previous selection even when it changed nothing (a later cut cannot take unrelated cells). The document also reports a no-op refusal as `unchanged`, so treating "already shows that" as a paste for selection purposes is decided by the authoritative model, and the two stale-view tests drive an editor whose `board()` is a captured old snapshot while `apply` reaches the real document.
 
 **Fifth review round (2026-11-24, #3360).** Two valid defects from the surface review and one weakened test: an all-zero shade paste on a board without a shading layer created an empty layer (dirty, an undo step, and a layer in the saved file) — the model now reads a missing layer as zeros, so asking for zeros changes nothing; a cell that already stores the pasted reference kept being rewritten to the first lookup-table slot when the table names that reference twice (dirty for no visible change) — the tile writer now skips a cell whose stored reference already is the tile, keeping its own slot, for any duplicated reference and not only the empty one; and the Ctrl+Y focus test had nothing to redo, so it could not fail — it now seeds a redoable edit and proves the key neither undoes nor redoes from a focused list.
+
+### Closure verification
+
+[#3360](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3360) merged at `d187a87f9df07bc8c44fd4bb04f5fd9d2c5d862c`. [#1738](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1738) is closed and the Roadmap card is `done`. Both independent implementation reviews accepted the final head, and [all 26 checks passed](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45468233055/attempts/2).
+
+Acceptance checked locally at that merge:
+
+| Clause | Committed tests and observable result |
+| --- | --- |
+| Tile and shade regions: Select all, copy, cut and paste | `packages/editor-model/test/board-clipboard.test.ts:80–169` checks all three layouts: actual tile references and shading after paste, one undo step, exact redo bytes, and reload. The cut clears both together and undo restores the original bytes. The whole-layer case checks Select all across layers. |
+| Whole vectors, programs, sprites and images | `packages/editor-model/test/board-clipboard.test.ts:210–262` runs both paths for each family: Select all, field-for-field copy/paste, exact undo/redo and reload, plus cut confirmation, cancellation and removal as one edit. |
+| Reject partial point sets and lights without mutation | `packages/editor-model/test/board-clipboard.test.ts:265–314` checks an explicit refusal, unchanged serialized bytes, clipboard and edit history, and rejects light data on paste. |
+| Real browser commands and persistence | `tools/browser/tests/editor-board-clipboard.spec.ts:84–168` exercises the real browser clipboard and shortcuts, reads saved board bytes after paste/undo/redo, and checks the vector cut confirmation and partial-point refusal. |
+
+`pnpm build` passed; `node --test packages/editor-model/test/board-clipboard.test.ts packages/editor-ui/test/board-clipboard-view.test.ts packages/platform-services/test/clipboard.test.ts packages/host-web/test/clipboard.test.ts` passed 67/67 with no skips. `TKR_BROWSER_SUITE=editor-web PLAYWRIGHT_PORT=<free-port> pnpm exec playwright test tools/browser/tests/editor-board-clipboard.spec.ts` passed 2/2. Eight additional local probes using the board-model test setup passed: cut → paste → reload plus undo and redo of both commands for each of the three layouts and four object families, and a partial-program point selection refused without changing bytes, history or clipboard.
