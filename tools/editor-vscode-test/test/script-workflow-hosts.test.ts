@@ -195,14 +195,14 @@ async function reviewInBrowser(transform: ScriptTransformId, options: { readonly
 
 /** VS Code's questions, answered by the test: the project scope, then the programs to apply. */
 function vscodeUi(options: { readonly untick?: readonly string[]; readonly cancel?: boolean; readonly details?: string[] }) {
-  const seen = { scopes: [] as (string | null)[], items: [] as readonly { path: string; description: string; detail: string }[], reports: [] as string[] };
+  const seen = { scopes: [] as (string | null)[], items: [] as readonly { path: string; description: string; detail: string; original: string | null; result: string | null }[], reports: [] as string[] };
   const ui = {
     async scope(_transform: ScriptTransformId, activeProgram: string | null) {
       seen.scopes.push(activeProgram);
       return "project" as const;
     },
     progress: () => () => {},
-    async review(_transform: ScriptTransformId, items: readonly { path: string; description: string; detail: string }[]) {
+    async review(_transform: ScriptTransformId, items: readonly { path: string; description: string; detail: string; original: string | null; result: string | null }[]) {
       seen.items = items;
       for (const item of items) options.details?.push(item.detail);
       if (options.cancel === true) return undefined;
@@ -213,6 +213,9 @@ function vscodeUi(options: { readonly untick?: readonly string[]; readonly cance
     },
     async tellUnavailable(message: string) {
       seen.reports.push(message);
+    },
+    async retry() {
+      return false;
     },
   };
   return { ui, seen };

@@ -24,8 +24,12 @@ export interface ScriptReviewItem {
   readonly path: string;
   /** What the list says beside the path. */
   readonly description: string;
-  /** What the author reads before choosing: the comparison, the spots to check and what is left as written. */
+  /** What the author reads before choosing: the plan's summary, and what is left as written. */
   readonly detail: string;
+  /** The planned original, for the host's own diff view (`LF`). */
+  readonly original: string | null;
+  /** The proposed result, for the host's own diff view (`LF`). */
+  readonly result: string | null;
 }
 
 export interface ScriptWorkflowUi {
@@ -37,6 +41,8 @@ export interface ScriptWorkflowUi {
   review(transform: ScriptTransformId, items: readonly ScriptReviewItem[]): Promise<readonly string[] | undefined>;
   /** Tell the author the outcome, with the programs that were refused, skipped or failed and why. */
   report(summary: string, problems: readonly string[], failed: boolean): Promise<void>;
+  /** Ask whether to try the files that failed again; `undefined`/false ends the run. */
+  retry(problems: readonly string[]): Promise<boolean>;
   /** The workflow cannot run here: no language server, or the project could not be listed. */
   tellUnavailable(message: string): Promise<void>;
 }
@@ -50,6 +56,8 @@ export interface ScriptWorkflowHostEnvironment {
   readonly openPrograms: readonly OpenScriptProgram[];
   readonly root: string;
   readonly activeProgram: string | null;
+  /** A running project is selected, so the server should wait for its snapshot rather than refuse as unassessed. */
+  readonly projectSelected?: boolean;
 }
 
 export type ScriptWorkflowSummary =
@@ -66,14 +74,22 @@ export function reviewItems(entries: readonly ScriptWorkflowEntry[]): readonly S
       path: entry.path,
       description: entry.target === "copy" ? `3.1 copy to ${entry.destination}; the original is not changed` : "will change",
       detail: describeEntry(entry),
+      original: entry.original,
+      result: entry.result,
     }));
 }
 
-/** The programs that could not be applied or were left as they were, one line each, for the report. */
+/**
+ * The programs that could not be applied, were left as they were, or were only partly rewritten, one line each. A program
+ * with no change of its own still needs its fragments in the report: they are the part the workflow refused to touch.
+ */
 export function problemsOf(entries: readonly ScriptWorkflowEntry[]): readonly string[] {
-  return entries
-    .filter((entry) => entry.state === "refused" || entry.state === "failed")
-    .map((entry) => `${entry.path}: ${entry.reason?.message ?? entry.message ?? "left as it was"}`);
+  return entries.flatMap((entry) => {
+    if (entry.state === "refused" || entry.state === "failed") return [`${entry.path}: ${entry.reason?.message ?? entry.message ?? "left as it was"}`];
+    if (entry.unsupported.length === 0) return [];
+    const fragments = entry.unsupported.map((fragment) => `${fragment.line === null ? "whole file" : `line ${fragment.line}`}: ${fragment.message}`).join("; ");
+    return [`${entry.path}: ${entry.unsupported.length} part${entry.unsupported.length === 1 ? "" : "s"} left as written — ${fragments}`];
+  });
 }
 
 /** `changed` unchanged lines are kept around every change; a longer run of unchanged lines is folded into a count. */
@@ -118,6 +134,7 @@ function environmentOf(env: ScriptWorkflowHostEnvironment): ScriptWorkflowEnviro
     history: env.history,
     openPrograms: () => env.openPrograms,
     root: env.root,
+    ...(env.projectSelected === true ? { projectSelected: true } : {}),
   };
 }
 
@@ -168,8 +185,14 @@ export async function runScriptWorkflow(transform: ScriptTransformId, env: Scrip
     session.cancel();
     return { kind: "cancelled" };
   }
-  const outcome = await session.apply();
-  const problems = [...problemsOf(session.getSnapshot().entries), ...outcome.failed.map((failure) => failure.message)];
+  let outcome = await session.apply();
+  let problems = [...problemsOf(session.getSnapshot().entries), ...outcome.failed.map((failure) => failure.message)];
   await ui.report(summaryOf(transform, scope, session.getSnapshot().plan, outcome), problems, problems.length > 0);
+  // A file that failed stays selected, so trying again covers exactly those files and never a program already written.
+  while (outcome.failed.length > 0 && await ui.retry(problems)) {
+    outcome = await session.apply();
+    problems = [...problemsOf(session.getSnapshot().entries), ...outcome.failed.map((failure) => failure.message)];
+    if (outcome.failed.length > 0) await ui.report(summaryOf(transform, scope, session.getSnapshot().plan, outcome), problems, true);
+  }
   return { kind: "applied", outcome };
 }

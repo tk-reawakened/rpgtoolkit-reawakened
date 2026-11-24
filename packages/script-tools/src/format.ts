@@ -65,9 +65,18 @@ export function canonicalNames(): Set<string> {
   return names;
 }
 
+/**
+ * The text after a line's indentation. Only spaces and tabs are indentation: any other leading character (a
+ * non-breaking space in a Windows-1252 file, say) is part of the line, and removing it could turn a line the lexer
+ * refuses into one that runs.
+ */
+function afterIndent(text: string): string {
+  return text.replace(/^[ \t]*/, "");
+}
+
 /** Whether a line is one the formatter must not rewrite beyond indentation of code. */
 function isOpaqueLine(text: string): boolean {
-  const trimmed = text.trimStart();
+  const trimmed = afterIndent(text);
   return (
     trimmed.startsWith("//") ||
     trimmed.startsWith("*") ||
@@ -108,7 +117,7 @@ export function formatSource(source: string, options: FormatOptions): FormatResu
   const lineText = source.split("\n");
   for (let index = 0; index < lineText.length; index += 1) {
     const text = lineText[index]!;
-    const trimmed = text.trimStart();
+    const trimmed = afterIndent(text);
     const closes = trimmed.startsWith("}");
     depths.push(closes ? Math.max(0, depth - 1) : depth);
     if (isOpaqueLine(text)) continue;
@@ -133,11 +142,11 @@ export function formatSource(source: string, options: FormatOptions): FormatResu
         if (isLabelToken(text, token.col)) continue;
         if (capitalisation) replacements.push({ from: token.col - 1, to: token.endCol, text: written.toLowerCase() });
       }
-      const trimmed = text.trimStart();
+      const trimmed = afterIndent(text);
       const continuation = trimmed.startsWith("_");
       if (reindent && !continuation && !trimmed.startsWith("#")) {
         const body = applyReplacements(text, replacements);
-        return `${" ".repeat(indentWidth * depths[index]!)}${body.trimStart()}`;
+        return `${" ".repeat(indentWidth * depths[index]!)}${afterIndent(body)}`;
       }
     }
     return applyReplacements(text, replacements);
@@ -160,7 +169,7 @@ function applyReplacements(
 
 /** A `:name` label: the first non-space character of the line is the colon. */
 function isLabelToken(line: string, col: number): boolean {
-  const before = line.slice(0, col - 1).trimStart();
+  const before = afterIndent(line.slice(0, col - 1));
   return before === ":";
 }
 

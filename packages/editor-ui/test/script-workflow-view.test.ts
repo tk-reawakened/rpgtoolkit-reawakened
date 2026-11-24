@@ -200,3 +200,11 @@ test("a host without a language server says so and offers only Close", async () 
   await view.click("Close");
   equal(view.closed.count, 1);
 });
+
+test("Escape is always heard, even when every scope choice is unavailable", async () => {
+  const view = await show({ active: null, provider: false });
+  equal(view.el.querySelector<HTMLInputElement>("input[type=radio]")!.disabled, true, "This program is unavailable");
+  ok(document.activeElement?.closest(".tkr-script-workflow") !== null, "focus rests inside the dialog, never on the page behind it");
+  await act(() => { view.el.querySelector(".tkr-script-workflow")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  equal(view.closed.count, 1);
+});

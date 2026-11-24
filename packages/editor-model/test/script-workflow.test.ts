@@ -276,3 +276,66 @@ test("answers are checked at the boundary and a provider refuses an answer to an
     (error: Error) => match(error.message, /not a script transform result/),
   );
 });
+
+test("a destination another program changed while the review was open is never overwritten", async () => {
+  const host = project();
+  let releaseCheckpoint!: () => void;
+  const gate = new Promise<void>((resolve) => { releaseCheckpoint = resolve; });
+  const history: WizardHistory = {
+    async begin(name, planned) { await gate; return { ok: true, groupId: `g-${name}` }; },
+    async written() { return { ok: true }; },
+  };
+  const environment = env(host, { history });
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "update", { kind: "program", path: "Prg/old.prg" }));
+  const applying = review.apply();
+  // The checkpoint's question is on screen: meanwhile the copy this run would replace is rewritten by hand.
+  await host.fs.write(`${MIGRATED_FOLDER}/Prg/old.prg`, bytes("written elsewhere\n"));
+  releaseCheckpoint();
+  const outcome = await applying;
+  equal(text(host.bytesOf(`${MIGRATED_FOLDER}/Prg/old.prg`)), "written elsewhere\n", "the newer copy is kept");
+  deepEqual(outcome.failed.map((item) => item.path), ["Prg/old.prg"]);
+  match(outcome.failed[0]!.message, /changed while the review was open/);
+});
+
+test("a program opened after the plan is not written behind its editor, and a failed checkpoint stops every file", async () => {
+  const host = project();
+  const environment = env(host);
+  const plan = await planScriptWorkflow(environment, "format", { kind: "project" });
+  const openedLater: OpenScriptProgram = { path: "Prg/a.prg", text: () => "MESSY opened\n", replace: async () => ({ ok: true }) };
+  const committed = createScriptReview(env(host, { openPrograms: () => [openedLater] }), plan);
+  const first = await committed.apply();
+  ok(first.failed.some((item) => item.path === "Prg/a.prg" && /opened in an editor after the review/.test(item.message)));
+  equal(text(host.bytesOf("Prg/a.prg")), "MESSY\r\nline two\r\n", "the editor's file is untouched");
+
+  const refusedHistory: WizardHistory = { begin: async () => ({ ok: false, message: "history is full" }), written: async () => ({ ok: true }) };
+  const second = project();
+  const open: OpenScriptProgram = { path: "Prg/a.prg", text: () => "MESSY open\n", replace: async () => ({ ok: true }) };
+  const tied = createScriptReview(env(second, { history: refusedHistory, openPrograms: () => [open] }), await planScriptWorkflow(env(second, { openPrograms: () => [open] }), "format", { kind: "project" }));
+  const outcome = await tied.apply();
+  deepEqual(outcome.applied, [], "an open editor is not edited when the run's checkpoint was refused");
+  ok(outcome.failed.some((item) => /recovery checkpoint could not be recorded/.test(item.message)));
+});
+
+test("under a project root, the server is asked with root-relative paths and copies land inside the project", async () => {
+  const host = createMemoryPlatformServices({
+    files: {
+      "Game/Main/example.gam": bytes("gam"),
+      "Game/Prg/old.prg": bytes("OLD\n"),
+      "Game/Prg/tidy.prg": bytes("tidy\n"),
+      "Elsewhere/Prg/outside.prg": bytes("MESSY outside\n"),
+    },
+  });
+  const asked: ScriptTransformQuestion[] = [];
+  const environment = env(host, { provider: provider(asked), root: "Game" });
+  const plan = await planScriptWorkflow(environment, "update", { kind: "project" });
+  deepEqual(plan.entries.map((entry) => entry.path), ["Game/Prg/old.prg", "Game/Prg/tidy.prg"], "only the project root is scanned");
+  deepEqual(asked.map((question) => question.path), ["Prg/old.prg", "Prg/tidy.prg"], "the server's inventory is relative to its own root");
+  const copy = plan.entries.find((entry) => entry.path === "Game/Prg/old.prg")!;
+  equal(copy.destination, "Game/.tkr-migrated/3.1/Prg/old.prg");
+  const review = createScriptReview(environment, plan);
+  review.setIncluded("Game/Prg/tidy.prg", false);
+  const outcome = await review.apply();
+  deepEqual(outcome.applied.map((item) => item.destination), ["Game/.tkr-migrated/3.1/Prg/old.prg"]);
+  equal(text(host.bytesOf("Game/.tkr-migrated/3.1/Prg/old.prg")), "new\n");
+  equal(text(host.bytesOf("Game/Prg/old.prg")), "OLD\n");
+});

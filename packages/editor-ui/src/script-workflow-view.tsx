@@ -199,7 +199,14 @@ export function ScriptWorkflowView({ transform, activeProgram, plan, review, onC
   const cancelled = useRef(false);
   const root = useRef<HTMLDivElement>(null);
   const info = SCRIPT_TRANSFORM_INFO[transform];
-  useEffect(() => root.current?.querySelector<HTMLElement>("input, button")?.focus(), []);
+  // Focus lives inside the dialog at every stage: the first control when there is one, the dialog itself otherwise (its
+  // radios can all be disabled). Escape is heard on the dialog, so focus must never drift out to the page behind it.
+  useEffect(() => {
+    const element = root.current;
+    if (element === null) return;
+    const control = element.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), select, textarea");
+    (control ?? element).focus();
+  }, [stage.kind]);
 
   const check = (): void => {
     cancelled.current = false;
@@ -225,6 +232,7 @@ export function ScriptWorkflowView({ transform, activeProgram, plan, review, onC
     <div
       class="tkr-script-workflow"
       ref={root}
+      tabIndex={-1}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();

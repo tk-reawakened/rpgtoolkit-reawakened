@@ -297,7 +297,9 @@ export function convertTk2(source: string): Tk2Outcome {
     const next = rewritten[index]! + comments[index] + ending;
     if (original !== next) edits.push(edit(index + 1, 1, original.length, next));
   }
-  if (edits.length === 0) return { kind: "unchanged" };
+  // Nothing to rewrite still has to be a program the conversion would accept: a source that does not compile in either
+  // reading is refused with the reason, never reported as already 3.1.
+  if (edits.length === 0) return sameLowering(source, source) ? { kind: "unchanged" } : tk2Refusal(source);
   // The review comments are part of the offered text, so compare it as offered.
   if (!sameLowering(source, applyEdits(source, edits))) return tk2Refusal(source);
   const title = "Preview Toolkit 2.x conversion in an unsaved 3.1 file";
@@ -364,6 +366,9 @@ export function legacyPrefixLines(source: string): readonly UnsupportedFragment[
       found.push({ line: index + 1, code: "legacy-prefix-line", message: "This line begins with `#`, which 3.1 ignores whole; removing the `#` would make the line run, so it is left as written." });
       continue;
     }
+    // A line whose first non-blank character is `*` is a star comment to the end of the line (LEX-4), so nothing in it
+    // opens or closes a block comment.
+    if (/^[ \t]*\*/.test(text)) continue;
     const code = withoutStrings(text);
     for (let at = 0; at < code.length - 1; at++) {
       if (!inBlock && code[at] === "/" && code[at + 1] === "/") break;

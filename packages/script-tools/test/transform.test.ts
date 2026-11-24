@@ -150,3 +150,25 @@ test("an unassessed 3.1 cleanup skips its format stage and says why", () => {
   equal(format?.applied, false);
   match(format?.reason ?? "", /unassessed/);
 });
+
+test("a line the lexer refuses is never turned into a command by removing its leading character", () => {
+  // U+00A0 is a Windows-1252 byte; it is not indentation, and dropping it would make the line run.
+  const source = '\u00a0mwin("x")\n';
+  const result = formatSource(source, { dialect: "tk3" });
+  equal(result.text, source, "a non-breaking space is left where it is");
+  equal(result.changed, false);
+  equal(formatSource('\u00a0mwin("x")\nif (a) {\nmwin("b")\n}\n', { dialect: "tk3" }).text, '\u00a0mwin("x")\nif (a) {\n    mwin("b")\n}\n', "the other lines are still formatted");
+});
+
+test("a Toolkit 2.x source that does not compile is refused even when there is nothing to rewrite", () => {
+  const invalid = run("update", "#If (x {\n#Mwin(ok)\n", "tk2");
+  equal(invalid.status, "refused");
+  ok(invalid.unsupported.some((fragment) => fragment.code === "compile-error"), "the compile failure is named");
+});
+
+test("a star comment is a whole-line comment, so a # on the next line is still reported", () => {
+  const source = "* example /*\n#mwin(\"dead\")\n";
+  const result = run("cleanup", source);
+  deepEqual(result.unsupported.filter((fragment) => fragment.code === "legacy-prefix-line").map((fragment) => fragment.line), [2]);
+  equal(result.text, source, "nothing proved a rewrite");
+});

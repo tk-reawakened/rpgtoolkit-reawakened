@@ -358,6 +358,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       history: createWizardHistory(workspace.checkpoints),
       openPrograms: openScriptPrograms,
       root: main === null ? "" : rootFolderOf(main),
+      projectSelected: main !== null,
     };
     const snapshot = tabs.getSnapshot();
     const activePath = snapshot.tabs.find((tab) => tab.key === snapshot.active)?.path ?? null;
@@ -372,7 +373,9 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     doc.body.append(overlay);
     await new Promise<void>((resolve) => {
       const close = (): void => {
-        if (closeScripts === null) return;
+        // Only the review that owns the overlay may close it: a late callback from a cancelled review must never tear
+        // down a review opened after it.
+        if (closeScripts !== close) return;
         closeScripts = null;
         handle.dispose();
         lease?.release();

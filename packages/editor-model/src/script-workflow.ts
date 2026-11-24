@@ -99,6 +99,8 @@ export interface ScriptTransformQuestion {
   readonly path: string;
   readonly text: string;
   readonly indentWidth: number;
+  /** The host has a running project whose snapshot is on its way; the server waits for it rather than refusing as unassessed. */
+  readonly awaitProject?: boolean;
 }
 
 /** The language server's side of the workflow. Rejects when the server cannot answer. */
@@ -111,12 +113,18 @@ export interface ScriptTransformProvider {
  * VS Code's command that forwards it. `uriOf` names the URI the server knows the project file by.
  */
 export function scriptProviderOver(
-  send: (params: { readonly transform: ScriptTransformId; readonly textDocument: { readonly uri: string }; readonly text: string; readonly indentWidth: number }) => Promise<unknown>,
+  send: (params: { readonly transform: ScriptTransformId; readonly textDocument: { readonly uri: string }; readonly text: string; readonly indentWidth: number; readonly awaitProject?: boolean }) => Promise<unknown>,
   uriOf: (path: string) => string,
 ): ScriptTransformProvider {
   return {
     async transform(question) {
-      const answer = readScriptTransformAnswer(await send({ transform: question.transform, textDocument: { uri: uriOf(question.path) }, text: question.text, indentWidth: question.indentWidth }));
+      const answer = readScriptTransformAnswer(await send({
+        transform: question.transform,
+        textDocument: { uri: uriOf(question.path) },
+        text: question.text,
+        indentWidth: question.indentWidth,
+        ...(question.awaitProject === true ? { awaitProject: true } : {}),
+      }));
       if (answer === null) throw new Error("The language server's answer was not a script transform result.");
       if (answer.transform !== question.transform) throw new Error(`The language server answered ${answer.transform} to a ${question.transform} question.`);
       return answer;
@@ -137,6 +145,8 @@ export type ScriptWorkflowFileSystem = Pick<FileSystemService, "list" | "read" |
 
 export interface ScriptWorkflowEnvironment {
   readonly fs: ScriptWorkflowFileSystem;
+  /** Whether a running project is selected, so each request may wait for its snapshot (TOOL-1). */
+  readonly projectSelected?: boolean;
   /** `null` when the host has no language server: every workflow then says so and changes nothing. */
   readonly provider: ScriptTransformProvider | null;
   /** Why `provider` is `null`, in a sentence for the author (the server did not start, say); a plain "no language server" when absent. */
@@ -205,9 +215,15 @@ function isProgramName(name: string): boolean {
   return /\.(prg|rnc)$/i.test(name);
 }
 
-/** The project-relative path of the converted copy of `path` (TOOL-11, `copy`). */
-export function migratedPath(path: string): string {
-  return `${MIGRATED_FOLDER}/${path}`;
+/** The workspace path of the converted copy of `path`, which is relative to the project `root` (TOOL-11, `copy`). */
+export function migratedPath(path: string, root = ""): string {
+  const inside = root === "" || !path.startsWith(`${root}/`) ? path : path.slice(root.length + 1);
+  return `${root === "" ? "" : `${root}/`}${MIGRATED_FOLDER}/${inside}`;
+}
+
+/** The path the language server knows a workspace path by: its inventory is relative to the project root (TOOL-1). */
+function serverPathOf(path: string, root: string): string {
+  return root !== "" && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
 }
 
 /** The programs below `root`, in path order, excluding the folders TOOL-1 and TOOL-11 exclude; a link is never followed. */
@@ -280,7 +296,13 @@ async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransfor
   if ("entry" in source) return source.entry;
   let answer: ScriptTransformAnswer;
   try {
-    answer = await provider.transform({ transform, path, text: source.text, indentWidth: env.indentWidth ?? 4 });
+    answer = await provider.transform({
+      transform,
+      path: serverPathOf(path, env.root ?? ""),
+      text: source.text,
+      indentWidth: env.indentWidth ?? 4,
+      ...(env.projectSelected === true ? { awaitProject: true } : {}),
+    });
   } catch (error) {
     return entryOf(path, { state: "failed", original: source.text, open: source.open, message: `The language server could not answer for ${path}: ${error instanceof Error ? error.message : String(error)}` });
   }
@@ -288,7 +310,7 @@ async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransfor
     original: source.text,
     open: source.open,
     target: answer.target,
-    destination: answer.target === "copy" ? migratedPath(path) : path,
+    destination: answer.target === "copy" ? migratedPath(path, env.root ?? "") : path,
     steps: answer.steps,
     reviews: answer.reviews,
     unsupported: answer.unsupported,
@@ -384,6 +406,13 @@ function describe(entries: readonly ScriptWorkflowEntry[], applied: ScriptWorkfl
   if (skipped.length > 0) parts.push(`${skipped.length} skipped`);
   if (failed.length > 0) parts.push(`${failed.length} failed and left as they were`);
   return { applied, leftOut, refused, unchanged, skipped, failed, summary: `${parts.join("; ")}.` };
+}
+
+function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) return false;
+  return true;
 }
 
 type ApplyOneResult = { readonly via: "edit" | "write" | "copy" } | { readonly failure: string };
@@ -490,6 +519,15 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       const chosen = entries.filter((entry) => entry.state === "ready" && entry.included);
       const applied: { path: string; destination: string; via: "edit" | "write" | "copy" }[] = [...(outcome?.applied ?? [])];
       const failed: ScriptApplyFailure[] = [];
+      // What every written destination holds now, and which programs an editor opened after the plan: both are compared
+      // again just before writing, so a copy another program changed is never overwritten.
+      const before = new Map<string, Uint8Array | null>();
+      const nowOpen = new Set(env.openPrograms().map((program) => foldPath(program.path)));
+      for (const entry of chosen) {
+        if (entry.open && entry.target === "in-place") continue;
+        const read = await env.fs.read(entry.destination);
+        before.set(entry.path, read.ok ? read.value.slice() : null);
+      }
       // Recovery first: every saved file about to be written is checkpointed, or none is written.
       const toWrite = chosen.filter((entry) => !(entry.open && entry.target === "in-place"));
       let groupId: string | null = null;
@@ -500,10 +538,27 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
         else blocked = `its recovery checkpoint could not be recorded: ${group.message}. Nothing was written.`;
       }
       for (const entry of chosen) {
-        if (blocked !== null && !(entry.open && entry.target === "in-place")) {
+        if (blocked !== null) {
           failed.push({ path: entry.path, message: `${entry.path}: ${blocked}` });
           update(entry.path, { message: blocked });
           continue;
+        }
+        if (!entry.open && nowOpen.has(foldPath(entry.path))) {
+          const message = `${entry.path} was opened in an editor after the review; it was not written. Run the workflow again to review its current text.`;
+          failed.push({ path: entry.path, message });
+          update(entry.path, { message });
+          continue;
+        }
+        if (!(entry.open && entry.target === "in-place")) {
+          const current = await env.fs.read(entry.destination);
+          const planned = before.get(entry.path) ?? null;
+          const held = current.ok ? current.value : null;
+          if (!sameBytes(held, planned)) {
+            const message = `${entry.destination} changed while the review was open; it was not written. Run the workflow again to see its new content.`;
+            failed.push({ path: entry.path, message });
+            update(entry.path, { message });
+            continue;
+          }
         }
         let done: ApplyOneResult;
         try {

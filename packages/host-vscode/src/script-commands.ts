@@ -40,9 +40,15 @@ function openPrograms(folder: vscode.Uri): { path: string; document: vscode.Text
   });
 }
 
-/** Whether the RPGCode language extension is installed and running, so the workflow can reach the server. */
-function languageExtensionPresent(): boolean {
-  return vscode.extensions.getExtension(EXTENSION_ID) !== undefined;
+/**
+ * The RPGCode language extension, activated. A fresh window has not activated it, so its command would not exist yet;
+ * `executeCommand` on an unregistered command fails, and the workflow would report every file as unreadable.
+ */
+async function activatedLanguageExtension(): Promise<vscode.Extension<unknown> | undefined> {
+  const extension = vscode.extensions.getExtension(EXTENSION_ID);
+  if (extension === undefined) return undefined;
+  if (!extension.isActive) await extension.activate();
+  return extension;
 }
 
 /**
@@ -54,19 +60,64 @@ function progress(message: string): () => void {
   return () => handle.dispose();
 }
 
-/** The one multi-select list: every program that would change starts ticked, so unticking is the per-file opt-out. */
-async function review(transform: ScriptTransformId, items: readonly ScriptReviewItem[]): Promise<readonly string[] | undefined> {
-  const chosen = await vscode.window.showQuickPick(
-    items.map((item) => ({ label: item.path, description: item.description, detail: item.detail, picked: true, path: item.path })),
-    {
-      title: `${SCRIPT_TRANSFORM_INFO[transform].name}: review the changes`,
-      placeHolder: "Every ticked program is applied. Untick any you want left alone, then press Enter. Escape changes nothing.",
-      canPickMany: true,
-      ignoreFocusOut: true,
-      matchOnDetail: true,
+const DIFF_SCHEME = "tkr-script-diff";
+
+/** The two sides of every open comparison, by URI, so the diff editor reads exactly what the review showed. */
+const diffSides = new Map<string, string>();
+
+/** Register the read-only documents the diff editor shows; nothing is written and nothing is kept after a review ends. */
+function registerDiffDocuments(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(DIFF_SCHEME, {
+    provideTextDocumentContent(uri) {
+      return diffSides.get(uri.toString()) ?? "";
     },
-  );
-  return chosen?.map((item) => item.path);
+  }));
+}
+
+/** Open VS Code's own diff editor for one program: the planned original on the left, the result on the right. */
+async function showDiff(item: ScriptReviewItem): Promise<void> {
+  if (item.original === null || item.result === null) {
+    await vscode.window.showInformationMessage(`${item.path} was not changed, so there is nothing to compare.`);
+    return;
+  }
+  const original = vscode.Uri.parse(`${DIFF_SCHEME}:${encodeURIComponent(item.path)}?side=original`, true);
+  const result = vscode.Uri.parse(`${DIFF_SCHEME}:${encodeURIComponent(item.path)}?side=result`, true);
+  diffSides.set(original.toString(), item.original);
+  diffSides.set(result.toString(), item.result);
+  await vscode.commands.executeCommand("vscode.diff", original, result, `${item.path}: original ↔ result`);
+}
+
+/**
+ * The one multi-select list: every program that would change starts ticked, so unticking is the per-file opt-out. Each
+ * item has a **Show changes** button that opens the real diff editor; the item's detail is a short summary because a
+ * pick list flattens white space and can never be the comparison itself.
+ */
+async function review(transform: ScriptTransformId, items: readonly ScriptReviewItem[]): Promise<readonly string[] | undefined> {
+  const quick = vscode.window.createQuickPick<vscode.QuickPickItem & { readonly file: ScriptReviewItem }>();
+  const show = { iconPath: new vscode.ThemeIcon("diff"), tooltip: "Show changes" };
+  quick.title = `${SCRIPT_TRANSFORM_INFO[transform].name}: review the changes`;
+  quick.placeholder = "Every ticked program is applied. Untick any you want left alone, then press Enter. Escape changes nothing.";
+  quick.canSelectMany = true;
+  quick.ignoreFocusOut = true;
+  quick.matchOnDetail = true;
+  quick.items = items.map((item) => ({
+    label: item.path,
+    description: item.description,
+    detail: item.detail,
+    buttons: item.original === null || item.result === null ? [] : [show],
+    file: item,
+  }));
+  quick.selectedItems = [...quick.items];
+  const picked = await new Promise<readonly ScriptReviewItem[] | undefined>((resolve) => {
+    const done = quick.onDidAccept(() => { resolve(quick.selectedItems.map((item) => item.file)); });
+    // Dismissing the list is a cancel: nothing is written.
+    quick.onDidHide(() => { done.dispose(); resolve(undefined); });
+    quick.onDidTriggerItemButton(async (event) => { await showDiff(event.item.file); });
+    quick.show();
+  });
+  quick.dispose();
+  diffSides.clear();
+  return picked?.map((item) => item.path);
 }
 
 function ui(): ScriptWorkflowUi {
@@ -91,11 +142,17 @@ function ui(): ScriptWorkflowUi {
       else await vscode.window.showInformationMessage(said, { modal: false });
     },
     tellUnavailable: async (message) => { await vscode.window.showWarningMessage(message); },
+    retry: async (problems) => (await vscode.window.showWarningMessage(
+      `Some programs were not written: ${problems.length}. Try them again?`,
+      { modal: false },
+      "Try again",
+    )) === "Try again",
   };
 }
 
 /** Register the four reviewed workflows as commands; each asks its questions and writes nothing until the review is accepted. */
 export function registerScriptWorkflowCommands(context: vscode.ExtensionContext, generation: () => number, workspaceFor: (uri: vscode.Uri) => DocumentWorkspace): void {
+  registerDiffDocuments(context);
   const ids: Readonly<Record<ScriptTransformId, string>> = {
     format: "tkr.scriptFormat",
     "canonical-case": "tkr.scriptCanonicalCase",
@@ -114,40 +171,64 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
       const services = createVscodeServices(folder.uri, context, generation);
       const workspace = workspaceFor(folder.uri);
       const open = openPrograms(folder.uri);
+      const extension = await activatedLanguageExtension();
       const active = vscode.window.activeTextEditor?.document;
       const activePath = active === undefined ? null : open.find((program) => program.document === active)?.path ?? null;
-      const uris = new Map(open.map((program) => [program.path, program.document.uri]));
-      const uriOf = (path: string): string => uris.get(path)?.toString() ?? vscode.Uri.joinPath(folder.uri, ...path.split("/")).toString();
+      const uris = new Map(open.map((program) => [program.path, program.document]));
+      const tk2Documents = new Set(open.filter((program) => program.document.languageId === "rpgcode-tk2").map((program) => program.path));
+      const uriOf = (path: string): string => uris.get(path)?.uri.toString() ?? vscode.Uri.joinPath(folder.uri, ...path.split("/")).toString();
       await runScriptWorkflow(
         transform,
         {
           fs: services.fs,
-          provider: languageExtensionPresent()
-            ? {
+          provider: extension === undefined
+            ? null
+            : {
               async transform(question) {
                 return await vscode.commands.executeCommand(TRANSFORM_COMMAND, {
                   transform: question.transform,
-                  textDocument: { uri: uriOf(question.path) },
+                  textDocument: { uri: uriOf(question.path), ...(tk2Documents.has(question.path) ? { languageId: "rpgcode-tk2" } : {}) },
                   text: question.text,
                   indentWidth: question.indentWidth,
                 });
               },
-            }
-            : null,
-          ...(languageExtensionPresent() ? {} : { unavailableReason: "The RPGCode language extension is not installed, so programs cannot be formatted or updated here. Nothing was changed." }),
+            },
+          ...(extension === undefined ? { unavailableReason: "The RPGCode language extension is not installed, so programs cannot be formatted or updated here. Nothing was changed." } : {}),
           history: createWizardHistory(workspace.checkpoints),
           openPrograms: open.map((program): OpenScriptProgram => ({
             path: program.path,
             text: () => lfText(program.document),
             replace: (_label, text) => replaceDocument(program.document, text),
           })),
-          root: "",
+          root: projectRootIn(folder.uri),
           activeProgram: activePath,
+          projectSelected: vscode.workspace.getConfiguration("rpgcode").get<string>("project", "").trim() !== "",
         },
         ui(),
       );
     }));
   }
+}
+
+/**
+ * Where the project's programs are, relative to the workspace folder: the running project's root, from the selected
+ * `.gam` (TOOL-1 "Root"), or the folder itself when no project is selected. The server assesses only that root, so a
+ * scan of the whole folder would list files it must refuse.
+ */
+function projectRootIn(folder: vscode.Uri): string {
+  const configured = vscode.workspace.getConfiguration("rpgcode").get<string>("project", "").trim();
+  if (configured === "") return "";
+  const main = /^[A-Za-z][A-Za-z0-9+.-]+:/.test(configured) && !/^[A-Za-z]:[\\/]/.test(configured)
+    ? vscode.Uri.parse(configured, true)
+    : vscode.Uri.joinPath(folder, ...configured.split(/[\\/]/).filter((part) => part !== ""));
+  const base = folder.path.replace(/\/?$/, "/");
+  // The same root the language server uses: the folder above `Main`, else the `.gam`'s own folder (TOOL-1).
+  const mainPath = main.path.replace(/\/?$/, "/");
+  const parent = mainPath.slice(0, mainPath.lastIndexOf("/", mainPath.length - 2) + 1);
+  const above = parent.slice(0, -1);
+  const rootPath = above.slice(above.lastIndexOf("/") + 1).toLowerCase() === "main" ? above.slice(0, above.lastIndexOf("/") + 1) : parent;
+  const root = rootPath.replace(/\/?$/, "/");
+  return root.startsWith(base) ? decodeURIComponent(root.slice(base.length)) : "";
 }
 
 async function pickFolder(folders: readonly vscode.WorkspaceFolder[]): Promise<vscode.WorkspaceFolder | undefined> {
