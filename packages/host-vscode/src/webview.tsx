@@ -102,19 +102,9 @@ api.postMessage({ type: "ready" });
 
 // Ctrl/Cmd+S while a field is focused belongs to this editor: VS Code's Save All only visits dirty documents, so a clean
 // one with a field still being typed in would otherwise be skipped. The focused view's own Save applies the field first.
-//
-// Why the document is not marked dirty to make Save All visit it (#3385): `saveCustomDocument(document, cancellation)`
-// carries no reason (@types/vscode 1.90), while text documents get `TextDocumentSaveReason` through
-// `onWillSaveTextDocument`. ADR 0022 D14.1 measured that `files.autoSave` does drive `saveCustomDocument`, so a dirty
-// document with a focused draft would be written by autosave mid-gesture — exactly what D11.2 forbids — and the provider
-// cannot tell that call from an explicit Save All. This shortcut stays the only reachable path until VS Code exposes a
-// save reason for custom documents; the condition is recorded in the issue.
 window.addEventListener("keydown", (event) => {
-  // Save As (Ctrl/Cmd+Shift+S) and other chords are not this editor's save, and the key only belongs to the editor that
-  // holds the focus.
-  if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "s") return;
-  const surface = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tkr-editor]") : null;
-  const save = surface?.querySelector<HTMLButtonElement>("[data-editor-save]") ?? null;
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+  const save = document.querySelector<HTMLButtonElement>("[data-editor-save]");
   if (save === null || save.disabled) return;
   event.preventDefault();
   save.click();

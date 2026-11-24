@@ -235,20 +235,20 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** Track a webview of this document; the returned function forgets it (its panel was disposed). */
-  attachWebview(post: (requestId: string, reason?: "explicit" | "autosave" | "revert" | "query") => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
+  attachWebview(post: (requestId: string) => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
     const target: SettleTarget = { post, waiting: new Map(), ...(notify === undefined ? {} : { notify }) };
     this.#views.add(target);
     return () => {
       this.#views.delete(target);
       // The view may have accepted edits before it disappeared. Without its answer we cannot claim they reached the
       // model, so a concurrent save/revert/backup must fail rather than proceed on a partial snapshot.
-      for (const answer of [...target.waiting.values()]) answer({ ok: false, message: "the view was disposed before it confirmed its accepted edits" });
+      for (const answer of [...target.waiting.values()]) answer(false);
     };
   }
 
   /** A webview answered a `settle` request: every edit it had accepted has reached this model. */
-  viewSettled(requestId: string, ok = true, message?: string): void {
-    for (const view of this.#views) view.waiting.get(requestId)?.({ ok, ...(message === undefined ? {} : { message }) });
+  viewSettled(requestId: string): void {
+    for (const view of this.#views) view.waiting.get(requestId)?.(true);
   }
 
   /**
@@ -262,22 +262,21 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * messages, and a view destroyed before it can be asked is no longer tracked. Those windows remain known gaps in
    * ADR 0022, #2613 and #2652.
    */
-  async settleViews(reason: "explicit" | "autosave" | "revert" | "query" = "explicit"): Promise<string | null> {
+  async settleViews(): Promise<string | null> {
     const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
-    const answers = [...this.#views].map((view) => new Promise<string | null>((resolve) => {
+    const answers = [...this.#views].map((view) => new Promise<boolean>((resolve) => {
       const requestId = `settle-${++this.#nextSettle}`;
-      const timer = startTimer(() => answer({ ok: true }));
-      const answer = (outcome: { readonly ok: boolean; readonly message?: string }): void => {
+      const timer = startTimer(() => answer(false));
+      const answer = (settled: boolean): void => {
         timer.cancel();
         view.waiting.delete(requestId);
-        resolve(outcome.ok ? null : outcome.message ?? "the editor could not settle its work");
+        resolve(settled);
       };
       view.waiting.set(requestId, answer);
-      void view.post(requestId, reason).then((delivered) => { if (!delivered) answer({ ok: true }); }, () => answer({ ok: true }));
+      void view.post(requestId).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
     }));
-    // The first reason a view gives wins: a refused field must stop the host's save, not be written around.
-    for (const message of await Promise.all(answers)) if (message !== null) return message;
-    return null;
+    if ((await Promise.all(answers)).every((settled) => settled)) return null;
+    return "the editor could not confirm that it handed over its accepted edits";
   }
 
   /**
@@ -503,10 +502,10 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
 /** One webview of a document, and the `settle` requests it has not yet answered. */
 interface SettleTarget {
-  post(requestId: string, reason?: "explicit" | "autosave" | "revert" | "query"): PromiseLike<boolean>;
+  post(requestId: string): PromiseLike<boolean>;
   /** A message sent outside a request/answer pair, such as a source visit's tile. */
   notify?(message: BridgeMessage): void;
-  readonly waiting: Map<string, (outcome: { readonly ok: boolean; readonly message?: string }) => void>;
+  readonly waiting: Map<string, (settled: boolean) => void>;
 }
 
 /** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
@@ -816,10 +815,6 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       return document;
     },
     async saveCustomDocument(document) {
-      // An explicit save applies the field the author is still typing in; a field the file cannot store refuses the save
-      // and VS Code keeps the document dirty instead of reporting a write that left the typing out.
-      const unsettled = await document.settleViews("explicit");
-      if (unsettled !== null) throw new Error(unsettled);
       const result = await document.save();
       if (!result.ok) throw new Error(result.failure.message);
     },
@@ -857,15 +852,13 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own
       // edits after the save point, which `revert` mirrors (D3.6). First require every live webview to hand over its
       // accepted edits; if that cannot be confirmed, leave the model untouched.
-      // The user chose to discard, so text typed against the discarded version goes with it.
-      const unsettled = await document.settleViews("revert");
+      const unsettled = await document.settleViews();
       if (unsettled !== null) throw new Error(`Could not revert ${document.model.identity.path}: ${unsettled}. Nothing was reverted.`);
       const result = await document.model.revert();
       if (!result.ok) throw new Error(result.failure.message);
     },
     async backupCustomDocument(document, destination) {
-      // A hot-exit backup must not commit a half-typed field: autosave leaves the gesture alone (ADR 0022 D11.2).
-      const unsettled = await document.settleViews("autosave");
+      const unsettled = await document.settleViews();
       if (unsettled !== null) throw new Error(`Could not back up ${document.model.identity.path}: ${unsettled}. No backup was written.`);
       const id = await port.writeBackup(destination, document.model.serialize());
       return { id, delete: () => port.deleteBackup(destination) };
@@ -903,7 +896,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
         void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
       });
-      const detach = document.attachWebview((requestId, reason) => webview.postMessage({ type: "settle", requestId, ...(reason === undefined ? {} : { reason }) }), (message) => { void webview.postMessage(message); });
+      const detach = document.attachWebview((requestId) => webview.postMessage({ type: "settle", requestId }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));

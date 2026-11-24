@@ -66,9 +66,7 @@ export function linkedFileCandidates(folder: string, reference: string, extensio
   // A reference that repeats the type folder (`StatusE\burn.ste`) names the same file as the bare name, so the folder
   // prefix is dropped before looking it up.
   const head = base.slice(base.lastIndexOf("/") + 1).toLowerCase();
-  const bare = inside.split("/");
-  // `StatusE` alone names `StatusE.ste`, not the folder: the folder prefix is only dropped when a file name follows it.
-  const withoutFolder = bare.length > 1 && bare[0]?.toLowerCase() === head ? bare.slice(1).join("/") : inside;
+  const withoutFolder = inside.split("/")[0]?.toLowerCase() === head ? inside.split("/").slice(1).join("/") : inside;
   const typed = `${base}/${withoutFolder}`;
   const hasExtension = extensions.some((extension) => typed.toLowerCase().endsWith(extension));
   // The game appends the type's extension when the author left it off, so the completed path is tried first.

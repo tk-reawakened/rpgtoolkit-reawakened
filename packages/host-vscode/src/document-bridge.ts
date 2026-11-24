@@ -94,7 +94,7 @@ export type BridgeMessage =
   /** The reviewed import completed or was cancelled, or failed with a message to show. */
   | { readonly type: "import-as-scene-result"; readonly requestId: string; readonly result: PlatformResult<void> }
   /** The extension host is about to save, back up, revert or move the document: the webview answers `settled` once every edit it accepted has reached it (#2613). */
-  | { readonly type: "settle"; readonly requestId: string; readonly reason?: "explicit" | "autosave" | "revert" | "query" };
+  | { readonly type: "settle"; readonly requestId: string };
 
 export type EditorHostRequest =
   | { readonly type: "ready" }
@@ -117,7 +117,7 @@ export type EditorHostRequest =
   /** Import this saved board as a native scene. The document's own identity is the only source; a webview sends no path. */
   | { readonly type: "import-as-scene"; readonly requestId: string }
   /** The answer to `settle`. It is sent after every edit the webview accepted, so the channel's order puts those edits before it. */
-  | { readonly type: "settled"; readonly requestId: string; readonly ok?: boolean; readonly message?: string };
+  | { readonly type: "settled"; readonly requestId: string };
 
 export type VscodeApi = { postMessage(message: EditorHostRequest): void; getState(): unknown; setState(state: unknown): void };
 
@@ -149,7 +149,7 @@ export interface BridgedDocument {
   importAsScene?(): Promise<PlatformResult<void>>;
   readProject(path: string): Promise<PlatformResult<Uint8Array>>;
   /** A webview answered a `settle` request: every edit it had accepted has reached this document (#2613). */
-  viewSettled?(requestId: string, ok?: boolean, message?: string): void;
+  viewSettled?(requestId: string): void;
 }
 
 /** Extension-host document actions are authoritative; UI saves enter VS Code's custom-editor lifecycle. */
@@ -190,7 +190,7 @@ export async function handleEditorHostRequest(
     const result = await document.saveThroughWorkbench();
     await postMessage({ type: "save-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
   } else if (request.type === "settled") {
-    document.viewSettled?.(request.requestId, request.ok !== false, request.message);
+    document.viewSettled?.(request.requestId);
   } else if (request.type === "read-project") {
     const result = document.readProject === undefined
       ? platformError("unavailable", "This host cannot read project assets for the animation editor.")
@@ -600,12 +600,7 @@ export class RemoteDocument {
   receive(message: BridgeMessage): void {
     if (message.type === "settle") {
       const requestId = message.requestId;
-      void this.pendingEdits.settle(message.reason).then((outcome) => this.vscode.postMessage({
-        type: "settled",
-        requestId,
-        ok: outcome.ok,
-        ...(outcome.ok ? {} : { message: outcome.message }),
-      }));
+      void this.pendingEdits.settle().then(() => this.vscode.postMessage({ type: "settled", requestId }));
       return;
     }
     if (message.type === "board-preferences") {

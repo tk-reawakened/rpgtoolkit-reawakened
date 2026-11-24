@@ -640,19 +640,9 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     async saveAll(reason: HistoryReason = "manual") {
       const results: SaveAllEntry[] = [];
       // Every view's accepted requests must complete before any dirty flag is read.
-      // Save All is an explicit save: each view applies the field being typed in, and one that cannot be stored refuses
-      // this document's save with its reason instead of being written around.
-      const refusals = new Map<string, string>();
-      await Promise.all([...documents.values()].map(async (document) => {
-        const outcome = await pendingEditsOf(document).settle("explicit");
-        if (!outcome.ok) refusals.set(document.identity.key, outcome.message);
-      }));
+      await Promise.all([...documents.values()].map((document) => pendingEditsOf(document).settle()));
       for (const document of [...documents.values()]) {
-        const refusal = refusals.get(document.identity.key);
-        if (refusal !== undefined) {
-          results.push({ document: document.identity.path, result: { ok: false, failure: { document: document.identity.path, kind: "format", code: null, message: refusal } } });
-          continue;
-        }
+        await pendingEditsOf(document).settle();
         if (!document.getSnapshot().dirty) continue;
         results.push({ document: document.identity.path, result: await document.save(reason) });
       }
@@ -683,9 +673,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     release,
     async revert(document) {
-      // Ask about the version in force without touching the author's field text; the revert reason is sent only once the
-      // user confirmed and the document was actually reverted.
-      await pendingEditsOf(document).settle("query");
+      await pendingEditsOf(document).settle("revert");
       const snapshot = document.getSnapshot();
       // The edit in force when the user answers: an edit accepted while the question was open is not silently dropped.
       let head = snapshot.edits.at(-1)?.editId ?? null;
@@ -703,9 +691,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         head = document.getSnapshot().edits.at(-1)?.editId ?? null;
       }
       const reverted = await document.revert(head);
-      if (!reverted.ok) return { ok: false, reason: "failed", failure: reverted.failure };
-      await pendingEditsOf(document).settle("revert");
-      return reverted;
+      return reverted.ok ? reverted : { ok: false, reason: "failed", failure: reverted.failure };
     },
     async saveAs(document) {
       await pendingEditsOf(document).settle();
