@@ -41,12 +41,18 @@ export interface BoardPreviewRequest {
   readonly visibleLayers?: readonly number[];
   /** Whether the board's background image is drawn; it is when absent. */
   readonly showBackground?: boolean;
-  /** Whether placed item sprites are drawn. The default preserves the engine's `viewbrd` picture. */
+  /** Whether placed item sprites are drawn; they are omitted when absent. */
   readonly showSprites?: boolean;
-  /** Whether painted tile shading is drawn; it is when absent. Hiding it leaves the board file untouched. */
+  /** Whether placed images are drawn; they are included when absent. */
+  readonly showImages?: boolean;
+  /** Whether painted tile shading is drawn; it is when absent. */
   readonly showShading?: boolean;
-  /** Whether lights are drawn; they are when absent. Hiding them leaves the board file untouched. */
+  /** Whether board lighting is drawn; it is when absent. */
   readonly showLighting?: boolean;
+  /** The top-left board pixel shown; `(0, 0)` when absent. */
+  readonly camera?: { readonly x: number; readonly y: number };
+  /** The compositor viewport; the board's full extent when absent. */
+  readonly viewport?: { readonly width: number; readonly height: number };
 }
 
 /** The truthful visual extent for one stored board object. `index` is its raw board slot, including empty slots. */
@@ -101,15 +107,15 @@ export function boardPreviewRootForPath(path: string): AssetRoot {
   return { kind: "game", projectPath: folded.slice("game/".length) };
 }
 
-/** The hydrated board with the layers and background the request hides taken out of the picture only. */
+/** A copy of the board with the content hidden by the request taken out of the picture only. */
 function visibleBoard(board: WorldBoard, request: BoardPreviewRequest): WorldBoard {
-  if (request.visibleLayers === undefined && request.showBackground !== false) return board;
+  if (request.visibleLayers === undefined && request.showBackground !== false && request.showImages !== false) return board;
   const visible = request.visibleLayers === undefined ? null : new Set(request.visibleLayers);
   return {
     ...board,
     ...(request.showBackground === false ? { backgroundImage: "" } : {}),
     layers: visible === null ? board.layers : board.layers.map((layer, index) => (visible.has(index) ? layer : { ...layer, tiles: [] })),
-    ...(visible === null || board.images === undefined ? {} : { images: board.images.filter((image) => visible.has(image.layer - 1)) }),
+    ...(board.images === undefined ? {} : { images: request.showImages === false ? [] : visible === null ? board.images : board.images.filter((image) => visible.has(image.layer - 1)) }),
   };
 }
 
@@ -147,9 +153,13 @@ export async function previewBoard(
   if (!read.ok) return { ok: false, message: `The board cannot be previewed: ${read.error.message}` };
   const board = read.value;
   const extent = boardExtent(board);
-  if (extent.width * extent.height > MAX_PREVIEW_PIXELS) {
-    return { ok: false, message: `This board is larger than the ${MAX_PREVIEW_PIXELS / 1_000_000} million pixels the preview draws; edit it in the grid.` };
+  const camera = options.camera ?? { x: 0, y: 0 };
+  const width = options.viewport?.width ?? Math.max(1, extent.width);
+  const height = options.viewport?.height ?? Math.max(1, extent.height);
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width * height > MAX_PREVIEW_PIXELS) {
+    return { ok: false, message: `The requested board view must fit within the ${MAX_PREVIEW_PIXELS / 1_000_000} million pixel preview limit.` };
   }
+  if (!Number.isFinite(camera.x) || !Number.isFinite(camera.y)) return { ok: false, message: "The requested board view has an invalid camera position." };
   const paths = await projectPaths(storage);
   if (typeof paths === "string") return { ok: false, message: paths };
   // Hiding shading or lighting draws a copy of the board without it; the file and the document are never touched.
@@ -171,7 +181,7 @@ export async function previewBoard(
   const warnings: string[] = [...earlyWarnings];
   const unavailable = new Set<AssetKey>();
   const imageAssets = new Set<AssetKey>();
-  for (const image of board.images) {
+  for (const image of board.images ?? []) {
     if (image.file === "") continue;
     const resolved = resolveAsset(index, root, "bitmaps", image.file);
     if (resolved.ok) imageAssets.add(resolved.value);
@@ -233,8 +243,6 @@ export async function previewBoard(
       else warnings.push(`${dependency}: ${picture.error.message}`);
     }
     if (retryImages) continue;
-    const width = Math.max(1, extent.width);
-    const height = Math.max(1, extent.height);
     const spritePreview = options.showSprites === true
       ? await previewBoardSprites(board, index, root, load)
       : { draws: [], textures: new Map<AssetKey, DecodedTexture>(), bounds: [], warnings: [] };
@@ -250,7 +258,7 @@ export async function previewBoard(
           return sprite !== undefined && (options.visibleLayers === undefined || options.visibleLayers.includes(sprite.layer - 1));
         }).map((bound) => ({ kind: "sprites" as const, ...bound })) : []),
       ...board.images.flatMap((image, index) => {
-        if (options.visibleLayers !== undefined && !options.visibleLayers.includes(image.layer - 1)) return [];
+        if (options.showImages === false || (options.visibleLayers !== undefined && !options.visibleLayers.includes(image.layer - 1))) return [];
         const resolved = hydrated.value!.board.images?.[index];
         const texture = resolved?.asset === undefined ? undefined : textures.get(resolved.asset);
         const graphic = texture !== undefined || resolved?.cells !== undefined;
@@ -263,10 +271,10 @@ export async function previewBoard(
     const drawList = composeBoard({
       board: visibleBoard(hydrated.value.board, options),
       tick: options.tick ?? 0,
-      camera: { x: 0, y: 0 },
+      camera,
       viewport: { width, height },
       alpha: 0,
-      include: { shading: true, images: true, sprites: options.showSprites === true },
+      include: { shading: options.showShading !== false, images: options.showImages !== false, sprites: options.showSprites === true },
       sprites: visibleSprites,
       assets: textures,
     });

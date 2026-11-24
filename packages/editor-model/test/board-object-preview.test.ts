@@ -77,6 +77,7 @@ test("placed sprites resolve the south-rest frame under the game root, retaining
   const ordinary = await previewBoard(host.fs, "memory-project", bytes, { root: options.root });
   ok(ordinary.ok);
   deepEqual(pixel(ordinary, 45, 61), [0, 0, 0, 255]);
+  deepEqual(ordinary.objectBounds, [], "sprites are omitted, including their guides");
   const hidden = await previewBoard(host.fs, "memory-project", bytes, { ...options, visibleLayers: [] });
   ok(hidden.ok);
   deepEqual(hidden.objectBounds, []);
@@ -88,7 +89,6 @@ test("an empty first idle frame is a truthful placeholder, not a later frame or 
   const picture = await previewBoard(host.fs, "memory-project", board({ sprites: [sprite("chest.itm")] }), options);
   ok(picture.ok);
   equal(picture.objectBounds[0]?.placeholder, true);
-  deepEqual(pixel(picture, 45, 61), [0, 0, 0, 255]);
   ok(picture.warnings.some((warning) => warning.includes("rest.anm")));
 });
 
@@ -111,6 +111,18 @@ test("missing and undecodable image slots remain selectable placeholders without
   ok(picture.warnings.some((warning) => warning.includes("missing.bmp")));
   ok(picture.warnings.some((warning) => warning.includes("broken.bmp")));
 });
+test("previewing without placed images omits their compositor pixels and object bounds", async () => {
+  const host = createMemoryPlatformServices({ files: { "Bitmap/blue.bmp": bmp([blue, blue, blue, blue]) } });
+  const bytes = board({ images: [image("blue.bmp")] });
+  const visible = await previewBoard(host.fs, "memory-project", bytes);
+  const hidden = await previewBoard(host.fs, "memory-project", bytes, { showImages: false });
+  ok(visible.ok);
+  ok(hidden.ok);
+  deepEqual(pixel(visible, 0, 0), [...blue, 255]);
+  deepEqual(pixel(hidden, 0, 0), [0, 0, 0, 255]);
+  deepEqual(hidden.objectBounds, []);
+});
+
 
 test("stretched image bounds match the compositor's board-sized picture rather than the stored origin", async () => {
   const host = createMemoryPlatformServices({ files: { "Bitmap/blue.bmp": bmp([blue, blue, blue, blue]) } });

@@ -25,9 +25,11 @@ import {
     type ConflictChoice,
     type PendingEdits,
     type SaveFailure,
-    type Stamp
+    type Stamp,
+    type BoardPreviewRequest,
+    encodeScenePng,
 } from "@tk-reawakened/editor-model";
-import type { Capabilities, ClipboardService, DocumentEdited } from "@tk-reawakened/platform-services";
+import type { Capabilities, ClipboardService, DocumentEdited, PackageExportService } from "@tk-reawakened/platform-services";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
@@ -48,6 +50,29 @@ let viewsMade = 0;
 
 /** The cells shown across and down at once in the grid; a larger board scrolls the window with the cursor (ARIA `rowindex`/`colindex` name each cell's place). */
 const WINDOW = 16;
+function scaleNearest(rgba: Uint8Array, sourceWidth: number, sourceHeight: number, width: number, height: number): Uint8Array {
+  if (sourceWidth === width && sourceHeight === height) return rgba;
+  const scaled = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = Math.min(sourceHeight - 1, Math.floor(y * sourceHeight / height));
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = Math.min(sourceWidth - 1, Math.floor(x * sourceWidth / width));
+      const source = (sourceY * sourceWidth + sourceX) * 4;
+      const target = (y * width + x) * 4;
+      scaled[target] = rgba[source]!;
+      scaled[target + 1] = rgba[source + 1]!;
+      scaled[target + 2] = rgba[source + 2]!;
+      scaled[target + 3] = rgba[source + 3]!;
+    }
+  }
+  return scaled;
+}
+
+function boardPngName(path: string): string {
+  const fileName = path.split(/[\\/]/).at(-1) ?? "board";
+  const stem = fileName.replace(/\.[^.]*$/, "") || "board";
+  return `${stem}.png`;
+}
 
 export interface BoardViewProps {
   readonly doc: BoardViewDocument;
@@ -57,6 +82,7 @@ export interface BoardViewProps {
   readonly preferences?: BoardPreferencesSource;
   readonly navigation?: BoardPropertiesNavigation & Pick<CharacterAuthoringViewProps, "pickAsset">;
   readonly pendingEdits: PendingEdits;
+  readonly packageExport?: PackageExportService;
   /** The host's system clipboard; without it copy, cut and paste say so and change nothing. */
   readonly clipboard?: ClipboardService;
 }
@@ -117,7 +143,7 @@ function brushFor(selection: BrowserSelection | null, stamp: { readonly path: st
  * tool at the cell, Enter goes to the tile field, and the tools have single-key shortcuts.
  * Only classes and ARIA attributes are used, never a `style` attribute (ADR 0025 decision 6).
  */
-export function BoardView({ doc, capabilities, onEdited, browser, preferences, navigation, pendingEdits, clipboard }: BoardViewProps) {
+export function BoardView({ doc, capabilities, onEdited, browser, preferences, navigation, pendingEdits, clipboard, packageExport }: BoardViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const importAsScene = doc.importAsScene;
   const assetRevision = useContext(AssetRefreshContext);
@@ -138,6 +164,16 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const [stamp, setStamp] = useState<{ readonly path: string; readonly value: Stamp } | null>(null);
   const [stampError, setStampError] = useState<string | null>(null);
   const [historyNote, setHistoryNote] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportScope, setExportScope] = useState<"view" | "board">("view");
+  const [exportSprites, setExportSprites] = useState(true);
+  const [exportImages, setExportImages] = useState(true);
+  const [exportShading, setExportShading] = useState(true);
+  const [exportLighting, setExportLighting] = useState(true);
+  const [exportPending, setExportPending] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [exportBytes, setExportBytes] = useState<Uint8Array | null>(null);
+  const [exportFileName, setExportFileName] = useState<string | null>(null);
   const [moveBy, setMoveBy] = useState({ columns: "1", rows: "0" });
   const [pickingStart, setPickingStart] = useState(false);
   const [startMessage, setStartMessage] = useState<string | null>(null);
@@ -485,6 +521,89 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
     },
   };
   const polygonMode = state.mode === "vectors" || state.mode === "programs";
+  const cancelBoardExport = (): void => {
+    setExportOpen(false);
+    setExportBytes(null);
+    setExportFileName(null);
+    setExportMessage(null);
+  };
+  const prepareBoardExport = async (): Promise<void> => {
+    if (exportPending) return;
+    if (packageExport === undefined) {
+      setExportMessage("This host does not support saving PNG exports.");
+      return;
+    }
+    setExportPending(true);
+    setExportMessage(null);
+    setExportBytes(null);
+    try {
+      await pendingEdits.settle();
+      const zoom = zoomOf(state.viewport);
+      const viewWidth = Math.max(1, Math.round(state.viewport.width));
+      const viewHeight = Math.max(1, Math.round(state.viewport.height));
+      const request: BoardPreviewRequest = {
+        showSprites: exportSprites,
+        showImages: exportImages,
+        showShading: exportShading,
+        showLighting: exportLighting,
+        ...(exportScope === "view" ? {
+          visibleLayers: Array.from({ length: snapshot.layers }, (_, layer) => layer).filter((layer) => !state.hidden.includes(layer)),
+          showBackground: state.showBackground,
+          camera: { x: state.viewport.x, y: state.viewport.y },
+          viewport: {
+            width: Math.max(1, Math.ceil(viewWidth / zoom)),
+            height: Math.max(1, Math.ceil(viewHeight / zoom)),
+          },
+        } : {}),
+      };
+      const picture = await doc.preview(request);
+      if (!picture.ok) {
+        setExportMessage(picture.message);
+        return;
+      }
+      const width = exportScope === "view" ? viewWidth : picture.width;
+      const height = exportScope === "view" ? viewHeight : picture.height;
+      const rgba = exportScope === "view"
+        ? scaleNearest(picture.rgba, picture.width, picture.height, width, height)
+        : picture.rgba;
+      const bytes = encodeScenePng({ w: width, h: height, rgba });
+      setExportBytes(bytes);
+      setExportFileName(boardPngName(doc.identity.path));
+      setExportMessage(picture.warnings.length === 0
+        ? "PNG is ready to download."
+        : `PNG is ready; some assets were omitted: ${picture.warnings.join(" ")}`);
+    } catch (error) {
+      setExportMessage(error instanceof Error ? error.message : "The board image could not be prepared.");
+    } finally {
+      setExportPending(false);
+    }
+  };
+  const downloadBoardExport = (): void => {
+    if (exportBytes === null || exportFileName === null) return;
+    if (packageExport === undefined) {
+      setExportMessage("This host does not support saving PNG exports.");
+      return;
+    }
+    setExportPending(true);
+    setExportMessage(null);
+    try {
+      void packageExport.downloadFile(exportFileName, exportBytes).then((result) => {
+        if (!result.ok) {
+          setExportMessage(result.error.message);
+          return;
+        }
+        setExportOpen(false);
+        setExportBytes(null);
+        setExportFileName(null);
+        setExportMessage(`${exportFileName} download started.`);
+      }).catch((error: unknown) => {
+        setExportMessage(error instanceof Error ? error.message : "The PNG could not be downloaded.");
+      }).finally(() => setExportPending(false));
+    } catch (error) {
+      setExportMessage(error instanceof Error ? error.message : "The PNG could not be downloaded.");
+      setExportPending(false);
+    }
+  };
 
   return (
     <section class="tkr-board" aria-label="Board" onKeyDown={onShortcut}>
@@ -501,6 +620,42 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
             .finally(() => setImportPending(false));
         }}>Import as Scene…</button>
       )}
+      <button type="button" class="tkr-board-export" onClick={() => {
+        setExportMessage(null);
+        setExportBytes(null);
+        setExportFileName(null);
+        setExportOpen(true);
+      }}>Export PNG…</button>
+      {exportOpen ? (
+        <div class="tkr-board-export-overlay" role="dialog" aria-modal="true" aria-labelledby={`${ids}-export-title`}
+          onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); cancelBoardExport(); } }}>
+          <h2 id={`${ids}-export-title`}>Export board image</h2>
+          <fieldset disabled={exportPending}>
+            <legend>Image area</legend>
+            <label><input type="radio" name={`${ids}-export-scope`} checked={exportScope === "view"}
+              onChange={() => { setExportScope("view"); setExportBytes(null); setExportFileName(null); }} />Current view</label>
+            <label><input type="radio" name={`${ids}-export-scope`} checked={exportScope === "board"}
+              onChange={() => { setExportScope("board"); setExportBytes(null); setExportFileName(null); }} />Whole board</label>
+          </fieldset>
+          <fieldset disabled={exportPending}>
+            <legend>Include content</legend>
+            <label><input type="checkbox" checked={exportSprites} onChange={(event) => { setExportSprites(event.currentTarget.checked); setExportBytes(null); setExportFileName(null); }} />Sprites</label>
+            <label><input type="checkbox" checked={exportImages} onChange={(event) => { setExportImages(event.currentTarget.checked); setExportBytes(null); setExportFileName(null); }} />Images</label>
+            <label><input type="checkbox" checked={exportShading} onChange={(event) => { setExportShading(event.currentTarget.checked); setExportBytes(null); setExportFileName(null); }} />Shading</label>
+            <label><input type="checkbox" checked={exportLighting} onChange={(event) => { setExportLighting(event.currentTarget.checked); setExportBytes(null); setExportFileName(null); }} />Lighting</label>
+          </fieldset>
+          {packageExport === undefined ? <p role="note">This host cannot save a PNG export.</p> : null}
+          {exportMessage === null ? null : <p class="tkr-board-export-message" role={exportBytes === null ? "alert" : "status"}>{exportMessage}</p>}
+          <button type="button" disabled={exportPending || packageExport === undefined} onClick={() => { void prepareBoardExport(); }}>
+            {exportPending && exportBytes === null ? "Preparing PNG…" : "Prepare PNG"}
+          </button>
+          {exportBytes === null || exportFileName === null ? null : (
+            <button type="button" disabled={exportPending} onClick={downloadBoardExport}>Download PNG</button>
+          )}
+          <button type="button" disabled={exportPending} onClick={cancelBoardExport}>Cancel</button>
+        </div>
+      ) : null}
+      {exportMessage !== null && !exportOpen ? <p class="tkr-board-export-message" role="status">{exportMessage}</p> : null}
       <p>Reusable collision, walk-behind and linked pack placements are edited in native scenes, not legacy boards. Import this board as a scene to use those tools.</p>
       {importError === null ? null : <p class="tkr-board-error" role="alert">{importError}</p>}
       {conflict === null ? null : (

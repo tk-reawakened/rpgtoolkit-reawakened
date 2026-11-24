@@ -105,6 +105,26 @@ test("the editor's preview is the engine's viewbrd pixels for the same board, be
   notDeepEqual(after.rgba, before.rgba, "the changed tile changes the picture");
   deepEqual(after.rgba, engineView(doc.serialize(), 64), "unsaved edits preview as the engine would draw them once saved");
 });
+test("current-view preview crops the shared board composition at the requested camera", async () => {
+  const host = createMemoryPlatformServices({ files: FILES });
+  const whole = await previewBoard(host.fs, "memory-project", smallBoard());
+  ok(whole.ok);
+  const view = await previewBoard(host.fs, "memory-project", smallBoard(), {
+    camera: { x: 16, y: 8 },
+    viewport: { width: 24, height: 32 },
+  });
+  ok(view.ok, view.ok ? "" : view.message);
+  if (!whole.ok || !view.ok) return;
+  equal(view.width, 24);
+  equal(view.height, 32);
+  const expected = new Uint8Array(view.width * view.height * 4);
+  for (let y = 0; y < view.height; y += 1) {
+    const sourceStart = ((y + 8) * whole.width + 16) * 4;
+    expected.set(whole.rgba.subarray(sourceStart, sourceStart + view.width * 4), y * view.width * 4);
+  }
+  deepEqual(view.rgba, expected, "viewport pixels are a clean crop of the full compositor output");
+});
+
 
 test("a board whose tileset the project lacks has no preview and says which file", async () => {
   const host = createMemoryPlatformServices({ files: { "Boards/village.brd": FILES["Boards/village.brd"] } });
