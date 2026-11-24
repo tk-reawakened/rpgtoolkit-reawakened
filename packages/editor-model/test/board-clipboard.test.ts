@@ -439,21 +439,26 @@ test("clipboard text that is not a version number is refused, never thrown", asy
   match(s.editor.getState().message!.text, /valid size/);
 });
 
-test("pasting where the cells already show what was copied still selects the destination", async () => {
+test("pasting where the cells already show what was copied still selects the new destination", async () => {
   const s = rig();
   const a = near(s.centre, 0, 0);
-  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...a, tile: GRASS }, { layer: 0, ...near(a, 1, 0), tile: ROCK }] })).ok);
-  await s.select(a, near(a, 1, 0));
+  const b = near(s.centre, 0, 2);
+  const elsewhere = near(s.centre, 3, 3);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...a, tile: GRASS }, { layer: 0, ...b, tile: GRASS }] })).ok);
+  await s.select(a, a);
   ok(await s.editor.copy());
+  // A different selection, then a no-op paste: the selection must still move to where the paste went.
+  await s.select(elsewhere, elsewhere);
   const bytes = s.doc.serialize();
   const edits = s.doc.getSnapshot().edits.length;
-  s.editor.setCursor(a);
+  s.editor.setCursor(b);
   equal(await s.editor.paste(), false, "nothing changed, so no edit was made");
   deepEqual(s.doc.serialize(), bytes);
   equal(s.doc.getSnapshot().edits.length, edits);
   const selection = s.editor.getState().selection;
   ok(selection !== null, "the destination is selected so a second copy takes it");
-  deepEqual([selection.rect.x0, selection.rect.y0, selection.rect.x1, selection.rect.y1], [a.x, a.y, a.x + 1, a.y]);
+  deepEqual([selection.rect.x0, selection.rect.y0, selection.rect.x1, selection.rect.y1], [b.x, b.y, b.x, b.y]);
+  notEqual(selection.rect.x0, elsewhere.x);
 });
 
 test("select all with no visible object clears the earlier selection instead of keeping it for a cut", async () => {
