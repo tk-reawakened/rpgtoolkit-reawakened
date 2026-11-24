@@ -25,6 +25,7 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
     remoteDocument = remote;
     const fs = {
       readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
+      list: (path: string) => remote.browserList(path),
     };
     const services = { document: { edited: () => undefined }, capabilities: new Set(event.data.capabilities), fs };
     if (event.data.kind === "character" || event.data.kind === "item") {
@@ -98,6 +99,16 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
   remoteDocument?.receive(event.data);
 });
 api.postMessage({ type: "ready" });
+
+// Ctrl/Cmd+S while a field is focused belongs to this editor: VS Code's Save All only visits dirty documents, so a clean
+// one with a field still being typed in would otherwise be skipped. The focused view's own Save applies the field first.
+window.addEventListener("keydown", (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+  const save = document.querySelector<HTMLButtonElement>("[data-editor-save]");
+  if (save === null || save.disabled) return;
+  event.preventDefault();
+  save.click();
+});
 
 function spriteViewDocument(remote: RemoteDocument): SpriteViewDocument | null {
   if (remote.kind !== "character" && remote.kind !== "item") return null;

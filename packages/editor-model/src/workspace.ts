@@ -673,7 +673,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     release,
     async revert(document) {
-      await pendingEditsOf(document).settle();
+      await pendingEditsOf(document).settle("revert");
       const snapshot = document.getSnapshot();
       // The edit in force when the user answers: an edit accepted while the question was open is not silently dropped.
       let head = snapshot.edits.at(-1)?.editId ?? null;

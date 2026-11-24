@@ -299,3 +299,34 @@ test("a description's Windows line endings survive an edit made in the multi-lin
     equal(new TextDecoder("windows-1252").decode(saved.slice(0x43, saved.length - 1)), "One\r\nTwo!", "the file's own line endings are kept");
   } finally { view.dispose(); }
 });
+
+test("an explicit save applies a focused draft, autosave and a backup leave the gesture alone, and a revert drops it", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    const typeDamage = async (value: string): Promise<void> => {
+      await act(() => { const input = field(view.root, "Damage (FP)"); input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); });
+    };
+    await typeDamage("-30");
+    await view.pendingEdits.settle("autosave");
+    equal(view.doc.getSnapshot().damage, 12, "autosave does not commit the field mid-gesture");
+    await view.pendingEdits.settle("explicit");
+    equal(view.doc.getSnapshot().damage, -30, "an explicit save applies it");
+    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-7"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+    await view.pendingEdits.settle("revert");
+    equal(field(view.root, "Damage (FP)").value, "-30", "a revert shows the document again");
+    equal(view.root.querySelector("[role=alert]")?.textContent?.includes("Nothing was saved") ?? false, false);
+  } finally { view.dispose(); }
+});
+
+test("a mixed-case file name in the project is found from a lower-case reference", async () => {
+  const { host, pendingEdits } = { host: createMemoryPlatformServices({ files: { [SPC]: fireball, "StatusE/Burn.STE": burn } }), pendingEdits: createPendingEdits() };
+  const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(opened.ok);
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, { document: opened.document, services: host, pendingEdits });
+  await settle();
+  try {
+    await until(() => root.textContent?.includes("Burn: 3 rounds") === true, "the stored spelling Burn.STE is found from burn.ste");
+  } finally { handle.dispose(); root.remove(); }
+});

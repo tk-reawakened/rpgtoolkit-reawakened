@@ -1,6 +1,7 @@
 import {
   createEditTracker,
   linkedFileCandidates,
+  resolveDocumentPath,
   linkReferenceProblem,
   projectLayoutForDocumentPath,
   reservedFolder,
@@ -120,7 +121,19 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
       await submit();
     }
   };
-  useEffect(() => pendingEdits.register({ busy: () => submitted.current.busy(), idle: () => submitted.current.idle() }), [pendingEdits]);
+  // An explicit save applies the focused field first; autosave and a backup leave the gesture alone (ADR 0022 D11.2);
+  // a revert drops text typed against the version being discarded, with the message that named it.
+  useEffect(() => pendingEdits.register({
+    busy: () => submitted.current.busy(),
+    idle: async (reason) => {
+      if (reason === "revert") {
+        if (Object.keys(draftsRef.current).length > 0) { publishDrafts({}); setMessage(null); }
+      } else if (reason === undefined || reason === "explicit") {
+        await flush();
+      }
+      await submitted.current.idle(reason);
+    },
+  }), [pendingEdits]);
   const save = async (): Promise<void> => {
     try {
       await flush();
@@ -323,7 +336,7 @@ export type LinkedFile =
  * reference or the saved assets change.
  */
 export function useLinkedFile(
-  fs: Pick<FileSystemService, "readProject">,
+  fs: Pick<FileSystemService, "readProject"> & Partial<Pick<FileSystemService, "list">>,
   projectId: string,
   documentPath: string,
   kind: AssetKind,
@@ -352,7 +365,16 @@ export function useLinkedFile(
     setLinked({ state: "checking" });
     void (async () => {
       let missing: { readonly path: string; readonly message: string } | null = null;
-      for (const path of linkedFileCandidates(folder, trimmed, wanted)) {
+      for (const candidate of linkedFileCandidates(folder, trimmed, wanted)) {
+        let path = candidate;
+        // The project stores one spelling of a name; a host that can list folders finds it, so `Burn.STE` on disk is
+        // found from `burn.ste` even where the file system is case-sensitive.
+        if (fs.list !== undefined) {
+          try {
+            const resolved = await resolveDocumentPath({ list: (folderPath: string) => fs.list!(folderPath) }, candidate);
+            if (resolved.ok && resolved.exists) path = resolved.path;
+          } catch { /* a listing that fails leaves the candidate's own spelling */ }
+        }
         let result: Awaited<ReturnType<typeof fs.readProject>>;
         try {
           result = await fs.readProject(projectId, path);

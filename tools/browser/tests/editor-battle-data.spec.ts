@@ -122,15 +122,19 @@ test("the linked status effect opens in its own tab, saves there, and the move's
   await expect(move.getByText("Burn: 3 rounds; restores 5 HP each round.")).toBeVisible();
 });
 
-test("a value the field cannot hold is refused with the reason, the file keeps its bytes, and the rest still saves", async ({ page }) => {
+test("a value the field cannot hold is refused with its reason, is never saved, and is discarded on request", async ({ page }) => {
   await openWorkbench(page);
   await openFile(page, "SpcMove", "fireball.spc");
   const editor = page.locator('[data-tkr-editor="Special move"]');
   await retype(page, "Damage (FP)", "9999999999");
   await expect(editor.getByRole("alert")).toContainText("whole number from -2147483648 to 2147483647");
-  // A refused draft keeps its text and its reason, and never holds the host's save open.
-  await expect(editor.getByLabel("Damage (FP)", { exact: true })).toHaveValue("9999999999");
+  // The refused text keeps its place and its reason; nothing is written behind the author's back.
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect(editor.getByRole("alert")).toContainText("Nothing was saved");
   expect(await readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
-  await expect(editor.getByRole("alert")).toContainText("whole number from -2147483648 to 2147483647");
+  // Discarding it returns the field to the file's value and the file saves normally.
+  await editor.getByRole("button", { name: "Discard the unapplied text" }).click();
+  await expect(editor.getByLabel("Damage (FP)", { exact: true })).toHaveValue("12");
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect.poll(() => readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
 });

@@ -399,7 +399,7 @@ class Webview {
       }
       page.handle = mount(page.element, {
         document: remote as unknown as ViewContext["document"],
-        services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities), fs: { readProject: (projectId, path) => remote.readProject(projectId, path) } },
+        services: { document: { edited: () => undefined }, capabilities: new Set(message.capabilities), fs: { readProject: (projectId, path) => remote.readProject(projectId, path), list: (path) => remote.browserList(path) } },
         browser: {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },

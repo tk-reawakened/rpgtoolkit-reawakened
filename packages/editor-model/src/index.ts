@@ -518,6 +518,7 @@ export {
   type VscodeConfiguration,
 } from "./preferences.ts";
 export * from "./checkpoint-groups.ts";
+export type { SettleReason } from "./pending-edits.ts";
 export * from "./animation-authoring.ts";
 
 export type { AnimationFrame } from "./animation-document.ts";

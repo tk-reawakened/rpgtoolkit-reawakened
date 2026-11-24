@@ -7,12 +7,14 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { BinaryReader, assetKey, readEnemy, readSpecialMove, readStatusEffect, writeEnemy, writeSpecialMove, writeStatusEffect, type SpecialMove, type StatusEffect } from "@tk-reawakened/core";
 import { actor, awaitMenu, bootUiRig, entries, gameFiles, ui, type UiRig } from "./battle-ui-rig.ts";
 
 const authored = gameFiles().files;
 /** The bytes the editor saved for the authored enemy's move and its linked status, reopened from its own fixture. */
-const fixture = (name: string): Uint8Array => new Uint8Array(readFileSync(new URL(`./fixtures/editor/${name}`, import.meta.url)));
+const fixture = (name: string): Uint8Array => new Uint8Array(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures", "editor", name)));
 const readMove = (path: string): SpecialMove => {
   const read = readSpecialMove(new BinaryReader(authored.get(assetKey(path))!));
   ok(read.ok, path);
