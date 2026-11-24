@@ -128,3 +128,12 @@ The earlier Control-key proof used the wrong modifier on macOS. A custom command
 dispatch and could show an “undo or redo operation running” dialog, so no bridge ships. The real vscode.dev proof
 checks native key Undo/Redo, the tab's dirty marker going from set to clear when undoing back to saved content, and close
 without a save prompt or any change to the saved bytes.
+
+## Fourth-pass review fixes
+
+- **#3401:** Each capture holds the engine's installed font keys at that tick; both presenters use the selected frame's keys. A nested project face stays on the earlier frame even after `MainFile()` clears the engine inventory.
+- **#3402:** A null reply settles a font request for the current boot. The startup test demands one request, one refusal, and a running program without the face.
+- **#3403:** A drag retains all traversed cells until release. A matching external edit followed by Undo cannot strip the drag's intent.
+- **#3404:** Both New Font routes validate against the selected project's reserved `Font` destination before writing. Chromium proves `Misc/Font/` cannot masquerade as the root game's font folder.
+- **#3405:** Font path and family lookup use the asset resolver's ASCII folding, preserving the distinction between `Élan` and `élan`.
+- **#3375:** The grid now consumes its Undo/Redo shortcuts before VS Code's bubbling forwarder and queues them behind its accepted stroke edits. The extension only dispatches the native command for the active font URI; the workbench's existing history callback owns edit reversal and dirty state. The conformance test holds an acknowledgement after the first edit is registered, queues a second stroke and Undo, then proves only the second stroke is undone. The real workbench checks keyboard and palette share one stack and still closes cleanly after Undo.

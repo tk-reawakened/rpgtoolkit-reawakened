@@ -239,13 +239,13 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
       cancelStroke();
       return;
     }
-    const incoming = inflight.current.get(current.glyph)?.rows ?? fontGlyphRows(snapshot.values, current.glyph);
+    const incoming = savedRows;
     if (sameRows(current.base, incoming)) return;
     current.base = incoming;
-    for (const [key, cell] of [...current.cells]) if (fontPixelOf(incoming, cell.x, cell.y) === cell.ink) current.cells.delete(key);
+    // Keep intent even for pixels the incoming revision happens to match: another revision may erase them before release.
     current.rows = fontRowsAfter(incoming, { type: "set-font-pixels", glyph: current.glyph, pixels: [...current.cells.values()] });
-    setDraft(current.cells.size === 0 ? null : current.rows);
-  }, [snapshot.values, canEdit]);
+    setDraft(current.rows);
+  }, [savedRows, canEdit]);
   useEffect(() => cancelStroke, []);
 
   const selectSlot = (next: number, fromKeyboard: boolean): void => {
@@ -524,11 +524,13 @@ export function FontView({ doc, capabilities, onEdited, pendingEdits }: FontView
                           toolAt(x, y, tool);
                         }}
                         onKeyDown={(event) => {
-                          // The host's own undo and redo, unless the workbench around this view already took the key.
+                          // The host owns history; route the key once, after this view's accepted edits.
                           if (!event.defaultPrevented && (event.ctrlKey || event.metaKey) && !event.altKey && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
                             const redo = event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z");
                             if ((redo ? doc.redo : doc.undo) !== undefined) {
                               event.preventDefault();
+                              // VS Code's webview forwards bubbling keys to its workbench even when default is prevented.
+                              event.stopPropagation();
                               history(redo ? "redo" : "undo");
                             }
                             return;

@@ -36,12 +36,14 @@ export async function suggestFontPath(fs: Pick<FileSystemService, "list">, layou
   }
 }
 
-/** Why `path` cannot hold a new font, or `null`: a font is a `.fnt` file in a `Font` folder of the project. */
-export function fontDestinationProblem(path: string): string | null {
+/** Why `path` cannot hold a new font in the selected game's reserved `Font` folder, or `null`. */
+export function fontDestinationProblem(path: string, layout: ProjectLayout): string | null {
   const parts = path.split("/");
   const fileName = parts.at(-1) ?? "";
   const folder = parts.at(-2) ?? "";
   if (parts.length < 2 || foldPath(folder) !== foldPath(ASSET_FOLDERS.fonts)) return `A font goes in a ${ASSET_FOLDERS.fonts} folder, such as ${ASSET_FOLDERS.fonts}/${fileName || "new-font.fnt"}.`;
+  const target = reservedFolder(layout, "fonts");
+  if (foldPath(path.slice(0, path.lastIndexOf("/"))) !== foldPath(target)) return `A font for this game goes in ${target}.`;
   const unusable = unusableName(fileName);
   if (unusable !== null) return unusable;
   return /\.fnt$/i.test(fileName) && fileName.length > 4 ? null : "A font's name ends in .fnt.";
@@ -52,8 +54,8 @@ export function fontDestinationProblem(path: string): string | null {
  * spelling. The host write is not an atomic exclusive create, so a file another program makes between the check and the
  * write can be replaced.
  */
-export async function createFontFile(fs: NewFontStorage, path: string): Promise<CreateFontResult> {
-  const invalid = fontDestinationProblem(path);
+export async function createFontFile(fs: NewFontStorage, path: string, layout: ProjectLayout): Promise<CreateFontResult> {
+  const invalid = fontDestinationProblem(path, layout);
   if (invalid !== null) return { ok: false, reason: "invalid", message: invalid };
   const resolved = await resolveDocumentPath(fs, path);
   const exists = (): CreateFontResult => ({ ok: false, reason: "exists", message: `${path} already exists (names are compared without regard to A-Z case). Nothing was created; choose another name.` });

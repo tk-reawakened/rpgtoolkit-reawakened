@@ -119,4 +119,8 @@ test("resolveFontAsset prefers an exact path, then a family match, then the Libe
   equal(resolveFontAsset("sans-serif", keys), assetKey("media/fonts/LiberationSans-Regular.ttf"));
   equal(resolveFontAsset("Comic Sans MS", keys), null, "an unknown family resolves to nothing, so the caller falls back");
   equal(resolveFontAsset("", keys), null);
+  const upper = assetKey("Font/Élan.fnt");
+  const lower = assetKey("Font/élan.fnt");
+  equal(resolveFontAsset("ÉLAN", [lower, upper]), upper, "family matching folds ASCII only");
+  equal(resolveFontAsset("FONT/élan.FNT", [upper, lower]), lower, "exact paths preserve non-ASCII case");
 });

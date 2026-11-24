@@ -7,6 +7,7 @@
  * every host.
  */
 
+import { foldPath } from "../formats/main-file/layout.ts";
 import type { LegacyFont } from "../formats/font/model.ts";
 import { FONT_GLYPH_HEIGHT, FONT_GLYPH_WIDTH } from "../formats/font/model.ts";
 import { readTrueTypeFont, trueTypeFontMetrics, type TrueTypeFont } from "../formats/font/truetype.ts";
@@ -89,20 +90,18 @@ function widthOf(glyphs: readonly GlyphAdvance[]): number {
 /**
  * Resolve a `font(name)` argument against the assets the project actually ships
  * (docs/spec/engine/rpgcode-functions.md#reawakened-rule-owner-fontref-facing-font-semantics):
- * an exact path, then a case-insensitive family match, then the documented
+ * an exact path, then an ASCII-case-insensitive family match, then the documented
  * Liberation substitution, and `null` when nothing resolves so the caller can
  * fall back.
  */
 export function resolveFontAsset(name: string, keys: Iterable<AssetKey>): AssetKey | null {
-  const folded = name.trim().toLowerCase();
+  const folded = foldPath(name.trim());
   if (folded === "") return null;
-  const familyOf = (key: AssetKey): string => {
-    const path = String(key).toLowerCase();
-    return path.slice(path.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "").replace(/[-_\s]/g, "");
-  };
+  const familyOf = (key: AssetKey): string =>
+    key.slice(key.lastIndexOf("/") + 1).replace(/\.[^.]+$/, "").replace(/[-_\s]/g, "");
   const wanted = folded.replace(/[-_\s]/g, "");
   const all = [...keys];
-  const exact = all.find((key) => String(key).toLowerCase() === folded || String(key).toLowerCase().endsWith(`/${folded}`));
+  const exact = all.find((key) => key === folded || key.endsWith(`/${folded}`));
   if (exact !== undefined) return exact;
   const byFamily = all.find((key) => familyOf(key) === wanted);
   if (byFamily !== undefined) return byFamily;

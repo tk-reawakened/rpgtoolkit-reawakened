@@ -245,6 +245,13 @@ test("New font… makes an empty version 2.0 font in the Font folder, and a canc
   await page.getByRole("dialog").getByRole("textbox").fill(created);
   await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
   expect(await readProjectFile(page, created).catch(() => null)).toBeNull();
+  const unrelated = "Misc/Font/unrelated.fnt";
+  await page.getByRole("button", { name: "New font…", exact: true }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill(unrelated);
+  await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("A font for this game goes in Font.");
+  expect(await readProjectFile(page, unrelated).catch(() => null)).toBeNull();
+  await page.getByRole("dialog").getByRole("button", { name: "OK", exact: true }).click();
   await page.getByRole("button", { name: "New font…", exact: true }).click();
   await page.getByRole("dialog").getByRole("textbox").fill(created);
   await page.getByRole("dialog").getByRole("button", { name: "Save", exact: true }).click();

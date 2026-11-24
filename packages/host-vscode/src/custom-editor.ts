@@ -61,6 +61,8 @@ export interface GameEditorPort<Uri extends UriLike> {
    * a document the workbench is about to open (one model per identity, ADR 0022 D1.2).
    */
   openEditor(uri: Uri): Promise<void>;
+  /** Run native history only for the active custom-editor tab. */
+  runWorkbenchHistory?(uri: Uri, direction: "undo" | "redo"): Promise<boolean>;
   /** The board-editor preferences (T-33) in force in `folder`, from the host's own settings; the catalogue's defaults when the port gives none. */
   boardPreferences?(folder: WorkspaceFolderLike<Uri>): EditorPreferences;
   /** Call `listener` when the settings that make `boardPreferences` change; the returned handle stops it. */
@@ -220,6 +222,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         this.#lastEditAt = this.#now();
       }
     });
+  }
+
+  async runHistory(direction: "undo" | "redo"): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> {
+    // Native history invokes the edit event's undo/redo callback; never move the model cursor ahead of it.
+    if (await this.#port.runWorkbenchHistory?.(this.uri, direction)) return { ok: true };
+    return { ok: false, message: "Focus this bitmap font's editor to use Undo or Redo." };
   }
 
   /** Hand an accepted edit to VS Code's undo stack; VS Code undoes it by its `editId` (AD-19). */

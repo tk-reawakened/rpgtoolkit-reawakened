@@ -4424,6 +4424,7 @@ test("a project font the host cannot supply is reported and skipped, and the gam
   const doubles = makeDoubles();
   const engine = bootEngine(game, doubles);
   const result = run(engine, game.files, 10);
+  deepEqual(result.requests.filter((key) => key === "font/retro.fnt"), ["font/retro.fnt"], "a null delivery settles the request for this boot");
   deepEqual(result.diagnostics.filter((diagnostic) => diagnostic.code === "font.rejected").map((diagnostic) => [diagnostic.file, diagnostic.message]), [
     ["font/retro.fnt", "font not found: font/retro.fnt"],
   ]);

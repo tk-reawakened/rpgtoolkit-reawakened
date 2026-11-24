@@ -3164,6 +3164,12 @@ export async function runVscodeFontProof(page: Page, expect: Expect, workbenchUr
   await expect.poll(() => inkOf(panel)).toBe("0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
   await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+z" : "Control+y");
   await expect.poll(() => inkOf(panel)).toBe("6,0 0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
+  // The workbench can take back the keyboard's redo: there is no independent history cursor in the webview.
+  await runCommandMatching(page, expect, "Undo", "Undo", false);
+  await expect.poll(() => inkOf(panel)).toBe("0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
+  await panel.locator('[data-pixel="7,0"]').focus();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+z" : "Control+y");
+  await expect.poll(() => inkOf(panel)).toBe("6,0 0,7 1,7 2,7 3,7 4,7 5,7 6,7 7,7");
 
   // Save writes the edited glyph only; every other glyph is the file's own.
   await panel.getByRole("button", { name: "Save", exact: true }).click();

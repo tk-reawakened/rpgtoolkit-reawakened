@@ -5,7 +5,8 @@ import { deepEqual, equal, ok } from "node:assert/strict";
 import { test } from "node:test";
 import { createEmptyMainFile, writeMainFile } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { fontGames, fontTargetProblem, runNewFont, type NewFontUi } from "../src/new-font.ts";
+import { fontDestinationProblem } from "@tk-reawakened/editor-model";
+import { fontGames, runNewFont, type NewFontUi } from "../src/new-font.ts";
 
 const text = (value: string): Uint8Array => Uint8Array.from(value, (ch) => ch.charCodeAt(0));
 
@@ -92,11 +93,11 @@ test("a root layout game suggests Font/, a taken name gets the next one, and a d
 test("a path outside the chosen game's folders, or outside a Font folder, is refused with the reason", async () => {
   const host = createMemoryPlatformServices({ files: { "Main/one.gam": mainFileWith("One"), "Main/two.gam": mainFileWith("Two"), "Game/One/Font/one.fnt": text("x"), "Game/Two/Font/two.fnt": text("x") } });
   const layout = (await fontGames(host.fs, "memory-project")).find((game) => game.main === "Main/one.gam")!.layout;
-  equal(fontTargetProblem("Game/Two/Font/retro.fnt", layout), "A font for this game goes in Game/One/Font.", "another game's folder is another game's");
-  equal(fontTargetProblem("Game/One/Misc/Font/retro.fnt", layout), "A font for this game goes in Game/One/Font.");
-  equal(fontTargetProblem("Game/One/Font/retro.fnt", { projectFolder: "" }), "A font for this game goes in Font.");
-  equal(fontTargetProblem("Prg/retro.fnt", layout), "A font goes in a Font folder, such as Font/retro.fnt.");
-  equal(fontTargetProblem("Game/One/Font/Heading/retro.fnt", layout), "A font goes in a Font folder, such as Font/retro.fnt.", "the model's rule is a font directly in Font/");
+  equal(fontDestinationProblem("Game/Two/Font/retro.fnt", layout), "A font for this game goes in Game/One/Font.", "another game's folder is another game's");
+  equal(fontDestinationProblem("Game/One/Misc/Font/retro.fnt", layout), "A font for this game goes in Game/One/Font.");
+  equal(fontDestinationProblem("Game/One/Font/retro.fnt", { projectFolder: "" }), "A font for this game goes in Font.");
+  equal(fontDestinationProblem("Prg/retro.fnt", layout), "A font goes in a Font folder, such as Font/retro.fnt.");
+  equal(fontDestinationProblem("Game/One/Font/Heading/retro.fnt", layout), "A font goes in a Font folder, such as Font/retro.fnt.", "the model's rule is a font directly in Font/");
   const { ui, seen } = ask("Game/Two/Font/retro.fnt");
   const outcome = await runNewFont({ fs: host.fs, projectId: "memory-project", activeGame: "Main/one.gam", ui });
   ok(!outcome.ok);

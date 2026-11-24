@@ -409,20 +409,20 @@ test("New font writes the file in the project's Font folder, refuses an existing
   const host = createMemoryPlatformServices({ files: {} });
   const layout = { projectFolder: "" };
   equal(await suggestFontPath(host.fs, layout), "Font/new-font.fnt");
-  const created = await createFontFile(host.fs, "Font/new-font.fnt");
+  const created = await createFontFile(host.fs, "Font/new-font.fnt", layout);
   ok(created.ok);
   deepEqual(host.bytesOf("Font/new-font.fnt"), newFontBytes());
   equal(await suggestFontPath(host.fs, layout), "Font/new-font 2.fnt");
-  const again = await createFontFile(host.fs, "font/NEW-FONT.fnt");
+  const again = await createFontFile(host.fs, "font/NEW-FONT.fnt", layout);
   ok(!again.ok);
   equal(again.reason, "exists");
   deepEqual(host.bytesOf("Font/new-font.fnt"), newFontBytes(), "the existing file is untouched");
-  for (const path of ["Prg/new-font.fnt", "Font/new-font.txt", "Font/sub/new-font.fnt", "Font/.fnt"]) {
-    const refused = await createFontFile(host.fs, path);
+  for (const path of ["Prg/new-font.fnt", "Misc/Font/new-font.fnt", "Font/new-font.txt", "Font/sub/new-font.fnt", "Font/.fnt"]) {
+    const refused = await createFontFile(host.fs, path, layout);
     ok(!refused.ok, path);
     equal(refused.reason, "invalid");
   }
-  equal(fontDestinationProblem("Game/Demo/Font/a.fnt"), null, "a font in a nested project layout");
+  equal(fontDestinationProblem("Game/Demo/Font/a.fnt", { projectFolder: "Game/Demo" }), null, "a font in a nested project layout");
   const opened = await openFontDocument(host.fs, createDocumentIdentity("memory-project", "Font/new-font.fnt"));
   ok(opened.ok, "the new font opens");
   equal(opened.document.getSnapshot().readOnly, null);

@@ -94,6 +94,12 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       await vscode.workspace.fs.writeFile(destination, bytes);
       return destination.toString();
     },
+    runWorkbenchHistory: async (uri, direction) => {
+      const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+      if (!(input instanceof vscode.TabInputCustom) || input.viewType !== "tkr.font" || input.uri.toString() !== uri.toString()) return false;
+      await vscode.commands.executeCommand(direction);
+      return true;
+    },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
     isTextDocumentOpen: (uri) => findTextDocument(uri) !== undefined,
     hasDirtyTextDocument,

@@ -299,7 +299,7 @@ export function runScriptedFrame(options: ScriptedFrameOptions): FrameReport {
   if (frame === undefined) throw new Error(`runner-web: ${options.game} captured no frame`);
   const renderer = createWebgl2Renderer(options.gl);
   // The run's own boot inventory: the faces this game installed, so a `.fnt` elsewhere in the package cannot reach the screen.
-  const projectFonts = installedProjectFonts(options.files, run.fonts);
+  const projectFonts = installedProjectFonts(options.files, frame.fonts);
   const fonts = gameFontProvider(options.fonts ?? new Map(), (asset) => projectFonts.get(asset));
   const list = frame.drawList as DrawList;
   const geometry = { content: { width: list.width, height: list.height }, game: { x: 0, y: 0, width: list.width, height: list.height }, safeArea: { top: 0, right: 0, bottom: 0, left: 0 } };

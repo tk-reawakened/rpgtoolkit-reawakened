@@ -197,7 +197,7 @@ test("a project TrueType face in the package is what the live WebGL renderer dra
  */
 async function editorSavedBitmapFont(): Promise<Uint8Array> {
   const host = createMemoryPlatformServices();
-  const created = await createFontFile(host.fs, "Font/retro.fnt");
+  const created = await createFontFile(host.fs, "Font/retro.fnt", { projectFolder: "" });
   if (!created.ok) throw new Error(created.message);
   const opened = await openFontDocument(host.fs, createDocumentIdentity("memory-project", created.path));
   if (!opened.ok) throw new Error(opened.error.message);

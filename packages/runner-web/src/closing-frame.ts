@@ -54,7 +54,7 @@ export function renderClosingDemoFrame(options: {
   const fonts = new Map<AssetKey, RasterAsset>(options.fonts);
   // The faces the run installed, so the package's own font is the one the draw list names (and a `.fnt` the engine did not
   // install never is).
-  for (const [key, bytes] of installedProjectFonts(options.files, run.fonts)) {
+  for (const [key, bytes] of installedProjectFonts(options.files, frame.fonts)) {
     const font = key.endsWith(".fnt") ? readLegacyFont(bytes, key) : readTrueTypeFont(bytes, key);
     if (font.ok) fonts.set(key, font.value);
   }

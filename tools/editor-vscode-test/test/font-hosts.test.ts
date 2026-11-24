@@ -248,14 +248,51 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
   });
 }
 
+test("VS Code grid Undo waits for an applied edit's held acknowledgement and then undoes the newer stroke", async () => {
+  document.body.replaceChildren();
+  const { createVscodeBoardProofHost } = await import("../conformance/vscode-host.ts");
+  const host = createVscodeBoardProofHost(false, gam, { [PATH]: ORIGINAL }, act);
+  const tab = await host.open(PATH);
+  await until(() => tab.element.querySelector("[data-pixel]") !== null);
+  const gate = tab.holdEditResults();
+  try {
+    await stroke(tab, [1, 1], []);
+    await tab.delivered();
+    equal(tab.workbenchDirty(), true, "the workbench has registered the first edit but the view has no acknowledgement");
+    await stroke(tab, [2, 2], []);
+    let forwarded = false;
+    const forward = (): void => { forwarded = true; };
+    window.addEventListener("keydown", forward);
+    try {
+      await act(() => {
+        pixel(tab, 2, 2).dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true, cancelable: true }));
+      });
+      equal(forwarded, false, "the VS Code shell must not receive a duplicate, unqueued shortcut");
+      await tab.delivered();
+      equal(tab.workbenchDirty(), true, "the history request has not undone the first edit");
+    } finally {
+      window.removeEventListener("keydown", forward);
+    }
+  } finally {
+    gate.release();
+  }
+  await until(() => ink(tab) === "0,0 1,1");
+  equal(tab.workbenchDirty(), true, "only the second edit was undone");
+  await act(() => {
+    pixel(tab, 2, 2).dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+  });
+  await until(() => ink(tab) === "0,0 1,1 2,2");
+});
+
 test("New font makes a version 2.0 font with all glyphs empty through the host's filesystem contract, and refuses an existing path", async () => {
   // Both hosts write through the same platform-services contract their editors use; the file it writes is the one the
   // engine installs and the editor opens.
   const services = createMemoryPlatformServices({ files: {} });
-  const created = await createFontFile(services.fs, "Font/new-font.fnt");
+  const layout = { projectFolder: "" };
+  const created = await createFontFile(services.fs, "Font/new-font.fnt", layout);
   ok(created.ok, created.ok ? "" : created.message);
   deepEqual(services.bytesOf("Font/new-font.fnt"), newFontBytes());
-  const again = await createFontFile(services.fs, "Font/new-font.fnt");
+  const again = await createFontFile(services.fs, "Font/new-font.fnt", layout);
   ok(!again.ok);
   equal(again.reason, "exists");
   deepEqual(services.bytesOf("Font/new-font.fnt"), newFontBytes(), "the existing font is untouched");

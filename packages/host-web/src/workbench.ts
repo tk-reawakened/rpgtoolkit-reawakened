@@ -389,7 +389,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const newFont = async (): Promise<string | null> => {
     const chosen = await services.dialogs.pickSavePath({ document: "the new font", suggested: await suggestFontPath(services.fs, projectLayout) });
     if (chosen === null) return null;
-    const result = await createFontFile(services.fs, chosen);
+    const result = await createFontFile(services.fs, chosen, projectLayout);
     if (!result.ok) {
       await tell(result.message);
       return null;

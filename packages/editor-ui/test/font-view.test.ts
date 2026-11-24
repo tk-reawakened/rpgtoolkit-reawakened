@@ -335,6 +335,20 @@ test("a change under a running stroke is rebased onto, so the pointer keeps pain
   equal(s.doc.getSnapshot().dirty, true);
 });
 
+test("a stroke retains an already traversed pixel when another view draws and then undoes it", async () => {
+  const s = await setup();
+  await show(s);
+  await press(pixel(s.el, 4, 4));
+  ok(s.doc.apply({ type: "set-font-pixels", glyph: 65, pixels: [{ x: 4, y: 4, ink: true }] }).ok);
+  await settle();
+  ok(s.doc.undo().ok);
+  await settle();
+  equal(inkAt(s.el), "0,0 4,4", "the current stroke still intends to draw the pixel");
+  await release(pixel(s.el, 4, 4));
+  equal(s.doc.getSnapshot().edits.length, 1);
+  equal(fontPixelOf(fontGlyphRows(s.doc.getSnapshot().values, 65), 4, 4), true);
+});
+
 test("the host's Undo and Redo are one button and one keyboard shortcut, from the grid, and follow the document's stack", async () => {
   const s = await setup();
   await show(s);

@@ -483,6 +483,13 @@ class Workbench {
         return destination.path;
       },
       deleteBackup: async (destination) => void host.backups.delete(destination.path),
+      runWorkbenchHistory: async (uri, direction) => {
+        const active = this.active;
+        if (active === null || active.copy.uri.path !== uri.path) return false;
+        if (direction === "undo") active.copy.undo();
+        else active.copy.redo();
+        return true;
+      },
       uriFor: (_folder, path) => ({ path: posix.normalize(`${ROOT.path}/${path}`) }),
       // The workbench opens the editor for the file: it asks the provider for the custom document, as VS Code does.
       openEditor: async (uri) => {
@@ -866,6 +873,7 @@ export interface BoardProofTab {
   picture(): Promise<BoardPicture>;
   /** Resolves once every message the webview has sent has reached the extension host. */
   delivered(): Promise<void>;
+  holdEditResults(): { release(): void };
   close(): Promise<void>;
 }
 
@@ -890,6 +898,7 @@ export function createVscodeBoardProofHost(desktop: boolean, gam: Uint8Array, fi
         workbenchDirty: () => editor.copy.dirty,
         picture: () => editor.webview.picture(),
         delivered: () => editor.webview.delivered(),
+        holdEditResults: () => editor.webview.holdEditResults(),
         close: async () => { await editor.close("discard"); },
       };
     },

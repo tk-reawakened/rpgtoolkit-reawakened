@@ -392,10 +392,15 @@ const DEFAULT_GAME_AUDIO_SETTINGS = {
   tracks: BUILTIN_TRACKS.map(([name, voiceCount]) => ({ name, voiceCount })),
   voiceCap: MAX_VOICES,
 };
-export function createEngine(init: EngineInit & { readonly stateHashInReports: "on-request" }): OnRequestEngine;
-export function createEngine(init: EngineInit & { readonly stateHashInReports?: "every-advance" }): Engine;
-export function createEngine(init: EngineInit): Engine | OnRequestEngine;
-export function createEngine(init: EngineInit): Engine | OnRequestEngine {
+type WithProjectFonts<T> = T & {
+  /** Project faces installed for the current draw list, not bundled fallback faces. A snapshot for capture/replay. */
+  projectFontKeys(): readonly AssetKey[];
+};
+
+export function createEngine(init: EngineInit & { readonly stateHashInReports: "on-request" }): WithProjectFonts<OnRequestEngine>;
+export function createEngine(init: EngineInit & { readonly stateHashInReports?: "every-advance" }): WithProjectFonts<Engine>;
+export function createEngine(init: EngineInit): WithProjectFonts<Engine | OnRequestEngine>;
+export function createEngine(init: EngineInit): WithProjectFonts<Engine | OnRequestEngine> {
   const index = init.assetIndex;
   let recoveryCandidateBytes = init.mainFile === undefined || init.recoveryCandidate == null
     ? null
@@ -1787,6 +1792,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   }
 
   function request(key: AssetKey, kind: RequestEntry["kind"]): void {
+    if (kind === "font" && missingFontKeys.has(key)) return;
     for (const item of pending.values()) if (item.key === key) return;
     if (cache.has(key)) return;
     const entry: RequestEntry = { reqId: nextRequestId++, key, kind };
@@ -2854,6 +2860,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     pendingBoardPreviews.length = 0;
     queuedInputs.length = 0;
     installedFonts.clear();
+    missingFontKeys.clear();
     decodedImages.clear();
     pendingBattlePictures.clear();
     decodedTiles.clear();
@@ -3507,7 +3514,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       state.world = { ...state.world, movement: movementDefaults(mainFile) };
       if (root.kind === "game") root = { kind: "game", projectPath: mainFile.projectPath };
       refreshGameId();
-      for (const key of [...privateFontKeys(index, root), ...programKeys(index, root)]) request(key, key.endsWith(".ttf") || key.endsWith(".fnt") ? "font" : "program");
+      for (const key of privateFontKeys(index, root)) request(key, "font");
+      for (const key of programKeys(index, root)) request(key, "program");
       if (mainFile.initChar !== "") {
         const resolved = resolveAsset(index, root, "characters", mainFile.initChar);
         if (!resolved.ok) {
@@ -3527,11 +3535,11 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       const programs = programKeys(index, root);
       for (const key of fonts) request(key, "font");
       for (const key of programs) if (readProgramSource(key) === undefined) request(key, "program");
-      if (!initialCharacterResolved || ![...fonts, ...programs].every((key) => cache.has(key) || missingFontKeys.has(key))) return false;
+      if (!initialCharacterResolved || !fonts.every((key) => cache.has(key) || missingFontKeys.has(key))
+        || !programs.every((key) => cache.has(key))) return false;
       for (const key of fonts) {
-        const supplied = cache.get(key);
-        if (supplied === undefined && missingFontKeys.has(key)) continue;
-        const bytes = supplied ?? new Uint8Array();
+        const bytes = cache.get(key);
+        if (bytes === undefined) continue;
         if (key.endsWith(".fnt")) {
           const parsed = readLegacyFont(bytes, key);
           if (!parsed.ok) {
@@ -5485,7 +5493,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     return null;
   }
 
-  const engine: Engine = {
+  const engine: WithProjectFonts<Engine> = {
     advance(ticks: number, inputs: readonly InputRecord[], maxTicks?: number, resume: ResumeMode = "continue") {
       // A restored save can carry a `winGraphic` reference this engine never saw called: fetch its bytes before the
       // report is built, so the message window draws it once the reply lands (E-55).
@@ -5628,6 +5636,9 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         game: { ...game },
         safeArea: { ...safeArea },
       };
+    },
+    projectFontKeys(): readonly AssetKey[] {
+      return [...installedFonts.keys()];
     },
     surfaceCacheEpoch(): number {
       return surfaceCacheEpoch;

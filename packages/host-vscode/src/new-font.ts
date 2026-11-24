@@ -1,4 +1,4 @@
-import { createFontFile, fontDestinationProblem, projectLayoutOfMain, reservedFolder, suggestFontPath, type ProjectLayout } from "@tk-reawakened/editor-model";
+import { createFontFile, fontDestinationProblem, projectLayoutOfMain, suggestFontPath, type ProjectLayout } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 
 /**
@@ -57,15 +57,6 @@ export async function fontGames(fs: Pick<FileSystemService, "list" | "readProjec
   return games.sort((left, right) => left.main.localeCompare(right.main));
 }
 
-/** Refuse a destination outside the selected game's reserved Font folder. */
-export function fontTargetProblem(path: string, layout: ProjectLayout): string | null {
-  const problem = fontDestinationProblem(path);
-  if (problem !== null) return problem;
-  const folder = reservedFolder(layout, "fonts");
-  if (fold(path.slice(0, path.lastIndexOf("/"))) !== fold(folder)) return `A font for this game goes in ${folder}.`;
-  return null;
-}
-
 /** Ask for the font's path (it starts as a suggestion) and create it with all 256 glyphs empty. */
 export async function runNewFont(env: NewFontEnvironment): Promise<NewFontOutcome> {
   try {
@@ -91,14 +82,10 @@ export async function runNewFont(env: NewFontEnvironment): Promise<NewFontOutcom
       title: "New font",
       prompt: `A folder named Font in ${layout.projectFolder === "" ? "the project" : layout.projectFolder}. An external application could create this path after the check and before writing; the write may replace that file.`,
       value: suggested,
-      validate: (value) => fontTargetProblem(value.trim(), layout),
+      validate: (value) => fontDestinationProblem(value.trim(), layout),
     });
     if (chosen === undefined) return { ok: false, reason: "cancelled", message: "No font was created." };
-    // The question's own validator is advisory (a scripted answer or another host can bypass it), so the target is checked
-    // again here: the chosen game's folder, and a Font folder.
-    const target = fontTargetProblem(chosen.trim(), layout);
-    if (target !== null) return { ok: false, reason: "refused", message: target };
-    const created = await createFontFile(env.fs, chosen.trim());
+    const created = await createFontFile(env.fs, chosen.trim(), layout);
     return created.ok ? { ok: true, path: created.path } : { ok: false, reason: "refused", message: created.message };
   } catch (error) {
     return { ok: false, reason: "refused", message: error instanceof Error ? error.message : String(error) };

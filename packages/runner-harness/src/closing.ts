@@ -230,6 +230,7 @@ type Capture = {
   readonly frame: ClosingFrameRecord;
   readonly image: DecodedTexture;
   readonly drawList: DrawList;
+  readonly fonts: readonly AssetKey[];
   /** The persistent surfaces this frame's blits name, read at capture time: a later tick may replace one (AD-27). */
   readonly surfaces: ReadonlyMap<string, DecodedTexture | null>;
 };
@@ -238,8 +239,6 @@ type Trace = {
   readonly ticks: number;
   readonly stalled: boolean;
   readonly bootStage: string | null;
-  /** The font keys the engine installed at boot: the faces a draw list's text commands can name. */
-  readonly fonts: readonly AssetKey[];
   readonly board: string | null;
   readonly diagnostics: readonly ClosingDiagnostic[];
   readonly checkpoints: readonly { readonly tick: number; readonly stateHash: string }[];
@@ -250,7 +249,7 @@ type Trace = {
 
 
 /** Read the screen surface. Its revision depends on how the ticks were batched, so scan for the current one. */
-function readScreen(engine: Engine): DecodedTexture {
+function readScreen(engine: Pick<Engine, "surfacePixels">): DecodedTexture {
   for (let rev = 0; rev < 4096; rev += 1) {
     const surface = engine.surfacePixels(0 as SurfaceId, rev);
     if (surface !== null) return { w: surface.w, h: surface.h, rgba: surface.rgba };
@@ -258,7 +257,7 @@ function readScreen(engine: Engine): DecodedTexture {
   throw new Error("the screen surface has no readable revision");
 }
 
-function capture(engine: Engine, label: string, tick: number, stateHash: string): Capture {
+function capture(engine: ReturnType<typeof createEngine>, label: string, tick: number, stateHash: string): Capture {
   const list = engine.drawList(0, INCLUDE);
   const image = readScreen(engine);
   const surfaces = new Map<string, DecodedTexture | null>();
@@ -270,6 +269,7 @@ function capture(engine: Engine, label: string, tick: number, stateHash: string)
   return {
     image,
     drawList: list,
+    fonts: engine.projectFontKeys(),
     surfaces,
     frame: { label, tick, stateHash, drawHash: hashDrawList(list), pixelHash: fnv1a64(image.rgba), commands: list.commands.length + list.marginCommands.length, width: image.w, height: image.h },
   };
@@ -378,8 +378,6 @@ function runOnce(plan: ClosingPlan, files: ClosingFiles, bundled: ClosingFiles, 
     ticks: tick,
     stalled,
     bootStage: state?.engine.boot?.stage ?? (stalled ? "stopped" : null),
-    // The boot record's font list is the engine's installed keys (`privateFontKeys`), branded here for its consumers.
-    fonts: (state?.engine.boot?.fonts ?? []) as unknown as readonly AssetKey[],
     board: state?.world.board?.key ?? null,
     diagnostics,
     checkpoints,
@@ -439,6 +437,8 @@ function traceDifferences(batch: number, reference: Trace, other: Trace): string
 /** One captured frame with the draw list that produced it, for a host that draws the frames itself. */
 export type ClosingFrameWithDrawList = ClosingFrameRecord & {
   readonly drawList: DrawList;
+  /** Installed project faces at this frame's tick; a later game switch can replace them. */
+  readonly fonts: readonly AssetKey[];
   /** `"<surface>:<rev>"` to the pixels that surface held when the frame was captured (AD-27). */
   readonly surfaces: ReadonlyMap<string, DecodedTexture | null>;
   /** The engine's own screen pixels, the reference a replayer's frame is compared with (AD-4). */
@@ -449,8 +449,6 @@ export type ClosingFrameWithDrawList = ClosingFrameRecord & {
 export type ClosingFrameRun = {
   readonly ticks: number;
   readonly stalled: boolean;
-  /** The font keys the engine installed at boot — the only package faces the captured draw lists can name. */
-  readonly fonts: readonly AssetKey[];
   readonly board: string | null;
   readonly diagnostics: readonly ClosingDiagnostic[];
   readonly frames: readonly ClosingFrameWithDrawList[];
@@ -475,10 +473,9 @@ export function runClosingFrames(
   return {
     ticks: trace.ticks,
     stalled: trace.stalled,
-    fonts: trace.fonts,
     board: trace.board,
     diagnostics: trace.diagnostics,
-    frames: trace.captures.map((capture) => ({ ...capture.frame, drawList: capture.drawList, surfaces: capture.surfaces, pixels: capture.image.rgba })),
+    frames: trace.captures.map((capture) => ({ ...capture.frame, drawList: capture.drawList, fonts: capture.fonts, surfaces: capture.surfaces, pixels: capture.image.rgba })),
   };
 }
 
