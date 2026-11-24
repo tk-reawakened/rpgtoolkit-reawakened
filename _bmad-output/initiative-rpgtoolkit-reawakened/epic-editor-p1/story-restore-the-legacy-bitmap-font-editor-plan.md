@@ -19,6 +19,8 @@ Create and open `.fnt` documents through the existing project editor. Select any
 
 In both hosts, edit pixels at opposite corners and in different glyphs, undo and redo, save and reopen, and compare glyph rows to an independent expected bitmap. Check an untouched glyph and confirm preview changes leave the document clean. Check visible, hard-edged glyphs at 8 px and 20 px and compare each style with the runner's preview of the same sample. Exercise the saved asset in the runner through `font()`. Check that a refused save leaves the pending glyph edits available for retry.
 
+Ordinary VS Code Undo and Redo must work from the glyph grid and the native workbench, with a clean close after undoing back to the saved bytes. As ruled by the owner on 2026-11-24, when a second native history command overlaps a locked first one, waiting for the pending operation and retrying the refused command is accepted for this story. [#3415](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3415) remains open.
+
 ## Dependencies and decisions
 
 Prerequisite: 13.1 (#1727) supplies the shared feature registration and project document route. The [.fnt format](../../../docs/spec/formats/legacy/text-formats.md#font-toolkit-2-text) supplies the file contract. The archived visual description shows the grid, strip and preview. It does not establish keyboard bindings or the original glyph commit workflow. T-65 supplies the Reawakened interaction scope. Keep the startup font compatibility issue (#1938) separate.
@@ -27,15 +29,19 @@ The engineer's notes flag a suspected legacy scaling failure above 8 px and desc
 
 [#1942](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1942) tracks a future extension for larger glyph grids. The 8 × 8 legacy grid and the preview's display size are independent. Larger authored glyphs will need their own asset specification.
 
-## Proposed rulings (pending owner review; entry 13.20)
+## Owner rulings and implementation decisions (entry 13.20)
 
-The cited docs describe the proposed behavior. Implementation and test evidence below do not constitute owner approval.
+**Owner rulings (Jensen, 2026-11-24; [ADR 0042](../../../docs/adr/0042-project-bitmap-fonts-use-shared-rendering.md)):**
 
-1. **The engine installs supported Toolkit 2.0 `.fnt` files under the game's `Font\` folder.** *Lands in:* `docs/spec/engine/display-input-audio.md#reawakened-project-bitmap-fonts`, `docs/spec/engine/runners.md#draw-list`. *Evidence:* the acceptance requires using the saved glyph in the runner through `font()`. Before this ticket, `privateFontKeys` accepted only `.ttf`; a pre-change engine probe for `Font/mine.fnt` emitted no text command and lit no pixels. *Rejected alternative:* leave project `.fnt` files unread, as in Toolkit 3.1 (E-132), and prove the font only in the editor's preview. That leaves the runner clause unproved and the file unusable in a game. *If ruled otherwise:* remove the ticket's engine, runner-web, and baseline changes and document the runner acceptance gap.
-2. **Bitmap ink is specified as it is implemented.** *Lands in:* `display-input-audio.md#reawakened-bitmap-font-ink`. *Evidence:* `legacyInk`, `emitText` and `bitmapFontMetrics` already draw it; the spec only said `textInk` "owns" it. *Rejected alternative:* have the editor preview a rule of its own, which could drift from the player. *If ruled otherwise:* the code is the authority and the preview follows it through the same functions.
-3. **New font starts empty.** *Lands in:* `docs/editor-features.md#t-65-bitmap-font-editor`. A new font has all 256 glyphs empty at version 2.0. *Evidence:* the file format prescribes no glyph content. *Rejected alternative:* copy the bundled fallback into every new font, coupling authoring defaults to a player asset. *If ruled otherwise:* only the new-font bytes change.
-4. **A stroke is one edit carrying only the cells it traversed.** A pointer drag submits one `set-font-pixels` command on release. The document applies that intent to its current rows and decides whether it changed anything. One changed stroke is one Undo; a keyboard draw or erase is the same command with one cell, and **Clear glyph** is a separate `clear-font-glyph` command. *Evidence:* the tileset editor groups a stroke as one `paint-tileset-pixels` command, and the font tests prove split-view strokes preserve each other's unmarked pixels. *Rejected alternatives:* a whole-glyph replacement can overwrite another view's edits; one command per cell fragments Undo.
-5. **The kind's storage class is `"legacy-text"` and it follows ADR 0022 D2 row 1.** *Lands in:* ADR 0026 implementation notes.
+1. The player installs supported Toolkit 2.0 `.fnt` files under the game's `Font\` folder and exposes them through `font()`: [project bitmap fonts](../../../docs/spec/engine/display-input-audio.md#reawakened-project-bitmap-fonts).
+2. The editor preview and player share the same [bitmap font ink](../../../docs/spec/engine/display-input-audio.md#reawakened-bitmap-font-ink).
+3. The documented retry for overlapping native VS Code Undo/Redo is accepted for this story. This does not fix or close #3415; ordinary Undo/Redo remains required.
+
+**Implementation decisions (not additional owner rulings):**
+
+- New Font starts with 256 empty glyphs at version 2.0 rather than copying the bundled fallback.
+- One changed stroke records one `set-font-pixels` command. It carries the traversed cells, not whole rows, so the document preserves other views' unmarked pixels and records no edit for a no-op. The keyboard uses the same command for one cell; Clear glyph uses `clear-font-glyph`.
+- The `"legacy-text"` kind follows ADR 0022 D2 through the existing document registry in ADR 0026.
 
 ## Implementation notes (2026-11-24)
 
@@ -141,3 +147,5 @@ without a save prompt or any change to the saved bytes.
 
 - **#3416 fixed:** History refuses to restore a revision into the open editor if that revision is read-only. No edit or file write occurs. Restoring while the file is closed recovers the exact bytes; opening them later gives the read-only version explanation.
 - **#3415 remains open (native palette overlap):** VS Code at the proof build [`661626d`](https://github.com/microsoft/vscode/tree/661626d0e72f97806550790a98fb87116c9db825) [warns and returns before invoking the provider](https://github.com/microsoft/vscode/blob/661626d0e72f97806550790a98fb87116c9db825/src/vs/platform/undoRedo/common/undoRedoService.ts#L1012-L1028) when native Undo finds the resource already locked. The lock lasts for the [native callback Promise](https://github.com/microsoft/vscode/blob/661626d0e72f97806550790a98fb87116c9db825/src/vs/platform/undoRedo/common/undoRedoService.ts#L740-L769). VS Code [awaits extension-host RPC](https://github.com/microsoft/vscode/blob/661626d0e72f97806550790a98fb87116c9db825/src/vs/workbench/api/browser/mainThreadCustomEditors.ts#L771-L786) even when the extension callback itself returns synchronously, as ours does. The [public commands API](https://github.com/microsoft/vscode/blob/661626d0e72f97806550790a98fb87116c9db825/src/vscode-dts/vscode.d.ts#L10976-L11033) offers no interception or notification hook for that refused native action. We do not replace global Undo. If native VS Code warns, repeat the action after the prior Undo or Redo completes. Held webview acknowledgements are a different boundary, so those passing tests do not close this issue.
+
+The owner accepted the documented retry on 2026-11-24 ([ADR 0042](../../../docs/adr/0042-project-bitmap-fonts-use-shared-rendering.md)). #3415 no longer blocks #1939 on that basis and remains open for the platform limitation.

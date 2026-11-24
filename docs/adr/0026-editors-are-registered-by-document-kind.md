@@ -83,7 +83,7 @@ The third document kind (the tile bitmap, `.tbm`, identifier `tile-bitmap`) is r
 
 ## Implementation notes (story 13.20, [#1939](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1939), 2026-11-24)
 
-The bitmap font (`.fnt`, identifier `font`) is registered the same way. It is the first kind whose legacy format is **text** but which still follows ADR 0022 D2's first row, bytes plus a command stack in `editor-model`, because its format has a same-version writer and is neither RPGCode nor native YAML. Its `StorageClass` is the new `"legacy-text"`; nothing reads the class today.
+The bitmap font (`.fnt`, identifier `font`) is registered the same way. Its `legacy-text` storage class follows [ADR 0022](0022-shared-editor-authoring-contracts.md) D2's first row: version 2.0 has a same-version writer, so the document is bytes plus a command stack. Readable unsupported versions remain read-only.
 
-* Its view needs nothing from the host to compose a picture: the sample text is drawn from the document's own glyph rows by the core rasteriser, so the kind has no `preview()` request and the hosts mount it with the document as it is (`tkr.font` in VS Code).
+* The sample text is drawn from the document's glyph rows by the same bitmap rasterizer as the player, under the 2026-11-24 owner ruling in [ADR 0042](0042-project-bitmap-fonts-use-shared-rendering.md). No host `preview()` request is needed.
 * **Still not done:** decision 7 (generated manifests). `extensions/editor/package.json` and `VIEW_TYPES` in `host-vscode/src/extension.ts` are edited by hand for `tkr.font`, as for the earlier view types ([#2495](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2495)).
