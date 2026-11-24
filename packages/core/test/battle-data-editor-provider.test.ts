@@ -141,14 +141,17 @@ test("a negative per-round HP amount the editor stored heals the afflicted fight
 //   the core suite's authored rig, because the provider's own behaviour (which moves the Special list holds, what a signed
 //   FP amount does to an actor, when a status ticks and where it clamps) exists only inside that running package. No
 //   smaller test can show it: a stubbed battle would be asserting the stub.
-// - Way out: a permanent exception. No fix is possible or wanted here. AGENTS.md allows a full-engine test that "covers
-//   only the smallest scenario needed to prove a cross-layer contract" and asks for the explanation above; a ticket cannot
-//   remove the engine boot without removing the proof. The paper work over the same documents is the fast half and lives
-//   in `packages/editor-model/test/battle-data-documents.test.ts` (16 cases, whole file under 0.5 s), which also asserts
-//   these files are byte-for-byte what `writeSpecialMove` / `writeStatusEffect` produce.
-// - Measured bound (do not let it grow): 0.5-1.3 s per case for the four menu cases, and 2.6-7 s for the authored-enemy
-//   case, which plays several whole turns on the development machine, 2026-11-24; the limit this exception may not
-//   exceed is 2 s per menu case and 12 s for the enemy case. The file's total is about 12 s.
+// - Way out: no fix can remove the engine boot without removing the proof, so this is a bounded exception for these
+//   five cases only — not a standing exemption for engine tests. It is the shape AGENTS.md allows: the smallest
+//   scenario that proves a cross-layer contract, with the reason a faster test would miss the behaviour stated above.
+//   The fast half of the story is separate and quiet: the 18 document cases in
+//   `packages/editor-model/test/battle-data-documents.test.ts` (whole file under 0.5 s) also assert these files are
+//   byte-for-byte what `writeSpecialMove` / `writeStatusEffect` produce, so the slow cases add only "and the provider
+//   consumes it".
+// - Measured bound (do not let it grow, measured on the development machine 2026-11-24): 0.5-1.3 s per case for the
+//   four menu cases, and 2.6-7 s for the authored-enemy case, which plays several whole turns (each turn runs the
+//   package's charge loop, status pass and render pass) before the enemy acts. The limits this exception may not
+//   exceed are 2 s per menu case and 8 s for the enemy case; the file's total may not exceed 16 s.
 
 test("an authored enemy that lists the editor's saved move uses it in the fight, and the move's linked status ticks on the party", () => {
   // The bytes are the editor's own save, committed under test/fixtures/editor and tied back to the documents by
