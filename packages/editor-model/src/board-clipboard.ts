@@ -25,8 +25,11 @@ export type ClipShade = readonly [number, number, number];
 /** A rectangle of cells: row by row, `null` where the stored grid has no place on the picture (an isometric gap). */
 export interface RegionClip {
   readonly kind: "region";
-  /** The stored cell the region's top-left cell was copied from; a paste falls back to it when the cursor placement does not fit. */
-  readonly origin: { readonly x: number; readonly y: number };
+  /**
+   * The stored cell the region's top-left cell was copied from, or `null` when the text does not say (a hand-made clip): a
+   * paste falls back to it when the cursor placement does not fit, and without it the paste only ever uses the cursor.
+   */
+  readonly origin: { readonly x: number; readonly y: number } | null;
   readonly width: number;
   readonly height: number;
   /** Each cell's tile reference (`""` is the empty cell), `width × height` of them, or `null` for a cell that was off the board. */
@@ -98,13 +101,14 @@ function parseClipText(text: string): ClipResult<BoardClip> {
       }
     }
     const origin = clip.origin;
+    if (origin !== undefined && origin !== null && !(typeof origin === "object" && isWhole((origin as Record<string, unknown>).x, 0, BOARD_MAX_CELLS) && isWhole((origin as Record<string, unknown>).y, 0, BOARD_MAX_CELLS))) {
+      return fail("The clipboard's region does not say which cell it was copied from.");
+    }
     return {
       ok: true,
       value: {
         kind: "region",
-        origin: typeof origin === "object" && origin !== null && isWhole((origin as Record<string, unknown>).x, 0, BOARD_MAX_CELLS) && isWhole((origin as Record<string, unknown>).y, 0, BOARD_MAX_CELLS)
-          ? { x: (origin as { x: number }).x, y: (origin as { y: number }).y }
-          : { x: 0, y: 0 },
+        origin: origin === undefined || origin === null ? null : { x: (origin as { x: number }).x, y: (origin as { y: number }).y },
         width,
         height,
         tiles: tiles as (string | null)[],

@@ -420,8 +420,12 @@ for (const [name, system] of LAYOUTS) {
     const board = s.doc.getSnapshot();
     deepEqual([boardTileAt(board, 1, s.centre.x, s.centre.y), boardTileAt(board, 0, s.centre.x, s.centre.y)], [GRASS, GRASS], "the whole grid lands on the same stored cells, one layer up");
     const selection = s.editor.getState().selection;
-    ok(selection !== null);
-    deepEqual([selection.rect.x0, selection.rect.y0], [0, 0], "the pasted grid is selected at its origin");
+    if (system === "iso-rotated") {
+      equal(selection, null, "a rotated grid has cells with no place on the picture, so no rectangle is selected over them");
+    } else {
+      ok(selection !== null, "a grid without gaps selects the pasted rectangle");
+      deepEqual([selection.rect.x0, selection.rect.y0], [0, 0]);
+    }
   });
 }
 
@@ -558,6 +562,7 @@ test("a clipped rotated-isometric selection whose bounding box starts on an abse
   s.editor.setCursor(s.centre);
   ok(await s.editor.paste(), "the clip goes back to the cells it was copied from");
   deepEqual([boardTileAt(s.doc.getSnapshot(), 1, first.x, first.y), boardTileAt(s.doc.getSnapshot(), 1, last.x, last.y)], [GRASS, ROCK]);
+  equal(s.editor.getState().selection, null, "a clip with gaps selects no rectangle, so a cut cannot take unpasted cells");
 });
 
 test("a region cut whose cells changed while the clipboard was written clears nothing", async () => {
@@ -669,4 +674,141 @@ test("turning to the lights while the clipboard is read refuses the paste", asyn
   equal(await paste, false);
   match(editor.getState().message!.text, /Lights cannot be/);
   deepEqual(doc.serialize(), bytes);
+});
+
+test("a stale editor snapshot cannot cut: the stored board enforces the cut's requirement", async () => {
+  const s = rig();
+  const points = [{ x: 32, y: 32 }, { x: 96, y: 32 }];
+  ok((await s.doc.apply({ type: "set-board-fields", fields: {
+    vectors: [{ ...defaultBoardObject("vectors", 1, { x: 32, y: 32 }, points), handle: "A" }, { ...defaultBoardObject("vectors", 1, { x: 0, y: 0 }, points), handle: "B" }],
+  } })).ok);
+  // A split view: this editor keeps the snapshot it read, while another view changes the document first.
+  const stale = s.doc.getSnapshot();
+  const records = stale.vectors;
+  ok((await s.doc.apply({ type: "set-board-fields", fields: { vectors: [records[1]!, records[0]!] } })).ok);
+  const authoritative = s.doc;
+  const afterChange = authoritative.serialize();
+  const host = createMemoryPlatformServices({ files: {}, capabilities: ["clipboard"] });
+  let release = (): void => {};
+  const editor = createBoardEditor({
+    board: () => stale,
+    apply: (command) => authoritative.apply(command),
+    brush: () => null,
+    pickTile: () => false,
+    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    clipboard: {
+      readText: async () => ({ ok: true, value: "" }),
+      writeText: async () => { await new Promise<void>((resolve) => { release = resolve; }); return { ok: true, value: undefined }; },
+    },
+  });
+  editor.setMode("vectors");
+  editor.selectObject(0);
+  const cut = editor.cut(async () => true);
+  for (let turn = 0; turn < 20; turn += 1) await Promise.resolve();
+  release();
+  equal(await cut, false, "the stored board refuses a cut whose slots are not what the editor read");
+  match(editor.getState().message!.text, /board changed while the cut was being prepared/);
+  deepEqual(authoritative.serialize(), afterChange);
+  deepEqual(authoritative.getSnapshot().vectors.map((record) => record.handle), ["B", "A"]);
+  ok(!host.clipboardText.includes("tkr-board-clipboard"));
+});
+
+test("a stale editor snapshot cannot cut a changed region cell either", async () => {
+  const s = rig();
+  const a = near(s.centre, 0, 0);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, ...a, tile: GRASS }] })).ok);
+  const stale = s.doc.getSnapshot();
+  ok((await s.doc.apply({ type: "set-tile", layer: 0, x: a.x, y: a.y, tile: ROCK })).ok);
+  const afterChange = s.doc.serialize();
+  const authoritative = s.doc;
+  const editor = createBoardEditor({
+    board: () => stale,
+    apply: (command) => authoritative.apply(command),
+    brush: () => null,
+    pickTile: () => false,
+    preferences: () => DEFAULT_EDITOR_PREFERENCES,
+    clipboard: { readText: async () => ({ ok: true, value: "" }), writeText: async () => ({ ok: true, value: undefined }) },
+  });
+  const board = stale;
+  editor.setTool("select");
+  editor.pointerDown({ x: 0, y: 0 }, {});
+  editor.pointerUp({ x: 0, y: 0 }, {});
+  editor.selectAll();
+  equal(await editor.cut(async () => true), false);
+  match(editor.getState().message!.text, /board changed while the cut was being prepared/);
+  deepEqual(authoritative.serialize(), afterChange);
+  equal(boardTileAt(authoritative.getSnapshot(), 0, a.x, a.y), ROCK, "the cell the other view wrote is untouched");
+  ok(board.grid.width > 0);
+});
+
+test("a clip without an origin pastes only at the cursor and never invents (0, 0)", async () => {
+  const s = rig();
+  const a = near(s.centre, -1, 0);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: 0, y: 0, tile: ROCK }] })).ok);
+  const bytes = s.doc.serialize();
+  s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", width: 3, height: 1, tiles: [GRASS, GRASS, GRASS], shades: null });
+  s.editor.setCursor(a);
+  ok(await s.editor.paste(), "it fits at the cursor");
+  equal(boardTileAt(s.doc.getSnapshot(), 0, a.x, a.y), GRASS);
+  equal(boardTileAt(s.doc.getSnapshot(), 0, 0, 0), ROCK, "nothing was pasted at the stored corner");
+  // A clip with no origin that does not fit nowhere to fall back to is refused, and (0, 0) is not overwritten.
+  const edge = s.doc.getSnapshot().grid.width - 1;
+  s.editor.setCursor({ x: edge, y: 0 });
+  const before = s.doc.serialize();
+  s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", width: 3, height: 1, tiles: [GRASS, GRASS, GRASS], shades: null });
+  equal(await s.editor.paste(), false);
+  match(s.editor.getState().message!.text, /does not say where it was copied from/);
+  deepEqual(s.doc.serialize(), before);
+  ok(bytes.length > 0);
+});
+
+test("a clipboard region whose origin is malformed is refused", async () => {
+  const s = rig();
+  const bytes = s.doc.serialize();
+  for (const origin of ["here", { x: -1, y: 0 }, { x: 0.5, y: 1 }, { x: "0", y: 0 }]) {
+    s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", origin, width: 1, height: 1, tiles: [GRASS], shades: null });
+    equal(await s.editor.paste(), false);
+    match(s.editor.getState().message!.text, /does not say which cell it was copied from/);
+    deepEqual(s.doc.serialize(), bytes);
+  }
+});
+
+test("a sparse clip pasted onto a flat board does not select cells it never wrote", async () => {
+  const s = rig();
+  // A 2 x 1 region whose first cell has no place on the source picture: pasting writes the second cell only.
+  s.host.clipboardText = JSON.stringify({ format: BOARD_CLIPBOARD_FORMAT, version: 1, kind: "region", origin: { x: 0, y: 0 }, width: 2, height: 1, tiles: [null, GRASS], shades: null });
+  const a = near(s.centre, 1, 1);
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: a.x, y: a.y, tile: ROCK }] })).ok);
+  s.editor.setCursor(a);
+  ok(await s.editor.paste());
+  equal(boardTileAt(s.doc.getSnapshot(), 0, a.x + 1, a.y), GRASS, "the clip's second cell is written");
+  equal(boardTileAt(s.doc.getSnapshot(), 0, a.x, a.y), ROCK, "the clip's gap cell is not written, so what it held stays");
+  equal(s.editor.getState().selection, null, "no rectangle is selected over an unwritten cell");
+  match(s.editor.getState().message!.text, /has gaps, so no cells are selected/);
+  // A cut of a rectangle the user selects later takes exactly that rectangle.
+  const bytes = s.doc.serialize();
+  s.editor.setTool("select");
+  const from = { x: a.x, y: a.y }, to = { x: a.x + 1, y: a.y };
+  const centre = (cell: Cell) => cellCentre(s.doc.getSnapshot(), cell.x, cell.y);
+  const screen = (cell: Cell) => boardToScreen(s.editor.getState().viewport, centre(cell).x, centre(cell).y);
+  s.editor.pointerDown(screen(from), {});
+  s.editor.pointerMove(screen(to), {});
+  await s.editor.pointerUp(screen(to), {});
+  ok(await s.editor.cut(async () => true), "the cut takes the region the user selected");
+  deepEqual([boardTileAt(s.doc.getSnapshot(), 0, a.x, a.y), boardTileAt(s.doc.getSnapshot(), 0, a.x + 1, a.y)], ["", ""]);
+  ok(bytes.length > 0);
+});
+
+test("a no-op paste that falls back reports where the destination is", async () => {
+  const s = rig();
+  const a = near(s.centre, 0, 0);
+  // A three-cell clip copied from the middle, so the cursor at the far corner cannot hold it.
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: a.x, y: a.y, tile: GRASS }, { layer: 0, x: a.x + 1, y: a.y, tile: GRASS }, { layer: 0, x: a.x + 2, y: a.y, tile: GRASS }] })).ok);
+  await s.select(a, { x: a.x + 2, y: a.y });
+  ok(await s.editor.copy());
+  s.editor.setCursor({ x: s.doc.getSnapshot().grid.width - 1, y: s.doc.getSnapshot().grid.height - 1 });
+  const bytes = s.doc.serialize();
+  equal(await s.editor.paste(), false, "the cells at the origin already show it");
+  deepEqual(s.doc.serialize(), bytes);
+  match(s.editor.getState().message!.text, new RegExp(`Nothing changed: those cells at column ${a.x + 1}, row ${a.y + 1} already show that`));
 });

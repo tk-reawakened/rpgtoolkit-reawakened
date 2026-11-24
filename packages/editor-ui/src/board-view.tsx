@@ -83,6 +83,9 @@ function typing(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA" || target.isContentEditable);
 }
 
+/** The four clipboard and select-all keys that reach the board from controls that are not text fields. */
+const CLIPBOARD_KEYS: ReadonlySet<string> = new Set(["a", "c", "v", "x"]);
+
 /** The input types that take typed text, where Ctrl+A, Ctrl+C, Ctrl+X and Ctrl+V belong to the field, not the board. */
 const TEXT_INPUTS: ReadonlySet<string> = new Set(["text", "search", "url", "tel", "email", "password", "number", "date", "datetime-local", "month", "week", "time"]);
 
@@ -387,9 +390,10 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       return;
     }
     if (command && !event.altKey) {
-      // Only the clipboard and select-all keys reach the board from a control that is not a text field.
-      if (textEntry(event.target)) return;
       const key = event.key.toLowerCase();
+      // From a control that is not a text field only the four clipboard and select-all keys reach the board; Ctrl+Z and
+      // Ctrl+Y stay the control's (and the host's), never the board's history.
+      if (typing(event.target) && (textEntry(event.target) || !CLIPBOARD_KEYS.has(key))) return;
       if (key === "z" && canHistory) {
         event.preventDefault();
         history(event.shiftKey ? "redo" : "undo");

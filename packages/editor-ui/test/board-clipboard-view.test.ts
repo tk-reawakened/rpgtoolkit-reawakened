@@ -272,3 +272,24 @@ test("Select all points is offered only in the region modes", async () => {
   }
   s.dispose();
 });
+
+test("Ctrl+Z and Ctrl+Y on the layer list leave the board history alone", async () => {
+  const s = await setup();
+  ok((await s.doc.apply({ type: "set-tiles", gesture: "draw", cells: [{ layer: 0, x: 0, y: 0, tile: GRASS }] })).ok);
+  await settle();
+  const bytes = s.doc.serialize();
+  const edits = s.doc.getSnapshot().edits.length;
+  const layerSelect = s.el.querySelector<HTMLSelectElement>(".tkr-board-layer-row select");
+  ok(layerSelect);
+  for (const init of [{ key: "z", ctrlKey: true }, { key: "y", ctrlKey: true }]) {
+    await act(() => layerSelect.focus());
+    await press(s, init, layerSelect);
+  }
+  deepEqual(s.doc.serialize(), bytes, "an undo or redo must not run from a focused list");
+  equal(s.doc.getSnapshot().edits.length, edits);
+  // The clipboard keys still reach the board from the same control.
+  await act(() => layerSelect.focus());
+  await press(s, { key: "a", ctrlKey: true }, layerSelect);
+  ok(s.el.querySelector(".tkr-board-selection")?.textContent?.includes("columns 1 to 8"));
+  s.dispose();
+});

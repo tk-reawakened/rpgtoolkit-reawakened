@@ -1,6 +1,6 @@
 import type { ApplyResult } from "./binary-document.ts";
 import type { PreferencesSnapshot } from "./preferences.ts";
-import type { BoardCommand, BoardDocumentFields, SetBoardFieldsCommand, TileGesture } from "./board-document.ts";
+import type { BoardCommand, BoardDocumentFields, BoardPrecondition, SetBoardFieldsCommand, TileGesture } from "./board-document.ts";
 import { boardTileAt } from "./board-document.ts";
 import {
   DEFAULT_ZOOM_INDEX,
@@ -303,7 +303,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   const viewportTo = (viewport: Viewport): void => publish({ viewport: clampViewport(options.board(), viewport) });
 
   /** Apply a finished gesture as one edit. Answers whether the document changed. */
-  const commit = async (gesture: TileGesture, outcome: ToolOutcome): Promise<boolean> => {
+  const commit = async (gesture: TileGesture, outcome: ToolOutcome, precondition?: BoardPrecondition): Promise<boolean> => {
     if (!outcome.ok) {
       publish({ pending: null, message: { kind: "error", text: outcome.message } });
       return false;
@@ -318,6 +318,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       result = await options.apply({
         type: "set-tiles",
         gesture,
+        ...(precondition === undefined ? {} : { precondition }),
         cells: outcome.cells,
         ...(outcome.shades === undefined || outcome.shades.length === 0 ? {} : { shades: outcome.shades }),
         ...(outcome.shadeCells === undefined || outcome.shadeCells.length === 0 ? {} : { shadeCells: outcome.shadeCells }),
@@ -410,11 +411,11 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   };
   const objectFields = (kind: BoardObjectKind, records: readonly BoardObject[]): SetBoardFieldsCommand["fields"] =>
     ({ [kind]: records }) as SetBoardFieldsCommand["fields"];
-  const commitObjects = async (fields: SetBoardFieldsCommand["fields"], selection = state.objectSelection, group: readonly number[] = []): Promise<boolean> => {
+  const commitObjects = async (fields: SetBoardFieldsCommand["fields"], selection = state.objectSelection, group: readonly number[] = [], precondition?: BoardPrecondition): Promise<boolean> => {
     if (state.busy) return false;
     publish({ busy: true, message: null });
     try {
-      const result = await options.apply({ type: "set-board-fields", fields });
+      const result = await options.apply({ type: "set-board-fields", ...(precondition === undefined ? {} : { precondition }), fields });
       if (!result.ok) {
         error(`Nothing was changed: ${result.rejection.message}`);
         return false;
@@ -604,7 +605,14 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     error(`Lights cannot be ${verb}. Add or remove them in the Lights list, or convert a light to shading and use the shaded cells. Nothing was changed.`);
     return true;
   };
-  type ClipSource = { readonly ok: true; readonly clip: BoardClip; readonly region: BoardSelection | null; readonly indices: readonly number[] } | { readonly ok: false; readonly message: string };
+  type ClipSource = {
+    readonly ok: true;
+    readonly clip: BoardClip;
+    readonly region: BoardSelection | null;
+    readonly indices: readonly number[];
+    /** What the stored board must still hold for the cut to apply, so a stale view cannot remove something else. */
+    readonly precondition: BoardPrecondition;
+  } | { readonly ok: false; readonly message: string };
   /** What copy or cut would take now: the selected region, or the selected whole objects. A partial set of points is refused. */
   const clipSource = (verb: string): ClipSource => {
     const board = options.board();
@@ -612,7 +620,22 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       const selection = state.selection;
       if (selection === null) return { ok: false, message: "Select some cells first (the Select tool, or Select all)." };
       const made = copyRegion(board, selection.layer, selection.rect);
-      return made.ok ? { ok: true, clip: made.value, region: selection, indices: [] } : made;
+      if (!made.ok) return made;
+      const cells: { layer: number; x: number; y: number; tile: string }[] = [];
+      const shadeCells: { x: number; y: number; r: number; g: number; b: number }[] = [];
+      for (let row = 0; row < made.value.height; row += 1) {
+        for (let column = 0; column < made.value.width; column += 1) {
+          const at = row * made.value.width + column;
+          const tile = made.value.tiles[at];
+          if (tile === null || tile === undefined) continue;
+          const x = selection.rect.x0 + column;
+          const y = selection.rect.y0 + row;
+          cells.push({ layer: selection.layer, x, y, tile });
+          const shade = made.value.shades?.[at];
+          if (shade !== null && shade !== undefined) shadeCells.push({ x, y, r: shade[0], g: shade[1], b: shade[2] });
+        }
+      }
+      return { ok: true, clip: made.value, region: selection, indices: [], precondition: { cells, ...(shadeCells.length === 0 ? {} : { shadeCells }) } };
     }
     const kind = state.mode;
     const selected = state.objectSelection;
@@ -623,7 +646,8 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       return { ok: false, message: `Only some of a ${singular(kind)}'s points are selected, and a partial set of points cannot be ${verb}. Select all of its points or none of them. Nothing was changed.` };
     }
     const made = copyObjects(board, kind, indices);
-    return made.ok ? { ok: true, clip: made.value, region: null, indices } : made;
+    if (!made.ok) return made;
+    return { ok: true, clip: made.value, region: null, indices, precondition: { [kind]: board[kind] } as BoardPrecondition };
   };
   const describeClip = (clip: BoardClip, verb: string): string => {
     if (clip.kind === "objects") return `${verb} ${clip.objects.length} ${clip.objects.length === 1 ? singular(clip.family) : clip.family}.`;
@@ -676,14 +700,14 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     const board = options.board();
     if (source.clip.kind === "region" && source.region !== null) {
       const edit = clearRegion(board, source.region.layer, source.region.rect);
-      const changed = await commit("cut", { ok: true, cells: edit.cells, shadeCells: edit.shadeCells });
+      const changed = await commit("cut", { ok: true, cells: edit.cells, shadeCells: edit.shadeCells }, source.precondition);
       if (changed) info(describeClip(source.clip, "Cut"));
       return changed;
     }
     if (source.clip.kind === "objects") {
       const family = source.clip.family;
       const taken = new Set(source.indices);
-      const changed = await commitObjects(objectFields(family, board[family].filter((_, index) => !taken.has(index))), null);
+      const changed = await commitObjects(objectFields(family, board[family].filter((_, index) => !taken.has(index))), null, [], source.precondition);
       if (changed) {
         publish({ pointSelection: [] });
         info(`${describeClip(source.clip, "Cut")} Later ${family} were renumbered; undo restores them.`);
@@ -713,17 +737,25 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       // cell with no place on the picture, or the whole grid) pastes where it was copied from instead.
       let anchor = cursor;
       let outcome = pasteRegion(board, layer, clip, cursor);
-      if (!outcome.ok && (clip.origin.x !== cursor.x || clip.origin.y !== cursor.y)) {
-        const atOrigin = pasteRegion(board, layer, clip, clip.origin);
-        if (atOrigin.ok) { anchor = clip.origin; outcome = atOrigin; }
+      const origin = clip.origin;
+      if (!outcome.ok && origin !== null && (origin.x !== cursor.x || origin.y !== cursor.y)) {
+        const atOrigin = pasteRegion(board, layer, clip, origin);
+        if (atOrigin.ok) { anchor = origin; outcome = atOrigin; }
       }
-      if (!outcome.ok) { error(outcome.message); return false; }
+      if (!outcome.ok) { error(origin === null ? `${outcome.message} The clipboard does not say where it was copied from, so it can only be pasted at the cursor.` : outcome.message); return false; }
       const empty = outcome.edit.cells.length === 0 && outcome.edit.shadeCells.length === 0;
       const changed = await commit("paste", { ok: true, cells: outcome.edit.cells, shadeCells: outcome.edit.shadeCells });
-      // The destination is selected when the cells were written, and when they already showed exactly that: "copy, paste,
-      // copy again" takes the pasted cells. A refused edit selects nothing.
-      if (changed || empty) publish({ selection: { layer, rect: { x0: anchor.x, y0: anchor.y, x1: anchor.x + clip.width - 1, y1: anchor.y + clip.height - 1 } } });
-      if (changed) info(`${describeClip(clip, "Pasted")}${anchor === cursor ? "" : ` It did not fit at the cursor, so it went back where it was copied from (column ${anchor.x + 1}, row ${anchor.y + 1}).`}`);
+      // A copied region with gaps (a rotated-isometric bounding box) cannot be expressed by a rectangle, so selecting one
+      // would let a following cut remove cells that were never pasted: no selection is made for it.
+      const sparse = clip.tiles.some((tile) => tile === null);
+      const settled = anchor.x !== cursor.x || anchor.y !== cursor.y;
+      const where = `column ${anchor.x + 1}, row ${anchor.y + 1}`;
+      const moved = settled ? ` It did not fit at the cursor, so it went back where it was copied from (${where}).` : "";
+      const gaps = sparse ? " The copied region has gaps, so no cells are selected; select the cells you want to copy or cut." : "";
+      if (!sparse && (changed || empty)) publish({ selection: { layer, rect: { x0: anchor.x, y0: anchor.y, x1: anchor.x + clip.width - 1, y1: anchor.y + clip.height - 1 } } });
+      else if (sparse && changed) publish({ selection: null });
+      if (changed) info(`${describeClip(clip, "Pasted")}${moved}${gaps}`);
+      else if (empty) info(`${settled ? `Nothing changed: those cells at ${where} already show that.` : "Nothing changed: those cells already show that."}${gaps}`);
       return changed;
     }
     if (state.mode !== clip.family) {
