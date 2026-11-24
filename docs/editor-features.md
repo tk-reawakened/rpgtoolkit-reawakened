@@ -183,6 +183,14 @@ These rules settle what T-28 leaves open: which selections can be copied, what i
 * **Select all.** In Tiles mode it selects every cell of the stored grid. In an object mode it selects every object of that family that is visible on the current layer, and when none is visible it clears the selection and says so rather than leaving an earlier, now hidden, selection for a later copy or cut; "Select all points" selects every point of the selected region. Selection is view state, never an edit.
 * **Keyboard.** Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+A on the board, and the same four actions as labelled buttons and workbench commands. Only these four keys reach the board from a control that is not a text field (a checkbox, a radio, a colour or a `<select>`); Ctrl+Z and Ctrl+Y do not — they stay the control's and the host's, never the board's history; a field that takes typed text, and a `<textarea>` or contenteditable region, keep their own clipboard and select-all. Every other key keeps the strict rule, so a focused control never deletes cells or switches tools.
 
+<a id="p1-clean-board-image-export"></a>
+### Reawakened rules for clean board image export (story 13.14)
+
+Choose **Export PNG…** in the board editor, or invoke it from the focused editor's command palette. The export is prepared from the document's current in-memory bytes after pending edits settle; preparing or downloading it does not save, replace or otherwise modify project files. The generated PNG follows the authored-image storage policy in [images.md](spec/formats/images.md#storage-policy): indexed colour for at most 256 distinct RGBA colours, otherwise truecolour with alpha.
+
+* **Current view** composes the board with the editor's camera, zoom-sized viewport, visible layers and background visibility. **Whole board** composes the full board extent and all layers. Both use the engine's shared board compositor (AD-29), include no editor guides, grid, selection, cursor or drag overlays, and can independently include or omit sprites, placed images, shading and lighting.
+* **Host output.** A host with package download support offers a separate **Download PNG** action after preparation, so the file download remains a direct user action. A host without that capability says that PNG export is unavailable; it does not write into the project as a fallback. Cancel closes the export without downloading.
+
 ---
 
 ## 4. Tile tools (T-36 … T-39)
