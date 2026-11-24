@@ -110,16 +110,12 @@ test("a file outside the running project is unassessed: formatting is refused an
   equal((await none.ask({ transform: "canonical-case", textDocument: { uri: "file:///a.prg" }, text: "MWIN(x)\n" })).reason?.code, "unassessed");
 });
 
-test("a request that arrives before the project snapshot waits for it instead of refusing as unassessed", async () => {
+test("a bound request without its snapshot fails promptly, then succeeds once the client sends that revision", { timeout: 1000 }, async () => {
   const lsp = server();
-  const pending = lsp.ask({ transform: "format", textDocument: { uri: MODERN.uri("Prg/main.prg") }, text: MESSY, awaitProject: true });
-  let settled = false;
-  void pending.then(() => { settled = true; });
-  await Promise.resolve();
-  await Promise.resolve();
-  equal(settled, false, "the answer waits for the project");
-  lsp.project(MODERN.snapshot());
-  const answer = await pending;
+  const request = { transform: "format", textDocument: { uri: MODERN.uri("Prg/main.prg") }, text: MESSY, project: { main: MODERN.uri("Main/game.gam"), revision: 1 } };
+  await rejects(lsp.ask(request), /snapshot is unavailable or has changed/);
+  lsp.project(MODERN.snapshot(1));
+  const answer = await lsp.ask(request);
   equal(answer.status, "changed");
   equal(answer.established, true);
   equal(answer.text, 'x! = 1\nif (x == 1) {\n    mwin("Hello")\n}\n');
@@ -145,7 +141,9 @@ after(async () => {
 test("the shipped stdio server answers the request over its real transport", { timeout: 15_000 }, async () => {
   await stdio.project(MODERN.snapshot(1));
   const uri = MODERN.uri("Prg/main.prg");
-  const answer = await stdio.connection.sendRequest<Answer>(SCRIPT_TRANSFORM_REQUEST, { transform: "cleanup", textDocument: { uri }, text: MESSY });
+  const answer = await stdio.connection.sendRequest<Answer>(SCRIPT_TRANSFORM_REQUEST, {
+    transform: "cleanup", textDocument: { uri }, text: MESSY, project: { main: MODERN.uri("Main/game.gam"), revision: 1 },
+  });
   equal(answer.status, "changed");
   equal(answer.text, 'x = 1\nif (x == 1) {\n    mwin("Hello")\n}\n');
   equal(answer.established, true);
@@ -155,23 +153,28 @@ test("the shipped stdio server answers the request over its real transport", { t
   });
 });
 
-test("a project snapshot that reports a problem ends the wait instead of hanging forever", async () => {
+test("a failed project generation rejects promptly, even if it arrived before the request", { timeout: 1000 }, async () => {
   const lsp = server();
-  const pending = lsp.ask({ transform: "format", textDocument: { uri: MODERN.uri("Prg/main.prg") }, text: MESSY, awaitProject: true });
-  lsp.project({ revision: 1, main: null, problem: "the folder could not be read" });
-  const answer = await pending;
-  equal(answer.status, "refused");
-  equal(answer.reason?.code, "unassessed");
+  lsp.project({ revision: 2, main: null, problem: "the folder could not be read" });
+  await rejects(lsp.ask({
+    transform: "format", textDocument: { uri: MODERN.uri("Prg/main.prg") }, text: MESSY,
+    project: { main: MODERN.uri("Main/game.gam"), revision: 2 },
+  }), /snapshot is unavailable or has changed/);
 });
 
-test("a request is matched to the project it was planned against, not an older snapshot", async () => {
+test("a second main in the same root cannot use another main or a stale revision of its own", async () => {
   const lsp = server();
+  const newer = memoryProject({ "Main/legacy.gam": mainFileBytes("tk2"), "Prg/main.prg": "" }, "Main/legacy.gam");
+  const request = { transform: "update", textDocument: { uri: MODERN.uri("Prg/main.prg") }, text: "MWIN(Hello)\n", project: { main: newer.uri("Main/legacy.gam"), revision: 3 } };
   lsp.project(MODERN.snapshot(1));
-  // The selection moves to a Toolkit 2 project; the request was planned against the 3.1 one and must not be assessed by
-  // the stale snapshot, nor by the new project it does not belong to.
-  const pending = lsp.ask({ transform: "format", textDocument: { uri: MODERN.uri("Prg/main.prg") }, text: MESSY, awaitProject: true, project: { main: "Main/game.gam" } });
-  lsp.project({ revision: 2, main: null, problem: "the new project could not be read" });
-  const answer = await pending;
-  equal(answer.status, "refused");
-  equal(answer.reason?.code, "unassessed");
+  await rejects(lsp.ask(request), /snapshot is unavailable or has changed/);
+  lsp.project(newer.snapshot(2));
+  await rejects(lsp.ask(request), /snapshot is unavailable or has changed/);
+  lsp.project(newer.snapshot(3));
+  const answer = await lsp.ask(request);
+  equal(answer.established, true);
+  equal(answer.dialect, "tk2");
+  equal(answer.target, "copy");
+  lsp.project(MODERN.snapshot(4));
+  await rejects(lsp.ask(request), /snapshot is unavailable or has changed/);
 });

@@ -17,11 +17,6 @@ export const PROJECT_NOTIFICATION = "rpgcode/project";
  */
 export const SCRIPT_TRANSFORM_REQUEST = "rpgcode/scriptTransform";
 
-/** Ask which running project snapshot the server holds; `revision` 0 means none has arrived yet. */
-export const PROJECT_STATE_REQUEST = "rpgcode/projectState";
-
-export type ProjectState = { readonly revision: number; readonly arrived: boolean };
-
 export type ScriptTransformId = "format" | "canonical-case" | "update" | "cleanup";
 
 export type ScriptTransformParams = {
@@ -30,13 +25,8 @@ export type ScriptTransformParams = {
   /** The source with `LF` line breaks. */
   readonly text: string;
   readonly indentWidth?: number;
-  /**
-   * The client has a running project and its snapshot is on its way: wait for it before answering, so a request that
-   * arrives during startup is assessed rather than reported as unassessed.
-   */
-  readonly awaitProject?: boolean;
-  /** The running project the caller planned against; a snapshot for another (or no) project is not that one. */
-  readonly project?: { readonly main: string };
+  /** The exact running-project snapshot the transport sent before forwarding this request. */
+  readonly project?: { readonly main: string; readonly revision: number };
 };
 
 /** One inventory file: its root-relative path in its original spelling, its document URI and its bytes. */

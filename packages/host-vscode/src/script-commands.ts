@@ -23,20 +23,21 @@ function lfText(document: vscode.TextDocument): string {
 }
 
 /** Put `text` into a document in its own line endings, as one undoable edit, without saving it. */
-async function replaceDocument(document: vscode.TextDocument, text: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> {
+async function replaceDocument(document: vscode.TextDocument, label: string, text: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> {
   const eol = document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
   const edit = new vscode.WorkspaceEdit();
-  edit.replace(document.uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), eol === "\n" ? text : text.replace(/\n/g, eol));
+  edit.replace(document.uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), eol === "\n" ? text : text.replace(/\n/g, eol), { label, needsConfirmation: false });
   const applied = await vscode.workspace.applyEdit(edit);
   return applied ? { ok: true } : { ok: false, message: "VS Code refused the edit." };
 }
 
 /** The programs open in an editor inside `folder`, by their path inside it. */
 function openPrograms(folder: vscode.Uri): { path: string; document: vscode.TextDocument }[] {
-  const base = folder.toString().replace(/\/?$/, "/");
+  const base = folder.path.replace(/\/?$/, "/");
   return vscode.workspace.textDocuments.flatMap((document) => {
-    if (document.uri.scheme !== "file" || !isProgramDocument(document) || !document.uri.toString().startsWith(base)) return [];
-    return [{ path: decodeURIComponent(document.uri.toString().slice(base.length)), document }];
+    const uri = document.uri;
+    if (uri.scheme !== folder.scheme || uri.authority !== folder.authority || !uri.path.startsWith(base) || !isProgramDocument(document)) return [];
+    return [{ path: uri.path.slice(base.length), document }];
   });
 }
 
@@ -114,7 +115,14 @@ async function showDiff(item: ScriptReviewItem): Promise<void> {
  * item has a **Show changes** button that opens the real diff editor; the item's detail is a short summary because a
  * pick list flattens white space and can never be the comparison itself.
  */
-async function review(transform: ScriptTransformId, items: readonly ScriptReviewItem[]): Promise<readonly string[] | undefined> {
+async function review(transform: ScriptTransformId, items: readonly ScriptReviewItem[], leftAsWritten: readonly string[]): Promise<readonly string[] | undefined> {
+  if (leftAsWritten.length > 0) {
+    const choice = await vscode.window.showInformationMessage("Some programs or fragments will be left as written.", {
+      modal: true,
+      detail: leftAsWritten.join("\n"),
+    }, "Review proposed changes");
+    if (choice !== "Review proposed changes") return undefined;
+  }
   const quick = vscode.window.createQuickPick<vscode.QuickPickItem & { readonly file: ScriptReviewItem }>();
   const show = { iconPath: new vscode.ThemeIcon("diff"), tooltip: "Show changes" };
   quick.title = `${SCRIPT_TRANSFORM_INFO[transform].name}: review the changes`;
@@ -158,10 +166,10 @@ function ui(): ScriptWorkflowUi {
     },
     progress,
     review,
-    report: async (summary, problems, failed) => {
-      const said = problems.length === 0 ? summary : `${summary}\n${problems.join("\n")}`;
-      if (failed) await vscode.window.showWarningMessage(said, { modal: false });
-      else await vscode.window.showInformationMessage(said, { modal: false });
+    report: async (summary, problems, failed, stage) => {
+      if (failed && stage === "plan") await vscode.window.showWarningMessage(summary, { modal: true, detail: problems.join("\n") });
+      else if (failed) void vscode.window.showWarningMessage(`${summary}\n${problems.join("\n")}`);
+      else void vscode.window.showInformationMessage(summary);
     },
     tellUnavailable: async (message) => { await vscode.window.showWarningMessage(message); },
     retry: async (problems) => (await vscode.window.showWarningMessage(
@@ -188,22 +196,19 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
         await vscode.window.showErrorMessage("Open a project folder first: the workflows read the project's programs.");
         return;
       }
-      const folder = folders.length === 1 ? folders[0]! : await pickFolder(folders);
+      const main = configuredMain(folders[0]!.uri);
+      const folder = main === undefined ? (folders.length === 1 ? folders[0] : await pickFolder(folders)) : vscode.workspace.getWorkspaceFolder(main);
+      if (main !== undefined && folder === undefined) {
+        await vscode.window.showErrorMessage("The selected RPGCode project is outside the open workspace. Open its project folder before reviewing programs.");
+        return;
+      }
       if (folder === undefined) return;
       const services = createVscodeServices(folder.uri, context, generation);
       const workspace = workspaceFor(folder.uri);
-      const open = openPrograms(folder.uri);
       const extension = await activatedLanguageExtension();
-      const selectedMain = vscode.workspace.getConfiguration("rpgcode").get<string>("project", "").trim();
-      // The same URI the RPGCode extension puts in its snapshot (the resolved setting, relative to the first folder).
-      const mainUri = selectedMain === "" ? undefined : (/^[A-Za-z][A-Za-z0-9+.-]+:/.test(selectedMain) && !/^[A-Za-z]:[\\/]/.test(selectedMain)
-        ? vscode.Uri.parse(selectedMain, true)
-        : vscode.Uri.joinPath(vscode.workspace.workspaceFolders?.[0]?.uri ?? folder.uri, ...selectedMain.split(/[\\/]/).filter((part) => part !== ""))).toString();
+      const open = openPrograms(folder.uri);
       const active = vscode.window.activeTextEditor?.document;
       const activePath = active === undefined ? null : open.find((program) => program.document === active)?.path ?? null;
-      const uris = new Map(open.map((program) => [program.path, program.document]));
-      const tk2Documents = new Set(open.filter((program) => program.document.languageId === "rpgcode-tk2").map((program) => program.path));
-      const uriOf = (path: string): string => uris.get(path)?.uri.toString() ?? vscode.Uri.joinPath(folder.uri, ...path.split("/")).toString();
       await runScriptWorkflow(
         transform,
         {
@@ -212,12 +217,14 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
             ? null
             : {
               async transform(question) {
+                const path = question.workspacePath ?? question.path;
+                const opened = openPrograms(folder.uri).find((program) => program.path === path)?.document;
                 return await vscode.commands.executeCommand(TRANSFORM_COMMAND, {
                   transform: question.transform,
-                  textDocument: { uri: uriOf(question.workspacePath ?? question.path), ...(tk2Documents.has(question.path) ? { languageId: "rpgcode-tk2" } : {}) },
+                  textDocument: { uri: (opened?.uri ?? vscode.Uri.joinPath(folder.uri, ...path.split("/"))).toString(), ...(opened?.languageId === "rpgcode-tk2" ? { languageId: "rpgcode-tk2" } : {}) },
                   text: question.text,
                   indentWidth: question.indentWidth,
-                  ...(question.awaitProject === true ? { awaitProject: true } : {}),
+                  ...(question.projectMainUri === undefined ? {} : { project: { main: question.projectMainUri } }),
                 });
               },
             },
@@ -227,12 +234,15 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
           openPrograms: (): readonly OpenScriptProgram[] => openPrograms(folder.uri).map((program) => ({
             path: program.path,
             text: () => lfText(program.document),
-            replace: (_label, text) => replaceDocument(program.document, text),
+            replace: (label, text) => replaceDocument(program.document, label, text),
           })),
-          root: projectRootIn(folder.uri),
+          root: projectRootIn(folder.uri, main),
           activeProgram: activePath,
-          projectSelected: selectedMain !== "",
-          ...(mainUri === undefined ? {} : { projectMainUri: mainUri }),
+          ...(main === undefined ? {} : { projectMainUri: main.toString() }),
+          isProjectCurrent: () => {
+            const first = vscode.workspace.workspaceFolders?.[0]?.uri;
+            return first !== undefined && configuredMain(first)?.toString() === main?.toString();
+          },
         },
         ui(),
       );
@@ -240,19 +250,18 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
   }
 }
 
-/**
- * Where the project's programs are, relative to the workspace folder: the running project's root, from the selected
- * `.gam` (TOOL-1 "Root"), or the folder itself when no project is selected. The server assesses only that root, so a
- * scan of the whole folder would list files it must refuse.
- */
-function projectRootIn(folder: vscode.Uri): string {
+/** A relative setting is written against the first workspace folder, as in the RPGCode extension. */
+function configuredMain(first: vscode.Uri): vscode.Uri | undefined {
   const configured = vscode.workspace.getConfiguration("rpgcode").get<string>("project", "").trim();
-  if (configured === "") return "";
-  // A relative setting is written against the first workspace folder, which is how the RPGCode extension reads it.
-  const first = vscode.workspace.workspaceFolders?.[0]?.uri ?? folder;
-  const main = /^[A-Za-z][A-Za-z0-9+.-]+:/.test(configured) && !/^[A-Za-z]:[\\/]/.test(configured)
+  if (configured === "") return undefined;
+  return /^[A-Za-z][A-Za-z0-9+.-]+:/.test(configured) && !/^[A-Za-z]:[\\/]/.test(configured)
     ? vscode.Uri.parse(configured, true)
     : vscode.Uri.joinPath(first, ...configured.split(/[\\/]/).filter((part) => part !== ""));
+}
+
+/** The running project's root relative to the workspace folder. */
+function projectRootIn(folder: vscode.Uri, main: vscode.Uri | undefined): string {
+  if (main === undefined) return "";
   const base = folder.path.replace(/\/?$/, "/");
   // The same root the language server uses: the folder above `Main`, else the `.gam`'s own folder (TOOL-1).
   const mainPath = main.path.replace(/\/?$/, "/");
@@ -260,7 +269,7 @@ function projectRootIn(folder: vscode.Uri): string {
   const above = parent.slice(0, -1);
   const rootPath = above.slice(above.lastIndexOf("/") + 1).toLowerCase() === "main" ? above.slice(0, above.lastIndexOf("/") + 1) : parent;
   const root = rootPath.replace(/\/?$/, "/");
-  // `fs` paths have no trailing separator: "Game/", never "Game/" with the slash left on.
+  // The filesystem service expects relative paths without a trailing separator.
   // `Uri.path` is already decoded, so a folder named `Game 100%` must not be decoded a second time.
   return root.startsWith(base) ? root.slice(base.length).replace(/\/$/, "") : "";
 }

@@ -99,8 +99,6 @@ export interface ScriptTransformQuestion {
   readonly path: string;
   readonly text: string;
   readonly indentWidth: number;
-  /** The host has a running project whose snapshot is on its way; the server waits for it rather than refusing as unassessed. */
-  readonly awaitProject?: boolean;
   /** The path inside the host's project (workspace-relative), which is what its `uriOf` maps; defaults to `path`. */
   readonly workspacePath?: string;
   /** The running project's main file URI the request was planned against, so a selection change is not missed. */
@@ -117,7 +115,7 @@ export interface ScriptTransformProvider {
  * VS Code's command that forwards it. `uriOf` names the URI the server knows the project file by.
  */
 export function scriptProviderOver(
-  send: (params: { readonly transform: ScriptTransformId; readonly textDocument: { readonly uri: string }; readonly text: string; readonly indentWidth: number; readonly awaitProject?: boolean }) => Promise<unknown>,
+  send: (params: { readonly transform: ScriptTransformId; readonly textDocument: { readonly uri: string }; readonly text: string; readonly indentWidth: number; readonly project?: { readonly main: string } }) => Promise<unknown>,
   uriOf: (path: string) => string,
 ): ScriptTransformProvider {
   return {
@@ -127,7 +125,6 @@ export function scriptProviderOver(
         textDocument: { uri: uriOf(question.workspacePath ?? question.path) },
         text: question.text,
         indentWidth: question.indentWidth,
-        ...(question.awaitProject === true ? { awaitProject: true } : {}),
         ...(question.projectMainUri === undefined ? {} : { project: { main: question.projectMainUri } }),
       }));
       if (answer === null) throw new Error("The language server's answer was not a script transform result.");
@@ -142,6 +139,8 @@ export interface OpenScriptProgram {
   readonly path: string;
   /** The text as the editor shows it, with `LF` line breaks; unsaved edits included. */
   text(): string;
+  /** The host still has edits in transit; the last observed text is not safe to use. */
+  busy?(): boolean;
   /** Replace the whole text as one labelled, undoable edit, without saving. */
   replace(label: string, text: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
 }
@@ -150,10 +149,10 @@ export type ScriptWorkflowFileSystem = Pick<FileSystemService, "list" | "read" |
 
 export interface ScriptWorkflowEnvironment {
   readonly fs: ScriptWorkflowFileSystem;
-  /** Whether a running project is selected, so each request may wait for its snapshot (TOOL-1). */
-  readonly projectSelected?: boolean;
   /** The selected main file's URI as the server knows it, so a request is matched to that project and no older one. */
   readonly projectMainUri?: string;
+  /** Refuse when the selected project changes or its workbench closes before apply. */
+  isProjectCurrent?(): boolean;
   /** `null` when the host has no language server: every workflow then says so and changes nothing. */
   readonly provider: ScriptTransformProvider | null;
   /** Why `provider` is `null`, in a sentence for the author (the server did not start, say); a plain "no language server" when absent. */
@@ -204,6 +203,8 @@ export interface ScriptWorkflowPlan {
   readonly entries: readonly ScriptWorkflowEntry[];
   /** What each written destination held when the plan was made, so a change before Apply is not overwritten. */
   readonly destinations: ReadonlyMap<string, Uint8Array | null>;
+  /** Exact saved source bytes read for the proposal; open programs are checked through their live text instead. */
+  readonly sources: ReadonlyMap<string, Uint8Array>;
   /** Set when the whole workflow cannot run (no language server, the search failed, or it was cancelled); there are then no entries. */
   readonly unavailable: string | null;
 }
@@ -287,8 +288,9 @@ interface Source {
   readonly bytes: Uint8Array | null;
 }
 
-async function sourceOf(env: ScriptWorkflowEnvironment, open: ReadonlyMap<string, OpenScriptProgram>, path: string): Promise<Source | { readonly entry: ScriptWorkflowEntry }> {
-  const editor = open.get(foldPath(path));
+async function sourceOf(env: ScriptWorkflowEnvironment, path: string): Promise<Source | { readonly entry: ScriptWorkflowEntry }> {
+  const editor = env.openPrograms().find((program) => foldPath(program.path) === foldPath(path));
+  if (editor?.busy?.() === true) return { entry: entryOf(path, { state: "failed", message: `${path} has an edit still in progress. Try again once it settles.` }) };
   if (editor !== undefined) return { text: editor.text(), open: true, bytes: null };
   const read = await env.fs.read(path);
   if (!read.ok) return { entry: entryOf(path, { state: "failed", message: `Could not read ${path}: ${read.error.message}` }) };
@@ -300,9 +302,7 @@ async function sourceOf(env: ScriptWorkflowEnvironment, open: ReadonlyMap<string
   return { text: model.value.text, open: false, bytes: read.value.slice() };
 }
 
-async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransformProvider, transform: ScriptTransformId, open: ReadonlyMap<string, OpenScriptProgram>, path: string): Promise<ScriptWorkflowEntry> {
-  const source = await sourceOf(env, open, path);
-  if ("entry" in source) return source.entry;
+async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransformProvider, transform: ScriptTransformId, path: string, source: Source): Promise<ScriptWorkflowEntry> {
   let answer: ScriptTransformAnswer;
   try {
     answer = await provider.transform({
@@ -310,7 +310,6 @@ async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransfor
       path: serverPathOf(path, env.root ?? ""),
       text: source.text,
       indentWidth: env.indentWidth ?? 4,
-      ...(env.projectSelected === true ? { awaitProject: true } : {}),
       workspacePath: path,
       ...(env.projectMainUri === undefined ? {} : { projectMainUri: env.projectMainUri }),
     });
@@ -342,7 +341,7 @@ async function planFile(env: ScriptWorkflowEnvironment, provider: ScriptTransfor
  * kept in the plan as `failed` with the reason; it never stops the others.
  */
 export async function planScriptWorkflow(env: ScriptWorkflowEnvironment, transform: ScriptTransformId, scope: ScriptWorkflowScope, control: PlanControl = {}): Promise<ScriptWorkflowPlan> {
-  const unavailable = (message: string): ScriptWorkflowPlan => ({ transform, scope, entries: [], destinations: new Map(), unavailable: message });
+  const unavailable = (message: string): ScriptWorkflowPlan => ({ transform, scope, entries: [], destinations: new Map(), sources: new Map(), unavailable: message });
   if (env.provider === null) return unavailable(env.unavailableReason === undefined ? NO_PROVIDER : `${env.unavailableReason} Nothing was changed.`);
   let paths: readonly string[];
   if (scope.kind === "program") paths = [scope.path];
@@ -351,21 +350,32 @@ export async function planScriptWorkflow(env: ScriptWorkflowEnvironment, transfo
     if ("problem" in found) return unavailable(`Could not list the project's programs: ${found.problem}. Nothing was changed.`);
     paths = found.paths;
   }
-  const open = new Map(env.openPrograms().map((program) => [foldPath(program.path), program]));
   const destinations = new Map<string, Uint8Array | null>();
+  const sources = new Map<string, Uint8Array>();
   const entries: ScriptWorkflowEntry[] = [];
   for (const path of paths) {
     if (control.cancelled?.() === true) return unavailable("Cancelled. Nothing was changed.");
     control.onProgress?.({ done: entries.length, total: paths.length, path });
-    const entry = await planFile(env, env.provider, transform, open, path);
-    entries.push(entry);
+    const source = await sourceOf(env, path);
+    if ("entry" in source) { entries.push(source.entry); continue; }
+    const entry = await planFile(env, env.provider, transform, path, source);
     if (entry.state === "ready" && !(entry.open && entry.target === "in-place")) {
-      const read = await env.fs.read(entry.destination);
-      destinations.set(entry.destination, read.ok ? read.value.slice() : null);
+      if (source.bytes !== null) sources.set(path, source.bytes);
+      if (entry.target === "in-place") {
+        destinations.set(path, source.bytes);
+      } else {
+        const read = await env.fs.read(entry.destination);
+        if (!read.ok && read.error.code !== "not-found") {
+          entries.push({ ...entry, state: "failed", included: false, message: `Could not read ${entry.destination}: ${read.error.message}` });
+          continue;
+        }
+        destinations.set(entry.destination, read.ok ? read.value.slice() : null);
+      }
     }
+    entries.push(entry);
   }
   control.onProgress?.({ done: paths.length, total: paths.length, path: "" });
-  return { transform, scope, entries, destinations, unavailable: null };
+  return { transform, scope, entries, destinations, sources, unavailable: null };
 }
 
 export interface ScriptApplyFailure {
@@ -417,7 +427,7 @@ function describe(entries: readonly ScriptWorkflowEntry[], applied: ScriptWorkfl
   const unchanged = entries.filter((entry) => entry.state === "unchanged").length;
   const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
   const copies = applied.filter((item) => item.via === "copy").length;
-  const parts = [`${count(applied.length, "program")} updated${copies > 0 ? ` (${count(copies, "converted copy")} written to ${MIGRATED_FOLDER}; the originals are untouched)` : ""}`];
+  const parts = [`${count(applied.length, "program")} updated${copies > 0 ? ` (${count(copies, "converted copy")} written to ${MIGRATED_FOLDER}; use the copies in a separately migrated 3.1 project. This project and the originals are unchanged)` : ""}`];
   if (leftOut.length > 0) parts.push(`${leftOut.length} left out`);
   if (refused.length > 0) parts.push(`${refused.length} refused and left as they were`);
   if (skipped.length > 0) parts.push(`${skipped.length} skipped`);
@@ -459,64 +469,78 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     entries = entries.map((entry) => (entry.path === path ? { ...entry, ...patch } : entry));
   };
 
-  /** The bytes every saved file will receive, built and validated before the first write. */
-  const prepared = new Map<string, Uint8Array>();
-
-  /** Build one entry's bytes from the source as it is now, with the same checks the write itself relies on. */
-  const prepareWrite = async (entry: ScriptWorkflowEntry, expected: ReadonlyMap<string, Uint8Array | null>): Promise<{ readonly ok: true; readonly bytes: Uint8Array } | { readonly ok: false; readonly message: string }> => {
-    const label = `${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`;
-    const source = env.openPrograms().find((program) => foldPath(program.path) === foldPath(entry.path));
-    let model: ProgramModel;
-    if (entry.open) {
-      if (source === undefined || source.text() !== entry.original) return { ok: false, message: `${entry.path} changed since the review (changed-since-review); no copy was written. Run the workflow again to see its new result.` };
-      const read = await env.fs.read(entry.path);
-      const base = read.ok ? programCodec.read(read.value, entry.path) : null;
-      model = base !== null && base.ok ? base.value : { text: "", breaks: [], compiled: null };
-    } else {
-      const read = await env.fs.read(entry.path);
-      if (!read.ok) return { ok: false, message: `Could not read ${entry.path} again before writing: ${read.error.message}` };
-      const parsed = programCodec.read(read.value, entry.path);
-      if (!parsed.ok || parsed.value.compiled !== null || parsed.value.text !== entry.original) {
-        return { ok: false, message: `${entry.path} changed since the review (changed-since-review); it was not written. Run the workflow again to see its new result.` };
-      }
-      model = parsed.value;
+  const findOpen = (path: string): OpenScriptProgram | undefined =>
+    env.openPrograms().find((program) => foldPath(program.path) === foldPath(path));
+  const hasReviewedText = (editor: OpenScriptProgram | undefined, entry: ScriptWorkflowEntry): boolean =>
+    editor !== undefined && editor.busy?.() !== true && editor.text() === entry.original;
+  const projectChanged = "The selected project changed after the review; nothing further was written. Review the current project again.";
+  const sourceChanged = (entry: ScriptWorkflowEntry): string =>
+    `${entry.path} changed since the review (changed-since-review); it was not written. Run the workflow again.`;
+  const destinationChanged = (entry: ScriptWorkflowEntry): string =>
+    `${entry.destination} changed while the review was open or during the apply; it was not written. Run the workflow again.`;
+  const readBytes = async (path: string): Promise<Uint8Array | null> => {
+    const read = await env.fs.read(path);
+    if (read.ok) return read.value;
+    if (read.error.code === "not-found") return null;
+    throw new Error(`Could not read ${path}: ${read.error.message}`);
+  };
+  interface PreparedWrite {
+    readonly sourceBytes: Uint8Array | null;
+    readonly before: Uint8Array | null;
+    readonly bytes: Uint8Array;
+  }
+  const prepareWrite = async (entry: ScriptWorkflowEntry): Promise<PreparedWrite> => {
+    if (env.isProjectCurrent?.() === false) throw new Error(projectChanged);
+    const before = plan.destinations.get(entry.destination) ?? null;
+    const [sourceBytes, held] = entry.target === "in-place"
+      ? await readBytes(entry.path).then((bytes) => [bytes, bytes] as const)
+      : await Promise.all([readBytes(entry.path), readBytes(entry.destination)]);
+    if (!sameBytes(held, before)) throw new Error(destinationChanged(entry));
+    const opened = findOpen(entry.path);
+    if (entry.open ? !hasReviewedText(opened, entry) : opened !== undefined || !sameBytes(sourceBytes, plan.sources.get(entry.path) ?? null)) {
+      throw new Error(opened !== undefined && !entry.open ? `${entry.path} was opened in an editor during the review; it was not written.` : sourceChanged(entry));
     }
-    // The destination is checked before the bytes are recorded and again before the write: a copy another program changed
-    // is never replaced, and only a target that is still what the plan saw may be recorded as recoverable.
-    const current = await env.fs.read(entry.destination);
-    if (!sameBytes(current.ok ? current.value : null, expected.get(entry.destination) ?? null)) {
-      return { ok: false, message: `${entry.destination} changed while the review was open or during the apply; it was not written. Run the workflow again to see its new content.` };
-    }
-    const built = rewritten(model, entry.result!, label);
-    return built.ok ? { ok: true, bytes: built.bytes } : { ok: false, message: `${entry.path} could not be written: ${built.message}` };
+    if (entry.target === "copy" && findOpen(entry.destination) !== undefined) throw new Error(`${entry.destination} is open in an editor; it was not written.`);
+    const base = sourceBytes === null ? null : programCodec.read(sourceBytes, entry.path);
+    if (base !== null && (!base.ok || base.value.compiled !== null)) throw new Error(`${entry.path} is no longer a readable text program.`);
+    const model = base?.value ?? { text: "", breaks: [], compiled: null };
+    const built = rewritten(model, entry.result!, `${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`);
+    if (!built.ok) throw new Error(`${entry.path} could not be written: ${built.message}`);
+    return { sourceBytes, before, bytes: built.bytes };
   };
 
-  const applyOne = async (entry: ScriptWorkflowEntry, groupId: string | null, expected: ReadonlyMap<string, Uint8Array | null>): Promise<ApplyOneResult> => {
+  const applyOne = async (entry: ScriptWorkflowEntry, groupId: string | null, prepared: PreparedWrite | undefined): Promise<ApplyOneResult> => {
+    if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
     const result = entry.result!;
     const label = `${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`;
-    const editor = entry.open && entry.target === "in-place" ? env.openPrograms().find((program) => foldPath(program.path) === foldPath(entry.path)) : undefined;
+    const editor = entry.open && entry.target === "in-place" ? findOpen(entry.path) : undefined;
     if (entry.open && entry.target === "in-place") {
       if (editor === undefined) return { failure: `${entry.path} was closed after the review; it was not changed. Run the workflow again to see its current text.` };
-      if (editor.text() !== entry.original) return { failure: `${entry.path} changed since the review (changed-since-review); it was not changed. Run the workflow again to see its new result.` };
+      if (!hasReviewedText(editor, entry)) return { failure: sourceChanged(entry) };
       const done = await editor.replace(label, result);
       return done.ok ? { via: "edit" } : { failure: `${entry.path} could not be edited: ${done.message}` };
     }
-    const bytes = prepared.get(entry.path);
-    if (bytes === undefined) return { failure: `${entry.destination} was not written: its intended content was not prepared before the batch began.` };
+    if (prepared === undefined) return { failure: `${entry.destination} was not prepared for writing.` };
+    const { before, sourceBytes, bytes } = prepared;
     if (entry.target === "copy") {
       const slash = entry.destination.lastIndexOf("/");
       const made = await env.fs.createFolder(entry.destination.slice(0, slash));
       if (!made.ok) return { failure: `Could not make the folder for ${entry.destination}: ${made.error.message}` };
     }
-    // Last look before the write: the destination must still be what the plan saw, and a program must not have been
-    // opened in an editor while this run was reading and building.
-    const current = await env.fs.read(entry.destination);
-    if (!sameBytes(current.ok ? current.value : null, expected.get(entry.destination) ?? null)) {
-      return { failure: `${entry.destination} changed while the review was open or during the apply; it was not written. Run the workflow again to see its new content.` };
+    // Do this after every other await. There is no cross-file filesystem transaction, so this is an optimistic check.
+    const [source, destination] = entry.target === "in-place"
+      ? await readBytes(entry.path).then((held) => [held, held] as const)
+      : await Promise.all([readBytes(entry.path), readBytes(entry.destination)]);
+    if (!sameBytes(source, sourceBytes)) return { failure: sourceChanged(entry) };
+    if (!sameBytes(destination, before)) return { failure: destinationChanged(entry) };
+    const opened = findOpen(entry.path);
+    if (entry.open ? !hasReviewedText(opened, entry) : opened !== undefined) {
+      return { failure: opened !== undefined && !entry.open ? `${entry.path} was opened in an editor during the apply; it was not written.` : sourceChanged(entry) };
     }
-    if (!entry.open && env.openPrograms().some((program) => foldPath(program.path) === foldPath(entry.path))) {
-      return { failure: `${entry.path} was opened in an editor during the apply; it was not written. Run the workflow again.` };
+    if (entry.target === "copy" && findOpen(entry.destination) !== undefined) {
+      return { failure: `${entry.destination} was opened in an editor during the apply; it was not written.` };
     }
+    if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
     const written = await env.fs.write(entry.destination, bytes);
     if (!written.ok) return { failure: `Could not write ${entry.destination}: ${written.error.message}. ${entry.path} is as it was.` };
     if (groupId !== null && env.history !== null) {
@@ -560,77 +584,46 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       const chosen = entries.filter((entry) => entry.state === "ready" && entry.included);
       const applied: { path: string; destination: string; via: "edit" | "write" | "copy" }[] = [...(outcome?.applied ?? [])];
       const failed: ScriptApplyFailure[] = [];
-      const excluded = new Set<string>();
-      // What every written destination holds now, and which programs an editor opened after the plan: both are compared
-      // again just before writing, so a copy another program changed is never overwritten.
-      const before = plan.destinations;
-      // Recovery first: every saved file about to be written is checkpointed, or none is written.
+      const prepared = new Map<string, PreparedWrite>();
       const toWrite = chosen.filter((entry) => !(entry.open && entry.target === "in-place"));
+      for (const entry of toWrite) {
+        try {
+          prepared.set(entry.path, await prepareWrite(entry));
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          failed.push({ path: entry.path, message });
+          update(entry.path, { message });
+        }
+      }
       let groupId: string | null = null;
       let blocked: string | null = null;
-      if (toWrite.length > 0 && env.history !== null) {
-        const group = await env.history.begin(`${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`, toWrite.map((entry) => entry.destination));
-        if (group.ok) groupId = group.groupId;
-        else blocked = `its recovery checkpoint could not be recorded: ${group.message}. Nothing was written.`;
-        // Every intent is built and recorded before the first write: a crash halfway through then leaves a group whose
-        // retry writes each file's intended result, never an old content back over one already written.
-      }
-      // Every saved file's bytes are built and validated before the first write, so a change to a source or destination
-      // found now leaves that program out instead of half-writing the batch.
-      for (const entry of toWrite) {
-        if (blocked !== null) break;
-        const build = await prepareWrite(entry, before);
-        if (!build.ok) {
-          failed.push({ path: entry.path, message: build.message });
-          update(entry.path, { message: build.message });
-          excluded.add(entry.path);
-          continue;
-        }
-        prepared.set(entry.path, build.bytes);
-      }
-      // A host that keeps recovery history also records every intent before the first write; one that cannot record
-      // intent writes nothing at all (a crash between write and receipt would be unrecoverable).
-      if (blocked === null && groupId !== null && toWrite.some((entry) => !excluded.has(entry.path))) {
-        if (env.history?.intent === undefined) {
-          blocked = "this host's recovery history cannot record intended content before writing, so a crash could not be recovered from. Nothing was written.";
-        } else {
-          for (const entry of toWrite) {
-            if (excluded.has(entry.path)) continue;
-            const bytes = prepared.get(entry.path)!;
-            const recorded = await env.history.intent(groupId, entry.destination, bytes);
-            if (!recorded.ok) { blocked = `${entry.destination}: its intended content could not be recorded before writing (${recorded.message}). Nothing was written.`; break; }
+      if (prepared.size > 0 && env.history !== null) {
+        if (env.history.prepareScripts === undefined) blocked = "This host cannot record the reviewed checkpoint. Nothing was written.";
+        else {
+          try {
+            const targets = toWrite.flatMap((entry) => {
+              const target = prepared.get(entry.path);
+              return target === undefined ? [] : [{ path: entry.destination, bytes: target.bytes, expectedBefore: target.before }];
+            });
+            const group = await env.history.prepareScripts(`${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`, targets);
+            if (group.ok) groupId = group.groupId;
+            else blocked = `Its recovery checkpoint could not be recorded: ${group.message}. Nothing was written.`;
+          } catch (error) {
+            blocked = `Its recovery checkpoint could not be recorded: ${error instanceof Error ? error.message : String(error)}. Nothing was written.`;
           }
         }
-        if (blocked !== null) prepared.clear();
       }
       for (const entry of chosen) {
-        if (excluded.has(entry.path)) continue;
+        const saved = prepared.get(entry.path);
+        if (saved === undefined && !(entry.open && entry.target === "in-place")) continue;
         if (blocked !== null) {
           failed.push({ path: entry.path, message: `${entry.path}: ${blocked}` });
           update(entry.path, { message: blocked });
           continue;
         }
-        const nowOpen = new Set(env.openPrograms().map((program) => foldPath(program.path)));
-        if (!entry.open && nowOpen.has(foldPath(entry.path))) {
-          const message = `${entry.path} was opened in an editor after the review; it was not written. Run the workflow again to review its current text.`;
-          failed.push({ path: entry.path, message });
-          update(entry.path, { message });
-          continue;
-        }
-        if (!(entry.open && entry.target === "in-place")) {
-          const current = await env.fs.read(entry.destination);
-          const planned = before.get(entry.destination) ?? null;
-          const held = current.ok ? current.value : null;
-          if (!sameBytes(held, planned)) {
-            const message = `${entry.destination} changed while the review was open; it was not written. Run the workflow again to see its new content.`;
-            failed.push({ path: entry.path, message });
-            update(entry.path, { message });
-            continue;
-          }
-        }
         let done: ApplyOneResult;
         try {
-          done = await applyOne(entry, groupId, before);
+          done = await applyOne(entry, groupId, saved);
         } catch (error) {
           done = { failure: `${entry.path} could not be applied: ${error instanceof Error ? error.message : String(error)}` };
         }

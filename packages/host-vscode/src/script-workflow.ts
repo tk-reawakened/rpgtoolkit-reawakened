@@ -38,9 +38,9 @@ export interface ScriptWorkflowUi {
   /** Show work in progress; the returned function hides it. */
   progress(message: string): () => void;
   /** Ask which programs to apply; the picked ones are applied, so a dismissed list writes nothing. */
-  review(transform: ScriptTransformId, items: readonly ScriptReviewItem[]): Promise<readonly string[] | undefined>;
+  review(transform: ScriptTransformId, items: readonly ScriptReviewItem[], leftAsWritten: readonly string[]): Promise<readonly string[] | undefined>;
   /** Tell the author the outcome, with the programs that were refused, skipped or failed and why. */
-  report(summary: string, problems: readonly string[], failed: boolean): Promise<void>;
+  report(summary: string, problems: readonly string[], failed: boolean, stage?: "plan"): Promise<void>;
   /** Ask whether to try the files that failed again; `undefined`/false ends the run. */
   retry(problems: readonly string[]): Promise<boolean>;
   /** The workflow cannot run here: no language server, or the project could not be listed. */
@@ -57,10 +57,9 @@ export interface ScriptWorkflowHostEnvironment {
   readonly openPrograms: () => readonly OpenScriptProgram[];
   readonly root: string;
   readonly activeProgram: string | null;
-  /** A running project is selected, so the server should wait for its snapshot rather than refuse as unassessed. */
-  readonly projectSelected?: boolean;
   /** The selected main file's URI, so the request is matched to that project. */
   readonly projectMainUri?: string;
+  readonly isProjectCurrent?: () => boolean;
 }
 
 export type ScriptWorkflowSummary =
@@ -88,10 +87,10 @@ export function reviewItems(entries: readonly ScriptWorkflowEntry[]): readonly S
  */
 export function problemsOf(entries: readonly ScriptWorkflowEntry[]): readonly string[] {
   return entries.flatMap((entry) => {
-    if (entry.state === "refused" || entry.state === "failed") return [`${entry.path}: ${entry.reason?.message ?? entry.message ?? "left as it was"}`];
-    if (entry.unsupported.length === 0) return [];
-    const fragments = entry.unsupported.map((fragment) => `${fragment.line === null ? "whole file" : `line ${fragment.line}`}: ${fragment.message}`).join("; ");
-    return [`${entry.path}: ${entry.unsupported.length} part${entry.unsupported.length === 1 ? "" : "s"} left as written — ${fragments}`];
+    const notes: string[] = [];
+    if (entry.state === "refused" || entry.state === "failed" || entry.state === "skipped") notes.push(entry.reason?.message ?? entry.message ?? "left as it was");
+    for (const fragment of entry.unsupported) notes.push(`${fragment.line === null ? "whole file" : `line ${fragment.line}`}: ${fragment.message}`);
+    return notes.length === 0 ? [] : [`${entry.path}: ${notes.join("; ")}`];
   });
 }
 
@@ -137,8 +136,8 @@ function environmentOf(env: ScriptWorkflowHostEnvironment): ScriptWorkflowEnviro
     history: env.history,
     openPrograms: () => env.openPrograms(),
     root: env.root,
-    ...(env.projectSelected === true ? { projectSelected: true } : {}),
     ...(env.projectMainUri === undefined ? {} : { projectMainUri: env.projectMainUri }),
+    ...(env.isProjectCurrent === undefined ? {} : { isProjectCurrent: env.isProjectCurrent }),
   };
 }
 
@@ -176,13 +175,13 @@ export async function runScriptWorkflow(transform: ScriptTransformId, env: Scrip
   const items = reviewItems(plan.entries);
   if (items.length === 0) {
     const problems = problemsOf(plan.entries);
-    await ui.report(summaryOf(transform, scope, plan, null), problems, problems.length > 0);
+    await ui.report(summaryOf(transform, scope, plan, null), problems, problems.length > 0, "plan");
     return { kind: "nothing-to-change", plan };
   }
-  const picked = await ui.review(transform, items);
+  const picked = await ui.review(transform, items, problemsOf(plan.entries.filter((entry) => entry.state !== "ready")));
   if (picked === undefined) return { kind: "cancelled" };
   const session = createScriptReview(environmentOf(env), plan);
-  // The list is the choice: every program that would change starts unticked, and only the picked ones are applied.
+  // Result selection is authoritative: uncheck the model's defaults before applying the selected list.
   session.setAllIncluded(false);
   for (const path of picked) session.setIncluded(path, true);
   if (session.getSnapshot().selected === 0) {
@@ -196,7 +195,7 @@ export async function runScriptWorkflow(transform: ScriptTransformId, env: Scrip
   while (outcome.failed.length > 0 && await ui.retry(problems)) {
     outcome = await session.apply();
     problems = [...problemsOf(session.getSnapshot().entries), ...outcome.failed.map((failure) => failure.message)];
-    if (outcome.failed.length > 0) await ui.report(summaryOf(transform, scope, session.getSnapshot().plan, outcome), problems, true);
+    await ui.report(summaryOf(transform, scope, session.getSnapshot().plan, outcome), problems, problems.length > 0);
   }
   return { kind: "applied", outcome };
 }

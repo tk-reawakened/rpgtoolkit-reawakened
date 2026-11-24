@@ -165,22 +165,6 @@
         {
           "command": "tkr.insertProgramCommand",
           "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2"
-        },
-        {
-          "command": "tkr.scriptFormat",
-          "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2 || resourceExtname == .prg || resourceExtname == .rnc"
-        },
-        {
-          "command": "tkr.scriptCanonicalCase",
-          "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2 || resourceExtname == .prg || resourceExtname == .rnc"
-        },
-        {
-          "command": "tkr.scriptUpdate",
-          "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2 || resourceExtname == .prg || resourceExtname == .rnc"
-        },
-        {
-          "command": "tkr.scriptCleanup",
-          "when": "editorLangId == rpgcode || editorLangId == rpgcode-tk2 || resourceExtname == .prg || resourceExtname == .rnc"
         }
       ],
       "explorer/context": [

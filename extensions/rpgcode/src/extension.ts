@@ -40,7 +40,7 @@ export function activate(context: ExtensionContext): void {
   }));
   registerMigrationPreview(context);
   // A request that arrives before the server is up waits for it, as the project notification does.
-  registerScriptTransform(context, async () => { await started; return running; });
+  registerScriptTransform(context, async () => { await started; return running; }, project);
   registerDebugAdapter(context);
 }
 

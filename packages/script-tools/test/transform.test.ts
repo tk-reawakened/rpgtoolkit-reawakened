@@ -179,6 +179,19 @@ test("a block comment that closes on a star line does not hide the legacy # that
   deepEqual(result.unsupported.filter((fragment) => fragment.code === "legacy-prefix-line").map((fragment) => fragment.line), [3]);
 });
 
+test("inline star comments, quotes within block comments, and include tails never mask the next legacy # line", () => {
+  const lines = [
+    'mwin("live") ** /* line comment',
+    '#mwin("first dead line")',
+    '/* a quote in a comment: " */',
+    '#mwin("second dead line")',
+    '#include "safe.prg" /* ignored directive tail',
+    '#mwin("third dead line")',
+  ];
+  const result = run("cleanup", `${lines.join("\n")}\n`);
+  deepEqual(result.unsupported.filter((fragment) => fragment.code === "legacy-prefix-line").map((fragment) => fragment.line), [2, 4, 6]);
+});
+
 test("format refuses a program that does not compile instead of offering a plausible rewrite", () => {
   const invalid = "IF (1) {\n";
   const format = run("format", invalid);

@@ -1,5 +1,5 @@
 import type { FileSystemService } from "@tk-reawakened/platform-services";
-import { createCheckpointGroups, type CheckpointGroups } from "./checkpoint-groups.ts";
+import { createCheckpointGroups, type CheckpointGroups, type CheckpointTarget } from "./checkpoint-groups.ts";
 import { sha256Hex } from "./document-history.ts";
 
 /**
@@ -8,11 +8,8 @@ import { sha256Hex } from "./document-history.ts";
  */
 export interface WizardHistory {
   begin(name: string, planned: readonly string[]): Promise<{ readonly ok: true; readonly groupId: string } | { readonly ok: false; readonly message: string }>;
-  /**
-   * Record the bytes about to be written, before writing them, when the host's history supports it. A crash before the
-   * write then leaves a group whose retry writes the intended result, not the old content back over a written file.
-   */
-  intent?(groupId: string, path: string, bytes: Uint8Array): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
+  /** Record the complete reviewed batch in one restore-only checkpoint. */
+  prepareScripts?(name: string, targets: readonly CheckpointTarget[]): Promise<{ readonly ok: true; readonly groupId: string } | { readonly ok: false; readonly message: string }>;
   written(groupId: string, path: string, bytes: Uint8Array): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
 }
 
@@ -22,9 +19,9 @@ export function createWizardHistory(groups: CheckpointGroups): WizardHistory {
       const result = await groups.begin(planned, name);
       return result.ok ? { ok: true, groupId: result.value.id } : { ok: false, message: result.error.message };
     },
-    async intent(groupId, path, bytes) {
-      const result = await groups.intent(groupId, path, bytes);
-      return result.ok ? { ok: true } : { ok: false, message: result.error.message };
+    async prepareScripts(name, targets) {
+      const result = await groups.prepareScripts(targets, name);
+      return result.ok ? { ok: true, groupId: result.value.id } : { ok: false, message: result.error.message };
     },
     async written(groupId, path, bytes) {
       const result = await groups.registerWritten(groupId, path, bytes);

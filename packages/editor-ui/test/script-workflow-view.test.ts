@@ -48,7 +48,7 @@ function rig(transform: ScriptTransformId = "format") {
   const planned: ScriptWorkflowScope[] = [];
   const environment: ScriptWorkflowEnvironment = {
     fs: host.fs,
-    history: { begin: async () => ({ ok: true, groupId: "g1" }), intent: async () => ({ ok: true }), written: async () => ({ ok: true }) },
+    history: { begin: async () => { throw new Error("Script workflow must capture a reviewed batch"); }, prepareScripts: async () => ({ ok: true, groupId: "g1" }), written: async () => ({ ok: true }) },
     openPrograms: () => [],
     provider: {
       async transform(question) {
@@ -151,7 +151,7 @@ test("unticking a program leaves it out, and Apply writes only the ones left in"
   equal(text(view.host.bytesOf("Prg/two.prg")), "MWIN(b)\n", "the unticked program is untouched");
   equal(text(view.host.bytesOf("Prg/legacy.prg")), "#Mwin(hi)\n", "the Toolkit 2.x original is untouched");
   equal(text(view.host.bytesOf(".tkr-migrated/3.1/Prg/legacy.prg")), 'Mwin("hi")\n');
-  match(view.el.querySelector(".tkr-script-outcome")?.textContent ?? "", /2 programs updated \(1 converted copy written to \.tkr-migrated\/3\.1; the originals are untouched\); 1 left out; 1 refused/);
+  match(view.el.querySelector(".tkr-script-outcome")?.textContent ?? "", /2 programs updated \(1 converted copy written to \.tkr-migrated\/3\.1; use the copies in a separately migrated 3\.1 project\. This project and the originals are unchanged\); 1 left out; 1 refused/);
   equal(view.button("Close").textContent, "Close");
   equal(view.el.querySelector(".tkr-script-apply")?.hasAttribute("disabled"), true, "a finished review cannot apply twice");
 });

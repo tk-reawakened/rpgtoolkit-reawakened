@@ -1,4 +1,6 @@
 import { commands, type ExtensionContext } from "vscode";
+import { SCRIPT_TRANSFORM_REQUEST, type ScriptTransformParams } from "@tk-reawakened/lsp/protocol";
+import type { registerRunningProject } from "./project.js";
 
 /**
  * The reviewed script workflows' one request (story 13.16, docs/spec/engine/rpgcode-tooling.md#tool-11). The editor
@@ -12,9 +14,15 @@ export type ScriptTransformClient = {
 
 export const SCRIPT_TRANSFORM_COMMAND = "rpgcode.scriptTransform";
 
-export function registerScriptTransform(context: ExtensionContext, started: () => Promise<ScriptTransformClient>): void {
-  context.subscriptions.push(commands.registerCommand(SCRIPT_TRANSFORM_COMMAND, async (params: unknown) => {
+type EditorRequest = Omit<ScriptTransformParams, "project"> & { readonly project?: { readonly main: string } };
+
+export function registerScriptTransform(context: ExtensionContext, started: () => Promise<ScriptTransformClient>, project: Pick<ReturnType<typeof registerRunningProject>, "withSnapshot">): void {
+  context.subscriptions.push(commands.registerCommand(SCRIPT_TRANSFORM_COMMAND, async (params: EditorRequest) => {
     const client = await started();
-    return await client.sendRequest("rpgcode/scriptTransform", params);
+    const expected = params.project?.main;
+    return await project.withSnapshot(expected, (revision) => client.sendRequest(SCRIPT_TRANSFORM_REQUEST, {
+      ...params,
+      ...(expected === undefined ? {} : { project: { main: expected, revision } }),
+    }));
   }));
 }

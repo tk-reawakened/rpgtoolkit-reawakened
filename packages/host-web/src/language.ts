@@ -1,4 +1,4 @@
-import { encodeBase64, isHookAssetPath, isProgramPath, projectRootUri, PROJECT_NOTIFICATION, type ProjectSnapshot, type ProjectSnapshotFile } from "@tk-reawakened/lsp/protocol";
+import { encodeBase64, isHookAssetPath, isProgramPath, projectRootUri, PROJECT_NOTIFICATION, SCRIPT_TRANSFORM_REQUEST, type ProjectSnapshot, type ProjectSnapshotFile, type ScriptTransformParams } from "@tk-reawakened/lsp/protocol";
 import {
   platformError,
   platformOk,
@@ -154,6 +154,21 @@ export function createWebLanguageService(fs: FileSystemService, options: WebLang
       return platformOk<LanguageConnection>({
         send(message) {
           if (closed !== null) return;
+          if (message.method === SCRIPT_TRANSFORM_REQUEST) {
+            const params = message.params as (Omit<ScriptTransformParams, "project"> & { readonly project?: { readonly main: string } }) | undefined;
+            const project = params?.project;
+            if (project !== undefined) {
+              if (timer !== null) {
+                clearTimeout(timer);
+                timer = null;
+                sendSnapshot();
+              }
+              void sending.then(() => {
+                if (closed === null) worker.postMessage({ ...message, params: { ...params, project: { main: project.main, revision } } });
+              });
+              return;
+            }
+          }
           worker.postMessage(message);
           if (message.method === "initialized" && !ready) {
             ready = true;

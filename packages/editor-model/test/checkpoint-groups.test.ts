@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { platformError, type FileSystemService } from "@tk-reawakened/platform-services";
-import { createCheckpointGroups, createWizardHistory, type CheckpointEnvironment } from "../src/index.ts";
+import { createCheckpointGroups, type CheckpointEnvironment } from "../src/index.ts";
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 function fixture() {
@@ -144,18 +144,37 @@ test("torn capture entries remain diagnosable and deletable without hiding valid
   ok(remaining.value.every((entry) => !("error" in entry)));
 });
 
-test("an intent recorded before a crash makes retry write the result, while restore still returns the original (13.16)", async () => {
+test("reviewed script capture publishes every intent or none and never replays a partial batch on restart", async () => {
   const { host, env } = fixture();
-  const history = createWizardHistory(createCheckpointGroups(env));
-  const begun = await history.begin("Format (reviewed)", ["Misc/a.anm"]); ok(begun.ok);
-  // The wizard records what it is about to write, then the process dies before the write.
-  const recorded = await history.intent(begun.groupId, "Misc/a.anm", bytes("formatted")); ok(recorded.ok);
-  deepEqual(host.bytesOf("Misc/a.anm"), bytes("original"), "nothing was written yet");
+  let writes = 0;
+  const fs: FileSystemService = { ...host.fs, async writeProject(project, path, data) {
+    if (path.startsWith(".tkr-history/contents/") && ++writes === 2) return platformError("io-error", "interrupted before capture completed");
+    return await host.fs.writeProject(project, path, data);
+  } };
+  const batch = [{ ...targets[0]!, expectedBefore: null }, { ...targets[1]!, expectedBefore: bytes("original") }];
+  const interrupted = await createCheckpointGroups({ ...env, fs }).prepareScripts(batch, "Format");
+  equal(interrupted.ok, false);
+  const restarted = createCheckpointGroups(env);
+  const empty = await restarted.list(); ok(empty.ok); deepEqual(empty.value, []);
+  const captured = await restarted.prepareScripts(batch, "Format"); ok(captured.ok);
+  const id = captured.value.id;
   const afterCrash = createCheckpointGroups(env);
-  const group = (await afterCrash.list()).value.find((entry) => "files" in entry)!;
-  deepEqual((group as { files: { after: string | null; status: string }[] }).files.map((file) => file.status), ["writing"]);
-  const retried = await afterCrash.retry(begun.groupId); ok(retried.ok);
-  deepEqual(host.bytesOf("Misc/a.anm"), bytes("formatted"), "a retry writes the intended result, never the old content back over it");
-  const restored = await afterCrash.restore(begun.groupId); ok(restored.ok);
-  deepEqual(host.bytesOf("Misc/a.anm"), bytes("original"), "and restore still returns the original");
+  // The process died after writing the first file but before recording its receipt.
+  host.seed(batch[0]!.path, batch[0]!.bytes);
+  host.seed(batch[1]!.path, bytes("edited externally"));
+  const first = await afterCrash.preview(id, batch[0]!.path, "after"); ok(first.ok);
+  const second = await afterCrash.preview(id, batch[1]!.path, "after"); ok(second.ok);
+  deepEqual(first.value?.bytes, batch[0]!.bytes);
+  deepEqual(second.value?.bytes, batch[1]!.bytes);
+  equal((await afterCrash.retry(id)).ok, false);
+  equal((await afterCrash.apply(id)).ok, false);
+  deepEqual(host.bytesOf(batch[0]!.path), batch[0]!.bytes);
+  const restored = await afterCrash.restore(id); ok(restored.ok);
+  deepEqual(host.bytesOf(batch[0]!.path), batch[0]!.bytes, "a matching intent without a write receipt does not prove ownership");
+  deepEqual(host.bytesOf(batch[1]!.path), bytes("edited externally"), "restore does not touch an unrelated edit");
+  deepEqual(restored.value.files.map((file) => file.status), ["kept-uncertain", "kept-uncertain"]);
+  const recorded = await afterCrash.registerWritten(id, batch[0]!.path, batch[0]!.bytes); ok(recorded.ok);
+  const restoredWithReceipt = await afterCrash.restore(id); ok(restoredWithReceipt.ok);
+  equal(host.bytesOf(batch[0]!.path), undefined, "a restore removes a matching copy once its write was recorded");
+  deepEqual(restoredWithReceipt.value.files.map((file) => file.status), ["written", "kept-uncertain"]);
 });

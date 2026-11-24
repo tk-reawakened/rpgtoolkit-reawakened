@@ -72,13 +72,11 @@ function env(host: MemoryPlatformServices, extra: Partial<ScriptWorkflowEnvironm
   const groups: { name: string; planned: readonly string[]; written: string[] }[] = [];
   const intents: { readonly path: string; readonly bytes: Uint8Array }[] = [];
   const history: WizardHistory = {
-    async begin(name, planned) {
-      groups.push({ name, planned, written: [] });
+    async begin() { throw new Error("Script reviews must not use a wizard's path-only checkpoint."); },
+    async prepareScripts(name, targets) {
+      groups.push({ name, planned: targets.map((target) => target.path), written: [] });
+      for (const target of targets) if (target.bytes !== null) intents.push({ path: target.path, bytes: target.bytes.slice() });
       return { ok: true, groupId: `g${groups.length}` };
-    },
-    async intent(_groupId, path, bytes) {
-      intents.push({ path, bytes: bytes.slice() });
-      return { ok: true };
     },
     async written(groupId, path) {
       groups[Number(groupId.slice(1)) - 1]!.written.push(path);
@@ -127,7 +125,7 @@ test("a project plan lists every program once with its state, and writes nothing
 
 test("a program open in an editor is planned from its unsaved text, and a host without a language server plans nothing", async () => {
   const host = project();
-  const open: OpenScriptProgram = { path: "Prg/clean.prg", text: () => "MESSY unsaved\n", replace: () => ({ ok: true }) };
+  const open: OpenScriptProgram = { path: "Prg/clean.prg", text: () => "MESSY unsaved\n", replace: async () => ({ ok: true }) };
   const plan = await planScriptWorkflow(env(host, { openPrograms: () => [open] }), "format", { kind: "program", path: "Prg/clean.prg" });
   equal(plan.entries.length, 1);
   equal(plan.entries[0]!.state, "ready");
@@ -176,7 +174,7 @@ test("a Toolkit 2.x conversion is written as a copy and never over its original"
   equal(text(host.bytesOf("Prg/old.prg")), "OLD\n", "the Toolkit 2.x original is untouched");
   equal(text(host.bytesOf(`${MIGRATED_FOLDER}/Prg/old.prg`)), "new\n");
   deepEqual(outcome.applied, [{ path: "Prg/old.prg", destination: `${MIGRATED_FOLDER}/Prg/old.prg`, via: "copy" }]);
-  match(outcome.summary, /1 converted copy written to \.tkr-migrated\/3\.1; the originals are untouched/);
+  match(outcome.summary, /1 converted copy written to \.tkr-migrated\/3\.1; use the copies in a separately migrated 3\.1 project\. This project and the originals are unchanged/);
   deepEqual(environment.groups.map((group) => group.planned), [[`${MIGRATED_FOLDER}/Prg/old.prg`]], "the copy it replaces was checkpointed first");
 });
 
@@ -184,7 +182,7 @@ test("closed files are checkpointed before they are written; an open editor gets
   const host = project();
   let editorText = "MESSY open\n";
   const edits: { label: string; text: string }[] = [];
-  const open: OpenScriptProgram = { path: "Prg/b.prg", text: () => editorText, replace: (label, next) => { edits.push({ label, text: next }); editorText = next; return { ok: true }; } };
+  const open: OpenScriptProgram = { path: "Prg/b.prg", text: () => editorText, replace: async (label, next) => { edits.push({ label, text: next }); editorText = next; return { ok: true }; } };
   const environment = env(host, { openPrograms: () => [open] });
   const plan = await planScriptWorkflow(environment, "format", { kind: "project" });
   const review = createScriptReview(environment, plan);
@@ -245,7 +243,7 @@ test("a failed write is retained with its reason, and a retry applies exactly th
 
 test("if the recovery checkpoint cannot be recorded nothing is written to disk", async () => {
   const host = project();
-  const history: WizardHistory = { begin: async () => ({ ok: false, message: "history is full" }), written: async () => ({ ok: true }) };
+  const history: WizardHistory = { begin: async () => { throw new Error("Not a wizard"); }, prepareScripts: async () => ({ ok: false, message: "history is full" }), written: async () => ({ ok: true }) };
   const environment = env(host, { history });
   const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "project" }));
   const outcome = await review.apply();
@@ -285,15 +283,18 @@ test("answers are checked at the boundary and a provider refuses an answer to an
 test("a destination another program changed while the review was open is never overwritten", async () => {
   const host = project();
   let releaseCheckpoint!: () => void;
+  let checkpointStarted!: () => void;
+  const checkpoint = new Promise<void>((resolve) => { checkpointStarted = resolve; });
   const gate = new Promise<void>((resolve) => { releaseCheckpoint = resolve; });
   const history: WizardHistory = {
-    async begin(name, planned) { await gate; return { ok: true, groupId: `g-${name}` }; },
-    async intent() { return { ok: true }; },
+    async begin() { throw new Error("Not a wizard"); },
+    async prepareScripts() { checkpointStarted(); await gate; return { ok: true, groupId: "g1" }; },
     async written() { return { ok: true }; },
   };
   const environment = env(host, { history });
   const review = createScriptReview(environment, await planScriptWorkflow(environment, "update", { kind: "program", path: "Prg/old.prg" }));
   const applying = review.apply();
+  await checkpoint;
   // The checkpoint's question is on screen: meanwhile the copy this run would replace is rewritten by hand.
   await host.fs.write(`${MIGRATED_FOLDER}/Prg/old.prg`, bytes("written elsewhere\n"));
   releaseCheckpoint();
@@ -310,10 +311,10 @@ test("a program opened after the plan is not written behind its editor, and a fa
   const openedLater: OpenScriptProgram = { path: "Prg/a.prg", text: () => "MESSY opened\n", replace: async () => ({ ok: true }) };
   const committed = createScriptReview(env(host, { openPrograms: () => [openedLater] }), plan);
   const first = await committed.apply();
-  ok(first.failed.some((item) => item.path === "Prg/a.prg" && /opened in an editor after the review/.test(item.message)));
+  ok(first.failed.some((item) => item.path === "Prg/a.prg" && /opened in an editor during the review/.test(item.message)));
   equal(text(host.bytesOf("Prg/a.prg")), "MESSY\r\nline two\r\n", "the editor's file is untouched");
 
-  const refusedHistory: WizardHistory = { begin: async () => ({ ok: false, message: "history is full" }), written: async () => ({ ok: true }) };
+  const refusedHistory: WizardHistory = { begin: async () => { throw new Error("Not a wizard"); }, prepareScripts: async () => ({ ok: false, message: "history is full" }), written: async () => ({ ok: true }) };
   const second = project();
   const open: OpenScriptProgram = { path: "Prg/a.prg", text: () => "MESSY open\n", replace: async () => ({ ok: true }) };
   const tied = createScriptReview(env(second, { history: refusedHistory, openPrograms: () => [open] }), await planScriptWorkflow(env(second, { openPrograms: () => [open] }), "format", { kind: "project" }));
@@ -346,19 +347,25 @@ test("under a project root, the server is asked with root-relative paths and cop
   equal(text(host.bytesOf("Game/Prg/old.prg")), "OLD\n");
 });
 
-test("the bytes about to be written are recorded before the write, so a crash cannot leave a retry that restores the old content", async () => {
+test("recovery records the entire batch's reviewed bytes before the first target write", async () => {
   const host = project();
   const environment = env(host);
-  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "program", path: "Prg/a.prg" }));
-  await review.apply();
+  const review = createScriptReview({
+    ...environment,
+    fs: { ...host.fs, write: async (path, data) => {
+      deepEqual(environment.groups.map((group) => group.planned), [["Prg/a.prg", "Prg/b.prg"]]);
+      deepEqual(environment.intents.map((item) => [item.path, text(item.bytes)]), [["Prg/a.prg", "tidy\r\nline two\r\n"], ["Prg/b.prg", "tidy b\n"]]);
+      return await host.fs.write(path, data);
+    } },
+  }, await planScriptWorkflow(environment, "format", { kind: "project" }));
+  review.setIncluded("Prg/old.prg", false);
+  review.setIncluded("Prg/sub/deep.rnc", false);
+  deepEqual((await review.apply()).failed, []);
   const intent = environment.intents.find((item) => item.path === "Prg/a.prg");
   ok(intent !== undefined, "the intended content was recorded");
   // The recorded intent is exactly the bytes that were written, with the file's own CRLF endings.
   deepEqual([...intent.bytes], [...host.bytesOf("Prg/a.prg")!]);
   equal(text(intent.bytes), "tidy\r\nline two\r\n");
-  // And it is not the old content: a retry built from this group can only write the result.
-  equal(text(intent.bytes) === text(host.bytesOf("Prg/a.prg")), true);
-  ok(environment.intents.every((item) => text(item.bytes) !== "MESSY\r\nline two\r\n"), "no intent records the old bytes");
 });
 
 test("a host whose history cannot record intent before writing writes nothing, rather than risking an unrecoverable write", async () => {
@@ -368,7 +375,7 @@ test("a host whose history cannot record intent before writing writes nothing, r
   const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "program", path: "Prg/a.prg" }));
   const outcome = await review.apply();
   deepEqual(outcome.applied, []);
-  match(outcome.failed[0]!.message, /cannot record intended content before writing/);
+  match(outcome.failed[0]!.message, /cannot record the reviewed checkpoint/);
   equal(text(host.bytesOf("Prg/a.prg")), "MESSY\r\nline two\r\n");
 });
 
@@ -390,8 +397,56 @@ test("under a project root the host is given a workspace path for its URI, while
     // The server-side path travels in the request text's identity; the URI is the host's mapping of the workspace path.
     return await inner.transform({ transform: params.transform, path: "Prg/old.prg", text: params.text, indentWidth: params.indentWidth, workspacePath: "Game/Prg/old.prg" });
   }, (path) => { seen.push({ path, uri: `tkr://${path}` }); return `tkr://${path}`; });
-  const environment = env(host, { provider: provider2, root: "Game", projectSelected: true });
+  const environment = env(host, { provider: provider2, root: "Game", projectMainUri: "tkr://Game/Main/example.gam" });
   const plan = await planScriptWorkflow(environment, "update", { kind: "project" });
   equal(plan.entries[0]!.destination, "Game/.tkr-migrated/3.1/Prg/old.prg");
   ok(seen.some((item) => item.path === "Game/Prg/old.prg" && item.uri === "tkr://Game/Prg/old.prg"), "the URI is built from the workspace path");
+});
+
+for (const event of ["closed source bytes", "open source text", "open destination"] as const) {
+  test(`migration refuses a copy when folder creation races with ${event}`, async () => {
+    const host = project();
+    const path = "Prg/old.prg";
+    const destination = `${MIGRATED_FOLDER}/${path}`;
+    let sourceText = "OLD\n";
+    const open: OpenScriptProgram[] = event === "open source text" ? [{ path, text: () => sourceText, replace: async () => ({ ok: true }) }] : [];
+    const environment = env(host, { openPrograms: () => open, fs: {
+      ...host.fs,
+      async createFolder(folder) {
+        if (event === "closed source bytes") host.seed(path, bytes("OLD\r\n"));
+        else if (event === "open source text") sourceText = "OLD and unsaved\n";
+        else open.push({ path: destination, text: () => "newer unsaved copy", replace: async () => ({ ok: true }) });
+        return await host.fs.createFolder(folder);
+      },
+    } });
+    const review = createScriptReview(environment, await planScriptWorkflow(environment, "update", { kind: "program", path }));
+    const outcome = await review.apply();
+    deepEqual(outcome.applied, []);
+    deepEqual(outcome.failed.map((item) => item.path), [path]);
+    equal(text(host.bytesOf(destination)), "MESSY previous copy");
+    deepEqual(environment.groups[0]?.written, []);
+  });
+}
+
+test("an apply cannot continue after checkpoint confirmation switches the selected project", async () => {
+  const host = project();
+  let current = true;
+  const history: WizardHistory = {
+    async begin() { throw new Error("Not a wizard"); },
+    async prepareScripts() { current = false; return { ok: true, groupId: "g1" }; },
+    async written() { throw new Error("Unexpected write"); },
+  };
+  let edits = 0;
+  const environment = env(host, {
+    history,
+    isProjectCurrent: () => current,
+    openPrograms: () => [{ path: "Prg/a.prg", text: () => "MESSY open", replace: async () => { edits++; return { ok: true }; } }],
+  });
+  const review = createScriptReview(environment, await planScriptWorkflow(environment, "format", { kind: "project" }));
+  const outcome = await review.apply();
+  deepEqual(outcome.applied, []);
+  equal(outcome.failed.length, review.getSnapshot().selected);
+  ok(outcome.failed.length > 0 && outcome.failed.every(({ message }) => message.includes("selected project changed")));
+  equal(edits, 0);
+  equal(text(host.bytesOf("Prg/b.prg")), "MESSY b\n");
 });

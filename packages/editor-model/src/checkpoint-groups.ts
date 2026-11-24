@@ -13,7 +13,7 @@ export interface CheckpointUncovered { readonly path: string; readonly reason: "
 export interface CheckpointGroup {
   schema: 1;
   id: string;
-  reason: "before-wizard" | "before-restore" | "named";
+  reason: "before-wizard" | "before-script" | "before-restore" | "named";
   time: string;
   name: string | null;
   restores: string | null;
@@ -155,7 +155,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     if (typeof value !== "object" || value === null) throw new Error("Invalid recovery manifest.");
     const raw = value as Partial<CheckpointGroup>;
     const group: CheckpointGroup = { ...raw, name: raw.name ?? null, restores: raw.restores ?? null, uncovered: raw.uncovered ?? [] } as CheckpointGroup;
-    if (group.schema !== 1 || group.id !== id || !["before-wizard", "before-restore", "named"].includes(group.reason) || typeof group.time !== "string"
+    if (group.schema !== 1 || group.id !== id || !["before-wizard", "before-script", "before-restore", "named"].includes(group.reason) || typeof group.time !== "string"
       || !(group.name === null || typeof group.name === "string") || !(group.restores === null || typeof group.restores === "string")
       || !Array.isArray(group.files) || (group.files.length === 0 && group.reason !== "named") || !Array.isArray(group.uncovered)) throw new Error("Invalid recovery manifest.");
     const seen = new Set<string>();
@@ -182,6 +182,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
           if (update.schema !== 1 || update.id !== id || !Array.isArray(update.files) || update.files.length !== group.files.length) continue;
           if (!update.files.every((file, i) => file.path === group.files[i]!.path && file.before === group.files[i]!.before
             && (file.after === null || digestPattern.test(file.after))
+            && (group.reason !== "before-script" || file.after === group.files[i]!.after)
             && ["pending", "writing", "written", "failed", "already-as-wanted", "kept-uncertain", "uncovered"].includes(file.status)
             && (file.message === null || typeof file.message === "string"))) continue;
           group.files = update.files;
@@ -204,7 +205,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       if (seen.has(foldPath(path))) throw new Error(`Duplicate destination: ${path}`);
       seen.add(foldPath(path));
       const before = await current(path);
-      if ("expectedBefore" in target && !sameBytes(before, target.expectedBefore)) throw new Error(`${path} changed after restore confirmation, so it was not restored. Choose the version again.`);
+      if ("expectedBefore" in target && !sameBytes(before, target.expectedBefore)) throw new Error(`${path} changed since review; choose the version again.`);
       if (reason !== "named" && !sameBytes(before, target.bytes)) {
         const refused = await env.guard(path, target.bytes === null, target.bytes);
         if (refused !== null) throw new Error(refused);
@@ -212,7 +213,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       prepared.push({ path, before, after: reason === "named" ? before?.slice() ?? null : target.bytes?.slice() ?? null });
     }
     const collisions = prepared.filter((file) => file.before !== null).map((file) => file.path);
-    if (reason === "before-wizard" && collisions.length > 0 && !await env.consent(collisions)) throw new Error("Cancelled; no target files changed.");
+    if ((reason === "before-wizard" || reason === "before-script") && collisions.length > 0 && !await env.consent(collisions)) throw new Error("Cancelled; no target files changed.");
     const id = env.newId();
     if (!idPattern.test(id)) throw new Error("Invalid new checkpoint identity.");
     const known = await history.read(manifestPath(id));
@@ -232,6 +233,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     return group;
   };
   const execute = async (group: CheckpointGroup): Promise<CheckpointGroup> => {
+    if (group.reason === "before-script") throw new Error("Script checkpoints are restore-only. Review the current programs to apply again.");
     // Validate ALL referenced bytes before even the first destructive operation.
     const intended = await Promise.all(group.files.map((file) => contents(file.after)));
     await Promise.all(group.files.map((file) => contents(file.before)));
@@ -283,34 +285,22 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         return platformOk(await capture(targets, "before-wizard", { name }));
       } catch (error) { return platformError("io-error", message(error)); }
     },
-    /**
-     * Record what a wizard is about to write, before it writes it (write-ahead intent). A crash between this and the
-     * write leaves a group whose retry writes the intended bytes, never the old ones; restore still uses `before`.
-     */
-    async intent(id: string, path: string, bytes: Uint8Array | null): Promise<PlatformResult<CheckpointGroup>> {
-      try {
-        const group = await load(id);
-        if (group.reason !== "before-wizard") throw new Error(`Checkpoint group ${id} does not accept wizard writes.`);
-        const canonicalPath = await canonical(path);
-        const file = group.files.find((entry) => foldPath(entry.path) === foldPath(canonicalPath));
-        if (file === undefined) throw new Error(`${path} was not in checkpoint group ${id}.`);
-        file.after = bytes === null ? null : await store(bytes);
-        if (file.status === "pending") {
-          file.status = "writing";
-          file.message = "Write planned, not yet written";
-        }
-        await persist(group);
-        return platformOk(group);
-      } catch (error) { return platformError("io-error", message(error)); }
+    async prepareScripts(targets: readonly CheckpointTarget[], name: string): Promise<PlatformResult<CheckpointGroup>> {
+      try { return platformOk(await capture(targets, "before-script", { name })); }
+      catch (error) { return platformError("io-error", message(error)); }
     },
     async registerWritten(id: string, path: string, bytes: Uint8Array | null): Promise<PlatformResult<CheckpointGroup>> {
       try {
         const group = await load(id);
-        if (group.reason !== "before-wizard") throw new Error(`Checkpoint group ${id} does not accept wizard writes.`);
+        if (group.reason !== "before-wizard" && group.reason !== "before-script") throw new Error(`Checkpoint group ${id} does not accept wizard writes.`);
         const canonicalPath = await canonical(path);
         const file = group.files.find((entry) => foldPath(entry.path) === foldPath(canonicalPath));
         if (file === undefined) throw new Error(`${path} was not in checkpoint group ${id}.`);
-        file.after = bytes === null ? null : await store(bytes);
+        if (group.reason === "before-script") {
+          if (file.after !== (bytes === null ? null : await hash(bytes))) throw new Error(`${path} does not match its reviewed result.`);
+        } else {
+          file.after = bytes === null ? null : await store(bytes);
+        }
         file.status = "written";
         file.message = "Written";
         await persist(group);
@@ -361,10 +351,15 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
           }
           const actualHash = actual === null ? null : await hash(actual);
           const expectedBefore = actual;
+          // Reviewed intent is not a receipt that a previously absent file was actually created by this operation.
+          const registeredAfter = source.reason === "before-script" && file.status !== "written" ? null : file.after;
           if (actualHash === desiredHash) {
             targets.push({ path: file.path, bytes: actual, expectedBefore });
             outcomes.set(file.path, { status: "already-as-wanted", message: "Already as wanted" });
-          } else if (desiredHash === null && actual !== null && (file.after === null || actualHash !== file.after) && !deleteUncertain.has(foldPath(file.path))) {
+          } else if (source.reason === "before-script" && desiredHash !== null && actualHash !== file.after) {
+            targets.push({ path: file.path, bytes: actual, expectedBefore });
+            outcomes.set(file.path, { status: "kept-uncertain", message: "The file no longer matches either reviewed version, so it was kept." });
+          } else if (desiredHash === null && actual !== null && actualHash !== registeredAfter && !deleteUncertain.has(foldPath(file.path))) {
             targets.push({ path: file.path, bytes: actual, expectedBefore });
             outcomes.set(file.path, { status: "kept-uncertain", message: "The file no longer matches the bytes recorded by this operation, so it was kept." });
           } else {
@@ -418,7 +413,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
   return {
     ...api,
     begin: (paths: readonly string[], name?: string | null) => serial(() => api.begin(paths, name)),
-    intent: (id: string, path: string, bytes: Uint8Array | null) => serial(() => api.intent(id, path, bytes)),
+    prepareScripts: (targets: readonly CheckpointTarget[], name: string) => serial(() => api.prepareScripts(targets, name)),
     registerWritten: (id: string, path: string, bytes: Uint8Array | null) => serial(() => api.registerWritten(id, path, bytes)),
     apply: (id: string) => serial(() => api.apply(id)),
     commit: (targets: readonly CheckpointTarget[]) => serial(() => api.commit(targets)),

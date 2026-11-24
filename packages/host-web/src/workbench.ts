@@ -323,6 +323,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       return [{
         path: program.identity.path,
         text: () => program.getSnapshot().text,
+        busy: () => workspace.pendingEdits(document).busy(),
         replace: async (label, next) => {
           if (workspace.pendingEdits(document).busy()) return { ok: false as const, message: "it has typing that is still being applied; try again in a moment" };
           const result = program.apply({ type: "edit-text", label, edits: [{ from: 0, to: program.getSnapshot().text.length, text: next }] });
@@ -360,8 +361,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       history: createWizardHistory(workspace.checkpoints),
       openPrograms: openScriptPrograms,
       root: main === null ? "" : rootFolderOf(main),
-      projectSelected: main !== null,
       ...(mainUri === undefined ? {} : { projectMainUri: mainUri }),
+      isProjectCurrent: () => !disposed,
     };
     const snapshot = tabs.getSnapshot();
     const activePath = snapshot.tabs.find((tab) => tab.key === snapshot.active)?.path ?? null;

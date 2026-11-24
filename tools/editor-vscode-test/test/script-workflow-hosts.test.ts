@@ -109,8 +109,14 @@ function inProcessServer(root: MemoryDirectory, main: string): LanguageService {
         value: {
           send(message) {
             const { id, method, params } = message as { id?: number; method?: string; params?: unknown };
-            if (typeof method === "string" && typeof id === "number") queueMicrotask(() => answer({ id, method, params }));
-            else if (typeof method === "string") {
+            if (typeof method === "string" && typeof id === "number") {
+              queueMicrotask(() => {
+                const bound = params as { readonly project?: { readonly main: string } } | undefined;
+                const request = method === SCRIPT_TRANSFORM_REQUEST && bound?.project !== undefined
+                  ? { ...bound, project: { ...bound.project, revision } } : params;
+                answer({ id, method, params: request });
+              });
+            } else if (typeof method === "string") {
               queueMicrotask(() => {
                 notifications.get(method)?.(params);
                 // The server takes the running project once the client has finished the handshake (TOOL-1).
@@ -194,16 +200,17 @@ async function reviewInBrowser(transform: ScriptTransformId, options: { readonly
 }
 
 /** VS Code's questions, answered by the test: the project scope, then the programs to apply. */
-function vscodeUi(options: { readonly untick?: readonly string[]; readonly cancel?: boolean; readonly details?: string[] }) {
-  const seen = { scopes: [] as (string | null)[], items: [] as readonly { path: string; description: string; detail: string; original: string | null; result: string | null }[], reports: [] as string[] };
+function vscodeUi(options: { readonly untick?: readonly string[]; readonly cancel?: boolean; readonly details?: string[]; readonly retry?: () => boolean }) {
+  const seen = { scopes: [] as (string | null)[], items: [] as readonly { path: string; description: string; detail: string; original: string | null; result: string | null }[], reports: [] as string[], leftAsWritten: [] as readonly string[] };
   const ui = {
     async scope(_transform: ScriptTransformId, activeProgram: string | null) {
       seen.scopes.push(activeProgram);
       return "project" as const;
     },
     progress: () => () => {},
-    async review(_transform: ScriptTransformId, items: readonly { path: string; description: string; detail: string; original: string | null; result: string | null }[]) {
+    async review(_transform: ScriptTransformId, items: typeof seen.items, leftAsWritten: readonly string[]) {
       seen.items = items;
+      seen.leftAsWritten = leftAsWritten;
       for (const item of items) options.details?.push(item.detail);
       if (options.cancel === true) return undefined;
       return items.map((item) => item.path).filter((path) => !(options.untick ?? []).includes(path));
@@ -215,7 +222,7 @@ function vscodeUi(options: { readonly untick?: readonly string[]; readonly cance
       seen.reports.push(message);
     },
     async retry() {
-      return false;
+      return options.retry?.() ?? false;
     },
   };
   return { ui, seen };
@@ -363,4 +370,42 @@ test("in VS Code, an open program receives one edit and no direct write", async 
   }
   deepEqual(edits, [{ label: "Format (reviewed)", text: 'x! = 1\nif (x == 1) {\n    mwin("Hello")\n}\n' }]);
   equal(text(root.read("Prg/messy.prg")), MESSY, "an open document is edited, never written behind the editor");
+});
+
+test("native review surfaces the refusal and fragment before apply, then reports a successful retry", async () => {
+  const { root, web } = project();
+  const language = inProcessServer(root, "Main/example.gam");
+  const leased = await leaseLanguageClient(language, { main: "Main/example.gam" });
+  ok(leased.ok);
+  const client = leased.lease.client;
+  const original = scriptProviderOver((params) => client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => client.uriOf(path));
+  let attempts = 0;
+  const { ui, seen } = vscodeUi({ retry: () => attempts === 1 });
+  try {
+    const finished = await runScriptWorkflow("cleanup", {
+      fs: { ...web.services.fs, async write(path, bytes) {
+        if (path === "Prg/second.prg" && ++attempts === 1) return { ok: false, error: { code: "io-error", message: "write refused once" } };
+        return await web.services.fs.write(path, bytes);
+      } },
+      provider: { async transform(question) {
+        const answer = await original.transform(question);
+        return question.path === "Prg/clean.prg" ? {
+          ...answer, status: "refused", reason: { code: "unsupported-fragments", message: "Cannot move this fragment" },
+          unsupported: [{ line: 3, code: "dialogue-quote", message: "contains a quote" }],
+        } : answer;
+      } },
+      history: null,
+      openPrograms: () => [],
+      root: "",
+      activeProgram: null,
+    }, ui);
+    equal(finished.kind, "applied");
+    deepEqual(seen.leftAsWritten, ["Prg/clean.prg: Cannot move this fragment; line 3: contains a quote"]);
+    match(seen.reports[0]!, /write refused once/);
+    match(seen.reports[1]!, /2 programs updated/);
+    equal(attempts, 2);
+    equal(text(root.read("Prg/clean.prg")), CLEAN);
+  } finally {
+    leased.lease.release();
+  }
 });

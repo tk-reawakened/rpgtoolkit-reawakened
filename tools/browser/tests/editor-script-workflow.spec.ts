@@ -130,3 +130,30 @@ test("the reviewed script workflow shows what would change in a real Monaco host
   });
   expect(history).toBe(0);
 });
+
+test("the Monaco host reviews and writes a nested Toolkit 2.x migration copy without changing the original", async ({ page }) => {
+  const root = "Game 100%";
+  const source = `${root}/Prg/old.prg`;
+  const destination = `${root}/.tkr-migrated/3.1/Prg/old.prg`;
+  const old = "#MWIN(Hello legacy)\r\n";
+  await installProject(page, [
+    { path: `${root}/Main/legacy.gam`, bytes: [...readFileSync(new URL("../../../docs/spec/examples/versions/main/main_tk2_text.gam", import.meta.url))] },
+    { path: source, bytes: [...Buffer.from(old)] },
+  ]);
+  await page.goto(PAGE);
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: "Edit", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Update older syntax \(reviewed\)/ }).click();
+  const dialog = page.locator(".tkr-script-workflow");
+  await dialog.getByRole("button", { name: "Check programs" }).click();
+  await expect(dialog.locator('.tkr-script-file[data-state="ready"] .tkr-script-file-name')).toHaveText(["old.prg"]);
+  await dialog.locator(`button[title="${source}"]`).click();
+  await expect(dialog.locator('.tkr-script-diff [data-change="added"]')).toContainText('MWIN("Hello legacy")');
+  await dialog.getByRole("button", { name: "Apply to 1 program" }).click();
+  await expect(dialog.locator(".tkr-script-outcome")).toContainText("separately migrated 3.1 project");
+  expect(await storedText(page, source)).toBe(old);
+  expect(await storedText(page, destination)).toBe('MWIN("Hello legacy")\r\n');
+});

@@ -362,19 +362,27 @@ export function legacyPrefixLines(source: string): readonly UnsupportedFragment[
   const lines = source.split("\n");
   for (let index = 0; index < lines.length; index++) {
     const text = lines[index]!;
-    if (!inBlock && /^\s*#/.test(text) && !/^\s*#\s*include\b/i.test(text)) {
-      found.push({ line: index + 1, code: "legacy-prefix-line", message: "This line begins with `#`, which 3.1 ignores whole; removing the `#` would make the line run, so it is left as written." });
+    if (!inBlock && /^[ \t\r]*#/.test(text)) {
+      if (!/^[ \t\r]*#\s*include\b/i.test(text)) {
+        found.push({ line: index + 1, code: "legacy-prefix-line", message: "This line begins with `#`, which 3.1 ignores whole; removing the `#` would make the line run, so it is left as written." });
+      }
       continue;
     }
     // A line whose first non-blank character is `*` is a star comment to the end of the line (LEX-4), so nothing in it
     // opens a block comment; inside a block, a leading `*/` still closes it.
     if (!inBlock && /^[ \t]*\*/.test(text)) continue;
-    const code = withoutStrings(text);
-    for (let at = 0; at < code.length - 1; at++) {
-      if (!inBlock && code[at] === "/" && code[at + 1] === "/") break;
-      if (!inBlock && code[at] === "*" && code[at + 1] === "*") break;
-      if (!inBlock && code[at] === "/" && code[at + 1] === "*") { inBlock = true; at++; }
-      else if (inBlock && code[at] === "*" && code[at + 1] === "/") { inBlock = false; at++; }
+    let inString = false;
+    for (let at = 0; at < text.length; at++) {
+      const char = text[at];
+      const next = text[at + 1];
+      if (inBlock) {
+        // Quotes inside comments have no lexical meaning; they must not hide the terminator.
+        if (char === "*" && next === "/") { inBlock = false; at++; }
+      } else if (char === '"') inString = !inString;
+      else if (!inString) {
+        if (char === "/" && next === "/" || char === "*" && next === "*") break;
+        if (char === "/" && next === "*") { inBlock = true; at++; }
+      }
     }
   }
   return found;
