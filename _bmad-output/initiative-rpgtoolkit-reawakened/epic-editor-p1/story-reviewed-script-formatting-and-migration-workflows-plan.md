@@ -50,6 +50,7 @@ Lands in: `docs/spec/engine/rpgcode-tooling.md#tool-4` (separable jobs) and the 
 - The #3423–#3425 fixes at `2d6caaf9107798e3c63a24a85e129fc6e77f94a3` passed three real Monaco workflow cases, 82 focused checkpoint, History, script and cross-host tests, `test:strict` (5834 passed; no skips), typecheck, lint, graph, command docs, generated help, provenance and ADR numbering.
 - The corresponding `editor:acceptance` run passed ten of eleven lanes, including the actual native VS Code script workflow. The PWA lane reported a missing saved creator-test race alert (`editor-creator-tests.spec.ts:237`, #3429); all three reviewed-script browser cases passed. A standalone rerun of the identical serial PWA command passed all 33 cases. #3429 remains open: the intermittent cause is not established.
 - The #3430–#3433 fixes and native guard compatibility check (#3436) passed 89 focused tests and `test:strict` (5840 passed; no skips). Typecheck, lint, graph, and generated help checks passed. The serial PWA lane passed all 33 cases, including all three real reviewed-script cases.
+- At `23e13c8c52396b8a123db8d404b781fb033e339b`, the same 89 focused and 5840 strict tests passed, and the serial `editor:acceptance` run passed all 11 lanes, including real VS Code History recovery and reviewed migration. Typecheck, lint and generated help passed on that run.
 
 ## Review status
 
@@ -67,6 +68,7 @@ Draft PR #3363 requires independent review and CI before merge. No owner approva
 - **#3425 — partial group restore.** History records a renamed path as kept, continues to restore the unaffected program and keeps the refusal durable when reversing the restore, even if the original spelling becomes available again.
 - **#3431 — bytes after path checks.** Both live and disk applies re-observe the main, source and destination after the final path walk, with no intervening awaited preparation before mutation. Delayed listings cover a main replacement with a different dialect for both open and closed programs, and new bytes at a closed source or migration copy. The filesystem has no atomic compare-and-write; the final observation is optimistic.
 - **#3430, #3432 and #3433 — restore only files it can prove.** Restore and Undo Restore both use exact path spelling. The reverse checkpoint records no-op rows in its initial manifest rather than giving skipped files before/after targets. A refused open copy does not block a closed copy and can be retried from the original group after it closes.
+- **#3436 and #3437 — native acceptance corrections.** The existing animation command still refuses an unsafe native open-document restore outright, including reversal of a normal History restore. The real migration proof treats only `ENOENT` during bounded polling as a pending write; it still requires the exact bytes and propagates other read errors.
 - **#3400 — intermittent native quick-open proof, not resolved here.** An earlier `editor:acceptance` timed out submitting the path after the prompt appeared. The unsubstantiated palette-chord retry was removed; the cause of the after-fill prompt loss is not established.
 
 ## Defect filed
