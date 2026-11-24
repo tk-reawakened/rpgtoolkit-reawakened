@@ -1,6 +1,6 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
-import type { Capability, ClipboardService, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import type { Capability, ClipboardService, DialogService, ImageExportService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { bindProjectFileSystem, clipboardFromApi, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
@@ -133,6 +133,33 @@ function webPackageExport(doc: Document | null): PackageExportService {
     },
   };
 }
+function webImageExport(doc: Document | null): ImageExportService {
+  return {
+    actionLabel: "Download PNG",
+    async saveFile(fileName, bytes) {
+      if (fileName.includes("/") || fileName.includes(String.fromCharCode(92))) return platformError("invalid-path", "The download name must be a file name.");
+      if (doc === null) return platformError("unavailable", "Browser downloads are unavailable in this document.");
+      const view = doc.defaultView;
+      if (view === null) return platformError("unavailable", "Browser downloads are unavailable in this document.");
+      let url: string | null = null;
+      try {
+        url = view.URL.createObjectURL(new view.Blob([bytes.slice().buffer as ArrayBuffer], { type: "image/png" }));
+        const anchor = doc.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.hidden = true;
+        doc.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        view.setTimeout(() => { if (url !== null) view.URL.revokeObjectURL(url); }, 0);
+        return platformOk(true);
+      } catch {
+        if (url !== null) view.URL.revokeObjectURL(url);
+        return platformError("io-error", `Could not start the download for ${fileName}.`);
+      }
+    },
+  };
+}
 
 function webUserStorage(options: WebProjectOptions): UserSettingsStorage | null {
   if (options.userSettings !== undefined) return options.userSettings;
@@ -190,6 +217,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     settings,
     document: workspace.document,
     dialogs,
+    imageExport: webImageExport(typeof document === "undefined" ? null : document),
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
     ...(clipboard === null ? {} : { clipboard }),
     ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl, () => runPresenter) }),
@@ -261,6 +289,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     settings,
     document: workspace.document,
     dialogs,
+    imageExport: webImageExport(typeof document === "undefined" ? null : document),
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
     ...(clipboard === null ? {} : { clipboard }),
   };

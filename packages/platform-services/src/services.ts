@@ -155,10 +155,19 @@ export interface ShellService {
 }
 
 /**
+ * Save a generated image through the host's native file destination flow. `false` means the user canceled the
+ * destination picker; hosts that cannot save files omit this service.
+ */
+export interface ImageExportService {
+  /** Short label for the explicit host action (for example `Download PNG` or `Save PNG`). */
+  readonly actionLabel: string;
+  saveFile(fileName: string, bytes: Uint8Array): Promise<PlatformResult<boolean>>;
+}
+
+/**
  * Package export host operations (AD-20 `export`, shaped by story 12.9). `sha256` supplies the descriptor's archive
  * digest. `downloadFile` hands the author an ordinary download of one file; it is invoked by a direct user action and
- * never writes into the project. A host that cannot offer downloads does not provide this service, and package export
- * is unavailable there (VS Code: its extension cannot save a package without a no-replace, link-safe write).
+ * never writes into the project. A host that cannot offer downloads does not provide this service.
  */
 export interface PackageExportService {
   sha256(bytes: Uint8Array): Promise<PlatformResult<string>>;
@@ -183,6 +192,8 @@ export interface PlatformServices {
   readonly dialogs: DialogService;
   /** Present when the host declares `openExternal`. */
   readonly shell?: ShellService;
+  /** Present when the host can write a generated image to a user-chosen destination. */
+  readonly imageExport?: ImageExportService;
   /** Descriptor digest and download operations used by package export. */
   readonly packageExport?: PackageExportService;
   /** Present when the host declares `languageServer`. */

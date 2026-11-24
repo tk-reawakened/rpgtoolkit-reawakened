@@ -122,6 +122,19 @@ test("previewing without placed images omits their compositor pixels and object 
   deepEqual(pixel(hidden, 0, 0), [0, 0, 0, 255]);
   deepEqual(hidden.objectBounds, []);
 });
+test("hiding placed images preserves the background and excludes hidden tile-bitmap dependencies", async () => {
+  const parsed = readBoard(new BinaryReader(board()));
+  ok(parsed.ok);
+  const bytes = board({
+    images: [image("missing-stamp.tbm")],
+    properties: { ...parsed.value.properties, backgroundImage: "sky.bmp" },
+  });
+  const host = createMemoryPlatformServices({ files: { "Bitmap/sky.bmp": bmp([red, red, red, red]) } });
+  const picture = await previewBoard(host.fs, "memory-project", bytes, { showImages: false });
+  ok(picture.ok, picture.ok ? "" : picture.message);
+  deepEqual(pixel(picture, 0, 0), [...red, 255], "the separately controlled background remains visible");
+  deepEqual(picture.objectBounds, [], "hidden image objects have no export bounds");
+});
 
 
 test("stretched image bounds match the compositor's board-sized picture rather than the stored origin", async () => {

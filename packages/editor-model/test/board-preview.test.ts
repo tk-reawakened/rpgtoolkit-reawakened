@@ -124,6 +124,18 @@ test("current-view preview crops the shared board composition at the requested c
   }
   deepEqual(view.rgba, expected, "viewport pixels are a clean crop of the full compositor output");
 });
+test("whole-board exports accept a 64×64 board beyond the interactive preview pixel limit", async () => {
+  const built = buildNewBoard({ name: "large", coordSystem: "2d", pixelCoordinates: false, width: 64, height: 64, layers: 1, backgroundImage: "", template: null });
+  ok(built.ok, built.ok ? "" : built.message);
+  if (!built.ok) return;
+  const host = createMemoryPlatformServices({ files: {} });
+  const preview = await previewBoard(host.fs, "memory-project", built.bytes);
+  ok(!preview.ok, "the interactive preview remains limited to four million pixels");
+  const exported = await previewBoard(host.fs, "memory-project", built.bytes, { purpose: "export" });
+  ok(exported.ok, exported.ok ? "" : exported.message);
+  equal(exported.width, 2048);
+  equal(exported.height, 2048);
+});
 
 
 test("a board whose tileset the project lacks has no preview and says which file", async () => {

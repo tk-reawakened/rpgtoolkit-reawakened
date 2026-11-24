@@ -333,11 +333,21 @@ function isPreviewRequest(value: unknown): value is BoardPreviewRequest {
   const layers = "visibleLayers" in value ? value.visibleLayers : undefined;
   const background = "showBackground" in value ? value.showBackground : undefined;
   const sprites = "showSprites" in value ? value.showSprites : undefined;
+  const images = "showImages" in value ? value.showImages : undefined;
   const shading = "showShading" in value ? value.showShading : undefined;
   const lighting = "showLighting" in value ? value.showLighting : undefined;
+  const purpose = "purpose" in value ? value.purpose : undefined;
+  const camera = "camera" in value ? value.camera : undefined;
+  const viewport = "viewport" in value ? value.viewport : undefined;
   const layersOk = layers === undefined || (Array.isArray(layers) && layers.length <= 1024 && layers.every((layer) => Number.isInteger(layer) && layer >= 0));
+  const cameraOk = camera === undefined || (typeof camera === "object" && camera !== null && "x" in camera && "y" in camera
+    && typeof camera.x === "number" && Number.isFinite(camera.x) && typeof camera.y === "number" && Number.isFinite(camera.y));
+  const viewportOk = viewport === undefined || (typeof viewport === "object" && viewport !== null && "width" in viewport && "height" in viewport
+    && typeof viewport.width === "number" && typeof viewport.height === "number"
+    && Number.isSafeInteger(viewport.width) && Number.isSafeInteger(viewport.height) && viewport.width > 0 && viewport.height > 0);
   return layersOk && (background === undefined || typeof background === "boolean") && (sprites === undefined || typeof sprites === "boolean")
-    && (shading === undefined || typeof shading === "boolean") && (lighting === undefined || typeof lighting === "boolean");
+    && (images === undefined || typeof images === "boolean") && (shading === undefined || typeof shading === "boolean")
+    && (lighting === undefined || typeof lighting === "boolean") && (purpose === undefined || purpose === "export") && cameraOk && viewportOk;
 }
 
 function isProjectPath(value: unknown): value is string {

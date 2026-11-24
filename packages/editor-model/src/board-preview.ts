@@ -53,6 +53,8 @@ export interface BoardPreviewRequest {
   readonly camera?: { readonly x: number; readonly y: number };
   /** The compositor viewport; the board's full extent when absent. */
   readonly viewport?: { readonly width: number; readonly height: number };
+  /** Whole-board image export receives a larger, still bounded pixel budget than interactive previews. */
+  readonly purpose?: "export";
 }
 
 /** The truthful visual extent for one stored board object. `index` is its raw board slot, including empty slots. */
@@ -94,8 +96,10 @@ export type BoardPreview =
     })
   | Extract<BoardPicture, { readonly ok: false }>;
 
-/** The most pixels a preview draws (about 62×62 top-down tiles), so one picture stays a few megabytes. */
+/** The most pixels an interactive preview draws, so an ordinary picture stays only a few megabytes. */
 const MAX_PREVIEW_PIXELS = 4_000_000;
+/** A bounded image export budget (64 MiB of RGBA), large enough for a 64×64-cell board at 32 px per cell. */
+const MAX_EXPORT_PIXELS = 16_000_000;
 /** The most files a project listing walk reads, so a preview over a huge project stays bounded. */
 const MAX_FILES = 20000;
 
@@ -156,22 +160,30 @@ export async function previewBoard(
   const camera = options.camera ?? { x: 0, y: 0 };
   const width = options.viewport?.width ?? Math.max(1, extent.width);
   const height = options.viewport?.height ?? Math.max(1, extent.height);
-  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width * height > MAX_PREVIEW_PIXELS) {
-    return { ok: false, message: `The requested board view must fit within the ${MAX_PREVIEW_PIXELS / 1_000_000} million pixel preview limit.` };
+  const maxPixels = options.purpose === "export" ? MAX_EXPORT_PIXELS : MAX_PREVIEW_PIXELS;
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width > Math.floor(maxPixels / height)) {
+    return { ok: false, message: `The requested board view must fit within the ${maxPixels / 1_000_000} million pixel ${options.purpose === "export" ? "export" : "preview"} limit.` };
   }
   if (!Number.isFinite(camera.x) || !Number.isFinite(camera.y)) return { ok: false, message: "The requested board view has an invalid camera position." };
   const paths = await projectPaths(storage);
   if (typeof paths === "string") return { ok: false, message: paths };
-  // Hiding shading or lighting draws a copy of the board without it; the file and the document are never touched.
-  let preparedBytes = boardBytes;
   const dropShading = options.showShading === false && board.shadeLayers.length > 0;
   const dropLighting = options.showLighting === false && board.lights.length > 0;
-  const earlyWarnings: string[] = [];
-  if (dropShading || dropLighting) {
-    const hidden = writeBoard({ ...board, ...(dropShading ? { shadeLayers: [] } : {}), ...(dropLighting ? { lights: [] } : {}) });
-    if (hidden.ok) preparedBytes = hidden.value;
-    else earlyWarnings.push(`Shading and lighting cannot be hidden on this board: ${hidden.error.message}`);
+  const dropImages = options.showImages === false && board.images.length > 0;
+  const dropBackground = options.showBackground === false && board.properties.backgroundImage !== "";
+  let preparedBytes = boardBytes;
+  if (dropShading || dropLighting || dropImages || dropBackground) {
+    const hidden = writeBoard({
+      ...board,
+      ...(dropShading ? { shadeLayers: [] } : {}),
+      ...(dropLighting ? { lights: [] } : {}),
+      ...(dropImages ? { images: [] } : {}),
+      ...(dropBackground ? { properties: { ...board.properties, backgroundImage: "" } } : {}),
+    });
+    if (!hidden.ok) return { ok: false, message: `The requested board content could not be hidden: ${hidden.error.message}` };
+    preparedBytes = hidden.value;
   }
+  const earlyWarnings: string[] = [];
   let index = createAssetIndex(paths);
   const root = options.root ?? PACKAGE_ROOT;
   const pathOf = new Map<AssetKey, string>();
@@ -181,7 +193,7 @@ export async function previewBoard(
   const warnings: string[] = [...earlyWarnings];
   const unavailable = new Set<AssetKey>();
   const imageAssets = new Set<AssetKey>();
-  for (const image of board.images ?? []) {
+  for (const image of options.showImages === false ? [] : board.images ?? []) {
     if (image.file === "") continue;
     const resolved = resolveAsset(index, root, "bitmaps", image.file);
     if (resolved.ok) imageAssets.add(resolved.value);
@@ -257,8 +269,8 @@ export async function previewBoard(
           const sprite = board.sprites[bound.index];
           return sprite !== undefined && (options.visibleLayers === undefined || options.visibleLayers.includes(sprite.layer - 1));
         }).map((bound) => ({ kind: "sprites" as const, ...bound })) : []),
-      ...board.images.flatMap((image, index) => {
-        if (options.showImages === false || (options.visibleLayers !== undefined && !options.visibleLayers.includes(image.layer - 1))) return [];
+      ...(options.showImages === false ? [] : board.images.flatMap((image, index) => {
+        if (options.visibleLayers !== undefined && !options.visibleLayers.includes(image.layer - 1)) return [];
         const resolved = hydrated.value!.board.images?.[index];
         const texture = resolved?.asset === undefined ? undefined : textures.get(resolved.asset);
         const graphic = texture !== undefined || resolved?.cells !== undefined;
@@ -266,7 +278,7 @@ export async function previewBoard(
         return [{ kind: "images" as const, index, left: stretch ? 0 : image.left, top: stretch ? 0 : image.top,
           width: stretch ? extent.width : resolved?.width ?? texture?.w ?? 32,
           height: stretch ? extent.height : resolved?.height ?? texture?.h ?? 32, placeholder: !graphic }];
-      }),
+      })),
     ];
     const drawList = composeBoard({
       board: visibleBoard(hydrated.value.board, options),
@@ -274,7 +286,7 @@ export async function previewBoard(
       camera,
       viewport: { width, height },
       alpha: 0,
-      include: { shading: options.showShading !== false, images: options.showImages !== false, sprites: options.showSprites === true },
+      include: { shading: true, images: true, sprites: options.showSprites === true },
       sprites: visibleSprites,
       assets: textures,
     });

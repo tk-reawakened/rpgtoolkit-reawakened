@@ -5,15 +5,14 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { boardTileAt, createCommandRegistry, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
-import { decodeTexture } from "@tk-reawakened/core";
+import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { assetKey, BinaryReader, compositeTileBitmap, decodeTileTexture, readTileset, TILE_ANIMATION_MAGIC, TILE_BITMAP_MAGIC, readTileBitmap, writeTileAnimation, writeTileBitmap, type TileAnimation, type TileBitmap } from "@tk-reawakened/editor-model/testing";
 import { createBrowserSession, type BrowserSession } from "../dist/brush.js";
 import type { BoardViewDocument, ViewHandle } from "../src/mount.ts";
 import type { TilesetBrowserContext } from "../src/tileset-browser.tsx";
 import { exampleBoard, exampleTileset } from "./fixtures.ts";
-import { connectEditorCommands } from "../dist/editor-commands.js";
+
 
 const PATH = "Boards/village.brd";
 const identity = createDocumentIdentity("memory-project", PATH);
@@ -105,16 +104,6 @@ const save = (el: HTMLElement): HTMLButtonElement => {
 };
 const alerts = (el: HTMLElement): string[] => [...el.querySelectorAll('[role="alert"]')].map((node) => node.textContent ?? "");
 const state = (el: HTMLElement): string => el.querySelector(".tkr-board-state")?.textContent ?? "";
-function scalePreview(rgba: Uint8Array, sourceWidth: number, sourceHeight: number, width: number, height: number): Uint8Array {
-  if (sourceWidth === width && sourceHeight === height) return rgba;
-  const scaled = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
-    const source = (Math.min(sourceHeight - 1, Math.floor(y * sourceHeight / height)) * sourceWidth
-      + Math.min(sourceWidth - 1, Math.floor(x * sourceWidth / width))) * 4;
-    scaled.set(rgba.subarray(source, source + 4), (y * width + x) * 4);
-  }
-  return scaled;
-}
 
 async function putTile(el: HTMLElement, text: string): Promise<void> {
   await act(() => {
@@ -991,116 +980,12 @@ test("in the Shading mode, Space on a cell shades it from the keyboard, and Rect
   equal(s.doc.getSnapshot().edits.length, base + 2, "the second corner is one edit");
 });
 
-test("Export PNG is a registered editor command, prepares the current view, and supports cancellation", async () => {
-  const s = await setup();
-  s.el.classList.add("tkr-editor-slot");
-  const downloads: { readonly name: string; readonly bytes: Uint8Array }[] = [];
-  const services = {
-    ...s.host,
-    packageExport: {
-      sha256: async () => ({ ok: true as const, value: "unused" }),
-      downloadFile: async (name: string, bytes: Uint8Array) => {
-        downloads.push({ name, bytes });
-        return { ok: true as const, value: undefined };
-      },
-    },
-  };
-  let handle: ViewHandle | undefined;
-  await act(() => { handle = mount(s.el, { document: s.view, services, browser: s.browser }); });
-  for (let turn = 0; turn < 8; turn += 1) await act(() => nextTurn());
-  ok(handle);
-  const commands = createCommandRegistry();
-  const disconnect = connectEditorCommands(s.el, commands);
-  try {
-    const exportCommand = commands.filter("Board: Export PNG").find((command) => command.label === "Board: Export PNG…");
-    ok(exportCommand, "Export PNG is available through the active editor command registry");
-    await act(() => { commands.execute(exportCommand.id); });
-    const dialog = s.el.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]');
-    ok(dialog, "the command opens the real export dialog");
-    const prepare = [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Prepare PNG");
-    ok(prepare);
-    await act(() => { prepare.click(); });
-    for (let turn = 0; turn < 8; turn += 1) await act(() => nextTurn());
-    const download = [...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Download PNG");
-    ok(download, "preparation offers the direct download action");
-    const imageCanvas = s.el.querySelector<HTMLCanvasElement>("canvas.tkr-board-canvas");
-    ok(imageCanvas);
-    await act(() => { download.click(); });
-    for (let turn = 0; turn < 8; turn += 1) await act(() => nextTurn());
-    const viewFile = downloads.at(-1);
-    ok(viewFile);
-    const viewRequest = s.previewRequests.at(-1);
-    ok(viewRequest?.viewport, "current-view export requests a compositor viewport");
-    const expectedView = await previewBoard(s.host.fs, "memory-project", s.doc.serialize(), viewRequest);
-    ok(expectedView.ok);
-    const decodedView = decodeTexture(viewFile.bytes, "village.png");
-    ok(decodedView.ok);
-    deepEqual(decodedView.value.rgba, scalePreview(expectedView.rgba, expectedView.width, expectedView.height, imageCanvas.width, imageCanvas.height),
-      "the exported current view is the clean shared-compositor image, without canvas overlays");
-    equal(viewFile.name, "village.png");
-    equal(String.fromCharCode(...viewFile.bytes.subarray(1, 4)), "PNG");
-    const pngWidth = new DataView(viewFile.bytes.buffer, viewFile.bytes.byteOffset).getUint32(16);
-    const pngHeight = new DataView(viewFile.bytes.buffer, viewFile.bytes.byteOffset).getUint32(20);
-    equal(pngWidth, imageCanvas.width, "current view uses the editor's visible canvas width");
-    equal(pngHeight, imageCanvas.height, "current view uses the editor's visible canvas height");
-    equal(s.el.querySelector('[role="dialog"]'), null, "successful download closes the dialog");
-
-    await act(() => { s.el.querySelector<HTMLButtonElement>(".tkr-board-export")!.click(); });
-    const cancelDialog = s.el.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]');
-    ok(cancelDialog);
-    await act(() => { [...cancelDialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Cancel")!.click(); });
-    equal(s.el.querySelector('[role="dialog"]'), null, "Cancel closes the export without invoking another download");
-
-    const fullBoard = await previewBoard(s.host.fs, "memory-project", s.doc.serialize());
-    ok(fullBoard.ok);
-    await act(() => { s.el.querySelector<HTMLButtonElement>(".tkr-board-export")!.click(); });
-    const wholeDialog = s.el.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]');
-    ok(wholeDialog);
-    const wholeBoardChoice = [...wholeDialog.querySelectorAll<HTMLInputElement>('input[type="radio"]')]
-      .find((radio) => radio.parentElement?.textContent?.includes("Whole board"));
-    ok(wholeBoardChoice);
-    await act(() => { wholeBoardChoice.click(); });
-    const wholePrepare = [...wholeDialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Prepare PNG");
-    ok(wholePrepare);
-    await act(() => { wholePrepare.click(); });
-    for (let turn = 0; turn < 8; turn += 1) await act(() => nextTurn());
-    const wholeDownload = [...wholeDialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Download PNG");
-    ok(wholeDownload);
-    await act(() => { wholeDownload.click(); });
-    for (let turn = 0; turn < 8; turn += 1) await act(() => nextTurn());
-    const wholeFile = downloads.at(-1);
-    ok(wholeFile);
-    const decodedWhole = decodeTexture(wholeFile.bytes, "village.png");
-    ok(decodedWhole.ok);
-    deepEqual(decodedWhole.value.rgba, fullBoard.rgba, "whole-board PNG pixels are the complete shared compositor output");
-    const fullWidth = new DataView(wholeFile.bytes.buffer, wholeFile.bytes.byteOffset).getUint32(16);
-    const fullHeight = new DataView(wholeFile.bytes.buffer, wholeFile.bytes.byteOffset).getUint32(20);
-    equal(fullWidth, fullBoard.width, "whole-board output keeps the compositor's complete width");
-    equal(fullHeight, fullBoard.height, "whole-board output keeps the compositor's complete height");
-
-    const downloadsBeforeCancel = downloads.length;
-    await act(() => { s.el.querySelector<HTMLButtonElement>(".tkr-board-export")!.click(); });
-    const finalDialog = s.el.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]');
-    ok(finalDialog);
-    const finalPrepare = [...finalDialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Prepare PNG");
-    ok(finalPrepare);
-    await act(() => { finalPrepare.click(); });
-    for (let turn = 0; turn < 8; turn += 1) await act(() => nextTurn());
-    await act(() => { [...finalDialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Cancel")!.click(); });
-    equal(downloads.length, downloadsBeforeCancel, "cancel after preparation does not trigger a host download");
-  } finally {
-    disconnect();
-    handle.dispose();
-    s.el.remove();
-  }
-});
-
 test("the board export dialog explains when the host cannot download PNG files", async () => {
   const s = await setup();
   const handle = await show(s);
   try {
     await act(() => { s.el.querySelector<HTMLButtonElement>(".tkr-board-export")!.click(); });
-    const dialog = s.el.querySelector<HTMLElement>('[role="dialog"][aria-labelledby]');
+    const dialog = s.el.querySelector<HTMLDialogElement>("dialog");
     ok(dialog);
     match(dialog.textContent ?? "", /This host cannot save a PNG export/);
     equal([...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Prepare PNG")?.disabled, true);

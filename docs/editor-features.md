@@ -188,8 +188,9 @@ These rules settle what T-28 leaves open: which selections can be copied, what i
 
 Choose **Export PNG…** in the board editor, or invoke it from the focused editor's command palette. The export is prepared from the document's current in-memory bytes after pending edits settle; preparing or downloading it does not save, replace or otherwise modify project files. The generated PNG follows the authored-image storage policy in [images.md](spec/formats/images.md#storage-policy): indexed colour for at most 256 distinct RGBA colours, otherwise truecolour with alpha.
 
-* **Current view** composes the board with the editor's camera, zoom-sized viewport, visible layers and background visibility. **Whole board** composes the full board extent and all layers. Both use the engine's shared board compositor (AD-29), include no editor guides, grid, selection, cursor or drag overlays, and can independently include or omit sprites, placed images, shading and lighting.
-* **Host output.** A host with package download support offers a separate **Download PNG** action after preparation, so the file download remains a direct user action. A host without that capability says that PNG export is unavailable; it does not write into the project as a fallback. Cancel closes the export without downloading.
+* **Current view** crops the full AD-29 composition with the same camera and zoom transform as the displayed canvas, including its `#1e1e1e` padding outside the board; **Whole board** exports the full board extent and all layers. Both omit editor guides, grid, selection, cursor and drag overlays, and can independently include or omit sprites, placed images, painted shading and lighting. Hiding placed images does not hide the background image.
+* **Output limits.** Exports are capped at 16 million pixels. Current-view export preserves the canvas dimensions; whole-board export preserves the board’s full pixel dimensions.
+* **Host output.** Browser hosts provide an explicit **Download PNG** action; VS Code hosts provide **Save PNG** through the native Save As picker. A host without image export says that PNG export is unavailable; it does not write into the project as a fallback. Cancel remains available during preparation and invalidates any late result.
 
 ---
 
