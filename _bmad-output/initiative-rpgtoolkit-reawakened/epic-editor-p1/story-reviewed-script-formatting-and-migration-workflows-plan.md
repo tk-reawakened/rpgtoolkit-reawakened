@@ -48,6 +48,13 @@ Lands in: `docs/spec/engine/rpgcode-tooling.md#tool-4` (separable jobs) and the 
 
 Independent surface and model review reported ten plus seven issues; all are fixed on this branch with tests, except none outstanding: formatter indentation is ASCII spaces/tabs only; a Toolkit 2.x source with nothing to rewrite must still lower the same in both readings; a star comment is a whole-line comment for the `#` scanner; a failed checkpoint aborts the whole apply; destination bytes are compared again before writing; a file opened after the plan is refused; copies land under the project root and the server is asked with root-relative paths; `rpgcode/projectState` + `awaitProject` close the startup snapshot race; VS Code activates the language extension, sends the Toolkit 2 language mode, roots the scan at the selected `.gam`, shows a genuine diff editor and retries exactly the failed files; the browser dialog keeps focus and its teardown is bound to the review that owns it.
 
+## Recovery contract (second review round, head fcb7eed5e)
+
+- **Write-ahead intent.** `CheckpointGroups.intent(id, path, bytes)` (and `WizardHistory.intent`) records the bytes a file is about to receive, before the write, with status `writing`. The workflow calls it for every saved file and **writes nothing when the host cannot record intent** (fail closed), because a crash between write and receipt would otherwise leave a retry that writes the old content back over a written file, or deletes a new copy.
+- **Proof:** `packages/editor-model/test/checkpoint-groups.test.ts` — begin, intent, crash (no write), then `retry` writes the intended result and `restore` returns the original. `packages/editor-model/test/script-workflow.test.ts` — a history without `intent` writes nothing and says why.
+- **Apply boundaries.** Destinations are snapshotted at plan time, so a copy changed between review and Apply is refused; the destination and the open-program set are re-checked immediately before each write; a host with unsaved editor text is never written behind.
+- **Formatting is proved, not assumed.** `format`/`canonical-case` refuse a program that does not compile to the same instructions (`IF (1) {`), so an uncompilable file never receives a plausible rewrite.
+
 ## Defect filed
 
 #3364: a dialog mounted on the workbench element could be removed by a shell re-render (the review vanished mid-apply). The review now mounts on the page; the other workbench dialogs should follow.
