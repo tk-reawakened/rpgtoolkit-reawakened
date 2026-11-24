@@ -57,7 +57,7 @@ export interface ShadeAssignment {
 }
 
 /** What the gesture that made a `set-tiles` command was, for the words an undo menu shows. */
-export type TileGesture = "draw" | "erase" | "flood" | "rectangle" | "stamp" | "move" | "copy";
+export type TileGesture = "draw" | "erase" | "flood" | "rectangle" | "stamp" | "move" | "copy" | "cut" | "paste";
 
 /**
  * Put many tiles in one edit: one gesture of the canvas (a drag, a flood fill, a rectangle, a stamp, a move or copy) is
@@ -70,6 +70,8 @@ export interface SetTilesCommand {
   readonly cells: readonly TileAssignment[];
   /** Tints set in the same edit (a tile bitmap stamp places its cells' tints with its tiles). Absent when there are none. */
   readonly shades?: readonly ShadeAssignment[];
+  /** Cells set directly in the board's one shading layer in the same edit (a pasted or cut region's shade). Absent when there are none. */
+  readonly shadeCells?: readonly ShadeCell[];
 }
 
 /** An accepted edit to board-owned settings or stored object records. */
@@ -417,9 +419,13 @@ function applyCommand(board: Board, command: BoardCommand): Board {
   }
   if (command.type === "set-tile") return assignTiles(board, [command]);
   const tiled = assignTiles(board, command.cells);
-  if (command.shades === undefined || command.shades.length === 0) return tiled;
-  const planned = planShades(tiled, command.shades);
-  return planned.ok && planned.layers !== tiled.shadeLayers ? { ...tiled, shadeLayers: planned.layers } : tiled;
+  const tinted = command.shades === undefined || command.shades.length === 0 ? tiled : (() => {
+    const planned = planShades(tiled, command.shades);
+    return planned.ok && planned.layers !== tiled.shadeLayers ? { ...tiled, shadeLayers: planned.layers } : tiled;
+  })();
+  if (command.shadeCells === undefined || command.shadeCells.length === 0) return tinted;
+  const painted = planShadeCells(tinted, command.shadeCells);
+  return painted.ok && painted.layers !== tinted.shadeLayers ? { ...tinted, shadeLayers: painted.layers } : tinted;
 }
 
 function readOnlyReason(model: Board, bytes: Uint8Array): ReadOnlyReason | null {
@@ -500,6 +506,10 @@ function refuse(next: Board, command: BoardCommand, previous: Board): Rejection 
     const planned = planShades(previous, command.shades);
     if (!planned.ok) return { reason: "invalid", message: planned.message };
   }
+  if (command.type === "set-tiles" && command.shadeCells !== undefined && command.shadeCells.length > 0) {
+    const planned = planShadeCells(previous, command.shadeCells);
+    if (!planned.ok) return { reason: "invalid", message: planned.message };
+  }
   if (next === previous) {
     return { reason: "invalid", message: assignments.length === 1 ? "That cell already shows that tile." : "Those cells already show those tiles." };
   }
@@ -567,7 +577,7 @@ const OBJECT_FIELDS: Readonly<Record<BoardObjectKind, { readonly strings: readon
   images: { strings: ["file"], numbers: ["left", "top", "layer", "drawType", "reserved"] },
 };
 
-function isObjectRecords(value: unknown, kind: BoardObjectKind): boolean {
+export function isBoardObjectRecords(value: unknown, kind: BoardObjectKind): boolean {
   if (!Array.isArray(value)) return false;
   const fields = OBJECT_FIELDS[kind];
   return value.every((entry: unknown) => {
@@ -619,7 +629,7 @@ function isShadeLayers(value: unknown): boolean {
   });
 }
 
-const GESTURES: readonly string[] = ["draw", "erase", "flood", "rectangle", "stamp", "move", "copy"];
+const GESTURES: readonly string[] = ["draw", "erase", "flood", "rectangle", "stamp", "move", "copy", "cut", "paste"];
 
 const GESTURE_WORDS: Readonly<Record<TileGesture, string>> = {
   draw: "Draw",
@@ -629,6 +639,8 @@ const GESTURE_WORDS: Readonly<Record<TileGesture, string>> = {
   stamp: "Stamp",
   move: "Move",
   copy: "Copy",
+  cut: "Cut",
+  paste: "Paste",
 };
 
 /** The board's codec. */
@@ -652,16 +664,18 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
         && (fields.constants === undefined || (Array.isArray(fields.constants) && fields.constants.every((entry) => typeof entry === "string")))
         && (fields.layerTitles === undefined || (Array.isArray(fields.layerTitles) && fields.layerTitles.every((entry) => typeof entry === "string")))
         && (fields.properties === undefined || isBoardProperties(fields.properties))
-        && (fields.vectors === undefined || isObjectRecords(fields.vectors, "vectors"))
-        && (fields.programs === undefined || isObjectRecords(fields.programs, "programs"))
-        && (fields.sprites === undefined || isObjectRecords(fields.sprites, "sprites"))
-        && (fields.images === undefined || isObjectRecords(fields.images, "images"))
+        && (fields.vectors === undefined || isBoardObjectRecords(fields.vectors, "vectors"))
+        && (fields.programs === undefined || isBoardObjectRecords(fields.programs, "programs"))
+        && (fields.sprites === undefined || isBoardObjectRecords(fields.sprites, "sprites"))
+        && (fields.images === undefined || isBoardObjectRecords(fields.images, "images"))
         && (fields.lights === undefined || isLights(fields.lights))
         && (fields.shadeLayers === undefined || isShadeLayers(fields.shadeLayers));
     }
     return value.type === "set-tiles" && "gesture" in value && typeof value.gesture === "string" && GESTURES.includes(value.gesture)
       && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment)
-      && (!("shades" in value) || value.shades === undefined || (Array.isArray(value.shades) && value.shades.length <= BOARD_MAX_CELLS && value.shades.every(isShade)));
+      && (!("shades" in value) || value.shades === undefined || (Array.isArray(value.shades) && value.shades.length <= BOARD_MAX_CELLS && value.shades.every(isShade)))
+      && (!("shadeCells" in value) || value.shadeCells === undefined || (Array.isArray(value.shadeCells) && value.shadeCells.length <= BOARD_MAX_CELLS
+        && value.shadeCells.every((cell: unknown) => isPoint(cell) && ["r", "g", "b"].every((channel) => isShadeChannel((cell as Record<string, unknown>)[channel])))));
   },
   apply: applyCommand,
   refuse,
@@ -669,7 +683,8 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
     if (command.type === "set-board-fields") return command.fields.lights !== undefined || command.fields.shadeLayers !== undefined ? "Edit lights and shading" : "Edit board properties";
     if (command.type === "set-shade-cells") return `Shade ${command.cells.length} ${command.cells.length === 1 ? "cell" : "cells"}`;
     if (command.type === "set-tiles") {
-      return `${GESTURE_WORDS[command.gesture]} ${command.cells.length} ${command.cells.length === 1 ? "cell" : "cells"} on layer ${command.cells[0] === undefined ? 0 : command.cells[0].layer + 1}`;
+      const count = Math.max(command.cells.length, command.shadeCells?.length ?? 0);
+      return `${GESTURE_WORDS[command.gesture]} ${count} ${count === 1 ? "cell" : "cells"} on layer ${command.cells[0] === undefined ? 0 : command.cells[0].layer + 1}`;
     }
     return `Put ${command.tile === "" ? "an empty cell" : `"${command.tile}"`} at layer ${command.layer}, column ${command.x}, row ${command.y}`;
   },

@@ -2,6 +2,7 @@
 // a `Map`, not a recording stub: files, folders, watches, settings and projects behave as a host's would, and a test
 // can make writes fail on purpose. It reads no clock and no random source: modification times come from a counter, so a
 // run is the same every time (G3).
+import type { ClipboardService } from "./clipboard.ts";
 import { bindProjectFileSystem, type DirectoryEntry, type FileChange, type FileKind, type FileStat } from "./fs.ts";
 import type { LanguageClosed, LanguageConnectOptions, LanguageConnection, LanguageMessage } from "./language.ts";
 import { platformError, platformOk, type Disposable, type PlatformError, type PlatformResult } from "./result.ts";
@@ -48,6 +49,10 @@ export interface MemoryPlatformServices extends PlatformServices {
   readonly questions: readonly DialogQuestion<string>[];
   /** Every `dialogs.pickSavePath` request, in order. */
   readonly savePathRequests: readonly SavePathRequest[];
+  /** The text on the double's clipboard, which a test may read and set; the double has a clipboard only with the `clipboard` capability. */
+  clipboardText: string;
+  /** Make every later clipboard read and write fail with `error` and change nothing; `null` restores them. */
+  failClipboard(error: PlatformError | null): void;
   /** Every run the double started, in order, with the frozen files it was given. */
   readonly runs: readonly MemoryRun[];
   /** Every language session `language.connect` opened, in order (present only with the `languageServer` capability). */
@@ -161,6 +166,16 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
   const fileAnswers: (OutsideFile | null)[] = [];
   const filePickRequests: FilePickRequest[] = [];
   const openedExternally: string[] = [];
+  let clipboardValue = "";
+  let clipboardFailure: PlatformError | null = null;
+  const memoryClipboard = (): ClipboardService => ({
+    readText: () => Promise.resolve(clipboardFailure === null ? platformOk(clipboardValue) : { ok: false, error: clipboardFailure }),
+    writeText: (text) => {
+      if (clipboardFailure !== null) return Promise.resolve({ ok: false, error: clipboardFailure });
+      clipboardValue = text;
+      return Promise.resolve(platformOk(undefined));
+    },
+  });
 
   const touch = (): number => {
     tick += 1;
@@ -464,6 +479,7 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
     },
     ...(runsAnything ? { run: { unavailable, startGame: start, startProgram: start } } : {}),
     ...(capabilities.has("languageServer") ? { language: { connect: connectLanguage } } : {}),
+    ...(capabilities.has("clipboard") ? { clipboard: memoryClipboard() } : {}),
     languageSessions,
     failLanguage: (reason) => {
       languageRefusal = reason;
@@ -491,5 +507,10 @@ export function createMemoryPlatformServices(options: MemoryPlatformOptions = {}
     questions,
     savePathRequests,
     runs,
+    get clipboardText() { return clipboardValue; },
+    set clipboardText(text: string) { clipboardValue = text; },
+    failClipboard: (error) => {
+      clipboardFailure = error;
+    },
   };
 }

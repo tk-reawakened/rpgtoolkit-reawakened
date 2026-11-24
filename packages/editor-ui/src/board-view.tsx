@@ -15,6 +15,7 @@ import {
     tileSourceOf,
     zoomOf,
     type ApplyResult,
+    type BoardObjectKind,
     type BoardEditor,
     type BoardEditorState,
     type BoardPicture,
@@ -26,7 +27,7 @@ import {
     type SaveFailure,
     type Stamp
 } from "@tk-reawakened/editor-model";
-import type { Capabilities, DocumentEdited } from "@tk-reawakened/platform-services";
+import type { Capabilities, ClipboardService, DocumentEdited } from "@tk-reawakened/platform-services";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import { BoardCanvas } from "./board-canvas.tsx";
@@ -56,6 +57,8 @@ export interface BoardViewProps {
   readonly preferences?: BoardPreferencesSource;
   readonly navigation?: BoardPropertiesNavigation & Pick<CharacterAuthoringViewProps, "pickAsset">;
   readonly pendingEdits: PendingEdits;
+  /** The host's system clipboard; without it copy, cut and paste say so and change nothing. */
+  readonly clipboard?: ClipboardService;
 }
 
 const TOOL_LABELS: Readonly<Record<BoardTool, { readonly label: string; readonly key: string }>> = {
@@ -97,7 +100,7 @@ function brushFor(selection: BrowserSelection | null, stamp: { readonly path: st
  * tool at the cell, Enter goes to the tile field, and the tools have single-key shortcuts.
  * Only classes and ARIA attributes are used, never a `style` attribute (ADR 0025 decision 6).
  */
-export function BoardView({ doc, capabilities, onEdited, browser, preferences, navigation, pendingEdits }: BoardViewProps) {
+export function BoardView({ doc, capabilities, onEdited, browser, preferences, navigation, pendingEdits, clipboard }: BoardViewProps) {
   const snapshot = useDocumentSnapshot(doc);
   const importAsScene = doc.importAsScene;
   const assetRevision = useContext(AssetRefreshContext);
@@ -123,6 +126,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const [startMessage, setStartMessage] = useState<string | null>(null);
   const [colourPicker, setColourPicker] = useState<((colour: Colorref) => void) | null>(null);
   const pictureRef = useRef(picture);
+  const lightsOn = useRef(false);
   pictureRef.current = picture;
   const [canvasEdits] = useState(() => createEditTracker());
   useEffect(() => pendingEdits.register(canvasEdits), [pendingEdits]);
@@ -203,6 +207,8 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       brush: () => latest.current.brush,
       // Read from the source when the gesture happens, so a preference changed since the last render is the one used.
       preferences: () => latest.current.preferences?.get() ?? DEFAULT_EDITOR_PREFERENCES,
+      ...(clipboard === undefined ? {} : { clipboard }),
+      lightsActive: () => lightsOn.current,
       objectBounds: (kind, index) => {
         const current = pictureRef.current;
         return current?.ok ? current.objectBounds.find((bounds) => bounds.kind === kind && bounds.index === index) ?? null : null;
@@ -253,6 +259,16 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
   const { grid: size, layers } = snapshot;
   const readOnly = snapshot.readOnly !== null;
   const [shadeUi, setShadeUi] = useState<ShadeUi>(INITIAL_SHADE_UI);
+  lightsOn.current = shadeUi.mode === "lighting";
+  const [cutAsk, setCutAsk] = useState<{ readonly family: BoardObjectKind; readonly count: number; readonly answer: (confirmed: boolean) => void } | null>(null);
+  const cutDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = cutDialog.current;
+    if (element !== null && !element.open) element.showModal();
+  }, [cutAsk]);
+  /** Cutting objects renumbers the later stored slots, so it asks first (the answer is "no" when the question is dismissed). */
+  const askCut = (removal: { readonly family: BoardObjectKind; readonly count: number }): Promise<boolean> =>
+    new Promise((answer) => setCutAsk({ ...removal, answer }));
   const shadeSubmit = useBoardSubmit(doc, onEdited, pendingEdits, "Edit lights and shading");
   const [shadeCorner, setShadeCorner] = useState<Cell | null>(null);
   // Choosing another editing mode hands the pointer back to it: shading and lights never silently outlast the mode that started them.
@@ -367,6 +383,15 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       } else if (key === "a") {
         event.preventDefault();
         editor.selectAll();
+      } else if (key === "c") {
+        event.preventDefault();
+        void editor.copy();
+      } else if (key === "x") {
+        event.preventDefault();
+        if (!readOnly) void editor.cut(askCut);
+      } else if (key === "v") {
+        event.preventDefault();
+        if (!readOnly) void editor.paste();
       }
       return;
     }
@@ -544,6 +569,22 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         </div>
       ) : null}
       </div>
+      <div class="tkr-board-toolbar tkr-board-toolbar-clipboard" role="toolbar" aria-label="Board clipboard">
+        <button type="button" class="tkr-board-clipboard-copy" aria-keyshortcuts="Control+C" onClick={() => { void editor.copy(); }}>Copy</button>
+        <button type="button" class="tkr-board-clipboard-cut" aria-keyshortcuts="Control+X" disabled={readOnly || state.busy} onClick={() => { void editor.cut(askCut); }}>Cut</button>
+        <button type="button" class="tkr-board-clipboard-paste" aria-keyshortcuts="Control+V" disabled={readOnly || state.busy} onClick={() => { void editor.paste(); }}>Paste</button>
+        <button type="button" class="tkr-board-select-all" aria-keyshortcuts="Control+A" onClick={() => editor.selectAll()}>Select all</button>
+      </div>
+      {cutAsk === null ? null : (
+        <dialog ref={cutDialog} aria-labelledby={`${ids}-cut-title`} onClose={() => { cutAsk.answer(false); setCutAsk(null); }}>
+          <h2 id={`${ids}-cut-title`}>Cut {cutAsk.count} {cutAsk.family}?</h2>
+          <p>Cutting copies them to the clipboard, removes them from the board and renumbers every later stored {cutAsk.family.slice(0, -1)} index. Undo restores them and their order.</p>
+          <form method="dialog">
+            <button type="submit" value="cancel" autofocus>Cancel</button>
+            <button type="button" class="tkr-board-cut-confirm" onClick={() => { setCutAsk(null); cutAsk.answer(true); }}>Cut and renumber</button>
+          </form>
+        </dialog>
+      )}
       {polygonMode ? <fieldset class="tkr-board-visibility"><legend>Visible regions</legend>
         {([[0, "Passable"], [1, "Solid"], [2, "Under"], [4, "Legacy type 4"], [8, "Stairs"], [16, "Waypoint"], ["program", "Programs"]] as const).map(([type, label]) => (
           <label key={type}><input type="checkbox" checked={!state.hiddenObjectTypes.includes(type)}
@@ -554,6 +595,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
         <button type="button" disabled={readOnly || state.busy || state.objectSelection === null} onClick={() => { void editor.subdivideObject(); }}>Subdivide segments (Z)</button>
         <button type="button" disabled={readOnly || state.busy || state.objectSelection === null} onClick={() => editor.resumeObjectPath()}>Resume drawing (X)</button>
         <button type="button" disabled={readOnly || state.busy || state.pointSelection.length === 0} onClick={() => { void editor.deletePoints(); }}>Delete selected points</button>
+        <button type="button" disabled={state.busy || state.objectSelection === null} onClick={() => editor.selectAllPoints()}>Select all points</button>
         {state.pending?.kind === "object-path" ? <>
           <button type="button" disabled={state.busy} onClick={() => { void editor.finishObjectPath(false); }}>Finish closed</button>
           <button type="button" disabled={state.busy} onClick={() => { void editor.finishObjectPath(true); }}>Finish open</button>
@@ -650,7 +692,6 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
           <button type="button" class="tkr-board-move" disabled={readOnly || selection === null} onClick={() => { void editor.moveSelectionBy(Number(moveBy.columns), Number(moveBy.rows), false); }}>Move selection</button>
           <button type="button" class="tkr-board-copy" disabled={readOnly || selection === null} onClick={() => { void editor.moveSelectionBy(Number(moveBy.columns), Number(moveBy.rows), true); }}>Copy selection</button>
           <button type="button" class="tkr-board-erase-selection" disabled={readOnly || selection === null} onClick={() => { void editor.eraseSelection(); }}>Erase selection</button>
-          <button type="button" class="tkr-board-select-all" onClick={() => editor.selectAll()}>Select all</button>
           <button type="button" class="tkr-board-clear-selection" disabled={selection === null} onClick={() => editor.cancel()}>Clear selection</button>
         </fieldset>
       </details>

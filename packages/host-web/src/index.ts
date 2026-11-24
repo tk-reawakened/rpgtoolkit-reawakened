@@ -1,7 +1,7 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
-import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
+import type { Capability, ClipboardService, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import { bindProjectFileSystem, clipboardFromApi, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
@@ -139,6 +139,11 @@ function webUserStorage(options: WebProjectOptions): UserSettingsStorage | null 
   return typeof localStorage === "undefined" ? null : localStorage;
 }
 
+/** The page's system clipboard, when the browser offers one (`navigator.clipboard` exists only in a secure context); copy and paste are not offered without it (T-28). */
+function pageClipboard(): ClipboardService | null {
+  return clipboardFromApi(typeof navigator === "undefined" ? null : navigator.clipboard);
+}
+
 /** A project over a folder handle the host has already registered under `project` (or a test's own handle). */
 export function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle, options: WebProjectOptions = {}): WebProject {
   let active = true;
@@ -154,6 +159,8 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   }
   let runPresenter: RunPresenter | null = null;
   const dialogs = options.dialogs ?? pageDialogs();
+  const clipboard = pageClipboard();
+  if (clipboard !== null) capabilities.add("clipboard");
   // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
   // file tree says so instead of pretending (T-03).
   if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
@@ -184,6 +191,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     document: workspace.document,
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
+    ...(clipboard === null ? {} : { clipboard }),
     ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl, () => runPresenter) }),
     ...(language === undefined ? {} : { language }),
   };
@@ -237,6 +245,8 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     watch: async (path) => !valid(path, true) ? invalid(path) : unavailable(),
   }, () => active);
   const dialogs = options.dialogs ?? pageDialogs();
+  const clipboard = pageClipboard();
+  if (clipboard !== null) capabilities.add("clipboard");
   const settings = createWebSettings(fs, webUserStorage(options), false);
   // A session copy keeps history in this page, under the same user-only retention settings, live from one shared model.
   const preferences = createPreferences({ settings, projectLayer: false });
@@ -252,6 +262,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     document: workspace.document,
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
+    ...(clipboard === null ? {} : { clipboard }),
   };
   const made = { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, setRunPresenter: () => {}, deactivate: () => { active = false; workspace.dispose(); } };
   projectPreferenceModels.set(made, preferences);
