@@ -6,12 +6,12 @@ import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { scriptProviderOver, type ScriptTransformId } from "@tk-reawakened/editor-model";
+import { asProgramDocument, scriptProviderOver, type ScriptTransformId } from "@tk-reawakened/editor-model";
 import { createServer, PROJECT_NOTIFICATION, SCRIPT_TRANSFORM_REQUEST, type ServerConnection } from "@tk-reawakened/lsp";
 import { encodeBase64, projectRootUri, type ProjectSnapshot, type ProjectSnapshotFile } from "@tk-reawakened/lsp/protocol";
 import { projectFileUri } from "@tk-reawakened/host-web";
-import type { LanguageConnection, LanguageService, PlatformResult } from "@tk-reawakened/platform-services";
-import type { Act } from "../conformance/view.ts";
+import type { DialogQuestion, DialogService, LanguageConnection, LanguageService, PlatformResult } from "@tk-reawakened/platform-services";
+import { settle as settleWork, type Act } from "../conformance/view.ts";
 import { MemoryDirectory, type WriteControl } from "../conformance/memory-directory.ts";
 
 let act: Act;
@@ -134,9 +134,9 @@ function inProcessServer(root: MemoryDirectory, main: string): LanguageService {
 }
 
 /** A user who answers every question: the checkpoint's "Replace these files?" with Replace, anything else with its first choice. */
-const dialogs = {
-  async ask(question: { readonly choices: readonly { readonly id: string }[]; readonly cancel: string }) {
-    return question.choices.some((choice) => choice.id === "replace") ? "replace" : question.choices[0]?.id ?? question.cancel;
+const dialogs: DialogService = {
+  async ask<Id extends string>(question: DialogQuestion<Id>): Promise<Id> {
+    return (question.choices.some((choice) => choice.id === "replace") ? "replace" : question.choices[0]?.id ?? question.cancel) as Id;
   },
   async pickSavePath() { return null; },
 };
@@ -156,9 +156,8 @@ function project() {
   return { root, web, element };
 }
 
-const settle = async (): Promise<void> => {
-  for (let turn = 0; turn < 100; turn += 1) await act(async () => { await Promise.resolve(); });
-};
+/** Microtasks and macrotasks, the way the other host tests wait: promise chains, host I/O and view renders all run. */
+const settle = async (rounds = 8): Promise<void> => await settleWork(act, rounds);
 
 /** The browser workbench's dialog: choose the project scope, check, untick what is named, apply. */
 async function reviewInBrowser(transform: ScriptTransformId, options: { readonly untick?: readonly string[]; readonly cancel?: boolean } = {}) {
@@ -175,14 +174,15 @@ async function reviewInBrowser(transform: ScriptTransformId, options: { readonly
   if (options.cancel === true) {
     await act(() => { [...document.querySelectorAll<HTMLButtonElement>(".tkr-script-workflow button")].find((button) => button.textContent === "Cancel")!.click(); });
     await running;
-    return { root, element, running, dialogText: null as string | null };
+    return { root, element, running, bench, dialogText: null as string | null };
   }
   for (const path of options.untick ?? []) {
     await act(() => { document.querySelector<HTMLInputElement>(`.tkr-script-workflow input[aria-label="Apply to ${path}"]`)!.click(); });
   }
   const detail = document.querySelector(".tkr-script-detail")?.textContent ?? "";
   await act(() => { [...document.querySelectorAll<HTMLButtonElement>(".tkr-script-workflow button")].find((button) => button.textContent?.startsWith("Apply"))!.click(); });
-  await settle();
+  // The apply writes files and records a checkpoint: wait for its outcome, not a guessed number of turns.
+  for (let round = 0; round < 40 && document.querySelector(".tkr-script-outcome") === null; round += 1) await settle(1);
   // The review stays open after an apply so its outcome can be read; its last button (Close, or Cancel after a failure) ends it.
   const outcome = document.querySelector(".tkr-script-outcome")?.textContent ?? "";
   const failures = document.querySelector(".tkr-script-failures")?.textContent ?? "";
@@ -190,7 +190,7 @@ async function reviewInBrowser(transform: ScriptTransformId, options: { readonly
   await act(() => { footer.at(-1)!.click(); });
   await settle();
   await running;
-  return { root, element, running, dialogText: `${detail}\n${outcome}\n${failures}` };
+  return { root, element, running, bench, dialogText: `${detail}\n${outcome}\n${failures}` };
 }
 
 /** VS Code's questions, answered by the test: the project scope, then the programs to apply. */
@@ -220,7 +220,8 @@ function vscodeUi(options: { readonly untick?: readonly string[]; readonly cance
 
 test("both hosts plan the same change from the same project and apply the same bytes, honouring the per-file opt-out", async () => {
   const browser = await reviewInBrowser("format", { untick: ["Prg/second.prg"] });
-  equal(text(browser.root.read("Prg/messy.prg")), 'x = 1\nif (x == 1) {\n    mwin("Hello")\n}\n');
+  // Format is TOOL-4 only: it re-indents and lower-cases names, and leaves the ignored `!` for the update workflow.
+  equal(text(browser.root.read("Prg/messy.prg")), 'x! = 1\nif (x == 1) {\n    mwin("Hello")\n}\n');
   equal(text(browser.root.read("Prg/second.prg")), OTHER, "the unticked program is untouched");
   equal(text(browser.root.read("Prg/clean.prg")), CLEAN, "a program with nothing to change is not written");
   match(browser.dialogText ?? "", /MWIN\("Hello"\)/);
@@ -244,8 +245,9 @@ test("both hosts plan the same change from the same project and apply the same b
   } finally {
     leased.lease.release();
   }
-  match(seen.reports.join("\n"), /Format: 2 programs updated/);
-  match(seen.reports.join("\n"), /1 left out/);
+  match(seen.reports.join("\n"), /Format: 1 program updated; 1 left out/);
+  equal(text(root.read("Prg/messy.prg")), text(browser.root.read("Prg/messy.prg")), "both hosts write the same bytes for the same choice");
+  equal(text(root.read("Prg/second.prg")), OTHER, "the same program is left out in the second host too");
 });
 
 test("the VS Code review lists only programs that change, with the comparison in each item's detail", async () => {
@@ -273,4 +275,89 @@ test("the VS Code review lists only programs that change, with the comparison in
   match(messy.detail, /^\+ {4}mwin\("Hello"\)$/m);
   match(messy.detail, /Drop ignored `!` and `\$` sigils: done/);
   deepEqual(details.length, 2);
+});
+
+test("in the browser, a program open in a tab is edited unsaved, and saving is the author's step", async () => {
+  const { root, web, element } = project();
+  let bench!: ReturnType<typeof createWorkbench>;
+  await act(() => { bench = createWorkbench(web, element, { main: "Main/example.gam" }); });
+  await settle();
+  await act(async () => { await bench.openPath("Prg/messy.prg"); });
+  await settle();
+  const found = web.workspace.documents().find((document) => document.identity.path === "Prg/messy.prg");
+  ok(found !== undefined, "the program is open in a tab");
+  const open = asProgramDocument(found);
+  const running = bench.reviewScripts("format");
+  await settle();
+  await act(() => { [...document.querySelectorAll<HTMLInputElement>(".tkr-script-workflow input[type=radio]")][0]!.click(); });
+  await act(() => { [...document.querySelectorAll<HTMLButtonElement>(".tkr-script-workflow button")].find((button) => button.textContent === "Check programs")!.click(); });
+  for (let round = 0; round < 40 && document.querySelector(".tkr-script-file") === null; round += 1) await settle(1);
+  await act(() => { [...document.querySelectorAll<HTMLButtonElement>(".tkr-script-workflow button")].find((button) => button.textContent?.startsWith("Apply"))!.click(); });
+  for (let round = 0; round < 40 && document.querySelector(".tkr-script-outcome") === null; round += 1) await settle(1);
+  equal(document.querySelector(".tkr-script-outcome")?.textContent, "1 program updated.");
+  equal(open.getSnapshot().text, 'x! = 1\nif (x == 1) {\n    mwin("Hello")\n}\n', "the open program holds the reviewed edit");
+  equal(open.getSnapshot().dirty, true, "and it is not saved for the author");
+  equal(text(root.read("Prg/messy.prg")), MESSY, "the file on disk is untouched until the author saves");
+  const footer = [...document.querySelectorAll<HTMLButtonElement>(".tkr-script-workflow .tkr-script-footer button")];
+  await act(() => { footer.at(-1)!.click(); });
+  await settle();
+  await running;
+  // The author's own save, through the workspace, writes the reviewed text and keeps the file's endings.
+  await act(async () => { await web.workspace.saveAll(); });
+  await settle();
+  equal(text(root.read("Prg/messy.prg")), 'x! = 1\nif (x == 1) {\n    mwin("Hello")\n}\n');
+  equal(open.getSnapshot().dirty, false);
+});
+
+test("cancelling in either host writes nothing and records nothing", async () => {
+  const browser = await reviewInBrowser("format", { cancel: true });
+  equal(text(browser.root.read("Prg/messy.prg")), MESSY);
+  equal(text(browser.root.read("Prg/second.prg")), OTHER);
+  ok(browser.root.read(".tkr-history/groups") === null, "no checkpoint group was recorded");
+
+  const { root, web } = project();
+  const language = inProcessServer(root, "Main/example.gam");
+  const leased = await leaseLanguageClient(language, { main: "Main/example.gam" });
+  ok(leased.ok);
+  const { ui } = vscodeUi({ cancel: true });
+  try {
+    const result = await runScriptWorkflow("format", {
+      fs: web.services.fs,
+      provider: scriptProviderOver((params) => leased.lease.client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => leased.lease.client.uriOf(path)),
+      history: null,
+      openPrograms: [],
+      root: "",
+      activeProgram: null,
+    }, ui as never);
+    equal(result.kind, "cancelled");
+  } finally {
+    leased.lease.release();
+  }
+  equal(text(root.read("Prg/messy.prg")), MESSY);
+  equal(text(root.read("Prg/second.prg")), OTHER);
+});
+
+test("in VS Code, an open program receives one edit and no direct write", async () => {
+  const { root, web } = project();
+  const language = inProcessServer(root, "Main/example.gam");
+  const leased = await leaseLanguageClient(language, { main: "Main/example.gam" });
+  ok(leased.ok);
+  const edits: { label: string; text: string }[] = [];
+  let documentText = MESSY;
+  const { ui } = vscodeUi({});
+  try {
+    const result = await runScriptWorkflow("format", {
+      fs: web.services.fs,
+      provider: scriptProviderOver((params) => leased.lease.client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => leased.lease.client.uriOf(path)),
+      history: null,
+      openPrograms: [{ path: "Prg/messy.prg", text: () => documentText, replace: async (label, next) => { edits.push({ label, text: next }); documentText = next; return { ok: true }; } }],
+      root: "",
+      activeProgram: "Prg/messy.prg",
+    }, ui as never);
+    equal(result.kind, "applied");
+  } finally {
+    leased.lease.release();
+  }
+  deepEqual(edits, [{ label: "Format (reviewed)", text: 'x! = 1\nif (x == 1) {\n    mwin("Hello")\n}\n' }]);
+  equal(text(root.read("Prg/messy.prg")), MESSY, "an open document is edited, never written behind the editor");
 });
