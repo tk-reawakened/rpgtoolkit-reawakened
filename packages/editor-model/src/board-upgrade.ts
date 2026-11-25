@@ -8,6 +8,8 @@ export interface BoardUpgradePlan {
   readonly board: Board;
   readonly title: string;
   readonly summary: string;
+  /** A bounded, board-specific mapping preview for the confirmation dialog. */
+  readonly preview: string;
 }
 
 export type BoardUpgradePlanResult =
@@ -26,6 +28,7 @@ export function planBoardCoordinateUpgrade(board: Board, upgrade: BoardCoordinat
         board: converted,
         title: "Convert tile coordinates to pixels",
         summary: "Changes the board's script coordinate unit to pixels. Board object positions are already stored in pixels; scripts and their literal text are unchanged.",
+        preview: `Coordinate flag ${board.coordType} → ${converted.coordType}. Tile cells, board-pixel object positions, and script literals remain unchanged.`,
       },
     };
   }
@@ -39,6 +42,10 @@ export function planBoardCoordinateUpgrade(board: Board, upgrade: BoardCoordinat
   const nextGrid = boardGrid(board.sizeX, board.sizeY, rotatedCoordType);
   const oldCellsPerLayer = oldGrid.width * oldGrid.height;
   const cellsPerLayer = nextGrid.width * nextGrid.height;
+  if (!Number.isSafeInteger(oldCellsPerLayer) || oldCellsPerLayer < 1 || oldCellsPerLayer > BOARD_MAX_CELLS
+    || !Number.isSafeInteger(cellsPerLayer) || cellsPerLayer < 1 || cellsPerLayer > BOARD_MAX_CELLS) {
+    return { ok: false, message: `The stacked or rotated per-layer grid exceeds the board limit ${BOARD_MAX_CELLS}.` };
+  }
   const sourceCells = oldCellsPerLayer * board.sizeL;
   const destinationCells = cellsPerLayer * board.sizeL;
   if (!Number.isSafeInteger(destinationCells) || destinationCells > BOARD_MAX_CELLS) {
@@ -48,6 +55,8 @@ export function planBoardCoordinateUpgrade(board: Board, upgrade: BoardCoordinat
     return { ok: false, message: "The source tile stream has cells that cannot be mapped exactly to the rotated grid." };
   }
   const tileMatrix = new Array<number>(destinationCells).fill(0);
+  const previewMoves: string[] = [];
+  let occupiedTiles = 0;
   for (let layer = 0; layer < board.sizeL; layer += 1) {
     for (let y = 1; y <= oldGrid.height; y += 1) {
       for (let x = 1; x <= oldGrid.width; x += 1) {
@@ -57,7 +66,12 @@ export function planBoardCoordinateUpgrade(board: Board, upgrade: BoardCoordinat
         if (rotated.x < 1 || rotated.x > nextGrid.width || rotated.y < 1 || rotated.y > nextGrid.height) {
           return { ok: false, message: `The stacked tile at column ${x}, row ${y} cannot be represented on the rotated grid.` };
         }
-        tileMatrix[to] = board.tileMatrix[from]!;
+        const lutIndex = board.tileMatrix[from]!;
+        tileMatrix[to] = lutIndex;
+        if (lutIndex !== 0) {
+          occupiedTiles += 1;
+          if (previewMoves.length < 16) previewMoves.push(`L${layer + 1} (${x},${y}) tile ${lutIndex} → (${rotated.x},${rotated.y})`);
+        }
       }
     }
   }
@@ -89,15 +103,17 @@ export function planBoardCoordinateUpgrade(board: Board, upgrade: BoardCoordinat
     tileRuns,
     shadeLayers,
   };
+  const outputRows = Array.from({ length: Math.min(8, nextGrid.height) }, (_, row) =>
+    Array.from({ length: Math.min(8, nextGrid.width) }, (_, column) => tileMatrix[row * nextGrid.width + column] ?? 0).join(" ")).join(" / ");
   return {
     ok: true,
     value: {
       board: converted,
       title: "Convert iso-stacked to iso-rotated",
       summary: `Maps ${oldCellsPerLayer} tile and shade cells per layer into a ${nextGrid.width} × ${nextGrid.height} rotated grid. Board-pixel positions for vectors, programs, items, images, lights and the player start remain unchanged; script text is untouched.`,
+      preview: `Tile mapping (first ${Math.min(16, occupiedTiles)} of ${occupiedTiles} occupied cells): ${previewMoves.length === 0 ? "no occupied tile cells" : previewMoves.join("; ")}. Output tile rows, layer 1 (up to 8×8): ${outputRows}. Output shade records begin: ${converted.shadeLayers[0]?.records.slice(0, 4).map(({ runCount, r, g, b }) => `${runCount}:${r},${g},${b}`).join("; ") ?? "none"}.`,
     },
   };
-
 }
 /** A single undoable model edit for a coordinate conversion opened from a copy of the original bytes. */
 export function createBoardCoordinateUpgradeCommand(bytes: Uint8Array, operation: BoardCoordinateUpgrade): { readonly ok: true; readonly value: SetBoardFieldsCommand } | { readonly ok: false; readonly message: string } {
@@ -136,13 +152,15 @@ export interface BoardUpgradeCopyOptions {
   readonly boardPath: string;
   readonly operation: BoardUpgradeOperation;
   readonly hasPendingEdits: () => boolean;
+  /** Refuse a destination already represented by an open or cached editor document. */
+  readonly isDestinationOpen?: (destination: string) => boolean;
   /** Exclusive destination creator where the host provides one; null explicitly selects the disclosed fallback. */
   readonly createExclusive: ((destination: string, bytes: Uint8Array) => Promise<PlatformResult<void>>) | null;
 }
 
 /** Preview and write an upgraded board as a new file; never edits the source document. */
-export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promise<PlatformResult<string | null>> {
-  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, createExclusive } = options;
+export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promise<PlatformResult<{ readonly destination: string; readonly bytes: Uint8Array } | null>> {
+  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, createExclusive, isDestinationOpen } = options;
   if (!/^(?:game\/[^/]+\/)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(boardPath)
     || /[\\:\u0000-\u001f\u007f]/.test(boardPath)
     || boardPath.split("/").some((part) => part === "." || part === "..")) {
@@ -157,6 +175,7 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
   let board: Board;
   let title: string;
   let summary: string;
+  let preview: string;
   if (operation === "pre-vector") {
     if (source.value[BOARD_DETECT_OFFSET] !== 0 || decoded.value.layout !== "pre-vector") {
       return platformError("invalid-request", `${boardPath} is not a supported binary pre-vector board; text boards and unsupported layouts cannot be upgraded.`);
@@ -164,6 +183,7 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     board = decoded.value.board;
     title = "Upgrade pre-vector board";
     summary = `${board.sizeX} × ${board.sizeY} tiles across ${board.sizeL} layer(s), ${board.tileMatrix.length} stored tile cells, ${board.vectors.length} vectors, ${board.programs.length} programs, ${board.sprites.length} sprites, and ${board.shadeLayers.length} shading layer(s). Creates a minor-4 board with documented conversions; the original ${boardPath} is retained.`;
+    preview = `Board-specific input: ${board.sizeX} × ${board.sizeY} tiles, ${board.sizeL} layers, ${board.tileMatrix.length} stored tile cells, ${board.vectors.length} vectors, ${board.programs.length} program slots, ${board.sprites.length} sprite slots, ${board.shadeLayers.length} shading layers.`;
   } else {
     if (decoded.value.layout !== "vector") {
       return platformError("invalid-request", `Upgrade ${boardPath} to the vector layout before changing its coordinates.`);
@@ -171,20 +191,29 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     const originalBoard = decoded.value.board;
     const planned = planBoardCoordinateUpgrade(originalBoard, operation);
     if (!planned.ok) return platformError("invalid-request", `${boardPath}: ${planned.message}`);
-    ({ board, title, summary } = planned.value);
+    ({ board, title, summary, preview } = planned.value);
     summary = `Board ${originalBoard.sizeX} × ${originalBoard.sizeY}, ${originalBoard.sizeL} layer(s), ${originalBoard.tileMatrix.length} tile cells, ${originalBoard.tileRuns.length} tile runs, ${originalBoard.vectors.length} vectors, ${originalBoard.programs.length} programs, ${originalBoard.sprites.length} sprites, and ${originalBoard.shadeLayers.length} shade layers. ${summary}`;
   }
 
   const encoded = writeBoard(board);
   if (!encoded.ok) return platformError("invalid-request", `${boardPath}: ${encoded.error.message}`);
   const copyBytes = operation === "pre-vector" ? encoded.value : source.value;
+  if (operation === "pre-vector") {
+    const converted = decodeBoard(copyBytes);
+    if (!converted.ok) return platformError("invalid-request", `${boardPath}: converted preview could not be decoded: ${converted.error.message}`);
+    const output = converted.value.board;
+    const firstVector = output.vectors[0];
+    const firstProgram = output.programs[0];
+    const firstSprite = output.sprites[0];
+    preview = `Minor-4 output: first tile cells [${output.tileMatrix.slice(0, 8).join(", ")}]; vector 1 points [${firstVector?.points.slice(0, 4).map(({ x, y }) => `${x},${y}`).join("; ") ?? "none"}]; program 1 "${firstProgram?.program ?? "none"}" points [${firstProgram?.points.slice(0, 4).map(({ x, y }) => `${x},${y}`).join("; ") ?? "none"}]; sprite 1 ${firstSprite === undefined ? "none" : `${firstSprite.itemFile} at ${firstSprite.x},${firstSprite.y}, layer ${firstSprite.layer}`}; shade records [${output.shadeLayers[0]?.records.slice(0, 4).map(({ runCount, r, g, b }) => `${runCount}:${r},${g},${b}`).join("; ") ?? "none"}].`;
+  }
   const warnings = decoded.warnings.length === 0 ? "No conversion warnings." : `Warnings: ${decoded.warnings.join("; ")}`;
   const creationNotice = createExclusive === null
-    ? "Destination creation is non-atomic on this host: same-editor upgrades are serialized, but another process can create the path between check and write."
+    ? "This host uses a disclosed non-atomic single-user fallback: same-editor upgrades are serialized, but an external process may create the destination after the check and this write could replace that file."
     : "Destination creation uses an exclusive host operation; an existing destination is never replaced.";
   const answer = await dialogs.ask({
     message: `${title}: ${boardPath}?`,
-    detail: `${summary} ${warnings} ${creationNotice} The source file will not be changed.${operation === "pre-vector" ? "" : " The original board is copied first; the accepted conversion is one undoable edit on the copy."}`,
+    detail: `${summary} Preview: ${preview} ${warnings} ${creationNotice} The source file will not be changed.${operation === "pre-vector" ? "" : " The original board is copied first; the accepted conversion is one undoable edit on the copy."}`,
     choices: [{ id: "cancel", label: "Cancel" }, { id: "preview", label: "Choose copy destination…" }],
     cancel: "cancel",
   });
@@ -215,12 +244,10 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     if (!sameBytes(source.value, current.value)) {
       return platformError("invalid-request", `${boardPath} changed while the upgrade was being reviewed. Review the current file and try again.`);
     }
-    const parent = destination.split("/").slice(0, -1).join("/");
-    const basename = destination.split("/").at(-1)!;
-    const entries = await fs.listProject(projectId, parent);
-    if (!entries.ok) return platformError(entries.error.code, `Could not check destination folder ${parent}: ${entries.error.message}`);
-    const collision = entries.value.find((entry) => foldPath(entry.name) === foldPath(basename));
-    if (collision !== undefined) return platformError("already-exists", `${parent}/${collision.name} already exists. Upgrades never replace files.`);
+    if (isDestinationOpen?.(destination) === true) return platformError("invalid-request", `${destination} is already open or cached in this editor. Close it and retry the upgrade.`);
+    const collision = await findPathCollision(fs, projectId, destination);
+    if (!collision.ok) return platformError(collision.error.code, collision.error.message);
+    if (collision.value !== null) return platformError("already-exists", `${collision.value} already exists or differs only by case. Upgrades never replace files.`);
     const existing = await fs.statProject(projectId, destination);
     if (existing.ok) return platformError("already-exists", `${destination} already exists. Upgrades never replace files.`);
     if (existing.error.code !== "not-found") return platformError(existing.error.code, `Could not check ${destination}: ${existing.error.message}`);
@@ -231,9 +258,35 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     const written = createExclusive === null
       ? await fs.writeProject(projectId, destination, copyBytes)
       : await createExclusive(destination, copyBytes);
-    return written.ok ? platformOk(destination) : platformError(written.error.code, `Could not write ${destination}: ${written.error.message}`);
+    return written.ok ? platformOk({ destination, bytes: copyBytes.slice() }) : platformError(written.error.code, `Could not write ${destination}: ${written.error.message}`);
   });
 }
+
+async function findPathCollision(
+  fs: Pick<FileSystemService, "listProject">,
+  projectId: string,
+  path: string,
+): Promise<PlatformResult<string | null>> {
+  let parent = "";
+  const segments = path.split("/");
+  for (let index = 0; index < segments.length; index += 1) {
+    const requested = segments[index]!;
+    const entries = await fs.listProject(projectId, parent);
+    if (!entries.ok) {
+      if (entries.error.code === "not-found") return platformOk(null);
+      return platformError(entries.error.code, `Could not check destination folder ${parent || "."}: ${entries.error.message}`);
+    }
+    const matches = entries.value.filter((entry) => foldPath(entry.name) === foldPath(requested));
+    const mismatched = matches.find((entry) => entry.name !== requested);
+    if (mismatched !== undefined) return platformOk(`${parent ? `${parent}/` : ""}${mismatched.name}`);
+    const collision = matches[0];
+    if (collision === undefined) return platformOk(null);
+    if (index === segments.length - 1) return platformOk(`${parent ? `${parent}/` : ""}${collision.name}`);
+    parent = parent ? `${parent}/${collision.name}` : collision.name;
+  }
+  return platformOk(null);
+}
+
 
 const destinationLocks = new Map<string, Promise<void>>();
 

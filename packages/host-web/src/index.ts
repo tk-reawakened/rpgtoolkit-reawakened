@@ -435,7 +435,8 @@ function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard
     // The workspace keeps no stack of its own for the view: Undo and Redo are the document's.
     undo: () => board.undo(),
     redo: () => board.redo(),
-    // Live board tabs and the Files panel use the same workbench import route; previews do not offer it.
+    // Live board tabs and Files panels use the same workbench import route; previews do not offer it.
+    ...(importBoard === undefined ? {} : { importAsScene: () => importBoard(board.identity.path) }),
     ...(runUpgradeCommand === undefined ? {} : { runUpgradeCommand }),
   };
   return view;

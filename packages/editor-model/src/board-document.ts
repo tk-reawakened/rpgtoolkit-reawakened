@@ -774,7 +774,7 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
         && (fields.shadeLayers === undefined || isShadeLayers(fields.shadeLayers))
         && (fields.coordType === undefined || Number.isInteger(fields.coordType) && (fields.coordType as number) >= 0 && (fields.coordType as number) <= 32_767)
         && (fields.tileMatrix === undefined || Array.isArray(fields.tileMatrix) && fields.tileMatrix.length <= BOARD_MAX_CELLS && fields.tileMatrix.every((index: unknown) => Number.isInteger(index) && (index as number) >= 0 && (index as number) < MAX_LUT_ENTRIES))
-        && (fields.tileRuns === undefined || Array.isArray(fields.tileRuns) && fields.tileRuns.length <= MAX_LUT_ENTRIES && fields.tileRuns.every(isBoardTileRun));
+        && (fields.tileRuns === undefined || Array.isArray(fields.tileRuns) && fields.tileRuns.length <= BOARD_MAX_CELLS && fields.tileRuns.every(isBoardTileRun));
     }
     return value.type === "set-tiles" && "gesture" in value && typeof value.gesture === "string" && GESTURES.includes(value.gesture)
       && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment)

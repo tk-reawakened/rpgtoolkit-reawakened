@@ -1,7 +1,7 @@
 // The board preview (AD-29): the editor's picture of a board is the engine's own composition of the same bytes. The
 // proof runs the real engine's `viewbrd` over the saved file and compares pixels with the editor's preview.
 import { deepEqual, equal, notDeepEqual, ok } from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -107,9 +107,12 @@ test("the editor's preview is the engine's viewbrd pixels for the same board, be
   notDeepEqual(after.rgba, before.rgba, "the changed tile changes the picture");
   deepEqual(after.rgba, engineView(doc.serialize(), 64), "unsaved edits preview as the engine would draw them once saved");
 });
-test("the real minor-2 Red board's reopened upgrade renders identical editor and engine pixels", async () => {
-  const fixtureRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "fixtures", "legacy", "Caoquest");
-  const sourceBytes = new Uint8Array(readFileSync(join(fixtureRoot, "Boards", "red.brd")));
+const realRedBoard = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "fixtures", "legacy", "Caoquest", "Boards", "red.brd");
+void test("the real minor-2 Red board's reopened upgrade renders identical editor and engine pixels", {
+  skip: existsSync(realRedBoard) ? false : "run pnpm fixtures:fetch",
+}, async () => {
+  const fixtureRoot = join(dirname(realRedBoard), "..");
+  const sourceBytes = new Uint8Array(readFileSync(realRedBoard));
   const tiles = new Uint8Array(readFileSync(join(fixtureRoot, "Tiles", "Forest_Set.tst")));
   const sourcePath = "Boards/red.brd";
   const copyPath = "Boards/red.upgraded.brd";
@@ -125,7 +128,7 @@ test("the real minor-2 Red board's reopened upgrade renders identical editor and
     fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
   });
-  deepEqual(copied, { ok: true, value: copyPath });
+  equal(copied.value?.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), sourceBytes);
   const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
   ok(reopened.ok);
@@ -155,7 +158,7 @@ test("the reopened rotated copy is one editor edit and keeps the runner's pixels
     operation: "stacked-to-rotated", hasPendingEdits: () => false,
     createExclusive: null,
   });
-  deepEqual(copied, { ok: true, value: copyPath });
+  equal(copied.value?.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), stacked.value);
   deepEqual(host.bytesOf(copyPath), stacked.value);
 

@@ -452,6 +452,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       boardPath,
       operation,
       hasPendingEdits: isPending,
+      isDestinationOpen: (destination) => workspace.documents().some((document) => document.identity.path === destination),
       createExclusive: null,
     });
     if (!result.ok) {
@@ -459,27 +460,35 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       return;
     }
     if (result.value === null) return;
+    const { destination, bytes } = result.value;
     await tree.refresh();
-    const opened = await tree.open(result.value);
+    const opened = await tree.open(destination);
     if (!opened.ok) {
       await tell("message" in opened.error ? opened.error.message : opened.error.error.message);
       return;
     }
     if (opened.via !== "document") return;
     show(opened.document);
-    if (operation === "pre-vector") return;
-    if (opened.document.kind !== "board") {
-      await tell(`The upgraded copy ${result.value} did not reopen as a board.`);
+    const reopened = opened.document.serialize();
+    const snapshot = opened.document.getSnapshot();
+    if (reopened.length !== bytes.length || reopened.some((value, index) => value !== bytes[index])
+      || snapshot.dirty || snapshot.saving || snapshot.conflict !== null) {
+      await tell(`The copy ${destination} did not reopen as the reviewed, clean baseline. No conversion was applied.`);
       return;
     }
-    const command = createBoardCoordinateUpgradeCommand(opened.document.serialize(), operation);
+    if (operation === "pre-vector") return;
+    if (opened.document.kind !== "board") {
+      await tell(`The upgraded copy ${destination} did not reopen as a board.`);
+      return;
+    }
+    const command = createBoardCoordinateUpgradeCommand(reopened, operation);
     if (!command.ok) {
-      await tell(`The copy ${result.value} was opened but its coordinate conversion was refused: ${command.message}`);
+      await tell(`The copy ${destination} was opened but its coordinate conversion was refused: ${command.message}`);
       return;
     }
     const applied = opened.document.apply(command.value);
     if (!applied.ok) {
-      await tell(`The copy ${result.value} was opened but its coordinate conversion was refused: ${applied.rejection.message}`);
+      await tell(`The copy ${destination} was opened but its coordinate conversion was refused: ${applied.rejection.message}`);
       return;
     }
     const saved = await opened.document.save();

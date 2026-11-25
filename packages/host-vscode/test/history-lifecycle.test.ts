@@ -3,10 +3,11 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { asMainDocument, createDocumentWorkspace } from "@tk-reawakened/editor-model";
+import { asMainDocument, createBoardCoordinateUpgradeCommand, createDocumentWorkspace } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { recoverMainDocument, resolveRecoveryConflict } from "@tk-reawakened/host-vscode/testing";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort, type GameEditorProvider, type UriLike } from "../src/custom-editor.ts";
+const boardExample = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
 
 const PATH = "Main/example.gam";
 const DEST = "Main/copy.gam";
@@ -99,4 +100,59 @@ test("History restores an open custom editor through VS Code's edit and workbenc
   deepEqual(document.model.serialize(), savedWork, "VS Code's undo callback reverses the restore");
   document.dispose();
   workspace.dispose();
+});
+test("board conversion, VS Code savepoint, native Undo and close preserve the copy's coordinate edit lifecycle", async () => {
+  type TestUri = UriLike & { toString(): string };
+  const path = "Boards/Entry.brd";
+  const copyBytes = boardExample;
+  const root: TestUri = { path: "/project", toString: () => "memory-project" };
+  const folder = { uri: root, key: "memory-project" };
+  const uri: TestUri = { path: `/project/${path}`, toString: () => `memory-project/${path}` };
+  const host = createMemoryPlatformServices({ files: { [path]: copyBytes } });
+  const events: GameEditEvent<TestUri>[] = [];
+  let provider!: GameEditorProvider<TestUri>;
+  let document: GameDocument<TestUri> | undefined;
+  let workbenchSaves = 0;
+  const port: GameEditorPort<TestUri> = {
+    capabilities: host.capabilities,
+    folderOf: () => folder,
+    fileSystem: () => host.fs,
+    dialogs: () => host.dialogs,
+    readBackup: async () => new Uint8Array(),
+    writeBackup: async (_destination, bytes) => String(bytes.byteLength),
+    deleteBackup: async () => undefined,
+    saveEditor: async (target) => {
+      if (document === undefined) return undefined;
+      workbenchSaves += 1;
+      await provider.saveCustomDocument(document);
+      return target;
+    },
+    uriFor: (_folder, target) => ({ path: `/project/${target}`, toString: () => `memory-project/${target}` }),
+    openEditor: async () => undefined,
+    quickPick: async () => undefined,
+  };
+  provider = createGameEditorProvider(port, (event) => { events.push(event); });
+  document = await provider.openCustomDocument(uri, undefined);
+  const command = createBoardCoordinateUpgradeCommand(document.model.serialize(), "tile-to-pixel");
+  ok(command.ok, command.ok ? "" : command.message);
+  const applied = document.model.apply(command.value);
+  ok(applied.ok, applied.ok ? "" : applied.rejection.message);
+  document.didEdit(applied.editId);
+  const converted = document.model.serialize();
+  const saved = await document.saveThroughWorkbench();
+  ok(saved.ok, saved.ok ? "" : saved.failure.message);
+  deepEqual(host.bytesOf(path), converted);
+  equal(workbenchSaves, 1);
+  equal(events.length, 1);
+  events[0]!.undo();
+  deepEqual(document.model.serialize(), copyBytes, "native Undo reverses the saved coordinate edit");
+  equal(document.model.getSnapshot().dirty, true, "undo after save is dirty, not lost behind the VS Code savepoint");
+  const savedUndo = await document.saveThroughWorkbench();
+  ok(savedUndo.ok, savedUndo.ok ? "" : savedUndo.failure.message);
+  document.dispose();
+  document = undefined;
+  const reopened = await provider.openCustomDocument(uri, undefined);
+  deepEqual(reopened.model.serialize(), copyBytes, "closing and reopening the saved Undo leaves the preserved board copy");
+  reopened.dispose();
+  provider.workspaceFor(folder).workspace.dispose();
 });

@@ -52,7 +52,13 @@ async function projectBoards(folder: vscode.WorkspaceFolder): Promise<{ readonly
   return { boards: found.sort((left, right) => left.path.localeCompare(right.path)), failures };
 }
 
-async function chooseBoard(operation: BoardUpgradeOperation): Promise<BoardChoice | undefined> {
+async function chooseBoard(operation: BoardUpgradeOperation, originUri?: vscode.Uri): Promise<BoardChoice | undefined> {
+  if (originUri !== undefined) {
+    const origin = boardChoice(originUri);
+    if (origin !== undefined) return origin;
+    await vscode.window.showErrorMessage("The requesting board editor is not a board inside an open project folder.");
+    return undefined;
+  }
   const active = vscode.window.activeTextEditor?.document.uri
     ?? (vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputCustom
       ? vscode.window.tabGroups.activeTabGroup.activeTab.input.uri : undefined);
@@ -89,8 +95,8 @@ export function registerBoardUpgradeCommands(
   hasDirtyTextDocument: (uri: vscode.Uri) => boolean,
 ): void {
   const register = (id: string, operation: BoardUpgradeOperation): void => {
-    context.subscriptions.push(vscode.commands.registerCommand(id, async () => {
-      const choice = await chooseBoard(operation);
+    context.subscriptions.push(vscode.commands.registerCommand(id, async (originUri?: vscode.Uri) => {
+      const choice = await chooseBoard(operation, originUri);
       if (choice === undefined) return;
       const folder = vscode.workspace.getWorkspaceFolder(choice.uri);
       if (folder === undefined) {
@@ -107,18 +113,6 @@ export function registerBoardUpgradeCommands(
       }
       const fs = createVscodeFileSystem(folder.uri);
       const projectId = folder.uri.toString();
-      const createExclusive = async (destination: string, bytes: Uint8Array) => {
-        const parent = destination.split("/").slice(0, -1).join("/");
-        const temporary = `${parent}/.board-upgrade-${globalThis.crypto.randomUUID()}.tmp`;
-        const written = await fs.writeProject(projectId, temporary, bytes);
-        if (!written.ok) return written;
-        const renamed = await fs.rename(temporary, destination);
-        if (!renamed.ok) {
-          await fs.deleteProject(projectId, temporary);
-          return renamed;
-        }
-        return renamed;
-      };
       const result = await upgradeBoardCopy({
         fs,
         dialogs: createVscodeDialogs(folder.uri),
@@ -127,37 +121,43 @@ export function registerBoardUpgradeCommands(
         operation,
         hasPendingEdits: () => hasDirtyTextDocument(choice.uri)
           || live !== undefined && (live.model.getSnapshot().dirty || live.model.getSnapshot().saving || live.model.getSnapshot().conflict !== null),
-        createExclusive,
+        isDestinationOpen: (destination) => provider.openDocument(vscode.Uri.joinPath(folder.uri, ...destination.split("/"))) !== undefined,
+        createExclusive: null,
       });
       if (!result.ok) {
         await vscode.window.showErrorMessage(result.error.message);
         return;
       }
       if (result.value === null) return;
-      const copyUri = vscode.Uri.joinPath(folder.uri, ...result.value.split("/"));
+      const { destination, bytes } = result.value;
+      const copyUri = vscode.Uri.joinPath(folder.uri, ...destination.split("/"));
       await vscode.commands.executeCommand("vscode.open", copyUri);
-      if (operation === "pre-vector") return;
       const copy = provider.openDocument(copyUri);
       if (copy === undefined || copy.model.kind !== "board") {
-        await vscode.window.showErrorMessage(`${result.value} was created but could not be reopened as a board; its coordinate conversion was not applied.`);
+        await vscode.window.showErrorMessage(`${destination} was created but could not be reopened as a board; its coordinate conversion was not applied.`);
         return;
       }
-      const command = createBoardCoordinateUpgradeCommand(copy.model.serialize(), operation);
+      const reopened = copy.model.serialize();
+      const state = copy.model.getSnapshot();
+      if (reopened.length !== bytes.length || reopened.some((value, index) => value !== bytes[index])
+        || state.dirty || state.saving || state.conflict !== null) {
+        await vscode.window.showErrorMessage(`${destination} did not reopen as the reviewed, clean copy. No conversion was applied.`);
+        return;
+      }
+      if (operation === "pre-vector") return;
+      const command = createBoardCoordinateUpgradeCommand(reopened, operation);
       if (!command.ok) {
-        await vscode.window.showErrorMessage(`${result.value} was opened but its coordinate conversion was refused: ${command.message}`);
+        await vscode.window.showErrorMessage(`${destination} was opened but its coordinate conversion was refused: ${command.message}`);
         return;
       }
       const applied = copy.model.apply(command.value);
       if (!applied.ok) {
-        await vscode.window.showErrorMessage(`${result.value} was opened but its coordinate conversion was refused: ${applied.rejection.message}`);
+        await vscode.window.showErrorMessage(`${destination} was opened but its coordinate conversion was refused: ${applied.rejection.message}`);
         return;
       }
       copy.didEdit(applied.editId);
-      try {
-        await provider.saveCustomDocument(copy);
-      } catch (error) {
-        await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
-      }
+      const saved = await copy.saveThroughWorkbench();
+      if (!saved.ok) await vscode.window.showErrorMessage(saved.failure.message);
     }));
   };
   register("tkr.upgradeBoardStackedToRotated", "stacked-to-rotated");

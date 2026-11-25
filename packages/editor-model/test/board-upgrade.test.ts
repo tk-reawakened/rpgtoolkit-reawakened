@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { test } from "node:test";
 import { boardGrid, coordLayout, decodeBoard, stackedToRotated, tileToPixel } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { createBoardCoordinateUpgradeCommand, createDocumentIdentity, openBoardDocument, planBoardCoordinateUpgrade, upgradeBoardCopy } from "../src/index.ts";
+import { boardCodec, createBoardCoordinateUpgradeCommand, createDocumentIdentity, openBoardDocument, planBoardCoordinateUpgrade, upgradeBoardCopy } from "../src/index.ts";
 import { exampleBoard } from "./fixtures.ts";
 
 const sourcePath = "Boards/Entry.brd";
@@ -35,7 +35,7 @@ test("a coordinate upgrade is one undoable edit after reopening a preserved copy
     operation: "tile-to-pixel", hasPendingEdits: () => false,
     createExclusive: null,
   });
-  deepEqual(copied, { ok: true, value: copyPath });
+  equal(copied.value?.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), original);
   deepEqual(host.bytesOf(copyPath), original, "the new file starts as an exact copy");
 
@@ -67,6 +67,7 @@ void test("stacked-to-rotated maps every tile and shade cell while keeping board
   const stacked = { ...original, coordType: (original.coordType & 4) | 1 };
   const result = planBoardCoordinateUpgrade(stacked, "stacked-to-rotated");
   ok(result.ok, result.ok ? "" : result.message);
+  match(result.value.preview, /L\d+ \(\d+,\d+\) tile \d+ → \(\d+,\d+\)/);
   const converted = result.value.board;
   equal(coordLayout(converted.coordType), "iso-rotated");
   equal(converted.sizeX, stacked.sizeX);
@@ -122,7 +123,7 @@ void test("tile-to-pixel marks the board and leaves object coordinates and scrip
   ok(result.ok, result.ok ? "" : result.message);
   equal(result.value.board.coordType, board.coordType | 4);
   deepEqual({ ...result.value.board, coordType: board.coordType }, board);
-  match(result.value.summary, /script.*literal text are unchanged/i);
+  match(result.value.preview, /Coordinate flag \d+ → \d+/);
   const alreadyPixels = planBoardCoordinateUpgrade(result.value.board, "tile-to-pixel");
   ok(!alreadyPixels.ok);
 });
@@ -136,7 +137,18 @@ void test("stacked-to-rotated refuses destination grids and run streams beyond b
     coordType: (template.coordType & 4) | 1,
   }, "stacked-to-rotated");
   ok(!oversized.ok);
-  match(oversized.message, /beyond the board limit/);
+  match(oversized.message, /board limit/);
+
+  const zeroLayers = planBoardCoordinateUpgrade({
+    ...template,
+    sizeX: 2048,
+    sizeY: 2048,
+    sizeL: 0,
+    coordType: (template.coordType & 4) | 1,
+    tileMatrix: [],
+  }, "stacked-to-rotated");
+  ok(!zeroLayers.ok);
+  match(zeroLayers.message, /per-layer grid exceeds/);
 
   const alternating = planBoardCoordinateUpgrade({
     ...template,
@@ -150,6 +162,11 @@ void test("stacked-to-rotated refuses destination grids and run streams beyond b
   match(alternating.message, /more run records/);
 });
 
+void test("tile-run command validation does not confuse record count with LUT capacity", () => {
+  const runs = Array.from({ length: 32_769 }, () => ({ lutIndex: 0, count: 1, marker: false }));
+  ok(boardCodec.isCommand({ type: "set-board-fields", fields: { tileRuns: runs } }));
+});
+
 
 void test("pre-vector upgrade writes a reopenable copy and retains the original bytes", async () => {
   const original = exampleBoard(3);
@@ -159,16 +176,9 @@ void test("pre-vector upgrade writes a reopenable copy and retains the original 
   const result = await upgradeBoardCopy({
     fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
-    createExclusive: async (destination, bytes) => {
-      const temporary = "Boards/.board-upgrade-test.tmp";
-      const written = await host.fs.writeProject("memory-project", temporary, bytes);
-      if (!written.ok) return written;
-      const moved = await host.fs.rename(temporary, destination);
-      if (!moved.ok) await host.fs.deleteProject("memory-project", temporary);
-      return moved;
-    },
+    createExclusive: null,
   });
-  deepEqual(result, { ok: true, value: copyPath });
+  equal(result.value?.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), original);
   const copy = decoded(host.bytesOf(copyPath)!);
   equal(copy.layout, "vector");
@@ -182,30 +192,8 @@ void test("pre-vector upgrade writes a reopenable copy and retains the original 
   deepEqual(copy.board.properties.start, converted.properties.start);
   equal(host.questions.length, 1);
   match(host.questions[0]!.detail, /original .* is retained/i);
-});
-void test("exclusive destination creation refuses a file created after the preflight check", async () => {
-  const original = exampleBoard(3);
-  const external = Uint8Array.of(3, 1, 4);
-  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
-  host.answerQuestions("preview");
-  host.answerSavePaths(copyPath);
-  const result = await upgradeBoardCopy({
-    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
-    operation: "pre-vector", hasPendingEdits: () => false,
-    createExclusive: async (destination, bytes) => {
-      await host.fs.writeProject("memory-project", destination, external);
-      const temporary = "Boards/.board-upgrade-race.tmp";
-      const written = await host.fs.writeProject("memory-project", temporary, bytes);
-      if (!written.ok) return written;
-      const moved = await host.fs.rename(temporary, destination);
-      if (!moved.ok) await host.fs.deleteProject("memory-project", temporary);
-      return moved;
-    },
-  });
-  ok(!result.ok);
-  deepEqual(host.bytesOf(copyPath), external);
-  deepEqual(host.bytesOf(sourcePath), original);
-  equal(host.bytesOf("Boards/.board-upgrade-race.tmp"), undefined);
+  match(host.questions[0]!.detail, /Minor-4 output: .*vector 1 points/);
+  match(host.questions[0]!.detail, /external process.*could replace/i);
 });
 
 
@@ -328,6 +316,53 @@ void test("upgrade refuses cross-game destinations and case-folded collisions", 
   equal(otherGame.bytesOf("Game/Elsewhere/Boards/Entry.upgraded.brd"), undefined);
 });
 
+void test("already-open copy destinations and case-variant nested folders are refused", async () => {
+  const original = exampleBoard(3);
+  const openCopyHost = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  openCopyHost.answerQuestions("preview");
+  openCopyHost.answerSavePaths(copyPath);
+  const openCopy = await upgradeBoardCopy({
+    fs: openCopyHost.fs, dialogs: openCopyHost.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false, isDestinationOpen: () => true, createExclusive: null,
+  });
+  ok(!openCopy.ok);
+  match(openCopy.error.message, /already open or cached/);
+  equal(openCopyHost.bytesOf(copyPath), undefined);
+
+  const foldedFolderHost = createMemoryPlatformServices({
+    files: { [sourcePath]: original, "Boards/nested/existing.brd": Uint8Array.of(1) },
+  });
+  foldedFolderHost.answerQuestions("preview");
+  foldedFolderHost.answerSavePaths("Boards/Nested/New.brd");
+  const foldedFolder = await upgradeBoardCopy({
+
+    fs: foldedFolderHost.fs, dialogs: foldedFolderHost.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
+  });
+  ok(!foldedFolder.ok);
+  equal(foldedFolder.error.code, "already-exists");
+  equal(foldedFolderHost.bytesOf("Boards/Nested/New.brd"), undefined);
+});
+
+const literalScript = resolve("fixtures/legacy/Caoquest/Prg/aftercreeps.prg");
+void test("real external script coordinate literals remain byte-for-byte unchanged by a board upgrade", {
+  skip: existsSync(literalScript) ? false : "run pnpm fixtures:fetch",
+}, async () => {
+  const source = exampleBoard(3);
+  const scriptBytes = new Uint8Array(readFileSync(literalScript));
+  const scriptPath = "Prg/aftercreeps.prg";
+  match(new TextDecoder().decode(scriptBytes), /#PutPlayer\("Koji",14,6,1\)/);
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: source, [scriptPath]: scriptBytes } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const copied = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
+  });
+  equal(copied.value?.destination, copyPath);
+  deepEqual(host.bytesOf(sourcePath), source);
+  deepEqual(host.bytesOf(scriptPath), scriptBytes);
+});
 const legacyTextBoard = resolve("fixtures/legacy/Caoquest/Boards/Cao's house.brd");
 void test("upgrade refuses a real Toolkit 2 text board", {
   skip: existsSync(legacyTextBoard) ? false : "run pnpm fixtures:fetch",
@@ -357,7 +392,7 @@ void test("documented minor-2 layout example upgrades using independent fields f
     operation: "pre-vector", hasPendingEdits: () => false,
     createExclusive: null,
   });
-  deepEqual(result, { ok: true, value: copyPath });
+  equal(result.value?.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), original);
   const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
   ok(reopened.ok);
@@ -434,7 +469,7 @@ void test("real minor-2 Red board upgrades, reopens and preserves independent st
     fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
   });
-  deepEqual(copied, { ok: true, value: copyPath });
+  equal(copied.value?.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), original);
   const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
   ok(reopened.ok);
@@ -443,7 +478,8 @@ void test("real minor-2 Red board upgrades, reopens and preserves independent st
   equal(upgraded.tileMatrix.length, 19 * 14 * 8);
   equal(upgraded.vectors.length, 32);
   equal(upgraded.programs.length, 24);
-  equal(upgraded.sprites.length, 2);
+  deepEqual(upgraded.programs.map(({ program }) => program), source.board.programs.filter(({ program }) => program !== "").map(({ program }) => program));
+  deepEqual(upgraded.sprites.map(({ itemFile }) => itemFile), source.board.sprites.filter(({ itemFile }) => itemFile !== "").map(({ itemFile }) => itemFile));
   equal(upgraded.shadeLayers.length, 1);
   deepEqual(upgraded.tileMatrix.slice(0, 12), source.board.tileMatrix.slice(0, 12));
   deepEqual(upgraded.vectors[0], source.board.vectors[0]);
