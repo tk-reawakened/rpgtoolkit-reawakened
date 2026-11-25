@@ -191,11 +191,16 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     });
     return declaredLayouts;
   };
-  const refreshLayouts = async (): Promise<readonly ProjectLayoutOwner[]> => {
-    const owners = await declaredProjectLayouts(project, main);
-    knownLayouts = owners;
-    declaredLayouts = Promise.resolve(owners);
-    return owners;
+  const refreshLayouts = async (): Promise<readonly ProjectLayoutOwner[] | null> => {
+    try {
+      const owners = await declaredProjectLayouts(project, main);
+      knownLayouts = owners;
+      declaredLayouts = Promise.resolve(owners);
+      return owners;
+    } catch (error) {
+      await tell(`Could not refresh game ownership: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   };
   const fallbackOwnerForPath = (path: string): ProjectLayoutOwner => {
     const selectedFolder = foldPath(projectLayout.projectFolder).replace(/^\/+|\/+$/g, "");
@@ -519,7 +524,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     return active === null ? null : workspace.documents().find((document) => document.identity.key === active && document.kind === "board") ?? null;
   };
   const upgradeCopy = async (boardPath: string, operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector", isPending: () => boolean): Promise<void> => {
-    const owner = await ownerForPath(boardPath);
+    const owner = await ownerForPath(boardPath).catch(async (error: unknown) => {
+      await tell(`Could not resolve the board's game owner: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    });
+    if (owner === null) return;
     const result = await upgradeBoardCopy({
       fs: services.fs,
       dialogs: services.dialogs,
@@ -532,12 +541,19 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       isDestinationOpen: (destination) => workspace.documents().some((document) => document.identity.path === destination),
       isDestinationOwnedBySource: async (destination) => {
         const freshOwners = await refreshLayouts();
+        if (freshOwners === null) return false;
         const sourceOwner = projectLayoutOwnerForDocumentPath(boardPath, freshOwners);
         const destinationOwner = projectLayoutOwnerForDocumentPath(destination, freshOwners);
-        return sourceOwner !== null
-          && destinationOwner !== null
-          && destinationOwner.mainPath === sourceOwner.mainPath
-          && foldPath(destinationOwner.layout.projectFolder) === foldPath(sourceOwner.layout.projectFolder);
+        if (sourceOwner === null || destinationOwner === null
+          || sourceOwner.mainPath !== owner.mainPath
+          || foldPath(sourceOwner.layout.projectFolder) !== foldPath(owner.layout.projectFolder)
+          || destinationOwner.mainPath !== sourceOwner.mainPath
+          || foldPath(destinationOwner.layout.projectFolder) !== foldPath(sourceOwner.layout.projectFolder)) return false;
+        const sourceBoardsRoot = await resolveReservedFolderPath(services.fs, reservedFolder(sourceOwner.layout, "boards"));
+        if (sourceBoardsRoot.failure !== null) return false;
+        const rootPrefix = `${foldPath(sourceBoardsRoot.path).replace(/\/+$/g, "")}/`;
+        return foldPath(boardPath).startsWith(rootPrefix)
+          && foldPath(destination).startsWith(rootPrefix);
       },
       createExclusive: null,
     });
@@ -606,6 +622,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       label: "Upgrade a pre-vector board…",
       run: async () => {
         const owners = await refreshLayouts();
+        if (owners === null) return;
         const candidateLayouts = [{ projectFolder: "" }, projectLayout, ...owners.map(({ layout }) => layout)];
         const byPath = new Map<string, { readonly path: string; readonly reference: string }>();
         const failures: { readonly path: string; readonly error: { readonly message: string } }[] = [];

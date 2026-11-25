@@ -69,6 +69,7 @@ interface Setup {
 interface ShellOverrides {
   readonly launcher?: Launcher;
   readonly projectLayoutForPath?: (path: string | null) => { readonly projectFolder: string };
+  readonly projectLayout?: { readonly projectFolder: string };
   readonly main?: string;
   readonly mainForPath?: (path: string | null) => string | null;
 }
@@ -101,7 +102,7 @@ async function setup(
       layout,
       tabs,
       tree,
-      projectLayout: { projectFolder: "" },
+      projectLayout: overrides.projectLayout ?? { projectFolder: "" },
       ...(overrides.main === undefined ? {} : { main: overrides.main }),
       ...(overrides.projectLayoutForPath === undefined ? {} : { projectLayoutForPath: overrides.projectLayoutForPath }),
       ...(overrides.mainForPath === undefined ? {} : { mainForPath: overrides.mainForPath }),
@@ -704,6 +705,7 @@ test("Run pairs the selected game's main with its layout when the active board h
   const shell = await setup(["folderWrite"], { ...FILES, "Main/A.gam": exampleMain(9) }, {
     launcher,
     main: "Main/A.gam",
+    projectLayout: { projectFolder: "Game/A" },
     projectLayoutForPath: () => ({ projectFolder: "" }),
     mainForPath: () => null,
   });
@@ -715,5 +717,5 @@ test("Run pairs the selected game's main with its layout when the active board h
   ok(runButton);
   await act(() => { runButton.click(); });
   await settle();
-  deepEqual(launches[0], { kind: "game", main: "Main/A.gam", projectFolder: "" });
+  deepEqual(launches[0], { kind: "game", main: "Main/A.gam", projectFolder: "Game/A" });
 });
