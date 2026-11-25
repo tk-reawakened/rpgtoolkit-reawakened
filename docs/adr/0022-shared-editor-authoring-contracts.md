@@ -148,7 +148,7 @@ No cross-document atomic undo or save; no backup beyond what a host really provi
 ### D11 — Automatic save
 
 1. **Autosave is on by default in every host** (owner direction, 2026-11-08). It is a user-layer editor setting (`editor.autosave`, default on, with a delay, default one second after the last accepted edit). A user may turn it off.
-2. **It writes whole, accepted commands only.** A drag, brush stroke or typing burst is saved after it ends; nothing is written mid-gesture, so autosave never writes a half-made edit. *Proposed reading for form fields, pending owner acceptance ([D16](#d16--typing-in-a-form-field-is-an-edit-proposed-3385)):* a typing burst in a form field ends at the autosave delay, as it does for a text file, so autosave may write the value typed so far; it never writes text that is not a value yet.
+2. **It writes whole, accepted commands only.** A drag, brush stroke or typing burst is saved after it ends; nothing is written mid-gesture, so autosave never writes a half-made edit. *Reading for form fields, owner ruling 2026-11-25 ([D16](#d16--typing-in-a-form-field-is-an-edit-3385)):* a typing burst in a form field ends at the autosave delay, as it does for a text file, so autosave may write the value typed so far; it never writes text that is not a value yet.
 3. **It never overwrites an unseen external change.** Before writing, the editor compares the file on disk with the revision it last read or wrote. If they differ it does not write; it raises the external-change flow of D3.5 and keeps the local work dirty. A failed write does not erase that comparison baseline, even though the disk may have been partially written. Once a newer disk baseline is accepted, a later match to the old failed-write bytes is a new external change, not permission to overwrite it. If no baseline is available, a reload or explicit conflict resolution is required before writing; comparison is never silently skipped.
 4. **A failed autosave** keeps the document dirty, shows which document failed and why, and retries on the next accepted edit or after a visible interval. It never reports clean.
 5. **Every autosave is a history entry** (D12), so autosave cannot destroy the previous version.
@@ -248,9 +248,9 @@ No cross-document atomic undo or save; no backup beyond what a host really provi
 5. **Rename and delete refuse while a document under the path is open.** Moving or removing a file under an open model would leave the model saving over a path that is no longer the file. Delete asks first. The browser's File System Access has no portable atomic rename, so its Rename says so (the host's own `unavailable`) rather than copying and deleting.
 6. **The project folder is the project root for now.** Pickers and the Game view read the type folders (`Boards`, `Bitmap`, …) directly under the folder the host opened (`ProjectLayout.projectFolder` is `""`). A project whose type folders sit under `Game/<name>/` needs that folder from the main file; the model takes it, the hosts do not yet supply it.
 
-### D16 — Typing in a form field is an edit (proposed, #3385)
+### D16 — Typing in a form field is an edit (#3385)
 
-*Proposed 2026-11-25 by the #3385 investigation on story 13.10 ([#1735](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1735)). It is not accepted: the owner rulings it needs are listed in [Proposed amendment, 2026-11-25](#proposed-amendment-2026-11-25-3385). It replaces the draft-until-blur model of the 13.10 forms; it changes no other rule of D1–D15.*
+*Added 2026-11-25 by the #3385 investigation on story 13.10 ([#1735](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1735)) and accepted by the owner the same day with the five rulings in [Owner amendment, 2026-11-25](#owner-amendment-2026-11-25-3385). It replaces the draft-until-blur model of the 13.10 forms; it changes no other rule of D1–D15. Other editors that keep typed or staged work outside the document are tracked by [#3477](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3477).*
 
 *In plain terms:* what you type in a form field is part of the document from the first character, the way typing in a text file is. So VS Code's own Save All, the question when you close a tab, Undo and autosave all see it, without our editor having to imitate them.
 
@@ -290,9 +290,9 @@ No cross-document atomic undo or save; no backup beyond what a host really provi
 * **Implement Git inside the VS Code extension.** Rejected: VS Code's built-in Git is better and users already have it.
 * **Autosave off by default, as VS Code does.** Rejected by the owner: a creator's work should not be lost to a missed save; history (D12) is what makes autosave safe.
 
-## Proposed amendment, 2026-11-25 (#3385)
+## Owner amendment, 2026-11-25 (#3385)
 
-Not accepted. D16 and the D11.2 reading above need these owner rulings; until they are given, the 13.10 forms keep the draft-until-blur model and #3385 stays a release blocker. The prototype that implements D16 is branch `proto/3385-live-commit-fields`; its packaged VS Code for the Web proof passes the positive gate in the 13.10 story plan.
+The owner approved D16, the D11.2 reading for form fields and the five rulings below on 2026-11-25 ("approved"), after the prototype on branch `proto/3385-live-commit-fields` passed the positive gate in the 13.10 story plan through the packaged VS Code for the Web client.
 
 1. **Autosave after the delay.** With `files.autoSave: afterDelay` (or the editor's own autosave), the value typed so far in a field is written once the delay passes. *Rejected:* never autosaving a focused field, which needs a save reason VS Code does not give custom editors.
 2. **Typing replaces the redo branch.** Text-editor semantics; the story plan's earlier "redo after draft discard" check no longer applies.
