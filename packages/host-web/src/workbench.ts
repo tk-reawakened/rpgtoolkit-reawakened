@@ -253,7 +253,10 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
                 return reference === "" ? "" : referencePath(projectLayout, "boards", reference);
               },
             }),
-          }, main, importBoard), shownIn: container };
+          }, main, importBoard, (operation) => {
+            const command = boardUpgradeCommands.find(({ id }) => id === `board.upgrade.${operation}`);
+            if (command !== undefined) void command.run();
+          }), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");

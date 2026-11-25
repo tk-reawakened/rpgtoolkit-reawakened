@@ -349,7 +349,7 @@ function historyOutcome(result: HistoryResult): { readonly ok: true } | { readon
   return result.ok ? { ok: true } : { ok: false, message: `There is nothing to ${result.reason === "read-only" ? "change: the font is read-only" : result.reason === "nothing-to-undo" ? "undo" : "redo"}.` };
 }
 
-function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
+function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>, runUpgradeCommand?: BoardViewDocument["runUpgradeCommand"]): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
   if (document.kind === "font") {
     // The browser workbench owns no stack of its own: Undo and Redo are the document's, as they are for a board.
@@ -436,7 +436,7 @@ function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard
     undo: () => board.undo(),
     redo: () => board.redo(),
     // Live board tabs and the Files panel use the same workbench import route; previews do not offer it.
-    ...(importBoard === undefined ? {} : { importAsScene: () => importBoard(document.identity.path) }),
+    ...(runUpgradeCommand === undefined ? {} : { runUpgradeCommand }),
   };
   return view;
 }
@@ -493,6 +493,7 @@ export function mountDocumentView(
   main: string | null = null,
   /** Only live editors may import; history and snapshot mounts do not pass this action. */
   importBoard?: (path: string) => Promise<PlatformResult<void>>,
+  runUpgradeCommand?: BoardViewDocument["runUpgradeCommand"],
 ): DocumentView {
   const documentLayout = projectLayoutForDocumentPath(document.identity.path);
   const browserLayout = documentLayout.projectFolder === "" ? projectLayout : documentLayout;
@@ -516,7 +517,7 @@ export function mountDocumentView(
     mounted = document.kind === "terrain-scene"
       ? mountWebTerrainScene(container, project, asTerrainSceneDocument(document), main, browserLayout.projectFolder, openSource === undefined ? undefined : (path) => openSource({ path, tile: null }))
       : mount(container, {
-      document: viewDocumentFor(project, document, importBoard),
+      document: viewDocumentFor(project, document, importBoard, runUpgradeCommand),
       services: project.services,
       browser: { session: project.browserSession, fs: project.services.fs, layout: browserLayout, ...(openSource === undefined ? {} : { openSource }) },
       boardPreferences: boardPreferencesFor(project),

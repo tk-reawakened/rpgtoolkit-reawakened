@@ -85,6 +85,8 @@ export interface BoardViewDocument extends ViewDocument<BoardDocumentSnapshot, B
   redo?(): HistoryResult | Promise<HistoryResult>;
   /** Run the host's reviewed import of this saved board, then open the new scene. Not provided to history views. */
   importAsScene?(): Promise<PlatformResult<void>>;
+  /** Run the host's registered board-upgrade command from the active board surface. */
+  runUpgradeCommand?(operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector"): void;
 }
 
 /** The board-editor preferences in force (T-33), read by the board view and told when they change. */

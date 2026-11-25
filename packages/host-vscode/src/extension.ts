@@ -117,6 +117,11 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       await vscode.commands.executeCommand(direction);
       return true;
     },
+    runBoardUpgrade: async (_uri, operation) => {
+      const id = operation === "stacked-to-rotated" ? "tkr.upgradeBoardStackedToRotated"
+        : operation === "tile-to-pixel" ? "tkr.upgradeBoardTileToPixel" : "tkr.upgradePreVectorBoard";
+      await vscode.commands.executeCommand(id);
+    },
     deleteBackup: async (destination) => { await vscode.workspace.fs.delete(destination); },
     isTextDocumentOpen: (uri) => findTextDocument(uri) !== undefined,
     hasDirtyTextDocument,

@@ -64,6 +64,8 @@ export interface GameEditorPort<Uri extends UriLike> {
   openEditor(uri: Uri): Promise<void>;
   /** Run native history only for the active custom-editor tab. */
   runWorkbenchHistory?(uri: Uri, direction: "undo" | "redo"): Promise<boolean>;
+  /** Dispatch a reviewed board-upgrade command from its live editor surface. */
+  runBoardUpgrade?(uri: Uri, operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector"): Promise<void>;
   /** The board-editor preferences (T-33) in force in `folder`, from the host's own settings; the catalogue's defaults when the port gives none. */
   boardPreferences?(folder: WorkspaceFolderLike<Uri>): EditorPreferences;
   /** Call `listener` when the settings that make `boardPreferences` change; the returned handle stops it. */
@@ -361,6 +363,9 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
       openScene: async (path) => { await this.#port.openEditor(this.#port.uriFor(folder, path)); },
     });
     return result.ok ? platformOk(undefined) : result;
+  }
+  async runBoardUpgrade(operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector"): Promise<void> {
+    if (this.model.kind === "board") await this.#port.runBoardUpgrade?.(this.uri, operation);
   }
   setInitialBoard(path: string): Promise<ReturnOutcome> {
     return this.#navigation.setInitialBoard(this, path);

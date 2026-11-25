@@ -122,6 +122,7 @@ export type EditorHostRequest =
   | { readonly type: "animation-action"; readonly requestId: string; readonly action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore"; readonly id?: string; readonly command?: AnimationCommand; readonly bitmaps?: readonly AnimationBitmap[] }
   /** Import this saved board as a native scene. The document's own identity is the only source; a webview sends no path. */
   | { readonly type: "import-as-scene"; readonly requestId: string }
+  | { readonly type: "run-board-upgrade"; readonly requestId: string; readonly operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector" }
   | { readonly type: "save-image"; readonly requestId: string; readonly fileName: string; readonly bytes: Uint8Array }
   /** The answer to `settle`. It is sent after every edit the webview accepted, so the channel's order puts those edits before it. */
   | { readonly type: "settled"; readonly requestId: string };
@@ -155,6 +156,7 @@ export interface BridgedDocument {
   animationAction?(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<AnimationActionResult>;
   /** Run the reviewed import of this saved board and open the created scene; only a live board document implements it. */
   importAsScene?(): Promise<PlatformResult<void>>;
+  runBoardUpgrade?(operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector"): Promise<void>;
   saveImage?(fileName: string, bytes: Uint8Array): Promise<PlatformResult<boolean>>;
   readProject(path: string): Promise<PlatformResult<Uint8Array>>;
   /** A webview answered a `settle` request: every edit it had accepted has reached this document (#2613). */
@@ -221,6 +223,8 @@ export async function handleEditorHostRequest(
   } else if (request.type === "animation-action") {
     const result = document.animationAction === undefined ? platformError("unavailable", "Animation recovery is unavailable.") : await document.animationAction(request.action, request.id, request.command, request.bitmaps);
     await postMessage({ type: "animation-action-result", requestId: request.requestId, result });
+  } else if (request.type === "run-board-upgrade") {
+    await document.runBoardUpgrade?.(request.operation);
   } else if (request.type === "import-as-scene") {
     // The board is this document's own identity; a webview cannot name another file, and an error is shown, not swallowed.
     const result = document.importAsScene === undefined
@@ -438,6 +442,8 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "save" || value.type === "return-visit" || value.type === "settled") return true;
   if (value.type === "workbench-history") return "direction" in value && (value.direction === "undo" || value.direction === "redo");
   if (value.type === "import-as-scene") return true;
+  if (value.type === "run-board-upgrade") return "operation" in value
+    && (value.operation === "stacked-to-rotated" || value.operation === "tile-to-pixel" || value.operation === "pre-vector");
   if (value.type === "save-image") return "fileName" in value && typeof value.fileName === "string" && value.fileName !== ""
     && !/[\\/]/.test(value.fileName) && "bytes" in value && value.bytes instanceof Uint8Array;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
@@ -483,6 +489,7 @@ export class RemoteDocument {
    * preview leaves it out, so its board view offers no import button.
    */
   readonly importAsScene?: () => Promise<PlatformResult<void>>;
+  readonly runUpgradeCommand?: (operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector") => void;
   readonly undo?: () => Promise<WorkbenchHistoryResult>;
   readonly redo?: () => Promise<WorkbenchHistoryResult>;
   /**
@@ -514,6 +521,9 @@ export class RemoteDocument {
       if (!this.applyingBrowserState) this.vscode.postMessage({ type: "browser-context", changes });
     });
     if (live) this.importAsScene = () => this.requestImportAsScene();
+    if (live && kind === "board") this.runUpgradeCommand = (operation) => {
+      this.vscode.postMessage({ type: "run-board-upgrade", requestId: `upgrade-${++this.nextRequest}`, operation });
+    };
     if (live && kind === "font") {
       this.undo = () => this.requestHistory("undo");
       this.redo = () => this.requestHistory("redo");
