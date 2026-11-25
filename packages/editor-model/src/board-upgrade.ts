@@ -1,4 +1,4 @@
-import { boardGrid, decodeBoard, foldPath, coordLayout, stackedToRotated, writeBoard, type Board } from "@tk-reawakened/core";
+import { BOARD_DETECT_OFFSET, BOARD_MAX_CELLS, boardGrid, decodeBoard, foldPath, coordLayout, stackedToRotated, writeBoard, type Board } from "@tk-reawakened/core";
 import { platformError, platformOk, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { decodeShade, encodeShade } from "./board-document.ts";
 
@@ -37,25 +37,34 @@ export function planBoardCoordinateUpgrade(board: Board, upgrade: BoardCoordinat
   const oldGrid = boardGrid(board.sizeX, board.sizeY, board.coordType);
   const rotatedCoordType = (board.coordType & ~1) | 2;
   const nextGrid = boardGrid(board.sizeX, board.sizeY, rotatedCoordType);
-  const cellsPerLayer = nextGrid.width * nextGrid.height;
-  const tileMatrix = new Array<number>(cellsPerLayer * board.sizeL).fill(0);
   const oldCellsPerLayer = oldGrid.width * oldGrid.height;
+  const cellsPerLayer = nextGrid.width * nextGrid.height;
+  const sourceCells = oldCellsPerLayer * board.sizeL;
+  const destinationCells = cellsPerLayer * board.sizeL;
+  if (!Number.isSafeInteger(destinationCells) || destinationCells > BOARD_MAX_CELLS) {
+    return { ok: false, message: `The rotated grid would hold ${destinationCells} cells, beyond the board limit ${BOARD_MAX_CELLS}.` };
+  }
+  if (!Number.isSafeInteger(sourceCells) || board.tileMatrix.length !== sourceCells) {
+    return { ok: false, message: "The source tile stream has cells that cannot be mapped exactly to the rotated grid." };
+  }
+  const tileMatrix = new Array<number>(destinationCells).fill(0);
   for (let layer = 0; layer < board.sizeL; layer += 1) {
     for (let y = 1; y <= oldGrid.height; y += 1) {
       for (let x = 1; x <= oldGrid.width; x += 1) {
         const rotated = stackedToRotated(x, y, board.sizeX);
         const from = layer * oldCellsPerLayer + (y - 1) * oldGrid.width + x - 1;
         const to = layer * cellsPerLayer + (rotated.y - 1) * nextGrid.width + rotated.x - 1;
-        if (rotated.x < 1 || rotated.x > nextGrid.width || rotated.y < 1 || rotated.y > nextGrid.height || from >= board.tileMatrix.length) {
+        if (rotated.x < 1 || rotated.x > nextGrid.width || rotated.y < 1 || rotated.y > nextGrid.height) {
           return { ok: false, message: `The stacked tile at column ${x}, row ${y} cannot be represented on the rotated grid.` };
         }
         tileMatrix[to] = board.tileMatrix[from]!;
       }
     }
   }
-
   const tileRuns = encodeTileRuns(tileMatrix);
-  const shadeLayers = [];
+  if (tileRuns === null) return { ok: false, message: "The rotated tile stream needs more run records than the board format can store." };
+
+  const shadeLayers: Board["shadeLayers"][number][] = [];
   for (const layer of board.shadeLayers) {
     const decoded = decodeShade(layer, oldCellsPerLayer);
     if (decoded === null) return { ok: false, message: "The board's shading records do not match its stacked grid; no conversion was made." };
@@ -90,22 +99,24 @@ export function planBoardCoordinateUpgrade(board: Board, upgrade: BoardCoordinat
   };
 }
 
-function encodeTileRuns(cells: readonly number[]): Board["tileRuns"] {
+function encodeTileRuns(cells: readonly number[]): Board["tileRuns"] | null {
   const runs: Board["tileRuns"][number][] = [];
   for (let at = 0; at < cells.length;) {
     const lutIndex = cells[at]!;
     let end = at + 1;
     while (end < cells.length && cells[end] === lutIndex && end - at < 32_768) end += 1;
+    if (runs.length === 32_768) return null;
     const count = end - at;
     runs.push({ lutIndex, count, marker: count > 1 });
     at = end;
   }
   return runs;
 }
+ 
 export type BoardUpgradeOperation = BoardCoordinateUpgrade | "pre-vector";
 
 export interface BoardUpgradeCopyOptions {
-  readonly fs: Pick<FileSystemService, "readProject" | "statProject" | "writeProject">;
+  readonly fs: Pick<FileSystemService, "readProject" | "listProject" | "statProject" | "writeProject">;
   readonly dialogs: Pick<DialogService, "ask" | "pickSavePath">;
   readonly projectId: string;
   readonly boardPath: string;
@@ -131,12 +142,12 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
   let title: string;
   let summary: string;
   if (operation === "pre-vector") {
-    if (decoded.value.layout !== "pre-vector") {
-      return platformError("invalid-request", `${boardPath} is not a supported pre-vector board; no copy was created.`);
+    if (source.value[BOARD_DETECT_OFFSET] !== 0 || decoded.value.layout !== "pre-vector") {
+      return platformError("invalid-request", `${boardPath} is not a supported binary pre-vector board; text boards and unsupported layouts cannot be upgraded.`);
     }
     board = decoded.value.board;
     title = "Upgrade pre-vector board";
-    summary = `Creates a minor-4 board with the documented tile, vector, program, shading and position conversions. The original ${boardPath} is retained.`;
+    summary = `${board.sizeX} × ${board.sizeY} tiles across ${board.sizeL} layer(s), ${board.tileMatrix.length} stored tile cells, ${board.vectors.length} vectors, ${board.programs.length} programs, ${board.sprites.length} sprites, and ${board.shadeLayers.length} shading layer(s). Creates a minor-4 board with documented conversions; the original ${boardPath} is retained.`;
   } else {
     if (decoded.value.layout !== "vector") {
       return platformError("invalid-request", `Upgrade ${boardPath} to the vector layout before changing its coordinates.`);
@@ -151,37 +162,74 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
   const warnings = decoded.warnings.length === 0 ? "No conversion warnings." : `Warnings: ${decoded.warnings.join("; ")}`;
   const answer = await dialogs.ask({
     message: `${title}: ${boardPath}?`,
-    detail: `${summary} ${warnings} The source file will not be changed.`,
+    detail: `${summary} ${warnings} Destination creation is non-atomic on this host: same-editor upgrades are serialized, but another process can create the path between check and write. The source file will not be changed.`,
     choices: [{ id: "cancel", label: "Cancel" }, { id: "preview", label: "Choose copy destination…" }],
     cancel: "cancel",
   });
   if (answer !== "preview") return platformOk(null);
 
   const suggested = boardPath.replace(/\.brd$/i, operation === "pre-vector" ? ".upgraded.brd" : operation === "stacked-to-rotated" ? ".rotated.brd" : ".pixels.brd");
-  const destination = await dialogs.pickSavePath({ document: boardPath, suggested });
-  if (destination === null) return platformOk(null);
-  if (!/^(?:game\/[^/]+\/)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(destination)
-    || /[\\:\u0000-\u001f\u007f]/.test(destination)
-    || destination.split("/").some((part) => part === "." || part === "..")) {
-    return platformError("invalid-path", `Choose a project board path ending in .brd: ${destination}`);
+  const picked = await dialogs.pickSavePath({ document: boardPath, suggested });
+  if (picked === null) return platformOk(null);
+  if (hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+  if (!/^(?:game\/[^/]+\/)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(picked)
+    || /[\\:\u0000-\u001f\u007f]/.test(picked)
+    || picked.split("/").some((part) => part === "." || part === "..")) {
+    return platformError("invalid-path", `Choose a project board path ending in .brd: ${picked}`);
   }
+  const sourceRoot = boardRoot(boardPath);
+  const pickedRoot = boardRoot(picked);
+  if (sourceRoot === null || pickedRoot === null || foldPath(sourceRoot) !== foldPath(pickedRoot)) {
+    return platformError("invalid-request", "Save the upgraded copy under the same game's Boards folder so its asset references remain valid.");
+  }
+  const destination = sourceRoot + picked.slice(pickedRoot.length);
   if (foldPath(destination) === foldPath(boardPath)) {
     return platformError("invalid-request", "An upgrade must be saved as a separate board; the original was not changed.");
   }
-  if (hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
-
-  const current = await fs.readProject(projectId, boardPath);
-  if (!current.ok) return platformError(current.error.code, `Could not recheck ${boardPath}: ${current.error.message}`);
-  if (!sameBytes(source.value, current.value)) {
-    return platformError("invalid-request", `${boardPath} changed while the upgrade was being reviewed. Review the current file and try again.`);
-  }
-  const existing = await fs.statProject(projectId, destination);
-  if (existing.ok) return platformError("already-exists", `${destination} already exists. Upgrades never replace files.`);
-  if (existing.error.code !== "not-found") return platformError(existing.error.code, `Could not check ${destination}: ${existing.error.message}`);
-  const written = await fs.writeProject(projectId, destination, encoded.value);
-  return written.ok ? platformOk(destination) : platformError(written.error.code, `Could not write ${destination}: ${written.error.message}`);
+  return serializeDestination(`${projectId}:${foldPath(destination)}`, async () => {
+    if (hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+    const current = await fs.readProject(projectId, boardPath);
+    if (!current.ok) return platformError(current.error.code, `Could not recheck ${boardPath}: ${current.error.message}`);
+    if (!sameBytes(source.value, current.value)) {
+      return platformError("invalid-request", `${boardPath} changed while the upgrade was being reviewed. Review the current file and try again.`);
+    }
+    const parent = destination.split("/").slice(0, -1).join("/");
+    const basename = destination.split("/").at(-1)!;
+    const entries = await fs.listProject(projectId, parent);
+    if (!entries.ok) return platformError(entries.error.code, `Could not check destination folder ${parent}: ${entries.error.message}`);
+    const collision = entries.value.find((entry) => foldPath(entry.name) === foldPath(basename));
+    if (collision !== undefined) return platformError("already-exists", `${parent}/${collision.name} already exists. Upgrades never replace files.`);
+    const existing = await fs.statProject(projectId, destination);
+    if (existing.ok) return platformError("already-exists", `${destination} already exists. Upgrades never replace files.`);
+    if (existing.error.code !== "not-found") return platformError(existing.error.code, `Could not check ${destination}: ${existing.error.message}`);
+    if (hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+    const finalSource = await fs.readProject(projectId, boardPath);
+    if (!finalSource.ok) return platformError(finalSource.error.code, `Could not recheck ${boardPath}: ${finalSource.error.message}`);
+    if (!sameBytes(source.value, finalSource.value)) return platformError("invalid-request", `${boardPath} changed before the copy was written.`);
+    const written = await fs.writeProject(projectId, destination, encoded.value);
+    return written.ok ? platformOk(destination) : platformError(written.error.code, `Could not write ${destination}: ${written.error.message}`);
+  });
 }
 
+const destinationLocks = new Map<string, Promise<void>>();
+
+async function serializeDestination<T>(key: string, action: () => Promise<T>): Promise<T> {
+  const previous = destinationLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  destinationLocks.set(key, current);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    release();
+    if (destinationLocks.get(key) === current) destinationLocks.delete(key);
+  }
+}
+
+function boardRoot(path: string): string | null {
+  return /^(?:game\/[^/]+\/)?boards\//i.exec(path)?.[0] ?? null;
+}
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;
   for (let i = 0; i < left.length; i += 1) if (left[i] !== right[i]) return false;

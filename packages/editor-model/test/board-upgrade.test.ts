@@ -1,4 +1,6 @@
 import { deepEqual, equal, match, ok } from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { test } from "node:test";
 import { boardGrid, coordLayout, decodeBoard, stackedToRotated, tileToPixel } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
@@ -87,6 +89,30 @@ void test("tile-to-pixel marks the board and leaves object coordinates and scrip
   const alreadyPixels = planBoardCoordinateUpgrade(result.value.board, "tile-to-pixel");
   ok(!alreadyPixels.ok);
 });
+void test("stacked-to-rotated refuses destination grids and run streams beyond board limits", () => {
+  const template = decoded(exampleBoard(4)).board;
+  const oversized = planBoardCoordinateUpgrade({
+    ...template,
+    sizeX: 2048,
+    sizeY: 2047,
+    sizeL: 1,
+    coordType: (template.coordType & 4) | 1,
+  }, "stacked-to-rotated");
+  ok(!oversized.ok);
+  match(oversized.message, /beyond the board limit/);
+
+  const alternating = planBoardCoordinateUpgrade({
+    ...template,
+    sizeX: 256,
+    sizeY: 256,
+    sizeL: 1,
+    coordType: (template.coordType & 4) | 1,
+    tileMatrix: Array.from({ length: 256 * 256 }, (_, index) => index % 2),
+  }, "stacked-to-rotated");
+  ok(!alternating.ok);
+  match(alternating.message, /more run records/);
+});
+
 
 void test("pre-vector upgrade writes a reopenable copy and retains the original bytes", async () => {
   const original = exampleBoard(3);
@@ -196,4 +222,46 @@ void test("source changes during the preview are not copied", async () => {
   match(result.error.message, /changed while.*reviewed/i);
   equal(host.bytesOf(copyPath), undefined);
   deepEqual(host.bytesOf(sourcePath), changed);
+});
+void test("upgrade refuses cross-game destinations and case-folded collisions", async () => {
+  const original = exampleBoard(3);
+  const host = createMemoryPlatformServices({
+    files: { [sourcePath]: original, "Boards/ENTRY.UPGRADED.BRD": Uint8Array.of(7) },
+  });
+  host.answerQuestions("preview");
+  host.answerSavePaths("boards/entry.upgraded.brd");
+  const collision = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  ok(!collision.ok);
+  equal(collision.error.code, "already-exists");
+  deepEqual(host.bytesOf("Boards/ENTRY.UPGRADED.BRD"), Uint8Array.of(7));
+
+  const otherGame = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  otherGame.answerQuestions("preview");
+  otherGame.answerSavePaths("Game/Elsewhere/Boards/Entry.upgraded.brd");
+  const refused = await upgradeBoardCopy({
+    fs: otherGame.fs, dialogs: otherGame.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  ok(!refused.ok);
+  match(refused.error.message, /same game's Boards folder/i);
+  equal(otherGame.bytesOf("Game/Elsewhere/Boards/Entry.upgraded.brd"), undefined);
+});
+
+const legacyTextBoard = resolve("fixtures/legacy/Caoquest/Boards/Cao's house.brd");
+void test("upgrade refuses a real Toolkit 2 text board", {
+  skip: existsSync(legacyTextBoard) ? false : "run pnpm fixtures:fetch",
+}, async () => {
+  const original = new Uint8Array(readFileSync(legacyTextBoard));
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  const refused = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  ok(!refused.ok);
+  match(refused.error.message, /binary pre-vector board|text boards/i);
+  equal(host.questions.length, 0);
+  equal(host.bytesOf(copyPath), undefined);
 });
