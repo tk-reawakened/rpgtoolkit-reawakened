@@ -465,7 +465,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     const unsettled = await this.settleViews(this.#settleReason());
     if (unsettled !== null) {
       const path = this.model.identity.path;
-      const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled}. Nothing was written and the edits it holds stay unsaved; save again.` } };
+      const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled.replace(/\.+$/, "")}. Nothing was written and the edits it holds stay unsaved; save again.` } };
       this.#saves += 1;
       this.#lastSave = failed;
       return failed;
