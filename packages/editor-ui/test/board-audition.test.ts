@@ -4,7 +4,7 @@ import { equal, ok, deepEqual } from "node:assert/strict";
 import type { AudioOutputService } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { applyMainSettings, createCommandRegistry } from "@tk-reawakened/editor-model";
-import { newProjectMainFile, writeMainFile } from "@tk-reawakened/core";
+import { decodeMidi, newProjectMainFile, writeMainFile } from "@tk-reawakened/core";
 import { auditionFormatOf, createAuditionCommands, createAuditionControls, loadAuditionInput, type AuditionOutcome, type BoardAudition } from "../src/board-audition.ts";
 
 // The host must never be reached by these paths: the source is judged before any playback starts.
@@ -28,7 +28,8 @@ function valueOf<T>(outcome: AuditionOutcome<T>): T {
   return outcome.value;
 }
 
-const MIDI = new Uint8Array([77, 84, 104, 100, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 77, 84, 114, 107, 0, 0, 0, 4, 0, 255, 47, 0]);
+// A hand-authored Standard MIDI File, format 0: one track with middle C on at tick 0 and off at tick 96.
+const MIDI = new Uint8Array([77, 84, 104, 100, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 77, 84, 114, 107, 0, 0, 0, 12, 0, 144, 60, 100, 96, 128, 60, 0, 0, 255, 47, 0]);
 const BANK = new Uint8Array([83, 70, 50]);
 
 // A main file whose audio block names the given SoundFont.
@@ -87,6 +88,10 @@ test("a missing WAV names the file and the Media folder", async () => {
 test("a MIDI whose main file cannot be read says so instead of playing silently", async () => {
   const files = { "Media/theme.mid": new Uint8Array([77, 84, 104, 100]) };
   equal(refusalOf(await loadAuditionInput(auditionOf(files, "main.gam"), "theme.mid")), 'Could not read the project\'s main file "main.gam".');
+});
+
+test("the hand-authored MIDI fixture decodes as a Standard MIDI File", () => {
+  ok(decodeMidi(MIDI).ok);
 });
 
 test("a MIDI plays with the SoundFont its project names", async () => {
