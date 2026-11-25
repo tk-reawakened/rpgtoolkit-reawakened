@@ -239,9 +239,9 @@ after = [{ epic = 11, needs = "existing document, platform-services, native tabs
 
 
 [[epic]]
-id = 31
+id = 32
 tracker_id = "#3471"
 slug = "epic-runtime-audio-formats"
 title = "Compressed audio: runtime audio formats"
 covers = ["CAP-7", "CAP-12"]
-after = [{ epic = 6, needs = "the existing audio metadata, source, PCM, and cue conformance seams (6.5, 6.11, 6.12, 6.15)" }, { epic = 9, needs = "the existing playback and packaged-game paths (9.5, 9.7, 9.11, 9.16); 31.1 separately checks Worklet and mobile host evidence" }]
+after = [{ epic = 6, needs = "the existing audio metadata, source, PCM, and cue conformance seams (6.5, 6.11, 6.12, 6.15)" }, { epic = 9, needs = "the existing playback and packaged-game paths (9.5, 9.7, 9.11, 9.16); 32.1 separately checks Worklet and mobile host evidence" }]
