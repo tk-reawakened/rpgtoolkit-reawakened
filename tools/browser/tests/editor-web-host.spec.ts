@@ -859,7 +859,7 @@ test("browser board upgrade rechecks changed game ownership and refuses a siblin
   await page.evaluate(async (bytes) => {
     const write = (window as ProofWindow).__tkrWriteTestFile;
     if (write === undefined) throw new Error("The browser test folder writer is missing.");
-    await write("Main/B.gam", bytes);
+    await write("B.gam", bytes);
   }, Array.from(mainB.value));
   await page.evaluate(() => {
     const denyRead = (window as ProofWindow).__tkrDenyFileRead;
@@ -899,7 +899,7 @@ test("browser board upgrade rechecks changed game ownership and refuses a siblin
   const upgradeSearch = page.getByRole("combobox", { name: "Search commands and files" });
   await upgradeSearch.fill("Upgrade a pre-vector board");
   await upgradeSearch.press("Enter");
-  const readFailure = page.getByRole("dialog").filter({ hasText: "Could not refresh game ownership: Could not read Main/B.gam:" });
+  const readFailure = page.getByRole("dialog").filter({ hasText: "Could not refresh game ownership: Could not read B.gam:" });
   await expect(readFailure).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(1);
   await readFailure.getByRole("button", { name: "OK", exact: true }).click();
@@ -990,6 +990,18 @@ test("browser board upgrade uses live Main inventory after the originally select
   await saveDialog.getByRole("textbox").fill(destination);
   await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByRole("tab", { name: destination, exact: true })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async ({ path, original }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) return false;
+    try {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      const file = await parent.getFileHandle(parts.at(-1)!);
+      const bytes = [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+      return bytes.length > 0 && (bytes.length !== original.length || bytes.some((value, index) => value !== original[index]));
+    } catch { return false; }
+  }, { path: destination, original: sourceBytes })).toBe(true);
   const disk = await page.evaluate(async ({ sourcePath, destinationPath }) => {
     const root = (window as ProofWindow).__tkrTestFolder;
     if (!root) throw new Error("The owned browser folder is missing.");

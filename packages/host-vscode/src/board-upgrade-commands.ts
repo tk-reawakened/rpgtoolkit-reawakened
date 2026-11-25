@@ -1,6 +1,6 @@
 import { foldPath } from "@tk-reawakened/core";
 import type * as vscode from "vscode";
-import { createBoardCoordinateUpgradeCommand, projectLayoutOfMain, projectLayoutOwnerForDocumentPath, reservedFolder, resolveReservedFolderPath, upgradeBoardCopy, type BoardUpgradeOperation, type ProjectLayoutOwner } from "@tk-reawakened/editor-model";
+import { createBoardCoordinateUpgradeCommand, projectLayoutOfMainFromBytes, projectLayoutOwnerForDocumentPath, reservedFolder, resolveReservedFolderPath, upgradeBoardCopy, type BoardUpgradeOperation, type ProjectLayout, type ProjectLayoutOwner } from "@tk-reawakened/editor-model";
 import type { DialogService, FileSystemService } from "@tk-reawakened/platform-services";
 import type { GameEditorProvider } from "./custom-editor.ts";
 
@@ -17,6 +17,17 @@ interface BoardChoice {
   readonly uri: vscode.Uri;
   readonly path: string;
   readonly boardsRoot: string;
+  readonly owner: ProjectLayoutOwner;
+}
+
+interface VscodeProjectLayoutOwner extends ProjectLayoutOwner {
+  readonly prospectiveLayout: ProjectLayout | null;
+}
+
+function sameOwner(left: ProjectLayoutOwner | null, right: ProjectLayoutOwner | null): boolean {
+  return left !== null && right !== null
+    && left.mainPath === right.mainPath
+    && foldPath(left.layout.projectFolder) === foldPath(right.layout.projectFolder);
 }
 
 function isWithin(path: string, root: string): boolean {
@@ -29,13 +40,12 @@ async function projectBoardRoots(
   api: VscodeApi,
   folder: vscode.WorkspaceFolder,
   fileSystem: BoardUpgradeCommandHost["fileSystem"],
-): Promise<{ readonly roots: string[]; readonly failures: string[]; readonly owners: ProjectLayoutOwner[] }> {
+): Promise<{ readonly roots: string[]; readonly failures: string[]; readonly owners: VscodeProjectLayoutOwner[] }> {
   const fs = fileSystem(folder.uri);
   const projectId = folder.uri.toString();
   const list = (path: string) => fs.listProject(projectId, path);
-  const layoutFs = { readProject: fs.readProject, list };
   const requested = new Map([[foldPath("boards"), "boards"]]);
-  const owners: ProjectLayoutOwner[] = [];
+  const owners: VscodeProjectLayoutOwner[] = [];
   const failures: string[] = [];
   try {
     const rootEntries = await api.workspace.fs.readDirectory(folder.uri);
@@ -46,8 +56,18 @@ async function projectBoardRoots(
       for (const [name, type] of mainEntries) {
         if ((type & api.FileType.File) === 0 || !/\.gam$/i.test(name)) continue;
         const mainPath = `${main[0]}/${name}`;
-        const layout = await projectLayoutOfMain(layoutFs, projectId, mainPath);
-        owners.push({ mainPath, layout });
+        const readable = await fs.readProject(projectId, mainPath);
+        if (!readable.ok) {
+          if (readable.error.code === "not-found") continue;
+          throw new Error(`Could not read ${mainPath}: ${readable.error.message}`);
+        }
+        const layout = await projectLayoutOfMainFromBytes({ list }, readable.value, mainPath);
+        const prospective = await projectLayoutOfMainFromBytes({ list }, readable.value, mainPath, true);
+        owners.push({
+          mainPath,
+          layout,
+          prospectiveLayout: foldPath(prospective.projectFolder) !== foldPath(layout.projectFolder) ? prospective : null,
+        });
         const requestedRoot = reservedFolder(layout, "boards");
         requested.set(foldPath(requestedRoot), requestedRoot);
       }
@@ -89,7 +109,7 @@ async function boardChoice(
     reservedFolder(owner.layout, "boards"),
   );
   if (resolved.failure !== null || !isWithin(path, resolved.path)) return undefined;
-  return { uri, path, boardsRoot: resolved.path };
+  return { uri, path, boardsRoot: resolved.path, owner };
 }
 
 async function projectBoards(
@@ -147,10 +167,11 @@ async function projectBoards(
         }
         if (ownerBoardsRoot === null || !isWithin(childPath, ownerBoardsRoot)) continue;
         const key = foldPath(childPath);
-        const choice = {
+        const choice: BoardChoice = {
           uri: api.Uri.joinPath(folder.uri, ...childPath.split("/")),
           path: childPath,
           boardsRoot: ownerBoardsRoot,
+          owner,
         };
         const previous = byPath.get(key);
         if (previous !== undefined && previous.path !== choice.path) {
@@ -270,10 +291,13 @@ export function registerBoardUpgradeCommands(
           const discovered = await projectBoardRoots(api, folder, fileSystem);
           if (discovered.failures.length > 0) return false;
           const sourceOwner = projectLayoutOwnerForDocumentPath(choice.path, discovered.owners);
-          const destinationOwner = projectLayoutOwnerForDocumentPath(destination, discovered.owners);
-          if (sourceOwner === null || destinationOwner === null
-            || sourceOwner.mainPath !== destinationOwner.mainPath
-            || foldPath(sourceOwner.layout.projectFolder) !== foldPath(destinationOwner.layout.projectFolder)) return false;
+          if (sourceOwner === null || !sameOwner(sourceOwner, choice.owner)) return false;
+          const destinationOwners: ProjectLayoutOwner[] = discovered.owners.map((owner) => ({
+            mainPath: owner.mainPath,
+            layout: owner.prospectiveLayout ?? owner.layout,
+          }));
+          const destinationOwner = projectLayoutOwnerForDocumentPath(destination, destinationOwners);
+          if (destinationOwner === null || !sameOwner(sourceOwner, destinationOwner)) return false;
           const sourceBoards = await resolveReservedFolderPath(
             { list: (candidate) => fs.listProject(projectId, candidate) },
             reservedFolder(sourceOwner.layout, "boards"),

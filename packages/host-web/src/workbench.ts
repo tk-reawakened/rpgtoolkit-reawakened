@@ -144,20 +144,22 @@ export interface Workbench {
   dispose(): void;
 }
 
+interface BrowserProjectLayoutOwner extends ProjectLayoutOwner {
+  readonly prospectiveLayout: ProjectLayout | null;
+}
 async function declaredProjectLayouts(
   project: WebProject,
   selectedMain: string | null,
   requireReadable = false,
-): Promise<readonly ProjectLayoutOwner[]> {
-  const roots = await resolveReservedFolderPath(project.services.fs, "Main");
-  if (roots.failure !== null) throw new Error(`Could not locate Main: ${roots.failure.error.message}`);
+): Promise<readonly BrowserProjectLayoutOwner[]> {
   const paths = new Set<string>();
   if (selectedMain !== null) paths.add(selectedMain);
   const visit = async (folder: string): Promise<void> => {
     const listed = await project.services.fs.list(folder);
     if (!listed.ok) {
       if (listed.error.code === "not-found") return;
-      throw new Error(`Could not list ${folder || "."}: ${listed.error.message}`);
+      if (requireReadable) throw new Error(`Could not list ${folder || "."}: ${listed.error.message}`);
+      return;
     }
     for (const entry of listed.value) {
       const path = folder === "" ? entry.name : `${folder}/${entry.name}`;
@@ -165,20 +167,26 @@ async function declaredProjectLayouts(
       else if (entry.kind === "file" && /\.gam$/i.test(entry.name)) paths.add(path);
     }
   };
-  await visit(roots.path);
-  const owners = await Promise.all([...paths].map(async (mainPath): Promise<ProjectLayoutOwner | null> => {
+  await visit("");
+  const owners = await Promise.all([...paths].map(async (mainPath): Promise<BrowserProjectLayoutOwner | null> => {
     const readable = await project.services.fs.readProject(project.project.id, mainPath);
     if (!readable.ok) {
       if (readable.error.code === "not-found") return null;
       if (requireReadable) throw new Error(`Could not read ${mainPath}: ${readable.error.message}`);
-      return { mainPath, layout: { projectFolder: "" } };
+      return { mainPath, layout: { projectFolder: "" }, prospectiveLayout: null };
     }
+    const layout = await projectLayoutOfMainFromBytes(project.services.fs, readable.value, mainPath);
+    const prospective = requireReadable
+      ? await projectLayoutOfMainFromBytes(project.services.fs, readable.value, mainPath, true)
+      : null;
     return {
       mainPath,
-      layout: await projectLayoutOfMainFromBytes(project.services.fs, readable.value, mainPath, requireReadable),
+      layout,
+      prospectiveLayout: prospective !== null
+        && foldPath(prospective.projectFolder) !== foldPath(layout.projectFolder) ? prospective : null,
     };
   }));
-  return owners.filter((owner): owner is ProjectLayoutOwner => owner !== null);
+  return owners.filter((owner): owner is BrowserProjectLayoutOwner => owner !== null);
 }
 
 /**
@@ -196,16 +204,16 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const layout = createLayoutModel(DEFAULT_WORKBENCH_PANELS);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
-  let declaredLayouts: Promise<readonly ProjectLayoutOwner[]> | null = null;
-  let knownLayouts: readonly ProjectLayoutOwner[] | null = null;
-  const layouts = (): Promise<readonly ProjectLayoutOwner[]> => {
+  let declaredLayouts: Promise<readonly BrowserProjectLayoutOwner[]> | null = null;
+  let knownLayouts: readonly BrowserProjectLayoutOwner[] | null = null;
+  const layouts = (): Promise<readonly BrowserProjectLayoutOwner[]> => {
     declaredLayouts ??= declaredProjectLayouts(project, main).then((owners) => {
       knownLayouts = owners;
       return owners;
     });
     return declaredLayouts;
   };
-  const refreshLayouts = async (): Promise<readonly ProjectLayoutOwner[]> => {
+  const refreshLayouts = async (): Promise<readonly BrowserProjectLayoutOwner[]> => {
     const owners = await declaredProjectLayouts(project, main, true);
     knownLayouts = owners;
     declaredLayouts = Promise.resolve(owners);
@@ -551,7 +559,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       isDestinationOwnedBySource: async (destination) => {
         const freshOwners = await refreshLayouts();
         const sourceOwner = projectLayoutOwnerForDocumentPath(boardPath, freshOwners);
-        const destinationOwner = projectLayoutOwnerForDocumentPath(destination, freshOwners);
+        const destinationOwners = freshOwners.map(({ prospectiveLayout, ...candidate }) => ({
+          ...candidate,
+          layout: prospectiveLayout ?? candidate.layout,
+        }));
+        const destinationOwner = projectLayoutOwnerForDocumentPath(destination, destinationOwners);
         if (sourceOwner === null || destinationOwner === null
           || sourceOwner.mainPath !== owner.mainPath
           || foldPath(sourceOwner.layout.projectFolder) !== foldPath(owner.layout.projectFolder)

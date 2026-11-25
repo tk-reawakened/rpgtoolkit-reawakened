@@ -307,6 +307,27 @@ test("VS Code upgrade refuses a copy in a nested game's project root even when i
   harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
 });
 
+test("VS Code upgrade refuses a destination that would activate a missing nested game's declared root", async () => {
+  const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
+  const mainA = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  const mainB = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A/Boards/Future" });
+  ok(mainA.ok, mainA.ok ? "" : mainA.error.message);
+  ok(mainB.ok, mainB.ok ? "" : mainB.error.message);
+  const source = "Game/A/Boards/Region/Old.brd";
+  const destination = "Game/A/Boards/Future/Boards/Copy.brd";
+  const harness = boardUpgradeHarness({
+    "Main/A.gam": mainA.value,
+    "Main/B.gam": mainB.value,
+    "Boards/Modern.brd": boardExample,
+    [source]: oldBytes,
+  }, destination, source);
+  await harness.executeCommand("tkr.upgradePreVectorBoard", harness.makeUri("/project/Boards/Modern.brd"));
+  equal(harness.host.bytesOf(destination), undefined);
+  deepEqual(harness.host.bytesOf(source), oldBytes);
+  ok(harness.errors.some((message) => /owning game/.test(message)), harness.errors.join("; "));
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+});
+
 test("VS Code pre-vector picker refuses distinct board paths that collide after case folding", async () => {
   const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
   const modernPath = "Boards/Modern.brd";
