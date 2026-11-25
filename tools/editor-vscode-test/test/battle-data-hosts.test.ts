@@ -146,18 +146,46 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       const tab = await openReady(proof, SPC, "Damage (FP)");
       await type(tab, "Damage (FP)", "9999999999");
       ok(tab.element.textContent?.includes("whole number from -2147483648 to 2147483647"));
-      // The browser's Save All is an explicit save, so a field the file cannot store refuses it. VS Code hands a custom
-      // document no save reason (@types/vscode 1.90) and `files.autoSave` drives the same path (ADR 0022 D14.1), so its
-      // native save settles as a backup: the document saves without the field, which #3385 tracks, and the refused text
-      // stays on screen with its reason rather than disappearing.
-      if (proof.name === "browser host") {
-        equal(await tab.saveFromWorkbench(), false, "the explicit Save All is refused");
-        ok(same(await proof.disk(SPC), fireball), "nothing was written");
-      } else {
-        equal(await tab.saveFromWorkbench(), true);
-        ok(tab.element.textContent?.includes("whole number from -2147483648 to 2147483647"), "the field keeps its reason");
-        ok(same(await proof.disk(SPC), fireball), "and holds no rounded value");
-      }
+      // Both hosts treat the host's own save as explicit: a field the file cannot store refuses it with its reason.
+      equal(await tab.saveFromWorkbench(), false, "the host's save is refused");
+      ok(same(await proof.disk(SPC), fireball), "nothing was written");
+      ok(tab.element.textContent?.includes("whole number from -2147483648 to 2147483647"), "and the field keeps its reason");
+    });
+
+    test("a document whose only change is text still being typed is saved by the host's own save, with that text (#3385)", async () => {
+      const proof = host();
+      const tab = await openReady(proof, SPC, "Damage (FP)");
+      const input = field(tab, "Damage (FP)");
+      await act(() => { input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await settle(act);
+      // VS Code saves only a dirty custom document, so it shows one while a field holds text; the browser's Save All
+      // settles every document explicitly first, so it needs no mark.
+      if (proof.name !== "browser host") equal(tab.workbenchDirty(), true, "VS Code shows the document as unsaved while a field holds text it does not have");
+      ok(same(await proof.disk(SPC), fireball), "nothing is written by typing");
+      equal(await tab.saveFromWorkbench(), true);
+      await settle(act);
+      const written = await proof.disk(SPC);
+      ok(written !== null && written.length === fireball.length, "the file keeps its length");
+      equal(new DataView(written.buffer, written.byteOffset).getInt32(0x1e, true), -30, "the typed damage was written");
+      equal(tab.workbenchDirty(), false);
+    });
+
+    test("with autosave after a delay, a save inside it leaves a refused draft alone instead of refusing or applying it (#3385)", async () => {
+      if (entry === "browser host") return;
+      const { createVscodeCharacterProofHost }: typeof VscodeHost = await import("../conformance/vscode-host.ts");
+      document.body.replaceChildren();
+      const timed = createVscodeCharacterProofHost(entry === "VS Code desktop", gam, FILES, act, { autoSaveDelayMs: 60_000 });
+      const tab = await openReady(timed, SPC, "Damage (FP)");
+      await type(tab, "Damage (FP)", "-30");
+      const input = field(tab, "Damage (FP)");
+      await act(() => { input.value = "9999999999"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await settle(act);
+      equal(await tab.saveFromWorkbench(), true, "an autosave is not refused for a field it must not judge");
+      await settle(act);
+      equal(field(tab, "Damage (FP)").value, "9999999999", "and the text stays with the author");
+      const written = await timed.disk(SPC);
+      ok(written !== null);
+      equal(new DataView(written.buffer, written.byteOffset).getInt32(0x1e, true), -30, "only the accepted edit was written");
     });
   });
 }

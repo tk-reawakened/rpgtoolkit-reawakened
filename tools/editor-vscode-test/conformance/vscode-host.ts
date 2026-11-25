@@ -507,6 +507,7 @@ class Workbench {
         script.opened.push(path);
         await this.focusOrOpen(path);
       },
+      autoSaveDelayMs: () => host.autoSaveDelayMs ?? null,
       ...(host.settleTimers === undefined ? {} : {
         startSettleTimer: (onExpire: () => void) => {
           const timers = host.settleTimers!;
@@ -727,6 +728,8 @@ class VscodeHost implements ConformanceHost {
   readonly drive = new Disk();
   /** Timers the provider started for a save's wait on a webview, when a proof controls them: expired by hand, never by elapsed time. */
   readonly settleTimers: Array<() => void> | undefined;
+  /** `files.autoSave` is `afterDelay` with this delay, or off when undefined; a save inside it reads as an autosave (ADR 0022 D12.10 item 3). */
+  autoSaveDelayMs: number | undefined;
   readonly backups = new Map<string, Uint8Array>();
   readonly #backupIdsByDocument = new Map<string, string>();
   revertCommands = 0;
@@ -975,10 +978,11 @@ export function createVscodeCharacterProofHost(
   gam: Uint8Array,
   files: Readonly<Record<string, Uint8Array>>,
   act: Act,
-  options: { readonly controlSettleTimers?: boolean } = {},
+  options: { readonly controlSettleTimers?: boolean; readonly autoSaveDelayMs?: number } = {},
 ): CharacterProofHost {
   const timers: Array<() => void> = [];
   const host = new VscodeHost(desktop, gam, act, files, options.controlSettleTimers === true ? timers : undefined);
+  host.autoSaveDelayMs = options.autoSaveDelayMs;
   return {
     name: host.name,
     async open(path): Promise<CharacterProofTab> {

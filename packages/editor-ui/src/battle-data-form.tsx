@@ -129,6 +129,8 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const publishDrafts = (next: Readonly<Record<string, string>>): void => {
     draftsRef.current = next;
     setDrafts(next);
+    // The host shows the document as unsaved while a field holds text it does not have, so its own Save All reaches it.
+    pendingEdits.draftChanged();
   };
   const fields = useRef(new Map<string, () => Promise<void>>());
   const saved = `${what[0]!.toUpperCase()}${what.slice(1)} saved.`;
@@ -162,6 +164,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   // a revert drops text typed against the version being discarded, with the message that named it.
   useEffect(() => pendingEdits.register({
     busy: () => submitted.current.busy(),
+    holdsDraft: () => Object.keys(draftsRef.current).length > 0,
     // Asked on every settlement: a field the file cannot store refuses the host's save with its reason, so a host save
     // cannot report success while that text is left behind.
     // Only an explicit save is refused, and only while a draft remains that the file could not store: a backup, a query

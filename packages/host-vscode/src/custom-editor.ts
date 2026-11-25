@@ -190,6 +190,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** Explicit Save commands from this editor's own Save button that have not finished; their saves are never `auto`. */
   #restoreGroupId: string | null = null;
   #explicitSaves = 0;
+  #draftMarked = false;
 
   #now(): number {
     return this.#port.now?.() ?? Date.now();
@@ -244,15 +245,38 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** Track a webview of this document; the returned function forgets it (its panel was disposed). */
-  attachWebview(post: (requestId: string, reason?: "explicit" | "autosave" | "revert" | "query") => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
-    const target: SettleTarget = { post, waiting: new Map(), ...(notify === undefined ? {} : { notify }) };
+  attachWebview(post: (requestId: string, reason?: "explicit" | "autosave" | "revert" | "query") => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): AttachedView {
+    const target: SettleTarget = { post, waiting: new Map(), drafted: false, ...(notify === undefined ? {} : { notify }) };
     this.#views.add(target);
-    return () => {
-      this.#views.delete(target);
-      // The view may have accepted edits before it disappeared. Without its answer we cannot claim they reached the
-      // model, so a concurrent save/revert/backup must fail rather than proceed on a partial snapshot.
-      for (const answer of [...target.waiting.values()]) answer(false);
+    return {
+      detach: () => {
+        this.#views.delete(target);
+        target.drafted = false;
+        this.#draftsChanged();
+        // The view may have accepted edits before it disappeared. Without its answer we cannot claim they reached the
+        // model, so a concurrent save/revert/backup must fail rather than proceed on a partial snapshot.
+        for (const answer of [...target.waiting.values()]) answer(false);
+      },
+      drafted: (pending) => {
+        target.drafted = pending;
+        this.#draftsChanged();
+      },
     };
+  }
+
+  /**
+   * VS Code asks a custom document to save only while it is dirty, so a Save All would skip a document whose only change
+   * is text a field is still holding (#3385). While any view holds a draft the document is shown as unsaved, through an
+   * edit whose undo and redo change nothing: the save that follows settles as an explicit one (`save()`), applies the
+   * text, and writes it. Not done while `files.autoSave` is `afterDelay`, where the same mark would let a timer save
+   * around a half-typed field (D11.2); there the view's own Save and Ctrl/Cmd+S apply it.
+   */
+  #draftsChanged(): void {
+    const holds = [...this.#views].some((view) => view.drafted);
+    if (!holds) { this.#draftMarked = false; return; }
+    if (this.#draftMarked || (this.#port.autoSaveDelayMs?.(this.uri) ?? null) !== null) return;
+    this.#draftMarked = true;
+    this.#fire({ document: this, label: "Edit field", undo: () => undefined, redo: () => undefined });
   }
 
   /** A webview answered a `settle` request: every edit it had accepted has reached this model. */
@@ -434,9 +458,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * before it records the save is outside the provider's reach (ADR 0022 D14.6, #2225).
    */
   async save(): Promise<SaveResult> {
-    // VS Code hands a custom document no save reason, and `files.autoSave` drives this same path (ADR 0022 D14.1), so a
-    // save from here must not commit a half-typed field: the view's own Save and Ctrl/Cmd+S do that explicitly.
-    const unsettled = await this.settleViews("autosave");
+    // VS Code hands a custom document no save reason, and `files.autoSave` drives this same path (ADR 0022 D14.1). The
+    // timer-based classification below is the best the host can know: an autosave must not commit a half-typed field
+    // (D11.2); any other save is the author's, so the field they are typing in is applied, or refused with its reason.
+    // The reason is the one ADR 0022 D12.10 item 3 already uses for history: an `afterDelay` timer's save is recorded as
+    // automatic, and nothing else is.
+    const unsettled = await this.settleViews(this.#saveReason() === "auto" ? "autosave" : "explicit");
     if (unsettled !== null) {
       const path = this.model.identity.path;
       const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled}. Nothing was written and the edits it holds stay unsaved; save again.` } };
@@ -519,6 +546,14 @@ interface SettleTarget {
   notify?(message: BridgeMessage): void;
   /** A hand-off answer: `settled` is false when the view could not confirm its accepted edits; the message is a reason it refuses. */
   readonly waiting: Map<string, (settled: boolean, message?: string) => void>;
+  /** Whether this view holds text the document does not (#3385). */
+  drafted: boolean;
+}
+
+/** What `attachWebview` hands back: forget the view, or record whether it holds an unapplied draft. */
+export interface AttachedView {
+  detach(): void;
+  drafted(pending: boolean): void;
 }
 
 /** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
@@ -913,9 +948,10 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
         void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
       });
-      const detach = document.attachWebview((requestId, reason) => webview.postMessage({ type: "settle", requestId, ...(reason === undefined ? {} : { reason }) }), (message) => { void webview.postMessage(message); });
+      const view = document.attachWebview((requestId, reason) => webview.postMessage({ type: "settle", requestId, ...(reason === undefined ? {} : { reason }) }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
+        if (message.type === "drafts") { view.drafted(message.pending); return; }
         if (document.model.kind === "font" && (message.type === "edit" || message.type === "workbench-history")) {
           // Order the operations at the shared document, not in an iframe awaiting replies. A history call must
           // complete in VS Code before the next stroke is registered, even if either webview receives its reply late.
@@ -934,7 +970,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       });
       const disposal = webview.onDidDispose(() => {
         subscription();
-        detach();
+        view.detach();
         browserSubscription();
         preferenceWatch?.dispose();
         messages.dispose();

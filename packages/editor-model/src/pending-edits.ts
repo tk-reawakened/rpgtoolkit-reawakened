@@ -31,6 +31,8 @@ export interface PendingEditWork {
    * revert still settle accepted edits and never apply or reject a draft, so they never refuse.
    */
   refusal?(reason: SettleReason | undefined): string | null;
+  /** Whether the view holds text the document does not (typed but not yet applied), so a host can show the document as unsaved. */
+  holdsDraft?(): boolean;
 }
 
 /** What a view needs to take part: register its work, and wait for every view's work (its own Save waits for its siblings). */
@@ -41,6 +43,12 @@ export interface PendingEdits {
   busy(): boolean;
   /** Resolves once no registered view is busy, including work submitted while waiting, and says whether one refused. */
   settle(reason?: SettleReason): Promise<SettleOutcome>;
+  /** Whether any registered view holds text the document does not. */
+  holdsDraft(): boolean;
+  /** A view's draft appeared or went away: listeners hear the registry's new answer, once per change. */
+  draftChanged(): void;
+  /** Hear when `holdsDraft()` changes, until the returned function is called. */
+  onDraftChange(listener: (holds: boolean) => void): () => void;
 }
 
 function refusalOf(works: readonly PendingEditWork[], reason: SettleReason | undefined): SettleOutcome {
@@ -54,12 +62,27 @@ function refusalOf(works: readonly PendingEditWork[], reason: SettleReason | und
 export function createPendingEdits(): PendingEdits {
   const works = new Set<PendingEditWork>();
   const busy = (): boolean => [...works].some((work) => work.busy());
+  const holdsDraft = (): boolean => [...works].some((work) => work.holdsDraft?.() === true);
+  const listeners = new Set<(holds: boolean) => void>();
+  let announced = false;
+  const draftChanged = (): void => {
+    const holds = holdsDraft();
+    if (holds === announced) return;
+    announced = holds;
+    for (const listener of [...listeners]) listener(holds);
+  };
   return {
     register(work) {
       works.add(work);
-      return () => void works.delete(work);
+      return () => { works.delete(work); draftChanged(); };
     },
     busy,
+    holdsDraft,
+    draftChanged,
+    onDraftChange(listener) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
     async settle(reason) {
       // Every registered view hears the reason, busy or not: an explicit save applies the field being typed in, which no
       // view reports as busy because the document does not hold it yet.

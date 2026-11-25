@@ -137,7 +137,7 @@ test("browser context is retained per project and cannot leak across workspace f
 test("save, revert and backup refuse when a webview cannot confirm its accepted edits", async () => {
   const { files, provider } = workspace();
   const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
-  const detach = document.attachWebview(() => Promise.resolve(false));
+  const detach = document.attachWebview(() => Promise.resolve(false)).detach;
 
   const save = await document.save();
   equal(save.ok, false);
@@ -153,7 +153,7 @@ test("save, revert and backup refuse when a webview cannot confirm its accepted 
 test("disposing a webview while its accepted edits are unsettled does not count as a handoff", async () => {
   const { provider } = workspace();
   const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
-  const detach = document.attachWebview(() => new Promise<boolean>(() => {}));
+  const detach = document.attachWebview(() => new Promise<boolean>(() => {})).detach;
 
   const settling = document.settleViews();
   detach();
