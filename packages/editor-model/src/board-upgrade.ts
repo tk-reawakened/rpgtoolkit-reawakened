@@ -152,9 +152,11 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     if (decoded.value.layout !== "vector") {
       return platformError("invalid-request", `Upgrade ${boardPath} to the vector layout before changing its coordinates.`);
     }
-    const planned = planBoardCoordinateUpgrade(decoded.value.board, operation);
+    const originalBoard = decoded.value.board;
+    const planned = planBoardCoordinateUpgrade(originalBoard, operation);
     if (!planned.ok) return platformError("invalid-request", `${boardPath}: ${planned.message}`);
     ({ board, title, summary } = planned.value);
+    summary = `Board ${originalBoard.sizeX} × ${originalBoard.sizeY}, ${originalBoard.sizeL} layer(s), ${originalBoard.tileMatrix.length} tile cells, ${originalBoard.tileRuns.length} tile runs, ${originalBoard.vectors.length} vectors, ${originalBoard.programs.length} programs, ${originalBoard.sprites.length} sprites, and ${originalBoard.shadeLayers.length} shade layers. ${summary}`;
   }
 
   const encoded = writeBoard(board);

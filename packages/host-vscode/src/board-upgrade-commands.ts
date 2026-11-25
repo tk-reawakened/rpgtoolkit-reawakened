@@ -52,12 +52,12 @@ async function projectBoards(folder: vscode.WorkspaceFolder): Promise<{ readonly
   return { boards: found.sort((left, right) => left.path.localeCompare(right.path)), failures };
 }
 
-async function chooseBoard(): Promise<BoardChoice | undefined> {
+async function chooseBoard(operation: BoardUpgradeOperation): Promise<BoardChoice | undefined> {
   const active = vscode.window.activeTextEditor?.document.uri
     ?? (vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputCustom
       ? vscode.window.tabGroups.activeTabGroup.activeTab.input.uri : undefined);
   const activeChoice = active === undefined ? undefined : boardChoice(active);
-  if (activeChoice !== undefined) return activeChoice;
+  if (operation !== "pre-vector" && activeChoice !== undefined) return activeChoice;
   const folders = vscode.workspace.workspaceFolders ?? [];
   if (folders.length === 0) {
     await vscode.window.showErrorMessage("Open a project folder first: board upgrades read and create files in that project.");
@@ -90,7 +90,7 @@ export function registerBoardUpgradeCommands(
 ): void {
   const register = (id: string, operation: BoardUpgradeOperation): void => {
     context.subscriptions.push(vscode.commands.registerCommand(id, async () => {
-      const choice = await chooseBoard();
+      const choice = await chooseBoard(operation);
       if (choice === undefined) return;
       const folder = vscode.workspace.getWorkspaceFolder(choice.uri);
       if (folder === undefined) {
