@@ -1235,6 +1235,31 @@ test("a scripted game boots from start.prg to its first board with the ruled eff
   equal(state.vm.threads.some((thread) => thread.kind === "board" && thread.status !== "finished"), true);
 });
 
+test("boot installs a project bitmap font, requests it with the other fonts, and skips an invalid .fnt with font.rejected (#1939)", () => {
+  const rows = Array.from({ length: 2048 }, (_, index) => ` ${index % 256} `);
+  const valid = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n");
+  const truncated = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows.slice(0, 2047)].join("\r\n") + "\r\n");
+  const unsupported = encoder.encode(["RPGTLKIT FONT", "3", "1", ...rows].join("\r\n") + "\r\n");
+  const notAFont = encoder.encode("not a bitmap font");
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    fonts: { "Good.ttf": liberation, "mine.fnt": valid, "Short.fnt": truncated, "Text.fnt": notAFont, "Version.fnt": unsupported },
+    boards: { "start.brd": { tiles: [8, 8] } },
+    programs: { "start.prg": 'font("mine")\nwidth = gettextwidth("abc")\nend()\n' },
+  });
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  const result = run(engine, game.files, 30);
+  deepEqual(result.requests.filter((key) => key.startsWith("font/")), ["font/good.ttf", "font/mine.fnt", "font/short.fnt", "font/text.fnt", "font/version.fnt"], "every font under Font\\ is requested in index order");
+  deepEqual(result.diagnostics.map((diagnostic) => [diagnostic.code, diagnostic.file]), [["font.rejected", "font/short.fnt"], ["font.rejected", "font/text.fnt"], ["font.rejected", "font/version.fnt"]], "only supported Toolkit 2 bitmap fonts are installed");
+  const state = doubles.state();
+  equal(state.engine.boot?.stage, "running", "a rejected font does not stop the game");
+  deepEqual(state.engine.boot?.fonts, ["font/good.ttf", "font/mine.fnt"]);
+  deepEqual(state.ui.font, { asset: "font/mine.fnt", size: 20, bold: false, italic: false }, "font(\"mine\") selects the installed bitmap font by its file name and keeps the 3.1 initial size");
+  equal(state.vm.globals.width, 60, "its text is measured with the bitmap advance of one size (20) per character");
+});
+
 test("a Toolkit 2 main file selects its dialect for startup and later project program files", () => {
   const game = authorGame({
     mainMinor: 2,
@@ -4366,3 +4391,61 @@ test("boot keeps simultaneous asset requests waiting across delayed replies and 
 
 
 
+
+test("font() picks an installed project font over a same-named file elsewhere in the project (#1939)", () => {
+  const rows = Array.from({ length: 2048 }, (_, index) => ` ${index % 7} `);
+  const font = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n");
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    fonts: { "retro.fnt": font },
+    boards: { "start.brd": { tiles: [8, 8] } },
+    assets: { "Boards/retro.brd": boardBytes({ tiles: [8, 8] }) },
+    programs: { "start.prg": 'font("retro")\nasset = "done"\nwait()\n' },
+  });
+  // The index holds both names, and the board sorts first: only the installed-font rule can pick the font.
+  ok(game.index.keys.some((key) => key === "boards/retro.brd"));
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  run(engine, game.files, 4);
+  deepEqual(doubles.state().ui.font.asset, "font/retro.fnt", "the installed font wins over Boards/retro.brd");
+});
+
+test("a project font the host cannot supply is reported and skipped, and the game still starts (#1939)", () => {
+  const rows = Array.from({ length: 2048 }, () => " 0 ");
+  const game = authorGame({
+    startup: "start.prg",
+    initChar: "hero.tem",
+    fonts: { "retro.fnt": encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n") },
+    boards: { "start.brd": { tiles: [8, 8] } },
+    programs: { "start.prg": "started = 1\nwait()\n" },
+  });
+  // The index still lists the font, but the host has no bytes for it: startup must not stall on it.
+  game.files.delete(assetKey("font/retro.fnt"));
+  const doubles = makeDoubles();
+  const engine = bootEngine(game, doubles);
+  const result = run(engine, game.files, 10);
+  deepEqual(result.requests.filter((key) => key === "font/retro.fnt"), ["font/retro.fnt"], "a null delivery settles the request for this boot");
+  deepEqual(result.diagnostics.filter((diagnostic) => diagnostic.code === "font.rejected").map((diagnostic) => [diagnostic.file, diagnostic.message]), [
+    ["font/retro.fnt", "font not found: font/retro.fnt"],
+  ]);
+  const state = doubles.state();
+  equal(state.engine.boot?.stage !== "stopped", true, `the game started without the font (stage ${state.engine.boot?.stage})`);
+  deepEqual(state.engine.boot?.fonts, []);
+  equal(state.vm.globals.started, 1, "its startup program ran");
+});
+
+test("a restored game keeps the fonts this session installed, whatever list the older save carries (#1939)", () => {
+  const rows = Array.from({ length: 2048 }, (_, index) => ` ${index % 5} `);
+  const font = encoder.encode(["RPGTLKIT FONT", "2", "0", ...rows].join("\r\n") + "\r\n");
+  const capture = recoveryCandidateWithDurableState({ ...PAUSED_RECOVERY_GAME, fonts: { "retro.fnt": font } });
+  const text = new TextDecoder().decode(capture.candidate);
+  // A save made by an older build lists no project fonts; the session still has one installed and can draw with it.
+  const older = text.replace(/"fonts":\[[^\]]*\]/, '"fonts":[]');
+  ok(older !== text, "the candidate carries the font list");
+  const doubles = makeDoubles();
+  const engine = bootEngine(capture.game, doubles, undefined, undefined, new TextEncoder().encode(older));
+  const result = run(engine, capture.game.files, 40);
+  equal(result.diagnostics.some((diagnostic) => diagnostic.code === "restore.shape"), false, "the candidate restored");
+  deepEqual(doubles.state().engine.boot?.fonts, ["font/retro.fnt"], "the session's installed list is restored, not the save's empty one");
+});

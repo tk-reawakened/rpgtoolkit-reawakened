@@ -9,9 +9,10 @@ import { createWebLanguageService, notifyOnChange, type WebLanguageService } fro
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 import { createWebRunService, type RunPresenter } from "./run.ts";
-import { historyPolicyFrom, type HistoryPolicy } from "@tk-reawakened/editor-model";
+import { historyPolicyFrom, type HistoryPolicy, type HistoryResult } from "@tk-reawakened/editor-model";
 import { asTerrainSceneDocument } from "@tk-reawakened/editor-model";
 import { mountWebTerrainScene } from "./terrain-scene.ts";
+import type { FontViewDocument } from "@tk-reawakened/editor-ui";
 
 /**
  * A project open in the browser host. Its `workspace` is the host's workbench: one model per document, undo by `editId`,
@@ -333,8 +334,30 @@ export const openGameSettings = openEditor;
  * project's files by the one board compositor (AD-29). The workspace types a document by its lifecycle only, so the
  * kind is what says which command and snapshot types it has.
  */
+/** The workspace's own undo/redo result, as the font view reports it. */
+function historyOutcome(result: HistoryResult): { readonly ok: true } | { readonly ok: false; readonly message: string } {
+  return result.ok ? { ok: true } : { ok: false, message: `There is nothing to ${result.reason === "read-only" ? "change: the font is read-only" : result.reason === "nothing-to-undo" ? "undo" : "redo"}.` };
+}
+
 function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
+  if (document.kind === "font") {
+    // The browser workbench owns no stack of its own: Undo and Redo are the document's, as they are for a board.
+    const font = document as unknown as Required<Pick<FontViewDocument, "undo" | "redo">> & FontViewDocument;
+    const view: FontViewDocument = {
+      kind: font.kind,
+      identity: font.identity,
+      getSnapshot: () => font.getSnapshot(),
+      subscribe: (listener) => font.subscribe(listener),
+      apply: (command) => font.apply(command),
+      save: () => font.save(),
+      resolveConflict: (choice) => font.resolveConflict(choice),
+      // The workbench keeps the undo and redo stacks (its menu and palette use them), so the view asks the workbench.
+      undo: () => historyOutcome(project.workspace.undo(document)),
+      redo: () => historyOutcome(project.workspace.redo(document)),
+    };
+    return view;
+  }
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
   if (document.kind === "native-clip") return document as unknown as NativeClipViewDocument;

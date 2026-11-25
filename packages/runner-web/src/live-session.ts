@@ -480,7 +480,17 @@ export async function createLiveSession(options: LiveSessionOptions): Promise<Li
   const hostReply = async (request: RunnerRequest, tick: number): Promise<InputRecord | null> => {
     if (closed) return null;
     switch (request.kind) {
-      case "asset": return { tick, event: { kind: "asset", reqId: request.reqId, bytes: await assets.request(request.key) } };
+      case "asset": {
+        // A font the origin cannot deliver is optional: the engine reports `font.rejected` and starts without it (a package
+        // may name a face it does not ship). Any other asset is required — its failure still stops the load, as before.
+        const optional = /\.(fnt|ttf)$/i.test(request.key);
+        try {
+          return { tick, event: { kind: "asset", reqId: request.reqId, bytes: await assets.request(request.key) } };
+        } catch (cause) {
+          if (!optional) throw cause;
+          return { tick, event: { kind: "asset", reqId: request.reqId, bytes: null } };
+        }
+      }
       case "playVideo": return { tick, event: { kind: "video.ended", reqId: request.reqId } };
       case "loadBlob": {
         const prefix = `${gameId}/`;

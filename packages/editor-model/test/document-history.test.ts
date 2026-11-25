@@ -18,6 +18,7 @@ import {
   DEFAULT_HISTORY_POLICY,
   diffLines,
   ignoreOffer,
+  newFontBytes,
   openHistoryPreview,
   runCheckpointedOperation,
   sha256Hex,
@@ -344,6 +345,32 @@ test("a restore of a read-only open document is refused and says so", async () =
   const report = await workspace.restoreHistoryEntry((await workspace.history.documentTimeline("Main/text.gam"))[0]!.id);
   deepEqual(report.files.map((file) => file.result), ["already-as-wanted"]);
   ok(!doc.restoreVersion(exampleMain(9)).ok);
+});
+
+test("History refuses to restore an unsupported font into a writable editor, but can recover the original bytes while closed", async () => {
+  const path = "Font/retro.fnt";
+  const supported = newFontBytes();
+  const unsupported = new TextEncoder().encode(new TextDecoder().decode(supported).replace("\r\n2\r\n0\r\n", "\r\n3\r\n1\r\n"));
+  const { host, workspace } = setUp({ files: { [path]: supported } });
+  const document = await openDoc(workspace, path);
+  const before = document.getSnapshot();
+  equal(before.readOnly, null);
+  equal((await workspace.history.recordSave(path, unsupported, "manual")).outcome, "recorded");
+  const [entry] = await workspace.history.documentTimeline(path);
+  ok(entry);
+
+  const refusal = await workspace.restoreHistoryEntry(entry.id);
+  deepEqual(refusal.files.map((file) => [file.path, file.result]), [[path, "failed"]]);
+  match(refusal.files[0]?.message ?? "", /3\.1 can be inspected.*Close the file/);
+  equal(document.getSnapshot(), before, "a refused restore adds no edit and leaves the writable document unchanged");
+  deepEqual(host.bytesOf(path), supported, "no bytes were written");
+
+  workspace.release(document);
+  const restored = await workspace.restoreHistoryEntry(entry.id);
+  deepEqual(restored.files.map((file) => [file.path, file.result]), [[path, "restored"]]);
+  deepEqual(host.bytesOf(path), unsupported, "closed-file restore preserves the selected history bytes");
+  const reopened = await openDoc(workspace, path);
+  match(reopened.getSnapshot().readOnly?.message ?? "", /3\.1 can be inspected, but only version 2\.0/);
 });
 
 test("a named checkpoint holds every covered file, lists what history cannot keep, and restores as a group", async () => {

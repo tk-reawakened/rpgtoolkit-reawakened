@@ -61,6 +61,8 @@ export interface GameEditorPort<Uri extends UriLike> {
    * a document the workbench is about to open (one model per identity, ADR 0022 D1.2).
    */
   openEditor(uri: Uri): Promise<void>;
+  /** Run native history only for the active custom-editor tab. */
+  runWorkbenchHistory?(uri: Uri, direction: "undo" | "redo"): Promise<boolean>;
   /** The board-editor preferences (T-33) in force in `folder`, from the host's own settings; the catalogue's defaults when the port gives none. */
   boardPreferences?(folder: WorkspaceFolderLike<Uri>): EditorPreferences;
   /** Call `listener` when the settings that make `boardPreferences` change; the returned handle stops it. */
@@ -110,6 +112,7 @@ export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
   "tkr.board": ["board"],
   "tkr.tileset": ["tileset"],
   "tkr.tileBitmap": ["tile-bitmap"],
+  "tkr.font": ["font"],
   "tkr.animation": ["animation"],
 } as const;
 
@@ -219,6 +222,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         this.#lastEditAt = this.#now();
       }
     });
+  }
+
+  async runHistory(direction: "undo" | "redo"): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> {
+    // Native history invokes the edit event's undo/redo callback; never move the model cursor ahead of it.
+    if (await this.#port.runWorkbenchHistory?.(this.uri, direction)) return { ok: true };
+    return { ok: false, message: "Focus this bitmap font's editor to use Undo or Redo." };
   }
 
   /** Hand an accepted edit to VS Code's undo stack; VS Code undoes it by its `editId` (AD-19). */
@@ -535,6 +544,7 @@ export interface GameEditorProvider<Uri extends UriLike> {
 
 /** Make the provider. `fire` is `onDidChangeCustomDocument`'s emitter. */
 export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void): GameEditorProvider<Uri> {
+  const fontOperations = new WeakMap<GameDocument<Uri>, Promise<void>>();
   const workspaces = new Map<string, { readonly fs: FileSystemService; readonly workspace: DocumentWorkspace; readonly visits: Visits; readonly browserSession: BrowserSession }>();
   const hostDocuments = new WeakMap<AnyDocument, GameDocument<Uri>>();
   /** The live document of each open identity, so a host command outside an editor reaches its settled state. */
@@ -898,6 +908,20 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const detach = document.attachWebview((requestId) => webview.postMessage({ type: "settle", requestId }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
+        if (document.model.kind === "font" && (message.type === "edit" || message.type === "workbench-history")) {
+          // Order the operations at the shared document, not in an iframe awaiting replies. A history call must
+          // complete in VS Code before the next stroke is registered, even if either webview receives its reply late.
+          const apply = () => handleEditorHostRequest(document, message, (reply) => { void webview.postMessage(reply); });
+          const previous = fontOperations.get(document);
+          const operation = previous === undefined ? apply() : previous.then(apply, apply);
+          fontOperations.set(document, operation);
+          try {
+            await operation;
+          } finally {
+            if (fontOperations.get(document) === operation) fontOperations.delete(document);
+          }
+          return;
+        }
         await handleEditorHostRequest(document, message, (reply) => webview.postMessage(reply));
       });
       const disposal = webview.onDidDispose(() => {

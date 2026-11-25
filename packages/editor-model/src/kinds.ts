@@ -8,6 +8,7 @@ import { createTilesetArtDocument, openTilesetArtDocument, tilesetArtCodec, type
 import { animationCodec, createAnimationDocument, openAnimationDocument, type AnimationCommand, type AnimationDocument } from "./animation-document.ts";
 import { createProgramDocument, openProgramDocument, programCodec, type ProgramCommand, type ProgramDocument } from "./program-document.ts";
 import { createTileBitmapDocument, openTileBitmapDocument, tileBitmapCodec, type TileBitmapCommand, type TileBitmapDocument } from "./tile-bitmap-document.ts";
+import { createFontDocument, fontCodec, openFontDocument, type FontCommand, type FontDocument } from "./font-document.ts";
 import { createNativeClipDocument, nativeClipCodec, openNativeClipDocument, type NativeClipCommand, type NativeClipDocument } from "./native-clip-document.ts";
 import { createTerrainSceneDocument, openTerrainSceneDocument, terrainSceneCodec, type TerrainSceneCommand, type TerrainSceneDocument } from "./terrain-scene-document.ts";
 import { createNativeGeometryDocument, nativeGeometryCodecs, openNativeGeometryDocument, type NativeGeometryCommand, type NativeGeometryDocument } from "./native-geometry-document.ts";
@@ -21,12 +22,12 @@ import { createNativeGeometryDocument, nativeGeometryCodecs, openNativeGeometryD
  */
 
 /** The command-data union; it keeps dynamic hosts typed without making commands `any`. */
-export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand | NativeGeometryCommand;
+export type AnyCommand = MainCommand | BoardCommand | SpriteCommand | AnimationCommand | TilesetArtCommand | TileBitmapCommand | FontCommand | ProgramCommand | NativeClipCommand | TerrainSceneCommand | NativeGeometryCommand;
 /** A document whose concrete kind is checked before commands are applied. */
 export type AnyDocument = EditorDocument<DocumentSnapshot<AnyCommand>, AnyCommand>;
 
 /** What Toolkit 3 file the kind stands for, and which row of ADR 0022 D2 it follows. */
-export type StorageClass = "legacy-binary" | "program-text" | "native-text";
+export type StorageClass = "legacy-binary" | "legacy-text" | "program-text" | "native-text";
 
 export interface DocumentKind {
   /** The kind identifier, also `EditorDocument.kind`. */
@@ -112,6 +113,21 @@ export const DOCUMENT_KINDS: readonly DocumentKind[] = [
       return read.ok ? tileBitmapCodec.summary(read.value) : null;
     },
     isCommand: tileBitmapCodec.isCommand,
+    recoveryMarker: () => null,
+  },
+  {
+    id: "font",
+    label: "Bitmap font",
+    description: "A Toolkit 2 bitmap font: 256 characters, each an 8 × 8 glyph, with a sample-text preview.",
+    extensions: [".fnt"],
+    storage: "legacy-text",
+    open: openFontDocument,
+    create: createFontDocument,
+    summarise: (bytes, path) => {
+      const read = fontCodec.read(bytes, path);
+      return read.ok ? fontCodec.summary(read.value) : null;
+    },
+    isCommand: fontCodec.isCommand,
     recoveryMarker: () => null,
   },
   {
@@ -246,6 +262,12 @@ export function asBoardDocument(document: AnyDocument): BoardDocument {
 export function asTileBitmapDocument(document: AnyDocument): TileBitmapDocument {
   if (document.kind !== "tile-bitmap") throw new Error(`${document.identity.path} is a ${document.kind} document, not a tile bitmap.`);
   return document as unknown as TileBitmapDocument;
+}
+
+/** The document as a bitmap font document (see `asMainDocument`). */
+export function asFontDocument(document: AnyDocument): FontDocument {
+  if (document.kind !== "font") throw new Error(`${document.identity.path} is a ${document.kind} document, not a bitmap font.`);
+  return document as unknown as FontDocument;
 }
 /** The document as an animation document (see `asMainDocument`). */
 export function asAnimationDocument(document: AnyDocument): AnimationDocument {

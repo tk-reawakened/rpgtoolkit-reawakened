@@ -30,6 +30,7 @@ import { planPrefetch, prefetchSignature, type PrefetchFacts } from "../prefetch
 import { readBattleBackground } from "../formats/battle/battle-background.ts";
 import { BinaryReader } from "../formats/binary/reader.ts";
 import type { MainFile } from "../formats/main-file/model.ts";
+import { FONT_SUBVERSION, FONT_VERSION, type LegacyFont } from "../formats/font/model.ts";
 import { readLegacyFont } from "../formats/font/reader.ts";
 import { gateTrueType, readTrueTypeFont, type TrueTypeFont } from "../formats/font/truetype.ts";
 import type { AssetKind } from "../formats/main-file/layout.ts";
@@ -391,10 +392,15 @@ const DEFAULT_GAME_AUDIO_SETTINGS = {
   tracks: BUILTIN_TRACKS.map(([name, voiceCount]) => ({ name, voiceCount })),
   voiceCap: MAX_VOICES,
 };
-export function createEngine(init: EngineInit & { readonly stateHashInReports: "on-request" }): OnRequestEngine;
-export function createEngine(init: EngineInit & { readonly stateHashInReports?: "every-advance" }): Engine;
-export function createEngine(init: EngineInit): Engine | OnRequestEngine;
-export function createEngine(init: EngineInit): Engine | OnRequestEngine {
+type WithProjectFonts<T> = T & {
+  /** Project faces installed for the current draw list, not bundled fallback faces. A snapshot for capture/replay. */
+  projectFontKeys(): readonly AssetKey[];
+};
+
+export function createEngine(init: EngineInit & { readonly stateHashInReports: "on-request" }): WithProjectFonts<OnRequestEngine>;
+export function createEngine(init: EngineInit & { readonly stateHashInReports?: "every-advance" }): WithProjectFonts<Engine>;
+export function createEngine(init: EngineInit): WithProjectFonts<Engine | OnRequestEngine>;
+export function createEngine(init: EngineInit): WithProjectFonts<Engine | OnRequestEngine> {
   const index = init.assetIndex;
   let recoveryCandidateBytes = init.mainFile === undefined || init.recoveryCandidate == null
     ? null
@@ -439,7 +445,10 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   let initialCharacterResolved = true;
   let mainKey: AssetKey | null = null;
   const installedFonts = new Map<AssetKey, Uint8Array>();
+  /** Fonts the host could not supply; boot does not wait for them and never installs them. */
+  const missingFontKeys = new Set<AssetKey>();
   const parsedFonts = new WeakMap<Uint8Array, TrueTypeFont | null>();
+  const parsedBitmapFonts = new WeakMap<Uint8Array, LegacyFont>();
   const cache = new Map<AssetKey, Uint8Array>(init.initialAssets ?? []);
   // Source resolution is synchronous; installed sources remain physically available when Load hides newer keys.
   const programSources = new Map<AssetKey, Uint8Array>();
@@ -689,7 +698,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       applyCanvasText(lower === "text", effect.args);
       return;
     }
-    applyUiEffect(state, effect.name, effect.args, (name) => resolveFontAsset(name, index.keys), (owner, message) => {
+    // A font the project installed under Font\ wins over a same-named file elsewhere (Boards/retro.brd vs Font/retro.fnt).
+    applyUiEffect(state, effect.name, effect.args, (name) => resolveFontAsset(name, installedFonts.keys()) ?? resolveFontAsset(name, index.keys), (owner, message) => {
       const thread = state.vm.threads.find((candidate) => candidate.id === owner);
       const location = thread === undefined ? null : threadLocation(thread);
       diagnostics.push({ code: "a11y.surface", file: location?.file ?? mainKey ?? "", line: location?.line ?? 0, message });
@@ -1673,6 +1683,9 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       }
 
       startupServicesReady = true;
+      // The fonts this session installed are the session's: a save may carry an older list, but what the engine and
+      // every renderer can actually draw has not changed, so both must be told the same installed inventory.
+      if (state.engine.boot !== undefined) state.engine.boot = { ...state.engine.boot, fonts: [...installedFonts.keys()] };
       if (projection !== null) audio.load(projection);
       init.spriteRuntime?.bindState(state.sprites, state.vm, resolveSpriteProgram, state.world.board ?? null);
       clearPathfindingCache();
@@ -1779,6 +1792,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
   }
 
   function request(key: AssetKey, kind: RequestEntry["kind"]): void {
+    if (kind === "font" && missingFontKeys.has(key)) return;
     for (const item of pending.values()) if (item.key === key) return;
     if (cache.has(key)) return;
     const entry: RequestEntry = { reqId: nextRequestId++, key, kind };
@@ -2470,6 +2484,19 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       if (restoreAssetRequests.size === 0) finishSavedAssetRestore();
       return;
     }
+    if (entry.kind === "font") {
+      // A project font the host cannot provide is a reported refusal: the game still starts, without it.
+      if (record.event.bytes === null) {
+        // The font is requested in two boot stages; a host that declines it is told once, not twice.
+        if (!missingFontKeys.has(entry.key)) {
+          missingFontKeys.add(entry.key);
+          diagnostics.push({ code: "font.rejected", file: entry.key, line: 0, message: `font not found: ${entry.key}` });
+        }
+      } else {
+        cacheAsset(entry.key, new Uint8Array(record.event.bytes));
+      }
+      return;
+    }
     if (entry.kind === "initial-character") {
       initialCharacterResolved = true;
       if (record.event.bytes === null) {
@@ -2626,6 +2653,18 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     }
     return null;
   }
+  /** An installed project font as the rasteriser reads it: a bitmap font decoded once per byte buffer, a TrueType face parsed once. */
+  function installedFontAsset(key: AssetKey, bytes: Uint8Array): RasterAsset {
+    if (!key.toLowerCase().endsWith(".fnt")) return layoutFont(key) ?? bytes;
+    let font = parsedBitmapFonts.get(bytes);
+    if (font === undefined) {
+      const parsed = readLegacyFont(bytes, key);
+      if (!parsed.ok) return bytes;
+      font = parsed.value;
+      parsedBitmapFonts.set(bytes, font);
+    }
+    return font;
+  }
   function rasterAssets(assets = new Map<AssetKey, RasterAsset>()): Map<AssetKey, RasterAsset> {
     for (const key of cache.keys()) {
       if (deferredRestoreDecode.has(key)) continue;
@@ -2641,7 +2680,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       const asset = decodedBundled.get(key);
       if (asset !== undefined && asset !== null) assets.set(key, asset);
     }
-    for (const [key, bytes] of installedFonts) assets.set(key, layoutFont(key) ?? bytes);
+    for (const [key, bytes] of installedFonts) assets.set(key, installedFontAsset(key, bytes));
     for (const [key, texture] of decodedImages) assets.set(key, texture);
     for (const [key, texture] of decodedTiles) assets.set(key, texture);
     return assets;
@@ -2821,6 +2860,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     pendingBoardPreviews.length = 0;
     queuedInputs.length = 0;
     installedFonts.clear();
+    missingFontKeys.clear();
     decodedImages.clear();
     pendingBattlePictures.clear();
     decodedTiles.clear();
@@ -3474,7 +3514,8 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       state.world = { ...state.world, movement: movementDefaults(mainFile) };
       if (root.kind === "game") root = { kind: "game", projectPath: mainFile.projectPath };
       refreshGameId();
-      for (const key of [...privateFontKeys(index, root), ...programKeys(index, root)]) request(key, key.endsWith(".ttf") ? "font" : "program");
+      for (const key of privateFontKeys(index, root)) request(key, "font");
+      for (const key of programKeys(index, root)) request(key, "program");
       if (mainFile.initChar !== "") {
         const resolved = resolveAsset(index, root, "characters", mainFile.initChar);
         if (!resolved.ok) {
@@ -3494,14 +3535,30 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
       const programs = programKeys(index, root);
       for (const key of fonts) request(key, "font");
       for (const key of programs) if (readProgramSource(key) === undefined) request(key, "program");
-      if (!initialCharacterResolved || ![...fonts, ...programs].every((key) => cache.has(key))) return false;
+      if (!initialCharacterResolved || !fonts.every((key) => cache.has(key) || missingFontKeys.has(key))
+        || !programs.every((key) => cache.has(key))) return false;
       for (const key of fonts) {
-        const gated = gateTrueType(cache.get(key) ?? new Uint8Array(), key);
-        if (!gated.ok) {
-          diagnostics.push({ code: "font.rejected", file: key, line: gated.error.offset, message: gated.error.message });
-          continue;
+        const bytes = cache.get(key);
+        if (bytes === undefined) continue;
+        if (key.endsWith(".fnt")) {
+          const parsed = readLegacyFont(bytes, key);
+          if (!parsed.ok) {
+            diagnostics.push({ code: "font.rejected", file: key, line: parsed.error.offset, message: parsed.error.message });
+            continue;
+          }
+          if (parsed.value.version !== FONT_VERSION || parsed.value.subversion !== FONT_SUBVERSION) {
+            diagnostics.push({ code: "font.rejected", file: key, line: 2, message: `unsupported bitmap font version ${parsed.value.version}.${parsed.value.subversion}; expected ${FONT_VERSION}.${FONT_SUBVERSION}` });
+            continue;
+          }
+          parsedBitmapFonts.set(bytes, parsed.value);
+        } else {
+          const gated = gateTrueType(bytes, key);
+          if (!gated.ok) {
+            diagnostics.push({ code: "font.rejected", file: key, line: gated.error.offset, message: gated.error.message });
+            continue;
+          }
         }
-        installedFonts.set(key, cache.get(key) ?? new Uint8Array());
+        installedFonts.set(key, bytes);
         boot.fonts.push(key);
       }
       const manifest = pluginManifestFor(mainFile, mainKey, init.packageCatalogue ?? []);
@@ -5440,7 +5497,7 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
     return null;
   }
 
-  const engine: Engine = {
+  const engine: WithProjectFonts<Engine> = {
     advance(ticks: number, inputs: readonly InputRecord[], maxTicks?: number, resume: ResumeMode = "continue") {
       // A restored save can carry a `winGraphic` reference this engine never saw called: fetch its bytes before the
       // report is built, so the message window draws it once the reply lands (E-55).
@@ -5583,6 +5640,9 @@ export function createEngine(init: EngineInit): Engine | OnRequestEngine {
         game: { ...game },
         safeArea: { ...safeArea },
       };
+    },
+    projectFontKeys(): readonly AssetKey[] {
+      return [...installedFonts.keys()];
     },
     surfaceCacheEpoch(): number {
       return surfaceCacheEpoch;
