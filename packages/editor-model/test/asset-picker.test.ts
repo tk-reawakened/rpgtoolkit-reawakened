@@ -53,6 +53,32 @@ test("candidates are the folder's files and sub-folders' files that the field ac
   deepEqual((await listCandidates(host.fs, ROOT, "fonts", [])).candidates, []);
   deepEqual((await listCandidates(host.fs, ROOT, "fonts", [])).failures, []);
 });
+test("legacy board candidates resolve a case-variant reserved folder on case-sensitive hosts", async () => {
+  const fs = {
+    list: async (path: string) => {
+      if (path === "") return { ok: true as const, value: [{ name: "boards", kind: "directory" as const }] };
+      if (path === "boards") return { ok: true as const, value: [{ name: "Village.brd", kind: "file" as const }] };
+      return platformError("not-found", "missing");
+    },
+  };
+  const listed = await listCandidates(fs, ROOT, "boards", [".brd"]);
+  deepEqual(listed.candidates.map((candidate) => candidate.path), ["boards/Village.brd"]);
+  deepEqual(listed.candidates.map((candidate) => candidate.reference), ["Village.brd"]);
+  deepEqual(listed.failures, []);
+});
+
+test("legacy board candidate lookup refuses ambiguous case-variant reserved folders", async () => {
+  const fs = {
+    list: async (path: string) =>
+      path === ""
+        ? { ok: true as const, value: [{ name: "Boards", kind: "directory" as const }, { name: "boards", kind: "directory" as const }] }
+        : platformError("not-found", "missing"),
+  };
+  const listed = await listCandidates(fs, ROOT, "boards", [".brd"]);
+  deepEqual(listed.candidates, []);
+  ok(listed.failures[0]?.error.message.includes("multiple entries matching Boards"));
+});
+
 
 test("a folder the host cannot read is reported, not hidden as an empty list", async () => {
   const host = createMemoryPlatformServices({ files: { "Bitmap/a.png": bytes(1), "Bitmap/locked/b.png": bytes(2) } });

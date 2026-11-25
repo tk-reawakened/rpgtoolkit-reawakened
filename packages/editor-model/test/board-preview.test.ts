@@ -129,6 +129,7 @@ void test("the real minor-2 Red board's reopened upgrade renders identical edito
     operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
   });
   ok(copied.ok, copied.ok ? "" : copied.error.message);
+  ok(copied.value !== null);
   equal(copied.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), sourceBytes);
   const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
@@ -160,6 +161,7 @@ test("the reopened rotated copy is one editor edit and keeps the runner's pixels
     createExclusive: null,
   });
   ok(copied.ok, copied.ok ? "" : copied.error.message);
+  ok(copied.value !== null);
   equal(copied.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), stacked.value);
   deepEqual(host.bytesOf(copyPath), stacked.value);

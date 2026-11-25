@@ -97,10 +97,12 @@ export async function listCandidates(
 ): Promise<{ readonly candidates: readonly AssetCandidate[]; readonly failures: readonly ListFailure[] }> {
   const candidates: AssetCandidate[] = [];
   const failures: ListFailure[] = [];
-  const root = reservedFolder(layout, kind);
-  const pending = [root];
+  const requestedRoot = reservedFolder(layout, kind);
+  const root = await resolveReservedFolder(fs, requestedRoot);
+  if (root.failure !== null) failures.push(root.failure);
+  const pending = root.path === null ? [] : [root.path];
   while (pending.length > 0) {
-    const folder = pending.pop()!;
+    const folder = pending.shift()!;
     const listed = await fs.list(folder);
     if (!listed.ok) {
       if (listed.error.code !== "not-found") failures.push({ path: folder, error: listed.error });
@@ -122,6 +124,40 @@ export async function listCandidates(
   }
   candidates.sort((a, b) => (a.reference < b.reference ? -1 : a.reference > b.reference ? 1 : 0));
   return { candidates, failures };
+}
+async function resolveReservedFolder(
+  fs: Pick<FileSystemService, "list">,
+  path: string,
+): Promise<{ readonly path: string | null; readonly failure: ListFailure | null }> {
+  const resolved: string[] = [];
+  for (const segment of path.split("/")) {
+    const parent = resolved.join("/");
+    const listed = await fs.list(parent);
+    if (!listed.ok) {
+      if (listed.error.code === "not-found") return { path: null, failure: null };
+      return { path: null, failure: { path: parent || ".", error: listed.error } };
+    }
+    let match: (typeof listed.value)[number] | undefined;
+    for (const entry of listed.value) {
+      if (asciiLower(entry.name) !== asciiLower(segment)) continue;
+      if (match !== undefined) {
+        return {
+          path: null,
+          failure: {
+            path: parent || ".",
+            error: { code: "invalid-request", message: `${parent || "."} has multiple entries matching ${segment} without regard to case.` },
+          },
+        };
+      }
+      match = entry;
+    }
+    if (match === undefined) return { path: null, failure: null };
+    if (match.kind !== "directory") {
+      return { path: null, failure: { path: `${parent ? `${parent}/` : ""}${match.name}`, error: { code: "not-a-directory", message: "A reserved asset folder path segment is not a directory." } } };
+    }
+    resolved.push(match.name);
+  }
+  return { path: resolved.join("/"), failure: null };
 }
 
 /** Why a file name cannot be copied into a folder as it is. `null` when it can. */

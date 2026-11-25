@@ -148,6 +148,13 @@ export function registerBoardUpgradeCommands(
           const snapshot = currentLive.model.getSnapshot();
           return dirtyText || snapshot.dirty || snapshot.saving || snapshot.conflict !== null;
         },
+        hasPendingEditsNow: () => {
+          const dirtyText = hasDirtyTextDocument(choice.uri);
+          const currentLive = provider.openDocument(choice.uri);
+          if (currentLive === undefined) return dirtyText;
+          const snapshot = currentLive.model.getSnapshot();
+          return dirtyText || snapshot.dirty || snapshot.saving || snapshot.conflict !== null;
+        },
         isDestinationOpen: (destination) => provider.openDocument(api.Uri.joinPath(folder.uri, ...destination.split("/"))) !== undefined,
         createExclusive: null,
       });

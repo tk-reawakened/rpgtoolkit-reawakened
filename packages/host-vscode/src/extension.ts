@@ -441,7 +441,14 @@ export function registerNewBoard(context: vscode.ExtensionContext, generation: (
     if (folder === undefined) return;
     const services = createVscodeServices(folder.uri, context, generation);
     const workspace = workspaceFor(folder.uri);
-    const outcome = await runNewBoard({ fs: services.fs, layout: { projectFolder: "" }, settings: services.settings, ui, history: createWizardHistory(workspace.checkpoints) });
+    const outcome = await runNewBoard({
+      fs: services.fs,
+      layout: { projectFolder: "" },
+      settings: services.settings,
+      ui,
+      projectId: folder.uri.toString(),
+      history: createWizardHistory(workspace.checkpoints),
+    });
     if (!outcome.ok) {
       if (outcome.reason === "refused") await vscode.window.showErrorMessage(outcome.message);
       return;

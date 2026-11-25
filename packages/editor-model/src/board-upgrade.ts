@@ -1,6 +1,7 @@
 import { BOARD_DETECT_OFFSET, BOARD_MAX_CELLS, boardGrid, decodeBoard, foldPath, coordLayout, stackedToRotated, writeBoard, type Board } from "@tk-reawakened/core";
 import { decodeShade, encodeShade, type SetBoardFieldsCommand } from "./board-document.ts";
 import { platformError, platformOk, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
+import { withProjectPathWriteLock } from "./project-path-write-lock.ts";
 
 export type BoardCoordinateUpgrade = "stacked-to-rotated" | "tile-to-pixel";
 
@@ -152,6 +153,8 @@ export interface BoardUpgradeCopyOptions {
   readonly boardPath: string;
   readonly operation: BoardUpgradeOperation;
   readonly hasPendingEdits: () => boolean | Promise<boolean>;
+  /** Fast state check after the last settled view and final source read; it does not wait on another view round. */
+  readonly hasPendingEditsNow?: () => boolean;
   /** Refuse a destination already represented by an open or cached editor document. */
   readonly isDestinationOpen?: (destination: string) => boolean;
   /** Exclusive destination creator where the host provides one; null explicitly selects the disclosed fallback. */
@@ -160,7 +163,7 @@ export interface BoardUpgradeCopyOptions {
 
 /** Preview and write an upgraded board as a new file; never edits the source document. */
 export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promise<PlatformResult<{ readonly destination: string; readonly bytes: Uint8Array } | null>> {
-  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, createExclusive, isDestinationOpen } = options;
+  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, hasPendingEditsNow, createExclusive, isDestinationOpen } = options;
   if (!/^(?:game\/[^/]+\/)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(boardPath)
     || /[\\:\u0000-\u001f\u007f]/.test(boardPath)
     || boardPath.split("/").some((part) => part === "." || part === "..")) {
@@ -237,7 +240,7 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
   if (foldPath(destination) === foldPath(boardPath)) {
     return platformError("invalid-request", "An upgrade must be saved as a separate board; the original was not changed.");
   }
-  return serializeDestination(`${projectId}:${foldPath(destination)}`, async () => {
+  return withProjectPathWriteLock(projectId, destination, async () => {
     if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
     const current = await fs.readProject(projectId, boardPath);
     if (!current.ok) return platformError(current.error.code, `Could not recheck ${boardPath}: ${current.error.message}`);
@@ -247,7 +250,7 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     const resolution = await resolveDestinationPath(fs, projectId, destination);
     if (!resolution.ok) return platformError(resolution.error.code, resolution.error.message);
     if (resolution.value.collision !== null) {
-      return platformError("already-exists", `${resolution.value.collision} already exists, is an ancestor file/link, or differs only by case. Upgrades never replace files.`);
+      return platformError("already-exists", `${resolution.value.collision} conflicts with the destination (existing file, ambiguous case-folded path, or non-directory ancestor). Upgrades never replace files.`);
     }
     const resolvedDestination = resolution.value.path;
     if (foldPath(resolvedDestination) === foldPath(boardPath)) {
@@ -257,14 +260,25 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     const existing = await fs.statProject(projectId, resolvedDestination);
     if (existing.ok) return platformError("already-exists", `${resolvedDestination} already exists. Upgrades never replace files.`);
     if (existing.error.code !== "not-found") return platformError(existing.error.code, `Could not check ${resolvedDestination}: ${existing.error.message}`);
+    if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+    const finalResolution = await resolveDestinationPath(fs, projectId, resolvedDestination);
+    if (!finalResolution.ok) return platformError(finalResolution.error.code, finalResolution.error.message);
+    if (finalResolution.value.collision !== null) {
+      return platformError("already-exists", `${finalResolution.value.collision} conflicts with the destination (existing file, ambiguous case-folded path, or non-directory ancestor). Upgrades never replace files.`);
+    }
+    const finalDestination = finalResolution.value.path;
+    if (isDestinationOpen?.(finalDestination) === true) return platformError("invalid-request", `${finalDestination} is already open or cached in this editor. Close it and retry the upgrade.`);
+    const finalExisting = await fs.statProject(projectId, finalDestination);
+    if (finalExisting.ok) return platformError("already-exists", `${finalDestination} already exists. Upgrades never replace files.`);
+    if (finalExisting.error.code !== "not-found") return platformError(finalExisting.error.code, `Could not check ${finalDestination}: ${finalExisting.error.message}`);
     const finalSource = await fs.readProject(projectId, boardPath);
     if (!finalSource.ok) return platformError(finalSource.error.code, `Could not recheck ${boardPath}: ${finalSource.error.message}`);
     if (!sameBytes(source.value, finalSource.value)) return platformError("invalid-request", `${boardPath} changed before the copy was written.`);
-    if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+    if (hasPendingEditsNow?.() === true) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
     const written = createExclusive === null
-      ? await fs.writeProject(projectId, resolvedDestination, copyBytes)
-      : await createExclusive(resolvedDestination, copyBytes);
-    return written.ok ? platformOk({ destination: resolvedDestination, bytes: copyBytes.slice() }) : platformError(written.error.code, `Could not write ${resolvedDestination}: ${written.error.message}`);
+      ? await fs.writeProject(projectId, finalDestination, copyBytes)
+      : await createExclusive(finalDestination, copyBytes);
+    return written.ok ? platformOk({ destination: finalDestination, bytes: copyBytes.slice() }) : platformError(written.error.code, `Could not write ${finalDestination}: ${written.error.message}`);
   });
 }
 async function resolveDestinationPath(
@@ -283,7 +297,12 @@ async function resolveDestinationPath(
       }
       return platformError(entries.error.code, `Could not check destination folder ${resolved.join("/") || "."}: ${entries.error.message}`);
     }
-    const match = entries.value.find((entry) => foldPath(entry.name) === foldPath(segment));
+    const matches = entries.value.filter((entry) => foldPath(entry.name) === foldPath(segment));
+    if (matches.length > 1) {
+      const ambiguousPath = [...resolved, segment].join("/");
+      return platformOk({ path: ambiguousPath, collision: `${ambiguousPath} matches multiple case-folded entries` });
+    }
+    const match = matches[0];
     if (match === undefined) return platformOk({ path: [...resolved, ...requested.slice(index)].join("/"), collision: null });
     const matchedPath = [...resolved, match.name].join("/");
     if (index === requested.length - 1 || match.kind !== "directory") {
@@ -295,21 +314,6 @@ async function resolveDestinationPath(
 }
 
 
-const destinationLocks = new Map<string, Promise<void>>();
-
-async function serializeDestination<T>(key: string, action: () => Promise<T>): Promise<T> {
-  const previous = destinationLocks.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  destinationLocks.set(key, current);
-  await previous;
-  try {
-    return await action();
-  } finally {
-    release();
-    if (destinationLocks.get(key) === current) destinationLocks.delete(key);
-  }
-}
 
 function boardRoot(path: string): string | null {
   return /^(?:game\/[^/]+\/)?boards\//i.exec(path)?.[0] ?? null;

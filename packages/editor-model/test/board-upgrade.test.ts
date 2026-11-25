@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { test } from "node:test";
 import { boardGrid, coordLayout, decodeBoard, stackedToRotated, tileToPixel, writeBoard } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { boardCodec, createBoardCoordinateUpgradeCommand, createDocumentIdentity, openBoardDocument, planBoardCoordinateUpgrade, upgradeBoardCopy } from "../src/index.ts";
+import { boardCodec, createBoardCoordinateUpgradeCommand, createBoardFile, createDocumentIdentity, openBoardDocument, planBoardCoordinateUpgrade, upgradeBoardCopy } from "../src/index.ts";
 import { exampleBoard } from "./fixtures.ts";
 
 const sourcePath = "Boards/Entry.brd";
@@ -36,6 +36,7 @@ test("a coordinate upgrade is one undoable edit after reopening a preserved copy
     createExclusive: null,
   });
   ok(copied.ok, copied.ok ? "" : copied.error.message);
+  ok(copied.value !== null);
   equal(copied.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), original);
   deepEqual(host.bytesOf(copyPath), original, "the new file starts as an exact copy");
@@ -191,6 +192,7 @@ void test("pre-vector upgrade writes a reopenable copy and retains the original 
     createExclusive: null,
   });
   ok(result.ok, result.ok ? "" : result.error.message);
+  ok(result.value !== null);
   equal(result.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), original);
   const copy = decoded(host.bytesOf(copyPath)!);
@@ -282,13 +284,14 @@ void test("pending edits and unsupported pre-vector layouts refuse before review
 void test("source changes during the preview are not copied", async () => {
   const original = exampleBoard(3);
   const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  host.answerQuestions("preview");
   const changed = Uint8Array.of(0);
   const result = await upgradeBoardCopy({
     fs: host.fs,
     dialogs: {
-      ask: async () => {
+      ask: async (question) => {
         await host.fs.writeProject("memory-project", sourcePath, changed);
-        return "preview";
+        return host.dialogs.ask(question);
       },
       pickSavePath: async () => copyPath,
     },
@@ -317,12 +320,70 @@ void test("pending edits are checked again after the final source read", async (
   };
   const result = await upgradeBoardCopy({
     fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
-    operation: "pre-vector", hasPendingEdits: () => pending, createExclusive: null,
+    operation: "pre-vector", hasPendingEdits: () => pending, hasPendingEditsNow: () => pending, createExclusive: null,
   });
   ok(!result.ok);
   match(result.error.message, /pending edits/);
   equal(readCount, 3);
   equal(host.bytesOf(copyPath), undefined);
+});
+void test("destination is checked again after the final async pending-edit settle", async () => {
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: exampleBoard(3) } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  let settles = 0;
+  const occupied = Uint8Array.of(77);
+  const result = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector",
+    hasPendingEdits: async () => {
+      settles += 1;
+      if (settles === 4) await host.fs.writeProject("memory-project", copyPath, occupied);
+      return false;
+    },
+    createExclusive: null,
+  });
+  ok(!result.ok);
+  equal(result.error.code, "already-exists");
+  deepEqual(host.bytesOf(copyPath), occupied);
+});
+void test("New Board creation and upgrades serialize writes to one same-editor destination", async () => {
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: exampleBoard(3) } });
+  let entered!: () => void;
+  let release!: () => void;
+  const reachedList = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fs = {
+    ...host.fs,
+    list: async (path: string) => {
+      if (path === "Boards") {
+        entered();
+        await gate;
+      }
+      return host.fs.list(path);
+    },
+  };
+  const creating = createBoardFile(
+    fs,
+    { projectFolder: "" },
+    { name: "Entry.upgraded", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 1, backgroundImage: "", template: null },
+    undefined,
+    "memory-project",
+  );
+  await reachedList;
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const upgrading = upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
+  });
+  release();
+  const created = await creating;
+  ok(created.ok);
+  const result = await upgrading;
+  ok(!result.ok);
+  equal(result.error.code, "already-exists");
+  ok(host.bytesOf(copyPath) !== undefined);
 });
 void test("upgrade refuses cross-game destinations and case-folded collisions", async () => {
   const original = exampleBoard(3);
@@ -376,6 +437,7 @@ void test("already-open copies are refused, destination folders resolve their st
     operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
   });
   ok(foldedFolder.ok, foldedFolder.ok ? "" : foldedFolder.error.message);
+  ok(foldedFolder.value !== null);
   equal(foldedFolder.value.destination, "Boards/nested/New.brd");
   equal(decoded(foldedFolderHost.bytesOf("Boards/nested/New.brd")!).board.minor, 4);
 
@@ -394,8 +456,25 @@ void test("already-open copies are refused, destination folders resolve their st
   });
   ok(!linked.ok);
   equal(linked.error.code, "already-exists");
-  match(linked.error.message, /ancestor file\/link/);
+  match(linked.error.message, /conflicts with the destination/);
   equal(linkedHost.bytesOf("Boards/Nested/New.brd"), undefined);
+  const ambiguousHost = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  ambiguousHost.answerQuestions("preview");
+  ambiguousHost.answerSavePaths("Boards/VILLAGE/New.brd");
+  const ambiguousFs = {
+    ...ambiguousHost.fs,
+    listProject: async (projectId: string, path: string) => path === "Boards"
+      ? { ok: true as const, value: [{ name: "Village", kind: "directory" as const }, { name: "village", kind: "directory" as const }] }
+      : ambiguousHost.fs.listProject(projectId, path),
+  };
+  const ambiguous = await upgradeBoardCopy({
+    fs: ambiguousFs, dialogs: ambiguousHost.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
+  });
+  ok(!ambiguous.ok);
+  equal(ambiguous.error.code, "already-exists");
+  match(ambiguous.error.message, /multiple case-folded entries/);
+  equal(ambiguousHost.bytesOf("Boards/VILLAGE/New.brd"), undefined);
 });
 
 const literalScript = resolve("fixtures/legacy/Caoquest/Prg/aftercreeps.prg");
@@ -414,6 +493,7 @@ void test("real external script coordinate literals remain byte-for-byte unchang
     operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
   });
   ok(copied.ok, copied.ok ? "" : copied.error.message);
+  ok(copied.value !== null);
   equal(copied.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), source);
   deepEqual(host.bytesOf(scriptPath), scriptBytes);
@@ -448,6 +528,7 @@ void test("documented minor-2 layout example upgrades using independent fields f
     createExclusive: null,
   });
   ok(result.ok, result.ok ? "" : result.error.message);
+  ok(result.value !== null);
   equal(result.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), original);
   const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
@@ -526,6 +607,7 @@ void test("real minor-2 Red board upgrades, reopens and preserves independent st
     operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
   });
   ok(copied.ok, copied.ok ? "" : copied.error.message);
+  ok(copied.value !== null);
   equal(copied.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), original);
   const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
