@@ -1,0 +1,12 @@
+[[entry]]
+id = 1
+tracker_id = "#3470"
+type = "spike"
+title = "Prove compressed audio playback on shipped players, starting with Ogg Opus"
+covers = ["CAP-7", "CAP-12"]
+after = ["6.5", "6.11", "6.12", "6.15", "9.5", "9.7", "9.11", "9.16"]
+risk = "high"
+hitl = false
+description = "Compare Ogg Opus as the leading candidate against WAV through the actual packaged browser, Electron and Capacitor players, reusing the existing metadata and playback seams, and report author-input and external-tool options separately from runtime profile selection."
+verify = "Publish a reproducible host/version matrix with gapless trim and 60 Hz tick/loop evidence at 44.1 and 48 kHz output, baseline WAV/MIDI regression checks, compressed package bytes and size, startup and long-track memory, CSP/G6 evidence, and explicit unsupported or unproven rows, then hand the evidence to issue #1752 without selecting a codec or approving any production dependency."
+references = ["Evidence for [14.11 / #1752](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1752); Epic 14 retains editor import and export integration.", "Research questions, not start gates: actual host coverage (including 9.12 mobile and 9.18 Worklet evidence gaps), whether full decoded PCM fits the memory budget, and viable authoring routes.", "See the 32.1 plan for the exact fixture, guardrail, and host evidence checklist; no codec, bundled dependency, or public plugin API is selected."]
