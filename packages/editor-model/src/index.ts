@@ -486,7 +486,7 @@ export {
   type SaveResult,
   type SetGameTitleCommand,
 } from "./main-document.ts";
-export { createEditTracker, createPendingEdits, type EditTracker, type PendingEditWork, type PendingEdits } from "./pending-edits.ts";
+export { createEditTracker, createPendingEdits, type EditTracker, type PendingEditWork, type PendingEdits, type SettleFailureKind, type SettleOutcome } from "./pending-edits.ts";
 export {
   createDocumentWorkspace,
   resolveDocumentPath,

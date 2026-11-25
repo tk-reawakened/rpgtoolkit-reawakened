@@ -416,3 +416,24 @@ test("a status reference without its extension resolves as the runtime does, and
     equal(button(programs as HTMLElement, "Open program").disabled, true, "and Open is not offered for it");
   } finally { handle.dispose(); root.remove(); }
 });
+
+test("Save my version goes through the same guard: text a field refuses is not saved around, and the other version stays on disk (#3385)", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  try {
+    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    // Another program changes the file: the document keeps both versions until the author chooses.
+    const theirs = new Uint8Array(fireball);
+    new DataView(theirs.buffer).setInt32(0x1e, 99, true);
+    view.host.seed(SPC, theirs);
+    const checked = await view.doc.checkExternal();
+    equal(checked, "conflict", "the change on disk is noticed and waits for a choice");
+    await settle();
+    await act(() => { const input = field(view.root, "SMP cost to the user"); input.value = "9999999999"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    await act(() => { button(view.root, "Save my version").click(); });
+    await settle();
+    deepEqual(view.host.bytesOf(SPC), theirs, "the other version was not replaced around the refused text");
+    ok(view.root.textContent?.includes("Nothing was saved"), "and the form says so");
+  } finally { view.dispose(); }
+});

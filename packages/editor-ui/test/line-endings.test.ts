@@ -62,3 +62,13 @@ test("a very long mixed text is edited without a pairwise comparison of its line
   equal(dropped.endings.length, lines - 2);
   deepEqual(uniform.endings.slice(-2), ["\n", "\n"]);
 });
+
+test("two breaks stay two: an emptied line between a lone CR and a lone LF does not read back as one CRLF", () => {
+  const model = lineTextOf("A\rB\nC");
+  const emptied = editLineText(model, "A\n\nC");
+  const written = writtenText(emptied);
+  equal(written, "A\r\rC", "the second break is written like the first");
+  equal(lineTextOf(written).text, "A\n\nC", "three lines read back as three lines");
+  equal(through("A\rB\nC", "A\nC"), "A\rC", "deleting the whole line keeps the first break as it was");
+  equal(writtenText(editLineText(lineTextOf("A\r\n\nC"), "A\n\nC")), "A\r\n\nC", "a genuine CRLF followed by an empty line is left alone");
+});

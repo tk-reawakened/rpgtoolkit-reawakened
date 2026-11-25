@@ -278,10 +278,31 @@ test("Save As fails, with the copy written, when a field holds text typed during
   const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
   const detach = document.attachWebview((requestId, reason) => {
     // The view holds text only once the write has begun: it refuses the late `guard` settlement, not the first explicit one.
-    queueMicrotask(() => reason === "guard" ? document.viewSettled(requestId, false, "a field still holds text that is not part of the document yet") : document.viewSettled(requestId));
+    queueMicrotask(() => reason === "guard" ? document.viewSettled(requestId, false, "a field still holds text that is not part of the document yet", "held") : document.viewSettled(requestId));
     return Promise.resolve(true);
   });
   await rejects(provider.saveCustomDocumentAs(document, { path: "/alpha/copy.gam" }), /copy\.gam was written, but .* still holds text typed during Save As and remains open/);
   equal(files.has("/alpha/copy.gam"), true, "the copy itself was written");
   detach();
+});
+
+test("Save As compares the source's revision after its final look, and tells held text from an unconfirmed hand-off (#3385)", async () => {
+  const { provider } = workspace();
+  const late = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  // The view had accepted an edit while the copy was written; the final settlement hands it to the model.
+  const detachLate = late.attachWebview((requestId, reason) => {
+    if (reason === "guard") ok(late.model.apply({ type: "set-game-title", title: "Handed over late" }).ok);
+    queueMicrotask(() => late.viewSettled(requestId));
+    return Promise.resolve(true);
+  });
+  await rejects(provider.saveCustomDocumentAs(late, { path: "/alpha/late.gam" }), /late\.gam was written, but .* changed during Save As and remains open with its work/);
+  detachLate();
+
+  const unconfirmed = await provider.openCustomDocument({ path: `/beta/${GAME}` }, undefined);
+  const detachUnconfirmed = unconfirmed.attachWebview((requestId, reason) => {
+    queueMicrotask(() => reason === "guard" ? unconfirmed.viewSettled(requestId, false, "the editor is still handing over its accepted edits", "incomplete") : unconfirmed.viewSettled(requestId));
+    return Promise.resolve(true);
+  });
+  await rejects(provider.saveCustomDocumentAs(unconfirmed, { path: "/beta/copy.gam" }), /could not hand over its latest edits and remains open/);
+  detachUnconfirmed();
 });

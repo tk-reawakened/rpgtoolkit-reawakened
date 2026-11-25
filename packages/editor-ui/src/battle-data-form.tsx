@@ -135,7 +135,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     refusal: (reason) => {
       if (Object.keys(draftsRef.current).length === 0) return null;
       if (reason === "explicit") return "A field still holds text this file cannot store, so nothing was saved. Correct it or discard it.";
-      // A host that cannot say whose save this is writes what is accepted and keeps the document unsaved.
+      // A host that cannot say whose save this is writes nothing while a field holds text, and the document stays unsaved.
       if (reason === "guard") return "a field still holds text that is not part of the document yet. Leave the field to apply it, or discard it";
       return null;
     },
@@ -158,6 +158,12 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
       // This view's Save needs no host settlement: it applies its own drafts and waits for its own acknowledgements. The
       // host's Save All, Ctrl+S, revert and close settle the shared registry, which flushes drafts through `idle()`.
       await submitted.current.idle();
+      // Text typed while the edits above were being acknowledged is neither applied nor in the file: look again at the
+      // last moment, with no await between this and the write, so nothing is saved around it.
+      if (Object.keys(draftsRef.current).length > 0) {
+        setMessage("Nothing was saved: a field above holds text typed just now. Leave the field to apply it, or discard it, then save again.");
+        return;
+      }
       const result = await doc.save();
       setMessage(result.ok ? saved : result.failure.message);
     } catch (error) { setMessage(problem(error)); }
@@ -168,8 +174,9 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
       const result = await doc.resolveConflict(choice);
       if (!result.ok) setMessage(result.message);
       else if (choice === "keep-local" && capabilities.has("conflictAutoSave")) {
-        const written = await doc.save();
-        setMessage(written.ok ? saved : written.failure.message);
+        // "Save my version" is a save like any other: it goes through the same guard, so a field holding text is applied or
+        // refused with its reason instead of the file being replaced around it.
+        await save();
       } else {
         if (choice === "reload") publishDrafts({});
         setMessage(null);

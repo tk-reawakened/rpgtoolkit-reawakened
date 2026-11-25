@@ -19,8 +19,16 @@
  */
 export type SettleReason = "explicit" | "autosave" | "guard" | "revert" | "query";
 
-/** What a settlement found: `ok` when nothing refused, else the first refusal's sentence for the host to show. */
-export type SettleOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
+/**
+ * What a settlement found: `ok` when nothing refused, else why not. `held` is a view reporting text a field holds (the
+ * accepted edits did reach the document, so a host may still write them); `incomplete` is a hand-off that could not be
+ * confirmed (a view still busy after every round, a view gone, a timeout), after which nothing may be written.
+ */
+export type SettleOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly kind: SettleFailureKind; readonly message: string };
+
+export type SettleFailureKind = "held" | "incomplete";
 
 /** One view's submitted-but-unacknowledged edits. */
 export interface PendingEditWork {
@@ -53,7 +61,7 @@ export interface PendingEdits {
 function refusalOf(works: readonly PendingEditWork[], reason: SettleReason | undefined): SettleOutcome {
   for (const work of works) {
     const message = work.refusal?.(reason);
-    if (message !== undefined && message !== null) return { ok: false, message };
+    if (message !== undefined && message !== null) return { ok: false, kind: "held", message };
   }
   return { ok: true };
 }
@@ -79,7 +87,7 @@ export function createPendingEdits(): PendingEdits {
         if (!busy()) return refusalOf(registered, reason);
       }
       // Still busy after every round: the host must not save over work it could not see settle.
-      return { ok: false, message: "the editor is still handing over its accepted edits; save again in a moment" };
+      return { ok: false, kind: "incomplete", message: "the editor is still handing over its accepted edits; save again in a moment" };
     },
   };
 }

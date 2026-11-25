@@ -3279,8 +3279,8 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   await expect.poll(async () => [...await host.readBacking(BATTLE_PROOF_MOVE)].join(",")).not.toBe([...beforeRefusal].join(","));
   await expect.poll(dirty).toBe(false);
 
-  // 4. files.autoSave afterDelay: the save cannot be told from the author's, so it writes the accepted edit, applies
-  // nothing, and fails so VS Code keeps the document unsaved and a close asks about the text a field still holds.
+  // 4. files.autoSave afterDelay: the save cannot be told from the author's, so while a field holds text it fails with
+  // nothing written: VS Code's save point and the file stay the same version, the document stays unsaved, and a close asks.
   const autosaved = async (value: string): Promise<void> => {
     await expect.poll(async () => autosaveSetting(await host.readBacking(".vscode/settings.json")), { message: `files.autoSave is ${value}` }).toBe(value);
   };
@@ -3290,22 +3290,29 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
     await damage.fill("-40");
     await damage.press("Tab");
     await smpCost.fill("9999999999");
-    await expect.poll(diskDamage, { timeout: 30_000, message: "the autosave wrote the accepted edit" }).toBe(-40);
-    await page.waitForTimeout(1_500);
-    // The text it could not store is still the author's, was never rounded into the file, and the document is still unsaved.
+    // Several delays pass: every autosave of the applied edit is refused because a field holds text, and none writes.
+    await page.waitForTimeout(4_000);
     await expect(smpCost).toHaveValue("9999999999");
-    expect(await diskDamage(), "the autosave was not undone").toBe(-40);
+    expect(await diskDamage(), "a failed autosave wrote nothing behind VS Code's back").toBe(-30);
     expect(await dirty(), "VS Code still shows the document as unsaved while a field holds text").toBe(true);
   } finally {
     await runCommand(page, expect, "Test: Turn Autosave Off");
     await autosaved("off");
   }
-  // Discarding the text lets the explicit Save finish: nothing is left to protect.
+  // Discarding the text and then undoing the edit returns to the state the file holds, and VS Code agrees it is clean.
   await panel.getByRole("button", { name: "Discard the unapplied text" }).click().catch(async () => {
     await smpCost.focus();
     await smpCost.press("Tab");
     await panel.getByRole("button", { name: "Discard the unapplied text" }).click();
   });
+  await runCommandMatching(page, expect, "Undo", "Undo", false);
+  await expect(damage).toHaveValue("-30");
+  await expect.poll(dirty, { message: "undoing back to the saved edit leaves the tab clean, and the file really holds it" }).toBe(false);
+  expect(await diskDamage()).toBe(-30);
+  await runCommandMatching(page, expect, "Redo", "Redo", false);
+  await expect(damage).toHaveValue("-40");
+  await expect.poll(dirty).toBe(true);
   await runCommand(page, expect, "File: Save");
+  await expect.poll(diskDamage).toBe(-40);
   await expect.poll(dirty).toBe(false);
 }

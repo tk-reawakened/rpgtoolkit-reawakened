@@ -372,7 +372,8 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         const saved = await document.save();
         if (!saved.ok) return { closed: false, reason: "save-failed", failure: saved.failure };
         const current = document.getSnapshot();
-        if (current.dirty || current.conflict !== null) return { closed: false, reason: "cancelled" };
+        // Text typed into a field while the save was writing is neither saved nor asked about: closing now would drop it.
+        if (current.dirty || current.conflict !== null || pendingEditsOf(document).holdsDraft()) return { closed: false, reason: "cancelled" };
       }
     }
     // Another view may have opened while a dialog or save was pending.
@@ -763,17 +764,18 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         if (!reopened.ok) {
           return failed(resolved.path, `${resolved.path} was written but could not be opened: ${reopened.error.document}: ${reopened.error.error.message}`);
         }
-        // A source edit made during the write or the read is not in the copy: keep the source open with its work.
+        // Text typed into a field during the write is in neither the copy nor the model's revision: replacing the source
+        // would drop it, so it stays open with that text. This look comes last of the asynchronous steps, and the revision
+        // is compared after it, because settling can hand over an edit the view had accepted while the copy was written.
+        const late = await pendingEditsOf(document).settle("guard");
+        if (!late.ok) return failed(resolved.path, `${resolved.path} was written, but ${source} ${late.kind === "held" ? "still holds text typed during Save As" : "could not hand over its latest edits"} and remains open: ${late.message.replace(/\.+$/, "")}.`);
+        // A source edit made during the write, the read or the settlement is not in the copy: keep the source open with its work.
         if (!sameRevision(document.getSnapshot(), copied)) {
           return failed(resolved.path, `${resolved.path} was written, but ${source} changed during Save As and remains open with its work.`);
         }
         if (disposed || documents.has(identity.key) || opening.has(identity.key)) {
           return failed(resolved.path, `${resolved.path} was written but is already open or opening; ${source} remains open.`);
         }
-        // Text typed into a field during the write is in neither the copy nor the model's revision: replacing the source
-        // would drop it, so it stays open with that text.
-        const late = await pendingEditsOf(document).settle("guard");
-        if (!late.ok) return failed(resolved.path, `${resolved.path} was written, but ${source} still holds text typed during Save As and remains open: ${late.message.replace(/\.+$/, "")}.`);
         register(reopened.document);
         startWatching();
         // Other views still own the source. Otherwise this view replaces it with the newly opened copy (D1.3).

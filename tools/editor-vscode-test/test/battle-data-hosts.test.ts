@@ -205,11 +205,12 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
         proof.setClock?.(1_000);
         const tab = await refusedDraftBesideAcceptedEdit(proof);
         proof.setClock?.(at);
-        // However late or early the timer is, the save cannot be told from the author's: the accepted edit is written, no
-        // text is applied or rounded, and the save fails so the document stays unsaved and a close asks.
+        // However late or early the timer is, the save cannot be told from the author's: no text is applied or rounded, and
+        // the save fails with nothing written, so VS Code's save point and the file stay the same version, the document
+        // stays unsaved, and a close asks.
         equal(await tab.saveFromWorkbench(), false, "the save reports that a field still holds text");
         await settle(act);
-        equal(await damageOnDisk(proof), -30, "the accepted edit is on disk");
+        equal(await damageOnDisk(proof), 12, "nothing was written behind a failed save");
         equal(field(tab, "Damage (FP)").value, "9999999999", "the text stays with the author");
         equal(tab.workbenchDirty(), true, "VS Code still shows the document as unsaved");
         equal(await tab.close("cancel"), false, "so closing asks, and Cancel keeps the text");
@@ -230,7 +231,7 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       proof.setClock?.(61_500);
       equal(await tab.saveFromWorkbench(), false);
       await settle(act);
-      equal(await damageOnDisk(proof), -30, "nothing is applied mid-gesture");
+      equal(await damageOnDisk(proof), 12, "nothing is applied mid-gesture and nothing is written behind a failed save");
       equal(field(tab, "Damage (FP)").value, "-31");
       equal(tab.workbenchDirty(), true);
     });

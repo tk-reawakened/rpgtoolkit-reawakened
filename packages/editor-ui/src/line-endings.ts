@@ -22,11 +22,21 @@ export function lineTextOf(stored: string): LineText {
   return { text: stored.replace(BREAKS, "\n"), endings: stored.match(BREAKS) ?? [] };
 }
 
-/** The text as the file writes it. */
+/**
+ * The text as the file writes it. Two breaks stay two: an empty line between a lone `\r` and a lone `\n` would read back
+ * as one `\r\n`, so the second break is written as the first was, and the line count the author sees does not change.
+ */
 export function writtenText(model: LineText): string {
   const lines = model.text.split("\n");
   let written = "";
-  for (let index = 0; index < lines.length; index += 1) written += index === lines.length - 1 ? lines[index]! : `${lines[index]!}${model.endings[index]!}`;
+  let previous = "";
+  for (let index = 0; index < lines.length; index += 1) {
+    if (index === lines.length - 1) { written += lines[index]!; break; }
+    let ending = model.endings[index]!;
+    if (lines[index] === "" && previous === "\r" && ending === "\n") ending = "\r";
+    written += `${lines[index]!}${ending}`;
+    previous = ending;
+  }
   return written;
 }
 

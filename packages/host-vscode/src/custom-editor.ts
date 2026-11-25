@@ -3,7 +3,7 @@ import { platformOk, platformError, type Capability, type DialogService, type Fi
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
-import type { HistoryPolicy, HistoryReason, SettleReason } from "@tk-reawakened/editor-model";
+import type { HistoryPolicy, HistoryReason, SettleFailureKind, SettleReason } from "@tk-reawakened/editor-model";
 
 /**
  * The custom editor of every registered document kind (ADR 0026) without the `vscode` module: the provider methods VS Code's workbench calls, written
@@ -209,8 +209,10 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * every save is the author's (Save, Save All, a save-on-close), so the field is applied or refused with its reason.
    * With any autosave on, a timer or focus change can fire at any moment, including late or right after the setting is
    * switched on, and the author's own save looks the same; no timing rule can tell them apart, so the save is a `guard`:
-   * accepted edits are written, no text is applied mid-gesture (D11.2), and a field still holding text keeps the document
-   * unsaved (`save()`), so closing asks instead of losing it.
+   * no text is applied mid-gesture (D11.2), and a field still holding text fails the save before anything is written, so
+   * VS Code keeps the document unsaved and a close asks instead of losing the text. Nothing is ever written while the save
+   * is reported as failed: VS Code's save point and the file on disk must stay the same version, or an Undo back to the
+   * save point would show a document that disagrees with its file.
    */
   #settleReason(): "explicit" | "guard" {
     if (this.#explicitSaves > 0) return "explicit";
@@ -272,8 +274,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** A webview answered a `settle` request: every edit it had accepted has reached this model. */
-  viewSettled(requestId: string, settled = true, message?: string): void {
-    for (const view of this.#views) view.waiting.get(requestId)?.(settled, message);
+  viewSettled(requestId: string, settled = true, message?: string, kind?: SettleFailureKind): void {
+    for (const view of this.#views) view.waiting.get(requestId)?.(settled, message, kind);
   }
 
   /**
@@ -297,11 +299,12 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     const answers = [...this.#views].map((view) => new Promise<{ readonly message: string | null; readonly refused: boolean }>((resolve) => {
       const requestId = `settle-${++this.#nextSettle}`;
       const timer = startTimer(() => answer(false));
-      const answer = (settled: boolean, message?: string): void => {
+      const answer = (settled: boolean, message?: string, kind?: SettleFailureKind): void => {
         timer.cancel();
         view.waiting.delete(requestId);
-        // A refusal is the view saying what it could not store; a failed hand-off keeps the #2613 sentence.
-        resolve({ message: message ?? (settled ? null : "the editor could not confirm that it handed over its accepted edits"), refused: message !== undefined });
+        // Only a view reporting text a field holds (`held`) leaves the accepted edits safe to write; a hand-off that was not
+        // confirmed (busy after every round, a gone view, a timeout) is a failure whatever sentence it carries (#2613).
+        resolve({ message: message ?? (settled ? null : "the editor could not confirm that it handed over its accepted edits"), refused: !settled && kind === "held" });
       };
       view.waiting.set(requestId, answer);
       void view.post(requestId, reason).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
@@ -457,10 +460,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    */
   async save(): Promise<SaveResult> {
     const settleReason = this.#settleReason();
-    const { message: unsettled, refused } = await this.settleViewsOutcome(settleReason);
-    // A refusal under `guard` still lets the accepted edits be written; every other message stops the save.
-    const heldText = settleReason === "guard" && refused ? unsettled : null;
-    if (unsettled !== null && heldText === null) {
+    const unsettled = await this.settleViews(settleReason);
+    if (unsettled !== null) {
       const path = this.model.identity.path;
       const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled.replace(/\.+$/, "")}. Nothing was written and the edits it holds stay unsaved; save again.` } };
       this.#saves += 1;
@@ -478,12 +479,6 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
         ok: false,
         failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: it was edited during each of ${SAVE_ROUNDS} writes. The latest edits are kept unsaved; save again.` },
       };
-    }
-    if (result.ok && heldText !== null) {
-      // The accepted edits are on disk, but a field still holds text that is not part of them. Failing the save keeps VS Code
-      // showing the document as unsaved, so a close asks about it instead of dropping the text.
-      const path = this.model.identity.path;
-      result = { ok: false, failure: { document: path, kind: "write", code: null, message: `Saved your changes to ${path}, but ${heldText.replace(/\.+$/, "")}. The document stays unsaved until that text is applied or discarded.` } };
     }
     this.#saves += 1;
     this.#lastSave = result;
@@ -547,7 +542,7 @@ interface SettleTarget {
   /** A message sent outside a request/answer pair, such as a source visit's tile. */
   notify?(message: BridgeMessage): void;
   /** A hand-off answer: `settled` is false when the view could not confirm its accepted edits; the message is a reason it refuses. */
-  readonly waiting: Map<string, (settled: boolean, message?: string) => void>;
+  readonly waiting: Map<string, (settled: boolean, message?: string, kind?: SettleFailureKind) => void>;
 }
 
 /** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
@@ -888,13 +883,15 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       // Save As through the workspace's storage, so an existing destination keeps its prior bytes in history (D12.10 items 4 and 6).
       const result = await document.model.saveAs(project.workspace.storage, identity);
       if (!result.ok) throw new Error(result.failure.message);
+      // Text typed into a field during the write is not in the copy and not in the model's revision: VS Code replaces the
+      // source with the destination once this resolves, which would drop it. Failing keeps the source open with that text.
+      // The look comes first and the revision is compared after it, because settling can hand over an edit the view had
+      // accepted while the copy was written.
+      const late = await document.settleViewsOutcome("guard");
+      if (late.message !== null) throw new Error(`${resolved.path} was written, but ${document.model.identity.path} ${late.refused ? "still holds text typed during Save As" : "could not hand over its latest edits"} and remains open: ${late.message.replace(/\.+$/, "")}.`);
       if (!sameRevision(document.model.getSnapshot(), copied)) {
         throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);
       }
-      // Text typed into a field during the write is not in the copy and not in the model's revision: VS Code replaces the
-      // source with the destination once this resolves, which would drop it. Failing keeps the source open with that text.
-      const late = await document.settleViewsOutcome("guard");
-      if (late.message !== null) throw new Error(`${resolved.path} was written, but ${document.model.identity.path} ${late.refused ? "still holds text typed during Save As" : "could not hand over its latest edits"} and remains open: ${late.message.replace(/\.+$/, "")}.`);
     },
     async revertCustomDocument(document) {
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own

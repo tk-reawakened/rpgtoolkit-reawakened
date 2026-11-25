@@ -874,3 +874,59 @@ test("Save As keeps the source open when text is typed into a field while the co
   equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied", "the copy was written");
   deepEqual(workspace.documents(), [opened.document], "and the source stays the open document");
 });
+
+test("Save As compares the source's revision after its final look at typed text, so an edit handed over by that look keeps the source open (#3385)", HELD, async () => {
+  const { host, workspace, doc } = await draftWorkspace();
+  // The view had accepted an edit while the copy was written; the final settlement hands it to the document.
+  const work: PendingEditWork = {
+    busy: () => false,
+    idle: async (reason) => { if (reason === "guard") ok(doc.apply({ type: "set-game-title", title: "Handed over late" }).ok); },
+    holdsDraft: () => false,
+  };
+  workspace.pendingEdits(doc).register(work);
+  ok(doc.apply({ type: "set-game-title", title: "Copied" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const result = await workspace.saveAs(doc);
+  ok(!result.ok, "the copy lacks the late edit, so it does not replace the source");
+  equal(result.reason, "failed");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied");
+  deepEqual(workspace.documents(), [doc]);
+});
+
+test("closing after Save keeps the document open when text was typed into a field while the file was being written (#3385)", HELD, async () => {
+  const typed = draftView(false);
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const fs = {
+    ...host.fs,
+    async writeProject(projectId: string, path: string, bytes: Uint8Array) {
+      if (path === PATH) typed.state.holds = true;
+      return host.fs.writeProject(projectId, path, bytes);
+    },
+  };
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: { fs, dialogs: host.dialogs, capabilities: host.capabilities } });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  workspace.pendingEdits(opened.document).register(typed.work);
+  const lease = workspace.attachView(opened.document);
+  ok(opened.document.apply({ type: "set-game-title", title: "Saved on close" }).ok);
+  host.answerQuestions("save");
+  deepEqual(await lease.close(), { closed: false, reason: "cancelled" }, "the text typed during the write is not dropped by the close");
+  equal(titleOf(host.bytesOf(PATH)!), "Saved on close", "the edit itself was saved");
+  deepEqual(workspace.documents(), [opened.document]);
+  lease.dispose();
+});
+
+test("a settlement still busy after every round is an incomplete hand-off, and a view's held text is a different kind (#3385)", HELD, async () => {
+  const pending = createPendingEdits();
+  const stuck: PendingEditWork = { busy: () => true, idle: async () => undefined };
+  const off = pending.register(stuck);
+  const incomplete = await pending.settle("guard");
+  ok(!incomplete.ok);
+  equal(incomplete.kind, "incomplete");
+  off();
+  const held = draftView(true);
+  pending.register(held.work);
+  const refused = await pending.settle("guard");
+  ok(!refused.ok);
+  equal(refused.kind, "held");
+});
