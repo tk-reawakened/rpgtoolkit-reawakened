@@ -49,6 +49,11 @@ export interface BattleDataFormProps<Snapshot extends DocumentSnapshot<Command>,
 interface FieldDraft { readonly text: string }
 type FieldDrafts = Readonly<Record<string, FieldDraft>>;
 
+interface PreparedEdit<Command> {
+  readonly command: Command;
+  accept?(): void;
+}
+
 /** What the rows need of a form: the shared snapshot surface, the command runner, field drafts and the Save row's state. */
 export interface BattleDataFormBase<Command> {
   readonly snapshot: DocumentSnapshot<Command>;
@@ -68,7 +73,7 @@ export interface BattleDataFormBase<Command> {
   run(command: Command): Promise<boolean>;
   save(): Promise<void>;
   resolve(choice: "keep-local" | "reload"): Promise<void>;
-  commitText(key: string, text: string, build: (value: string) => Command): Promise<void>;
+  commitText(key: string, prepare: () => PreparedEdit<Command>): Promise<void>;
   commitNumber(key: string, text: string, build: (value: number) => Command): Promise<void>;
   /** Let a save apply this field's draft first, and take part in the host's pending-edit settlement. */
   registerField(key: string, submit: (text: string) => Promise<void>): () => void;
@@ -105,14 +110,16 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const fields = useRef(new Map<string, (text: string) => Promise<void>>());
   const saved = `${what[0]!.toUpperCase()}${what.slice(1)} saved.`;
 
-  const run = (command: Command): Promise<boolean> => {
+  const enqueue = (prepare: () => PreparedEdit<Command>): Promise<boolean> => {
     const finish = submitted.current.begin();
     const operation = queue.current.then(async () => {
       try {
+        const { command, accept } = prepare();
         // Compare after prior edits have settled, not against the value that happened to be rendered on blur.
-        if (unchanged(doc.getSnapshot(), command)) return true;
+        if (unchanged(doc.getSnapshot(), command)) { accept?.(); return true; }
         const result = await doc.apply(command);
         if (!result.ok) { setMessage(result.rejection.message); return false; }
+        accept?.();
         const edit = doc.getSnapshot().edits.find((entry) => entry.editId === result.editId);
         onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? `Edit ${what}` });
         setMessage(null);
@@ -125,6 +132,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     queue.current = operation.then(() => undefined);
     return operation;
   };
+  const run = (command: Command): Promise<boolean> => enqueue(() => ({ command }));
   /** Apply every field that still holds a draft, in form order. A field whose draft no longer differs commits nothing. */
   const flush = async (): Promise<void> => {
     for (const [key, submit] of [...fields.current]) {
@@ -207,9 +215,9 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     if (draft !== undefined && draftsRef.current[key] === draft) dropDraft(key);
   };
   /** Leave a text field: a changed value is one edit; an unchanged one is dropped without touching the document. */
-  const commitText = async (key: string, text: string, build: (value: string) => Command): Promise<void> => {
+  const commitText = async (key: string, prepare: () => PreparedEdit<Command>): Promise<void> => {
     const draft = draftsRef.current[key];
-    if (await run(build(text))) clearDraft(key, draft);
+    if (await enqueue(prepare)) clearDraft(key, draft);
   };
   /** Leave a number field: the document says whether the value fits, and its sentence is shown when it does not. */
   const commitNumber = async (key: string, text: string, build: (value: number) => Command): Promise<void> => {
@@ -267,7 +275,7 @@ export function TextRow<Command>({ form, id, label, value, hint, command }: {
   readonly command: (value: string) => Command;
 }): JSX.Element {
   const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
-  const commit = (text: string): Promise<void> => commitText(id, text, command);
+  const commit = (text: string): Promise<void> => commitText(id, () => ({ command: command(text) }));
   // Registered during render, not in an effect: the map is a ref, so this neither loops nor lags a render behind.
   registerField(id, commit);
   return <p>
@@ -298,31 +306,29 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
     base: string;
     history: LineHistory;
     accepted: LineHistory["line"];
-    proposed: string | null;
     generation: number;
   } | null>(null);
   const current = model.current;
   if (current === null || (drafts[id] === undefined && (current.base !== value || current.accepted !== current.history.line))) {
-    if (current !== null && (current.proposed ?? writtenText(current.history.line)) === value) {
+    if (current !== null && writtenText(current.history.line) === value) {
       // A blur (or Save) accepted this textarea's bytes. Its native Undo stack still exists, so keep its separators too.
       current.base = value;
       current.accepted = current.history.line;
-      current.proposed = null;
     } else {
       // Another view, document Undo, or discard replaced the text. Reset both histories to the same version.
       const history = new LineHistory(value);
-      model.current = { base: value, history, accepted: history.line, proposed: null, generation: current === null ? 0 : current.generation + 1 };
+      model.current = { base: value, history, accepted: history.line, generation: current === null ? 0 : current.generation + 1 };
     }
   }
-  const asWritten = (text: string): string => {
-    const current = model.current!;
-    current.proposed = writtenText(current.history.follow(text));
-    // Reconcile the exact bytes at the submitted history position before more input can inherit its separators.
-    // Serialization here is local and deterministic; the acknowledgement controls clearing the draft, not its encoding.
-    current.history.recordEncoding(current.proposed);
-    return current.proposed;
+  const commit = (text: string): Promise<void> => {
+    const { history } = model.current!;
+    history.follow(text);
+    const prepare = history.stage();
+    return commitText(id, () => {
+      const staged = prepare();
+      return { command: command(staged.text), accept: staged.accept };
+    });
   };
-  const commit = (text: string): Promise<void> => commitText(id, asWritten(text), command);
   registerField(id, commit);
   return <p>
     <label>{label}
@@ -331,7 +337,6 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
         const direction = inputType === "historyUndo" ? "undo" : inputType === "historyRedo" ? "redo" : undefined;
         const current = model.current!;
         current.history.follow(event.currentTarget.value, event.currentTarget.selectionStart, direction);
-        current.proposed = null;
         setDraft(id, event.currentTarget.value);
       }} onChange={(event) => { if (!form.locked) void commit(event.currentTarget.value); }} />
     </label>
@@ -480,7 +485,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   readonly children?: ComponentChildren;
 }): JSX.Element {
   const { drafts, setDraft, dropDraft, commitText, registerField, run, disabled, snapshot, setMessage } = form;
-  const commit = (text: string): Promise<void> => commitText(id, text, command);
+  const commit = (text: string): Promise<void> => commitText(id, () => ({ command: command(text) }));
   registerField(id, commit);
   const busy = disabled || snapshot.saving;
   const origin = snapshot.identity.path;

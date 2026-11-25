@@ -65,6 +65,7 @@ interface LineEdit {
   readonly removed: string;
   readonly inserted: string;
   readonly firstEnding: number;
+  readonly fallbackEnding: number;
   readonly removedEndings: readonly string[];
   readonly insertedEndings: readonly string[];
 }
@@ -118,14 +119,15 @@ function describeEdit(model: LineText, next: string, caret?: number): LineEdit {
   const kept = lastLine - firstLine;
   // The separator after the replaced lines stays in place, as does the common prefix within the changed range.
   const same = Math.min(kept, replacementBreaks);
-  const fallback = endings[firstLine + same - (same > 0 ? 1 : 0)] ?? endings[firstLine - 1] ?? "\n";
+  const fallbackEnding = same > 0 ? firstLine + same - 1 : firstLine < endings.length ? firstLine : firstLine - 1;
   return {
     start: prefix,
     removed: old.slice(prefix, oldEnd),
     inserted: next.slice(prefix, next.length - (old.length - oldEnd)),
     firstEnding: firstLine + same,
+    fallbackEnding,
     removedEndings: endings.slice(firstLine + same, lastLine),
-    insertedEndings: Array<string>(replacementBreaks - same).fill(fallback),
+    insertedEndings: Array<string>(replacementBreaks - same).fill(endings[fallbackEnding] ?? "\n"),
   };
 }
 
@@ -135,7 +137,22 @@ function replayEndings(endings: readonly string[], edit: LineEdit, undo: boolean
   return spliceEndings(endings, edit.firstEnding, remove.length, insert);
 }
 
-function withEndings(edit: LineEdit, before: readonly string[], after: readonly string[]): LineEdit {
+interface HistoryEdit extends LineEdit {
+  readonly serial: number;
+}
+
+function replayText(text: string, edit: LineEdit, undo: boolean): string {
+  const remove = undo ? edit.inserted : edit.removed;
+  const insert = undo ? edit.removed : edit.inserted;
+  return text.slice(0, edit.start) + insert + text.slice(edit.start + remove.length);
+}
+
+export interface DescriptionSubmission {
+  readonly text: string;
+  accept(): void;
+}
+
+function withEndings(edit: HistoryEdit, before: readonly string[], after: readonly string[]): HistoryEdit {
   let first = 0;
   let oldEnd = before.length;
   let newEnd = after.length;
@@ -151,7 +168,8 @@ function withEndings(edit: LineEdit, before: readonly string[], after: readonly 
  * different separators.
  */
 export class LineHistory {
-  readonly #edits: LineEdit[] = [];
+  readonly #edits: HistoryEdit[] = [];
+  #serial = 0;
   #cursor = 0;
   #line: LineText;
 
@@ -163,18 +181,58 @@ export class LineHistory {
     return this.#line;
   }
 
-  /** Keep the encoding of the submitted text at its native history position before the next edit. */
-  recordEncoding(stored: string): void {
-    const { text, endings } = this.#line;
-    if (!text.includes("\n\n") || !endings.includes("\r")) return;
-    const written = stored.match(BREAKS) ?? [];
-    if (!written.some((ending, index) => ending !== endings[index])) return;
-    // Rebase both edges of this state. Its neighbours keep their bytes and native Undo/Redo does not gain a step.
-    const prior = this.#edits[this.#cursor - 1];
-    if (prior !== undefined) this.#edits[this.#cursor - 1] = withEndings(prior, replayEndings(endings, prior, true), written);
-    const next = this.#edits[this.#cursor];
-    if (next !== undefined) this.#edits[this.#cursor] = withEndings(next, written, replayEndings(endings, next, false));
-    this.#line = { text, endings: written };
+  /** Capture this gesture now, but encode it only once older edits in the document queue have settled. */
+  stage(): () => DescriptionSubmission {
+    const draft = this.#line;
+    const at = this.#cursor;
+    const serial = this.#edits[at - 1]?.serial ?? 0;
+    const existing = this.#serial;
+    const stillExists = (): boolean => at === 0 || this.#edits[at - 1]?.serial === serial;
+    return () => {
+      // Typing after undo can truncate this position; an already submitted gesture still keeps its captured bytes.
+      const line = stillExists() ? { text: draft.text, endings: this.#endingsAt(at) } : draft;
+      const text = writtenText(line);
+      return { text, accept: () => {
+        if (!stillExists() || !line.text.includes("\n\n") || !line.endings.includes("\r")) return;
+        const written = text.match(BREAKS) ?? [];
+        if (written.some((ending, index) => ending !== line.endings[index])) this.#acceptEncoding(at, existing, line, written);
+      } };
+    };
+  }
+
+  #endingsAt(at: number): readonly string[] {
+    let endings = this.#line.endings;
+    for (let index = this.#cursor; index > at;) endings = replayEndings(endings, this.#edits[--index]!, true);
+    for (let index = this.#cursor; index < at; index += 1) endings = replayEndings(endings, this.#edits[index]!, false);
+    return endings;
+  }
+
+  #acceptEncoding(at: number, existing: number, line: LineText, written: readonly string[]): void {
+    // The edge into this position must still undo to exactly the bytes it held before submission.
+    const prior = this.#edits[at - 1];
+    if (prior !== undefined) this.#edits[at - 1] = withEndings(prior, replayEndings(line.endings, prior, true), written);
+    if (at === this.#cursor) this.#line = { text: line.text, endings: written };
+    let endings = written;
+    for (let index = at; index < this.#edits.length; index += 1) {
+      const edit = this.#edits[index]!;
+      if (edit.serial <= existing) {
+        // A redo state that predates this submission keeps its old bytes.
+        this.#edits[index] = withEndings(edit, written, replayEndings(line.endings, edit, false));
+        break;
+      }
+      // Newer typing inherits the accepted separators, including separators added from a changed neighbour.
+      const { firstEnding, fallbackEnding, removedEndings, insertedEndings } = edit;
+      if (removedEndings.length > 0 || insertedEndings.length > 0) {
+        const rebased = {
+          ...edit,
+          removedEndings: endings.slice(firstEnding, firstEnding + removedEndings.length),
+          insertedEndings: Array<string>(insertedEndings.length).fill(endings[fallbackEnding] ?? "\n"),
+        };
+        this.#edits[index] = rebased;
+        endings = replayEndings(endings, rebased, false);
+      }
+      if (index + 1 === this.#cursor) this.#line = { text: this.#line.text, endings };
+    }
   }
 
   /** The browser may group keystrokes. Match the resulting text in the direction of travel, not across both stacks. */
@@ -186,24 +244,17 @@ export class LineHistory {
       let candidate = current.text;
       for (let index = this.#cursor + (undo ? -1 : 0); index >= 0 && index < this.#edits.length; index += step) {
         const edit = this.#edits[index]!;
-        const remove = undo ? edit.inserted : edit.removed;
-        const insert = undo ? edit.removed : edit.inserted;
-        candidate = candidate.slice(0, edit.start) + insert + candidate.slice(edit.start + remove.length);
+        candidate = replayText(candidate, edit, undo);
         if (candidate !== text) continue;
-        let endings = current.endings;
         const target = index + (undo ? 0 : 1);
-        while (this.#cursor !== target) {
-          if (undo) this.#cursor -= 1;
-          endings = replayEndings(endings, this.#edits[this.#cursor]!, undo);
-          if (!undo) this.#cursor += 1;
-        }
-        this.#line = { text, endings };
+        this.#line = { text, endings: this.#endingsAt(target) };
+        this.#cursor = target;
         return this.#line;
       }
     }
     if (current.text === text) return current;
     this.#edits.length = this.#cursor;
-    const edit = describeEdit(current, text, caret);
+    const edit = { ...describeEdit(current, text, caret), serial: ++this.#serial };
     this.#edits.push(edit);
     this.#cursor += 1;
     this.#line = { text, endings: replayEndings(current.endings, edit, false) };

@@ -591,11 +591,47 @@ test("typing while a description acknowledgement is held inherits the already su
     await until(() => applied, "the blank line edit was accepted but its acknowledgement is held");
     deepEqual(view.doc.serialize(), bytesWith("A\r\rC"));
     await editDescription(area, "A\nX\nC", 3, "insertText");
+    await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
+    ack.emit("release");
+    await settle();
+    deepEqual(view.doc.serialize(), bytesWith("A\rX\rC"), "the already queued edit uses the newly accepted separators");
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    deepEqual(view.host.bytesOf(SPC), bytesWith("A\rX\rC"));
+  } finally { ack.emit("release"); view.dispose(); }
+});
+
+test("a rejected description acknowledgement leaves newer typing and original separators intact", async () => {
+  const bytesWith = (text: string): Uint8Array => Uint8Array.from([...fireball.slice(0, 0x43), ...Buffer.from(text, "latin1"), 0]);
+  const original = bytesWith("A\rB\nC");
+  const ack = new EventEmitter();
+  const held = once(ack, "release");
+  let refused = false;
+  const view = await mountWithPending({ [SPC]: original, [STE]: burn }, undefined, async (apply) => {
+    const result = apply();
+    if (!result.ok) {
+      refused = true;
+      await held;
+    }
+    return result;
+  });
+  try {
+    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+    ok(area);
+    await editDescription(area, "A\n\nC", 2, "deleteContentBackward");
+    await editDescription(area, "A\n\nC🙂", 6, "insertText");
+    await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
+    await until(() => refused, "the document refused the unencodable text but has not responded yet");
+    deepEqual(view.doc.serialize(), original);
+
+    await editDescription(area, "A\n\nC", 4, "deleteContentBackward");
+    await editDescription(area, "A\nX\nC", 3, "insertText");
+    await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
     ack.emit("release");
     await settle();
     await act(() => button(view.root, "Save").click());
     await settle();
-    deepEqual(view.host.bytesOf(SPC), bytesWith("A\rX\rC"));
+    deepEqual(view.host.bytesOf(SPC), bytesWith("A\rX\nC"));
   } finally { ack.emit("release"); view.dispose(); }
 });
 
