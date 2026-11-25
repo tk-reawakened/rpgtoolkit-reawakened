@@ -142,6 +142,13 @@ The block is the game's **default** binding table, not the player's ([ACT-6](../
 
 **Writer.** The writer emits the block when `inputSettings` is non-null and never derives it from, or into, the legacy rows, the package list or the audio block. A round-trip through reader and writer is byte-identical, including an empty action list, which is written as a block with the controller flag and a zero count rather than omitted.
 
+<a id="editor-skin-authoring"></a>
+## Editor skin authoring (T-64)
+
+**T-64 Native skin document (OWNER; ruled 2026-11-25, [ADR 0045 3A](../../adr/0045-visual-source-skin-and-setup-delivery-contracts.md#owner-decisions)).** The editor saves the window and button graphics you choose in a native skin document and previews them in the editor only. It does not change the game's appearance.
+
+The **Native Skin** document owns the two graphic references and optional label. The 14.4 plan owns the on-disk spelling; this ruling allocates no file extension or serialization. Preview is labelled “Preview only: the engine does not use skins yet”. Selection and preview are not edits. Save with the same version and preserve unknown residue; retain the draft on a failed save. Read and preserve legacy fields 35 (`skinButton`) and 36 (`skinWindow`) unchanged: saving a Native Skin document never writes them. This contract needs no runtime consumer.
+
 ## Compatibility notes
 
 - **Rows 11 and 23′ are `short`, not `int` (R-18, legacy fact with corpus evidence).** Both `minor < 3` reserved fields are 2 bytes. Read as `short`, all **15** binary minor-2 `.gam` files in the corpus read to the last byte (FinalDestiny 2, LittleMan 1, BusDriver 10, School2Demo 1, ChimeranEmpire 1); read as `int`, BusDriver's ten files leave 1506 bytes unread and FinalDestiny's two run off the end. The original 3.1 engine reads 4 bytes at both places, so it misreads every minor-2 file; the editor reads 2 and is correct. This is the reading a new reader takes (round 5 `Q2`). The regeneration of the version-example files that used the old width, and the tool change that produces them, are out of this page's scope.

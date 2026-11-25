@@ -20,4 +20,4 @@ In browser and VS Code a creator adds a supported message action, saves the gene
 
 ## Dependencies and decisions
 
-Requires 14.1, 11.2, 11.3, 11.7, 11.8. Follow the approved contracts and capability declarations; do not assume unimplemented provider behavior.
+Requires 14.1, 11.2, 11.3, 11.7 and 11.8. Use the **Show message** example and opaque-code boundary in [TOOL-12](../../../docs/spec/engine/rpgcode-tooling.md#tool-12-visual-events). This tracer admits only that message action.
