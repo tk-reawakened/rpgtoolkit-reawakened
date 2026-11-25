@@ -3,7 +3,7 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { createEmptyMainFile, writeMainFile } from "@tk-reawakened/core";
+import { createEmptyMainFile, writeMainFile } from "@tk-reawakened/editor-model/testing";
 import { asMainDocument, createDocumentWorkspace } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { recoverMainDocument, resolveRecoveryConflict } from "@tk-reawakened/host-vscode/testing";

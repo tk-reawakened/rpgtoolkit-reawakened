@@ -3,7 +3,7 @@ import { PROPERTIES_BOARD, runBoardPropertiesProof } from "./board-properties-pr
 import { OBJECTS_BOARD, runBoardObjectsProof } from "./board-objects-proof.ts";
 import { CONNECTED_BOARD, CONNECTED_ITEM, runConnectedAuthoringProof } from "./connected-authoring-proof.ts";
 import { createHash } from "node:crypto";
-import { BinaryReader, decodeBoard, readBoard, readMainFile } from "@tk-reawakened/core";
+import { BinaryReader, decodeBoard, readBoard, readMainFile, readPreVectorBoard } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
@@ -250,6 +250,105 @@ export async function runVscodeBoardUpgradeProof(
     if (!result.ok) throw new Error(result.error.message);
     return result.value;
   };
+  const legacySourcePath = "Game/Example/Boards/red.brd";
+  const legacyCopyPath = "Game/Example/Boards/red.upgraded.brd";
+  const legacySourceBytes = await readBacking(legacySourcePath);
+  expect(createHash("sha256").update(legacySourceBytes).digest("hex")).toBe("ef946b9671bcc83091e9264d8e318e1be05ce27c8fd4adc61fefaec31f813d62");
+  const rawLegacy = readPreVectorBoard(new BinaryReader(legacySourceBytes, legacySourcePath));
+  if (!rawLegacy.ok) throw new Error(`The pinned minor-2.2 board could not be read: ${rawLegacy.error.message}`);
+  expect([rawLegacy.value.major, rawLegacy.value.minor, rawLegacy.value.sizeX, rawLegacy.value.sizeY, rawLegacy.value.sizeL]).toEqual([2, 2, 19, 14, 8]);
+  expect(Object.fromEntries([...new Set(rawLegacy.value.tileMatrix.map((cell) => cell.tileType))].sort((a, b) => a - b)
+    .map((type) => [type, rawLegacy.value.tileMatrix.filter((cell) => cell.tileType === type).length]))).toEqual({ 0: 2007, 1: 85, 2: 36 });
+  expect(rawLegacy.value.programs).toHaveLength(501);
+  expect(rawLegacy.value.programs.filter(({ file }) => file.length > 0)).toHaveLength(24);
+  expect(rawLegacy.value.sprites).toHaveLength(11);
+  expect(rawLegacy.value.sprites.filter(({ file }) => file.length > 0)).toHaveLength(2);
+  expect(rawLegacy.value.sprites.filter(({ file }) => file.length > 0).slice(0, 2)).toMatchObject([
+    { file: "gem.itm", x: 17, y: 3, layer: 1 },
+    { file: "red.itm", x: 3, y: 7, layer: 1 },
+  ]);
+
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await runCommand(page, expect, "View: Close All Editors");
+  await expect(page.getByRole("tab", { name: /red\.upgraded\.brd/ })).toHaveCount(0);
+  await openNativeQuickOpenFile(page, expect, "Game/Example/Boards/village.brd");
+  const legacyFrame = await waitForBoardUpgradeEditorFrame(page, "modern board used to upgrade a selected legacy board", "village.brd");
+  await legacyFrame.getByRole("button", { name: "Upgrade pre-vector board…", exact: true }).click();
+  const legacyChoice = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row")
+    .filter({ hasText: legacySourcePath }).first();
+  await expect(legacyChoice).toBeVisible();
+  await legacyChoice.click();
+  const cancelledLegacyPreview = page.locator(".monaco-dialog-box").filter({ hasText: "Upgrade pre-vector board" });
+  await expect(cancelledLegacyPreview).toBeVisible();
+  await expect(cancelledLegacyPreview).toContainText("19 × 14 tiles across 8 layer(s), 2128 stored tile cells, 32 vectors, 24 programs, 2 sprites, and 1 shading layer(s).");
+  await cancelledLegacyPreview.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(await readBacking(legacySourcePath)).toEqual(legacySourceBytes);
+  await expect.poll(async () => {
+    try { await readBacking(legacyCopyPath); return true; } catch { return false; }
+  }).toBe(false);
+  await legacyFrame.getByRole("button", { name: "Upgrade pre-vector board…", exact: true }).click();
+  const acceptedLegacyChoice = page.locator(".quick-input-widget:visible .quick-input-list .monaco-list-row")
+    .filter({ hasText: legacySourcePath }).first();
+  await expect(acceptedLegacyChoice).toBeVisible();
+  await acceptedLegacyChoice.click();
+  const acceptedLegacyPreview = page.locator(".monaco-dialog-box").filter({ hasText: "Upgrade pre-vector board" });
+  await expect(acceptedLegacyPreview).toBeVisible();
+  await expect(acceptedLegacyPreview).toContainText("19 × 14 tiles across 8 layer(s), 2128 stored tile cells, 32 vectors, 24 programs, 2 sprites, and 1 shading layer(s).");
+  await expect(acceptedLegacyPreview).toContainText('program 1 "warp00000002.prg" points [512,128; 544,128; 544,160; 512,160]');
+  await acceptedLegacyPreview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const legacySavePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(legacySavePath).toBeVisible({ timeout: 15_000 });
+  await legacySavePath.fill(`/${legacyCopyPath}`);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect.poll(async () => {
+    try { return decode(await readBacking(legacyCopyPath)).layout; } catch { return null; }
+  }, { timeout: 30_000 }).toBe("vector");
+  const upgradedLegacy = decode(await readBacking(legacyCopyPath));
+  expect({ sizeX: upgradedLegacy.board.sizeX, sizeY: upgradedLegacy.board.sizeY, sizeL: upgradedLegacy.board.sizeL }).toEqual({ sizeX: 19, sizeY: 14, sizeL: 8 });
+  expect(upgradedLegacy.board.tileMatrix.slice(0, 8)).toEqual([1, 2, 6, 6, 6, 12, 2, 6]);
+  expect(upgradedLegacy.board.vectors).toHaveLength(32);
+  expect(upgradedLegacy.board.programs).toHaveLength(24);
+  expect(upgradedLegacy.board.sprites).toHaveLength(2);
+  expect(upgradedLegacy.board.vectors[0]).toMatchObject({
+    type: 2, attributes: 1, closed: -1,
+    points: [{ x: 32, y: 0 }, { x: 352, y: 0 }, { x: 352, y: 32 }, { x: 32, y: 32 }],
+  });
+  expect(upgradedLegacy.board.programs[0]).toMatchObject({
+    program: "warp00000002.prg",
+    points: [{ x: 512, y: 128 }, { x: 544, y: 128 }, { x: 544, y: 160 }, { x: 512, y: 160 }],
+  });
+  expect(upgradedLegacy.board.sprites[0]).toMatchObject({ itemFile: "gem.itm", x: 528, y: 95, layer: 1 });
+  expect(upgradedLegacy.board.shadeLayers[0]?.records.slice(0, 5)).toEqual([
+    { runCount: 16, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+    { runCount: 77, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+    { runCount: 171, r: 0, g: 0, b: 0 },
+  ]);
+  expect(upgradedLegacy.board.shadeLayers).toHaveLength(1);
+  const legacyCopyTab = page.getByRole("tab", { name: /red\.upgraded\.brd/ });
+  await legacyCopyTab.getByRole("button", { name: /^Close/ }).click();
+  await expect(legacyCopyTab).toHaveCount(0);
+  await openNativeQuickOpenFile(page, expect, legacyCopyPath);
+  const legacyReopenedFrame = await waitForBoardUpgradeEditorFrame(page, "saved minor-2.2 copy after close and reopen", "red.upgraded.brd");
+  await expect(legacyReopenedFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+  expect(await readBacking(legacySourcePath)).toEqual(legacySourceBytes);
+  await runCommand(page, expect, "Test: Run Legacy Board Upgrade Copy");
+  const legacyPlayer = await findPlayerFrame(page, "real minor-2.2 upgraded-copy player frame");
+  const legacyRun = await legacyPlayer.evaluate(() => Reflect.get(window, "__live") as {
+    board: string | null;
+    player: { x: number; y: number } | null;
+    stateHash: string;
+  } | undefined);
+  expect(legacyRun?.board).toContain("red.upgraded.brd");
+  expect(legacyRun?.player).toEqual({ x: 48, y: 63 });
+  expect(legacyRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  await verifyHostRunHash(page, legacyPlayer, expect);
+  const legacyCopyTabAfterRun = page.getByRole("tab", { name: /red\.upgraded\.brd/ });
+  await legacyCopyTabAfterRun.getByRole("button", { name: /^Close/ }).click();
+  await expect(legacyCopyTabAfterRun).toHaveCount(0);
+
   const sourceBytes = await readBacking(sourcePath);
   const sourceBoard = decode(sourceBytes);
   if (sourceBoard.layout !== "vector" || (sourceBoard.board.coordType & 4) !== 0) {
@@ -272,14 +371,17 @@ export async function runVscodeBoardUpgradeProof(
   await savePath.fill(`/${copyPath}`);
   await page.getByRole("button", { name: "OK", exact: true }).click();
 
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "converted board copy before save", "village.pixels.brd");
+  await runCommand(page, expect, "File: Save");
   await expect.poll(async () => {
     try { return decode(await readBacking(copyPath)).board.coordType & 4; } catch { return 0; }
   }, { timeout: 30_000 }).toBe(4);
   const converted = decode(await readBacking(copyPath));
   expect(converted.layout).toBe("vector");
-  expect({ ...converted.board, coordType: sourceBoard.board.coordType }).toEqual(sourceBoard.board);
+  expect([converted.board.sizeX, converted.board.sizeY, converted.board.sizeL]).toEqual([sourceBoard.board.sizeX, sourceBoard.board.sizeY, sourceBoard.board.sizeL]);
+  expect(converted.board.tileMatrix).toEqual(sourceBoard.board.tileMatrix);
+  expect(converted.board.coordType).toBe(sourceBoard.board.coordType | 4);
   expect(await readBacking(sourcePath)).toEqual(sourceBytes);
-  boardFrame = await waitForBoardUpgradeEditorFrame(page, "converted board copy", "village.pixels.brd");
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
 
   await runCommand(page, expect, "Test: Run Board Upgrade Copy");
@@ -295,14 +397,52 @@ export async function runVscodeBoardUpgradeProof(
   expect(convertedRun?.player).toEqual({ x: 2, y: 2 });
   expect(convertedRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
   await verifyHostRunHash(page, player, expect);
-  // The player runs in another VS Code view; activate the saved board editor before invoking native Undo.
-  await page.getByRole("tab", { name: "village.pixels.brd", exact: true }).click();
-  await runCommand(page, expect, "Undo");
+  await runCommand(page, expect, "View: Close All Editors");
+  await expect(page.getByRole("tab", { name: /village\.pixels\.brd/ })).toHaveCount(0);
+  await openNativeQuickOpenFile(page, expect, copyPath);
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "saved pixel-coordinate copy after close and reopen", "village.pixels.brd");
+  expect(decode(await readBacking(copyPath)).board.coordType & 4).toBe(4);
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+  const priorPlayerFrames = await playerFrames(page);
+  await runCommand(page, expect, "Test: Run Board Upgrade Copy");
+  let savedConvertedPlayer: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of await playerFrames(page)) {
+      if (priorPlayerFrames.includes(frame)) continue;
+      const run = await frame.evaluate(() => Reflect.get(window, "__live") as {
+        board: string | null;
+        player: { x: number; y: number } | null;
+      } | undefined);
+      if (run?.board?.includes("village.pixels.brd") && run.player?.x === 2 && run.player.y === 2) {
+        savedConvertedPlayer = frame;
+        return true;
+      }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  if (savedConvertedPlayer === undefined) throw new Error("The reopened saved pixel-coordinate copy did not launch with its independent pixel start.");
+  const savedRunHandleTab = page.getByRole("tab", { name: /Run Handle Proof/ });
+  if (await savedRunHandleTab.count() === 1) await savedRunHandleTab.click();
+  await verifyHostRunHash(page, savedConvertedPlayer, expect);
+  const convertedCopyTabs = page.getByRole("tab", { name: /village\.pixels\.brd/ });
+  for (let remaining = await convertedCopyTabs.count(); remaining > 1; remaining -= 1) {
+    await convertedCopyTabs.last().getByRole("button", { name: /^Close/ }).click();
+    await expect(convertedCopyTabs).toHaveCount(remaining - 1);
+  }
+  const convertedCopyTab = convertedCopyTabs.first();
+  await expect(convertedCopyTab).toBeVisible();
+  await convertedCopyTab.click();
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "saved pixel-coordinate copy before native undo", "village.pixels.brd");
+  await boardFrame.getByRole("img", { name: "The board as the engine draws it" }).focus();
+  await page.keyboard.press("ControlOrMeta+Z");
   await runCommand(page, expect, "File: Save");
   await expect.poll(() => readBacking(copyPath), { timeout: 30_000 }).toEqual(sourceBytes);
   expect(await readBacking(sourcePath)).toEqual(sourceBytes);
-  await runCommand(page, expect, "View: Close Editor");
-  await expect(page.getByRole("tab", { name: /village\.pixels\.brd/ })).toBeHidden();
+  const tabsAfterUndo = page.getByRole("tab", { name: /village\.pixels\.brd/ });
+  for (let remaining = await tabsAfterUndo.count(); remaining > 0; remaining -= 1) {
+    await tabsAfterUndo.last().getByRole("button", { name: /^Close/ }).click();
+    await expect(tabsAfterUndo).toHaveCount(remaining - 1);
+  }
 
   await openNativeQuickOpenFile(page, expect, copyPath);
   boardFrame = await waitForBoardUpgradeEditorFrame(page, "copy after native undo and reopen", "village.pixels.brd");
@@ -2463,14 +2603,36 @@ async function waitForBoardUpgradeEditorFrame(page: Page, label: string, selecte
   const deadline = Date.now() + 30_000;
   let pause = 100;
   while (Date.now() < deadline) {
-    const selectedTab = page.getByRole("tab", { selected: true }).filter({ hasText: selectedTabLabel });
-    if (await selectedTab.count() === 1) {
-      for (const frame of page.frames()) {
-        try {
-          const toolbar = frame.getByRole("toolbar", { name: "Board coordinate and format upgrades" });
-          if (await toolbar.count() > 0 && await toolbar.isVisible()) return frame;
-        } catch {
-          // A webview replaced during the scan is re-enumerated on the next slice (#3257).
+    const selectedTabs = page.getByRole("tab", { selected: true }).filter({ hasText: selectedTabLabel });
+    if (await selectedTabs.count() > 0) {
+      const webviews = await page.locator("iframe.webview:visible").elementHandles();
+      for (const outer of webviews) {
+        const outerFrame = await outer.contentFrame().catch(() => null);
+        const frame = outerFrame?.childFrames().find((candidate) => candidate.name() === "pending-frame");
+        if (frame === undefined) continue;
+        const toolbar = frame.getByRole("toolbar", { name: "Board coordinate and format upgrades" });
+        if (await toolbar.count() > 0 && await toolbar.isVisible()) {
+          if (label === "modern board used to upgrade a selected legacy board") {
+            const tabs = await selectedTabs.evaluateAll((elements) => elements.map((element) => {
+              const ancestors = [];
+              let node: Element | null = element;
+              for (let depth = 0; node !== null && depth < 7; depth += 1, node = node.parentElement) {
+                ancestors.push({ tag: node.tagName, id: node.id, className: node.getAttribute("class") });
+              }
+              return { label: element.getAttribute("aria-label"), ancestors };
+            }));
+            const iframe = await outer.evaluate((value) => {
+              const element = value as Element;
+              const ancestors = [];
+              let node: Element | null = element;
+              for (let depth = 0; node !== null && depth < 7; depth += 1, node = node.parentElement) {
+                ancestors.push({ tag: node.tagName, id: node.id, className: node.getAttribute("class"), context: node.getAttribute("data-vscode-context") });
+              }
+              return { id: element.id, title: element.getAttribute("title"), aria: element.getAttribute("aria-label"), context: element.getAttribute("data-vscode-context"), ancestors };
+            });
+            console.error(`[vscode-web:board-frame-map] ${JSON.stringify({ tabs, iframe })}`);
+          }
+          return frame;
         }
       }
     }

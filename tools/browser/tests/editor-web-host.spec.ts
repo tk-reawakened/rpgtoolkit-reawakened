@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { createEmptyMainFile, writeMainFile } from "@tk-reawakened/core";
+import { BinaryReader, createEmptyMainFile, decodeBoard, readPreVectorBoard, writeMainFile } from "@tk-reawakened/core";
 interface ProofWindow extends Window {
   __tkrCspViolations?: string[];
   __tkrTestFolder?: FileSystemDirectoryHandle;
@@ -1148,3 +1148,188 @@ async function waitForFolderPicker(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
 }
 
+test("browser host previews, upgrades, reopens and runs the pinned original minor-2 board without replacing it", async ({ page }) => {
+  const fixturePath = fileURLToPath(new URL("../../../fixtures/legacy/Caoquest/Boards/red.brd", import.meta.url));
+  test.skip(!existsSync(fixturePath), "Run pnpm fixtures:fetch to use the pinned original minor-2 board; no source game files are committed.");
+  const sourcePath = "Game/Example/Boards/red.brd";
+  const copyPath = "Game/Example/Boards/red.upgraded.brd";
+  const original = new Uint8Array(readFileSync(fixturePath));
+  expect(createHash("sha256").update(original).digest("hex")).toBe("ef946b9671bcc83091e9264d8e318e1be05ce27c8fd4adc61fefaec31f813d62");
+  const raw = readPreVectorBoard(new BinaryReader(original, sourcePath));
+  expect(raw.ok).toBe(true);
+  if (!raw.ok) throw new Error(raw.error.message);
+  expect([raw.value.major, raw.value.minor, raw.value.sizeX, raw.value.sizeY, raw.value.sizeL]).toEqual([2, 2, 19, 14, 8]);
+  expect(Object.fromEntries([...new Set(raw.value.tileMatrix.map((cell) => cell.tileType))].sort((a, b) => a - b)
+    .map((type) => [type, raw.value.tileMatrix.filter((cell) => cell.tileType === type).length]))).toEqual({ 0: 2007, 1: 85, 2: 36 });
+  expect(raw.value.programs).toHaveLength(501);
+  expect(raw.value.programs.filter(({ file }) => file.length > 0)).toHaveLength(24);
+  expect(raw.value.programs.slice(0, 2)).toMatchObject([
+    { file: "warp00000002.prg", x: 17, y: 5, layer: 1 },
+    { file: "talktored.prg", x: 9, y: 5, layer: 1 },
+  ]);
+  expect(raw.value.sprites).toHaveLength(11);
+  expect(raw.value.sprites.filter(({ file }) => file.length > 0)).toHaveLength(2);
+  expect(raw.value.sprites.filter(({ file }) => file.length > 0).slice(0, 2)).toMatchObject([
+    { file: "gem.itm", x: 17, y: 3, layer: 1 },
+    { file: "red.itm", x: 3, y: 7, layer: 1 },
+  ]);
+  expect(raw.value.tileMatrix.filter((cell) => cell.r !== 0 || cell.g !== 0 || cell.b !== 0)).toEqual([
+    { lutIndex: 26, r: -26, g: -26, b: -26, tileType: 2 },
+    { lutIndex: 5, r: -26, g: -26, b: -26, tileType: 2 },
+  ]);
+
+  // The test-time tiles are intentionally new, solid palette-index placeholders; original game artwork and RPGCode are not copied.
+  const tileCount = 218;
+  const tilesetBytes = new Uint8Array(6 + tileCount * 1024);
+  const tilesetHeader = new DataView(tilesetBytes.buffer);
+  tilesetHeader.setUint16(0, 20, true);
+  tilesetHeader.setUint16(2, tileCount, true);
+  tilesetHeader.setUint16(4, 3, true);
+  tilesetBytes.fill(42, 6);
+
+  const programFiles = [...new Set(raw.value.programs.map(({ file }) => file).filter((file) => file.length > 0))]
+    .map((file) => ({ path: `Game/Example/Prg/${file}`, bytes: [] }));
+  const midi = [0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4, 0, 0xff, 0x2f, 0];
+  await installFolderPicker(page, [
+    { path: "Main/example.gam", bytes: validMain },
+    { path: sourcePath, bytes: Array.from(original) },
+    { path: "Game/Example/Tiles/forest_set.tst", bytes: Array.from(tilesetBytes) },
+    { path: "Game/Example/Chrs/ada.tem", bytes: Array.from(readFileSync(new URL("../../../docs/spec/examples/game/Game/Example/Chrs/ada.tem", import.meta.url))) },
+    { path: "Game/Example/Item/gem.itm", bytes: validItem },
+    { path: "Game/Example/Item/red.itm", bytes: validItem },
+    { path: "Game/Example/Music/Town.mid", bytes: midi },
+    ...programFiles,
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  for (const name of ["Game", "Example", "Boards"]) {
+    await page.getByRole("treeitem", { name: `${name}, folder, closed`, exact: true }).press("ArrowRight");
+  }
+
+  const openUpgrade = async () => {
+    await page.keyboard.press("Control+Shift+P");
+    const search = page.getByRole("combobox", { name: "Search commands and files" });
+    await search.fill("Upgrade a pre-vector board");
+    await search.press("Enter");
+  };
+  await openUpgrade();
+  const boardPicker = page.getByRole("dialog").filter({ hasText: "Choose a board to upgrade" });
+  await boardPicker.getByRole("button", { name: sourcePath, exact: true }).click();
+  const cancelledPreview = page.getByRole("dialog").filter({ hasText: `Upgrade pre-vector board: ${sourcePath}?` });
+  await expect(cancelledPreview).toContainText("19 × 14 tiles across 8 layer(s), 2128 stored tile cells, 32 vectors, 24 programs, 2 sprites, and 1 shading layer(s).");
+  await cancelledPreview.getByRole("button", { name: "Cancel", exact: true }).click();
+  const cancelledState = await page.evaluate(async ({ sourceName, destinationName }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const boards = await (await (await root.getDirectoryHandle("Game")).getDirectoryHandle("Example")).getDirectoryHandle("Boards");
+    const sourceBytes = new Uint8Array(await (await (await boards.getFileHandle(sourceName)).getFile()).arrayBuffer());
+    let destinationExists = false;
+    try {
+      await boards.getFileHandle(destinationName);
+      destinationExists = true;
+    } catch {
+      // An absent destination is the expected cancellation result.
+    }
+    return { sourceBytes: [...sourceBytes], destinationExists };
+  }, { sourceName: sourcePath.split("/").at(-1)!, destinationName: copyPath.split("/").at(-1)! });
+  expect(cancelledState.sourceBytes).toEqual([...original]);
+  expect(cancelledState.destinationExists).toBe(false);
+  await openUpgrade();
+  const acceptedPicker = page.getByRole("dialog").filter({ hasText: "Choose a board to upgrade" });
+  await acceptedPicker.getByRole("button", { name: sourcePath, exact: true }).click();
+  const preview = page.getByRole("dialog").filter({ hasText: `Upgrade pre-vector board: ${sourcePath}?` });
+  await expect(preview).toContainText("19 × 14 tiles across 8 layer(s), 2128 stored tile cells, 32 vectors, 24 programs, 2 sprites, and 1 shading layer(s).");
+  await expect(preview).toContainText("vector 1 points [32,0; 352,0; 352,32; 32,32]");
+  await expect(preview).toContainText('program 1 "warp00000002.prg" points [512,128; 544,128; 544,160; 512,160]');
+  await expect(preview).toContainText("sprite 1 gem.itm at 528,95, layer 1");
+  await expect(preview).toContainText("shade records [16:0,0,0; 1:-26,-26,-26; 77:0,0,0; 1:-26,-26,-26]");
+  await preview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const saveDialog = page.getByRole("dialog", { name: `Save ${sourcePath} as` });
+  await saveDialog.getByRole("textbox").fill(copyPath);
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: copyPath, exact: true })).toBeVisible();
+
+  const disk = await page.evaluate(async ({ source, destination }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const read = async (path: string) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      const file = await parent.getFileHandle(parts.at(-1)!);
+      return [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+    };
+    return { source: await read(source), destination: await read(destination) };
+  }, { source: sourcePath, destination: copyPath });
+  expect(disk.source).toEqual([...original]);
+  const decoded = decodeBoard(new Uint8Array(disk.destination));
+  expect(decoded.ok).toBe(true);
+  if (!decoded.ok) throw new Error(decoded.error.message);
+  expect(decoded.value.layout).toBe("vector");
+  expect(decoded.value.board).toMatchObject({
+    coordType: 0,
+    sizeX: 19,
+    sizeY: 14,
+    sizeL: 8,
+    tileMatrix: expect.arrayContaining([1, 2, 6, 12]),
+  });
+  expect(decoded.value.board.tileMatrix.slice(0, 8)).toEqual([1, 2, 6, 6, 6, 12, 2, 6]);
+  expect(decoded.value.board.vectors.length).toBe(32);
+  expect(decoded.value.board.vectors[0]).toMatchObject({ type: 2, attributes: 1, closed: -1, points: [{ x: 32, y: 0 }, { x: 352, y: 0 }, { x: 352, y: 32 }, { x: 32, y: 32 }] });
+  expect(decoded.value.board.programs).toHaveLength(24);
+  expect(decoded.value.board.programs[0]).toMatchObject({ program: "warp00000002.prg", points: [{ x: 512, y: 128 }, { x: 544, y: 128 }, { x: 544, y: 160 }, { x: 512, y: 160 }] });
+  expect(decoded.value.board.programs[1]).toMatchObject({ program: "talktored.prg", points: [{ x: 256, y: 128 }, { x: 288, y: 128 }, { x: 288, y: 160 }, { x: 256, y: 160 }] });
+  expect(decoded.value.board.sprites).toMatchObject([
+    { itemFile: "gem.itm", x: 528, y: 95, layer: 1 },
+    { itemFile: "red.itm", x: 80, y: 223, layer: 1 },
+  ]);
+  expect(decoded.value.board.shadeLayers[0]?.records.slice(0, 5)).toEqual([
+    { runCount: 16, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+    { runCount: 77, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+    { runCount: 171, r: 0, g: 0, b: 0 },
+  ]);
+
+  await page.getByRole("tab", { name: copyPath, exact: true }).click();
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Close Active Tab/i }).click();
+  await expect(page.getByRole("tab", { name: copyPath, exact: true })).toHaveCount(0);
+  await page.getByRole("treeitem").filter({ hasText: "red.upgraded.brd" }).dblclick();
+  await expect(page.getByRole("tab", { name: copyPath, exact: true })).toBeVisible();
+
+  const setupButton = page.getByRole("group", { name: "Run" }).getByRole("button", { name: "New run setup" });
+  await setupButton.click();
+  const setup = page.getByRole("dialog", { name: "New run setup" });
+  await setup.getByRole("tab", { name: "Test board", exact: true }).click();
+  await expect(setup.getByRole("combobox", { name: "Board", exact: true })).toHaveValue(copyPath);
+  await setup.getByRole("spinbutton", { name: "Column", exact: true }).fill("2");
+  await setup.getByRole("spinbutton", { name: "Row", exact: true }).fill("2");
+  await setup.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
+  await setup.getByRole("button", { name: "Test board", exact: true }).click();
+  const runner = page.frameLocator('iframe[title="Running game"]');
+  await expect(runner.locator("#screen")).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    const live = (frame?.contentWindow as unknown as { __live?: { board: string | null } } | null)?.__live;
+    return live?.board?.toLowerCase() ?? "";
+  }), { timeout: 30_000 }).toContain("red.upgraded.brd");
+  const run = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    return (frame?.contentWindow as unknown as { __live?: { player: { x: number; y: number } | null; stateHash: string } } | null)?.__live ?? null;
+  });
+  expect(run?.player).toEqual({ x: 48, y: 63 });
+  expect(run?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  const drawnPixels = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    const screen = frame?.contentDocument?.querySelector<HTMLCanvasElement>("#screen");
+    const gl = screen?.getContext("webgl2");
+    if (!screen || !gl) return false;
+    const pixels = new Uint8Array(screen.width * screen.height * 4);
+    gl.readPixels(0, 0, screen.width, screen.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    return pixels.some((value, index) => index % 4 !== 3 && value > 0);
+  });
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
+});

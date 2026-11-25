@@ -1,4 +1,3 @@
-import { foldPath } from "@tk-reawakened/core";
 import { SCRIPT_TRANSFORM_REQUEST } from "@tk-reawakened/lsp/protocol";
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import {
@@ -65,6 +64,7 @@ import {
   DEFAULT_WORKBENCH_PANELS,
   upgradeBoardCopy,
   type ProjectLayoutOwner,
+  foldPath,
 } from "@tk-reawakened/editor-model";
 import { createAuditionCommands, createAuditionControls, createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type AuditionControls, type AuditionPanel, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";

@@ -13,6 +13,7 @@
     "onCommand:tkr.editorWebProof.runExampleProgram",
     "onCommand:tkr.editorWebProof.runExampleBoard",
     "onCommand:tkr.editorWebProof.runBoardUpgradeCopy",
+    "onCommand:tkr.editorWebProof.runLegacyBoardUpgradeCopy",
     "onCommand:tkr.editorWebProof.allowSaves",
     "onCommand:tkr.editorWebProof.pauseProgramRead",
     "onCommand:tkr.editorWebProof.resumeProgramRead",
@@ -52,6 +53,10 @@
       {
         "command": "tkr.editorWebProof.runBoardUpgradeCopy",
         "title": "Test: Run Board Upgrade Copy"
+      },
+      {
+        "command": "tkr.editorWebProof.runLegacyBoardUpgradeCopy",
+        "title": "Test: Run Legacy Board Upgrade Copy"
       },
       {
         "command": "tkr.editorWebProof.stopRunHandle",

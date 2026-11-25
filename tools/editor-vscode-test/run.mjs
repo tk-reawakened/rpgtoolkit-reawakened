@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, expect } from "@playwright/test";
-import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader, projectFolder, readMainFile } from "@tk-reawakened/core";
-import { buildNewBoard } from "@tk-reawakened/editor-model";
+import { compositeTileBitmap, createEmptyBoard, expandTileToRgba, readTileBitmap, readTileset, tileDimensions, TILE_BITMAP_MAGIC, writeBoard, writeTileBitmap, BinaryReader, projectFolder, readMainFile, readPreVectorBoard } from "@tk-reawakened/core";
+import { buildNewBoard, encodeScenePng } from "@tk-reawakened/editor-model";
 import { boardPropertiesProofFiles } from "./board-properties-proof.ts";
 import { boardObjectsProofFiles } from "./board-objects-proof.ts";
 import { connectedAuthoringProofFiles } from "./connected-authoring-proof.ts";
@@ -149,6 +149,38 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       const target = resolve(proofWorkspace, path);
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, bytes);
+    }
+  }
+  if (boardUpgradeProof) {
+    const legacyPath = resolve(root, "fixtures/legacy/Caoquest/Boards/red.brd");
+    const legacyBytes = new Uint8Array(await readFile(legacyPath));
+    const parsedLegacy = readPreVectorBoard(new BinaryReader(legacyBytes, legacyPath));
+    if (!parsedLegacy.ok || parsedLegacy.value.major !== 2 || parsedLegacy.value.minor !== 2) {
+      throw new Error("The pinned Caoquest red.brd fixture must be a readable minor-2.2 board.");
+    }
+    const legacyBoardPath = resolve(proofWorkspace, "Game/Example/Boards/red.brd");
+    await mkdir(dirname(legacyBoardPath), { recursive: true });
+    await writeFile(legacyBoardPath, legacyBytes);
+    const tileset = new Uint8Array(6 + 218 * 1024);
+    const tilesetHeader = new DataView(tileset.buffer);
+    tilesetHeader.setUint16(0, 20, true);
+    tilesetHeader.setUint16(2, 218, true);
+    tilesetHeader.setUint16(4, 3, true);
+    tileset.fill(42, 6);
+    const programFiles = [...new Set(parsedLegacy.value.programs.map(({ file }) => file).filter((file) => file.length > 0))]
+      .map((file) => ({ path: `Game/Example/Prg/${file}`, bytes: new Uint8Array() }));
+    const itemBytes = new Uint8Array(await readFile(resolve(root, "docs/spec/examples/versions/item/item_minor7.itm")));
+    const boardAssets = [
+      { path: "Game/Example/Tiles/forest_set.tst", bytes: tileset },
+      { path: "Game/Example/Bitmap/background.JPG", bytes: encodeScenePng({ w: 2, h: 2, rgba: new Uint8Array([42, 42, 42, 255, 42, 42, 42, 255, 42, 42, 42, 255, 42, 42, 42, 255]) }) },
+      { path: "Game/Example/Music/Town.mid", bytes: new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0, 96, 0x4d, 0x54, 0x72, 0x6b, 0, 0, 0, 4, 0, 0xff, 0x2f, 0]) },
+      ...programFiles,
+      ...["gem.itm", "red.itm"].map((file) => ({ path: `Game/Example/Item/${file}`, bytes: itemBytes })),
+    ];
+    for (const file of boardAssets) {
+      const target = resolve(proofWorkspace, file.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, file.bytes);
     }
   }
   const boardPath = "Boards/village.brd";

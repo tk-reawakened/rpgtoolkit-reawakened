@@ -1,6 +1,5 @@
-import { foldPath } from "@tk-reawakened/core";
 import type * as vscode from "vscode";
-import { createBoardCoordinateUpgradeCommand, projectLayoutOfMainFromBytes, projectLayoutOwnerForDocumentPath, reservedFolder, resolveReservedFolderPath, upgradeBoardCopy, type BoardUpgradeOperation, type ProjectLayout, type ProjectLayoutOwner } from "@tk-reawakened/editor-model";
+import { createBoardCoordinateUpgradeCommand, foldPath, projectLayoutOfMainFromBytes, projectLayoutOwnerForDocumentPath, reservedFolder, resolveReservedFolderPath, upgradeBoardCopy, type BoardUpgradeOperation, type ProjectLayout, type ProjectLayoutOwner } from "@tk-reawakened/editor-model";
 import type { DialogService, FileSystemService } from "@tk-reawakened/platform-services";
 import type { GameEditorProvider } from "./custom-editor.ts";
 

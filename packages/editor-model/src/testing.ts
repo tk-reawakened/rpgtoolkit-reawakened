@@ -14,3 +14,4 @@ export {
   type TileBitmap,
   type TileBitmapCell,
 } from "@tk-reawakened/core";
+export { createEmptyMainFile, writeMainFile } from "@tk-reawakened/core";

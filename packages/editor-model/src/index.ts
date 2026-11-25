@@ -584,3 +584,5 @@ export {
 export * from "./board-lights.ts";
 export * from "./board-shade-tools.ts";
 export * from "./board-clipboard.ts";
+export { foldPath } from "@tk-reawakened/core";
+export type { AssetRoot } from "@tk-reawakened/core";
