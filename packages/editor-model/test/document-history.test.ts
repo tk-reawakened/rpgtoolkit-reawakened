@@ -948,3 +948,46 @@ test("undo restores only changed files and cannot redirect a path renamed after 
   deepEqual(host.bytesOf(reversible), formatted);
   workspace.dispose();
 });
+
+test("a copy opened after durable restore preparation is refused and never undone", async () => {
+  const path = ".tkr-migrated/3.1/Prg/late.prg";
+  const data = new TextEncoder().encode('mwin("Converted")\n');
+  const host = createMemoryPlatformServices();
+  let armed = false;
+  let arrived!: () => void;
+  let release!: () => void;
+  const writing = new Promise<void>((resolve) => { arrived = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fs: FileSystemService = { ...host.fs, async writeProject(project, name, value) {
+    const saved = await host.fs.writeProject(project, name, value);
+    if (armed && name.startsWith(".tkr-history/progress/")) {
+      armed = false;
+      arrived();
+      await gate;
+    }
+    return saved;
+  } };
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: { ...host, fs } });
+  const source = await workspace.checkpoints.prepareScripts([{ path, bytes: data }], "Update older syntax"); ok(source.ok);
+  host.seed(path, data);
+  ok((await workspace.checkpoints.registerWritten(source.value.id, path, data)).ok);
+  armed = true;
+  const running = workspace.restoreHistoryGroup(source.value.id);
+  await writing;
+  const opened = await workspace.open(path);
+  release();
+  ok(opened.ok);
+  const outcome = await running;
+  ok(outcome.restoreGroupId !== null);
+  equal(outcome.files[0]?.result, "failed");
+  match(outcome.files[0]?.message ?? "", /is open.*Close it/);
+  deepEqual(host.bytesOf(path), data);
+  workspace.release(opened.document);
+
+  const newer = new TextEncoder().encode('mwin("Newer work")\n');
+  host.seed(path, newer);
+  const reverse = await workspace.restoreHistoryGroup(outcome.restoreGroupId);
+  equal(reverse.files[0]?.result, "kept-changed");
+  deepEqual(host.bytesOf(path), newer);
+  workspace.dispose();
+});

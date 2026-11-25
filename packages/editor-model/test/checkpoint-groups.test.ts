@@ -199,3 +199,63 @@ test("a reviewed checkpoint never accepts receipts for another spelling or resto
   deepEqual(restored.value.files.map(({ before, after }) => [before, after]), [[null, null]]);
   deepEqual(host.bytesOf(alias), reviewed);
 });
+
+test("Undo Restore ignores a generated copy refused by the late open-file guard", async () => {
+  const { host, env } = fixture();
+  const path = "Prg/generated.prg";
+  const rendered = bytes("output");
+  let guardCallsAfterSource = 0;
+  const groups = createCheckpointGroups({ ...env, async guard(candidate, removing) {
+    if (candidate === path && removing && ++guardCallsAfterSource === 3) return `${candidate} opened before removal.`;
+    return null;
+  } });
+  const source = await groups.prepareScripts([{ path, bytes: rendered }], "Update older syntax"); ok(source.ok);
+  host.seed(path, rendered);
+  ok((await groups.registerWritten(source.value.id, path, rendered)).ok);
+  const restored = await groups.restore(source.value.id); ok(restored.ok);
+  equal(guardCallsAfterSource, 3);
+  equal(restored.value.files[0]?.status, "failed");
+  ok(restored.value.files[0]?.before !== null, "the failed row retains the intended transfer for diagnosis");
+  host.seed(path, bytes("new work after refusal"));
+  const reverse = await createCheckpointGroups(env).restore(restored.value.id); ok(reverse.ok);
+  equal(reverse.value.files[0]?.status, "kept-changed");
+  deepEqual(host.bytesOf(path), bytes("new work after refusal"));
+});
+
+test("Undo Restore does not reverse a pending checkpoint reopened before the first dispatch", async () => {
+  const { host, env } = fixture();
+  const path = "Prg/generated.prg";
+  const rendered = bytes("output");
+  let reached!: () => void;
+  let abandon!: () => void;
+  const pending = new Promise<void>((resolve) => { reached = resolve; });
+  const gate = new Promise<void>((resolve) => { abandon = resolve; });
+  let calls = 0;
+  const running = createCheckpointGroups({ ...env, async guard(candidate, removing) {
+    if (candidate === path && removing && ++calls === 2) {
+      reached();
+      await gate;
+      return "Original restore interrupted before dispatch.";
+    }
+    return null;
+  } });
+  const source = await running.prepareScripts([{ path, bytes: rendered }], "Update older syntax"); ok(source.ok);
+  host.seed(path, rendered);
+  ok((await running.registerWritten(source.value.id, path, rendered)).ok);
+  const original = running.restore(source.value.id);
+  await pending;
+  try {
+    // Use fresh adapter identity and reload the on-disk manifest, with no in-process operation state.
+    const reopened = createCheckpointGroups({ ...env, fs: { ...env.fs } });
+    const listed = await reopened.list(); ok(listed.ok);
+    const captured = listed.value.find((entry) => "files" in entry && entry.reason === "before-restore");
+    ok(captured !== undefined && "files" in captured && captured.files[0]?.status === "pending");
+    host.seed(path, bytes("new work after interruption"));
+    const reverse = await reopened.restore(captured.id); ok(reverse.ok);
+    equal(reverse.value.files[0]?.status, "kept-changed");
+    deepEqual(host.bytesOf(path), bytes("new work after interruption"));
+  } finally {
+    abandon();
+    await original;
+  }
+});

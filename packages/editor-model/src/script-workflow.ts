@@ -146,7 +146,11 @@ export interface OpenScriptProgram {
   replace(label: string, text: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
 }
 
-export type ScriptWorkflowFileSystem = Pick<FileSystemService, "list" | "read" | "write" | "createFolder">;
+export type ScriptWorkflowFileSystem = Pick<FileSystemService, "list" | "read" | "createFolder"> & {
+  /** Only supplied when both this write and createFolder can reject links in every segment at the mutation boundary,
+   * or when the storage namespace cannot contain links. Ordinary path-based write is never a fallback. */
+  readonly writeReviewed?: FileSystemService["write"];
+};
 
 export interface ScriptWorkflowEnvironment {
   readonly fs: ScriptWorkflowFileSystem;
@@ -518,12 +522,14 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
     await requireExactPath(env.fs, entry.destination);
   };
+  const unsafeDisk = "This filesystem cannot safely bind the reviewed path to a disk write. No disk change was made.";
   interface PreparedWrite {
     readonly sourceBytes: Uint8Array | null;
     readonly before: Uint8Array | null;
     readonly bytes: Uint8Array;
   }
   const prepareWrite = async (entry: ScriptWorkflowEntry): Promise<PreparedWrite> => {
+    if (env.fs.writeReviewed === undefined) throw new Error(unsafeDisk);
     if (env.isProjectCurrent?.() === false) throw new Error(projectChanged);
     if (!(await mainIsCurrent())) throw new Error(projectChanged);
     await requireExactPath(env.fs, entry.destination);
@@ -562,7 +568,7 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       const done = await currentEditor.replace(label, result);
       return done.ok ? { via: "edit" } : { failure: `${entry.path} could not be edited: ${done.message}` };
     }
-    if (prepared === undefined) return { failure: `${entry.destination} was not prepared for writing.` };
+    if (prepared === undefined || env.fs.writeReviewed === undefined) return { failure: unsafeDisk };
     const { before, sourceBytes, bytes } = prepared;
     if (entry.target === "copy") {
       const slash = entry.destination.lastIndexOf("/");
@@ -591,7 +597,7 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       return { failure: `${entry.destination} was opened in an editor during the apply; it was not written.` };
     }
     if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
-    const written = await env.fs.write(entry.destination, bytes);
+    const written = await env.fs.writeReviewed(entry.destination, bytes);
     if (!written.ok) return { failure: `Could not write ${entry.destination}: ${written.error.message}. ${entry.path} is as it was.` };
     if (groupId !== null && env.history !== null) {
       const receiptFailed = (message: string): ApplyOneResult => ({

@@ -18,6 +18,8 @@ Reuse 10.5 syntax code actions and 10.7 formatter, adding missing orchestration 
 
 Across native VS Code and Monaco hosts, fixtures verify correct provider results, per-file opt-out, original/result diff, unsupported fragments, cancel and behaviour-preserving accepted changes.
 
+**Acceptance remains blocked (#3439).** Verified origin-private browser storage is link-free and still applies disk batches. A browser-picked native folder and VS Code's public path-based `workspace.fs` cannot establish no-follow mutation identity. The editor refuses their closed-file writes and migration copies before starting a checkpoint; an already-open source can still receive an unsaved in-place edit. The original required VS Code disk-apply proof remains in the suite. Do not treat origin-private browser coverage or the in-process link-free provider as proof of that clause.
+
 ## Dependencies and decisions
 
 Prerequisites: 1, 11.3, 11.7, 10.5, 10.7. Apply the epic Notes, format specs, AD-18/19/20/22/29 and connected-authoring direction; T-42, T-43, T-44, T-46 map to CAP-16. Preserve version and residue, use the existing shared model and browser, and route host access through platform-services. Where provider or host capability is unavailable, preserve data and report the limitation; do not simulate it.
@@ -69,6 +71,8 @@ Draft PR #3363 requires independent review and CI before merge. No owner approva
 - **#3431 — bytes after path checks.** Both live and disk applies re-observe the main, source and destination after the final path walk, with no intervening awaited preparation before mutation. Delayed listings cover a main replacement with a different dialect for both open and closed programs, and new bytes at a closed source or migration copy. The filesystem has no atomic compare-and-write; the final observation is optimistic.
 - **#3430, #3432 and #3433 — restore only files it can prove.** Restore and Undo Restore both use exact path spelling. The reverse checkpoint records no-op rows in its initial manifest rather than giving skipped files before/after targets. A refused open copy does not block a closed copy and can be retried from the original group after it closes.
 - **#3436 and #3437 — native acceptance corrections.** The existing animation command still refuses an unsafe native open-document restore outright, including reversal of a normal History restore. The real migration proof treats only `ENOENT` during bounded polling as a pending write; it still requires the exact bytes and propagates other read errors.
+- **#3438 — reverse only confirmed writes.** Reopened pending intent and a generated copy refused by the late open-document guard both stay untouched by Undo Restore, even after newer work appears. Prior bytes and intended bytes are not a receipt.
+- **#3439 — link-safe mutation capability.** A delayed second destination read can return matching bytes through a substituted link. The model requires an explicit link-safe provider for disk writes and folder creation and never falls back to ordinary `write`. Browser origin-private storage qualifies through its own directory handle; native or remote provider support is not established. Keep the original acceptance open and the PR draft.
 - **#3400 — intermittent native quick-open proof, not resolved here.** An earlier `editor:acceptance` timed out submitting the path after the prompt appeared. The unsubstantiated palette-chord retry was removed; the cause of the after-fill prompt loss is not established.
 
 ## Defect filed

@@ -76,7 +76,15 @@ export async function runVscodeScriptWorkflowProof(
   await review(FORMAT);
   for (const path of [OPT_OUT, CLEAN]) await row(path).locator(".monaco-custom-toggle").click();
   await apply();
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  const diskConsent = page.getByRole("button", { name: "Continue", exact: true });
+  const unsupportedDisk = page.locator(".notification-toast").filter({ hasText: /cannot safely bind the reviewed path/i }).first();
+  await expect(diskConsent.or(unsupportedDisk)).toBeVisible();
+  if (await unsupportedDisk.isVisible()) {
+    expect(await bytes(FORMAT)).toBe(MESSY);
+    expect(await groups()).toEqual(initialGroups);
+    throw new Error("Reviewed VS Code disk apply remains unsupported: its filesystem cannot safely bind the reviewed path to the write. The original file and checkpoint list were unchanged.");
+  }
+  await diskConsent.click();
   await expect.poll(() => bytes(FORMAT)).toBe(FORMATTED);
   expect(await bytes(OPT_OUT)).toBe(UPPER);
   expect(await bytes(CLEAN)).toBe(CLEANUP);

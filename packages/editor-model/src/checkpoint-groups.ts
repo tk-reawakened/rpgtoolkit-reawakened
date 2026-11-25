@@ -94,6 +94,13 @@ function notRestored(file: CheckpointFile): boolean {
     || (file.status === "failed" && file.before === null && file.after === null);
 }
 
+function reversalRefusal(file: CheckpointFile): string | null {
+  if (file.status === "written") return null;
+  return file.status === "kept-changed" || file.status === "kept-uncertain"
+    ? file.message ?? "No change to reverse for this path."
+    : "The previous restore did not record a successful write for this file; it was not reversed.";
+}
+
 async function pathConflict(canonical: (path: string) => Promise<string>, path: string): Promise<string | null> {
   try {
     const resolved = await canonical(path);
@@ -399,9 +406,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         const previousRefusals = new Map<string, string>();
         const eligible: string[] = [];
         for (const file of selected) {
-          const kept = source.reason === "before-restore" && notRestored(file)
-            ? file.status === "already-as-wanted" ? "The previous restore did not change this file; there is nothing to undo." : file.message ?? "No change to reverse for this path."
-            : await pathConflict(canonical, file.path);
+          const kept = (source.reason === "before-restore" ? reversalRefusal(file) : null) ?? await pathConflict(canonical, file.path);
           if (kept === null) eligible.push(file.path);
           else previousRefusals.set(file.path, kept);
         }
@@ -429,6 +434,8 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
           const registeredAfter = source.reason === "before-script" && file.status !== "written" ? null : file.after;
           if (actualHash === desiredHash) {
             targets.push(noOp(file.path, "already-as-wanted", "Already as wanted"));
+          } else if (source.reason === "before-restore" && actualHash !== file.after) {
+            targets.push(noOp(file.path, "kept-changed", "This file has changed since the previous restore; its newer contents were kept."));
           } else if (source.reason === "before-script" && desiredHash !== null && actualHash !== file.after) {
             targets.push(noOp(file.path, "kept-changed", "The existing file no longer matches either reviewed version, so it was kept."));
           } else if (desiredHash === null && actual !== null && actualHash !== registeredAfter && !deleteUncertain.has(foldPath(file.path))) {

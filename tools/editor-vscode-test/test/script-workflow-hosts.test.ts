@@ -19,9 +19,15 @@ let createFolderProject: typeof import("@tk-reawakened/host-web/testing").create
 let createWorkbench: typeof import("@tk-reawakened/host-web/testing").createWorkbench;
 let leaseLanguageClient: typeof import("@tk-reawakened/editor-ui").leaseLanguageClient;
 let runScriptWorkflow: typeof import("@tk-reawakened/host-vscode/testing").runScriptWorkflow;
+const originPrivateFixtures = new WeakSet<object>();
 
 before(async () => {
   GlobalRegistrator.register();
+  Object.defineProperty(navigator, "storage", { configurable: true, value: {
+    async getDirectory() {
+      return { async resolve(directory: object) { return originPrivateFixtures.has(directory) ? ["test-project"] : null; } };
+    },
+  } });
   const { act: preactAct } = await import("preact/test-utils");
   let queue: Promise<void> = Promise.resolve();
   act = (callback) => {
@@ -150,6 +156,7 @@ const dialogs: DialogService = {
 function project() {
   const control: WriteControl = { refuse: false, refuseNames: undefined, hold: null, tick: 0 };
   const root = new MemoryDirectory("project", control);
+  originPrivateFixtures.add(root);
   root.put("Main/example.gam", gam);
   root.put("Prg/messy.prg", bytes(MESSY));
   root.put("Prg/second.prg", bytes(OTHER));
@@ -228,7 +235,7 @@ function vscodeUi(options: { readonly untick?: readonly string[]; readonly cance
   return { ui, seen };
 }
 
-test("both hosts plan the same change from the same project and apply the same bytes, honouring the per-file opt-out", async () => {
+test("both host presenters apply the same reviewed bytes when supplied a link-free filesystem", async () => {
   const browser = await reviewInBrowser("format", { untick: ["Prg/second.prg"] });
   // Format is TOOL-4 only: it re-indents and lower-cases names, and leaves the ignored `!` for the update workflow.
   equal(text(browser.root.read("Prg/messy.prg")), 'x! = 1\nif (x == 1) {\n    mwin("Hello")\n}\n');
@@ -244,7 +251,7 @@ test("both hosts plan the same change from the same project and apply the same b
   const client = leased.lease.client;
   try {
     const summary = await runScriptWorkflow("format", {
-      fs: web.services.fs,
+      fs: { ...web.services.fs, writeReviewed: web.services.fs.write },
       provider: scriptProviderOver((params) => client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => client.uriOf(path)),
       history: null,
       openPrograms: () => [],
@@ -383,7 +390,7 @@ test("native review surfaces the refusal and fragment before apply, then reports
   const { ui, seen } = vscodeUi({ retry: () => attempts === 1 });
   try {
     const finished = await runScriptWorkflow("cleanup", {
-      fs: { ...web.services.fs, async write(path, bytes) {
+      fs: { ...web.services.fs, async writeReviewed(path, bytes) {
         if (path === "Prg/second.prg" && ++attempts === 1) return { ok: false, error: { code: "io-error", message: "write refused once" } };
         return await web.services.fs.write(path, bytes);
       } },
@@ -405,6 +412,30 @@ test("native review surfaces the refusal and fragment before apply, then reports
     match(seen.reports[1]!, /2 programs updated/);
     equal(attempts, 2);
     equal(text(root.read("Prg/clean.prg")), CLEAN);
+  } finally {
+    leased.lease.release();
+  }
+});
+
+test("a path-only native provider reports the reviewed disk refusal without writing the project", async () => {
+  const { root, web } = project();
+  const language = inProcessServer(root, "Main/example.gam");
+  const leased = await leaseLanguageClient(language, { main: "Main/example.gam" });
+  ok(leased.ok);
+  const client = leased.lease.client;
+  const { ui, seen } = vscodeUi({});
+  try {
+    const result = await runScriptWorkflow("format", {
+      fs: web.services.fs,
+      provider: scriptProviderOver((params) => client.request(SCRIPT_TRANSFORM_REQUEST, params), (path) => client.uriOf(path)),
+      history: null,
+      openPrograms: () => [],
+      root: "",
+      activeProgram: null,
+    }, ui);
+    equal(result.kind, "applied");
+    match(seen.reports.join("\n"), /cannot safely bind the reviewed path/);
+    equal(text(root.read("Prg/messy.prg")), MESSY);
   } finally {
     leased.lease.release();
   }
