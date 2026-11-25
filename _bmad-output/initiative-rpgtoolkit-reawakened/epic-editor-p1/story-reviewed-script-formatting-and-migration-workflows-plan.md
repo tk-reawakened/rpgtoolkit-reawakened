@@ -77,6 +77,7 @@ Draft PR #3363 requires independent review and CI before merge. No owner approva
 - **#3439 — local-project write policy.** Apply the owner-approved limits above. Recheck links after resampling bytes so a link reported while a late read was in flight is refused. Keep the path/content checks and mutation separate and disclose the residual race rather than disabling the native or picked-browser workflow.
 - **#3441 — workspace removal.** A native review retires when its selected folder leaves a multi-root workspace, even if the first folder and configured main URI are unchanged. The recovery capture also checks after consent and before writing History.
 - **#3442 — focus after checkpoint cancellation.** When Apply returns, the browser review returns keyboard focus to its enabled Cancel or Close button so Escape still reaches the review.
+- **#3443 — revocation during the path walk.** Apply rechecks the active project immediately before creating migration folders. A delayed listing followed by retirement leaves no folder, output or write receipt.
 - **#3400 — intermittent native quick-open proof, not resolved here.** An earlier `editor:acceptance` timed out submitting the path after the prompt appeared. The unsubstantiated palette-chord retry was removed; the cause of the after-fill prompt loss is not established.
 
 ## Defect filed

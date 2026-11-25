@@ -567,6 +567,7 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (prepared === undefined) return { failure: "No reviewed disk write was prepared." };
     const { before, sourceBytes, bytes } = prepared;
     if (entry.target === "copy") {
+      if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
       const slash = entry.destination.lastIndexOf("/");
       const made = await env.fs.createFolder(entry.destination.slice(0, slash));
       if (!made.ok) return { failure: `Could not make the folder for ${entry.destination}: ${made.error.message}` };

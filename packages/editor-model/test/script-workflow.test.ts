@@ -708,3 +708,52 @@ test("a reviewed copy with no recovery provider does not create or replace files
   equal(text(host.bytesOf(old)), "MESSY previous copy");
   equal(host.bytesOf(missing), undefined);
 });
+
+test("migration does not create folders when the project retires during apply-time path verification", async () => {
+  const source = "Prg/new-old.prg";
+  const destination = `${MIGRATED_FOLDER}/${source}`;
+  const host = createMemoryPlatformServices({ files: { [source]: bytes("OLD\n") } });
+  const usual = env(host);
+  let current = true;
+  let armed = false;
+  const mutations: string[] = [];
+  let arrived!: () => void;
+  let resume!: () => void;
+  const pathCheck = new Promise<void>((resolve) => { arrived = resolve; });
+  const resumePaths = new Promise<void>((resolve) => { resume = resolve; });
+  const environment = env(host, {
+    isProjectCurrent: () => current,
+    history: { ...usual.history!,
+      async prepareScripts() { armed = true; return { ok: true, groupId: "g1" }; },
+      async written() { mutations.push("receipt"); return { ok: true }; },
+    },
+    fs: {
+      ...host.fs,
+      async list(path) {
+        if (armed && path === "Prg") {
+          armed = false;
+          arrived();
+          await resumePaths;
+        }
+        return await host.fs.list(path);
+      },
+      async createFolder(path) { mutations.push(`mkdir ${path}`); return await host.fs.createFolder(path); },
+      async write(path, data) { mutations.push(`write ${path}`); return await host.fs.write(path, data); },
+    },
+  });
+  const plan = await planScriptWorkflow(environment, "update", { kind: "program", path: source });
+  equal(plan.entries[0]?.state, "ready");
+  const applying = createScriptReview(environment, plan).apply();
+  await Promise.race([pathCheck, applying.then(() => { throw new Error("Apply completed before delayed path verification."); })]);
+  current = false;
+  resume();
+  const outcome = await applying;
+  deepEqual(outcome.applied, []);
+  match(outcome.failed[0]?.message ?? "", /selected project changed/);
+  deepEqual(mutations, []);
+  equal(text(host.bytesOf(source)), "OLD\n");
+  equal(host.bytesOf(destination), undefined);
+  const folder = await host.fs.stat(".tkr-migrated");
+  ok(!folder.ok);
+  equal(folder.error.code, "not-found");
+});
