@@ -1,8 +1,25 @@
-import { projectLayoutForDocumentPath } from "@tk-reawakened/editor-model";
+import { projectLayoutOwnerForDocumentPath, projectLayoutOfMain, resolveReservedFolderPath } from "@tk-reawakened/editor-model";
 import { clipboardFromApi, type Capability } from "@tk-reawakened/platform-services";
 import { mount, type SpriteViewDocument, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { RemoteDocument, isSpriteSnapshot, type BridgeMessage, type VscodeApi } from "./document-bridge.js";
+import type { ProjectLayout } from "@tk-reawakened/editor-model";
 declare function acquireVsCodeApi(): VscodeApi;
+async function layoutForDocument(remote: RemoteDocument): Promise<ProjectLayout> {
+  const fs = {
+    list: (path: string) => remote.browserList(path),
+    readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
+  };
+  const mainFolder = await resolveReservedFolderPath(fs, "Main");
+  if (mainFolder.failure !== null) return { projectFolder: "" };
+  const entries = await fs.list(mainFolder.path);
+  if (!entries.ok) return { projectFolder: "" };
+  const owners = await Promise.all(entries.value.filter((entry) => entry.kind === "file" && /\.gam$/i.test(entry.name)).map(async (entry) => {
+    const mainPath = `${mainFolder.path}/${entry.name}`;
+    return { mainPath, layout: await projectLayoutOfMain(fs, remote.identity.projectId, mainPath) };
+  }));
+  return projectLayoutOwnerForDocumentPath(remote.identity.path, owners)?.layout ?? { projectFolder: "" };
+}
+
 type ViewMessage = BridgeMessage | { readonly type: "activate" };
 
 // A hidden webview retains this page; if VS Code recreates a disposed page, the document and its history stay in the extension host,
@@ -10,7 +27,7 @@ type ViewMessage = BridgeMessage | { readonly type: "activate" };
 const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 let mountedView: ViewHandle | undefined;
-window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
+window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
   // A fresh custom editor can be asked to settle before its `initialize` message has created a
   // RemoteDocument. No view has mounted yet, so it cannot hold an accepted edit to hand over.
   if (event.data.type === "settle" && remoteDocument === undefined) {
@@ -66,6 +83,7 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
         },
       });
     } else {
+      const browserLayout = await layoutForDocument(remote);
       mountedView = mount(documentRoot(), {
         // The remote document has the surface of its kind's view document; the kind says which fields its snapshot has.
         document: remote as unknown as ViewContext["document"],
@@ -74,7 +92,7 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
         browser: {
           session: remote.browserSession,
           fs: { list: (path) => remote.browserList(path), read: (path) => remote.browserRead(path) },
-          layout: projectLayoutForDocumentPath(remote.identity.path),
+          layout: browserLayout,
           // A linked visit: the extension host opens the file in its own editor, remembers the way back, and selects the tile.
           openSource: async (visit) => {
             const outcome = visit.tile === null ? await remote.visit(visit.path) : await remote.visitSource(visit.path, visit.tile);

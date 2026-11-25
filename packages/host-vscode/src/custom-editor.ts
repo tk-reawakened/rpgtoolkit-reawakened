@@ -1,4 +1,5 @@
-import { boardPreviewRootForPath, projectLayoutForDocumentPath, createAnimationAuthoring, asAnimationDocument, asMainDocument, importSavedBoardAsScene, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import { boardPreviewRootForLayout, projectLayoutOwnerForDocumentPath, resolveReservedFolderPath, type ProjectLayout, createAnimationAuthoring, asAnimationDocument, asMainDocument, importSavedBoardAsScene, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
+import type { AssetRoot } from "@tk-reawakened/core";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
 import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
@@ -12,6 +13,23 @@ import type { HistoryPolicy, HistoryReason } from "@tk-reawakened/editor-model";
  * document per file in the extension host and answers the workbench's calls (ADR 0022 D2, AD-19).
  */
 
+/** Find the document's declared game from only the Main folder, so nested reserved names cannot change ownership. */
+export async function owningProjectLayout(fs: FileSystemService, projectId: string, path: string, selectedMain?: string): Promise<ProjectLayout> {
+  const mainFolder = await resolveReservedFolderPath(fs, "Main");
+  if (mainFolder.failure !== null) return { projectFolder: "" };
+  const listing = await fs.list(mainFolder.path);
+  if (!listing.ok) return { projectFolder: "" };
+  const mainPaths = new Set<string>();
+  if (selectedMain !== undefined) mainPaths.add(selectedMain);
+  for (const entry of listing.value) {
+    if (entry.kind === "file" && /\.gam$/i.test(entry.name)) mainPaths.add(`${mainFolder.path}/${entry.name}`);
+  }
+  const owners = await Promise.all([...mainPaths].map(async (mainPath) => ({
+    mainPath,
+    layout: await projectLayoutOfMain(fs, projectId, mainPath),
+  })));
+  return projectLayoutOwnerForDocumentPath(path, owners)?.layout ?? { projectFolder: "" };
+}
 /** The most writes one VS Code save makes while edits keep arriving during them (see `GameDocument.save`). */
 const SAVE_ROUNDS = 3;
 
@@ -172,7 +190,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   readonly browserSession: BrowserSession;
   readonly #workspace: DocumentWorkspace;
   readonly #fs: FileSystemService;
-  readonly #previewRoot: ReturnType<typeof boardPreviewRootForPath>;
+  readonly #previewRoot: AssetRoot;
   readonly #navigation: DocumentNavigation<Uri>;
   readonly #port: GameEditorPort<Uri>;
   readonly #fire: (event: GameEditEvent<Uri>) => void;
@@ -203,14 +221,14 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     return delay !== null && this.#now() - this.#lastEditAt <= delay + 1000 ? "auto" : "manual";
   }
 
-  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession, onDispose: () => void = () => undefined, sourceTile: number | null = null) {
+  constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession, onDispose: () => void = () => undefined, sourceTile: number | null = null, layout: ProjectLayout = { projectFolder: "" }) {
     this.uri = uri;
     this.model = model;
     this.capabilities = port.capabilities;
     this.browserSession = browserSession;
     this.#workspace = workspace;
     this.#fs = fs;
-    this.#previewRoot = boardPreviewRootForPath(model.identity.path);
+    this.#previewRoot = boardPreviewRootForLayout(layout);
     this.#navigation = navigation;
     this.#port = port;
     this.#fire = fire;
@@ -763,9 +781,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const project = projectIn(folder, origin.uri);
       const picker = createAssetPicker({
         services: { fs: project.fs, dialogs: port.dialogs(folder), capabilities: new Set(port.capabilities) },
-        layout: /\.gam$/i.test(origin.model.identity.path)
-          ? await projectLayoutOfMain(project.fs, folder.key, origin.model.identity.path)
-          : projectLayoutForDocumentPath(origin.model.identity.path),
+        layout: await owningProjectLayout(project.fs, folder.key, origin.model.identity.path, origin.model.kind === "main" ? origin.model.identity.path : undefined),
         kind: request.kind,
         extensions: request.extensions,
         field: request.field,
@@ -809,9 +825,10 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         if (!workspace.adopt(recovered.document)) throw new Error(`${path} is already open in another editor under another spelling.`);
         const sourceTile = pendingSourceTiles.get(identity.key);
         pendingSourceTiles.delete(identity.key);
+        const layout = await owningProjectLayout(fs, folder.key, recovered.document.identity.path, recovered.document.kind === "main" ? recovered.document.identity.path : undefined);
         const document = new GameDocument(uri, recovered.document, workspace, fs, navigation, port, fire, browserSession, () => {
           if (openDocuments.get(recovered.document.identity.key)?.model === recovered.document) openDocuments.delete(recovered.document.identity.key);
-        }, sourceTile ?? null);
+        }, sourceTile ?? null, layout);
         hostDocuments.set(document.model, document);
         openDocuments.set(document.model.identity.key, document);
         return document;
@@ -827,10 +844,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
         throw new Error(`${path} is already open as ${opened.document.identity.path}; one file is opened once.`);
       }
       const sourceTile = pendingSourceTiles.get(opened.document.identity.key);
+      const layout = await owningProjectLayout(fs, folder.key, opened.document.identity.path, opened.document.kind === "main" ? opened.document.identity.path : undefined);
       pendingSourceTiles.delete(opened.document.identity.key);
       const document = new GameDocument(uri, opened.document, workspace, fs, navigation, port, fire, browserSession, () => {
         if (openDocuments.get(opened.document.identity.key)?.model === opened.document) openDocuments.delete(opened.document.identity.key);
-      }, sourceTile ?? null);
+      }, sourceTile ?? null, layout);
       hostDocuments.set(document.model, document);
       openDocuments.set(document.model.identity.key, document);
       return document;

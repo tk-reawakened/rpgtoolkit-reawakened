@@ -5,7 +5,7 @@ import { vscodeCapabilities } from "./capabilities.ts";
 import { createNativeClipTextEditorProvider } from "./native-clip-text-editor.ts";
 import { createNativeTerrainTextEditorProvider } from "./native-terrain-text-editor.ts";
 import { createNativeGeometryTextEditorProvider } from "./native-geometry-text-editor.ts";
-import { createGameEditorProvider, DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
+import { createGameEditorProvider, DOCUMENT_KINDS_BY_VIEW_TYPE, eventsForDocumentKind, owningProjectLayout, type GameDocument, type GameEditEvent, type GameEditorPort } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
 import { createVscodeServices } from "./services.ts";
@@ -17,7 +17,7 @@ import { registerScriptWorkflowCommands } from "./script-commands.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
 import { registerImportBoardAsScene } from "./import-board-scene.ts";
 import { registerBoardUpgradeCommands } from "./board-upgrade-commands.ts";
-import { boardPreviewRootForPath, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
+import { boardPreviewRootForLayout, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 import { registerPackageGameCommand } from "./package-game-command.ts";
@@ -333,7 +333,8 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
         const browserSession = createBrowserSession();
         const readOnlyFs = createVscodeFileSystem(folder.uri);
         const projectId = preview.document.identity.projectId;
-        const previewRoot = boardPreviewRootForPath(path);
+        const previewLayout = await owningProjectLayout(readOnlyFs, projectId, path);
+        const previewRoot = boardPreviewRootForLayout(previewLayout);
         const readOnlyPreview = {
           model: preview.document,
           path,
