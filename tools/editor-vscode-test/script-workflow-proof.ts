@@ -57,6 +57,27 @@ export async function runVscodeScriptWorkflowProof(
   };
   const bytes = async (path: string): Promise<string> => new TextDecoder().decode(await read(path));
   const initialGroups = await groups();
+  const proveOpenProgram = async (): Promise<void> => {
+    await openNativeQuickOpenFile(page, expect, OPT_OUT);
+    const active = page.locator(".monaco-editor:visible").last().locator(".view-lines");
+    await expect(active).toContainText(/MWIN/);
+    await start("Normalise capitalisation", OPT_OUT);
+    await review(OPT_OUT);
+    await apply();
+    await expect(active).toContainText(/mwin/);
+    expect(await bytes(OPT_OUT)).toBe(UPPER);
+    await active.click();
+    await page.keyboard.press("ControlOrMeta+S");
+    await expect.poll(() => bytes(OPT_OUT)).toBe('  mwin("case only")\n');
+  };
+  const reviewLegacyCopy = async (): Promise<void> => {
+    await write(OLD, encode(OLD_TEXT));
+    await project("review-legacy.gam");
+    await openNativeQuickOpenFile(page, expect, OLD);
+    await start("Update older syntax", OLD);
+    await review(OLD);
+    await expect(row(OLD)).toContainText(COPY);
+  };
 
   // The modern main was configured on disk; no RPGCode command or editor has activated its extension yet.
   await start("Format");
@@ -82,6 +103,17 @@ export async function runVscodeScriptWorkflowProof(
   if (await unsupportedDisk.isVisible()) {
     expect(await bytes(FORMAT)).toBe(MESSY);
     expect(await groups()).toEqual(initialGroups);
+    await proveOpenProgram();
+    await start("Clean up");
+    await review(CLEAN);
+    await expect(row(CLEAN)).toContainText("Left as written at line 2");
+    await quick.locator("input:visible").press("Escape");
+    await expect(quick).toBeHidden();
+    expect(await bytes(CLEAN)).toBe(CLEANUP);
+    await reviewLegacyCopy();
+    await quick.locator("input:visible").press("Escape");
+    await expect(quick).toBeHidden();
+    expect(await bytes(OLD)).toBe(OLD_TEXT);
     throw new Error("Reviewed VS Code disk apply remains unsupported: its filesystem cannot safely bind the reviewed path to the write. The original file and checkpoint list were unchanged.");
   }
   await diskConsent.click();
@@ -89,17 +121,7 @@ export async function runVscodeScriptWorkflowProof(
   expect(await bytes(OPT_OUT)).toBe(UPPER);
   expect(await bytes(CLEAN)).toBe(CLEANUP);
 
-  await openNativeQuickOpenFile(page, expect, OPT_OUT);
-  const active = page.locator(".monaco-editor:visible").last().locator(".view-lines");
-  await expect(active).toContainText(/MWIN/);
-  await start("Normalise capitalisation", OPT_OUT);
-  await review(OPT_OUT);
-  await apply();
-  await expect(active).toContainText(/mwin/);
-  expect(await bytes(OPT_OUT)).toBe(UPPER);
-  await active.click();
-  await page.keyboard.press("ControlOrMeta+S");
-  await expect.poll(() => bytes(OPT_OUT)).toBe('  mwin("case only")\n');
+  await proveOpenProgram();
 
   await start("Clean up");
   await review(CLEAN);
@@ -123,12 +145,7 @@ export async function runVscodeScriptWorkflowProof(
   expect(await bytes(CLEAN)).toBe(CLEANUP);
   await write(MODERN, modernBytes);
 
-  await write(OLD, encode(OLD_TEXT));
-  await project("review-legacy.gam");
-  await openNativeQuickOpenFile(page, expect, OLD);
-  await start("Update older syntax", OLD);
-  await review(OLD);
-  await expect(row(OLD)).toContainText(COPY);
+  await reviewLegacyCopy();
   await apply();
   await expect.poll(async () => {
     try { return await bytes(COPY); } catch (error) {
