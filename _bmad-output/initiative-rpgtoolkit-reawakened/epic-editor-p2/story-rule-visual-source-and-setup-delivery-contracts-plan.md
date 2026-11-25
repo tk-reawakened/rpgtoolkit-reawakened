@@ -2,7 +2,7 @@
 type: feature
 title: "Rule visual source and setup delivery contracts"
 ticket: 1
-status: draft
+status: done
 risk: high
 ---
 
@@ -22,4 +22,11 @@ A person approves documented source authority, lossless unsupported-code handlin
 
 ## Dependencies and decisions
 
-Requires 11.1. Owner decision required: Resolve the supported structured command subset, fixture/code authority and target-specific installer and uninstaller guarantees before implementation.
+Requires 11.1. The owner approved the published [ADR 0045 recommendations](../../../docs/adr/0045-visual-source-skin-and-setup-delivery-contracts.md#owner-decisions) on 2026-11-25: 1A, 2A, 3A, 4A and 5C. No decision from 14.11 or an unpublished amendment is included.
+
+| Acceptance clause | Ruling and handoff |
+|---|---|
+| Source, layout and lossless unsupported code | [TOOL-12 visual events](../../../docs/spec/engine/rpgcode-tooling.md#tool-12-visual-events) shows the message and placement examples, admission rule and untouched opaque source. 14.2 and 14.3 own implementation and proof. |
+| Named skin document and preview | [Native Skin](../../../docs/spec/formats/main-file.md#editor-skin-authoring) is the sole authority, named in the 14.4 plan under 3A. Preview is editor-only and no runtime provider is required. 14.4 fixes the file spelling before implementation. |
+| Fixture mapping | [TOOL-12 visual fixtures](../../../docs/spec/engine/rpgcode-tooling.md#tool-12-visual-fixtures) maps visual inputs to saved TOOL-5 source. 14.7 owns the real-engine proof. |
+| Setup and install safety | [T-72 launcher-based setup](../../../docs/spec/formats/packaging-and-paths.md#reawakened-setup-delivery) covers review, cancellation, integrity, install, removal and save handling. 14.6 owns clean-recipient proof on a capable player; no native targets or signing are approved. |

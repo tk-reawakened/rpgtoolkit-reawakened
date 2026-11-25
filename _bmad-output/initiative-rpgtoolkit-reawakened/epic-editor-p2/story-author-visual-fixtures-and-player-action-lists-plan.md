@@ -12,7 +12,7 @@ risk: high
 
 Authors version-controlled small real-engine fixtures, accessible placements and ordered movement and interaction actions plus observable assertions against the ruled 11.9 test representation.
 
-Use 11.9 APIs and script-spec; arrange a tiny board, actor, state, provider and seed, ordered keyboard-accessible actions and bounded assertions; do not mock collision or transitions, duplicate the runner, or leak test-only helpers into game distributions.
+Project the [11.9 operations into the same saved `*.spec.prg`](../../../docs/spec/engine/rpgcode-tooling.md#tool-12-visual-fixtures), preserving opaque text. Run it through script-spec; do not mock collision or transitions, duplicate the runner, or leak test-only helpers into game distributions.
 
 ## Acceptance and verification
 

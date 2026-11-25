@@ -237,3 +237,11 @@ title = "Build playable places through connected board authoring"
 covers = ["CAP-15", "CAP-16", "CAP-18"]
 after = [{ epic = 11, needs = "existing document, platform-services, native tabs/views and launch contracts plus shared design language and styling (11.22/11.23)" }, { epic = 12, needs = "owner sequencing gate: finish Epic 12 before starting Epic 30; reuse board/object/properties/browser providers, native scene integration and connected services" }, { epic = 13, needs = "owner sequencing gate: finish Epic 13 before starting Epic 30; reuse sheet/region-brush, artwork and lighting providers; enemy authoring #1734 moves to Epic 29" }, { epic = 29, needs = "real item/NPC and enemy definition editors (29.7, 29.8) for linked-definition integration in 30.4 only; independent board stories do not wait for the whole epic" }]
 
+
+[[epic]]
+id = 32
+tracker_id = "#3471"
+slug = "epic-runtime-audio-formats"
+title = "Compressed audio: runtime audio formats"
+covers = ["CAP-7", "CAP-12"]
+after = [{ epic = 6, needs = "the existing audio metadata, source, PCM, and cue conformance seams (6.5, 6.11, 6.12, 6.15)" }, { epic = 9, needs = "the existing playback and packaged-game paths (9.5, 9.7, 9.11, 9.16); 32.1 separately checks Worklet and mobile host evidence" }]

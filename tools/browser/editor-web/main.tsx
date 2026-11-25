@@ -1,6 +1,7 @@
 import { createSessionCopy, createWorkbench, listRecentWebProjects, mountDocumentView, newWebProject, openWebProject, reopenWebProject, type DocumentView, type WebProject, type WebProjectOptions, type Workbench } from "@tk-reawakened/host-web";
 import { createDocumentIdentity, type AnyDocument, type ProjectLayout, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import type { ProjectHandle } from "@tk-reawakened/platform-services";
+import { createWebAudioOutput } from "./audition-output.ts";
 
 /**
  * Launching needs this deployment's same-origin runner-web player page (ADR 0022 D8). Programs edit in Monaco with a
@@ -12,6 +13,10 @@ const codeEditor = (globalThis as { __tkrCodeEditor?: WebProjectOptions["codeEdi
 const playerOptions = {
   playerUrl: "/packages/runner-web/app/index.html",
   languageWorkerUrl: "./dist/language-worker.js",
+  createAudioOutput: () => createWebAudioOutput({
+    audioWorkletUrl: "./dist/audio-worklet.js",
+    bundledSoundFontUrl: "./dist/TK-16.sf2",
+  }),
   ...(codeEditor === undefined ? {} : { codeEditor }),
 };
 const status = document.querySelector<HTMLElement>("#host-status")!;
