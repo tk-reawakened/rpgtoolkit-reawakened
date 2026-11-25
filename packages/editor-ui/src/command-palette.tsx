@@ -14,7 +14,7 @@ import {
 } from "@tk-reawakened/editor-model";
 import type { FileSystemService } from "@tk-reawakened/platform-services";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import { AUTHORING_GUIDE_MARKDOWN, LIGHTS_SHADING_HELP_MARKDOWN, SAVING_HELP_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
+import { AUTHORING_GUIDE_MARKDOWN, BITMAP_FONT_HELP_MARKDOWN, LIGHTS_SHADING_HELP_MARKDOWN, SAVING_HELP_MARKDOWN, WHATS_NEW_MARKDOWN } from "./help-content.generated.ts";
 import { focusedFieldHelp, HelpDocument, type HelpInvokerRef } from "./help-document.tsx";
 import { IconAction } from "./icon-action.tsx";
 import { connectEditorCommands } from "./editor-commands.ts";
@@ -166,6 +166,16 @@ export function WorkbenchCommandBar({
         event.preventDefault();
         event.stopPropagation();
         registry.execute("file.save");
+      } else if (cmdOrCtrl && !event.altKey && !event.isComposing && (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "y")) {
+        // The workbench's own undo and redo, except where the browser or the code editor owns the key: a text field keeps
+        // its native undo, and a Monaco surface keeps its own stack.
+        const target = event.target instanceof Element ? event.target : null;
+        if (target !== null && target.closest("input, textarea, select, [contenteditable='true'], .monaco-editor") === null) {
+          const redo = event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z");
+          event.preventDefault();
+          event.stopPropagation();
+          registry.execute(redo ? "edit.redo" : "edit.undo");
+        }
       } else if (event.key === "Escape" && menuOpen) {
         event.preventDefault();
         setMenuOpen(false);
@@ -264,6 +274,12 @@ export function WorkbenchCommandBar({
         category: "Help",
         label: "Lights and shading on a board",
         run: () => setHelpDocument({ title: "Lights and shading on a board", markdown: LIGHTS_SHADING_HELP_MARKDOWN }),
+      },
+      {
+        id: "help.bitmapFont",
+        category: "Help",
+        label: "Drawing a bitmap font",
+        run: () => setHelpDocument({ title: "Drawing a bitmap font", markdown: BITMAP_FONT_HELP_MARKDOWN }),
       },
       {
         id: "help.whatsNew",

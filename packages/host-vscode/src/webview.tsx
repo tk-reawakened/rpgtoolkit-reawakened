@@ -1,4 +1,5 @@
 import { projectLayoutForDocumentPath } from "@tk-reawakened/editor-model";
+import { clipboardFromApi, type Capability } from "@tk-reawakened/platform-services";
 import { mount, type SpriteViewDocument, type ViewContext, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { RemoteDocument, isSpriteSnapshot, type BridgeMessage, type VscodeApi } from "./document-bridge.js";
 declare function acquireVsCodeApi(): VscodeApi;
@@ -26,7 +27,14 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
     const fs = {
       readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
     };
-    const services = { document: { edited: () => undefined }, capabilities: new Set(event.data.capabilities), fs };
+    // A webview is a page: it exchanges text with the system clipboard through the page's own clipboard, when it has one (T-28).
+    const clipboard = clipboardFromApi(navigator.clipboard);
+    const services = {
+      document: { edited: () => undefined },
+      capabilities: new Set<Capability>(clipboard === null ? event.data.capabilities : [...event.data.capabilities, "clipboard"]),
+      fs,
+      ...(clipboard === null ? {} : { clipboard }),
+    };
     if (event.data.kind === "character" || event.data.kind === "item") {
       const doc = spriteViewDocument(remote);
       if (doc === null) throw new Error(`The ${event.data.kind} editor received an invalid sprite snapshot.`);

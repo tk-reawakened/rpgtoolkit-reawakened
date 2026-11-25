@@ -640,7 +640,8 @@ export const CONFORMANCE_CASES: readonly ConformanceCase[] = [
     name: "capabilities are truthful: each one declared is backed by behaviour, and none other is claimed",
     async run(host, fixture) {
       for (const capability of host.capabilities) {
-        check(["folderWrite", "fileWatch", "stableProjectHandle", "backup", "conflictReload", "conflictAutoSave", "pickFile"].includes(capability), `${host.name} claims only what it does (${capability})`);
+        // `clipboard` is declared where the page has an asynchronous clipboard and is backed by `packages/host-web/test/clipboard.test.ts`.
+        check(["folderWrite", "fileWatch", "stableProjectHandle", "backup", "conflictReload", "conflictAutoSave", "pickFile", "clipboard"].includes(capability), `${host.name} claims only what it does (${capability})`);
       }
       const browser = host.name === "browser host";
       same(host.capabilities.has("conflictReload"), browser, "conflictReload is declared only by the browser host");

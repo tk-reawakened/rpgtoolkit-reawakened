@@ -80,3 +80,10 @@ The third document kind (the tile bitmap, `.tbm`, identifier `tile-bitmap`) is r
 
 * **Still not done:** decision 7. `extensions/editor/package.json` and `VIEW_TYPES` in `host-vscode/src/extension.ts` are edited by hand for `tkr.tileBitmap`. The tile bitmap view also repeats the conflict and save markup with `tkr-bitmap-*` classes, so the shared status component of the second note now has three copies. Both are tracked in [#2495](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2495) because the board view is being changed by other stories at the same time.
 * Both hosts still carry a picture the same way: a view's `preview()` asks the host, which composes the board or tile bitmap from the project's files with that kind's compositor in `editor-model`.
+
+## Implementation notes (story 13.20, [#1939](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1939), 2026-11-24)
+
+The bitmap font (`.fnt`, identifier `font`) is registered the same way. Its `legacy-text` storage class follows [ADR 0022](0022-shared-editor-authoring-contracts.md) D2's first row: version 2.0 has a same-version writer, so the document is bytes plus a command stack. Readable unsupported versions remain read-only.
+
+* The sample text is drawn from the document's glyph rows by the same bitmap rasterizer as the player, under the 2026-11-24 owner ruling in [ADR 0042](0042-project-bitmap-fonts-use-shared-rendering.md). No host `preview()` request is needed.
+* **Still not done:** decision 7 (generated manifests). `extensions/editor/package.json` and `VIEW_TYPES` in `host-vscode/src/extension.ts` are edited by hand for `tkr.font`, as for the earlier view types ([#2495](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/2495)).

@@ -27,6 +27,8 @@ export interface FilesViewProps {
   readonly onImportBoard?: (path: string) => Promise<string | null>;
   readonly onRecovery?: () => void;
   readonly onNewProgram?: () => void;
+  /** Make a new bitmap font (T-65); the host asks for its name in the project's Font folder and opens it. */
+  readonly onNewFont?: () => void;
 }
 
 /** What opening a file does, in words for a person choosing: the row's own label and the toolbar's. */
@@ -43,7 +45,7 @@ function routeNote(row: TreeRow): string {
  * so nothing needs a pointer or a context menu. A refusal or a host failure is shown in a live region; nothing is
  * renamed or deleted without the tree's own checks and, for delete, the user's confirmation.
  */
-export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onPackage, onDownload }: FilesViewProps) {
+export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onNewFont, onPackage, onDownload }: FilesViewProps) {
   const snapshot = useDocumentSnapshot(tree);
   const [ids] = useState(() => {
     viewsMade += 1;
@@ -230,6 +232,7 @@ export function FilesView({ tree, fs, onOpened, onImportBoard, onNewBoard, onNew
         {onNewAnimation === undefined ? null : <button type="button" disabled={busy} onClick={onNewAnimation}>New animation…</button>}
         {onRecovery === undefined ? null : <button type="button" disabled={busy} onClick={onRecovery}>Project recovery…</button>}
         {onNewProgram === undefined ? null : <button type="button" class="tkr-files-new-program" disabled={busy} onClick={onNewProgram}>New program…</button>}
+        {onNewFont === undefined ? null : <button type="button" class="tkr-files-new-font" disabled={busy} onClick={onNewFont}>New font…</button>}
         <button type="button" class="tkr-files-refresh" disabled={busy} onClick={() => run(() => tree.refresh())}>Refresh</button>
         <button type="button" class="tkr-files-collapse" onClick={() => tree.collapseAll()}>Collapse all</button>
         <button type="button" class="tkr-files-open" disabled={busy || current === null} onClick={() => current !== null && open(current)}>

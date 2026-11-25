@@ -47,9 +47,12 @@ function keysUnder(index: AssetIndex, root: AssetRoot, kind: AssetKind, accept: 
   return found;
 }
 
-/** E-02 step 2: the TrueType files of the project's `Font\` folder, in index order. */
+/**
+ * E-02 step 2: the TrueType files and Toolkit 2 bitmap fonts of the project's `Font\` folder, in index order
+ * (docs/spec/engine/display-input-audio.md#reawakened-project-bitmap-fonts).
+ */
 export function privateFontKeys(index: AssetIndex, root: AssetRoot): AssetKey[] {
-  return keysUnder(index, root, "fonts", (key) => key.endsWith(".ttf"));
+  return keysUnder(index, root, "fonts", (key) => key.endsWith(".ttf") || key.endsWith(".fnt"));
 }
 
 /** Every program source under `Prg\`, in index order, fetched so the script runtime can resolve names synchronously. */

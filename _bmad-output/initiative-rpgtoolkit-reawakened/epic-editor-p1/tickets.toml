@@ -333,12 +333,12 @@ tracker_id = "#1939"
 type = "story"
 title = "Restore the legacy bitmap font editor"
 description = "Build the T-65 shared editor for Toolkit 2 bitmap fonts: choose among 256 glyphs, edit an 8×8 monochrome grid, preview styled sample text, and save a .fnt through the project document lifecycle."
-verify = "In both editor hosts, create or open a font, edit and undo with pointer and keyboard, preview crisp styled glyphs at 8 and 20 pixels without altering them, save and reopen with all unedited glyphs intact, and draw the edited glyph in the runner using font()."
+verify = "In both editor hosts, create or open a font, edit and undo with pointer and keyboard, preview crisp styled glyphs at 8 and 20 pixels without changing them, and save and reopen with untouched glyphs intact. Use the editor-saved Font/*.fnt through font() in the runner and verify shared bitmap rendering. Ordinary native VS Code Undo/Redo must work; the owner accepted waiting and retrying after an overlapping native command is refused (2026-11-24, ADR 0042). #3415 stays open."
 covers = ["CAP-16"]
 after = [1]
 hitl = false
 risk = "medium"
-references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-restore-the-legacy-bitmap-font-editor-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md"]
+references = ["Detailed scope and verification: https://github.com/tk-reawakened/rpgtoolkit-reawakened/blob/docs/1359-artwork-story-refinement/_bmad-output/initiative-rpgtoolkit-reawakened/epic-editor-p1/story-restore-the-legacy-bitmap-font-editor-plan.md", "Owner-approved artwork direction: docs/adr/0031-owned-art-editor-with-permissive-reuse.md", "Bitmap font and VS Code retry ruling: docs/adr/0042-project-bitmap-fonts-use-shared-rendering.md"]
 
 [[entry]]
 id = 18

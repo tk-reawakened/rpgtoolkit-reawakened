@@ -190,3 +190,49 @@ test("authored glyph data is distinct from fetched legacy BASE.FNT when present"
     }
   }
 });
+
+test("a row value is the whole line: digits only, so a trailing word or sign is refused, not read as a number", () => {
+  const lines = ["RPGTLKIT FONT", "2", "0"];
+  for (let index = 0; index < FONT_TOTAL_VALUES; index += 1) lines.push(" 0 ");
+  const base = [...lines];
+  const cases: readonly [string, string][] = [
+    ["128oops", "a value with trailing text"],
+    ["0x80", "a hexadecimal value"],
+    ["+5", "a signed value"],
+    [" 5 5 ", "two numbers on one line"],
+    ["-1", "a negative value"],
+    ["256", "a value above 255"],
+    ["1.5", "a fractional value"],
+  ];
+  for (const [value, why] of cases) {
+    const broken = [...base];
+    broken[3 + 65 * 8] = ` ${value} `;
+    const result = readLegacyFont(`${broken.join("\r\n")}\r\n`);
+    equal(result.ok, false, `${why} is refused`);
+    if (!result.ok) {
+      equal(result.error.section, FONT_SECTION);
+      equal(result.error.offset, 4 + 65 * 8, `${why} is located at the row's line`);
+      equal(/invalid font row value/.test(result.error.message), true, result.error.message);
+    }
+  }
+});
+
+test("the version and subversion are whole numbers, so a version with trailing text is a located error", () => {
+  const lines = ["RPGTLKIT FONT", "2oops", "0"];
+  for (let index = 0; index < FONT_TOTAL_VALUES; index += 1) lines.push(" 0 ");
+  const result = readLegacyFont(`${lines.join("\r\n")}\r\n`, "Font/retro.fnt");
+  equal(result.ok, false);
+  if (!result.ok) {
+    equal(result.error.section, FONT_SECTION);
+    equal(result.error.offset, 2);
+    equal(/invalid font version "2oops\.0"/.test(result.error.message), true, result.error.message);
+  }
+  // A version that is a number but not 2.0 is still read, with the warning the format page describes.
+  const other = ["RPGTLKIT FONT", "3", "1", ...Array.from({ length: FONT_TOTAL_VALUES }, () => " 0 ")];
+  const read = readLegacyFont(`${other.join("\r\n")}\r\n`);
+  equal(read.ok, true);
+  if (read.ok) {
+    equal(read.value.version, 3);
+    equal(read.warnings.length, 1);
+  }
+});

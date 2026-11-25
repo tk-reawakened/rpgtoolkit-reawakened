@@ -249,7 +249,7 @@ and the TrueType outline's coverage), plus `DEFAULT_FONT_ASSET` for AD-15's subs
 ship. A TrueType `text` command carries glyph IDs, which only the face that produced them can draw, so a host **MUST**
 give the renderer every face the engine installed from the project's `Font\` folder as well as the bundled faces, decoded
 once and shared across frames; the interactive session offers a project face only while the engine reports it installed
-(`boot.fonts`), and a project face wins over a bundled face of the same key. A tiled blit uploads only the tile it
+(`boot.fonts`), and a project face wins over a bundled face of the same key. An installed `.fnt` ([project bitmap fonts](display-input-audio.md#reawakened-project-bitmap-fonts)) is such a face too: it carries no glyph IDs, but a host decodes it once as a bitmap font, so the same draw list names the same ink in every renderer. A tiled blit uploads only the tile it
 names, because a `.tst` strip of a large board can exceed `MAX_TEXTURE_SIZE` and an incomplete texture samples as black.
 
 A renderer that cannot draw a command **MUST** count it as deferred and report a diagnostic, never draw an approximate

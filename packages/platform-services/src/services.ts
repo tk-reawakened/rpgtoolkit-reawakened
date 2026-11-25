@@ -1,3 +1,4 @@
+import type { ClipboardService } from "./clipboard.ts";
 import type { FileSystemService } from "./fs.ts";
 import type { LanguageService } from "./language.ts";
 import type { PlatformResult } from "./result.ts";
@@ -38,7 +39,9 @@ export type Capability =
   /** `run.startProgram` can run one program under a fixture (T-41, D8.1 "program test"). */
   | "runProgram"
   /** `language.connect` can start a language server for the program editor (TOOL-10). */
-  | "languageServer";
+  | "languageServer"
+  /** `clipboard.readText` and `clipboard.writeText` work: the host can exchange text with the system clipboard (T-28). */
+  | "clipboard";
 
 /** The set of capabilities a host declares. */
 export type Capabilities = ReadonlySet<Capability>;
@@ -166,16 +169,10 @@ export interface PackageExportService {
  * The part of AD-20 that stories 11.17, 11.3 and 12.9 need: `capabilities`, `fs`, `project`, `settings`, `document`,
  * `dialogs` and the package-export operations.
  *
- * AD-20 also lists `run`, `clipboard` and `language.connect()` (`shell.openExternal` is declared, for 11.4). They are not
- * declared yet: AD-20 names their methods but not their parameters, and the entries that first use them (11.9 run, the
- * program editor's language client) fix those shapes against a real caller. A host that implements this interface is
- * not asked for them until then.
- * The part of AD-20 that stories 11.17, 11.3, 11.4 and 11.8 need: `capabilities`, `fs`, `project`, `settings`,
- * `document`, `dialogs`, `shell` and `run`.
- *
- * AD-20 also lists `export`, `clipboard` and `language.connect()`. They are not declared yet: AD-20 names their methods
- * but not their parameters, and the entries that first use them (11.14 export, the program editor's language client) fix
- * those shapes against a real caller. A host that implements this interface is not asked for them until then.
+ * AD-20 also lists `export` and `language.connect()`. They are not declared yet: AD-20 names their methods but not their
+ * parameters, and the entries that first use them (11.14 export, the program editor's language client) fix those shapes
+ * against a real caller. `clipboard` is declared for the board clipboard (13.13): text in and out, optional, present only
+ * with the `clipboard` capability. A host that implements this interface is not asked for the others until then.
  */
 export interface PlatformServices {
   readonly capabilities: Capabilities;
@@ -192,4 +189,6 @@ export interface PlatformServices {
   readonly language?: LanguageService;
   /** Present when the host declares at least one of `runGame`, `runBoard` and `runProgram` (ADR 0022 D8). */
   readonly run?: RunService;
+  /** Present when the host declares `clipboard`. */
+  readonly clipboard?: ClipboardService;
 }
