@@ -13,9 +13,9 @@ const unreachableAudio: AudioOutputService = {
   stop: async () => { throw new Error("the audition must not reach the host"); },
 };
 
-function auditionOf(files: Record<string, Uint8Array>, main: string | null): BoardAudition {
+function auditionOf(files: Record<string, Uint8Array>, main: string | null, projectFolder = ""): BoardAudition {
   const host = createMemoryPlatformServices({ files });
-  return { audioOutput: unreachableAudio, fs: host.fs, projectId: "memory-project", main };
+  return { audioOutput: unreachableAudio, fs: host.fs, projectId: "memory-project", layout: { projectFolder }, main };
 }
 
 function refusalOf<T>(outcome: AuditionOutcome<T>): string {
@@ -68,13 +68,10 @@ test("an unsupported format is refused before the main file is read", async () =
   ok(refusalOf(await loadAuditionInput(auditionOf({}, null), "bgm.mp3")).startsWith("Audition plays .wav, .mid and .midi files."));
 });
 
-test("no main file open tells the author what to set", async () => {
-  equal(refusalOf(await loadAuditionInput(auditionOf({}, null), "bgm.wav")), "Set the project's main file to audition sound.");
-});
 
-test("a WAV in the Media folder loads with no SoundFont", async () => {
+test("a WAV in the board owner's Media folder loads without a main file", async () => {
   const bytes = new Uint8Array([82, 73, 70, 70]);
-  const input = valueOf(await loadAuditionInput(auditionOf({ "Media/bgm.wav": bytes }, "main.gam"), "bgm.wav"));
+  const input = valueOf(await loadAuditionInput(auditionOf({ "Media/bgm.wav": bytes }, null), "bgm.wav"));
   deepEqual(input.bytes, bytes);
   equal(input.format, "wav");
   equal(input.soundFont, null);
@@ -95,10 +92,16 @@ test("the hand-authored MIDI fixture decodes as a Standard MIDI File", () => {
 });
 
 test("a MIDI plays with the SoundFont its project names", async () => {
-  const files = { "main.gam": mainWithSoundFont("bank.sf2"), "Media/theme.mid": MIDI, "Media/bank.sf2": BANK };
-  const input = valueOf(await loadAuditionInput(auditionOf(files, "main.gam"), "theme.mid"));
+  const files = { "Main/A.gam": mainWithSoundFont("bank.sf2"), "Game/A/Media/theme.mid": MIDI, "Game/A/Media/bank.sf2": BANK };
+  const input = valueOf(await loadAuditionInput(auditionOf(files, "Main/A.gam", "Game/A"), "theme.mid"));
   equal(input.format, "midi");
   deepEqual(input.soundFont, BANK);
+  equal(input.notice, null);
+});
+test("a loose MIDI uses the host's bundled bank when no Main is available", async () => {
+  const input = valueOf(await loadAuditionInput(auditionOf({ "Media/theme.mid": MIDI }, null), "theme.mid"));
+  equal(input.format, "midi");
+  equal(input.soundFont, null);
   equal(input.notice, null);
 });
 
@@ -134,7 +137,7 @@ test("play from the palette starts the active board's reference through the outp
   };
   const bytes = new Uint8Array([82, 73, 70, 70]);
   const host = createMemoryPlatformServices({ files: { "Media/bgm.wav": bytes } });
-  const controls = createAuditionControls({ audioOutput: output, fs: host.fs, projectId: "memory-project", main: "main.gam" });
+  const controls = createAuditionControls({ audioOutput: output, fs: host.fs, projectId: "memory-project", layout: { projectFolder: "" }, main: "main.gam" });
   controls.setReference("bgm.wav");
   const registry = createCommandRegistry(createAuditionCommands(() => controls));
   equal(registry.execute("board.audition.play"), true);
@@ -147,7 +150,7 @@ test("play from the palette starts the active board's reference through the outp
 test("play starts a MIDI with its project SoundFont and publishes no note", async () => {
   const plays: Array<{ format: string; soundFont: Uint8Array | null | undefined }> = [];
   const host = createMemoryPlatformServices({ files: { "main.gam": mainWithSoundFont("bank.sf2"), "Media/theme.mid": MIDI, "Media/bank.sf2": BANK } });
-  const controls = createAuditionControls({ audioOutput: recordingOutput(plays), fs: host.fs, projectId: "memory-project", main: "main.gam" });
+  const controls = createAuditionControls({ audioOutput: recordingOutput(plays), fs: host.fs, projectId: "memory-project", layout: { projectFolder: "" }, main: "main.gam" });
   controls.setReference("theme.mid");
   await controls.play();
   equal(plays.length, 1);
@@ -159,7 +162,7 @@ test("play starts a MIDI with its project SoundFont and publishes no note", asyn
 test("play with a missing project SoundFont plays the bundled bank and shows why", async () => {
   const plays: Array<{ format: string; soundFont: Uint8Array | null | undefined }> = [];
   const host = createMemoryPlatformServices({ files: { "main.gam": mainWithSoundFont("missing.sf2"), "Media/theme.mid": MIDI } });
-  const controls = createAuditionControls({ audioOutput: recordingOutput(plays), fs: host.fs, projectId: "memory-project", main: "main.gam" });
+  const controls = createAuditionControls({ audioOutput: recordingOutput(plays), fs: host.fs, projectId: "memory-project", layout: { projectFolder: "" }, main: "main.gam" });
   controls.setReference("theme.mid");
   await controls.play();
   equal(plays.length, 1);

@@ -1,15 +1,16 @@
 import { BinaryReader, readMainFile } from "@tk-reawakened/core";
-import { mainSettingsOf, projectLayoutOfMain, referencePath, type CommandRegistry, type MainSettings, type ProjectLayout, type WorkbenchCommand } from "@tk-reawakened/editor-model";
+import { mainSettingsOf, referencePath, type CommandRegistry, type MainSettings, type ProjectLayout, type WorkbenchCommand } from "@tk-reawakened/editor-model";
 import type { AudioOutputService, AuditionFormat, FileSystemService } from "@tk-reawakened/platform-services";
 
 /**
- * What a board view needs to audition its background music: the host's player, the project's files, and the main file
- * that names the project's type folders and default SoundFont. `main` is null when the host has no main file open.
+ * A board's background music uses its resolved owner layout for Media. `main` is null for a loose board with no owning
+ * Main; when present, it supplies only the configured SoundFont for MIDI.
  */
 export interface BoardAudition {
   readonly audioOutput: AudioOutputService;
-  readonly fs: Pick<FileSystemService, "readProject" | "list">;
+  readonly fs: Pick<FileSystemService, "readProject">;
   readonly projectId: string;
+  readonly layout: ProjectLayout;
   readonly main: string | null;
 }
 
@@ -33,20 +34,21 @@ export interface AuditionInput {
 }
 
 /**
- * Reads the bytes an audition plays. The file and any SoundFont come from the Media folder under the layout the main
- * file declares. A failure names the problem; nothing falls back silently.
+ * Reads the audio file from the board owner's Media folder. A Main file is only read for a MIDI audition's configured
+ * SoundFont; without one, playback uses the host's bundled bank.
  */
 export async function loadAuditionInput(audition: BoardAudition, reference: string): Promise<AuditionOutcome<AuditionInput>> {
   const name = reference.trim();
   if (name === "") return { ok: false, message: "Set a background music file first." };
   const format = auditionFormatOf(name);
   if (!format.ok) return format;
-  const main = audition.main;
-  if (main === null) return { ok: false, message: "Set the project's main file to audition sound." };
-  const layout = await projectLayoutOfMain(audition.fs, audition.projectId, main);
+  const layout = audition.layout;
   const bytes = await audition.fs.readProject(audition.projectId, referencePath(layout, "media", name));
   if (!bytes.ok) return { ok: false, message: `Could not read "${name}" from the project's Media folder.` };
-  const soundFont: AuditionOutcome<SoundFontChoice> = format.value === "midi" ? await readSoundFont(audition, main, layout) : { ok: true, value: NO_SOUNDFONT };
+  const soundFont: AuditionOutcome<SoundFontChoice> =
+    format.value === "midi" && audition.main !== null
+      ? await readSoundFont(audition, audition.main, layout)
+      : { ok: true, value: NO_SOUNDFONT };
   if (!soundFont.ok) return soundFont;
   return { ok: true, value: { bytes: bytes.value, format: format.value, soundFont: soundFont.value.bytes, notice: soundFont.value.notice } };
 }

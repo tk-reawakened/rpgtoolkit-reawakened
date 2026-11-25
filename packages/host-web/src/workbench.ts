@@ -249,7 +249,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     if (document.kind !== "board" || services.audioOutput === undefined) return undefined;
     const owner = ownersByDocument.get(document.identity.key) ?? fallbackOwnerForPath(document.identity.path);
     return {
-      controls: createAuditionControls({ audioOutput: services.audioOutput, fs: services.fs, projectId: document.identity.projectId, main: owner.mainPath }),
+      controls: createAuditionControls({ audioOutput: services.audioOutput, fs: services.fs, projectId: document.identity.projectId, layout: owner.layout, main: owner.mainPath }),
       commands: auditionRegistry,
     };
   };
