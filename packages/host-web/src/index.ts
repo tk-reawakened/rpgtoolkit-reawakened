@@ -2,7 +2,7 @@ import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
 import type { Capability, ClipboardService, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
 import { audioOutputFromApi, bindProjectFileSystem, clipboardFromApi, platformError, platformOk } from "@tk-reawakened/platform-services";
-import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createBrowserSession, mount, type AnimationViewDocument, type AuditionPanel, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpriteViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebAudioOutput } from "./audio.ts";
 import { createWebFileSystem } from "./filesystem.ts";
@@ -455,6 +455,8 @@ function programPreferencesFor(project: WebProject): ProgramPreferencesSource {
 export interface DocumentView extends ViewHandle {
   hide(): void;
   show(element: HTMLElement): void;
+  /** The board's background-music audition and its palette commands; `mountDocumentView` hands them to the board and `dispose` stops the audition. */
+  readonly audition?: AuditionPanel;
 }
 
 /** Mount the view of `document`'s kind into `element`. It holds no lease: the caller (a tab, or `mountEditor`) does. */
@@ -469,6 +471,8 @@ export function mountDocumentView(
   main: string | null = null,
   /** Only live editors may import; history and snapshot mounts do not pass this action. */
   importBoard?: (path: string) => Promise<PlatformResult<void>>,
+  /** The board's background-music audition and its palette commands, created by the caller; the view disposes the audition with itself. */
+  audition?: AuditionPanel,
 ): DocumentView {
   const documentLayout = projectLayoutForDocumentPath(document.identity.path);
   const browserLayout = documentLayout.projectFolder === "" ? projectLayout : documentLayout;
@@ -508,6 +512,7 @@ export function mountDocumentView(
       // The workspace waits for these edits before Save All, close, revert and Save As read the document (#2613).
       pendingEdits: project.workspace.pendingEdits(document),
       ...(navigation === undefined ? {} : { navigation }),
+      ...(audition === undefined ? {} : { audition }),
     });
     if (sourceRequest !== null && mounted.revealSource !== undefined) {
       const request = sourceRequest;
@@ -522,7 +527,7 @@ export function mountDocumentView(
     }
   };
   show(element);
-  return { hide, show, refreshAssets: () => mounted?.refreshAssets?.(), ...(document.kind === "program" ? { revealSource } : {}), ...(document.kind === "tileset" ? { revealTile: (tile: number) => mounted?.revealTile?.(tile) } : {}), dispose: () => { hide(); disposed = true; } };
+  return { hide, show, refreshAssets: () => mounted?.refreshAssets?.(), ...(document.kind === "program" ? { revealSource } : {}), ...(document.kind === "tileset" ? { revealTile: (tile: number) => mounted?.revealTile?.(tile) } : {}), ...(audition === undefined ? {} : { audition }), dispose: () => { hide(); disposed = true; audition?.controls.dispose(); } };
 }
 
 /** Make a view owner over a document the project already has open. */

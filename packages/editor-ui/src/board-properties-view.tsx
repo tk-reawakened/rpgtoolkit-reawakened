@@ -3,7 +3,8 @@ import type { BoardDocumentSnapshot, PendingEdits, SetBoardFieldsCommand } from 
 import type { DocumentEdited } from "@tk-reawakened/platform-services";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { BoardViewDocument } from "./mount.ts";
-import { loadAuditionInput, type BoardAudition } from "./board-audition.ts";
+import { useDocumentSnapshot } from "./use-document.ts";
+import type { AuditionPanel } from "./board-audition.ts";
 
 export interface BoardPropertiesNavigation {
   open?(path: string): Promise<string | null>;
@@ -20,8 +21,8 @@ export interface BoardPropertiesViewProps {
   readonly onChooseStart: () => void;
   readonly onSetStart: (column: number, row: number, layer: number) => Promise<boolean>;
   readonly pendingEdits: PendingEdits;
-  /** The host's audio output and the project's files; without them the properties panel offers no audition. */
-  readonly audition?: BoardAudition;
+  /** The board's background-music audition; without it the properties panel offers no audition. */
+  readonly audition?: AuditionPanel;
 }
 
 export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onChooseStart, onSetStart, pendingEdits, audition }: BoardPropertiesViewProps) {
@@ -202,42 +203,17 @@ export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onCho
  * Plays the background music file the way the board's music would sound, so a designer can hear it. Playback never
  * changes the board or the file, so it stays available while the properties are saving.
  */
-function BackgroundMusicAudition({ audition, reference }: { readonly audition: BoardAudition; readonly reference: string }) {
-  const [loop, setLoop] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-  const attempt = useRef(0);
+function BackgroundMusicAudition({ audition, reference }: { readonly audition: AuditionPanel; readonly reference: string }) {
+  const state = useDocumentSnapshot(audition.controls);
   useEffect(() => {
-    const output = audition.audioOutput;
-    return () => {
-      attempt.current += 1;
-      void output.stop();
-    };
-  }, [audition.audioOutput]);
-  const play = async (): Promise<void> => {
-    attempt.current += 1;
-    const current = attempt.current;
-    setNote(null);
-    const input = await loadAuditionInput(audition, reference);
-    if (attempt.current !== current) return;
-    if (!input.ok) {
-      setNote(input.message);
-      return;
-    }
-    const result = await audition.audioOutput.play(input.value.bytes, input.value.format, { loop, soundFont: input.value.soundFont });
-    if (attempt.current !== current) return;
-    if (!result.ok) setNote(result.error.message);
-  };
-  const stop = (): void => {
-    attempt.current += 1;
-    setNote(null);
-    void audition.audioOutput.stop();
-  };
+    audition.controls.setReference(reference);
+  }, [audition.controls, reference]);
   return (
-    <div class="tkr-board-audition" role="group" aria-label="Background music audition">
-      <button type="button" onClick={() => void play()}>Play background music</button>
-      <button type="button" onClick={stop}>Stop</button>
-      <label><input type="checkbox" checked={loop} onChange={(event) => setLoop(event.currentTarget.checked)} />Loop playback</label>
-      {note === null ? null : <p role="alert">{note}</p>}
+    <div class="tkr-board-audition" role="group" aria-label="Background music audition" data-editor-commands="exclude">
+      <button type="button" onClick={() => audition.commands.execute("board.audition.play")}>Play background music</button>
+      <button type="button" onClick={() => audition.commands.execute("board.audition.stop")}>Stop</button>
+      <label><input type="checkbox" checked={state.loop} onChange={() => audition.commands.execute("board.audition.loop")} />Loop playback</label>
+      {state.note === null ? null : <p role="alert">{state.note}</p>}
     </div>
   );
 }

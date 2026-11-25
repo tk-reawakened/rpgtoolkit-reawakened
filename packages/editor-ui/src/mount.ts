@@ -1,3 +1,4 @@
+import type { AuditionPanel } from "./board-audition.ts";
 import { CheckpointView } from "./checkpoint-view.tsx";
 import type { AnimationAuthoring } from "@tk-reawakened/editor-model";
 import {
@@ -118,7 +119,7 @@ export interface ViewContext {
    * The host door: the view reports edits through `document.edited` (AD-19, AD-20) and reads `capabilities` to say
    * what the host cannot do instead of implying it can (ADR 0022 D3.5, D3.6).
    */
-  readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject" | "list">; readonly language?: PlatformServices["language"]; readonly clipboard?: PlatformServices["clipboard"]; readonly audioOutput?: PlatformServices["audioOutput"] };
+  readonly services: Pick<PlatformServices, "document" | "capabilities"> & { readonly fs?: Pick<PlatformServices["fs"], "readProject">; readonly language?: PlatformServices["language"]; readonly clipboard?: PlatformServices["clipboard"] };
   /** Persistent wizard and recovery operations owned by the authoritative document host. */
   readonly animationAuthoring?: AnimationAuthoring;
   /** One project-bound browser service is shared across this workspace's views, never a module-global selection. */
@@ -134,6 +135,8 @@ export interface ViewContext {
   readonly boardPreferences?: BoardPreferencesSource;
   /** The program editor's code editor, running project and preferences. */
   readonly codeEditor?: CodeEditorContext;
+  /** The board's background-music audition and the palette commands that drive it, owned by the host that mounts the board's document view. */
+  readonly audition?: AuditionPanel;
 }
 /** The handle a host keeps to a mounted view. */
 export interface ViewHandle {
@@ -206,7 +209,6 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
   };
   let view: Parameters<typeof render>[0];
   if (isBoardView(document)) {
-    const audition = fs === undefined || ctx.services.audioOutput === undefined ? null : { audioOutput: ctx.services.audioOutput, fs, projectId: document.identity.projectId, main: ctx.codeEditor?.project?.main ?? null };
     view = createElement(BoardView, {
       doc: document,
       capabilities,
@@ -216,7 +218,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.services.clipboard === undefined ? {} : { clipboard: ctx.services.clipboard }),
       ...(ctx.boardPreferences === undefined ? {} : { preferences: ctx.boardPreferences }),
       ...(ctx.navigation === undefined ? {} : { navigation: ctx.navigation }),
-      ...(audition === null ? {} : { audition }),
+      ...(ctx.audition === undefined ? {} : { audition: ctx.audition }),
     });
   } else if (isTilesetArtView(document)) {
     view = createElement(TilesetArtView, {

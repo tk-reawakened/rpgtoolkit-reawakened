@@ -43,9 +43,10 @@ import {
   type Tabs,
   type VisitResult,
   type Visits,
+  createCommandRegistry,
   DEFAULT_WORKBENCH_PANELS,
 } from "@tk-reawakened/editor-model";
-import { createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountShell, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
+import { createAuditionCommands, createAuditionControls, createCreatorTestsController, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountShell, type AuditionControls, type AuditionPanel, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
@@ -129,6 +130,22 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const layout = createLayoutModel(DEFAULT_WORKBENCH_PANELS);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
+  /** The audition controls of the board tab in front, or none when the front tab is not a board. */
+  const activeAudition = (): AuditionControls | null => {
+    const active = tabs.getSnapshot().active;
+    return active === null ? null : views.get(active)?.view.audition?.controls ?? null;
+  };
+  const auditionCommands = createAuditionCommands(activeAudition);
+  /** The registry the board buttons execute through. The palette receives the same commands via `extraCommands`. */
+  const auditionRegistry = createCommandRegistry(auditionCommands);
+  /** A board's audition controls, which its view owns and disposes, and the registry its buttons execute through. Other documents have none. */
+  const auditionFor = (document: AnyDocument): AuditionPanel | undefined => {
+    if (document.kind !== "board" || services.audioOutput === undefined) return undefined;
+    return {
+      controls: createAuditionControls({ audioOutput: services.audioOutput, fs: services.fs, projectId: document.identity.projectId, main }),
+      commands: auditionRegistry,
+    };
+  };
   let version = 0;
   let disposed = false;
   let openPrefs: (() => void) | null = null;
@@ -232,7 +249,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
                 return reference === "" ? "" : referencePath(projectLayout, "boards", reference);
               },
             }),
-          }, main, importBoard), shownIn: container };
+          }, main, importBoard, auditionFor(document)), shownIn: container };
           views.set(tab.key, entry);
         } else if (entry.shownIn === null) {
           const container = slot.ownerDocument.createElement("div");
@@ -499,6 +516,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tree,
     projectLayout,
     fs: services.fs,
+    extraCommands: auditionCommands,
     workspace: shellWorkspace,
     launcher,
     creatorTests,

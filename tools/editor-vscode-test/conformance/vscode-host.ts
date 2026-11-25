@@ -390,7 +390,7 @@ class Webview {
           services: {
             document: { edited: () => undefined },
             capabilities: new Set(message.capabilities),
-            fs: { readProject: (projectId, path) => remote.readProject(projectId, path), list: async () => ({ ok: false, error: { code: "unavailable", message: "The sprite editor does not list project folders." } }) },
+            fs: { readProject: (projectId, path) => remote.readProject(projectId, path) },
           },
           pendingEdits: remote.pendingEdits,
           navigation: { pickAsset: (request) => remote.pickAsset(request) },

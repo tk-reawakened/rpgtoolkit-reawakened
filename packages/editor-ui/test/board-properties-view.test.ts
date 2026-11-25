@@ -5,12 +5,14 @@ import {
   buildNewBoard,
   cellCentre,
   createBoardDocument,
+  createCommandRegistry,
   createDocumentIdentity,
   createPendingEdits,
   previewBoard,
   type BoardDocument,
 } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import type { AuditionControls, AuditionPanel } from "../src/board-audition.ts";
 import type { BoardViewDocument } from "../src/mount.ts";
 
 const PATH = "Boards/properties.brd";
@@ -35,7 +37,7 @@ interface Setup {
   renderView(): void;
 }
 
-async function setup(): Promise<Setup> {
+async function setup(audition?: AuditionPanel): Promise<Setup> {
   const built = buildNewBoard({ name: "properties", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
   if (!built.ok) throw new Error(built.message);
   const host = createMemoryPlatformServices({ files: { [PATH]: built.bytes } });
@@ -64,6 +66,7 @@ async function setup(): Promise<Setup> {
     render(createElement(BoardPropertiesView, {
       doc: view,
       disabled: false,
+      ...(audition === undefined ? {} : { audition }),
       onEdited: () => undefined,
       onChooseStart: () => undefined,
       onSetStart: async (column, row, layer) => {
@@ -103,6 +106,15 @@ async function click(root: HTMLElement, label: string): Promise<void> {
     button.click();
     await Promise.resolve();
     await Promise.resolve();
+  });
+}
+
+async function toggle(root: HTMLElement, label: string): Promise<void> {
+  await act(() => {
+    const box = [...root.querySelectorAll("label")].find((candidate) => candidate.textContent?.trim() === label)?.querySelector<HTMLInputElement>("input") ?? null;
+    if (box === null) throw new Error(`missing checkbox ${label}`);
+    box.checked = !box.checked;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
 
@@ -148,4 +160,38 @@ test("an acknowledged numeric start preserves an unrelated staged property draft
   deepEqual(s.doc.getSnapshot().properties.start, expectedStart, "applying the staged property keeps the acknowledged start");
   deepEqual(s.doc.getSnapshot().threads, originalThreads, "applying unchanged multiline threads preserves the model list");
   deepEqual(s.doc.getSnapshot().layerTitles, originalLayerTitles, "applying unchanged multiline layer titles preserves the model list");
+});
+
+test("the audition buttons run their registry commands and do not drive the controls directly", async () => {
+  const ran: string[] = [];
+  const direct: string[] = [];
+  const commands = createCommandRegistry(["board.audition.play", "board.audition.stop", "board.audition.loop"].map((id) => ({
+    id,
+    category: "Run" as const,
+    label: id,
+    run: () => {
+      ran.push(id);
+    },
+  })));
+  const controls: AuditionControls = {
+    subscribe: () => () => undefined,
+    getSnapshot: () => ({ loop: false, note: null }),
+    setReference: () => undefined,
+    setLoop: () => {
+      direct.push("setLoop");
+    },
+    play: async () => {
+      direct.push("play");
+    },
+    stop: () => {
+      direct.push("stop");
+    },
+    dispose: () => undefined,
+  };
+  const s = await setup({ controls, commands });
+  await click(s.root, "Play background music");
+  await click(s.root, "Stop");
+  await toggle(s.root, "Loop playback");
+  deepEqual(ran, ["board.audition.play", "board.audition.stop", "board.audition.loop"]);
+  deepEqual(direct, []);
 });
