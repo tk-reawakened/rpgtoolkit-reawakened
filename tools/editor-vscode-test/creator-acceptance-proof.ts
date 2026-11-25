@@ -204,14 +204,15 @@ export async function runVscodeCreatorAcceptanceProof(
   await widget.getByRole("checkbox", { name: "Empty first character", exact: true }).check();
   await widget.getByRole("button", { name: "OK", exact: true }).click();
   await expect(widget).toContainText("New project: choose the destination folder", { timeout: 30_000 });
-  // The folder dialog starts at the filesystem root and offers a path box plus Create project here; an empty workspace
-  // has no remembered folders, so an option row is not required. Retry only the idempotent path entry.
-  await expect(async () => {
-    await answer.fill(`/${CREATOR_PROJECT}/`);
-    await expect(answer).toHaveValue(`/${CREATOR_PROJECT}/`, { timeout: 1_000 });
-    await expect(widget.getByRole("button", { name: "Create project here", exact: true })).toBeEnabled({ timeout: 1_000 });
-  }).toPass({ timeout: 30_000, intervals: [100, 250, 500, 1_000] });
+  // The picker can finish listing the root after its input appears, overwriting a path typed too soon.
+  // Enter the seeded directory through its native row and wait for the child listing, not just the editable text.
+  const destination = widget.getByRole("option", { name: CREATOR_PROJECT, exact: true });
+  await expect(destination).toBeVisible({ timeout: 30_000 });
+  await destination.click();
+  await expect(answer).toHaveValue(`/${CREATOR_PROJECT}/`, { timeout: 30_000 });
+  await expect(widget.getByRole("option", { name: "..", exact: true })).toBeVisible({ timeout: 30_000 });
   await widget.getByRole("button", { name: "Create project here", exact: true }).click();
+  await expect(widget).toBeHidden();
   // Destination files appear before progress is durable; the automatic open follows the completed wizard.
   await expect(page.getByRole("tab", { name: /^Quest\.gam(?:,|$)/, selected: true })).toBeVisible({ timeout: 60_000 });
   await expect.poll(async () => (await decodeMain()).gameTitle, { timeout: 30_000 }).toBe(WIZARD_GAME_NAME);
