@@ -212,9 +212,7 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
       await runScriptWorkflow(
         transform,
         {
-          // workspace.fs is path-only and cannot bind a non-link destination to its eventual write.
-          // Do not supply writeReviewed; open buffers still get the reviewed, unsaved text edit.
-          fs: services.fs,
+          fs: { ...services.fs, write: (path, bytes) => services.fs.writeProject(folder.uri.toString(), path, bytes) },
           provider: extension === undefined
             ? null
             : {

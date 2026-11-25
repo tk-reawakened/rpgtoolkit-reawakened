@@ -155,6 +155,10 @@ test("the Monaco host reviews and writes a nested Toolkit 2.x migration copy wit
   await dialog.locator(`button[title="${source}"]`).click();
   await expect(dialog.locator('.tkr-script-diff [data-change="added"]')).toContainText('MWIN("Hello legacy")');
   await dialog.getByRole("button", { name: "Apply to 1 program" }).click();
+  const confirm = page.locator("dialog.tkr-dialog");
+  await expect(confirm).toContainText("another program can change the files or swap a path for a link after the final check");
+  await expect(confirm).toContainText("browser-picked folders do not reveal links");
+  await confirm.getByRole("button", { name: "Continue" }).click();
   await expect(dialog.locator(".tkr-script-outcome")).toContainText("separately migrated 3.1 project");
   expect(await storedText(page, source)).toBe(old);
   expect(await storedText(page, destination)).toBe('MWIN("Hello legacy")\r\n');

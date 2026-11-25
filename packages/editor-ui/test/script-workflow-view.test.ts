@@ -47,7 +47,7 @@ function rig(transform: ScriptTransformId = "format") {
   const host = createMemoryPlatformServices({ files: Object.fromEntries(Object.entries(FILES).map(([path, value]) => [path, bytes(value)])) });
   const planned: ScriptWorkflowScope[] = [];
   const environment: ScriptWorkflowEnvironment = {
-    fs: { ...host.fs, writeReviewed: host.fs.write },
+    fs: host.fs,
     history: { begin: async () => { throw new Error("Script workflow must capture a reviewed batch"); }, prepareScripts: async () => ({ ok: true, groupId: "g1" }), written: async () => ({ ok: true }) },
     openPrograms: () => [],
     provider: {

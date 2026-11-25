@@ -197,15 +197,6 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     ...(language === undefined ? {} : { language }),
   };
   const made = { services, project, sessionCopy: false, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, setRunPresenter: (presenter: RunPresenter | null) => { runPresenter = presenter; }, deactivate: () => { active = false; workspace.dispose(); } };
-  scriptWriteSources.set(made, async () => {
-    try {
-      // The origin-private namespace has no symbolic links. A picked native folder is not equivalent, even if its
-      // current handle happens to lead to regular entries; FSA does not give us a portable native no-follow operation.
-      const sandbox = await globalThis.navigator?.storage?.getDirectory?.();
-      if (sandbox === undefined || await sandbox.resolve(root) === null) return undefined;
-      return (path, data) => fs.writeProject(project.id, path, data);
-    } catch { return undefined; }
-  });
   projectPreferenceModels.set(made, preferences);
   return made;
 }
@@ -399,13 +390,6 @@ function boardPreferencesFor(project: WebProject): BoardPreferencesSource {
 }
 
 const projectPreferenceModels = new WeakMap<WebProject, Preferences>();
-
-const scriptWriteSources = new WeakMap<WebProject, () => Promise<FileSystemService["write"] | undefined>>();
-
-/** Reviewed disk operations require a backing namespace that cannot contain links. */
-export async function reviewedScriptWriteFor(project: WebProject): Promise<FileSystemService["write"] | undefined> {
-  return await scriptWriteSources.get(project)?.();
-}
 
 /** One preferences model is shared by the browser views, the Preferences panel and the history policy of this project. */
 export function programPreferencesModelFor(project: WebProject): Preferences {

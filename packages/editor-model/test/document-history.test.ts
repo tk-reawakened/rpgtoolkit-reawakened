@@ -885,6 +885,7 @@ test("restore keeps an open generated program, removes the closed copy, and retr
   const closedPath = ".tkr-migrated/3.1/Prg/closed.prg";
   const bytes = new TextEncoder().encode('mwin("Converted")\n');
   const { host, workspace } = setUp();
+  host.answerQuestions("continue");
   const checkpoint = await workspace.checkpoints.prepareScripts([{ path: openPath, bytes }, { path: closedPath, bytes }], "Update older syntax");
   ok(checkpoint.ok);
   for (const path of [openPath, closedPath]) {
@@ -968,6 +969,7 @@ test("a copy opened after durable restore preparation is refused and never undon
     return saved;
   } };
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: { ...host, fs } });
+  host.answerQuestions("continue");
   const source = await workspace.checkpoints.prepareScripts([{ path, bytes: data }], "Update older syntax"); ok(source.ok);
   host.seed(path, data);
   ok((await workspace.checkpoints.registerWritten(source.value.id, path, data)).ok);
@@ -989,5 +991,18 @@ test("a copy opened after durable restore preparation is refused and never undon
   const reverse = await workspace.restoreHistoryGroup(outcome.restoreGroupId);
   equal(reverse.files[0]?.result, "kept-changed");
   deepEqual(host.bytesOf(path), newer);
+  workspace.dispose();
+});
+
+test("declining the checkpoint disclosure for new script copies writes nothing", async () => {
+  const { host, workspace } = setUp();
+  const path = ".tkr-migrated/3.1/Prg/new.prg";
+  host.answerQuestions("cancel");
+  const capture = await workspace.checkpoints.prepareScripts([{ path, bytes: new TextEncoder().encode("new\n") }], "Update older syntax");
+  equal(capture.ok, false);
+  equal(host.bytesOf(path), undefined);
+  const groups = await workspace.checkpoints.list();
+  ok(groups.ok);
+  deepEqual(groups.value, []);
   workspace.dispose();
 });

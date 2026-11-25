@@ -39,7 +39,7 @@ export interface CheckpointEnvironment {
   readonly time: () => string;
   /** Refuse unsafe open-document replacement/removal. Called before capture and again before every target write. */
   readonly guard: (path: string, removing: boolean, intended?: Uint8Array | null) => Promise<string | null>;
-  readonly consent: (paths: readonly string[]) => Promise<boolean>;
+  readonly consent: (paths: readonly string[], purpose?: "reviewed-scripts") => Promise<boolean>;
   /** Read authoritative open-document state instead of stale bytes on disk. */
   readonly current?: (path: string) => Promise<Uint8Array | null>;
   /** A host may route an authoritative open document through accepted edits and normal save. */
@@ -270,7 +270,10 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       prepared.push({ path, before, after: reason === "named" ? before?.slice() ?? null : target.bytes?.slice() ?? null, noOp: null });
     }
     const collisions = prepared.filter((file) => file.before !== null).map((file) => file.path);
-    if ((reason === "before-wizard" || reason === "before-script") && collisions.length > 0 && !await env.consent(collisions)) throw new Error("Cancelled; no target files changed.");
+    if (reason === "before-script" ? !await env.consent(collisions, "reviewed-scripts")
+      : reason === "before-wizard" && collisions.length > 0 && !await env.consent(collisions)) {
+      throw new Error("Cancelled; no target files changed.");
+    }
     const id = env.newId();
     if (!idPattern.test(id)) throw new Error("Invalid new checkpoint identity.");
     const known = await history.read(manifestPath(id));

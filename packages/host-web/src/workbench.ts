@@ -56,7 +56,7 @@ import {
   DEFAULT_WORKBENCH_PANELS,
 } from "@tk-reawakened/editor-model";
 import { createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
-import { mountDocumentView, programPreferencesModelFor, reviewedScriptWriteFor, type DocumentView, type WebProject } from "./index.ts";
+import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
 import { rootFolderOf } from "./language.ts";
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
 
@@ -350,13 +350,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         mainUri = main === null ? undefined : client.uriOf(main);
       } else unavailableReason = `The language server did not start: ${leased.message}.`;
     }
-    const writeReviewed = await reviewedScriptWriteFor(project);
     if (disposed) {
       lease?.release();
       return;
     }
     const environment: ScriptWorkflowEnvironment = {
-      fs: writeReviewed === undefined ? services.fs : { ...services.fs, writeReviewed },
+      fs: { ...services.fs, write: (path, bytes) => services.fs.writeProject(project.project.id, path, bytes) },
       provider,
       ...(unavailableReason === undefined ? {} : { unavailableReason }),
       history: createWizardHistory(workspace.checkpoints),

@@ -146,11 +146,7 @@ export interface OpenScriptProgram {
   replace(label: string, text: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>;
 }
 
-export type ScriptWorkflowFileSystem = Pick<FileSystemService, "list" | "read" | "createFolder"> & {
-  /** Only supplied when both this write and createFolder can reject links in every segment at the mutation boundary,
-   * or when the storage namespace cannot contain links. Ordinary path-based write is never a fallback. */
-  readonly writeReviewed?: FileSystemService["write"];
-};
+export type ScriptWorkflowFileSystem = Pick<FileSystemService, "list" | "read" | "createFolder" | "write">;
 
 export interface ScriptWorkflowEnvironment {
   readonly fs: ScriptWorkflowFileSystem;
@@ -522,14 +518,12 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (entry.target === "copy") await requireExactPath(env.fs, entry.path);
     await requireExactPath(env.fs, entry.destination);
   };
-  const unsafeDisk = "This filesystem cannot safely bind the reviewed path to a disk write. No disk change was made.";
   interface PreparedWrite {
     readonly sourceBytes: Uint8Array | null;
     readonly before: Uint8Array | null;
     readonly bytes: Uint8Array;
   }
   const prepareWrite = async (entry: ScriptWorkflowEntry): Promise<PreparedWrite> => {
-    if (env.fs.writeReviewed === undefined) throw new Error(unsafeDisk);
     if (env.isProjectCurrent?.() === false) throw new Error(projectChanged);
     if (!(await mainIsCurrent())) throw new Error(projectChanged);
     await requireExactPath(env.fs, entry.destination);
@@ -562,13 +556,15 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       if ((await readBytes(entry.path))?.[0] === 0) return { failure: sourceChanged(entry) };
       await verifyPaths(entry);
       const [projectCurrent, saved] = await Promise.all([mainIsCurrent(), readBytes(entry.path)]);
-      if (!projectCurrent || env.isProjectCurrent?.() === false) return { failure: projectChanged };
+      if (!projectCurrent) return { failure: projectChanged };
+      await verifyPaths(entry);
+      if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
       const currentEditor = findOpen(entry.path);
       if (saved?.[0] === 0 || currentEditor === undefined || !hasReviewedText(currentEditor, entry)) return { failure: sourceChanged(entry) };
       const done = await currentEditor.replace(label, result);
       return done.ok ? { via: "edit" } : { failure: `${entry.path} could not be edited: ${done.message}` };
     }
-    if (prepared === undefined || env.fs.writeReviewed === undefined) return { failure: unsafeDisk };
+    if (prepared === undefined) return { failure: "No reviewed disk write was prepared." };
     const { before, sourceBytes, bytes } = prepared;
     if (entry.target === "copy") {
       const slash = entry.destination.lastIndexOf("/");
@@ -582,12 +578,13 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
     if (!sameBytes(initialSource, sourceBytes)) return { failure: sourceChanged(entry) };
     if (!sameBytes(initialDestination, before)) return { failure: destinationChanged(entry) };
     await verifyPaths(entry);
-    // Resample after the final path walk, since a provider can change bytes while that walk is suspended.
-    // The remaining read-to-dispatch gap is optimistic: the filesystem does not expose compare-and-write.
+    // Resample after the path walk, then check entry types again: a same-byte link may surface during either read.
+    // TOOL-11 only protects observations made before the ordinary write; neither check is atomic with that write.
     const [projectCurrent, [source, destination]] = await Promise.all([mainIsCurrent(), readTargets()]);
     if (!projectCurrent) return { failure: projectChanged };
     if (!sameBytes(source, sourceBytes)) return { failure: sourceChanged(entry) };
     if (!sameBytes(destination, before)) return { failure: destinationChanged(entry) };
+    await verifyPaths(entry);
     const opened = findOpen(entry.path);
     const openConflict = !entry.open && anyOpen(entry.path);
     if (entry.open ? !hasReviewedText(opened, entry) : openConflict) {
@@ -597,7 +594,7 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       return { failure: `${entry.destination} was opened in an editor during the apply; it was not written.` };
     }
     if (env.isProjectCurrent?.() === false) return { failure: projectChanged };
-    const written = await env.fs.writeReviewed(entry.destination, bytes);
+    const written = await env.fs.write(entry.destination, bytes);
     if (!written.ok) return { failure: `Could not write ${entry.destination}: ${written.error.message}. ${entry.path} is as it was.` };
     if (groupId !== null && env.history !== null) {
       const receiptFailed = (message: string): ApplyOneResult => ({
@@ -662,8 +659,8 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
       }
       let groupId: string | null = null;
       let blocked: string | null = null;
-      if (prepared.size > 0 && env.history !== null) {
-        if (env.history.prepareScripts === undefined) blocked = "This host cannot record the reviewed checkpoint. Nothing was written.";
+      if (prepared.size > 0) {
+        if (env.history?.prepareScripts === undefined) blocked = "This host cannot record the reviewed checkpoint. Nothing was written.";
         else {
           try {
             const targets = toWrite.flatMap((entry) => {

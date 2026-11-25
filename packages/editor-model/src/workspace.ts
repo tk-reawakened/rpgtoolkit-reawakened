@@ -485,10 +485,13 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       if (removing) return `${path} is open. Close it, then retry the restore to remove it.`;
       return null;
     },
-    async consent(paths) {
+    async consent(paths, purpose) {
+      const scripts = purpose === "reviewed-scripts";
       const answer = await dialogs.ask({
-        message: `${paths.join(", ")} ${paths.length === 1 ? "already exists" : "already exist"}.`,
-        detail: "The checkpoint will record the current files before the wizard writes. Continue?",
+        message: paths.length === 0 ? "Write the reviewed program files?" : `${paths.join(", ")} ${paths.length === 1 ? "already exists" : "already exist"}.`,
+        detail: scripts
+          ? "History keeps the current files first. Use this only on your own project: another program can change the files or swap a path for a link after the final check. VS Code refuses links it detects; browser-picked folders do not reveal links."
+          : "The checkpoint will record the current files before the wizard writes. Continue?",
         choices: [{ id: "continue", label: "Continue" }, { id: "cancel", label: "Cancel" }],
         cancel: "cancel",
       });

@@ -84,7 +84,7 @@ function env(host: MemoryPlatformServices, extra: Partial<ScriptWorkflowEnvironm
       return { ok: true };
     },
   };
-  return { provider: provider(), history, openPrograms: () => [], groups, intents, ...extra, fs: { ...host.fs, writeReviewed: host.fs.write, ...extra.fs } };
+  return { provider: provider(), history, openPrograms: () => [], groups, intents, ...extra, fs: { ...host.fs, ...extra.fs } };
 }
 
 const states = (entries: readonly { path: string; state: string }[]): Record<string, string> => Object.fromEntries(entries.map((entry) => [entry.path, entry.state]));
@@ -353,7 +353,7 @@ test("recovery records the entire batch's reviewed bytes before the first target
   const environment = env(host);
   const review = createScriptReview({
     ...environment,
-    fs: { ...host.fs, writeReviewed: async (path, data) => {
+    fs: { ...host.fs, write: async (path, data) => {
       deepEqual(environment.groups.map((group) => group.planned), [["Prg/a.prg", "Prg/b.prg"]]);
       deepEqual(environment.intents.map((item) => [item.path, text(item.bytes)]), [["Prg/a.prg", "tidy\r\nline two\r\n"], ["Prg/b.prg", "tidy b\n"]]);
       return await host.fs.write(path, data);
@@ -536,7 +536,7 @@ test("a receipt failure reports the successful write and does not retry it along
       if (path === "Prg/a.prg") throw new Error("receipt storage stopped");
       return { ok: true };
     } },
-    fs: { ...host.fs, async writeReviewed(path, data) {
+    fs: { ...host.fs, async write(path, data) {
       writes.push(path);
       if (path === "Prg/b.prg" && failOther) return { ok: false, error: { code: "io-error", message: "target write refused" } };
       return await host.fs.write(path, data);
@@ -570,7 +570,6 @@ for (const swap of ["directory-during-consent", "file-during-read", "file-during
     let folderCalls = 0;
     let writeCalls = 0;
     let readsAfterFolder = 0;
-    let guardedCalls = 0;
     let reachedSecondRead!: () => void;
     let releaseSecondRead!: () => void;
     const secondRead = new Promise<void>((resolve) => { reachedSecondRead = resolve; });
@@ -608,11 +607,9 @@ for (const swap of ["directory-during-consent", "file-during-read", "file-during
           folderCalls++;
           return await host.fs.createFolder(path);
         },
-        async writeReviewed(path, value) {
-          guardedCalls++;
-          if (linked) return { ok: false, error: { code: "invalid-path", message: "The filesystem refused a substituted symbolic link." } };
+        async write(path, value) {
           writeCalls++;
-          return await host.fs.write(path, value);
+          return await host.fs.write(path === destination && linked ? redirected : path, value);
         },
       },
     });
@@ -620,7 +617,7 @@ for (const swap of ["directory-during-consent", "file-during-read", "file-during
     equal(plan.entries[0]?.state, "ready");
     const applying = createScriptReview(environment, plan).apply();
     if (swap === "file-during-second-read") {
-      await secondRead;
+      await Promise.race([secondRead, applying.then(() => { throw new Error("Apply completed before the second destination read."); })]);
       linked = true;
       releaseSecondRead();
     }
@@ -628,7 +625,6 @@ for (const swap of ["directory-during-consent", "file-during-read", "file-during
     equal(linked, true);
     equal(folderCalls, swap === "directory-during-consent" ? 0 : 1);
     equal(writeCalls, 0);
-    equal(guardedCalls, swap === "file-during-second-read" ? 1 : 0);
     deepEqual(outcome.applied, []);
     match(outcome.failed[0]?.message ?? "", /symbolic link/);
     deepEqual(host.bytesOf(redirected), original);
@@ -674,7 +670,7 @@ for (const race of ["open-main", "closed-main", "closed-source", "copy-destinati
           }
           return await host.fs.list(path);
         },
-        async writeReviewed(path, data) { writes++; return await host.fs.write(path, data); },
+        async write(path, data) { writes++; return await host.fs.write(path, data); },
       },
     });
     const plan = await planScriptWorkflow(environment, copy ? "update" : "format", { kind: "program", path: source });
@@ -695,16 +691,20 @@ for (const race of ["open-main", "closed-main", "closed-source", "copy-destinati
   });
 }
 
-test("a path-only provider refuses a reviewed copy before recording consent or creating any folder", async () => {
+test("a reviewed copy with no recovery provider does not create or replace files", async () => {
   const host = project();
-  const setup = env(host);
-  const environment: ScriptWorkflowEnvironment = { ...setup, fs: host.fs };
-  const plan = await planScriptWorkflow(environment, "update", { kind: "program", path: "Prg/old.prg" });
-  equal(plan.entries[0]?.state, "ready");
-  const outcome = await createScriptReview(environment, plan).apply();
+  const old = `${MIGRATED_FOLDER}/Prg/old.prg`;
+  const missing = `${MIGRATED_FOLDER}/Prg/second-old.prg`;
+  host.seed("Prg/second-old.prg", bytes("OLD\n"));
+  const environment = env(host, { history: null });
+  const plan = await planScriptWorkflow(environment, "update", { kind: "project" });
+  const review = createScriptReview(environment, plan);
+  for (const entry of plan.entries) if (entry.destination !== old && entry.destination !== missing) review.setIncluded(entry.path, false);
+  const outcome = await review.apply();
   deepEqual(outcome.applied, []);
-  match(outcome.failed[0]?.message ?? "", /cannot safely bind the reviewed path/);
-  deepEqual(setup.groups, []);
+  deepEqual(outcome.failed.map(({ path }) => path), ["Prg/old.prg", "Prg/second-old.prg"]);
+  for (const { message } of outcome.failed) match(message, /cannot record the reviewed checkpoint/);
   equal(text(host.bytesOf("Prg/old.prg")), "OLD\n");
-  equal(text(host.bytesOf(`${MIGRATED_FOLDER}/Prg/old.prg`)), "MESSY previous copy");
+  equal(text(host.bytesOf(old)), "MESSY previous copy");
+  equal(host.bytesOf(missing), undefined);
 });

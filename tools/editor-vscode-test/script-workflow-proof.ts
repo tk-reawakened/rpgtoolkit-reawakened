@@ -98,24 +98,8 @@ export async function runVscodeScriptWorkflowProof(
   for (const path of [OPT_OUT, CLEAN]) await row(path).locator(".monaco-custom-toggle").click();
   await apply();
   const diskConsent = page.getByRole("button", { name: "Continue", exact: true });
-  const unsupportedDisk = page.locator(".notification-toast").filter({ hasText: /cannot safely bind the reviewed path/i }).first();
-  await expect(diskConsent.or(unsupportedDisk)).toBeVisible();
-  if (await unsupportedDisk.isVisible()) {
-    expect(await bytes(FORMAT)).toBe(MESSY);
-    expect(await groups()).toEqual(initialGroups);
-    await proveOpenProgram();
-    await start("Clean up");
-    await review(CLEAN);
-    await expect(row(CLEAN)).toContainText("Left as written at line 2");
-    await quick.locator("input:visible").press("Escape");
-    await expect(quick).toBeHidden();
-    expect(await bytes(CLEAN)).toBe(CLEANUP);
-    await reviewLegacyCopy();
-    await quick.locator("input:visible").press("Escape");
-    await expect(quick).toBeHidden();
-    expect(await bytes(OLD)).toBe(OLD_TEXT);
-    throw new Error("Reviewed VS Code disk apply remains unsupported: its filesystem cannot safely bind the reviewed path to the write. The original file and checkpoint list were unchanged.");
-  }
+  await expect(page.getByText(/another program can change the files or swap a path for a link after the final check/i)).toBeVisible();
+  await expect(page.getByText(/VS Code refuses links it detects/i)).toBeVisible();
   await diskConsent.click();
   await expect.poll(() => bytes(FORMAT)).toBe(FORMATTED);
   expect(await bytes(OPT_OUT)).toBe(UPPER);
@@ -147,6 +131,7 @@ export async function runVscodeScriptWorkflowProof(
 
   await reviewLegacyCopy();
   await apply();
+  await diskConsent.click();
   await expect.poll(async () => {
     try { return await bytes(COPY); } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
