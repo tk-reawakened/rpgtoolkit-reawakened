@@ -3,7 +3,7 @@ type: feature
 title: "Restore the legacy bitmap font editor"
 ticket: 20
 tracker_id: "#1939"
-status: built
+status: done
 risk: medium
 ---
 
@@ -154,3 +154,17 @@ The owner accepted the documented retry on 2026-11-24 ([ADR 0042](../../../docs/
 
 - Browser New Font follows the browser New Program disclosure: it warns before asking for a path that a file another application creates between the existence check and write may be replaced. The browser file API does not provide an atomic create-if-absent operation. A detected collision is refused without changing the existing file.
 - The real Chromium and focused vscode.dev font proofs both use Save buttons, not the Save shortcut on a font. The font zoom setting is checked in the view and host conformance tests; the real-browser canvas checks compare the ink at 8 and 20 px, not its zoomed display.
+
+## Closure verification
+
+Implementation [PR #3361](https://github.com/tk-reawakened/rpgtoolkit-reawakened/pull/3361) merged at `2e4b2f542776428d3087d924bf418a5adb8a68a0`, verified on `origin/main`. Its tree matches the reviewed PR head exactly, and [CI passed](https://github.com/tk-reawakened/rpgtoolkit-reawakened/actions/runs/45508345798). [#1939](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1939) is closed and its Roadmap card is `done`.
+
+| Acceptance clause | Evidence run at the merge revision |
+| --- | --- |
+| Create/open version 2.0 `.fnt` files and browse the 256-slot strip | `tools/browser/tests/editor-font.spec.ts:241–280` verifies the warning, cancellation, wrong-folder and case-folded collision refusals, then checks the new file's empty glyph bytes and slot labels. `tools/editor-vscode-test/web-proof.ts:3036–3120` creates and opens a font in packaged vscode.dev. |
+| Draw with pointer and keyboard; undo and redo through the host | `tools/browser/tests/editor-font.spec.ts:138–222` exercises the real grid, workbench menu, buttons and keyboard. `tools/editor-vscode-test/web-proof.ts:3123–3135,3159–3172,3188–3200` exercises focused grid Undo/Redo and workbench Undo on the same native stack, then closes a clean tab after Undo. The host conformance suite also checks delayed webview acknowledgements. |
+| Crisp preview at 8 and 20 px with bold, italics and underline; preview state does not edit the glyphs | `tools/browser/tests/editor-font.spec.ts:138–193` and `tools/editor-vscode-test/web-proof.ts:3137–3157` compare canvas pixels with the specified bitmap coverage. `packages/editor-ui/test/font-view.test.ts:420–449` and `tools/editor-vscode-test/test/font-hosts.test.ts:197–247` check preview state, including zoom, without editing or dirtying the font. |
+| Save/reopen with untouched glyphs intact; preserve edits on a refused save | Both real hosts compare saved bytes with independently authored expected rows and reopen the font (`editor-font.spec.ts:224–238`; `web-proof.ts:3174–3186`). `packages/editor-ui/test/font-view.test.ts:451–469` refuses a write, checks that the dirty glyph and original file are preserved, then retries successfully. |
+| Render the editor-saved font in the shipped player | `tools/browser/tests/project-font.spec.ts:194–291` packages bytes saved by the font document and compares the player's WebGL pixels for `font()` with the author's glyph and the bundled fallback. The pixel assertions are at lines 290–291. |
+
+`pnpm build` and the seven focused Node suites passed (124 tests, no skips). Chromium passed all four cases across the `editor-web` and `player` lanes. The packaged vscode.dev font proof passed with `TKR_VSCODE_FONT_PROOF=1 pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace "$workspace" --game Main/example.gam`, where `$workspace` was a temporary copy of `docs/spec/examples/game/Game/Example/` with `docs/spec/examples/game/Main/example.gam` copied to `Main/example.gam` inside it. The real host cases used Save buttons rather than the Save shortcut; zoom is covered by view and host conformance. The owner accepted retrying a refused overlapping native history command ([ADR 0042](../../../docs/adr/0042-project-bitmap-fonts-use-shared-rendering.md)); [#3415](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/3415) remains open and was not fixed by this merge.
