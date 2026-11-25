@@ -71,10 +71,11 @@ function activate(context) {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri;
     if (root === undefined) throw new Error("The proof workspace is not open");
     const uri = vscode.Uri.joinPath(root, "script-review.code-workspace");
-    const main = vscode.Uri.joinPath(root, "Game 100%", "Main", "review-modern.gam");
     const content = {
       folders: [{ path: "Main", name: "Proof first folder" }, { path: "Game 100%", name: "Proof reviewed folder" }],
-      settings: { "files.autoSave": "off", "rpgcode.project": main.toString() },
+      // Select the main through the real picker after reopening. Pre-seeding that same value can
+      // make the picker a no-op even when the virtual workspace's settings have not loaded.
+      settings: { "files.autoSave": "off" },
     };
     await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(JSON.stringify(content)));
     await vscode.commands.executeCommand("vscode.openFolder", uri, { forceReuseWindow: true });

@@ -191,6 +191,9 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
   };
   for (const transform of Object.keys(ids) as ScriptTransformId[]) {
     context.subscriptions.push(vscode.commands.registerCommand(ids[transform], async () => {
+      // Activating the language extension can yield while VS Code loads the running project setting.
+      // Capture that setting and the workspace only after activation, not before.
+      const extension = await activatedLanguageExtension();
       const folders = vscode.workspace.workspaceFolders ?? [];
       if (folders.length === 0) {
         await vscode.window.showErrorMessage("Open a project folder first: the workflows read the project's programs.");
@@ -206,7 +209,6 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
       const folderUri = folder.uri.toString();
       const services = createVscodeServices(folder.uri, context, generation);
       const workspace = workspaceFor(folder.uri);
-      const extension = await activatedLanguageExtension();
       const open = openPrograms(folder.uri);
       const active = vscode.window.activeTextEditor?.document;
       const activePath = active === undefined ? null : open.find((program) => program.document === active)?.path ?? null;

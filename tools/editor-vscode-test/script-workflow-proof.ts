@@ -147,7 +147,13 @@ export async function runVscodeScriptWorkflowProof(
   const nestedGroups = await groups(ROOT);
   await dispatch("Test: Open Script Proof Multi-root Workspace");
   await expect(page.getByText("Proof reviewed folder", { exact: true })).toBeVisible({ timeout: 30_000 });
+  const configuredMain = async (): Promise<string | undefined> => {
+    const configuration = JSON.parse(await bytes("script-review.code-workspace")) as { settings: Record<string, string | undefined> };
+    return configuration.settings["rpgcode.project"];
+  };
   await project("review-modern.gam");
+  await expect.poll(configuredMain).toMatch(/^tkr-testfs:.*review-modern\.gam$/);
+  const selectedMain = await configuredMain();
   await expect(page.getByRole("button", { name: /Running project: .*review-modern\.gam/ })).toBeVisible();
   const endpoint = /^http:\/\/127\.0\.0\.1:\d+\/[a-f0-9]{64}$/;
   let gate: Route | undefined;
@@ -172,6 +178,7 @@ export async function runVscodeScriptWorkflowProof(
     await expect(diskConsent).toBeVisible();
     await gate!.continue();
     await expect(page.getByRole("treeitem", { name: "Proof reviewed folder" })).toHaveCount(0);
+    expect(await configuredMain()).toBe(selectedMain);
     await diskConsent.click();
     await expect(page.locator(".notification-toast").filter({ hasText: /selected project changed/i }).first()).toBeVisible();
     expect(await bytes(FORMAT)).toBe(MESSY);
