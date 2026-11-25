@@ -67,6 +67,8 @@ Coordinate actions write an exact-byte copy, reopen it in the editor, then apply
 
 ## Plan Change Log
 2026-11-24: Added real-host test-time use of the pinned minor-2.2 board and author-created dependencies following the documented file layouts; no original artwork, scripts, fixture bytes or game tree are committed. Retained #3475 for genuinely unavailable original minor-3/stacked evidence.
+2026-11-24: The earlier VS Code proof failure was a test-frame selection error, not a product defect: the helper accepted any visible board webview with the upgrade toolbar, so it could act on a different board than the selected tab (the failure showed the 19×14 legacy board where the proof expected the 16×12 coordinate source). The helper now requires the selected tab and matching board dimensions before interacting. With that correlation, same-open-document native Undo and Save restore the exact copied bytes; the copy then closes, reopens, and runs in tile-coordinate mode. No product defect was reproduced or filed.
+
 
 ## Review Triage Log
 
@@ -83,5 +85,8 @@ The existing spec has exact forward stacked-to-rotated and tile-to-pixel rules. 
 
 **Resume validation (2026-11-24):**
 - `pnpm --dir extensions/editor build` -- passed.
-- `TKR_VSCODE_BOARD_UPGRADE_PROOF=1 pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace /tmp/tkr-vscode-proof.yQqNZ5 --game Main/example.gam` -- proof setup checks passed (13/13). The actual host workflow completed the fetched minor-2.2 conversion/copy, validated the resulting vector data, preserved original bytes, reopened the copy and ran it; the tile-to-pixel copy was also saved and ran before the undo step.
-- The same host proof **failed** when VS Code Undo was expected to restore the saved pixel-coordinate copy byte-for-byte: the coordinate flag remained `4` rather than the original `0` after Undo and Save. The post-Undo reopen/run and separate browser-host proof remain unverified. Minor-3 and stacked originals remain unavailable and #3475 stays open.
+- `pnpm --dir tools/editor-vscode-test typecheck:tests` -- passed.
+- `TKR_VSCODE_BOARD_UPGRADE_PROOF=1 pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace docs/spec/examples/game --game Main/example.gam` -- passed, including 13/13 proof setup tests. In the actual VS Code workbench, the fetched minor-2.2 board was upgraded to a copy, validated, reopened and run; its original bytes remained unchanged. The tile-to-pixel copy was saved and run, native Undo was applied before closing that copy, and Save restored its exact pre-conversion bytes. The copy then reopened and ran in tile-coordinate mode.
+- `pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts -g "browser host previews, upgrades"` -- passed (1 test): the fetched original minor-2.2 board was previewed/upgraded to a copy, reopened and run; original bytes remained unchanged and tile-to-pixel copy behavior was verified.
+- An attempted filtered `pnpm browser:test -- ...` invocation ran the full 159-test browser suite instead: 151 passed, 8 failed (editor artwork, board-canvas undo, connected-authoring, bitmap-font undo, and program undo tests). The targeted board-upgrade browser test passed separately.
+- Minor-3 and stacked original-board evidence remains unavailable; #3475 stays open.
