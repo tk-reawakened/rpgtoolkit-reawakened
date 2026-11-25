@@ -45,10 +45,14 @@ export interface BattleDataFormProps<Snapshot extends DocumentSnapshot<Command>,
   readonly onEdited: (event: DocumentEdited) => void;
 }
 
+/** Identity is per input event, even when two drafts display the same text. */
+interface FieldDraft { readonly text: string }
+type FieldDrafts = Readonly<Record<string, FieldDraft>>;
+
 /** What the rows need of a form: the shared snapshot surface, the command runner, field drafts and the Save row's state. */
 export interface BattleDataFormBase<Command> {
   readonly snapshot: DocumentSnapshot<Command>;
-  readonly drafts: Readonly<Record<string, string>>;
+  readonly drafts: FieldDrafts;
   readonly message: string | null;
   readonly resolving: boolean;
   readonly locked: boolean;
@@ -67,7 +71,7 @@ export interface BattleDataFormBase<Command> {
   commitText(key: string, text: string, current: string, build: (value: string) => Command): Promise<void>;
   commitNumber(key: string, text: string, current: number, build: (value: number) => Command): Promise<void>;
   /** Let a save apply this field's draft first, and take part in the host's pending-edit settlement. */
-  registerField(key: string, submit: () => Promise<void>): () => void;
+  registerField(key: string, submit: (text: string) => Promise<void>): () => void;
 }
 
 /** `BattleDataFormBase` with the kind's own snapshot, which the views read their fields from. */
@@ -87,17 +91,17 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const snapshot = useDocumentSnapshot(doc);
   const submitted = useRef(createEditTracker());
   const queue = useRef(Promise.resolve());
-  const [drafts, setDrafts] = useState<Readonly<Record<string, string>>>({});
+  const [drafts, setDrafts] = useState<FieldDrafts>({});
   const [message, setMessage] = useState<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [locked, setLocked] = useState(false);
   // The draft map is kept ref-authoritative: a host save runs outside a render, so `busy()` must see a commit at once.
-  const draftsRef = useRef<Readonly<Record<string, string>>>({});
-  const publishDrafts = (next: Readonly<Record<string, string>>): void => {
+  const draftsRef = useRef<FieldDrafts>({});
+  const publishDrafts = (next: FieldDrafts): void => {
     draftsRef.current = next;
     setDrafts(next);
   };
-  const fields = useRef(new Map<string, () => Promise<void>>());
+  const fields = useRef(new Map<string, (text: string) => Promise<void>>());
   const saved = `${what[0]!.toUpperCase()}${what.slice(1)} saved.`;
 
   const run = (command: Command): Promise<boolean> => {
@@ -121,8 +125,8 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   /** Apply every field that still holds a draft, in form order. A field whose draft no longer differs commits nothing. */
   const flush = async (): Promise<void> => {
     for (const [key, submit] of [...fields.current]) {
-      if (draftsRef.current[key] === undefined) continue;
-      await submit();
+      const draft = draftsRef.current[key];
+      if (draft !== undefined) await submit(draft.text);
     }
   };
   // An explicit save applies the focused field first; autosave and a backup leave the gesture alone (ADR 0022 D11.2);
@@ -187,7 +191,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     } catch (error) { setMessage(problem(error)); }
     finally { setResolving(false); }
   };
-  const setDraft = (key: string, text: string): void => publishDrafts({ ...draftsRef.current, [key]: text });
+  const setDraft = (key: string, text: string): void => publishDrafts({ ...draftsRef.current, [key]: { text } });
   /** Throw away the text a refused field holds, so the file's value shows and saving can finish. */
   const discardDrafts = (): void => { publishDrafts({}); setMessage(null); };
   const dropDraft = (key: string): void => {
@@ -196,22 +200,18 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     delete next[key];
     publishDrafts(next);
   };
-  const clearDraft = (key: string, text: string): void => {
-    if (draftsRef.current[key] !== text) return;
-    const next = { ...draftsRef.current };
-    delete next[key];
-    publishDrafts(next);
+  const clearDraft = (key: string, draft: FieldDraft | undefined): void => {
+    if (draft !== undefined && draftsRef.current[key] === draft) dropDraft(key);
   };
   /** Leave a text field: a changed value is one edit; an unchanged one is dropped without touching the document. */
   const commitText = async (key: string, text: string, current: string, build: (value: string) => Command): Promise<void> => {
-    // The draft is what the author typed; `text` may be that draft re-encoded (a description's line endings), so the
-    // draft is cleared by its own text, or it would linger as a phantom that refuses every save.
-    const typed = draftsRef.current[key] ?? text;
-    if (text === current) { clearDraft(key, typed); return; }
-    if (await run(build(text))) clearDraft(key, typed);
+    const draft = draftsRef.current[key];
+    if (text === current) { clearDraft(key, draft); return; }
+    if (await run(build(text))) clearDraft(key, draft);
   };
   /** Leave a number field: the document says whether the value fits, and its sentence is shown when it does not. */
   const commitNumber = async (key: string, text: string, current: number, build: (value: number) => Command): Promise<void> => {
+    const draft = draftsRef.current[key];
     const trimmed = text.trim();
     if (trimmed === "") { setMessage("Enter a whole number before leaving this field."); return; }
     if (!WHOLE_NUMBER.test(trimmed)) {
@@ -219,10 +219,10 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
       return;
     }
     const value = Number(trimmed);
-    if (value === current) { clearDraft(key, text); return; }
-    if (await run(build(value))) clearDraft(key, text);
+    if (value === current) { clearDraft(key, draft); return; }
+    if (await run(build(value))) clearDraft(key, draft);
   };
-  const registerField = (key: string, submit: () => Promise<void>): (() => void) => {
+  const registerField = (key: string, submit: (text: string) => Promise<void>): (() => void) => {
     fields.current.set(key, submit);
     return () => { if (fields.current.get(key) === submit) fields.current.delete(key); };
   };
@@ -268,10 +268,10 @@ export function TextRow<Command>({ form, id, label, value, hint, command }: {
   const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
   const commit = (text: string): Promise<void> => commitText(id, text, value, command);
   // Registered during render, not in an effect: the map is a ref, so this neither loops nor lags a render behind.
-  registerField(id, () => drafts[id] === undefined ? Promise.resolve() : commitText(id, drafts[id]!, value, command));
+  registerField(id, commit);
   return <p>
     <label>{label}
-      <input type="text" aria-label={label} value={drafts[id] ?? value} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commit(event.currentTarget.value); }} />
+      <input type="text" aria-label={label} value={drafts[id]?.text ?? value} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commit(event.currentTarget.value); }} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
   </p>;
@@ -305,7 +305,7 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
     if (current !== null && (current.proposed ?? writtenText(current.history.line)) === value) {
       // A blur (or Save) accepted this textarea's bytes. Its native Undo stack still exists, so keep its separators too.
       current.base = value;
-      current.accepted = current.history.line;
+      current.accepted = current.history.accept(value);
       current.proposed = null;
     } else {
       // Another view, document Undo, or discard replaced the text. Reset both histories to the same version.
@@ -318,13 +318,10 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
     current.proposed = writtenText(current.history.follow(text));
     return current.proposed;
   };
-  registerField(id, () => {
-    const draft = drafts[id];
-    return draft === undefined ? Promise.resolve() : commitText(id, asWritten(draft), value, command);
-  });
+  registerField(id, (text) => commitText(id, asWritten(text), value, command));
   return <p>
     <label>{label}
-      <textarea key={model.current!.generation} aria-label={label} rows={3} value={drafts[id] ?? model.current!.history.line.text} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => {
+      <textarea key={model.current!.generation} aria-label={label} rows={3} value={drafts[id]?.text ?? model.current!.history.line.text} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => {
         const inputType = (event as InputEvent).inputType;
         const direction = inputType === "historyUndo" ? "undo" : inputType === "historyRedo" ? "redo" : undefined;
         const current = model.current!;
@@ -346,10 +343,10 @@ export function NumberRow<Command>({ form, id, label, value, hint, command }: {
   readonly command: (value: number) => Command;
 }): JSX.Element {
   const { drafts, setDraft, commitNumber, registerField, disabled, snapshot } = form;
-  registerField(id, () => drafts[id] === undefined ? Promise.resolve() : commitNumber(id, drafts[id]!, value, command));
+  registerField(id, (text) => commitNumber(id, text, value, command));
   return <p>
     <label>{label}
-      <input type="number" step="1" aria-label={label} value={drafts[id] ?? String(value)} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commitNumber(id, event.currentTarget.value, value, command); }} />
+      <input type="number" step="1" aria-label={label} value={drafts[id]?.text ?? String(value)} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commitNumber(id, event.currentTarget.value, value, command); }} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
   </p>;
@@ -477,10 +474,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   readonly children?: ComponentChildren;
 }): JSX.Element {
   const { drafts, setDraft, dropDraft, commitText, registerField, run, disabled, snapshot, setMessage } = form;
-  registerField(id, () => {
-    const draft = drafts[id];
-    return draft === undefined ? Promise.resolve() : commitText(id, draft, value, command);
-  });
+  registerField(id, (text) => commitText(id, text, value, command));
   const busy = disabled || snapshot.saving;
   const origin = snapshot.identity.path;
   const choose = async (): Promise<void> => {
@@ -499,7 +493,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     <legend>{label}</legend>
     <p>
       <label>{label} file
-        <input type="text" aria-label={`${label} file`} value={drafts[id] ?? value} disabled={busy} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commitText(id, event.currentTarget.value, value, command); }} />
+        <input type="text" aria-label={`${label} file`} value={drafts[id]?.text ?? value} disabled={busy} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commitText(id, event.currentTarget.value, value, command); }} />
       </label>
       {hint !== undefined && <small> {hint}</small>}
     </p>
@@ -507,7 +501,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
       {navigation.pickAsset !== undefined && <button type="button" aria-label={`Choose ${label.toLowerCase()}`} disabled={busy || form.locked} onClick={() => void choose()}>Choose…</button>}
       {navigation.open !== undefined && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
     </p>
-    {linked.state === "checking" && <p role="status">Checking {drafts[id] ?? value}…</p>}
+    {linked.state === "checking" && <p role="status">Checking {drafts[id]?.text ?? value}…</p>}
     {linked.state === "collision" && <p role="status">{linked.message} The reference is kept as typed; rename one of the files.</p>}
     {linked.state === "invalid" && <p role="status">{linked.message} The reference is kept as typed. Choose the file, or type a file inside this folder.</p>}
     {linked.state === "missing" && <p role="status">{linked.path} is not in the project ({linked.message}). The reference is kept as typed.</p>}

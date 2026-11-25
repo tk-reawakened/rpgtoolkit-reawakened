@@ -11,6 +11,7 @@ import type { Page } from "@playwright/test";
 const bytes = (path: string): number[] => Array.from(readFileSync(new URL(`../../../docs/spec/examples/${path}`, import.meta.url)));
 const FIREBALL = bytes("game/Game/Example/SpcMove/fireball.spc");
 const BURN = bytes("game/Game/Example/StatusE/burn.ste");
+const moveBytesWithDescription = (text: string): number[] => [...FIREBALL.slice(0, 0x43), ...Buffer.from(text, "latin1"), 0];
 // fireball.spc: fp 0x1e (i32), battle 0x37, menu 0x38. burn.ste: hpAmount 0x24 (i16).
 const MOVE_EDITED = (() => {
   const bytes = [...FIREBALL];
@@ -142,9 +143,8 @@ test("saving a linked status effect refreshes both move views without dropping t
 });
 
 test("native description Undo after blur and save restores the original binary line separators", async ({ page }) => {
-  const bytesWith = (description: string): number[] => [...FIREBALL.slice(0, 0x43), ...Buffer.from(description, "latin1"), 0];
   const path = "SpcMove/mixed.spc";
-  const original = bytesWith("A\r\nB\nC");
+  const original = moveBytesWithDescription("A\r\nB\nC");
   await openWorkbench(page, [{ path, bytes: original }]);
   await openFile(page, "SpcMove", "mixed.spc");
   const field = page.getByLabel("Description", { exact: true });
@@ -156,13 +156,37 @@ test("native description Undo after blur and save restores the original binary l
   await field.blur();
   const save = page.getByRole("button", { name: "Save active editor", exact: true });
   await save.click();
-  await expect.poll(() => readProjectFile(page, path)).toEqual(bytesWith("AB\nC"));
+  await expect.poll(() => readProjectFile(page, path)).toEqual(moveBytesWithDescription("AB\nC"));
 
   await field.press("ControlOrMeta+z");
   await expect(field).toHaveValue("A\nB\nC");
   await field.blur();
   await save.click();
   await expect.poll(() => readProjectFile(page, path)).toEqual(original);
+});
+
+test("a second description edit uses the separators the previous save actually wrote", async ({ page }) => {
+  const path = "SpcMove/empty-line.spc";
+  await openWorkbench(page, [{ path, bytes: moveBytesWithDescription("A\rB\nC") }]);
+  await openFile(page, "SpcMove", "empty-line.spc");
+  const field = page.getByLabel("Description", { exact: true });
+  const save = page.getByRole("button", { name: "Save active editor", exact: true });
+  await expect(field).toHaveValue("A\nB\nC");
+  await field.focus();
+  await field.evaluate((textarea: HTMLTextAreaElement) => textarea.setSelectionRange(2, 3));
+  await field.press("Backspace");
+  await expect(field).toHaveValue("A\n\nC");
+  await field.blur();
+  await save.click();
+  await expect.poll(() => readProjectFile(page, path)).toEqual(moveBytesWithDescription("A\r\rC"));
+
+  await field.focus();
+  await field.evaluate((textarea: HTMLTextAreaElement) => textarea.setSelectionRange(2, 2));
+  await field.press("x");
+  await expect(field).toHaveValue("A\nx\nC");
+  await field.blur();
+  await save.click();
+  await expect.poll(() => readProjectFile(page, path)).toEqual(moveBytesWithDescription("A\rx\rC"));
 });
 
 test("two files that differ only in case are reported as a collision in a real case-sensitive project folder", async ({ page }) => {

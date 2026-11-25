@@ -135,6 +135,15 @@ function replayEndings(endings: readonly string[], edit: LineEdit, undo: boolean
   return spliceEndings(endings, edit.firstEnding, remove.length, insert);
 }
 
+function withEndings(edit: LineEdit, before: readonly string[], after: readonly string[]): LineEdit {
+  let first = 0;
+  let oldEnd = before.length;
+  let newEnd = after.length;
+  while (first < oldEnd && first < newEnd && before[first] === after[first]) first += 1;
+  while (oldEnd > first && newEnd > first && before[oldEnd - 1] === after[newEnd - 1]) { oldEnd -= 1; newEnd -= 1; }
+  return { ...edit, firstEnding: first, removedEndings: before.slice(first, oldEnd), insertedEndings: after.slice(first, newEnd) };
+}
+
 /**
  * Exact text and separator changes alongside the textarea's native history. Large descriptions do not age out of this
  * history: only the current text and the changed ranges are kept. Undo/Redo may group several browser input events, so
@@ -151,6 +160,21 @@ export class LineHistory {
   }
 
   get line(): LineText {
+    return this.#line;
+  }
+
+  /** The caller confirmed `stored` was accepted for this state. Keep any separator changes the writer made. */
+  accept(stored: string): LineText {
+    const { text, endings } = this.#line;
+    if (!text.includes("\n\n") || !endings.includes("\r")) return this.#line;
+    const written = stored.match(BREAKS) ?? [];
+    if (!written.some((ending, index) => ending !== endings[index])) return this.#line;
+    // Rebase both edges of this state. Its neighbours keep their bytes and native Undo/Redo does not gain a step.
+    const prior = this.#edits[this.#cursor - 1];
+    if (prior !== undefined) this.#edits[this.#cursor - 1] = withEndings(prior, replayEndings(endings, prior, true), written);
+    const next = this.#edits[this.#cursor];
+    if (next !== undefined) this.#edits[this.#cursor] = withEndings(next, written, replayEndings(endings, next, false));
+    this.#line = { text, endings: written };
     return this.#line;
   }
 

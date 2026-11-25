@@ -2,6 +2,7 @@
 // at the offsets of the committed annotated listings, never taken from the writer.
 import { after, before, test } from "node:test";
 import { deepEqual, equal, ok } from "node:assert/strict";
+import { EventEmitter, once } from "node:events";
 import { readFileSync } from "node:fs";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { createDocumentIdentity, createPendingEdits, openSpecialMoveDocument, openStatusEffectDocument, type SpecialMoveDocument } from "@tk-reawakened/editor-model";
@@ -57,6 +58,13 @@ async function type(input: HTMLInputElement, value: string): Promise<void> {
   await act(() => { input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); });
   await act(() => { input.dispatchEvent(new Event("change", { bubbles: true })); });
   await settle();
+}
+async function editDescription(area: HTMLTextAreaElement, text: string, caret: number, inputType: string): Promise<void> {
+  await act(() => {
+    area.value = text;
+    area.setSelectionRange(caret, caret);
+    area.dispatchEvent(new InputEvent("input", { bubbles: true, inputType }));
+  });
 }
 async function toggle(input: HTMLInputElement): Promise<void> {
   await act(() => { input.checked = !input.checked; input.dispatchEvent(new Event("change", { bubbles: true })); });
@@ -186,15 +194,24 @@ test("a Toolkit 2 text status effect shows its reason and every field is disable
 // does, a reference that leaves its folder says so instead of waiting, a Choose replaces a stale draft, and an undo or a
 // revert drops drafts typed against the newer model.
 
-async function mountWithPending(files: Record<string, Uint8Array>, pick?: string) {
+async function mountWithPending(files: Record<string, Uint8Array>, pick?: string, afterApply?: () => Promise<void>) {
   const pendingEdits = createPendingEdits();
   const host = createMemoryPlatformServices({ files });
   const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
   ok(opened.ok);
+  const doc = opened.document;
   const root = document.createElement("div");
   document.body.append(root);
   const handle = mount(root, {
-    document: opened.document,
+    document: afterApply === undefined ? doc : {
+      kind: doc.kind, identity: doc.identity, getSnapshot: () => doc.getSnapshot(), subscribe: (listener) => doc.subscribe(listener),
+      save: () => doc.save(), resolveConflict: (choice) => doc.resolveConflict(choice),
+      async apply(command: Parameters<SpecialMoveDocument["apply"]>[0]) {
+        const result = doc.apply(command);
+        await afterApply();
+        return result;
+      },
+    },
     services: host,
     pendingEdits,
     navigation: {
@@ -483,29 +500,52 @@ test("Undo in the textarea restores the file's own separators, byte for byte (#3
   try {
     const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
     ok(area);
-    const type = async (text: string, caret: number, inputType: string): Promise<void> => {
-      await act(() => {
-        area.value = text;
-        area.setSelectionRange(caret, caret);
-        area.dispatchEvent(new InputEvent("input", { bubbles: true, inputType }));
-      });
-    };
-    await type("AB\nC", 1, "deleteContentBackward");
-    await type("A\nB\nC", 1, "historyUndo");
+    await editDescription(area, "AB\nC", 1, "deleteContentBackward");
+    await editDescription(area, "A\nB\nC", 1, "historyUndo");
     await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
     await settle();
     deepEqual(view.doc.serialize(), bytes, "the original bytes, not a normalised copy");
     equal(view.doc.getSnapshot().dirty, false, "and no edit was made");
 
-    await type("A\nB\nCx", 6, "insertText");
-    await type("AB\nCx", 1, "deleteContentBackward");
-    await type("A\nB\nCx", 2, "insertLineBreak");
-    await type("AB\nCx", 1, "historyUndo");
-    await type("A\nB\nCx", 6, "historyUndo");
+    await editDescription(area, "A\nB\nCx", 6, "insertText");
+    await editDescription(area, "AB\nCx", 1, "deleteContentBackward");
+    await editDescription(area, "A\nB\nCx", 2, "insertLineBreak");
+    await editDescription(area, "AB\nCx", 1, "historyUndo");
+    await editDescription(area, "A\nB\nCx", 6, "historyUndo");
     await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
     await settle();
     deepEqual(view.doc.serialize(), Uint8Array.from([...bytes.slice(0, -1), 0x78, 0]), "Undo chose the earlier mixed separators despite identical displayed text");
   } finally { view.dispose(); }
+});
+
+test("an acknowledgement cannot clear a later description draft with the same displayed text", async () => {
+  const bytesWith = (text: string): Uint8Array => Uint8Array.from([...fireball.slice(0, 0x43), ...Buffer.from(text, "latin1"), 0]);
+  const ack = new EventEmitter();
+  const held = once(ack, "release");
+  const release = (): void => { ack.emit("release"); };
+  let applied = false;
+  const view = await mountWithPending({ [SPC]: bytesWith("A\r\nB\nC"), [STE]: burn }, undefined, async () => {
+    applied = true;
+    await held;
+  });
+  try {
+    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+    ok(area);
+    await editDescription(area, "A\nB\nCx", 6, "insertText");
+    await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
+    await until(() => applied, "the document applied the first edit but its acknowledgement is held");
+    deepEqual(view.doc.serialize(), bytesWith("A\r\nB\nCx"));
+
+    await editDescription(area, "AB\nCx", 1, "deleteContentBackward");
+    await editDescription(area, "A\nB\nCx", 2, "insertLineBreak");
+    release();
+    await settle();
+    deepEqual(view.doc.serialize(), bytesWith("A\r\nB\nCx"), "still the old description until the new draft is submitted");
+
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    deepEqual(view.host.bytesOf(SPC), bytesWith("A\nB\nCx"), "Save applies the newer draft even though the displayed text repeats");
+  } finally { release(); view.dispose(); }
 });
 
 test("using the version on disk clears refused text from both views of a move", async () => {
