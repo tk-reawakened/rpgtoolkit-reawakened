@@ -287,6 +287,26 @@ void test("cancel, stale source, destination collision, and failed writes preser
   equal(failed.bytesOf(copyPath), undefined);
   deepEqual(failed.bytesOf(sourcePath), original);
 });
+void test("an owner validator refuses a destination routed into a nested game's Boards folder", async () => {
+  const original = exampleBoard(3);
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const result = await upgradeBoardCopy({
+    fs: host.fs,
+    dialogs: host.dialogs,
+    projectId: "memory-project",
+    boardPath: sourcePath,
+    operation: "pre-vector",
+    hasPendingEdits: () => false,
+    isDestinationOwnedBySource: () => false,
+    createExclusive: null,
+  });
+  ok(!result.ok);
+  match(result.error.message, /owning game/);
+  equal(host.bytesOf(copyPath), undefined);
+  deepEqual(host.bytesOf(sourcePath), original);
+});
 void test("pending edits and unsupported pre-vector layouts refuse before review or writing", async () => {
   const original = exampleBoard(3);
   const dirty = createMemoryPlatformServices({ files: { [sourcePath]: original } });

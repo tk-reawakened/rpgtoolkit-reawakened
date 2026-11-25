@@ -32,6 +32,16 @@ test("declared main layouts own nested board folders, not the last reserved fold
   deepEqual(projectLayoutOwnerForDocumentPath("Game/Quest/Boards/Region/Boards/Map.brd", owners), owners[0]);
   deepEqual(projectLayoutOwnerForDocumentPath("Game/Other/Boards/Map.brd", owners), owners[1]);
   deepEqual(projectLayoutOwnerForDocumentPath("Boards/Old.brd", owners), { mainPath: null, layout: ROOT });
+  const rootOwner = { mainPath: "Main/Quest.gam", layout: ROOT };
+  deepEqual(projectLayoutOwnerForDocumentPath("Boards/Map.brd", [rootOwner]), rootOwner);
+  const nestedOwner = { mainPath: "Main/nested.gam", layout: { projectFolder: "Game/A/B" } };
+  const duplicateParentOwners = [
+    { mainPath: "Main/a.gam", layout: { projectFolder: "Game/A" } },
+    { mainPath: "Main/other-a.gam", layout: { projectFolder: "Game/A" } },
+    nestedOwner,
+  ];
+  deepEqual(projectLayoutOwnerForDocumentPath("Game/A/B/Boards/Map.brd", duplicateParentOwners), nestedOwner);
+  deepEqual(projectLayoutOwnerForDocumentPath("Game/A/B/Boards/Map.brd", duplicateParentOwners.reverse()), nestedOwner);
 });
 
 test("a link is the path inside the type folder, sub-folders kept, with the legacy separator", () => {

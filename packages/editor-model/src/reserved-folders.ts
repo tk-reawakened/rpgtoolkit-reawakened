@@ -27,22 +27,26 @@ export function projectLayoutOwnerForDocumentPath(path: string, owners: readonly
 
   let longest = -1;
   let owner: ProjectLayoutOwner | null = null;
+  let ambiguous = false;
   for (const candidate of owners) {
     const folder = foldPath(candidate.layout.projectFolder).replace(/^\/+|\/+$/g, "");
     if (folder === "" || (foldedPath !== folder && !foldedPath.startsWith(`${folder}/`))) continue;
     if (folder.length > longest) {
       longest = folder.length;
       owner = candidate;
+      ambiguous = false;
     } else if (folder.length === longest && owner?.mainPath !== candidate.mainPath) {
-      return null;
+      ambiguous = true;
     }
   }
-  if (owner !== null) return owner;
-
-  const rootFolder = foldedPath.split("/")[0] ?? "";
-  if (RESERVED_FOLDER_NAMES.has(rootFolder)) return { mainPath: null, layout: { projectFolder: "" } };
+  if (owner !== null) return ambiguous ? null : owner;
 
   const rootOwners = owners.filter((candidate) => foldPath(candidate.layout.projectFolder).replace(/^\/+|\/+$/g, "") === "");
+  const rootFolder = foldedPath.split("/")[0] ?? "";
+  if (RESERVED_FOLDER_NAMES.has(rootFolder)) {
+    if (rootOwners.length === 1) return rootOwners[0]!;
+    return rootOwners.length === 0 ? { mainPath: null, layout: { projectFolder: "" } } : null;
+  }
   return rootOwners.length === 1 ? rootOwners[0]! : null;
 }
 

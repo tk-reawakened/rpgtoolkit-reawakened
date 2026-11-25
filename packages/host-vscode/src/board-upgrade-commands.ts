@@ -1,3 +1,4 @@
+import { foldPath } from "@tk-reawakened/core";
 import type * as vscode from "vscode";
 import { createBoardCoordinateUpgradeCommand, projectLayoutOfMain, reservedFolder, resolveReservedFolderPath, upgradeBoardCopy, type BoardUpgradeOperation } from "@tk-reawakened/editor-model";
 import type { DialogService, FileSystemService } from "@tk-reawakened/platform-services";
@@ -19,8 +20,8 @@ interface BoardChoice {
 }
 
 function isWithin(path: string, root: string): boolean {
-  const candidate = path.replace(/\\/g, "/").toLowerCase();
-  const folder = root.replace(/\\/g, "/").replace(/\/+$/g, "").toLowerCase();
+  const candidate = foldPath(path);
+  const folder = foldPath(root).replace(/\/+$/g, "");
   return candidate.startsWith(`${folder}/`);
 }
 
@@ -33,7 +34,7 @@ async function projectBoardRoots(
   const projectId = folder.uri.toString();
   const list = (path: string) => fs.listProject(projectId, path);
   const layoutFs = { readProject: fs.readProject, list };
-  const requested = new Set(["boards"]);
+  const requested = new Map([[foldPath("boards"), "boards"]]);
   const failures: string[] = [];
   try {
     const rootEntries = await api.workspace.fs.readDirectory(folder.uri);
@@ -44,7 +45,8 @@ async function projectBoardRoots(
       for (const [name, type] of mainEntries) {
         if ((type & api.FileType.File) === 0 || !/\.gam$/i.test(name)) continue;
         const layout = await projectLayoutOfMain(layoutFs, projectId, `${main[0]}/${name}`);
-        requested.add(reservedFolder(layout, "boards").toLowerCase());
+        const requestedRoot = reservedFolder(layout, "boards");
+        requested.set(foldPath(requestedRoot), requestedRoot);
       }
     }
   } catch (error) {
@@ -52,7 +54,7 @@ async function projectBoardRoots(
     return { roots: [], failures };
   }
   const roots: string[] = [];
-  for (const requestedRoot of requested) {
+  for (const requestedRoot of requested.values()) {
     const resolved = await resolveReservedFolderPath({ list }, requestedRoot);
     if (resolved.failure !== null) {
       failures.push(`${resolved.failure.path}: ${resolved.failure.error.message}`);
@@ -217,6 +219,13 @@ export function registerBoardUpgradeCommands(
           return dirtyText || snapshot.dirty || snapshot.saving || snapshot.conflict !== null;
         },
         isDestinationOpen: (destination) => provider.openDocument(api.Uri.joinPath(folder.uri, ...destination.split("/"))) !== undefined,
+        isDestinationOwnedBySource: async (destination) => {
+          const discovered = await projectBoardRoots(api, folder, fileSystem);
+          const destinationRoot = discovered.roots
+            .filter((candidate) => isWithin(destination, candidate))
+            .sort((left, right) => right.length - left.length)[0];
+          return destinationRoot !== undefined && foldPath(destinationRoot) === foldPath(choice.boardsRoot);
+        },
         createExclusive: null,
       });
       if (!result.ok) {

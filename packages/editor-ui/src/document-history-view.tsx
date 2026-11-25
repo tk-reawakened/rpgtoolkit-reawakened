@@ -26,7 +26,7 @@ export interface DocumentHistoryViewProps {
   /** The document in front; the Document timeline follows it. */
   readonly activePath: string | null;
   /** Mount the view of a document's kind into an element: the host's own mount, so a preview is the same editor (D12.10 item 13). */
-  readonly mountPreview?: (element: HTMLElement, document: AnyDocument) => ViewHandle;
+  readonly mountPreview?: (element: HTMLElement, document: AnyDocument) => ViewHandle | Promise<ViewHandle>;
   /** Whether the ignore offer may be shown (the `history.offerIgnore` setting); shown when absent. */
   readonly offerIgnore?: () => Promise<boolean>;
   /** The user chose never to be asked again. */
@@ -64,7 +64,7 @@ function PreviewPane({ workspace, path, bytes, description, mountPreview, label 
   readonly path: string;
   readonly bytes: Uint8Array;
   readonly description: string;
-  readonly mountPreview: (element: HTMLElement, document: AnyDocument) => ViewHandle;
+  readonly mountPreview: (element: HTMLElement, document: AnyDocument) => ViewHandle | Promise<ViewHandle>;
   readonly label: string;
 }) {
   const element = useRef<HTMLDivElement>(null);
@@ -75,10 +75,16 @@ function PreviewPane({ workspace, path, bytes, description, mountPreview, label 
     const opened = workspace.openHistoryPreview(path, bytes, description);
     if (!opened.ok) { setProblem(opened.message); return undefined; }
     setProblem(null);
+    let cancelled = false;
     let handle: ViewHandle | null = null;
-    try { handle = mountPreview(target, opened.document); }
-    catch (error) { setProblem(error instanceof Error ? error.message : String(error)); }
-    return () => { handle?.dispose(); };
+    void Promise.resolve().then(() => mountPreview(target, opened.document)).then((mounted) => {
+      if (cancelled) mounted.dispose();
+      else handle = mounted;
+    }).catch((error: unknown) => setProblem(error instanceof Error ? error.message : String(error)));
+    return () => {
+      cancelled = true;
+      handle?.dispose();
+    };
   }, [workspace, path, bytes, description, mountPreview]);
   return <section class="tkr-history-preview" aria-label={label}>
     <h3>{label}</h3>

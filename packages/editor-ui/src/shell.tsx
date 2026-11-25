@@ -17,7 +17,7 @@ import { Workbench } from "./workbench.tsx";
 
 interface ShellHistoryPanel {
   readonly files: Pick<FileSystemService, "list" | "read" | "write">;
-  readonly mountPreview?: (element: HTMLElement, document: AnyDocument) => ViewHandle;
+  readonly mountPreview?: (element: HTMLElement, document: AnyDocument) => ViewHandle | Promise<ViewHandle>;
   readonly offer?: { readonly isEnabled: () => Promise<boolean>; readonly onNever: () => void };
 }
 type ShellWorkspace = DocumentWorkspace & { readonly historyPanel?: ShellHistoryPanel };
@@ -27,6 +27,10 @@ export interface ShellProps {
   readonly tabs: Tabs;
   readonly tree: ProjectTree;
   readonly projectLayout: ProjectLayout;
+  /** Resolve the active document's owning game layout for shared browser surfaces. */
+  readonly projectLayoutForPath?: (path: string | null) => ProjectLayout;
+  /** Resolve the active document's main game file for run controls. */
+  readonly mainForPath?: (path: string | null) => string | null;
   readonly fs: Pick<FileSystemService, "list" | "read">;
   /** Optional document workspace for Undo/Redo/SaveAll/Revert commands in the application menu and command palette. */
   readonly workspace?: DocumentWorkspace;
@@ -86,11 +90,14 @@ function EditorSlot({ onElement }: { readonly onElement: (element: HTMLElement |
 }
 
 /** The browser and desktop shell (T-01, T-02, T-03): the workbench with the Files and Game panels, and the document tabs. */
-export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, commands, extraCommands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onNewFont, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
+export function Shell({ layout, tabs, tree, projectLayout, projectLayoutForPath, mainForPath, fs, workspace, commands, extraCommands, onOpened, onOpenPath, onImportBoard, onPackage, onDownload, onEditorElement, onNewBoard, onNewAnimation, onRecovery, onNewProgram, onNewFont, onOpenPreferences, browser, version, launcher, creatorTests, main, runSetups, runMemory, onRun, onReturnFromVisit }: ShellProps) {
   // The Game panel reads the project again whenever a tab opens or closes, as well as when the host says files changed.
   const tabsSnapshot = useDocumentSnapshot(tabs);
   const active = tabsSnapshot.tabs.find((tab) => tab.key === tabsSnapshot.active)?.path ?? null;
   const activeDocHasEmbeddedBrowser = active !== null && /\.(brd|tbm)$/i.test(active);
+  const activeLayout = projectLayoutForPath?.(active) ?? projectLayout;
+  const activeMain = mainForPath === undefined ? main ?? null : mainForPath(active);
+  const activeBrowser = browser === undefined ? undefined : { ...browser, layout: activeLayout };
   const [returnMessage, setReturnMessage] = useState<string | null>(null);
   const historyPanel = (workspace as ShellWorkspace | undefined)?.historyPanel;
   return (
@@ -119,7 +126,7 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
             layout={projectLayout}
             active={active}
             version={[version, tabsSnapshot.tabs.length]}
-            {...(main === undefined ? {} : { main })}
+            {...(activeMain === null ? {} : { main: activeMain })}
             {...(runSetups === undefined ? {} : { store: runSetups })}
             {...(runMemory === undefined ? {} : { memory: runMemory })}
             {...(onRun === undefined ? {} : { onRun })}
@@ -130,8 +137,8 @@ export function Shell({ layout, tabs, tree, projectLayout, fs, workspace, comman
       }
       panels={{
         files: <FilesView tree={tree} fs={fs} onOpened={onOpened} onPackage={onPackage} onDownload={onDownload} {...(onImportBoard === undefined ? {} : { onImportBoard })} {...(onNewBoard === undefined ? {} : { onNewBoard })} {...(onNewAnimation === undefined ? {} : { onNewAnimation })} {...(onRecovery === undefined ? {} : { onRecovery })} {...(onNewProgram === undefined ? {} : { onNewProgram })} {...(onNewFont === undefined ? {} : { onNewFont })} />,
-        game: <GameView fs={fs} layout={projectLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
-        ...(browser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={browser} /> }),
+        game: <GameView fs={fs} layout={activeLayout} onOpen={onOpenPath} version={[version, tabsSnapshot.tabs.length]} />,
+        ...(activeBrowser === undefined ? {} : { tileset: activeDocHasEmbeddedBrowser ? null : <TilesetBrowser context={activeBrowser} /> }),
         ...(creatorTests === undefined ? {} : { tests: <TestsView controller={creatorTests} /> }),
         ...(workspace === undefined || historyPanel === undefined ? {} : { history: <DocumentHistoryView workspace={workspace} files={historyPanel.files} activePath={active} {...(historyPanel.mountPreview === undefined ? {} : { mountPreview: historyPanel.mountPreview })} {...(historyPanel.offer === undefined ? {} : { offerIgnore: historyPanel.offer.isEnabled, onNeverOfferIgnore: historyPanel.offer.onNever })} /> }),
       }}

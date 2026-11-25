@@ -159,13 +159,14 @@ export interface BoardUpgradeCopyOptions {
   readonly isDestinationOpen?: (destination: string) => boolean;
   /** The owning game's resolved Boards folder; required by hosts when path components are ambiguous. */
   readonly boardsRoot?: string;
-  /** Exclusive destination creator where the host provides one; null explicitly selects the disclosed fallback. */
+  /** Ensure the selected copy destination remains within the source's owning game. */
+  readonly isDestinationOwnedBySource?: (destination: string) => boolean | Promise<boolean>;
   readonly createExclusive: ((destination: string, bytes: Uint8Array) => Promise<PlatformResult<void>>) | null;
 }
 
 /** Preview and write an upgraded board as a new file; never edits the source document. */
 export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promise<PlatformResult<{ readonly destination: string; readonly bytes: Uint8Array } | null>> {
-  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, hasPendingEditsNow, boardsRoot, createExclusive, isDestinationOpen } = options;
+  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, hasPendingEditsNow, boardsRoot, createExclusive, isDestinationOpen, isDestinationOwnedBySource } = options;
   if (!/^(?:game\/(?:[^/]+\/)+)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(boardPath)
     || /[\\:\u0000-\u001f\u007f]/.test(boardPath)
     || boardPath.split("/").some((part) => part === "." || part === "..")) {
@@ -261,6 +262,9 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
       return platformError("invalid-request", "An upgrade must be saved as a separate board; the original was not changed.");
     }
     if (isDestinationOpen?.(resolvedDestination) === true) return platformError("invalid-request", `${resolvedDestination} is already open or cached in this editor. Close it and retry the upgrade.`);
+    if (isDestinationOwnedBySource !== undefined && !(await isDestinationOwnedBySource(resolvedDestination))) {
+      return platformError("invalid-request", "Save the upgraded copy inside the source board's owning game. Its asset references must stay valid.");
+    }
     const existing = await fs.statProject(projectId, resolvedDestination);
     if (existing.ok) return platformError("already-exists", `${resolvedDestination} already exists. Upgrades never replace files.`);
     if (existing.error.code !== "not-found") return platformError(existing.error.code, `Could not check ${resolvedDestination}: ${existing.error.message}`);

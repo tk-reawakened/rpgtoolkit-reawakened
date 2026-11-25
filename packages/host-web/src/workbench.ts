@@ -1,3 +1,4 @@
+import { foldPath } from "@tk-reawakened/core";
 import { SCRIPT_TRANSFORM_REQUEST } from "@tk-reawakened/lsp/protocol";
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import {
@@ -180,22 +181,29 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
   let declaredLayouts: Promise<readonly ProjectLayoutOwner[]> | null = null;
+  let knownLayouts: readonly ProjectLayoutOwner[] | null = null;
   const layouts = (): Promise<readonly ProjectLayoutOwner[]> => {
-    declaredLayouts ??= declaredProjectLayouts(project, main);
+    declaredLayouts ??= declaredProjectLayouts(project, main).then((owners) => {
+      knownLayouts = owners;
+      return owners;
+    });
     return declaredLayouts;
   };
-  const ownersByDocument = new Map<string, ProjectLayoutOwner>();
-  const ownerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
-    const owners = await layouts();
-    const declared = projectLayoutOwnerForDocumentPath(path, owners);
-    if (declared !== null) return declared;
-    const selectedFolder = projectLayout.projectFolder.replace(/^\/+|\/+$/g, "").toLowerCase();
-    const foldedPath = path.replace(/\\/g, "/").toLowerCase();
+  const fallbackOwnerForPath = (path: string): ProjectLayoutOwner => {
+    const selectedFolder = foldPath(projectLayout.projectFolder).replace(/^\/+|\/+$/g, "");
+    const foldedPath = foldPath(path);
     if (selectedFolder !== "" && (foldedPath === selectedFolder || foldedPath.startsWith(`${selectedFolder}/`))) {
       return { mainPath: main, layout: projectLayout };
     }
     if (selectedFolder === "" && main !== null) return { mainPath: main, layout: projectLayout };
     return { mainPath: null, layout: { projectFolder: "" } };
+  };
+  const ownerForPathSync = (path: string): ProjectLayoutOwner =>
+    (knownLayouts === null ? null : projectLayoutOwnerForDocumentPath(path, knownLayouts)) ?? fallbackOwnerForPath(path);
+  const ownersByDocument = new Map<string, ProjectLayoutOwner>();
+  const ownerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
+    const owner = projectLayoutOwnerForDocumentPath(path, await layouts());
+    return owner ?? fallbackOwnerForPath(path);
   };
   let version = 0;
   let disposed = false;
@@ -514,6 +522,10 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       hasPendingEdits: isPending,
       hasPendingEditsNow: isPending,
       isDestinationOpen: (destination) => workspace.documents().some((document) => document.identity.path === destination),
+      isDestinationOwnedBySource: async (destination) => {
+        const destinationOwner = await ownerForPath(destination);
+        return foldPath(destinationOwner.layout.projectFolder) === foldPath(owner.layout.projectFolder);
+      },
       createExclusive: null,
     });
     if (!result.ok) {
@@ -581,13 +593,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       label: "Upgrade a pre-vector board…",
       run: async () => {
         const owners = await layouts();
-        const candidateLayouts = [projectLayout, ...owners.map(({ layout }) => layout)];
+        const candidateLayouts = [{ projectFolder: "" }, projectLayout, ...owners.map(({ layout }) => layout)];
         const byPath = new Map<string, { readonly path: string; readonly reference: string }>();
         const failures: { readonly path: string; readonly error: { readonly message: string } }[] = [];
         for (const candidateLayout of candidateLayouts) {
           const found = await listCandidates(services.fs, candidateLayout, "boards", [".brd"]);
           failures.push(...found.failures);
-          for (const candidate of found.candidates) byPath.set(candidate.path.toLowerCase(), candidate);
+          for (const candidate of found.candidates) byPath.set(foldPath(candidate.path), candidate);
         }
         if (failures.length > 0) {
           await tell(`Could not list all board files: ${failures.map(({ path, error }) => `${path}: ${error.message}`).join("; ")}`);
@@ -798,7 +810,10 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     ...workspace,
     historyPanel: {
       files: services.fs,
-      mountPreview: (previewElement: HTMLElement, previewDocument: AnyDocument) => mountDocumentView(project, previewDocument, previewElement, projectLayout, openSource, undefined, main),
+      mountPreview: async (previewElement: HTMLElement, previewDocument: AnyDocument) => {
+        const owner = await ownerForPath(previewDocument.identity.path);
+        return mountDocumentView(project, previewDocument, previewElement, owner.layout, openSource, undefined, owner.mainPath);
+      },
       offer: {
         isEnabled: async () => {
           const stored = await services.settings.get("user", HISTORY_SETTING_IDS.offerIgnore);
@@ -813,6 +828,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     tabs,
     tree,
     projectLayout,
+    projectLayoutForPath: (path) => path === null ? projectLayout : ownerForPathSync(path).layout,
+    mainForPath: (path) => path === null ? main : ownerForPathSync(path).mainPath,
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
