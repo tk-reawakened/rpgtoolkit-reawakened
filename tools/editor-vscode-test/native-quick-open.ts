@@ -11,7 +11,7 @@ export async function openNativeQuickOpenFile(page: Page, expect: Expect, path: 
   await input.fill(">Test: Open Proof Project File");
   const command = page.getByRole("option", { name: /^Test: Open Proof Project File(?:,|$)/ });
   await expect(command).toHaveCount(1);
-  await command.click();
+  await input.press("Enter");
   await expect(widget).toContainText("Workspace-relative proof file path");
   await input.fill(path);
   await input.press("Enter");
