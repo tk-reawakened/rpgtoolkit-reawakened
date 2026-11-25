@@ -112,6 +112,12 @@ export interface SetBoardFieldsCommand {
     readonly lights?: Board["lights"];
     /** The tile shading layers, as stored (a conversion writes these together with `lights`). */
     readonly shadeLayers?: Board["shadeLayers"];
+    /** Coordinate flags for an explicit, reviewed coordinate conversion. */
+    readonly coordType?: Board["coordType"];
+    /** Cell mapping for a coordinate conversion. */
+    readonly tileMatrix?: Board["tileMatrix"];
+    /** Stored runs paired with `tileMatrix`. */
+    readonly tileRuns?: Board["tileRuns"];
   };
 }
 
@@ -450,6 +456,9 @@ function applyCommand(board: Board, command: BoardCommand): Board {
       ...(command.fields.images === undefined ? {} : { images: command.fields.images }),
       ...(command.fields.lights === undefined ? {} : { lights: command.fields.lights }),
       ...(command.fields.shadeLayers === undefined ? {} : { shadeLayers: command.fields.shadeLayers }),
+      ...(command.fields.coordType === undefined ? {} : { coordType: command.fields.coordType }),
+      ...(command.fields.tileMatrix === undefined ? {} : { tileMatrix: command.fields.tileMatrix }),
+      ...(command.fields.tileRuns === undefined ? {} : { tileRuns: command.fields.tileRuns }),
     };
   }
   if (command.type === "set-tile") return assignTiles(board, [command]);
@@ -663,6 +672,13 @@ export function isBoardObjectRecords(value: unknown, kind: BoardObjectKind): boo
     return isRgb(record.transparent);
   });
 }
+function isBoardTileRun(value: unknown): value is BoardTileRun {
+  if (typeof value !== "object" || value === null) return false;
+  const run = value as Record<string, unknown>;
+  return Number.isInteger(run.lutIndex) && (run.lutIndex as number) >= 0 && (run.lutIndex as number) < MAX_LUT_ENTRIES
+    && Number.isInteger(run.count) && (run.count as number) >= 1 && (run.count as number) <= 32_768
+    && typeof run.marker === "boolean";
+}
 
 function isPoint(value: unknown): boolean {
   return typeof value === "object" && value !== null && "x" in value && typeof value.x === "number" && Number.isInteger(value.x)
@@ -744,7 +760,7 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
     if (value.type === "set-board-fields" && "fields" in value && typeof value.fields === "object" && value.fields !== null) {
       const fields = value.fields as Record<string, unknown>;
       return ("precondition" in value ? value.precondition === undefined || isPrecondition(value.precondition) : true)
-        && Object.keys(fields).every((key) => ["links", "threads", "constants", "layerTitles", "properties", "vectors", "programs", "sprites", "images", "lights", "shadeLayers"].includes(key))
+        && Object.keys(fields).every((key) => ["links", "threads", "constants", "layerTitles", "properties", "vectors", "programs", "sprites", "images", "lights", "shadeLayers", "coordType", "tileMatrix", "tileRuns"].includes(key))
         && (fields.links === undefined || isBoardLinks(fields.links))
         && (fields.threads === undefined || (Array.isArray(fields.threads) && fields.threads.every((entry) => typeof entry === "string")))
         && (fields.constants === undefined || (Array.isArray(fields.constants) && fields.constants.every((entry) => typeof entry === "string")))
@@ -755,7 +771,10 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
         && (fields.sprites === undefined || isBoardObjectRecords(fields.sprites, "sprites"))
         && (fields.images === undefined || isBoardObjectRecords(fields.images, "images"))
         && (fields.lights === undefined || isLights(fields.lights))
-        && (fields.shadeLayers === undefined || isShadeLayers(fields.shadeLayers));
+        && (fields.shadeLayers === undefined || isShadeLayers(fields.shadeLayers))
+        && (fields.coordType === undefined || Number.isInteger(fields.coordType) && (fields.coordType as number) >= 0 && (fields.coordType as number) <= 32_767)
+        && (fields.tileMatrix === undefined || Array.isArray(fields.tileMatrix) && fields.tileMatrix.length <= BOARD_MAX_CELLS && fields.tileMatrix.every((index: unknown) => Number.isInteger(index) && (index as number) >= 0 && (index as number) < MAX_LUT_ENTRIES))
+        && (fields.tileRuns === undefined || Array.isArray(fields.tileRuns) && fields.tileRuns.length <= MAX_LUT_ENTRIES && fields.tileRuns.every(isBoardTileRun));
     }
     return value.type === "set-tiles" && "gesture" in value && typeof value.gesture === "string" && GESTURES.includes(value.gesture)
       && "cells" in value && Array.isArray(value.cells) && value.cells.length <= BOARD_MAX_CELLS && value.cells.every(isAssignment)
@@ -767,7 +786,8 @@ export const boardCodec: DocumentCodec<Board, BoardCommand, BoardDocumentFields>
   apply: applyCommand,
   refuse,
   label: (command) => {
-    if (command.type === "set-board-fields") return command.fields.lights !== undefined || command.fields.shadeLayers !== undefined ? "Edit lights and shading" : "Edit board properties";
+    if (command.type === "set-board-fields") return command.fields.coordType !== undefined ? "Convert board coordinates"
+      : command.fields.lights !== undefined || command.fields.shadeLayers !== undefined ? "Edit lights and shading" : "Edit board properties";
     if (command.type === "set-shade-cells") return `Shade ${command.cells.length} ${command.cells.length === 1 ? "cell" : "cells"}`;
     if (command.type === "set-tiles") {
       const count = Math.max(command.cells.length, command.shadeCells?.length ?? 0);

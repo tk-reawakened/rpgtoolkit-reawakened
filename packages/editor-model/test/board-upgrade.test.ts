@@ -400,3 +400,55 @@ void test("documented minor-2 layout example upgrades using independent fields f
   deepEqual(board.layerTitles.slice(0, 2), ["ground", ""]);
   deepEqual(board.shadeLayers, []);
 });
+
+const realMinor2Board = resolve("fixtures/legacy/Caoquest/Boards/red.brd");
+void test("real minor-2 Red board upgrades, reopens and preserves independent stored content", {
+  skip: existsSync(realMinor2Board) ? false : "run pnpm fixtures:fetch",
+}, async () => {
+  const original = new Uint8Array(readFileSync(realMinor2Board));
+  deepEqual([original[15], original[17]], [2, 2]);
+  const source = decoded(original);
+  equal(source.layout, "pre-vector");
+  deepEqual([source.board.sizeX, source.board.sizeY, source.board.sizeL], [19, 14, 8]);
+  equal(source.board.vectors.length, 32);
+  equal(source.board.programs.length, 24);
+  equal(source.board.sprites.length, 2);
+  equal(source.board.shadeLayers.length, 1);
+  deepEqual(source.board.tileMatrix.slice(0, 12), [1, 2, 6, 6, 6, 12, 2, 6, 6, 6, 12, 1]);
+  deepEqual(source.board.vectors[0]?.points.map(({ x, y }) => `${x},${y}`), ["32,0", "352,0", "352,32", "32,32"]);
+  deepEqual(source.board.programs[0]?.points.map(({ x, y }) => `${x},${y}`), ["512,128", "544,128", "544,160", "512,160"]);
+  deepEqual(source.board.sprites[0], {
+    itemFile: "gem.itm", activationPrg: "", multitaskPrg: "", initialVar: "", initialValue: "",
+    finalVar: "", finalValue: "", loadingVar: "", loadingValue: "", activate: 0, activationType: 0,
+    x: 528, y: 95, layer: 1, reserved: -1,
+  });
+  deepEqual(source.board.shadeLayers[0]?.records.slice(0, 2), [
+    { runCount: 16, r: 0, g: 0, b: 0 },
+    { runCount: 1, r: -26, g: -26, b: -26 },
+  ]);
+
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const copied = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
+  });
+  deepEqual(copied, { ok: true, value: copyPath });
+  deepEqual(host.bytesOf(sourcePath), original);
+  const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
+  ok(reopened.ok);
+  const upgraded = decoded(reopened.document.serialize()).board;
+  deepEqual([upgraded.minor, upgraded.sizeX, upgraded.sizeY, upgraded.sizeL], [4, 19, 14, 8]);
+  equal(upgraded.tileMatrix.length, 19 * 14 * 8);
+  equal(upgraded.vectors.length, 32);
+  equal(upgraded.programs.length, 24);
+  equal(upgraded.sprites.length, 2);
+  equal(upgraded.shadeLayers.length, 1);
+  deepEqual(upgraded.tileMatrix.slice(0, 12), source.board.tileMatrix.slice(0, 12));
+  deepEqual(upgraded.vectors[0], source.board.vectors[0]);
+  deepEqual(upgraded.programs[0], source.board.programs[0]);
+  deepEqual(upgraded.sprites[0], source.board.sprites[0]);
+  deepEqual(upgraded.shadeLayers[0], source.board.shadeLayers[0]);
+  deepEqual(host.bytesOf(sourcePath), original);
+});

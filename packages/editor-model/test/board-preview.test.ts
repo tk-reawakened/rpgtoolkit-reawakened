@@ -50,19 +50,20 @@ function smallBoard(): Uint8Array {
 const FILES = { "Boards/village.brd": smallBoard(), "Tiles/village.tst": tileset } as const;
 
 /** What the engine's `viewbrd` draws for `bytes`: its own composition and rasteriser, over the same project files. */
-function engineView(bytes: Uint8Array, width: number, height = width): Uint8Array {
-  const files = new Map<string, Uint8Array>([["boards/village.brd", bytes], ["tiles/village.tst", tileset]]);
+function engineView(bytes: Uint8Array, width: number, height = width, inputFiles: readonly (readonly [string, Uint8Array])[] = [["Tiles/village.tst", tileset]], boardName = "village.brd"): Uint8Array {
+  const files = new Map<string, Uint8Array>(inputFiles.map(([path, content]) => [path.toLowerCase(), content]));
+  files.set(`boards/${boardName.toLowerCase()}`, bytes);
   let latest: GameState | undefined;
   const registration: EnginePhaseRegistration = { phase: "events", run: (state) => { latest = state; } };
   const engine = createEngine({
     seed: 19,
-    assetIndex: createAssetIndex(Object.keys(FILES)),
+    assetIndex: createAssetIndex([...files.keys()]),
     assetRoot: PACKAGE_ROOT,
-    initialBoard: "village.brd",
+    initialBoard: boardName,
     width,
     height,
     maxTicks: 20,
-    program: `createcanvas(${width}, ${height}, c)\nviewbrd("village.brd", 0, 0, c)\nend()\n`,
+    program: `createcanvas(${width}, ${height}, c)\nviewbrd("${boardName}", 0, 0, c)\nend()\n`,
     phaseRegistrations: [registration],
   });
   let result = engine.advance(0, []);
@@ -106,6 +107,39 @@ test("the editor's preview is the engine's viewbrd pixels for the same board, be
   notDeepEqual(after.rgba, before.rgba, "the changed tile changes the picture");
   deepEqual(after.rgba, engineView(doc.serialize(), 64), "unsaved edits preview as the engine would draw them once saved");
 });
+test("the real minor-2 Red board's reopened upgrade renders identical editor and engine pixels", async () => {
+  const fixtureRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "fixtures", "legacy", "Caoquest");
+  const sourceBytes = new Uint8Array(readFileSync(join(fixtureRoot, "Boards", "red.brd")));
+  const tiles = new Uint8Array(readFileSync(join(fixtureRoot, "Tiles", "Forest_Set.tst")));
+  const sourcePath = "Boards/red.brd";
+  const copyPath = "Boards/red.upgraded.brd";
+  const host = createMemoryPlatformServices({
+    files: {
+      [sourcePath]: sourceBytes,
+      "Tiles/Forest_Set.tst": tiles,
+    },
+  });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const copied = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
+  });
+  deepEqual(copied, { ok: true, value: copyPath });
+  deepEqual(host.bytesOf(sourcePath), sourceBytes);
+  const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
+  ok(reopened.ok);
+  const bytes = reopened.document.serialize();
+  const runnerPixels = engineView(bytes, 608, 448, [["Tiles/Forest_Set.tst", tiles]], "red.upgraded.brd");
+  const preview = await previewBoard(host.fs, "memory-project", bytes, { showBackground: false });
+  ok(preview.ok, preview.ok ? "" : preview.message);
+  if (!preview.ok) return;
+  deepEqual([preview.width, preview.height], [608, 448]);
+  deepEqual(preview.warnings, []);
+  deepEqual(preview.rgba, runnerPixels);
+  deepEqual(host.bytesOf(sourcePath), sourceBytes);
+});
+
 test("the reopened rotated copy is one editor edit and keeps the runner's pixels", async () => {
   const ordinary = readBoard(new BinaryReader(smallBoard()));
   if (!ordinary.ok) throw new Error(ordinary.error.message);

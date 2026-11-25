@@ -1,6 +1,5 @@
 import { BOARD_DETECT_OFFSET, BOARD_MAX_CELLS, boardGrid, decodeBoard, foldPath, coordLayout, stackedToRotated, writeBoard, type Board } from "@tk-reawakened/core";
-import { platformError, platformOk, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
-import { decodeShade, encodeShade } from "./board-document.ts";
+import { decodeShade, encodeShade, type SetBoardFieldsCommand } from "./board-document.ts";
 import { platformError, platformOk, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 
 export type BoardCoordinateUpgrade = "stacked-to-rotated" | "tile-to-pixel";
@@ -98,6 +97,20 @@ export function planBoardCoordinateUpgrade(board: Board, upgrade: BoardCoordinat
       summary: `Maps ${oldCellsPerLayer} tile and shade cells per layer into a ${nextGrid.width} × ${nextGrid.height} rotated grid. Board-pixel positions for vectors, programs, items, images, lights and the player start remain unchanged; script text is untouched.`,
     },
   };
+
+}
+/** A single undoable model edit for a coordinate conversion opened from a copy of the original bytes. */
+export function createBoardCoordinateUpgradeCommand(bytes: Uint8Array, operation: BoardCoordinateUpgrade): { readonly ok: true; readonly value: SetBoardFieldsCommand } | { readonly ok: false; readonly message: string } {
+  const decoded = decodeBoard(bytes);
+  if (!decoded.ok) return { ok: false, message: decoded.error.message };
+  if (decoded.value.layout !== "vector") return { ok: false, message: "Coordinate upgrades require a vector board." };
+  const planned = planBoardCoordinateUpgrade(decoded.value.board, operation);
+  if (!planned.ok) return planned;
+  const converted = planned.value.board;
+  const fields = operation === "tile-to-pixel"
+    ? { coordType: converted.coordType }
+    : { coordType: converted.coordType, tileMatrix: converted.tileMatrix, tileRuns: converted.tileRuns, shadeLayers: converted.shadeLayers };
+  return { ok: true, value: { type: "set-board-fields", fields } };
 }
 
 function encodeTileRuns(cells: readonly number[]): Board["tileRuns"] | null {
@@ -164,13 +177,14 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
 
   const encoded = writeBoard(board);
   if (!encoded.ok) return platformError("invalid-request", `${boardPath}: ${encoded.error.message}`);
+  const copyBytes = operation === "pre-vector" ? encoded.value : source.value;
   const warnings = decoded.warnings.length === 0 ? "No conversion warnings." : `Warnings: ${decoded.warnings.join("; ")}`;
   const creationNotice = createExclusive === null
     ? "Destination creation is non-atomic on this host: same-editor upgrades are serialized, but another process can create the path between check and write."
     : "Destination creation uses an exclusive host operation; an existing destination is never replaced.";
   const answer = await dialogs.ask({
     message: `${title}: ${boardPath}?`,
-    detail: `${summary} ${warnings} ${creationNotice} The source file will not be changed.`,
+    detail: `${summary} ${warnings} ${creationNotice} The source file will not be changed.${operation === "pre-vector" ? "" : " The original board is copied first; the accepted conversion is one undoable edit on the copy."}`,
     choices: [{ id: "cancel", label: "Cancel" }, { id: "preview", label: "Choose copy destination…" }],
     cancel: "cancel",
   });
@@ -215,8 +229,8 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     if (!finalSource.ok) return platformError(finalSource.error.code, `Could not recheck ${boardPath}: ${finalSource.error.message}`);
     if (!sameBytes(source.value, finalSource.value)) return platformError("invalid-request", `${boardPath} changed before the copy was written.`);
     const written = createExclusive === null
-      ? await fs.writeProject(projectId, destination, encoded.value)
-      : await createExclusive(destination, encoded.value);
+      ? await fs.writeProject(projectId, destination, copyBytes)
+      : await createExclusive(destination, copyBytes);
     return written.ok ? platformOk(destination) : platformError(written.error.code, `Could not write ${destination}: ${written.error.message}`);
   });
 }
