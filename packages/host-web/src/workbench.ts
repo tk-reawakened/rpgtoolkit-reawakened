@@ -161,10 +161,14 @@ async function declaredProjectLayouts(project: WebProject, selectedMain: string 
     }
   };
   await visit(roots.path);
-  return await Promise.all([...paths].map(async (mainPath) => ({
-    mainPath,
-    layout: await projectLayoutOfMain(project.services.fs, project.project.id, mainPath),
-  })));
+  return await Promise.all([...paths].map(async (mainPath) => {
+    const readable = await project.services.fs.readProject(project.project.id, mainPath);
+    if (!readable.ok) throw new Error(`Could not read ${mainPath}: ${readable.error.message}`);
+    return {
+      mainPath,
+      layout: await projectLayoutOfMain(project.services.fs, project.project.id, mainPath),
+    };
+  }));
 }
 
 /**
@@ -191,16 +195,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     });
     return declaredLayouts;
   };
-  const refreshLayouts = async (): Promise<readonly ProjectLayoutOwner[] | null> => {
-    try {
-      const owners = await declaredProjectLayouts(project, main);
-      knownLayouts = owners;
-      declaredLayouts = Promise.resolve(owners);
-      return owners;
-    } catch (error) {
-      await tell(`Could not refresh game ownership: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
+  const refreshLayouts = async (): Promise<readonly ProjectLayoutOwner[]> => {
+    const owners = await declaredProjectLayouts(project, main);
+    knownLayouts = owners;
+    declaredLayouts = Promise.resolve(owners);
+    return owners;
   };
   const fallbackOwnerForPath = (path: string): ProjectLayoutOwner => {
     const selectedFolder = foldPath(projectLayout.projectFolder).replace(/^\/+|\/+$/g, "");
@@ -541,7 +540,6 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       isDestinationOpen: (destination) => workspace.documents().some((document) => document.identity.path === destination),
       isDestinationOwnedBySource: async (destination) => {
         const freshOwners = await refreshLayouts();
-        if (freshOwners === null) return false;
         const sourceOwner = projectLayoutOwnerForDocumentPath(boardPath, freshOwners);
         const destinationOwner = projectLayoutOwnerForDocumentPath(destination, freshOwners);
         if (sourceOwner === null || destinationOwner === null
@@ -556,7 +554,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
           && foldPath(destination).startsWith(rootPrefix);
       },
       createExclusive: null,
+    }).catch(async (error: unknown) => {
+      await tell(`Could not validate board ownership: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
     });
+    if (result === null) return;
     if (!result.ok) {
       await tell(result.error.message);
       return;
@@ -621,8 +623,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       category: "File",
       label: "Upgrade a pre-vector board…",
       run: async () => {
-        const owners = await refreshLayouts();
-        if (owners === null) return;
+        let owners: readonly ProjectLayoutOwner[];
+        try {
+          owners = await refreshLayouts();
+        } catch (error) {
+          await tell(`Could not refresh game ownership: ${error instanceof Error ? error.message : String(error)}`);
+          return;
+        }
         const candidateLayouts = [{ projectFolder: "" }, projectLayout, ...owners.map(({ layout }) => layout)];
         const byPath = new Map<string, { readonly path: string; readonly reference: string }>();
         const failures: { readonly path: string; readonly error: { readonly message: string } }[] = [];

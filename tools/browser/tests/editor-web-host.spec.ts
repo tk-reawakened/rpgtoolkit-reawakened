@@ -11,6 +11,7 @@ interface ProofWindow extends Window {
   __tkrTestFolder?: FileSystemDirectoryHandle;
   __tkrSlowReadStarted?: boolean;
   __tkrReleaseSlowRead?: () => void;
+  __tkrDenyFileRead?: (name: string) => void;
   __tkrWriteTestFile?: (path: string, bytes: readonly number[]) => Promise<void>;
 }
 type PickerInput = { readonly path: string; readonly bytes: readonly number[] };
@@ -880,6 +881,20 @@ test("browser board upgrade rechecks changed game ownership and refuses a siblin
   }, { sourcePath: source, destinationPath: destination });
   expect(disk.actualSource).toEqual(sourceBytes);
   expect(disk.destinationExists).toBe(false);
+  await page.evaluate(() => {
+    const denyRead = (window as ProofWindow).__tkrDenyFileRead;
+    if (denyRead === undefined) throw new Error("The browser test read-denial hook is missing.");
+    denyRead("B.gam");
+  });
+  await page.keyboard.press("Control+Shift+P");
+  const upgradeSearch = page.getByRole("combobox", { name: "Search commands and files" });
+  await upgradeSearch.fill("Upgrade a pre-vector board");
+  await upgradeSearch.press("Enter");
+  const readFailure = page.getByRole("dialog").filter({ hasText: "Could not refresh game ownership: Could not read Main/B.gam:" });
+  await expect(readFailure).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await readFailure.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
 type BrowserPickerSetup = { readonly files: readonly PickerInput[]; readonly indexedDbAvailable: boolean; readonly denyPermission: boolean; readonly delayMainRead: boolean };
@@ -927,6 +942,16 @@ async function installFolderPicker(
       const writable = await file.createWritable();
       await writable.write(new Uint8Array(bytes));
       await writable.close();
+    };
+    const originalGetFile = FileSystemFileHandle.prototype.getFile;
+    (window as ProofWindow).__tkrDenyFileRead = (target) => {
+      Object.defineProperty(FileSystemFileHandle.prototype, "getFile", {
+        configurable: true,
+        value: async function (this: FileSystemFileHandle): Promise<File> {
+          if (this.name === target) throw new DOMException("Permission denied", "NotAllowedError");
+          return originalGetFile.call(this);
+        },
+      });
     };
     armed = true;
 
