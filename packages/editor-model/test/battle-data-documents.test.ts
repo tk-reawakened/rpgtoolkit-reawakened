@@ -12,6 +12,7 @@ import {
   kindForPath,
   openSpecialMoveDocument,
   openStatusEffectDocument,
+  specialMoveCodec,
 } from "../src/index.ts";
 
 const SPC = "SpcMove/fireball.spc";
@@ -326,4 +327,82 @@ test("the committed editor fixtures are exactly what these documents save and re
   const reopened = await openSpecialMoveDocument(createMemoryPlatformServices({ files: { [SPC]: fixture("burner.spc") } }).fs, createDocumentIdentity("memory-project", SPC));
   ok(reopened.ok);
   deepEqual([reopened.document.getSnapshot().name, reopened.document.getSnapshot().damage, reopened.document.getSnapshot().statusEffect], ["Burner", 10, "burn.ste"]);
+});
+
+// #3385: a field's typing is part of the document from its first keystroke, so a host's own Save All and close prompt see
+// it, while the gesture stays one undoable edit and text that is not a value yet refuses every save.
+test("a typing gesture is one edit that keeps its id, and is not continued past a save, an undo or another field", async () => {
+  const host = createMemoryPlatformServices({ files: { [SPC]: fireball } });
+  const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(opened.ok);
+  const doc = opened.document;
+  const damage = (value: number) => ({ type: "set-special-move-amount", field: "damage", value }) as const;
+  const first = doc.apply(damage(-3), { coalesce: "damage#0" });
+  ok(first.ok && first.amended !== true);
+  const next = doc.apply(damage(-30), { coalesce: "damage#0" });
+  ok(next.ok && next.amended === true && next.editId === first.editId, "the keystroke continues the edit the host already holds");
+  equal(doc.getSnapshot().edits.length, 1);
+  equal(doc.getSnapshot().dirty, true);
+  ok(doc.undo(first.editId).ok);
+  equal(doc.getSnapshot().damage, 12, "Undo takes back the whole gesture");
+  ok(doc.redo(first.editId).ok);
+  equal(doc.getSnapshot().damage, -30, "and Redo restores all of it");
+
+  const other = doc.apply({ type: "set-special-move-amount", field: "smpCost", value: 4 }, { coalesce: "smpCost#0" });
+  ok(other.ok && other.amended !== true, "another field is another edit");
+  ok((await doc.save()).ok);
+  const afterSave = doc.apply({ type: "set-special-move-amount", field: "smpCost", value: 40 }, { coalesce: "smpCost#0" });
+  ok(afterSave.ok && afterSave.amended !== true, "a saved gesture is never changed under the save point");
+  ok(doc.undo().ok);
+  equal(doc.getSnapshot().dirty, false, "so Undo returns exactly to what was saved");
+  const underRedo = doc.apply({ type: "set-special-move-amount", field: "smpCost", value: 5 }, { coalesce: "smpCost#0" });
+  ok(underRedo.ok && underRedo.amended !== true, "nor continued beneath a redo branch");
+});
+
+test("text a field cannot store is held in the document: unsaved, undoable, refused by every save and kept out of backups", async () => {
+  const host = createMemoryPlatformServices({ files: { [SPC]: fireball } });
+  const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(opened.ok);
+  const doc = opened.document;
+  const set = doc.apply({ type: "set-special-move-amount", field: "damage", value: -3 }, { coalesce: "damage#0" });
+  ok(set.ok);
+  const held = doc.apply({ type: "hold-field-text", field: "damage", text: "-3.", message: "enter a whole number" }, { coalesce: "damage#0" });
+  ok(held.ok && held.amended === true);
+  equal(doc.getSnapshot().damage, -3, "the value typed before the held text stays in the gesture");
+  equal(doc.getSnapshot().heldText.damage?.text, "-3.");
+  equal(doc.getSnapshot().dirty, true);
+  equal(new DataView(doc.serialize().buffer).getInt32(FP, true), -3, "a backup carries the stored values only");
+  for (const reason of ["manual", "auto"] as const) {
+    const saved = await doc.save(reason);
+    ok(!saved.ok && saved.failure.message.includes("not a value yet"), `a ${reason} save refuses with the reason`);
+  }
+  const copy = await doc.saveAs(host.fs, createDocumentIdentity("memory-project", "SpcMove/copy.spc"));
+  ok(!copy.ok, "and so does Save As");
+  deepEqual(host.bytesOf(SPC), fireball, "nothing was written");
+  equal(host.bytesOf("SpcMove/copy.spc"), undefined);
+
+  const fixed = doc.apply({ type: "set-special-move-amount", field: "damage", value: -3 }, { coalesce: "damage#0" });
+  ok(fixed.ok, "typing a value the field can store, even the same one, replaces the held text");
+  equal(doc.getSnapshot().heldText.damage, undefined);
+  ok((await doc.save()).ok);
+  equal(new DataView(host.bytesOf(SPC)!.buffer).getInt32(FP, true), -3);
+
+  ok(doc.apply({ type: "hold-field-text", field: "name", text: "x", message: "m" }).ok);
+  ok(doc.apply({ type: "hold-field-text", field: "name", text: null, message: "" }).ok, "discarding held text is an edit");
+  equal(doc.getSnapshot().heldText.name, undefined);
+  ok(doc.undo().ok);
+  equal(doc.getSnapshot().heldText.name?.text, "x", "that Undo brings back");
+  equal(specialMoveCodec.isCommand({ type: "hold-field-text", field: "nope", text: "x", message: "m" }), false, "a webview cannot hold text in a field the kind does not have");
+  equal(specialMoveCodec.isCommand({ type: "hold-field-text", field: "damage", text: "x", message: "m" }), true);
+});
+
+test("a refused save ends the gesture, so the next keystroke is an edit a host's autosave and backup can see (#3385)", async () => {
+  const host = createMemoryPlatformServices({ files: { [SPC]: fireball } });
+  const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(opened.ok);
+  const doc = opened.document;
+  ok(doc.apply({ type: "hold-field-text", field: "smpCost", text: "9999999999", message: "too big" }, { coalesce: "smpCost#0" }).ok);
+  ok(!(await doc.save("auto")).ok);
+  const typed = doc.apply({ type: "set-special-move-amount", field: "smpCost", value: 9 }, { coalesce: "smpCost#0" });
+  ok(typed.ok && typed.amended !== true, "a new edit, not a silent change to the refused one");
 });

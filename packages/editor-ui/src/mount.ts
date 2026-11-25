@@ -2,6 +2,7 @@ import { CheckpointView } from "./checkpoint-view.tsx";
 import type { AnimationAuthoring } from "@tk-reawakened/editor-model";
 import {
   createPendingEdits,
+  type ApplyOptions,
   type ApplyResult,
   type BoardCommand,
   type BoardDocumentSnapshot,
@@ -66,7 +67,8 @@ export interface ViewDocument<Snapshot = MainDocumentSnapshot, Command = MainCom
   readonly identity: MainDocument["identity"];
   getSnapshot(): Snapshot;
   subscribe(listener: () => void): () => void;
-  apply(command: Command): ApplyResult | Promise<ApplyResult>;
+  /** `options.coalesce` continues a typing gesture as one undoable edit (#3385); an adapter that cannot ignores it. */
+  apply(command: Command, options?: ApplyOptions): ApplyResult | Promise<ApplyResult>;
   save(): Promise<SaveResult>;
   /** Settle a change made on disk by another program (ADR 0022 D3.5). */
   resolveConflict(choice: ConflictChoice): ConflictResult | Promise<ConflictResult>;

@@ -13,6 +13,7 @@ import {
 } from "./binary-document.ts";
 import { fitsInt, intRangeMessage, invalid, storableText, textFormReason } from "./battle-data-fields.ts";
 import type { DocumentIdentity } from "./identity.ts";
+import { withHeldText, type HeldFields, type HoldFieldTextCommand } from "./held-text.ts";
 
 /**
  * The status effect document (`docs/spec/formats/battle-data.md#status-effect`, story 13.10, T-58): the `.ste` file as a
@@ -28,10 +29,13 @@ export type StatusEffectTextField = (typeof STATUS_EFFECT_TEXT_FIELDS)[number];
 export type StatusEffectNumberField = (typeof STATUS_EFFECT_NUMBER_FIELDS)[number];
 export type StatusEffectFlagField = (typeof STATUS_EFFECT_FLAG_FIELDS)[number];
 
-export type StatusEffectCommand =
+export type StatusEffectFieldCommand =
   | { readonly type: "set-status-effect-text"; readonly field: StatusEffectTextField; readonly value: string }
   | { readonly type: "set-status-effect-number"; readonly field: StatusEffectNumberField; readonly value: number }
   | { readonly type: "set-status-effect-flag"; readonly field: StatusEffectFlagField; readonly enabled: boolean };
+
+/** A field command, or text held in a field that is not a value yet (#3385). */
+export type StatusEffectCommand = StatusEffectFieldCommand | HoldFieldTextCommand;
 
 export interface StatusEffectDocumentFields {
   readonly major: number;
@@ -57,7 +61,7 @@ export interface StatusEffectDocumentFields {
   readonly residueBytes: number;
 }
 
-export type StatusEffectDocumentSnapshot = DocumentSnapshot<StatusEffectCommand> & StatusEffectDocumentFields;
+export type StatusEffectDocumentSnapshot = DocumentSnapshot<StatusEffectCommand> & StatusEffectDocumentFields & HeldFields;
 export type StatusEffectDocument = EditorDocument<StatusEffectDocumentSnapshot, StatusEffectCommand>;
 export type StatusEffectOpenResult = GenericOpenResult<StatusEffectDocument>;
 
@@ -69,7 +73,7 @@ const FLAG_LABELS: Readonly<Record<StatusEffectFlagField, string>> = {
   speedUp: "speed up", slowDown: "slow down", disable: "disable", hpEnabled: "HP change", smpEnabled: "SMP change", runProgram: "program",
 };
 
-function apply(model: StatusEffect, command: StatusEffectCommand): StatusEffect {
+function apply(model: StatusEffect, command: StatusEffectFieldCommand): StatusEffect {
   if (command.type === "set-status-effect-text" || command.type === "set-status-effect-number") {
     return model[command.field] === command.value ? model : { ...model, [command.field]: command.value };
   }
@@ -79,7 +83,7 @@ function apply(model: StatusEffect, command: StatusEffectCommand): StatusEffect 
   return { ...model, [command.field]: command.enabled ? 1 : 0 };
 }
 
-function refuse(next: StatusEffect, command: StatusEffectCommand, previous: StatusEffect): Rejection | null {
+function refuse(next: StatusEffect, command: StatusEffectFieldCommand, previous: StatusEffect): Rejection | null {
   if (previous.minor === 0) return invalid(textFormReason("status effect").message);
   if (command.type === "set-status-effect-text") {
     if (!storableText(command.value)) return invalid(`The ${TEXT_LABELS[command.field]} cannot hold a NUL character.`);
@@ -109,7 +113,7 @@ function readOnlyReason(model: StatusEffect, bytes: Uint8Array): ReadOnlyReason 
   return { code: "no-same-version-writer", message: `The status effect writer does not reproduce this file byte for byte; it is read-only (first difference at offset ${first}).` };
 }
 
-function isStatusEffectCommand(value: unknown): value is StatusEffectCommand {
+function isStatusEffectCommand(value: unknown): value is StatusEffectFieldCommand {
   if (typeof value !== "object" || value === null || !("type" in value)) return false;
   const record = value as Record<string, unknown>;
   if (record.type === "set-status-effect-text") return (STATUS_EFFECT_TEXT_FIELDS as readonly unknown[]).includes(record.field) && typeof record.value === "string";
@@ -117,13 +121,13 @@ function isStatusEffectCommand(value: unknown): value is StatusEffectCommand {
   return record.type === "set-status-effect-flag" && (STATUS_EFFECT_FLAG_FIELDS as readonly unknown[]).includes(record.field) && typeof record.enabled === "boolean";
 }
 
-function label(command: StatusEffectCommand): string {
+function label(command: StatusEffectFieldCommand): string {
   if (command.type === "set-status-effect-text") return `Set status effect ${TEXT_LABELS[command.field]}`;
   if (command.type === "set-status-effect-number") return `Set status effect ${NUMBER_LABELS[command.field]} to ${command.value}`;
   return `Turn status effect ${FLAG_LABELS[command.field]} ${command.enabled ? "on" : "off"}`;
 }
 
-export const statusEffectCodec: DocumentCodec<StatusEffect, StatusEffectCommand, StatusEffectDocumentFields> = {
+const statusEffectFieldCodec: DocumentCodec<StatusEffect, StatusEffectFieldCommand, StatusEffectDocumentFields> = {
   kind: "status-effect",
   read: (bytes, path) => readStatusEffect(new BinaryReader(bytes, path)),
   write: writeStatusEffect,
@@ -154,6 +158,9 @@ export const statusEffectCodec: DocumentCodec<StatusEffect, StatusEffectCommand,
     residueBytes: model.residue.length,
   }),
 };
+
+/** The codec the editor opens: the field codec with text held in a field that is not a value yet (#3385). */
+export const statusEffectCodec = withHeldText(statusEffectFieldCodec, (command) => command.type === "set-status-effect-flag" ? null : command.field, { ...TEXT_LABELS, ...NUMBER_LABELS });
 
 export function openStatusEffectDocument(storage: DocumentStorage, identity: DocumentIdentity): Promise<StatusEffectOpenResult> {
   return openBinaryDocument(statusEffectCodec, storage, identity);

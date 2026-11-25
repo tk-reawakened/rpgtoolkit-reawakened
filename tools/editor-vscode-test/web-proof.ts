@@ -3202,84 +3202,123 @@ export async function runVscodeFontProof(page: Page, expect: Expect, workbenchUr
 const BATTLE_PROOF_MOVE = "SpcMove/fireball.spc";
 
 /**
- * Story 13.10 (T-57) through the packaged custom editor in the real VS Code web client, for what the conformance host
- * can only imitate. This proof reproduces, rather than clears, the #3385 release blocker: a field draft alone does not
- * mark the tab dirty, native Save All skips it, and native Close loses it. It also checks that accepted edits use native
- * Save All/Undo/Redo and that an invalid draft never lets a save write around it. Each write is checked on disk.
+ * Story 13.10 (T-57) through the packaged custom editor in the real VS Code web client: the positive #3385 gate. Typing in
+ * a field is an edit from its first keystroke (one undoable gesture per focus), and text that is not a value yet is held
+ * in the document, so VS Code's own Save All, Close prompt, Undo/Redo and autosave handle a field nobody has left. Every
+ * write is checked on disk.
  */
 export async function runVscodeBattleDataProof(page: Page, expect: Expect, workbenchUrl: string, host: Pick<ProofHost, "readBacking">): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible({ timeout: 60_000 });
   const original = await host.readBacking(BATTLE_PROOF_MOVE);
   const damageOf = (bytes: Uint8Array): number => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(0x1e, true);
+  const smpOf = (bytes: Uint8Array): number => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(0x22, true);
   const diskDamage = async (): Promise<number> => damageOf(await host.readBacking(BATTLE_PROOF_MOVE));
+  const diskSmp = async (): Promise<number> => smpOf(await host.readBacking(BATTLE_PROOF_MOVE));
   const surface = '[data-tkr-editor="Special move"]';
-  const frame = await openProjectFile(page, BATTLE_PROOF_MOVE, expect, surface);
-  const panel = frame.locator(surface);
-  const damage = panel.getByLabel("Damage (FP)", { exact: true });
-  const smpCost = panel.getByLabel("SMP cost to the user", { exact: true });
+  let frame = await openProjectFile(page, BATTLE_PROOF_MOVE, expect, surface);
+  let panel = frame.locator(surface);
+  const fields = (): { damage: Locator; smpCost: Locator } => ({
+    damage: panel.getByLabel("Damage (FP)", { exact: true }),
+    smpCost: panel.getByLabel("SMP cost to the user", { exact: true }),
+  });
+  let { damage, smpCost } = fields();
   const tab = page.getByRole("tab", { name: /fireball\.spc/ });
   const dirty = async (): Promise<boolean> => await tab.evaluate((element) => element.classList.contains("dirty"));
-  await expect(damage).toHaveValue("12");
-  expect(await dirty(), "an opened document is not unsaved").toBe(false);
-
-  // 1. A field still being typed in. Save All is run from its keyboard shortcut, which leaves the focus in the field: the
-  // command palette would take the focus, which applies the field by itself and hides the limit. The shortcut is first
-  // shown to work on an applied edit.
+  const reopen = async (): Promise<void> => {
+    frame = await openProjectFile(page, BATTLE_PROOF_MOVE, expect, surface);
+    panel = frame.locator(surface);
+    ({ damage, smpCost } = fields());
+  };
+  // The shortcut leaves the focus in the field; the command palette would take it.
   const saveAllShortcut = async (): Promise<void> => {
     if (process.platform === "darwin") await page.keyboard.press("Meta+Alt+s");
     else { await page.keyboard.press("Control+k"); await page.keyboard.press("s"); }
   };
-  await smpCost.fill("7");
-  await smpCost.press("Tab");
-  await expect.poll(dirty).toBe(true);
-  await saveAllShortcut();
-  await expect.poll(dirty, { message: "the Save All shortcut reaches the document through the focused form" }).toBe(false);
+  const closeTab = async (): Promise<Locator> => {
+    await tab.click({ button: "middle" });
+    const dialog = page.locator(".monaco-dialog-box");
+    await expect(dialog, "VS Code asks before closing a tab whose only change is a field being typed in").toBeVisible({ timeout: 20_000 });
+    return dialog;
+  };
+  await expect(damage).toHaveValue("12");
+  expect(await dirty(), "an opened document is not unsaved").toBe(false);
+
+  // 1. A clean document and a valid field never left: the first keystroke marks the tab, and native Save All writes it.
   await damage.fill("-30");
-  await expect(damage).toHaveValue("-30");
-  expect(await dirty(), "typing a field marks nothing unsaved (VS Code accepts only undoable edit events, #3385)").toBe(false);
+  await expect.poll(dirty, { message: "typing alone marks the tab unsaved (#3385)" }).toBe(true);
+  await expect(damage).toBeFocused();
   await saveAllShortcut();
-  await page.waitForTimeout(1_500);
-  expect(await diskDamage(), "Save All skipped the document it shows as clean (#3385)").toBe(12);
-  await expect(damage).toHaveValue("-30");
-  // Opening the command palette takes the focus out of the field, which applies it: the same command then writes it.
-  await runCommand(page, expect, "Test: Save All Workbench Editors");
-  await expect.poll(diskDamage).toBe(-30);
+  await expect.poll(diskDamage, { message: "native Save All wrote the field nobody left" }).toBe(-30);
   await expect.poll(dirty).toBe(false);
   expect((await host.readBacking(BATTLE_PROOF_MOVE)).length).toBe(original.length);
 
-  // 2. Undo and redo: a draft adds no history entry, and discarding it leaves the redo branch alone.
-  await smpCost.fill("8");
+  // 2. An already-unsaved document: an applied edit in one field and typing in another are both written by Save All.
+  await smpCost.fill("7");
   await smpCost.press("Tab");
-  await expect(smpCost).toHaveValue("8");
-  await expect.poll(dirty).toBe(true);
-  await damage.fill("9999999999");
-  await runCommandMatching(page, expect, "Undo", "Undo", false);
-  await expect(smpCost, "one Undo takes back the last applied edit, not a phantom entry for the draft").toHaveValue("7");
-  await panel.getByRole("button", { name: "Discard the unapplied text" }).click().catch(async () => {
-    // The reason and the button appear once the field has been left; leave it, then discard.
-    await smpCost.focus();
-    await panel.getByRole("button", { name: "Discard the unapplied text" }).click();
-  });
-  await expect(damage).toHaveValue("-30");
-  await runCommandMatching(page, expect, "Redo", "Redo", false);
-  await expect(smpCost, "discarding the draft left the redo branch").toHaveValue("8");
-
-  // 3. An invalid draft refuses the native Save with its reason, and nothing is written; discarding it lets the save through.
-  const beforeRefusal = await host.readBacking(BATTLE_PROOF_MOVE);
-  await damage.fill("9999999999");
-  await runCommand(page, expect, "File: Save");
-  await expect(panel).toContainText("whole number from -2147483648 to 2147483647");
-  await page.waitForTimeout(1_000);
-  expect([...await host.readBacking(BATTLE_PROOF_MOVE)], "a refused save wrote nothing").toEqual([...beforeRefusal]);
-  expect(await dirty(), "the accepted edit stays unsaved").toBe(true);
-  await panel.getByRole("button", { name: "Discard the unapplied text" }).click();
-  await runCommand(page, expect, "File: Save");
-  await expect.poll(async () => [...await host.readBacking(BATTLE_PROOF_MOVE)].join(",")).not.toBe([...beforeRefusal].join(","));
+  await damage.fill("-31");
+  await expect(damage).toBeFocused();
+  await saveAllShortcut();
+  await expect.poll(diskDamage).toBe(-31);
+  expect(await diskSmp()).toBe(7);
   await expect.poll(dirty).toBe(false);
 
-  // 4. files.autoSave afterDelay: the save cannot be told from the author's, so while a field holds text it fails with
-  // nothing written: VS Code's save point and the file stay the same version, the document stays unsaved, and a close asks.
+  // 3. Text that is not a value yet: unsaved, native Save All refuses it with its reason, and nothing is written.
+  const beforeRefusal = await host.readBacking(BATTLE_PROOF_MOVE);
+  await damage.fill("9999999999");
+  await expect.poll(dirty, { message: "held text is unsaved work" }).toBe(true);
+  await expect(panel).toContainText("whole number from -2147483648 to 2147483647");
+  await saveAllShortcut();
+  await page.waitForTimeout(1_500);
+  expect([...await host.readBacking(BATTLE_PROOF_MOVE)], "a refused Save All wrote nothing").toEqual([...beforeRefusal]);
+  expect(await dirty(), "and the tab stays unsaved").toBe(true);
+  await expect(damage).toHaveValue("9999999999");
+
+  // 4. Close on that tab: Save is refused and keeps the exact text; Cancel keeps it; Don't Save drops it, disk untouched.
+  let dialog = await closeTab();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(tab, "a refused save on close keeps the tab open").toHaveCount(1);
+  await expect(damage).toHaveValue("9999999999");
+  dialog = await closeTab();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(damage).toHaveValue("9999999999");
+  dialog = await closeTab();
+  await dialog.getByRole("button", { name: "Don't Save", exact: true }).click();
+  await expect(tab).toHaveCount(0);
+  expect([...await host.readBacking(BATTLE_PROOF_MOVE)], "Don't Save left the file as it was").toEqual([...beforeRefusal]);
+  await reopen();
+  await expect(damage).toHaveValue("-31");
+
+  // 5. Close on a clean tab with a valid field never left: Save writes it.
+  await damage.fill("-32");
+  dialog = await closeTab();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(tab).toHaveCount(0);
+  await expect.poll(diskDamage).toBe(-32);
+  await reopen();
+
+  // 6. Undo and Redo take back and restore a whole typing gesture; typing after an Undo replaces the redo branch, as
+  // typing in a text editor does.
+  await damage.fill("-325");
+  await damage.press("Tab");
+  await smpCost.fill("8");
+  await expect.poll(dirty).toBe(true);
+  await runCommandMatching(page, expect, "Undo", "Undo", false);
+  await expect(smpCost, "one Undo takes back the SMP gesture").toHaveValue("7");
+  await expect(damage).toHaveValue("-325");
+  await runCommandMatching(page, expect, "Undo", "Undo", false);
+  await expect(damage, "and the next the damage gesture, whole").toHaveValue("-32");
+  await expect.poll(dirty, { message: "Undo back to the saved edit is clean" }).toBe(false);
+  await runCommandMatching(page, expect, "Redo", "Redo", false);
+  await expect(damage).toHaveValue("-325");
+  await runCommandMatching(page, expect, "Redo", "Redo", false);
+  await expect(smpCost).toHaveValue("8");
+  await runCommand(page, expect, "File: Save");
+  await expect.poll(diskSmp).toBe(8);
+
+  // 7. files.autoSave afterDelay: a pause saves the value typed so far, as it does for a text file; held text is refused
+  // with nothing written and the tab stays unsaved.
   const autosaved = async (value: string): Promise<void> => {
     await expect.poll(async () => autosaveSetting(await host.readBacking(".vscode/settings.json")), { message: `files.autoSave is ${value}` }).toBe(value);
   };
@@ -3287,44 +3326,18 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   await autosaved("afterDelay");
   try {
     await damage.fill("-40");
-    await damage.press("Tab");
+    await expect.poll(diskDamage, { message: "autosave wrote the typed value after its delay" }).toBe(-40);
+    await expect.poll(dirty).toBe(false);
+    const beforeHeld = await host.readBacking(BATTLE_PROOF_MOVE);
     await smpCost.fill("9999999999");
-    // Several delays pass: every autosave of the applied edit is refused because a field holds text, and none writes.
     await page.waitForTimeout(4_000);
-    await expect(smpCost).toHaveValue("9999999999");
-    expect(await diskDamage(), "a failed autosave wrote nothing behind VS Code's back").toBe(-30);
-    expect(await dirty(), "VS Code still shows the document as unsaved while a field holds text").toBe(true);
+    expect([...await host.readBacking(BATTLE_PROOF_MOVE)], "autosave never writes around held text").toEqual([...beforeHeld]);
+    expect(await dirty(), "and VS Code keeps it unsaved").toBe(true);
+    await smpCost.fill("9");
+    await expect.poll(diskSmp, { message: "a value typed over the held text is autosaved" }).toBe(9);
+    await expect.poll(dirty).toBe(false);
   } finally {
     await runCommand(page, expect, "Test: Turn Autosave Off");
     await autosaved("off");
   }
-  // Discarding the text and then undoing the edit returns to the state the file holds, and VS Code agrees it is clean.
-  await panel.getByRole("button", { name: "Discard the unapplied text" }).click().catch(async () => {
-    await smpCost.focus();
-    await smpCost.press("Tab");
-    await panel.getByRole("button", { name: "Discard the unapplied text" }).click();
-  });
-  await runCommandMatching(page, expect, "Undo", "Undo", false);
-  await expect(damage).toHaveValue("-30");
-  await expect.poll(dirty, { message: "undoing back to the saved edit leaves the tab clean, and the file really holds it" }).toBe(false);
-  expect(await diskDamage()).toBe(-30);
-  await runCommandMatching(page, expect, "Redo", "Redo", false);
-  await expect(damage).toHaveValue("-40");
-  await expect.poll(dirty).toBe(true);
-  await runCommand(page, expect, "File: Save");
-  await expect.poll(diskDamage).toBe(-40);
-  await expect.poll(dirty).toBe(false);
-
-  // 5. An invalid field cannot commit on blur, so clicking the native tab's close target cannot save it by accident.
-  // This is a reproduction of #3385, not successful close protection.
-  const beforeClose = await host.readBacking(BATTLE_PROOF_MOVE);
-  await damage.fill("9999999999");
-  await damage.press("Tab");
-  await expect(panel).toContainText("whole number from -2147483648 to 2147483647");
-  expect(await dirty(), "a refused draft alone leaves the native tab clean (#3385)").toBe(false);
-  await tab.click({ button: "middle" });
-  await expect(tab, "native Close removes the draft-only tab without giving a choice (#3385)").toHaveCount(0);
-  const reopened = await openProjectFile(page, BATTLE_PROOF_MOVE, expect, surface);
-  await expect(reopened.locator(surface).getByLabel("Damage (FP)", { exact: true })).toHaveValue("-40");
-  expect([...await host.readBacking(BATTLE_PROOF_MOVE)], "Close lost the draft, not a previously accepted disk edit").toEqual([...beforeClose]);
 }

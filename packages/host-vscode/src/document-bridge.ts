@@ -1,5 +1,5 @@
 import type { AnimationAuthoring, AnimationCommand, AnimationBitmap, CheckpointEntry, CheckpointGroup } from "@tk-reawakened/editor-model";
-import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type SettleFailureKind, type SettleReason, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyOptions, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type SettleFailureKind, type SettleReason, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { platformError, type Capability, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
 
@@ -105,7 +105,7 @@ export type BridgeMessage =
 
 export type EditorHostRequest =
   | { readonly type: "ready" }
-  | { readonly type: "edit"; readonly command: unknown; readonly requestId: string }
+  | { readonly type: "edit"; readonly command: unknown; readonly requestId: string; readonly coalesce?: string }
   | { readonly type: "save"; readonly requestId: string }
   | { readonly type: "workbench-history"; readonly requestId: string; readonly direction: HistoryDirection }
   | { readonly type: "resolve-conflict"; readonly choice: ConflictChoice; readonly requestId: string }
@@ -196,9 +196,11 @@ export async function handleEditorHostRequest(
   } else if (request.type === "edit") {
     // A command is data from a webview: it is applied only if it has the shape of this document's kind (never trust a webview).
     const result: ApplyResult = kindById(document.model.kind)?.isCommand(request.command) === true
-      ? document.model.apply(request.command as never)
+      ? document.model.apply(request.command as never, typeof request.coalesce === "string" ? { coalesce: request.coalesce } : undefined)
       : { ok: false, rejection: { reason: "invalid", message: `That is not an edit this ${document.model.kind} document understands.` } };
-    if (result.ok) document.didEdit(result.editId);
+    // An amended edit continues the gesture whose edit VS Code already holds: its undo callback takes back the whole
+    // gesture, and the tab is already unsaved, so no second entry is added (#3385).
+    if (result.ok && result.amended !== true) document.didEdit(result.editId);
     // Font snapshots publish through the subscription, independently of acknowledgements. A late reply must not
     // replace a newer snapshot (for example, one produced by native Undo while a reply was in flight).
     if (document.model.kind === "font") await postMessage({ type: "font-edit-result", requestId: request.requestId, result });
@@ -531,11 +533,11 @@ export class RemoteDocument {
   getSnapshot(): BridgedSnapshot { return this.snapshot; }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
 
-  apply(command: unknown): Promise<ApplyResult> {
+  apply(command: unknown, options?: ApplyOptions): Promise<ApplyResult> {
     const requestId = `edit-${++this.nextRequest}`;
     return new Promise((resolve) => {
       this.pendingEditResults.set(requestId, resolve);
-      this.vscode.postMessage({ type: "edit", command, requestId });
+      this.vscode.postMessage({ type: "edit", command, requestId, ...(options?.coalesce === undefined ? {} : { coalesce: options.coalesce }) });
     });
   }
   readProject(projectId: string, path: string): Promise<PlatformResult<Uint8Array>> {

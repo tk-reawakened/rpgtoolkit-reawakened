@@ -276,6 +276,7 @@ export {
   type StatusEffectOpenResult,
   type StatusEffectTextField,
 } from "./status-effect-document.ts";
+export { withHeldText, type HeldFields, type HeldModel, type HeldText, type HoldFieldTextCommand } from "./held-text.ts";
 export { describeLinkedStatusEffect, linkedFileCandidates, linkReferenceProblem, type LinkedStatusEffect, type LinkLookup } from "./battle-data-links.ts";
 export { asFontDocument } from "./kinds.ts";
 export {
@@ -463,6 +464,7 @@ export {
   markRecoveredDocumentDirty,
   openMainDocument,
   type ApplyResult,
+  type ApplyOptions,
   type ApplySettingsCommand,
   type ConflictChoice,
   type ConflictResult,

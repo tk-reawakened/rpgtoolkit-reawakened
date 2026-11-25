@@ -13,6 +13,7 @@ import {
 } from "./binary-document.ts";
 import { fitsInt, intRangeMessage, invalid, storableText, textFormReason } from "./battle-data-fields.ts";
 import type { DocumentIdentity } from "./identity.ts";
+import { withHeldText, type HeldFields, type HoldFieldTextCommand } from "./held-text.ts";
 
 /**
  * The special move document (`docs/spec/formats/battle-data.md#special-move-spc`, story 13.10, T-57): the `.spc` file as a
@@ -27,10 +28,13 @@ export type SpecialMoveTextField = (typeof SPECIAL_MOVE_TEXT_FIELDS)[number];
 export type SpecialMoveAmountField = (typeof SPECIAL_MOVE_AMOUNT_FIELDS)[number];
 export type SpecialMoveUseContext = "battle" | "menu";
 
-export type SpecialMoveCommand =
+export type SpecialMoveFieldCommand =
   | { readonly type: "set-special-move-text"; readonly field: SpecialMoveTextField; readonly value: string }
   | { readonly type: "set-special-move-amount"; readonly field: SpecialMoveAmountField; readonly value: number }
   | { readonly type: "set-special-move-usable"; readonly context: SpecialMoveUseContext; readonly usable: boolean };
+
+/** A field command, or text held in a field that is not a value yet (#3385). */
+export type SpecialMoveCommand = SpecialMoveFieldCommand | HoldFieldTextCommand;
 
 export interface SpecialMoveDocumentFields {
   readonly major: number;
@@ -58,7 +62,7 @@ export interface SpecialMoveDocumentFields {
   readonly residueBytes: number;
 }
 
-export type SpecialMoveDocumentSnapshot = DocumentSnapshot<SpecialMoveCommand> & SpecialMoveDocumentFields;
+export type SpecialMoveDocumentSnapshot = DocumentSnapshot<SpecialMoveCommand> & SpecialMoveDocumentFields & HeldFields;
 export type SpecialMoveDocument = EditorDocument<SpecialMoveDocumentSnapshot, SpecialMoveCommand>;
 export type SpecialMoveOpenResult = GenericOpenResult<SpecialMoveDocument>;
 
@@ -75,7 +79,7 @@ function usabilityByte(current: number, usable: boolean): number | null {
   return current !== 0 ? null : 1;
 }
 
-function apply(model: SpecialMove, command: SpecialMoveCommand): SpecialMove {
+function apply(model: SpecialMove, command: SpecialMoveFieldCommand): SpecialMove {
   if (command.type === "set-special-move-text") return model[command.field] === command.value ? model : { ...model, [command.field]: command.value };
   if (command.type === "set-special-move-amount") return model[command.field] === command.value ? model : { ...model, [command.field]: command.value };
   const key = command.context === "battle" ? "usableInBattle" : "usableFromMenu";
@@ -83,7 +87,7 @@ function apply(model: SpecialMove, command: SpecialMoveCommand): SpecialMove {
   return next === null ? model : { ...model, [key]: next };
 }
 
-function refuse(next: SpecialMove, command: SpecialMoveCommand, previous: SpecialMove): Rejection | null {
+function refuse(next: SpecialMove, command: SpecialMoveFieldCommand, previous: SpecialMove): Rejection | null {
   if (previous.minor === 0) return invalid(textFormReason("special move").message);
   if (command.type === "set-special-move-text") {
     if (!storableText(command.value)) return invalid(`The ${TEXT_LABELS[command.field]} cannot hold a NUL character.`);
@@ -115,7 +119,7 @@ function readOnlyReason(model: SpecialMove, bytes: Uint8Array): ReadOnlyReason |
   return { code: "no-same-version-writer", message: `The special move writer does not reproduce this file byte for byte; it is read-only (first difference at offset ${first}).` };
 }
 
-function isSpecialMoveCommand(value: unknown): value is SpecialMoveCommand {
+function isSpecialMoveCommand(value: unknown): value is SpecialMoveFieldCommand {
   if (typeof value !== "object" || value === null || !("type" in value)) return false;
   const record = value as Record<string, unknown>;
   if (record.type === "set-special-move-text") return (SPECIAL_MOVE_TEXT_FIELDS as readonly unknown[]).includes(record.field) && typeof record.value === "string";
@@ -123,13 +127,13 @@ function isSpecialMoveCommand(value: unknown): value is SpecialMoveCommand {
   return record.type === "set-special-move-usable" && (record.context === "battle" || record.context === "menu") && typeof record.usable === "boolean";
 }
 
-function label(command: SpecialMoveCommand): string {
+function label(command: SpecialMoveFieldCommand): string {
   if (command.type === "set-special-move-text") return `Set special move ${TEXT_LABELS[command.field]}`;
   if (command.type === "set-special-move-amount") return `Set special move ${AMOUNT_LABELS[command.field]} to ${command.value}`;
   return `Make special move ${command.usable ? "usable" : "not usable"} ${command.context === "battle" ? "in battle" : "from the menu"}`;
 }
 
-export const specialMoveCodec: DocumentCodec<SpecialMove, SpecialMoveCommand, SpecialMoveDocumentFields> = {
+const specialMoveFieldCodec: DocumentCodec<SpecialMove, SpecialMoveFieldCommand, SpecialMoveDocumentFields> = {
   kind: "special-move",
   read: (bytes, path) => readSpecialMove(new BinaryReader(bytes, path)),
   write: writeSpecialMove,
@@ -157,6 +161,9 @@ export const specialMoveCodec: DocumentCodec<SpecialMove, SpecialMoveCommand, Sp
     residueBytes: model.residue.length,
   }),
 };
+
+/** The codec the editor opens: the field codec with text held in a field that is not a value yet (#3385). */
+export const specialMoveCodec = withHeldText(specialMoveFieldCodec, (command) => command.type === "set-special-move-usable" ? null : command.field, { ...TEXT_LABELS, ...AMOUNT_LABELS });
 
 export function openSpecialMoveDocument(storage: DocumentStorage, identity: DocumentIdentity): Promise<SpecialMoveOpenResult> {
   return openBinaryDocument(specialMoveCodec, storage, identity);

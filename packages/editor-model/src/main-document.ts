@@ -30,6 +30,7 @@ import type { DocumentIdentity } from "./identity.ts";
 
 export { firstDifference, markRecoveredDocumentDirty } from "./binary-document.ts";
 export type {
+  ApplyOptions,
   ApplyResult,
   ConflictChoice,
   ConflictResult,

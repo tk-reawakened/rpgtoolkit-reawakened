@@ -209,7 +209,7 @@ test("a value the field cannot hold is refused with its reason, is never saved, 
   await expect(editor.getByRole("alert")).toContainText("whole number from -2147483648 to 2147483647");
   // The refused text keeps its place and its reason; nothing is written behind the author's back.
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
-  await expect(editor.getByRole("alert")).toContainText("Nothing was saved");
+  await expect(editor.getByRole("alert").filter({ hasText: "Nothing was saved" })).toBeVisible();
   expect(await readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
   // Discarding it returns the field to the file's value and the file saves normally.
   await editor.getByRole("button", { name: "Discard the unapplied text" }).click();
@@ -218,7 +218,7 @@ test("a value the field cannot hold is refused with its reason, is never saved, 
   await expect.poll(() => readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
 });
 
-test("leaving the page asks while a clean document holds text a field refused, and stops asking once it is discarded (#3385)", async ({ page }) => {
+test("text a field refused is unsaved work: leaving the page asks until it is discarded and saved (#3385)", async ({ page }) => {
   await openWorkbench(page);
   await openFile(page, "SpcMove", "fireball.spc");
   const editor = page.locator('[data-tkr-editor="Special move"]');
@@ -230,12 +230,16 @@ test("leaving the page asks while a clean document holds text a field refused, a
   expect(await asks(), "an untouched document lets the page go").toBe(false);
   await retype(page, "Damage (FP)", "9999999999");
   await expect(editor.getByRole("alert")).toContainText("whole number from -2147483648 to 2147483647");
-  expect(await asks(), "the document is clean, but the refused text would be lost").toBe(true);
+  expect(await asks(), "the refused text is held in the document, so it is unsaved").toBe(true);
   await editor.getByRole("button", { name: "Discard the unapplied text" }).click();
-  expect(await asks()).toBe(false);
+  await expect(editor.getByLabel("Damage (FP)", { exact: true })).toHaveValue("12");
+  expect(await asks(), "discarding is an edit too: Undo can bring the text back").toBe(true);
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect.poll(asks).toBe(false);
+  expect(await readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
 });
 
-test("hiding the second view retains its refused draft and keeps Save from writing around it", async ({ page }) => {
+test("text one view holds is the document's: the other view shows it, Save refuses it, and a value typed over it replaces it (#3385)", async ({ page }) => {
   await openWorkbench(page);
   await openFile(page, "SpcMove", "fireball.spc");
   await toggleSecondView(page);
@@ -248,12 +252,14 @@ test("hiding the second view retains its refused draft and keeps Save from writi
   await expect(mirror).toBeHidden();
   const primary = page.locator('[data-tkr-editor="Special move"]');
   const damage = primary.getByLabel("Damage (FP)", { exact: true });
+  await expect(damage, "the primary view shows the text the document holds").toHaveValue("9999999999");
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect(primary.getByRole("alert").filter({ hasText: "Nothing was saved" })).toBeVisible();
+  expect(await readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
   await damage.fill("-30");
   await damage.blur();
-  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
-  await expect(primary.getByRole("alert")).toContainText("Nothing was saved");
-  expect(await readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
   await toggleSecondView(page);
-  await expect(field).toHaveValue("9999999999");
-  await expect(mirror.getByRole("alert")).toContainText("whole number");
+  await expect(field, "a value typed in either view replaces the held text in both").toHaveValue("-30");
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect.poll(async () => Buffer.from(await readProjectFile(page, "SpcMove/fireball.spc")).readInt32LE(0x1e)).toBe(-30);
 });

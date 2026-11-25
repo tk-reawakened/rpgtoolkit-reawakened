@@ -7,6 +7,7 @@ import {
   reservedFolder,
   type AssetKind,
   type DocumentSnapshot,
+  type HeldFields,
   type LinkLookup,
   type PendingEdits,
   type PickOutcome,
@@ -25,10 +26,12 @@ import { useDocumentSnapshot } from "./use-document.ts";
  * Save and conflict row, and a reference row with Choose, Open and a check that the linked file is in the project.
  * The documents own every rule about values; a refusal's own sentence is what the form shows.
  *
- * A field's draft is not an edit until it is committed, so a save — this view's Save, or the host's Save All, Ctrl+S,
- * revert or close — first applies every field that still holds a draft (`flush`), and the view stays busy for the host's
- * pending-edit settlement until it has. That way a host save can never write the document and silently leave the field
- * the author was typing in behind.
+ * Typing is applied as it happens (#3385): each keystroke is sent to the document at once, continuing the field's
+ * gesture (`ApplyOptions.coalesce`, one per focus of the field), so the document is unsaved from the first character and
+ * every host's own Save All and close prompt see it, while Undo takes back the gesture as one step. Text that is not a
+ * value yet is held in the document (`hold-field-text`): still an edit, still unsaved, and a save refuses with its
+ * reason. The only view-side draft is the moment between a keystroke and its acknowledgement, which a host save waits
+ * for through the pending-edit settlement.
  */
 
 export interface BattleDataNavigation {
@@ -56,7 +59,7 @@ interface PreparedEdit<Command> {
 
 /** What the rows need of a form: the shared snapshot surface, the command runner, field drafts and the Save row's state. */
 export interface BattleDataFormBase<Command> {
-  readonly snapshot: DocumentSnapshot<Command>;
+  readonly snapshot: DocumentSnapshot<Command> & HeldFields;
   readonly drafts: FieldDrafts;
   readonly message: string | null;
   readonly resolving: boolean;
@@ -73,14 +76,21 @@ export interface BattleDataFormBase<Command> {
   run(command: Command): Promise<boolean>;
   save(): Promise<void>;
   resolve(choice: "keep-local" | "reload"): Promise<void>;
-  commitText(key: string, prepare: () => PreparedEdit<Command>): Promise<void>;
-  commitNumber(key: string, text: string, build: (value: number) => Command): Promise<void>;
+  commitText(key: string, prepare: () => PreparedEdit<Command>, live?: boolean): Promise<void>;
+  commitNumber(key: string, text: string, build: (value: number) => Command, live?: boolean): Promise<void>;
+  /** The field was left: the next keystroke in it starts a new undoable gesture. */
+  endGesture(key: string): void;
+  /**
+   * The field was left with `text`: apply it unless the keystrokes already sent it (a change event without input events,
+   * as a script or an older host sends), then end the gesture.
+   */
+  leave(key: string, text: string, commit: (text: string) => Promise<void>): void;
   /** Let a save apply this field's draft first, and take part in the host's pending-edit settlement. */
   registerField(key: string, submit: (text: string) => Promise<void>): () => void;
 }
 
 /** `BattleDataFormBase` with the kind's own snapshot, which the views read their fields from. */
-export interface BattleDataForm<Snapshot extends DocumentSnapshot<Command>, Command> extends BattleDataFormBase<Command> {
+export interface BattleDataForm<Snapshot extends DocumentSnapshot<Command> & HeldFields, Command> extends BattleDataFormBase<Command> {
   readonly snapshot: Snapshot;
 }
 
@@ -89,7 +99,7 @@ const problem = (error: unknown): string => error instanceof Error ? error.messa
 /** Whole numbers only: a decimal point or an exponent would be rounded into a value the author did not type. */
 const WHOLE_NUMBER = /^[+-]?\d+$/;
 
-export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Command>(
+export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command> & HeldFields, Command>(
   { doc, pendingEdits, capabilities, onEdited }: Pick<BattleDataFormProps<Snapshot, Command>, "doc" | "pendingEdits" | "capabilities" | "onEdited">,
   what: string,
   unchanged: (snapshot: Snapshot, command: Command) => boolean,
@@ -110,23 +120,53 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const fields = useRef(new Map<string, (text: string) => Promise<void>>());
   const saved = `${what[0]!.toUpperCase()}${what.slice(1)} saved.`;
 
-  const enqueue = (prepare: () => PreparedEdit<Command>): Promise<boolean> => {
+  const gestures = useRef(new Map<string, number>());
+  const coalesceKey = (key: string): string => `${key}#${gestures.current.get(key) ?? 0}`;
+  const endGesture = (key: string): void => { gestures.current.set(key, (gestures.current.get(key) ?? 0) + 1); };
+  /** The text each field last sent as a keystroke, so leaving it does not send the same text again as a second edit. */
+  const typed = useRef(new Map<string, string>());
+  const leave = (key: string, text: string, commit: (text: string) => Promise<void>): void => {
+    if (!locked && typed.current.get(key) !== text) void commit(text);
+    typed.current.delete(key);
+    endGesture(key);
+  };
+  const enqueue = (prepare: () => PreparedEdit<Command>, coalesce?: string): Promise<boolean> =>
+    attempt(prepare, coalesce).then((refusal) => refusal === null);
+  /**
+   * Apply one prepared edit in order; resolves `null` when accepted, else the refusal's sentence. `fallback` is applied in
+   * the same turn of the queue when the edit is refused, so text held for a refused keystroke can never land after a newer
+   * keystroke in the same field.
+   */
+  const attempt = (prepare: () => PreparedEdit<Command>, coalesce?: string, fallback?: (refusal: string) => Command): Promise<string | null> => {
     const finish = submitted.current.begin();
     const operation = queue.current.then(async () => {
       try {
         const { command, accept } = prepare();
-        // Compare after prior edits have settled, not against the value that happened to be rendered on blur.
-        if (unchanged(doc.getSnapshot(), command)) { accept?.(); return true; }
-        const result = await doc.apply(command);
-        if (!result.ok) { setMessage(result.rejection.message); return false; }
+        // Compare after prior edits have settled, not against the value that happened to be rendered on blur. A field that
+        // holds text is never unchanged: typing its stored value back replaces that text.
+        const latest = doc.getSnapshot();
+        const field = (command as { readonly field?: unknown }).field;
+        const holds = typeof field === "string" && latest.heldText[field] !== undefined;
+        if (!holds && (command as { readonly type?: unknown }).type !== "hold-field-text" && unchanged(latest, command)) { accept?.(); return null; }
+        let result = await doc.apply(command, coalesce === undefined ? undefined : { coalesce });
+        if (!result.ok && result.rejection.unchanged !== true && result.rejection.reason === "invalid" && fallback !== undefined) {
+          result = await doc.apply(fallback(result.rejection.message.replace(/\.$/, "")), coalesce === undefined ? undefined : { coalesce });
+        }
+        if (!result.ok) {
+          if (result.rejection.unchanged === true) { accept?.(); return null; }
+          setMessage(result.rejection.message);
+          return result.rejection.message;
+        }
         accept?.();
+        // An amended edit is the one the host was already told about; telling it again would add a second undo entry.
+        if (result.amended === true) { setMessage(null); return null; }
         const edit = doc.getSnapshot().edits.find((entry) => entry.editId === result.editId);
         onEdited({ document: doc.identity.key, editId: result.editId, label: edit?.label ?? `Edit ${what}` });
         setMessage(null);
-        return true;
+        return null;
       } catch (error) {
         setMessage(problem(error));
-        return false;
+        return problem(error);
       } finally { finish(); }
     });
     queue.current = operation.then(() => undefined);
@@ -184,6 +224,9 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     setResolving(true);
     try {
       if (choice === "keep-local" && capabilities.has("conflictAutoSave")) {
+        // Text the document holds would refuse the save after the choice was consumed: refuse first, keeping both versions.
+        const held = Object.keys(doc.getSnapshot().heldText);
+        if (held.length > 0) { setMessage(`Nothing was saved and the conflict is kept: ${held.join(", ")} holds text that is not a value yet.`); return; }
         // Check the fields before the choice is consumed: a refusal afterwards would leave the other version adopted as the
         // baseline, the conflict gone and nothing written. A refused choice keeps the conflict and both versions.
         const outcome = await pendingEdits.settle("explicit");
@@ -203,8 +246,17 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     finally { setResolving(false); }
   };
   const setDraft = (key: string, text: string): void => publishDrafts({ ...draftsRef.current, [key]: { text } });
-  /** Throw away the text a refused field holds, so the file's value shows and saving can finish. */
-  const discardDrafts = (): void => { publishDrafts({}); setMessage(null); };
+  /**
+   * Throw away the text refused fields hold, so the file's values show and saving can finish. Text the document holds is
+   * discarded by an edit of its own, so Undo can bring it back.
+   */
+  const discardDrafts = (): void => {
+    publishDrafts({});
+    setMessage(null);
+    for (const field of Object.keys(doc.getSnapshot().heldText)) {
+      void enqueue(() => ({ command: ({ type: "hold-field-text", field, text: null, message: "" }) as unknown as Command }));
+    }
+  };
   const dropDraft = (key: string): void => {
     if (draftsRef.current[key] === undefined) return;
     const next = { ...draftsRef.current };
@@ -214,22 +266,36 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const clearDraft = (key: string, draft: FieldDraft | undefined): void => {
     if (draft !== undefined && draftsRef.current[key] === draft) dropDraft(key);
   };
-  /** Leave a text field: a changed value is one edit; an unchanged one is dropped without touching the document. */
-  const commitText = async (key: string, prepare: () => PreparedEdit<Command>): Promise<void> => {
+  const hold = (key: string, text: string, message: string): Command =>
+    ({ type: "hold-field-text", field: key, text, message }) as unknown as Command;
+  /**
+   * Apply a text field's value. `live` is a keystroke: it continues the field's gesture. A value the document refuses
+   * (a character the file cannot store) is held in the document with the refusal's sentence instead of being lost.
+   */
+  const commitText = async (key: string, prepare: () => PreparedEdit<Command>, live = false): Promise<void> => {
     const draft = draftsRef.current[key];
-    if (await enqueue(prepare)) clearDraft(key, draft);
+    const coalesce = live ? coalesceKey(key) : undefined;
+    if (live && draft !== undefined) typed.current.set(key, draft.text);
+    const refused = await attempt(prepare, coalesce, draft === undefined ? undefined : (refusal) => hold(key, draft.text, refusal));
+    if (refused === null) clearDraft(key, draft);
   };
-  /** Leave a number field: the document says whether the value fits, and its sentence is shown when it does not. */
-  const commitNumber = async (key: string, text: string, build: (value: number) => Command): Promise<void> => {
+  /** Apply a number field's value; text that is not a whole number the field can store is held in the document with its reason. */
+  const commitNumber = async (key: string, text: string, build: (value: number) => Command, live = false): Promise<void> => {
     const draft = draftsRef.current[key];
+    const coalesce = live ? coalesceKey(key) : undefined;
+    if (live) typed.current.set(key, text);
     const trimmed = text.trim();
-    if (trimmed === "") { setMessage("Enter a whole number before leaving this field."); return; }
-    if (!WHOLE_NUMBER.test(trimmed)) {
-      setMessage("Enter a whole number: a decimal point or an exponent would be rounded into a value you did not type.");
-      return;
+    const reason = trimmed === "" ? "enter a whole number"
+      : !WHOLE_NUMBER.test(trimmed) ? "enter a whole number: a decimal point or an exponent would be rounded into a value you did not type"
+      : null;
+    let accepted: boolean;
+    if (reason === null) {
+      // Out of range: the document's own sentence says why, and the text is held with it.
+      accepted = await attempt(() => ({ command: build(Number(trimmed)) }), coalesce, (refusal) => hold(key, text, refusal)) === null;
+    } else {
+      accepted = await enqueue(() => ({ command: hold(key, text, reason) }), coalesce);
     }
-    const value = Number(trimmed);
-    if (await run(build(value))) clearDraft(key, draft);
+    if (accepted) clearDraft(key, draft);
   };
   const registerField = (key: string, submit: (text: string) => Promise<void>): (() => void) => {
     fields.current.set(key, submit);
@@ -237,7 +303,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   };
   return {
     snapshot, drafts, message, locked, resolving, setMessage, setDraft, dropDraft, discardDrafts, run, save, resolve,
-    commitText, commitNumber, registerField,
+    commitText, commitNumber, registerField, endGesture, leave,
     disabled: snapshot.readOnly !== null || snapshot.conflict !== null || resolving,
   };
 }
@@ -259,10 +325,25 @@ export function SaveBar<Command>({ form, capabilities }: {
       <button type="button" disabled={resolving || snapshot.readOnly !== null} onClick={() => void resolve("keep-local")}>{capabilities.has("conflictAutoSave") ? "Save my version" : "Keep my version"}</button>
       {capabilities.has("conflictReload") && snapshot.conflict.externalTitle !== null && <button type="button" disabled={resolving} onClick={() => void resolve("reload")}>Use the version on disk</button>}
     </section>}
-    {message !== null && (snapshot.conflict === null || !message.startsWith(snapshot.conflict.message)) && <p role="alert">{message}{Object.keys(form.drafts).length > 0
+    {message !== null && (snapshot.conflict === null || !message.startsWith(snapshot.conflict.message)) && <p role="alert">{message}{Object.keys(form.drafts).length > 0 && Object.keys(snapshot.heldText).length === 0
       ? <> <button type="button" onClick={() => form.discardDrafts()}>Discard the unapplied text</button></>
       : null}</p>}
+    {Object.keys(snapshot.heldText).length > 0 && <p>
+      Some fields hold text that is not a value yet, so this file cannot be saved until it is corrected or discarded.
+      {" "}<button type="button" disabled={form.disabled} onClick={() => form.discardDrafts()}>Discard the unapplied text</button>
+    </p>}
   </>;
+}
+
+/** What a field shows: its in-flight keystroke, else text the document holds for it, else the stored value. */
+function shown<Command>(form: BattleDataFormBase<Command>, id: string, value: string): string {
+  return form.drafts[id]?.text ?? form.snapshot.heldText[id]?.text ?? value;
+}
+
+/** Why a field's text is not a value yet; the document holds it, so it is unsaved and a save refuses with this reason. */
+function HeldNote<Command>({ form, id }: { readonly form: BattleDataFormBase<Command>; readonly id: string }): JSX.Element | null {
+  const held = form.snapshot.heldText[id];
+  return held === undefined ? null : <small role="alert"> Not saved yet: {held.message}.</small>;
 }
 
 /** A one-line field, registered so a save applies its draft first. */
@@ -274,15 +355,16 @@ export function TextRow<Command>({ form, id, label, value, hint, command }: {
   readonly hint?: string;
   readonly command: (value: string) => Command;
 }): JSX.Element {
-  const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
-  const commit = (text: string): Promise<void> => commitText(id, () => ({ command: command(text) }));
+  const { setDraft, commitText, registerField, disabled, snapshot } = form;
+  const commit = (text: string, live = false): Promise<void> => commitText(id, () => ({ command: command(text) }), live);
   // Registered during render, not in an effect: the map is a ref, so this neither loops nor lags a render behind.
   registerField(id, commit);
   return <p>
     <label>{label}
-      <input type="text" aria-label={label} value={drafts[id]?.text ?? value} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commit(event.currentTarget.value); }} />
+      <input type="text" aria-label={label} value={shown(form, id, value)} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => { setDraft(id, event.currentTarget.value); if (!form.locked) void commit(event.currentTarget.value, true); }} onChange={(event) => form.leave(id, event.currentTarget.value, commit)} onBlur={() => form.endGesture(id)} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
+    <HeldNote form={form} id={id} />
   </p>;
 }
 
@@ -320,14 +402,14 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
       model.current = { base: value, history, accepted: history.line, generation: current === null ? 0 : current.generation + 1 };
     }
   }
-  const commit = (text: string): Promise<void> => {
+  const commit = (text: string, live = false): Promise<void> => {
     const { history } = model.current!;
     history.follow(text);
     const staged = history.stage();
     return commitText(id, () => {
       const prepared = staged.prepare();
       return { command: command(prepared.text), accept: prepared.accept };
-    }).finally(staged.release);
+    }, live).finally(staged.release);
   };
   registerField(id, commit);
   return <p>
@@ -338,9 +420,11 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
         const current = model.current!;
         current.history.follow(event.currentTarget.value, event.currentTarget.selectionStart, direction);
         setDraft(id, event.currentTarget.value);
-      }} onChange={(event) => { if (!form.locked) void commit(event.currentTarget.value); }} />
+        if (!form.locked) void commit(event.currentTarget.value, true);
+      }} onChange={(event) => form.leave(id, event.currentTarget.value, commit)} onBlur={() => form.endGesture(id)} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
+    <HeldNote form={form} id={id} />
   </p>;
 }
 
@@ -352,14 +436,16 @@ export function NumberRow<Command>({ form, id, label, value, hint, command }: {
   readonly hint?: string;
   readonly command: (value: number) => Command;
 }): JSX.Element {
-  const { drafts, setDraft, commitNumber, registerField, disabled, snapshot } = form;
-  const commit = (text: string): Promise<void> => commitNumber(id, text, command);
+  const { setDraft, commitNumber, registerField, disabled, snapshot } = form;
+  const commit = (text: string, live = false): Promise<void> => commitNumber(id, text, command, live);
   registerField(id, commit);
+  // A text input, not `type="number"`: a number input reports "" for `-` or `1e`, and that text is what the document holds.
   return <p>
     <label>{label}
-      <input type="number" step="1" aria-label={label} value={drafts[id]?.text ?? String(value)} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commit(event.currentTarget.value); }} />
+      <input type="text" inputMode="numeric" aria-label={label} value={shown(form, id, String(value))} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => { setDraft(id, event.currentTarget.value); if (!form.locked) void commit(event.currentTarget.value, true); }} onChange={(event) => form.leave(id, event.currentTarget.value, commit)} onBlur={() => form.endGesture(id)} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
+    <HeldNote form={form} id={id} />
   </p>;
 }
 
@@ -485,7 +571,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
   readonly children?: ComponentChildren;
 }): JSX.Element {
   const { drafts, setDraft, dropDraft, commitText, registerField, run, disabled, snapshot, setMessage } = form;
-  const commit = (text: string): Promise<void> => commitText(id, () => ({ command: command(text) }));
+  const commit = (text: string, live = false): Promise<void> => commitText(id, () => ({ command: command(text) }), live);
   registerField(id, commit);
   const busy = disabled || snapshot.saving;
   const origin = snapshot.identity.path;
@@ -505,9 +591,10 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
     <legend>{label}</legend>
     <p>
       <label>{label} file
-        <input type="text" aria-label={`${label} file`} value={drafts[id]?.text ?? value} disabled={busy} readOnly={form.locked} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => { if (!form.locked) void commit(event.currentTarget.value); }} />
+        <input type="text" aria-label={`${label} file`} value={shown(form, id, value)} disabled={busy} readOnly={form.locked} onInput={(event) => { setDraft(id, event.currentTarget.value); if (!form.locked) void commit(event.currentTarget.value, true); }} onChange={(event) => form.leave(id, event.currentTarget.value, commit)} onBlur={() => form.endGesture(id)} />
       </label>
       {hint !== undefined && <small> {hint}</small>}
+      <HeldNote form={form} id={id} />
     </p>
     <p>
       {navigation.pickAsset !== undefined && <button type="button" aria-label={`Choose ${label.toLowerCase()}`} disabled={busy || form.locked} onClick={() => void choose()}>Choose…</button>}

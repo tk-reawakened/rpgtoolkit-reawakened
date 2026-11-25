@@ -25,7 +25,7 @@ const damageHint = (damage: number): string => damage < 0
  * with Choose and Open, and the status effect's own numbers are shown from its saved file.
  */
 export function SpecialMoveView(props: SpecialMoveViewProps): JSX.Element {
-  const form = useBattleDataForm(props, "special move", (latest, edit) => edit.type === "set-special-move-usable"
+  const form = useBattleDataForm(props, "special move", (latest, edit) => edit.type === "hold-field-text" ? false : edit.type === "set-special-move-usable"
     ? (edit.context === "battle" ? latest.usableInBattle : latest.usableFromMenu) === edit.usable
     : latest[edit.field] === edit.value);
   const { snapshot } = form;

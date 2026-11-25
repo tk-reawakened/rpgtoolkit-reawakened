@@ -208,7 +208,7 @@ async function mountWithPending(files: Record<string, Uint8Array>, pick?: string
     document: gate === undefined ? doc : {
       kind: doc.kind, identity: doc.identity, getSnapshot: () => doc.getSnapshot(), subscribe: (listener) => doc.subscribe(listener),
       save: () => doc.save(), resolveConflict: (choice) => doc.resolveConflict(choice),
-      apply: (command: Parameters<SpecialMoveDocument["apply"]>[0]) => gate(() => doc.apply(command)),
+      apply: (command: Parameters<SpecialMoveDocument["apply"]>[0], options?: Parameters<SpecialMoveDocument["apply"]>[1]) => gate(() => doc.apply(command, options)),
     },
     services: host,
     pendingEdits,
@@ -221,12 +221,14 @@ async function mountWithPending(files: Record<string, Uint8Array>, pick?: string
   return { root, host, doc: opened.document, pendingEdits, dispose: () => { handle.dispose(); root.remove(); } };
 }
 
-test("the view's Save applies a field the author is still typing in, instead of writing the document without it", async () => {
+test("typing reaches the document at once, so it is unsaved before the field is left and any save writes it (#3385)", async () => {
   const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
   try {
-    // Typed but not left: no change event, so the document does not hold it yet.
+    // Typed but not left: no change event. The keystroke is already an edit, so a host's Save All and close prompt see it.
     await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); });
-    deepEqual(view.doc.serialize(), fireball, "nothing is in the document yet");
+    await settle();
+    deepEqual(view.doc.serialize(), patched(fireball, { [FP]: [0xe2, 0xff, 0xff, 0xff] }), "the document holds the typed value");
+    equal(view.doc.getSnapshot().dirty, true, "and is unsaved");
     await act(() => button(view.root, "Save").click());
     await settle();
     deepEqual(view.host.bytesOf(SPC), patched(fireball, { [FP]: [0xe2, 0xff, 0xff, 0xff] }), "the typed damage reached the file");
@@ -315,21 +317,30 @@ test("a description's Windows line endings survive an edit made in the multi-lin
   } finally { view.dispose(); }
 });
 
-test("an explicit save applies a focused draft, autosave and a backup leave the gesture alone, and a revert drops it", async () => {
+test("one field's typing is one undoable edit, and leaving the field starts the next (#3385)", async () => {
   const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
   try {
     const typeDamage = async (value: string): Promise<void> => {
       await act(() => { const input = field(view.root, "Damage (FP)"); input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await settle();
     };
+    await typeDamage("-");
+    await typeDamage("-3");
     await typeDamage("-30");
-    await view.pendingEdits.settle("autosave");
-    equal(view.doc.getSnapshot().damage, 12, "autosave does not commit the field mid-gesture");
-    await view.pendingEdits.settle("explicit");
-    equal(view.doc.getSnapshot().damage, -30, "an explicit save applies it");
-    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-7"; input.dispatchEvent(new Event("input", { bubbles: true })); });
-    await view.pendingEdits.settle("revert");
-    equal(field(view.root, "Damage (FP)").value, "-30", "a revert shows the document again");
-    equal(view.root.querySelector("[role=alert]")?.textContent?.includes("Nothing was saved") ?? false, false);
+    equal(view.doc.getSnapshot().damage, -30);
+    equal(view.doc.getSnapshot().edits.length, 1, "the keystrokes are one gesture");
+    ok((await view.pendingEdits.settle("autosave")).ok, "a settle finds nothing left to apply");
+    await act(() => { field(view.root, "Damage (FP)").dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    await typeDamage("-7");
+    equal(view.doc.getSnapshot().edits.length, 2, "a new focus is a new gesture");
+    await act(() => { ok(view.doc.undo().ok); });
+    await settle();
+    equal(field(view.root, "Damage (FP)").value, "-30", "Undo takes back the second gesture whole");
+    await act(() => { ok(view.doc.undo().ok); });
+    await settle();
+    equal(field(view.root, "Damage (FP)").value, "12", "and then the first, including the held '-'");
+    equal(view.doc.getSnapshot().heldText.damage, undefined);
   } finally { view.dispose(); }
 });
 
@@ -346,17 +357,22 @@ test("a mixed-case file name in the project is found from a lower-case reference
   } finally { handle.dispose(); root.remove(); }
 });
 
-test("a query settle leaves the drafts alone and only a real revert drops them", async () => {
+test("a saved gesture is not continued: typing after a save is a new edit, so the save point stays true (#3385)", async () => {
   const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
   try {
-    await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); });
-    await view.pendingEdits.settle("query");
-    equal(field(view.root, "Damage (FP)").value, "-30", "the revert question does not touch the field");
-    equal(view.doc.getSnapshot().damage, 12);
-    await view.pendingEdits.settle("autosave");
-    equal(view.doc.getSnapshot().damage, 12, "autosave leaves the gesture alone");
-    await view.pendingEdits.settle("explicit");
-    equal(view.doc.getSnapshot().damage, -30, "an explicit save applies it");
+    const typeDamage = async (value: string): Promise<void> => {
+      await act(() => { const input = field(view.root, "Damage (FP)"); input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await settle();
+    };
+    await typeDamage("-3");
+    ok((await view.doc.save()).ok, "an autosave mid-gesture writes the value typed so far");
+    equal(view.doc.getSnapshot().dirty, false);
+    await typeDamage("-30");
+    equal(view.doc.getSnapshot().dirty, true, "the next keystroke is unsaved again");
+    equal(view.doc.getSnapshot().edits.length, 2, "and a new edit, not a change to the saved one");
+    await act(() => { ok(view.doc.undo().ok); });
+    await settle();
+    equal(view.doc.getSnapshot().dirty, false, "Undo returns exactly to the saved state");
   } finally { view.dispose(); }
 });
 
@@ -373,14 +389,19 @@ test("a description edit leaves no phantom draft behind, so Save stays available
   } finally { view.dispose(); }
 });
 
-test("a backup or query settle neither refuses nor applies a refused draft, and an explicit save refuses only then", async () => {
+test("text a field cannot store is held in the document: unsaved, every save refuses it, and the bytes stay (#3385)", async () => {
   const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
   try {
     await act(() => { const input = field(view.root, "Damage (FP)"); input.value = "9999999999"; input.dispatchEvent(new Event("input", { bubbles: true })); });
-    await view.pendingEdits.settle("query");
-    equal(await view.pendingEdits.settle("autosave").then((outcome) => outcome.ok), true, "a backup is not refused for a field it does not judge");
-    ok((await view.pendingEdits.settle("explicit")).ok === false, "an explicit save is refused while the draft cannot be stored");
+    await settle();
+    equal(view.doc.getSnapshot().heldText.damage?.text, "9999999999");
+    equal(view.doc.getSnapshot().dirty, true, "a host's Save All and close prompt see it");
+    deepEqual(view.doc.serialize(), fireball, "a backup keeps the stored values");
+    const saved = await view.doc.save("auto");
+    ok(!saved.ok && saved.failure.message.includes("not a value yet"), "any save, autosave included, refuses with the reason");
+    deepEqual(view.host.bytesOf(SPC), fireball, "and writes nothing");
     equal(field(view.root, "Damage (FP)").value, "9999999999", "the text stays for the author");
+    ok(view.root.textContent?.includes("Not saved yet"), "the field says why");
   } finally { view.dispose(); }
 });
 
@@ -503,7 +524,7 @@ test("Undo in the textarea restores the file's own separators, byte for byte (#3
     await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
     await settle();
     deepEqual(view.doc.serialize(), bytes, "the original bytes, not a normalised copy");
-    equal(view.doc.getSnapshot().dirty, false, "and no edit was made");
+    equal(view.doc.getSnapshot().edits.length, 1, "the deletion and its Undo are one gesture whose net change is nothing");
 
     await editDescription(area, "A\nB\nCx", 6, "insertText");
     await editDescription(area, "AB\nCx", 1, "deleteContentBackward");
@@ -540,7 +561,7 @@ test("an acknowledgement cannot clear a later description draft with the same di
     await editDescription(area, "A\nB\nCx", 2, "insertLineBreak");
     release();
     await settle();
-    deepEqual(view.doc.serialize(), bytesWith("A\r\nB\nCx"), "still the old description until the new draft is submitted");
+    deepEqual(view.doc.serialize(), bytesWith("A\nB\nCx"), "the newer typing is in the document as it is typed (#3385)");
 
     await act(() => button(view.root, "Save").click());
     await settle();
@@ -639,7 +660,7 @@ test("a discarded textarea branch still supplies exact separator bytes to docume
   } finally { ack.emit("release"); view.dispose(); }
 });
 
-test("a rejected description acknowledgement leaves newer typing and original separators intact", async () => {
+test("a rejected description acknowledgement leaves newer typing intact and holds the refused text in order", async () => {
   const bytesWith = (text: string): Uint8Array => Uint8Array.from([...fireball.slice(0, 0x43), ...Buffer.from(text, "latin1"), 0]);
   const original = bytesWith("A\rB\nC");
   const ack = new EventEmitter();
@@ -660,7 +681,7 @@ test("a rejected description acknowledgement leaves newer typing and original se
     await editDescription(area, "A\n\nC🙂", 6, "insertText");
     await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
     await until(() => refused, "the document refused the unencodable text but has not responded yet");
-    deepEqual(view.doc.serialize(), original);
+    deepEqual(view.doc.serialize(), bytesWith("A\r\rC"), "the deletion typed before it is already in the document (#3385)");
 
     await editDescription(area, "A\n\nC", 4, "deleteContentBackward");
     await editDescription(area, "A\nX\nC", 3, "insertText");
@@ -669,7 +690,9 @@ test("a rejected description acknowledgement leaves newer typing and original se
     await settle();
     await act(() => button(view.root, "Save").click());
     await settle();
-    deepEqual(view.host.bytesOf(SPC), bytesWith("A\rX\nC"));
+    // Each keystroke is an edit (#3385): the deletion merged B's line and its LF into one CR break, so the line typed
+    // back in takes its neighbour's CR. A whole-blur diff could see the original LF; a keystroke-by-keystroke model cannot.
+    deepEqual(view.host.bytesOf(SPC), bytesWith("A\rX\rC"));
   } finally { ack.emit("release"); view.dispose(); }
 });
 
