@@ -401,7 +401,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
         release.resolve();
       }
     };
-    const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
+    const readBacking = async (path = game) => new Uint8Array(await persistentFs.observe(() => readFile(resolve(proofWorkspace, path))));
     const writeBacking = async (path, bytes) => { await writeFile(resolve(proofWorkspace, path), bytes); };
     const withBackingWriteRefused = async (path, check) => {
       const target = resolve(proofWorkspace, path);
@@ -487,7 +487,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
         historyContains: async (bytes) => {
           const blob = resolve(proofWorkspace, ".tkr-history/blobs", createHash("sha256").update(bytes).digest("hex"));
           try {
-            return (await readFile(blob)).equals(Buffer.from(bytes));
+            return (await persistentFs.observe(() => readFile(blob))).equals(Buffer.from(bytes));
           } catch (error) {
             if (error?.code === "ENOENT") return false;
             throw error;
@@ -691,7 +691,7 @@ async function runCreatorAcceptanceLane({ root, harness, extension, port }) {
     page.on("requestfailed", (request) => { if (diagnostics.length < 100) diagnostics.push(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`); });
 
     const artifact = await runVscodeCreatorAcceptanceProof(page, expect, workbenchUrl, {
-      readBacking: async (path) => new Uint8Array(await readFile(join(laneWorkspace, path))),
+      readBacking: async (path) => new Uint8Array(await persistentFs.observe(() => readFile(join(laneWorkspace, path)))),
       writeBacking: async (path, bytes) => {
         const target = join(laneWorkspace, path);
         await mkdir(dirname(target), { recursive: true });

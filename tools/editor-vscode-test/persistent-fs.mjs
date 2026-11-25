@@ -21,6 +21,15 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
   let pausedRead;
   let pausedWrite;
   let pausedSave;
+  // writeFile truncates and then writes in place, so a concurrent reader of the real file can see it empty or short
+  // (#3484). Each in-place write and each proof observation through observe() run one at a time. Write gates wait
+  // before this lock, so a paused write never blocks an observation.
+  let diskTail = Promise.resolve();
+  const exclusive = (operation) => {
+    const run = diskTail.then(operation);
+    diskTail = run.catch(() => undefined);
+    return run;
+  };
   const server = createServer(async (request, response) => {
     const origin = request.headers.origin;
     let allowed = origin === allowedOrigin;
@@ -95,7 +104,7 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
           gate.reach();
           await gate.promise;
         }
-        result = await perform(root, input);
+        result = input.op === "writeFile" ? await exclusive(() => perform(root, input)) : await perform(root, input);
         if (input.op === "writeFile") writeOperationEvents.push({ kind: "write", path: input.path });
         if (gate !== undefined) writeEvents.push({ kind: "write", path: input.path });
       }
@@ -116,6 +125,8 @@ export async function startPersistentFs(directory, allowedOrigin, maxBodyBytes =
     writeEvents: () => writeEvents.slice(),
     writeOperationEvents: () => writeOperationEvents.slice(),
     failedWriteEvents: () => failedWriteEvents.slice(),
+    /** Run a proof's own read of the real files between writes, never during one. */
+    observe: (operation) => exclusive(operation),
     failWritesUnder: (pathPrefix) => {
       if (failedWritePrefix !== undefined) throw new Error("Recovery-history write failure is already armed");
       if (typeof pathPrefix !== "string" || !pathPrefix.startsWith("/") || pathPrefix.endsWith("/")
