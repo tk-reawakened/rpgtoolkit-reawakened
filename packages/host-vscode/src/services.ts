@@ -42,6 +42,7 @@ export function createVscodeServices(root: vscode.Uri, context: vscode.Extension
     dialogs: createVscodeDialogs(root),
     imageExport: {
       actionLabel: "Save PNG",
+      completion: "saved",
       async saveFile(fileName, bytes) {
         const destination = await vscode.window.showSaveDialog({
           defaultUri: vscode.Uri.joinPath(root, fileName),

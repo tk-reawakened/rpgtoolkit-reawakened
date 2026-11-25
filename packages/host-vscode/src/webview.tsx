@@ -29,11 +29,17 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
     };
     // A webview is a page: it exchanges text with the system clipboard through the page's own clipboard, when it has one (T-28).
     const clipboard = clipboardFromApi(navigator.clipboard);
+    const imageExport = remote.kind === "board" ? {
+      actionLabel: "Save PNG",
+      completion: "saved" as const,
+      saveFile: (fileName: string, bytes: Uint8Array) => remote.saveImage(fileName, bytes),
+    } : undefined;
     const services = {
       document: { edited: () => undefined },
       capabilities: new Set<Capability>(clipboard === null ? event.data.capabilities : [...event.data.capabilities, "clipboard"]),
       fs,
       ...(clipboard === null ? {} : { clipboard }),
+      ...(imageExport === undefined ? {} : { imageExport }),
     };
     if (event.data.kind === "character" || event.data.kind === "item") {
       const doc = spriteViewDocument(remote);

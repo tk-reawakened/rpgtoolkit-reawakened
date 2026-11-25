@@ -100,10 +100,28 @@ void test("an open dirty text buffer for the board is not silently ignored by im
   deepEqual(host.bytesOf(PATH), boardBytes());
 });
 
+void test("a live board document delegates PNG bytes to the host's native save flow", async () => {
+  const { port, folder, uri } = harness([]);
+  const saved: { folder: string; name: string; bytes: Uint8Array }[] = [];
+  const provider = createGameEditorProvider({
+    ...port,
+    saveImage: async (target, fileName, bytes) => {
+      saved.push({ folder: target.key, name: fileName, bytes });
+      return { ok: true, value: true };
+    },
+  }, () => undefined);
+  const document = await provider.openCustomDocument(uri, undefined);
+  const bytes = Uint8Array.of(137, 80, 78, 71);
+  deepEqual(await document.saveImage("Village.png", bytes), { ok: true, value: true });
+  deepEqual(saved, [{ folder: folder.key, name: "Village.png", bytes }]);
+});
 void test("the webview's import request carries the document's own board, and a history preview never offers it", async () => {
   const request: EditorHostRequest = { type: "import-as-scene", requestId: "r1" };
   equal(isEditorHostRequest(request), true);
   equal(isEditorHostRequest({ type: "import-as-scene" }), false, "a request without an id is ignored");
+  equal(isEditorHostRequest({ type: "preview", requestId: "p1", request: { preserveComposition: true } }), true);
+  equal(isEditorHostRequest({ type: "preview", requestId: "p2", request: { preserveComposition: "true" } }), false);
+  equal(isEditorHostRequest({ type: "save-image", requestId: "p3", fileName: "../outside.png", bytes: new Uint8Array() }), false);
 
   const posted: EditorHostRequest[] = [];
   const api: VscodeApi = { postMessage: (message) => { posted.push(message); }, getState: () => undefined, setState: () => undefined };
@@ -120,15 +138,30 @@ void test("the webview's import request carries the document's own board, and a 
   ok(!("path" in sent), "the webview names no file");
   live.receive({ type: "import-as-scene-result", requestId: "import-as-scene-1", result: { ok: true, value: undefined } });
   deepEqual(await pending, { ok: true, value: undefined });
+  const imageBytes = Uint8Array.of(137, 80, 78, 71);
+  const imageSave = live.saveImage("Village.png", imageBytes);
+  const imageRequest = posted.at(-1)!;
+  deepEqual(imageRequest, { type: "save-image", requestId: "save-image-2", fileName: "Village.png", bytes: imageBytes });
+  equal(isEditorHostRequest(imageRequest), true);
+  live.receive({ type: "save-image-result", requestId: "save-image-2", result: { ok: true, value: true } });
+  deepEqual(await imageSave, { ok: true, value: true });
 
   const calls: string[] = [];
   const replies: BridgeMessage[] = [];
   const bridged = {
     model: { kind: "board", getSnapshot: () => snapshot },
     importAsScene: async () => { calls.push("import"); return { ok: true as const, value: undefined }; },
+    saveImage: async (fileName: string, bytes: Uint8Array) => {
+      calls.push(`${fileName}:${bytes.byteLength}`);
+      return { ok: true as const, value: true };
+    },
   } as unknown as BridgedDocument;
   const forged = { type: "import-as-scene", requestId: "r2", path: "Boards/Other.brd" } as unknown as EditorHostRequest;
   await handleEditorHostRequest(bridged, forged, (reply) => { replies.push(reply); });
   deepEqual(calls, ["import"], "the handler runs the document's own import and reads no path from the message");
   deepEqual(replies, [{ type: "import-as-scene-result", requestId: "r2", result: { ok: true, value: undefined } }]);
+  const hostImageRequest: EditorHostRequest = { type: "save-image", requestId: "r3", fileName: "Village.png", bytes: imageBytes };
+  await handleEditorHostRequest(bridged, hostImageRequest, (reply) => { replies.push(reply); });
+  deepEqual(calls, ["import", "Village.png:4"]);
+  deepEqual(replies.at(-1), { type: "save-image-result", requestId: "r3", result: { ok: true, value: true } });
 });

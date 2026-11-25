@@ -124,6 +124,32 @@ test("current-view preview crops the shared board composition at the requested c
   }
   deepEqual(view.rgba, expected, "viewport pixels are a clean crop of the full compositor output");
 });
+test("viewport exports preserve full-board parallax coordinates", async () => {
+  const parsed = readBoard(new BinaryReader(smallBoard()));
+  ok(parsed.ok);
+  const written = writeBoard({
+    ...parsed.value,
+    properties: { ...parsed.value.properties, backgroundImage: "sky.bmp", backgroundDrawType: 1 },
+  });
+  ok(written.ok);
+  const host = createMemoryPlatformServices({ files: { ...FILES, "Bitmap/sky.bmp": solidBmp(200, 10, 10) } });
+  const whole = await previewBoard(host.fs, "memory-project", written.value, { purpose: "export" });
+  ok(whole.ok);
+  const view = await previewBoard(host.fs, "memory-project", written.value, {
+    camera: { x: 24, y: 8 },
+    viewport: { width: 24, height: 24 },
+    preserveComposition: true,
+    purpose: "export",
+  });
+  ok(view.ok, view.ok ? "" : view.message);
+  if (!whole.ok || !view.ok) return;
+  const expected = new Uint8Array(view.width * view.height * 4);
+  for (let y = 0; y < view.height; y += 1) {
+    const sourceStart = ((y + 8) * whole.width + 24) * 4;
+    expected.set(whole.rgba.subarray(sourceStart, sourceStart + view.width * 4), y * view.width * 4);
+  }
+  deepEqual(view.rgba, expected);
+});
 test("whole-board exports accept a 64×64 board beyond the interactive preview pixel limit", async () => {
   const built = buildNewBoard({ name: "large", coordSystem: "2d", pixelCoordinates: false, width: 64, height: 64, layers: 1, backgroundImage: "", template: null });
   ok(built.ok, built.ok ? "" : built.message);
@@ -135,6 +161,23 @@ test("whole-board exports accept a 64×64 board beyond the interactive preview p
   ok(exported.ok, exported.ok ? "" : exported.message);
   equal(exported.width, 2048);
   equal(exported.height, 2048);
+});
+test("current-view exports bound raster work to the requested viewport on boards larger than the whole-board budget", async () => {
+  const built = buildNewBoard({ name: "large view", coordSystem: "2d", pixelCoordinates: false, width: 126, height: 126, layers: 1, backgroundImage: "", template: null });
+  ok(built.ok, built.ok ? "" : built.message);
+  if (!built.ok) return;
+  const host = createMemoryPlatformServices({ files: {} });
+  const whole = await previewBoard(host.fs, "memory-project", built.bytes, { purpose: "export" });
+  ok(!whole.ok, "the full board remains within its explicit whole-board budget");
+  const view = await previewBoard(host.fs, "memory-project", built.bytes, {
+    camera: { x: 1536, y: 1536 },
+    viewport: { width: 640, height: 384 },
+    purpose: "export",
+  });
+  ok(view.ok, view.ok ? "" : view.message);
+  if (!view.ok) return;
+  equal(view.width, 640);
+  equal(view.height, 384);
 });
 
 

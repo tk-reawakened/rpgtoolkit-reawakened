@@ -137,6 +137,7 @@ function webPackageExport(doc: Document | null): PackageExportService {
 function webImageExport(doc: Document | null): ImageExportService {
   return {
     actionLabel: "Download PNG",
+    completion: "started",
     async saveFile(fileName, bytes) {
       if (fileName.includes("/") || fileName.includes(String.fromCharCode(92))) return platformError("invalid-path", "The download name must be a file name.");
       if (doc === null) return platformError("unavailable", "Browser downloads are unavailable in this document.");

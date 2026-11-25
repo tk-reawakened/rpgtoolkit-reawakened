@@ -97,6 +97,7 @@ export type BridgeMessage =
   | { readonly type: "animation-action-result"; readonly requestId: string; readonly result: AnimationActionResult }
   /** The reviewed import completed or was cancelled, or failed with a message to show. */
   | { readonly type: "import-as-scene-result"; readonly requestId: string; readonly result: PlatformResult<void> }
+  | { readonly type: "save-image-result"; readonly requestId: string; readonly result: PlatformResult<boolean> }
   /** The extension host is about to save, back up, revert or move the document: the webview answers `settled` once every edit it accepted has reached it (#2613). */
   | { readonly type: "settle"; readonly requestId: string };
 
@@ -121,6 +122,7 @@ export type EditorHostRequest =
   | { readonly type: "animation-action"; readonly requestId: string; readonly action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore"; readonly id?: string; readonly command?: AnimationCommand; readonly bitmaps?: readonly AnimationBitmap[] }
   /** Import this saved board as a native scene. The document's own identity is the only source; a webview sends no path. */
   | { readonly type: "import-as-scene"; readonly requestId: string }
+  | { readonly type: "save-image"; readonly requestId: string; readonly fileName: string; readonly bytes: Uint8Array }
   /** The answer to `settle`. It is sent after every edit the webview accepted, so the channel's order puts those edits before it. */
   | { readonly type: "settled"; readonly requestId: string };
 
@@ -153,6 +155,7 @@ export interface BridgedDocument {
   animationAction?(action: "commit" | "list" | "retry" | "restore" | "delete" | "ignore", id?: string, command?: AnimationCommand, bitmaps?: readonly AnimationBitmap[]): Promise<AnimationActionResult>;
   /** Run the reviewed import of this saved board and open the created scene; only a live board document implements it. */
   importAsScene?(): Promise<PlatformResult<void>>;
+  saveImage?(fileName: string, bytes: Uint8Array): Promise<PlatformResult<boolean>>;
   readProject(path: string): Promise<PlatformResult<Uint8Array>>;
   /** A webview answered a `settle` request: every edit it had accepted has reached this document (#2613). */
   viewSettled?(requestId: string): void;
@@ -224,6 +227,11 @@ export async function handleEditorHostRequest(
       ? platformError("unavailable", "This document has no reviewed board import.")
       : await document.importAsScene();
     await postMessage({ type: "import-as-scene-result", requestId: request.requestId, result });
+  } else if (request.type === "save-image") {
+    const result = document.saveImage === undefined
+      ? platformError("unavailable", "This document cannot save image exports.")
+      : await document.saveImage(request.fileName, request.bytes);
+    await postMessage({ type: "save-image-result", requestId: request.requestId, result });
   } else if (request.type === "preview") {
     await postMessage({ type: "preview-result", requestId: request.requestId, picture: await document.preview(request.request) });
   } else if (request.type === "visit" || request.type === "visit-reference") {
@@ -360,6 +368,7 @@ function isPreviewRequest(value: unknown): value is BoardPreviewRequest {
   const purpose = "purpose" in value ? value.purpose : undefined;
   const camera = "camera" in value ? value.camera : undefined;
   const viewport = "viewport" in value ? value.viewport : undefined;
+  const preserveComposition = "preserveComposition" in value ? value.preserveComposition : undefined;
   const layersOk = layers === undefined || (Array.isArray(layers) && layers.length <= 1024 && layers.every((layer) => Number.isInteger(layer) && layer >= 0));
   const cameraOk = camera === undefined || (typeof camera === "object" && camera !== null && "x" in camera && "y" in camera
     && typeof camera.x === "number" && Number.isFinite(camera.x) && typeof camera.y === "number" && Number.isFinite(camera.y));
@@ -368,7 +377,8 @@ function isPreviewRequest(value: unknown): value is BoardPreviewRequest {
     && Number.isSafeInteger(viewport.width) && Number.isSafeInteger(viewport.height) && viewport.width > 0 && viewport.height > 0);
   return layersOk && (background === undefined || typeof background === "boolean") && (sprites === undefined || typeof sprites === "boolean")
     && (images === undefined || typeof images === "boolean") && (shading === undefined || typeof shading === "boolean")
-    && (lighting === undefined || typeof lighting === "boolean") && (purpose === undefined || purpose === "export") && cameraOk && viewportOk;
+    && (lighting === undefined || typeof lighting === "boolean") && (preserveComposition === undefined || typeof preserveComposition === "boolean")
+    && (purpose === undefined || purpose === "export") && cameraOk && viewportOk;
 }
 
 function isProjectPath(value: unknown): value is string {
@@ -426,6 +436,8 @@ export function isEditorHostRequest(value: unknown): value is EditorHostRequest 
   if (value.type === "save" || value.type === "return-visit" || value.type === "settled") return true;
   if (value.type === "workbench-history") return "direction" in value && (value.direction === "undo" || value.direction === "redo");
   if (value.type === "import-as-scene") return true;
+  if (value.type === "save-image") return "fileName" in value && typeof value.fileName === "string" && value.fileName !== ""
+    && !/[\\/]/.test(value.fileName) && "bytes" in value && value.bytes instanceof Uint8Array;
   if (value.type === "preview") return !("request" in value) || value.request === undefined || isPreviewRequest(value.request);
   if (value.type === "visit" || value.type === "visit-reference") return "path" in value && typeof value.path === "string" && value.path !== "";
   if (value.type === "visit-source") return "path" in value && typeof value.path === "string" && value.path !== ""
@@ -459,6 +471,7 @@ export class RemoteDocument {
   private readonly pendingPicks = new Map<string, (outcome: PickOutcome) => void>();
   private readonly pendingBrowserLists = new Map<string, (result: PlatformResult<readonly DirectoryEntry[]>) => void>();
   private readonly pendingBrowserReads = new Map<string, (result: PlatformResult<Uint8Array>) => void>();
+  private readonly pendingImageSaves = new Map<string, (result: PlatformResult<boolean>) => void>();
   private readonly pendingAnimationActions = new Map<string, (result: AnimationActionResult) => void>();
   private readonly pendingImports = new Map<string, (result: PlatformResult<void>) => void>();
   private nextRequest = 0;
@@ -563,6 +576,13 @@ export class RemoteDocument {
     return new Promise((resolve) => {
       this.pendingPreviews.set(requestId, resolve);
       this.vscode.postMessage({ type: "preview", requestId, ...(request === undefined ? {} : { request }) });
+    });
+  }
+  saveImage(fileName: string, bytes: Uint8Array): Promise<PlatformResult<boolean>> {
+    const requestId = `save-image-${++this.nextRequest}`;
+    return new Promise((resolve) => {
+      this.pendingImageSaves.set(requestId, resolve);
+      this.vscode.postMessage({ type: "save-image", requestId, fileName, bytes });
     });
   }
 
@@ -682,6 +702,10 @@ export class RemoteDocument {
     }
     if (message.type === "import-as-scene-result") {
       this.settle(this.pendingImports, message.requestId, message.result);
+      return;
+    }
+    if (message.type === "save-image-result") {
+      this.settle(this.pendingImageSaves, message.requestId, message.result);
       return;
     }
     if (message.type === "preview-result") {

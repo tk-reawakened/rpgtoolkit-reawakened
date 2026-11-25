@@ -73,10 +73,11 @@ function cropCurrentView(
       const sourceX = Math.floor((x + 0.5) / zoom + cameraX);
       if (sourceX < 0 || sourceY < 0 || sourceX >= sourceWidth || sourceY >= sourceHeight) continue;
       const source = (sourceY * sourceWidth + sourceX) * 4;
-      cropped[target] = rgba[source]!;
-      cropped[target + 1] = rgba[source + 1]!;
-      cropped[target + 2] = rgba[source + 2]!;
-      cropped[target + 3] = rgba[source + 3]!;
+      const alpha = rgba[source + 3]!;
+      const backgroundAlpha = 255 - alpha;
+      cropped[target] = Math.round((rgba[source]! * alpha + 30 * backgroundAlpha) / 255);
+      cropped[target + 1] = Math.round((rgba[source + 1]! * alpha + 30 * backgroundAlpha) / 255);
+      cropped[target + 2] = Math.round((rgba[source + 2]! * alpha + 30 * backgroundAlpha) / 255);
     }
   }
   return cropped;
@@ -568,8 +569,15 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       const zoom = zoomOf(state.viewport);
       const viewWidth = Math.max(1, Math.round(state.viewport.width));
       const viewHeight = Math.max(1, Math.round(state.viewport.height));
+      const sourceWidth = Math.max(1, Math.ceil(viewWidth / zoom));
+      const sourceHeight = Math.max(1, Math.ceil(viewHeight / zoom));
       const request: BoardPreviewRequest = {
-        ...(exportScope === "view" ? editor.pictureRequest() : {}),
+        ...(exportScope === "view" ? {
+          ...editor.pictureRequest(),
+          camera: { x: state.viewport.x, y: state.viewport.y },
+          viewport: { width: sourceWidth, height: sourceHeight },
+          preserveComposition: true,
+        } : {}),
         showSprites: exportSprites,
         showImages: exportImages,
         showShading: exportShading,
@@ -585,7 +593,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       const width = exportScope === "view" ? viewWidth : picture.width;
       const height = exportScope === "view" ? viewHeight : picture.height;
       const rgba = exportScope === "view"
-        ? cropCurrentView(picture.rgba, picture.width, picture.height, state.viewport.x, state.viewport.y, zoom, width, height)
+        ? cropCurrentView(picture.rgba, picture.width, picture.height, 0, 0, zoom, width, height)
         : picture.rgba;
       const bytes = encodeScenePng({ w: width, h: height, rgba });
       if (!current()) return;
@@ -623,7 +631,7 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       setExportOpen(false);
       setExportBytes(null);
       setExportFileName(null);
-      setExportMessage(`${exportFileName} was saved.`);
+      setExportMessage(imageExport.completion === "saved" ? `${exportFileName} was saved.` : `The download for ${exportFileName} was started by the browser.`);
     } catch (error) {
       if (exportGeneration.current === generation) setExportMessage(error instanceof Error ? error.message : "The PNG could not be saved.");
     } finally {

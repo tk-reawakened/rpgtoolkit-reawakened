@@ -161,6 +161,8 @@ export interface ShellService {
 export interface ImageExportService {
   /** Short label for the explicit host action (for example `Download PNG` or `Save PNG`). */
   readonly actionLabel: string;
+  /** Browser downloads can be initiated but not confirmed as saved; native hosts confirm the write. */
+  readonly completion: "saved" | "started";
   saveFile(fileName: string, bytes: Uint8Array): Promise<PlatformResult<boolean>>;
 }
 

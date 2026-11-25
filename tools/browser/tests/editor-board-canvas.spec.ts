@@ -374,14 +374,16 @@ test("production browser board export downloads the current view and full board 
   await create.getByLabel("Layers").fill("2");
   await create.getByRole("button", { name: "Create board" }).click();
 
+  const canvas = page.locator("canvas.tkr-board-canvas");
+  await page.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source').click();
+  const [canvasWidth, canvasHeight] = await canvas.evaluate((element) => [(element as HTMLCanvasElement).width, (element as HTMLCanvasElement).height]);
+  await canvas.click({ position: { x: canvasWidth / 2, y: canvasHeight / 2 } });
   await page.keyboard.press("Control+Shift+P");
   const search = page.getByRole("combobox", { name: "Search commands and files" });
   await search.fill("Board: Export PNG");
   await page.getByRole("button", { name: "Edit Board: Export PNG…", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Export board image" });
   await expect(dialog).toBeVisible();
-  const canvas = page.locator("canvas.tkr-board-canvas");
-  const [canvasWidth, canvasHeight] = await canvas.evaluate((element) => [(element as HTMLCanvasElement).width, (element as HTMLCanvasElement).height]);
   await dialog.getByRole("button", { name: "Prepare PNG" }).click();
   await expect(dialog.getByRole("button", { name: "Download PNG" })).toBeEnabled();
   const viewDownloadPromise = page.waitForEvent("download");
@@ -395,6 +397,30 @@ test("production browser board export downloads the current view and full board 
   const viewHeader = new DataView(viewPng.buffer, viewPng.byteOffset, viewPng.byteLength);
   expect(viewHeader.getUint32(16)).toBe(canvasWidth);
   expect(viewHeader.getUint32(20)).toBe(canvasHeight);
+  const viewPixels = await page.evaluate(async (bytes) => {
+    const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
+    const target = document.createElement("canvas");
+    target.width = image.width;
+    target.height = image.height;
+    const context = target.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    return Array.from(context.getImageData(0, 0, image.width, image.height).data);
+  }, [...viewPng]);
+  const canvasPixels = await canvas.evaluate((element) => {
+    const target = element as HTMLCanvasElement;
+    const pixels = target.getContext("2d")!.getImageData(0, 0, target.width, target.height).data;
+    const displayed = new Uint8ClampedArray(pixels);
+    for (let offset = 0; offset < displayed.length; offset += 4) {
+      const alpha = displayed[offset + 3]!;
+      const backgroundAlpha = 255 - alpha;
+      displayed[offset] = Math.round((displayed[offset]! * alpha + 30 * backgroundAlpha) / 255);
+      displayed[offset + 1] = Math.round((displayed[offset + 1]! * alpha + 30 * backgroundAlpha) / 255);
+      displayed[offset + 2] = Math.round((displayed[offset + 2]! * alpha + 30 * backgroundAlpha) / 255);
+      displayed[offset + 3] = 255;
+    }
+    return Array.from(displayed);
+  });
+  expect(viewPixels).toEqual(canvasPixels);
 
   const wholeDialogButton = page.getByRole("button", { name: "Export PNG…" });
   await wholeDialogButton.click();
@@ -411,4 +437,17 @@ test("production browser board export downloads the current view and full board 
   const wholeHeader = new DataView(wholePng.buffer, wholePng.byteOffset, wholePng.byteLength);
   expect(wholeHeader.getUint32(16)).toBe(256);
   expect(wholeHeader.getUint32(20)).toBe(256);
+  const wholeColorCount = await page.evaluate(async (bytes) => {
+    const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
+    const target = document.createElement("canvas");
+    target.width = image.width;
+    target.height = image.height;
+    const context = target.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    const colors = new Set<string>();
+    for (let offset = 0; offset < pixels.length; offset += 4) colors.add(`${pixels[offset]},${pixels[offset + 1]},${pixels[offset + 2]},${pixels[offset + 3]}`);
+    return colors.size;
+  }, [...wholePng]);
+  expect(wholeColorCount).toBeGreaterThan(1);
 });

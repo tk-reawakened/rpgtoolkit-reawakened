@@ -135,6 +135,25 @@ test("hiding placed images preserves the background and excludes hidden tile-bit
   deepEqual(pixel(picture, 0, 0), [...red, 255], "the separately controlled background remains visible");
   deepEqual(picture.objectBounds, [], "hidden image objects have no export bounds");
 });
+test("hidden-layer tile-bitmap images are removed before hydration reads their tileset dependencies", async () => {
+  const built = buildNewBoard({ name: "layers", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  const empty = { tile: "", r: 0, g: 0, b: 0 };
+  const stamp = writeTileBitmap({
+    magic: TILE_BITMAP_MAGIC, major: 3, minor: 0, width: 1, height: 1,
+    cells: [{ ...empty, tile: "missing.tst1" }, empty, empty, empty], residue: new Uint8Array(),
+  });
+  ok(stamp.ok);
+  const parsed = readBoard(new BinaryReader(built.bytes));
+  ok(parsed.ok);
+  const bytes = writeBoard({ ...parsed.value, images: [{ ...image("hidden.tbm"), layer: 2 }] });
+  ok(bytes.ok);
+  const host = createMemoryPlatformServices({ files: { "Bitmap/hidden.tbm": stamp.value } });
+  const picture = await previewBoard(host.fs, "memory-project", bytes.value, { visibleLayers: [0] });
+  ok(picture.ok, picture.ok ? "" : picture.message);
+  deepEqual(picture.warnings, []);
+  deepEqual(picture.objectBounds, []);
+});
 
 
 test("stretched image bounds match the compositor's board-sized picture rather than the stored origin", async () => {

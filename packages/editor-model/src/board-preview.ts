@@ -1,6 +1,7 @@
 import {
   PACKAGE_ROOT,
   assetKey,
+  boardGrid,
   composeBoard,
   createAssetIndex,
   decodeTexture,
@@ -9,6 +10,8 @@ import {
   rasterize,
   type AssetKey,
   type AssetRoot,
+  type Board,
+  type BoardTileRun,
   type DecodedTexture,
   type DrawList,
   BinaryReader,
@@ -53,6 +56,8 @@ export interface BoardPreviewRequest {
   readonly camera?: { readonly x: number; readonly y: number };
   /** The compositor viewport; the board's full extent when absent. */
   readonly viewport?: { readonly width: number; readonly height: number };
+  /** Keep a camera crop in the full-board parallax coordinate space. */
+  readonly preserveComposition?: boolean;
   /** Whole-board image export receives a larger, still bounded pixel budget than interactive previews. */
   readonly purpose?: "export";
 }
@@ -123,6 +128,38 @@ function visibleBoard(board: WorldBoard, request: BoardPreviewRequest): WorldBoa
   };
 }
 
+function tileRunsFor(matrix: readonly number[]): BoardTileRun[] {
+  const runs: BoardTileRun[] = [];
+  for (let start = 0; start < matrix.length;) {
+    const lutIndex = matrix[start]!;
+    let end = start + 1;
+    while (end < matrix.length && matrix[end] === lutIndex) end += 1;
+    for (let remaining = end - start; remaining > 0;) {
+      const count = Math.min(remaining, 32_768);
+      runs.push({ lutIndex, count, marker: count > 1 });
+      remaining -= count;
+    }
+    start = end;
+  }
+  return runs;
+}
+
+function withoutHiddenLayerAssets(board: Board, visibleLayers: ReadonlySet<number>): Board {
+  const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
+  const cellsPerLayer = grid.width * grid.height;
+  const tileMatrix = board.tileMatrix.map((lutIndex, index) =>
+    visibleLayers.has(Math.floor(index / cellsPerLayer)) ? lutIndex : 0,
+  );
+  const usedLut = new Set(tileMatrix);
+  return {
+    ...board,
+    tileMatrix,
+    tileRuns: tileRunsFor(tileMatrix),
+    lut: board.lut.map((reference, index) => usedLut.has(index) ? reference : ""),
+    images: board.images.filter((image) => visibleLayers.has(image.layer - 1)),
+  };
+}
+
 async function projectPaths(storage: PreviewStorage): Promise<string[] | string> {
   const paths: string[] = [];
   const folders = [""];
@@ -167,18 +204,20 @@ export async function previewBoard(
   if (!Number.isFinite(camera.x) || !Number.isFinite(camera.y)) return { ok: false, message: "The requested board view has an invalid camera position." };
   const paths = await projectPaths(storage);
   if (typeof paths === "string") return { ok: false, message: paths };
-  const dropShading = options.showShading === false && board.shadeLayers.length > 0;
-  const dropLighting = options.showLighting === false && board.lights.length > 0;
-  const dropImages = options.showImages === false && board.images.length > 0;
-  const dropBackground = options.showBackground === false && board.properties.backgroundImage !== "";
+  const visible = options.visibleLayers === undefined ? null : new Set(options.visibleLayers);
+  const preparedBoard: Board = visible === null ? board : withoutHiddenLayerAssets(board, visible);
+  const dropShading = options.showShading === false && preparedBoard.shadeLayers.length > 0;
+  const dropLighting = options.showLighting === false && preparedBoard.lights.length > 0;
+  const dropImages = options.showImages === false && preparedBoard.images.length > 0;
+  const dropBackground = options.showBackground === false && preparedBoard.properties.backgroundImage !== "";
   let preparedBytes = boardBytes;
-  if (dropShading || dropLighting || dropImages || dropBackground) {
+  if (visible !== null || dropShading || dropLighting || dropImages || dropBackground) {
     const hidden = writeBoard({
-      ...board,
+      ...preparedBoard,
       ...(dropShading ? { shadeLayers: [] } : {}),
       ...(dropLighting ? { lights: [] } : {}),
       ...(dropImages ? { images: [] } : {}),
-      ...(dropBackground ? { properties: { ...board.properties, backgroundImage: "" } } : {}),
+      ...(dropBackground ? { properties: { ...preparedBoard.properties, backgroundImage: "" } } : {}),
     });
     if (!hidden.ok) return { ok: false, message: `The requested board content could not be hidden: ${hidden.error.message}` };
     preparedBytes = hidden.value;
@@ -193,7 +232,7 @@ export async function previewBoard(
   const warnings: string[] = [...earlyWarnings];
   const unavailable = new Set<AssetKey>();
   const imageAssets = new Set<AssetKey>();
-  for (const image of options.showImages === false ? [] : board.images ?? []) {
+  for (const image of options.showImages === false ? [] : preparedBoard.images ?? []) {
     if (image.file === "") continue;
     const resolved = resolveAsset(index, root, "bitmaps", image.file);
     if (resolved.ok) imageAssets.add(resolved.value);
@@ -285,6 +324,7 @@ export async function previewBoard(
       tick: options.tick ?? 0,
       camera,
       viewport: { width, height },
+      ...(options.preserveComposition === true ? { parallax: { camera: { x: 0, y: 0 }, viewport: { width: extent.width, height: extent.height } } } : {}),
       alpha: 0,
       include: { shading: true, images: true, sprites: options.showSprites === true },
       sprites: visibleSprites,
