@@ -508,6 +508,8 @@ class Workbench {
         await this.focusOrOpen(path);
       },
       autoSaveDelayMs: () => host.autoSaveDelayMs ?? null,
+      autoSaveMode: () => host.autoSaveMode,
+      now: () => host.nowMs ?? Date.now(),
       ...(host.settleTimers === undefined ? {} : {
         startSettleTimer: (onExpire: () => void) => {
           const timers = host.settleTimers!;
@@ -730,6 +732,9 @@ class VscodeHost implements ConformanceHost {
   readonly settleTimers: Array<() => void> | undefined;
   /** `files.autoSave` is `afterDelay` with this delay, or off when undefined; a save inside it reads as an autosave (ADR 0022 D12.10 item 3). */
   autoSaveDelayMs: number | undefined;
+  autoSaveMode: "off" | "afterDelay" | "onFocusChange" | "onWindowChange" = "off";
+  /** The provider's clock; the real one while `null`. */
+  nowMs: number | null = null;
   readonly backups = new Map<string, Uint8Array>();
   readonly #backupIdsByDocument = new Map<string, string>();
   revertCommands = 0;
@@ -978,11 +983,10 @@ export function createVscodeCharacterProofHost(
   gam: Uint8Array,
   files: Readonly<Record<string, Uint8Array>>,
   act: Act,
-  options: { readonly controlSettleTimers?: boolean; readonly autoSaveDelayMs?: number } = {},
+  options: { readonly controlSettleTimers?: boolean } = {},
 ): CharacterProofHost {
   const timers: Array<() => void> = [];
   const host = new VscodeHost(desktop, gam, act, files, options.controlSettleTimers === true ? timers : undefined);
-  host.autoSaveDelayMs = options.autoSaveDelayMs;
   return {
     name: host.name,
     async open(path): Promise<CharacterProofTab> {
@@ -992,12 +996,15 @@ export function createVscodeCharacterProofHost(
         workbenchDirty: () => editor.copy.dirty,
         holdEditAcknowledgements: () => editor.webview.holdEditResults(),
         saveFromWorkbench: () => editor.copy.save().then(() => true, () => false),
+        saveAllFromWorkbench: () => editor.copy.dirty ? editor.copy.save().then(() => true, () => false) : Promise.resolve(true),
         backupBytes: () => host.backupOf(editor.copy),
         close: (answer) => editor.close(answer),
       };
     },
     disk: (path) => host.disk(path),
     expireSettleTimers: () => { for (const expire of timers.splice(0)) expire(); },
+    configureAutoSave: (mode, delayMs) => { host.autoSaveMode = mode; host.autoSaveDelayMs = delayMs; },
+    setClock: (ms) => { host.nowMs = ms; },
     settle: () => host.settle(),
   };
 }

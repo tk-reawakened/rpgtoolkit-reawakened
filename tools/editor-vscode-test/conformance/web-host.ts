@@ -303,6 +303,10 @@ export function createWebCharacterProofHost(gam: Uint8Array, files: Readonly<Rec
           const results = await project.workspace.saveAll();
           return results.every((entry) => entry.result.ok);
         },
+        async saveAllFromWorkbench() {
+          const results = await project.workspace.saveAll();
+          return results.every((entry) => entry.result.ok);
+        },
         backupBytes: async () => model.serialize(),
         async close(answer) {
           dialogs.answer = answer;

@@ -152,40 +152,73 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       ok(tab.element.textContent?.includes("whole number from -2147483648 to 2147483647"), "and the field keeps its reason");
     });
 
-    test("a document whose only change is text still being typed is saved by the host's own save, with that text (#3385)", async () => {
+    const damageOnDisk = async (proof: CharacterProofHost): Promise<number | null> => {
+      const bytes = await proof.disk(SPC);
+      return bytes === null ? null : new DataView(bytes.buffer, bytes.byteOffset).getInt32(0x1e, true);
+    };
+    const typeWithoutLeaving = async (tab: CharacterProofTab, label: string, value: string): Promise<void> => {
+      const input = field(tab, label);
+      await act(() => { input.value = value; input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await settle(act);
+    };
+
+    test("a field still being typed in is applied by the host's own explicit save; a clean document is not offered to VS Code's Save All, which only the browser can reach (#3385)", async () => {
       const proof = host();
       const tab = await openReady(proof, SPC, "Damage (FP)");
-      const input = field(tab, "Damage (FP)");
-      await act(() => { input.value = "-30"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await typeWithoutLeaving(tab, "Damage (FP)", "-30");
+      equal(tab.workbenchDirty(), false, "typing never touches the host's undo history or dirty marker: VS Code accepts only an undoable edit event");
+      equal(await damageOnDisk(proof), 12, "nothing is written by typing");
+      equal(await tab.saveAllFromWorkbench(), true);
       await settle(act);
-      // VS Code saves only a dirty custom document, so it shows one while a field holds text; the browser's Save All
-      // settles every document explicitly first, so it needs no mark.
-      if (proof.name !== "browser host") equal(tab.workbenchDirty(), true, "VS Code shows the document as unsaved while a field holds text it does not have");
-      ok(same(await proof.disk(SPC), fireball), "nothing is written by typing");
-      equal(await tab.saveFromWorkbench(), true);
+      if (proof.name === "browser host") {
+        equal(await damageOnDisk(proof), -30, "the browser's Save All settles every document, so it writes the typed damage");
+      } else {
+        // The one condition no host contract reaches: VS Code skips a document it shows as clean, and the API forbids
+        // firing a no-undo change for one (#3385). The text stays on screen; the form's Save and Ctrl/Cmd+S apply it.
+        equal(await damageOnDisk(proof), 12, "VS Code's Save All skipped the clean document");
+        equal(field(tab, "Damage (FP)").value, "-30", "and the text is still there");
+      }
+      equal(await tab.saveFromWorkbench(), true, "the provider's own save, which VS Code calls for a dirty document, applies it");
       await settle(act);
-      const written = await proof.disk(SPC);
-      ok(written !== null && written.length === fireball.length, "the file keeps its length");
-      equal(new DataView(written.buffer, written.byteOffset).getInt32(0x1e, true), -30, "the typed damage was written");
-      equal(tab.workbenchDirty(), false);
+      equal(await damageOnDisk(proof), -30, "the typed damage was written");
     });
 
-    test("with autosave after a delay, a save inside it leaves a refused draft alone instead of refusing or applying it (#3385)", async () => {
-      if (entry === "browser host") return;
-      const { createVscodeCharacterProofHost }: typeof VscodeHost = await import("../conformance/vscode-host.ts");
-      document.body.replaceChildren();
-      const timed = createVscodeCharacterProofHost(entry === "VS Code desktop", gam, FILES, act, { autoSaveDelayMs: 60_000 });
-      const tab = await openReady(timed, SPC, "Damage (FP)");
+    const draftBesideAcceptedEdit = async (proof: CharacterProofHost): Promise<CharacterProofTab> => {
+      const tab = await openReady(proof, SPC, "Damage (FP)");
       await type(tab, "Damage (FP)", "-30");
-      const input = field(tab, "Damage (FP)");
-      await act(() => { input.value = "9999999999"; input.dispatchEvent(new Event("input", { bubbles: true })); });
+      await typeWithoutLeaving(tab, "Damage (FP)", "9999999999");
+      return tab;
+    };
+
+    test("which VS Code saves refuse a field that cannot be stored follows files.autoSave and the timer's earliest moment (#3385)", async () => {
+      if (entry === "browser host") return;
+      const proof = host();
+      proof.configureAutoSave?.("afterDelay", 60_000);
+      proof.setClock?.(1_000);
+      const tab = await draftBesideAcceptedEdit(proof);
+      proof.setClock?.(6_000);
+      equal(await tab.saveFromWorkbench(), false, "before the delay no timer can have fired: the author's save is refused");
+      equal(await damageOnDisk(proof), 12, "and nothing was written");
+      proof.setClock?.(61_500);
+      equal(await tab.saveFromWorkbench(), true, "in the second after the delay it is taken for the timer's, and saves only the accepted edit");
       await settle(act);
-      equal(await tab.saveFromWorkbench(), true, "an autosave is not refused for a field it must not judge");
-      await settle(act);
-      equal(field(tab, "Damage (FP)").value, "9999999999", "and the text stays with the author");
-      const written = await timed.disk(SPC);
-      ok(written !== null);
-      equal(new DataView(written.buffer, written.byteOffset).getInt32(0x1e, true), -30, "only the accepted edit was written");
+      equal(await damageOnDisk(proof), -30);
+      equal(field(tab, "Damage (FP)").value, "9999999999", "leaving the text with the author");
+      proof.setClock?.(80_000);
+      equal(await tab.saveFromWorkbench(), false, "long after the delay the timer would already have fired: the author's save is refused");
+    });
+
+    test("an autosave on focus or window change saves the accepted edits and leaves a text that cannot be stored alone (#3385)", async () => {
+      if (entry === "browser host") return;
+      for (const mode of ["onFocusChange", "onWindowChange"] as const) {
+        const proof = host();
+        proof.configureAutoSave?.(mode);
+        const tab = await draftBesideAcceptedEdit(proof);
+        equal(await tab.saveFromWorkbench(), true, `${mode}: not refused for text that is not the document's`);
+        await settle(act);
+        equal(await damageOnDisk(proof), -30, `${mode}: the accepted edit was written`);
+        equal(field(tab, "Damage (FP)").value, "9999999999", `${mode}: the text stays`);
+      }
     });
   });
 }

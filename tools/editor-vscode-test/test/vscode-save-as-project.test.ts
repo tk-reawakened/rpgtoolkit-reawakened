@@ -137,7 +137,7 @@ test("browser context is retained per project and cannot leak across workspace f
 test("save, revert and backup refuse when a webview cannot confirm its accepted edits", async () => {
   const { files, provider } = workspace();
   const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
-  const detach = document.attachWebview(() => Promise.resolve(false)).detach;
+  const detach = document.attachWebview(() => Promise.resolve(false));
 
   const save = await document.save();
   equal(save.ok, false);
@@ -153,9 +153,9 @@ test("save, revert and backup refuse when a webview cannot confirm its accepted 
 test("disposing a webview while its accepted edits are unsettled does not count as a handoff", async () => {
   const { provider } = workspace();
   const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
-  const detach = document.attachWebview(() => new Promise<boolean>(() => {})).detach;
+  const detach = document.attachWebview(() => new Promise<boolean>(() => {}));
 
-  const settling = document.settleViews();
+  const settling = document.settleViews("autosave");
   detach();
 
   match(await settling ?? "", /could not confirm that it handed over its accepted edits/);
@@ -253,4 +253,22 @@ test("the refusal names a root workspace folder by its path, not by an empty nam
   deepEqual(files, before, "nothing was written");
   deepEqual(projects, [ALPHA.key, ALPHA.key], "no project workspace was made for the root folder");
   equal(source.model.getSnapshot().dirty, true, "the source keeps its unsaved work");
+});
+
+test("Save As, save, backup and revert each tell the view why it is being settled, so Save As is never an autosave (#3385)", async () => {
+  const { provider } = workspace();
+  const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  const heard: string[] = [];
+  const detach = document.attachWebview((requestId, reason) => {
+    heard.push(reason ?? "none");
+    queueMicrotask(() => document.viewSettled(requestId));
+    return Promise.resolve(true);
+  });
+  await provider.saveCustomDocumentAs(document, { path: "/alpha/copy.gam" });
+  // This port writes no backup; the settlement the provider asks for comes first, which is what is observed.
+  await provider.backupCustomDocument(document, { path: "/backup" }).catch(() => undefined);
+  await provider.revertCustomDocument(document);
+  await document.save();
+  deepEqual(heard, ["explicit", "autosave", "query", "revert", "explicit"], "Save As and a save with autosave off are the author's; a backup is not");
+  detach();
 });

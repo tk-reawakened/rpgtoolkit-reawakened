@@ -75,39 +75,50 @@ export interface BattleDataForm<Snapshot extends DocumentSnapshot<Command>, Comm
 const problem = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
 /**
- * Write `edited` (LF lines, as a textarea gives them) with the endings `stored` used, line by line: a line that survives
- * keeps its own ending, a line the author added takes the ending of the line it replaced or of the one before it, and the
- * file's last ending is the fallback. Inserting or deleting a line therefore leaves every other separator untouched.
+ * Write `edited` (LF lines, as a textarea gives them) with the endings `stored` used, line by line. A line that survives
+ * keeps its own ending. Between two surviving lines, the author's changed lines take the endings of the stored lines
+ * they replace, in order, so replacing a line keeps its separator; a line added beyond those copies the ending of the line
+ * before it, and the file's last ending is the fallback. Inserting, replacing or deleting a line therefore leaves every
+ * other separator as the file wrote it.
  */
 export function restoreLineEndings(stored: string, edited: string): string {
   const oldLines = stored.split(/\r\n|\n|\r/);
   const breaks = stored.match(/\r\n|\n|\r/g) ?? [];
   const lines = edited.split("\n");
-  // Longest common subsequence of line contents: the survivors keep their index into `breaks`.
-  const kept: number[] = new Array(lines.length).fill(-1);
+  // Longest common subsequence of line contents gives the surviving lines.
   const table: number[][] = Array.from({ length: oldLines.length + 1 }, () => new Array<number>(lines.length + 1).fill(0));
   for (let i = oldLines.length - 1; i >= 0; i -= 1) {
     for (let j = lines.length - 1; j >= 0; j -= 1) {
       table[i]![j] = oldLines[i] === lines[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
     }
   }
+  const anchors: Array<readonly [number, number]> = [];
   for (let i = 0, j = 0; i < oldLines.length && j < lines.length;) {
-    if (oldLines[i] === lines[j]) { kept[j] = i; i += 1; j += 1; }
+    if (oldLines[i] === lines[j]) { anchors.push([i, j]); i += 1; j += 1; }
     else if (table[i + 1]![j]! >= table[i]![j + 1]!) i += 1;
     else j += 1;
   }
+  // `from[j]` is the stored line whose ending the new line `j` takes, or -1 when it takes its predecessor's.
+  const from: number[] = new Array(lines.length).fill(-1);
+  let previousOld = -1;
+  let previousNew = -1;
+  for (const [oldIndex, newIndex] of [...anchors, [oldLines.length, lines.length] as const]) {
+    const replaced = oldIndex - previousOld - 1;
+    for (let offset = 0; offset < newIndex - previousNew - 1; offset += 1) {
+      if (offset < replaced) from[previousNew + 1 + offset] = previousOld + 1 + offset;
+    }
+    if (newIndex < lines.length) from[newIndex] = oldIndex;
+    previousOld = oldIndex;
+    previousNew = newIndex;
+  }
   const fallback = breaks.at(-1) ?? "\n";
-  let previous = -1;
+  let last = -1;
   return lines.map((line, index) => {
     if (index === lines.length - 1) return line;
-    const survivor = kept[index] ?? -1;
-    let source: number = survivor !== -1 && survivor < breaks.length ? survivor : -1;
-    if (source === -1) {
-      // A new line takes the ending of the line it follows, so an insertion copies its neighbour rather than the file.
-      source = previous >= 0 && previous < breaks.length ? previous : -1;
-    }
-    if (source !== -1) previous = source;
-    return `${line}${source === -1 ? fallback : breaks[source]}`;
+    let source = from[index]!;
+    if (source === -1 || source >= breaks.length) source = last;
+    if (source !== -1) last = source;
+    return `${line}${source === -1 ? fallback : breaks[source]!}`;
   }).join("");
 }
 
@@ -129,8 +140,6 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
   const publishDrafts = (next: Readonly<Record<string, string>>): void => {
     draftsRef.current = next;
     setDrafts(next);
-    // The host shows the document as unsaved while a field holds text it does not have, so its own Save All reaches it.
-    pendingEdits.draftChanged();
   };
   const fields = useRef(new Map<string, () => Promise<void>>());
   const saved = `${what[0]!.toUpperCase()}${what.slice(1)} saved.`;
@@ -399,12 +408,12 @@ export function useLinkedFile(
   useEffect(() => {
     let active = true;
     const wanted = extensions.join(",") === "" ? [] : extensions.join(",").split(",");
-    const trimmed = reference.trim();
-    if (trimmed === "") {
+    // Looked up exactly as stored: the game does not trim a reference, so text that only differs by a space is another file.
+    if (reference === "") {
       setLinked({ state: "none" });
       return () => { active = false; };
     }
-    const refused = linkReferenceProblem(trimmed);
+    const refused = linkReferenceProblem(reference);
     if (refused !== null) {
       setLinked({ state: "invalid", message: refused });
       return () => { active = false; };
@@ -413,7 +422,7 @@ export function useLinkedFile(
     setLinked({ state: "checking" });
     void (async () => {
       let missing: { readonly path: string; readonly message: string } | null = null;
-      for (const candidate of linkedFileCandidates(folder, trimmed, wanted, completeExtension)) {
+      for (const candidate of linkedFileCandidates(folder, reference, wanted, completeExtension)) {
         let path = candidate;
         // The project stores one spelling of a name; a host that can list folders finds it, so `Burn.STE` on disk is
         // found from `burn.ste` even where the file system is case-sensitive.
@@ -490,7 +499,7 @@ export function LinkRow<Command>({ form, id, label, value, hint, kind, extension
       {navigation.pickAsset !== undefined && <button type="button" aria-label={`Choose ${label.toLowerCase()}`} disabled={busy} onClick={() => void choose()}>Choose…</button>}
       {navigation.open !== undefined && <button type="button" aria-label={`Open ${label.toLowerCase()}`} disabled={linked.state !== "found"} onClick={() => void openLinked()}>Open</button>}
     </p>
-    {linked.state === "checking" && <p role="status">Checking {(drafts[id] ?? value).trim()}…</p>}
+    {linked.state === "checking" && <p role="status">Checking {drafts[id] ?? value}…</p>}
     {linked.state === "collision" && <p role="status">{linked.message} The reference is kept as typed; rename one of the files.</p>}
     {linked.state === "invalid" && <p role="status">{linked.message} The reference is kept as typed. Choose the file, or type a file inside this folder.</p>}
     {linked.state === "missing" && <p role="status">{linked.path} is not in the project ({linked.message}). The reference is kept as typed.</p>}

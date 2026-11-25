@@ -156,6 +156,10 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
       } finally { nativeRestoreGroups.delete(key); }
     },
     saveEditor: async (uri) => await vscode.workspace.save(uri),
+    autoSaveMode: (uri) => {
+      const mode = vscode.workspace.getConfiguration("files", uri).get<string>("autoSave");
+      return mode === "afterDelay" || mode === "onFocusChange" || mode === "onWindowChange" ? mode : "off";
+    },
     autoSaveDelayMs: (uri) => {
       const files = vscode.workspace.getConfiguration("files", uri);
       return files.get<string>("autoSave") === "afterDelay" ? files.get<number>("autoSaveDelay", 1000) : null;

@@ -369,18 +369,23 @@ test("a backup or query settle neither refuses nor applies a refused draft, and 
   } finally { view.dispose(); }
 });
 
-test("inserting a line keeps every surviving description separator as the file wrote it", async () => {
-  // The stored description is "One\r\nTwo": a mixed-ending file is not needed to prove the separators survive an insert.
-  const stored = new Uint8Array([...patched(fireball, {}).slice(0, 0x43), ...Uint8Array.from("One\r\nTwo\0", (c) => c.charCodeAt(0))]);
-  const view = await mountWithPending({ [SPC]: stored, [STE]: burn });
-  try {
-    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
-    ok(area);
-    await act(() => { area.value = "One\nInserted\nTwo"; area.dispatchEvent(new Event("change", { bubbles: true })); });
-    await settle();
-    const saved = view.doc.serialize();
-    equal(new TextDecoder("windows-1252").decode(saved.slice(0x43, saved.length - 1)), "One\r\nInserted\r\nTwo", "the surviving separator is unchanged and the added line copies it");
-  } finally { view.dispose(); }
+test("editing a description keeps every separator the file wrote: insert, replace and delete lines in mixed endings", async () => {
+  const through = async (stored: string, typed: string): Promise<string> => {
+    const bytes = new Uint8Array([...fireball.slice(0, 0x43), ...Uint8Array.from(`${stored}\0`, (c) => c.charCodeAt(0))]);
+    const view = await mountWithPending({ [SPC]: bytes, [STE]: burn });
+    try {
+      const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+      ok(area);
+      await act(() => { area.value = typed; area.dispatchEvent(new Event("change", { bubbles: true })); });
+      await settle();
+      const saved = view.doc.serialize();
+      return new TextDecoder("windows-1252").decode(saved.slice(0x43, saved.length - 1));
+    } finally { view.dispose(); }
+  };
+  equal(await through("One\r\nTwo", "One\nInserted\nTwo"), "One\r\nInserted\r\nTwo", "an inserted line copies its neighbour's ending");
+  equal(await through("A\r\nB\nC", "X\nB\nC"), "X\r\nB\nC", "a replaced line keeps the separator it had");
+  equal(await through("A\r\nB\nC", "A\nC"), "A\r\nC", "deleting a line leaves the others' separators");
+  equal(await through("A\r\nB\nC", "A\nB\nZ"), "A\r\nB\nZ", "the last line keeps its absence of a separator");
 });
 
 test("a status reference without its extension resolves as the runtime does, and a program reference does not", async () => {
@@ -401,5 +406,9 @@ test("a status reference without its extension resolves as the runtime does, and
     const programs = field(root, "Program file").closest("fieldset");
     ok(programs !== null);
     equal(button(programs as HTMLElement, "Open program").disabled, true, "Open is never offered for a file the game will not load");
+    // The game does not trim a stored reference, so a name with a space around it is another file, not `burn`.
+    await act(() => { const input = field(root, "Status effect file"); input.value = " burn"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await until(() => root.textContent?.includes("StatusE/ burn.ste is not in the project") === true, "a reference with a leading space is looked up as stored and is not found");
+    ok(root.textContent?.includes("Burn: 3 rounds") !== true, "and the linked status effect is not previewed");
   } finally { handle.dispose(); root.remove(); }
 });

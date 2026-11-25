@@ -44,9 +44,10 @@ export function describeLinkedStatusEffect(bytes: Uint8Array, path: string): Lin
  * without answering.
  */
 export function linkReferenceProblem(reference: string): string | null {
-  const trimmed = reference.trim();
-  if (trimmed === "") return null;
-  const slashed = trimmed.split("\\").join("/");
+  // The reference is looked up exactly as stored: the game does not trim it, so a name with a space around it names a
+  // different file than the same name without.
+  if (reference === "") return null;
+  const slashed = reference.split("\\").join("/");
   if (/^\/|^[A-Za-z]:/.test(slashed)) return "A reference is relative to its own folder and cannot start with a separator or a drive.";
   const segments = slashed.split("/");
   if (segments.some((segment) => segment === "." || segment === "..")) return "A reference cannot step out of its folder with a \".\" or \"..\" segment.";
@@ -67,7 +68,7 @@ export function linkedFileCandidates(
   complete: boolean,
 ): readonly string[] {
   const base = folder.replace(/\/+$/, "");
-  const inside = reference.trim().split("\\").join("/").replace(/^\/+/, "");
+  const inside = reference.split("\\").join("/").replace(/^\/+/, "");
   // A reference that repeats the type folder (`StatusE\burn.ste`) names the same file as the bare name, so the folder
   // prefix is dropped before looking it up.
   const head = base.slice(base.lastIndexOf("/") + 1).toLowerCase();

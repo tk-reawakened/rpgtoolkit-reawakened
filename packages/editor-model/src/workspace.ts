@@ -343,12 +343,15 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     }
     // A document-level close cannot invalidate a model still owned by views.
     if (view === undefined && attached !== undefined && attached.size > 0) return { closed: false, reason: "cancelled" };
-    // Complete every submitted request before deciding whether this document is dirty and what to ask about. A
-    // settlement that could not complete, or a field the file cannot store, closes nothing.
-    const settled = await pendingEditsOf(document).settle("explicit");
+    // Complete every submitted request before deciding whether this document is dirty and what to ask about. This only
+    // hands accepted edits over (`query`): a field the file cannot store must not stop the question, because Don't save
+    // is a valid answer to it. A settlement that could not complete closes nothing.
+    const settled = await pendingEditsOf(document).settle("query");
     if (!settled.ok) return { closed: false, reason: "save-failed", failure: { document: document.identity.path, kind: "format", code: null, message: settled.message } };
     const snapshot = document.getSnapshot();
-    if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null)) {
+    // Text a field holds and the document does not is unsaved work too: closing asks about it, so "Don't save" is always
+    // an answer and a field the file cannot store never makes the close fail before the question.
+    if (documents.get(document.identity.key) === document && (snapshot.dirty || snapshot.conflict !== null || pendingEditsOf(document).holdsDraft())) {
       const path = document.identity.path;
       const answer = await dialogs.ask({
         message: `Save the changes to ${path} before closing it?`,
@@ -362,8 +365,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       });
       if (answer === "cancel") return { closed: false, reason: "cancelled" };
       if (answer === "save") {
-        // An edit accepted while the question was open is saved with the rest.
-        await pendingEditsOf(document).settle();
+        // An edit accepted while the question was open is saved with the rest. Closing with Save is explicit: a field the
+        // file cannot store keeps the document open with its reason instead of being closed over.
+        const settled = await pendingEditsOf(document).settle("explicit");
+        if (!settled.ok) return { closed: false, reason: "save-failed", failure: { document: path, kind: "format", code: null, message: settled.message } };
         const saved = await document.save();
         if (!saved.ok) return { closed: false, reason: "save-failed", failure: saved.failure };
         const current = document.getSnapshot();
@@ -642,18 +647,16 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
     },
     async saveAll(reason: HistoryReason = "manual") {
       const results: SaveAllEntry[] = [];
-      // Every view's accepted requests must complete before any dirty flag is read.
       // Save All is explicit: each view applies the field being typed in, and one that cannot be stored refuses that
-      // document's save with its reason instead of being written around.
-      const refusals = new Map<string, string>();
-      await Promise.all([...documents.values()].map(async (document) => {
-        const outcome = await pendingEditsOf(document).settle("explicit");
-        if (!outcome.ok) refusals.set(document.identity.key, outcome.message);
-      }));
+      // document's save with its reason instead of being written around. Each document settles immediately before its own
+      // write, not all up front: a field typed into a later document while an earlier one writes is settled too, so no
+      // document is saved around text the author entered after Save All began. Every view's accepted requests complete
+      // before that document's dirty flag is read.
       for (const document of [...documents.values()]) {
-        const refusal = refusals.get(document.identity.key);
-        if (refusal !== undefined) {
-          results.push({ document: document.identity.path, result: { ok: false, failure: { document: document.identity.path, kind: "format", code: null, message: refusal } } });
+        if (documents.get(document.identity.key) !== document) continue;
+        const outcome = await pendingEditsOf(document).settle("explicit");
+        if (!outcome.ok) {
+          results.push({ document: document.identity.path, result: { ok: false, failure: { document: document.identity.path, kind: "format", code: null, message: outcome.message } } });
           continue;
         }
         if (!document.getSnapshot().dirty) continue;
@@ -692,7 +695,7 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
       const snapshot = document.getSnapshot();
       // The edit in force when the user answers: an edit accepted while the question was open is not silently dropped.
       let head = snapshot.edits.at(-1)?.editId ?? null;
-      if (snapshot.dirty || snapshot.conflict !== null) {
+      if (snapshot.dirty || snapshot.conflict !== null || pendingEditsOf(document).holdsDraft()) {
         const answer = await dialogs.ask({
           message: `Revert ${document.identity.path} to the version on disk?`,
           detail: "Your unsaved changes are discarded.",

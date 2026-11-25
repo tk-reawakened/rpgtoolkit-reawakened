@@ -102,8 +102,6 @@ export type BridgeMessage =
 
 export type EditorHostRequest =
   | { readonly type: "ready" }
-  /** The view holds, or no longer holds, text the document does not; the provider shows the document as unsaved meanwhile (#3385). */
-  | { readonly type: "drafts"; readonly pending: boolean }
   | { readonly type: "edit"; readonly command: unknown; readonly requestId: string }
   | { readonly type: "save"; readonly requestId: string }
   | { readonly type: "workbench-history"; readonly requestId: string; readonly direction: HistoryDirection }
@@ -210,9 +208,6 @@ export async function handleEditorHostRequest(
   } else if (request.type === "save") {
     const result = await document.saveThroughWorkbench();
     await postMessage({ type: "save-result", requestId: request.requestId, result, snapshot: document.model.getSnapshot() });
-  } else if (request.type === "drafts") {
-    // Per view: the provider's webview handler records it against the view that sent it, before this runs.
-    return;
   } else if (request.type === "settled") {
     document.viewSettled?.(request.requestId, request.ok !== false, request.message);
   } else if (request.type === "read-project") {
@@ -415,7 +410,6 @@ function applyBrowserStatePatch(session: BrowserSession, changes: BrowserStatePa
 export function isEditorHostRequest(value: unknown): value is EditorHostRequest {
   if (typeof value !== "object" || value === null || !("type" in value)) return false;
   if (value.type === "ready") return true;
-  if (value.type === "drafts") return "pending" in value && typeof value.pending === "boolean";
   if (value.type === "browser-context") return "changes" in value && isBrowserStatePatch(value.changes);
   if (!("requestId" in value) || typeof value.requestId !== "string") return false;
   if (value.type === "browser-list" || value.type === "browser-read" || value.type === "read-project") return "path" in value && isProjectPath(value.path);
@@ -491,7 +485,6 @@ export class RemoteDocument {
     this.vscode = vscode;
     this.browserSession = createBrowserSession(browserState);
     this.initialBoardPath = initialBoardPath;
-    this.pendingEdits.onDraftChange((pending) => this.vscode.postMessage({ type: "drafts", pending }));
     this.browserSession.subscribe((changes) => {
       if (!this.applyingBrowserState) this.vscode.postMessage({ type: "browser-context", changes });
     });
