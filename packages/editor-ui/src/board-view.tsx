@@ -27,6 +27,7 @@ import {
     type SaveFailure,
     type Stamp,
     type BoardPreviewRequest,
+    boardExtent,
     encodeScenePng,
 } from "@tk-reawakened/editor-model";
 import type { Capabilities, ClipboardService, DocumentEdited, ImageExportService } from "@tk-reawakened/platform-services";
@@ -58,20 +59,25 @@ function cropCurrentView(
   cameraX: number,
   cameraY: number,
   zoom: number,
+  boardWidth: number,
+  boardHeight: number,
   width: number,
   height: number,
 ): Uint8Array {
   const cropped = new Uint8Array(width * height * 4);
   for (let y = 0; y < height; y += 1) {
-    const sourceY = Math.floor((y + 0.5) / zoom + cameraY);
+    const worldY = cameraY + (y + 0.5) / zoom;
+    const sourceY = Math.floor((y + 0.5) / zoom);
     for (let x = 0; x < width; x += 1) {
       const target = (y * width + x) * 4;
       cropped[target] = 30;
       cropped[target + 1] = 30;
       cropped[target + 2] = 30;
       cropped[target + 3] = 255;
-      const sourceX = Math.floor((x + 0.5) / zoom + cameraX);
-      if (sourceX < 0 || sourceY < 0 || sourceX >= sourceWidth || sourceY >= sourceHeight) continue;
+      const worldX = cameraX + (x + 0.5) / zoom;
+      const sourceX = Math.floor((x + 0.5) / zoom);
+      if (worldX < 0 || worldY < 0 || worldX >= boardWidth || worldY >= boardHeight
+        || sourceX < 0 || sourceY < 0 || sourceX >= sourceWidth || sourceY >= sourceHeight) continue;
       const source = (sourceY * sourceWidth + sourceX) * 4;
       const alpha = rgba[source + 3]!;
       const backgroundAlpha = 255 - alpha;
@@ -592,8 +598,9 @@ export function BoardView({ doc, capabilities, onEdited, browser, preferences, n
       }
       const width = exportScope === "view" ? viewWidth : picture.width;
       const height = exportScope === "view" ? viewHeight : picture.height;
+      const extent = boardExtent({ coordType: snapshot.coordType, sizeX: snapshot.sizeX, sizeY: snapshot.sizeY });
       const rgba = exportScope === "view"
-        ? cropCurrentView(picture.rgba, picture.width, picture.height, 0, 0, zoom, width, height)
+        ? cropCurrentView(picture.rgba, picture.width, picture.height, state.viewport.x, state.viewport.y, zoom, extent.width, extent.height, width, height)
         : picture.rgba;
       const bytes = encodeScenePng({ w: width, h: height, rgba });
       if (!current()) return;

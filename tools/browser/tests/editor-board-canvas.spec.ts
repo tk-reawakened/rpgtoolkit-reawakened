@@ -1,15 +1,19 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 import { BinaryReader, readBoard, writeTileBitmap } from "@tk-reawakened/core";
+import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import {
   boardExtent,
   boardToScreen,
   cellCentre,
   clampViewport,
+  DEFAULT_ZOOM_INDEX,
   pixelToCell,
+  previewBoard,
   screenToBoard,
+  zoomOf,
   zoomTo,
   type BoardShape,
   type Cell,
@@ -86,6 +90,20 @@ async function readFolderFile(page: Page, folder: string, path: string): Promise
     return Array.from(new Uint8Array(await found.arrayBuffer()));
   }, { name: folder, file: path });
   return Uint8Array.from(bytes);
+}
+
+async function pngPixelHash(page: Page, png: Uint8Array): Promise<string> {
+  return page.evaluate(async (bytes) => {
+    const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
+    const target = document.createElement("canvas");
+    target.width = image.width;
+    target.height = image.height;
+    const context = target.getContext("2d")!;
+    context.drawImage(image, 0, 0);
+    const pixels = context.getImageData(0, 0, image.width, image.height).data;
+    const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(pixels));
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }, Array.from(png));
 }
 
 const cellButton = (page: Page, cell: Cell, text: string): Locator =>
@@ -363,7 +381,7 @@ test("focused editor palette, shared Save and keyboard result visibility", async
 });
 
 test("production browser board export downloads the current view and full board from the registered action", async ({ page }) => {
-  await installFolder(page, [{ path: "Game/example.gam", bytes: validMain }, { path: "Tiles/village.tst", bytes: tileset }]);
+  const folder = await installFolder(page, [{ path: "Game/example.gam", bytes: validMain }, { path: "Tiles/village.tst", bytes: tileset }]);
   await page.goto(EDITOR_URL);
   await page.getByRole("button", { name: "Open project folder" }).click();
   await page.getByRole("button", { name: "New board…" }).click();
@@ -378,6 +396,36 @@ test("production browser board export downloads the current view and full board 
   await page.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source').click();
   const [canvasWidth, canvasHeight] = await canvas.evaluate((element) => [(element as HTMLCanvasElement).width, (element as HTMLCanvasElement).height]);
   await canvas.click({ position: { x: canvasWidth / 2, y: canvasHeight / 2 } });
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect(state(page)).toHaveText("All changes saved");
+  const boardBytes = await readFolderFile(page, folder, "Boards/export-proof.brd");
+  const parsed = readBoard(new BinaryReader(boardBytes));
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  const shape = { coordType: parsed.value.coordType, sizeX: parsed.value.sizeX, sizeY: parsed.value.sizeY };
+  const extent = boardExtent(shape);
+  const previewHost = createMemoryPlatformServices({ files: { "Tiles/village.tst": Uint8Array.from(tileset) } });
+  const expectedWhole = await previewBoard(previewHost.fs, "memory-project", boardBytes, { purpose: "export" });
+  if (!expectedWhole.ok) throw new Error(expectedWhole.message);
+  const expectedWholeHash = createHash("sha256").update(expectedWhole.rgba).digest("hex");
+  const expectedViewport = clampViewport(shape, { x: 0, y: 0, zoomIndex: DEFAULT_ZOOM_INDEX, width: canvasWidth, height: canvasHeight });
+  const zoom = zoomOf(expectedViewport);
+  const expectedViewPixels = new Uint8Array(canvasWidth * canvasHeight * 4);
+  for (let y = 0; y < canvasHeight; y += 1) {
+    const worldY = expectedViewport.y + (y + 0.5) / zoom;
+    for (let x = 0; x < canvasWidth; x += 1) {
+      const target = (y * canvasWidth + x) * 4;
+      expectedViewPixels.set([30, 30, 30, 255], target);
+      const worldX = expectedViewport.x + (x + 0.5) / zoom;
+      if (worldX < 0 || worldY < 0 || worldX >= extent.width || worldY >= extent.height) continue;
+      const source = (Math.floor(worldY) * expectedWhole.width + Math.floor(worldX)) * 4;
+      const alpha = expectedWhole.rgba[source + 3]!;
+      const backgroundAlpha = 255 - alpha;
+      expectedViewPixels[target] = Math.round((expectedWhole.rgba[source]! * alpha + 30 * backgroundAlpha) / 255);
+      expectedViewPixels[target + 1] = Math.round((expectedWhole.rgba[source + 1]! * alpha + 30 * backgroundAlpha) / 255);
+      expectedViewPixels[target + 2] = Math.round((expectedWhole.rgba[source + 2]! * alpha + 30 * backgroundAlpha) / 255);
+    }
+  }
+  const expectedViewHash = createHash("sha256").update(expectedViewPixels).digest("hex");
   await page.keyboard.press("Control+Shift+P");
   const search = page.getByRole("combobox", { name: "Search commands and files" });
   await search.fill("Board: Export PNG");
@@ -393,34 +441,12 @@ test("production browser board export downloads the current view and full board 
   const viewPath = await viewDownload.path();
   if (viewPath === null) throw new Error("The browser did not provide the exported PNG file");
   const viewPng = readFileSync(viewPath);
+  await expect(page.locator(".tkr-board-export-message")).toHaveText("The download for export-proof.png was started by the browser.");
   expect([...viewPng.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
   const viewHeader = new DataView(viewPng.buffer, viewPng.byteOffset, viewPng.byteLength);
   expect(viewHeader.getUint32(16)).toBe(canvasWidth);
   expect(viewHeader.getUint32(20)).toBe(canvasHeight);
-  const viewPixels = await page.evaluate(async (bytes) => {
-    const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
-    const target = document.createElement("canvas");
-    target.width = image.width;
-    target.height = image.height;
-    const context = target.getContext("2d")!;
-    context.drawImage(image, 0, 0);
-    return Array.from(context.getImageData(0, 0, image.width, image.height).data);
-  }, [...viewPng]);
-  const canvasPixels = await canvas.evaluate((element) => {
-    const target = element as HTMLCanvasElement;
-    const pixels = target.getContext("2d")!.getImageData(0, 0, target.width, target.height).data;
-    const displayed = new Uint8ClampedArray(pixels);
-    for (let offset = 0; offset < displayed.length; offset += 4) {
-      const alpha = displayed[offset + 3]!;
-      const backgroundAlpha = 255 - alpha;
-      displayed[offset] = Math.round((displayed[offset]! * alpha + 30 * backgroundAlpha) / 255);
-      displayed[offset + 1] = Math.round((displayed[offset + 1]! * alpha + 30 * backgroundAlpha) / 255);
-      displayed[offset + 2] = Math.round((displayed[offset + 2]! * alpha + 30 * backgroundAlpha) / 255);
-      displayed[offset + 3] = 255;
-    }
-    return Array.from(displayed);
-  });
-  expect(viewPixels).toEqual(canvasPixels);
+  expect(await pngPixelHash(page, viewPng)).toBe(expectedViewHash);
 
   const wholeDialogButton = page.getByRole("button", { name: "Export PNG…" });
   await wholeDialogButton.click();
@@ -437,17 +463,5 @@ test("production browser board export downloads the current view and full board 
   const wholeHeader = new DataView(wholePng.buffer, wholePng.byteOffset, wholePng.byteLength);
   expect(wholeHeader.getUint32(16)).toBe(256);
   expect(wholeHeader.getUint32(20)).toBe(256);
-  const wholeColorCount = await page.evaluate(async (bytes) => {
-    const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: "image/png" }));
-    const target = document.createElement("canvas");
-    target.width = image.width;
-    target.height = image.height;
-    const context = target.getContext("2d")!;
-    context.drawImage(image, 0, 0);
-    const pixels = context.getImageData(0, 0, image.width, image.height).data;
-    const colors = new Set<string>();
-    for (let offset = 0; offset < pixels.length; offset += 4) colors.add(`${pixels[offset]},${pixels[offset + 1]},${pixels[offset + 2]},${pixels[offset + 3]}`);
-    return colors.size;
-  }, [...wholePng]);
-  expect(wholeColorCount).toBeGreaterThan(1);
+  expect(await pngPixelHash(page, wholePng)).toBe(expectedWholeHash);
 });

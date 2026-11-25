@@ -147,7 +147,8 @@ function tileRunsFor(matrix: readonly number[]): BoardTileRun[] {
 function withoutHiddenLayerAssets(board: Board, visibleLayers: ReadonlySet<number>): Board {
   const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
   const cellsPerLayer = grid.width * grid.height;
-  const tileMatrix = board.tileMatrix.map((lutIndex, index) =>
+  const declaredCells = cellsPerLayer * board.sizeL;
+  const tileMatrix = board.tileMatrix.slice(0, declaredCells).map((lutIndex, index) =>
     visibleLayers.has(Math.floor(index / cellsPerLayer)) ? lutIndex : 0,
   );
   const usedLut = new Set(tileMatrix);
@@ -156,7 +157,8 @@ function withoutHiddenLayerAssets(board: Board, visibleLayers: ReadonlySet<numbe
     tileMatrix,
     tileRuns: tileRunsFor(tileMatrix),
     lut: board.lut.map((reference, index) => usedLut.has(index) ? reference : ""),
-    images: board.images.filter((image) => visibleLayers.has(image.layer - 1)),
+    // Preserve original image slots so resolved data and object bounds still have stable indices.
+    images: board.images.map((image) => visibleLayers.has(image.layer - 1) ? image : { ...image, file: "" }),
   };
 }
 

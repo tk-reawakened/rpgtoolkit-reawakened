@@ -270,6 +270,26 @@ test("hiding the background leaves its image out of the picture", async () => {
   deepEqual(await previewBoard(host.fs, "memory-project", written.value, { showBackground: true }), withImage);
 });
 
+test("export rebuilds an overlong final tile run from only the declared board cells", async () => {
+  const parsed = readBoard(new BinaryReader(smallBoard()));
+  ok(parsed.ok);
+  const boardWithOverflow: Board = {
+    ...parsed.value,
+    tileMatrix: [...parsed.value.tileMatrix, parsed.value.tileMatrix.at(-1)!],
+    tileRuns: parsed.value.tileRuns.map((run, index) => index === parsed.value.tileRuns.length - 1 ? { ...run, count: run.count + 1, marker: true } : run),
+  };
+  const written = writeBoard(boardWithOverflow);
+  ok(written.ok, written.ok ? "" : written.error.message);
+  const host = createMemoryPlatformServices({ files: { "Tiles/village.tst": tileset } });
+  const preview = await previewBoard(host.fs, "memory-project", written.value, { purpose: "export", visibleLayers: [0] });
+  const expected = await previewBoard(host.fs, "memory-project", smallBoard(), { purpose: "export" });
+  ok(preview.ok, preview.ok ? "" : preview.message);
+  ok(expected.ok, expected.ok ? "" : expected.message);
+  equal(preview.width, 64);
+  equal(preview.height, 64);
+  if (preview.ok && expected.ok) deepEqual(preview.rgba, expected.rgba);
+});
+
 /** The small board with painted shade and a light, saved as the editor saves them: one shading layer and an editable light. */
 function litBoard(): Uint8Array {
   const read = readBoard(new BinaryReader(smallBoard()));

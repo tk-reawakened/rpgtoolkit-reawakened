@@ -5,7 +5,7 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
+import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument, type BoardPicture, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { assetKey, BinaryReader, compositeTileBitmap, decodeTileTexture, readTileset, TILE_ANIMATION_MAGIC, TILE_BITMAP_MAGIC, readTileBitmap, writeTileAnimation, writeTileBitmap, type TileAnimation, type TileBitmap } from "@tk-reawakened/editor-model/testing";
 import { createBrowserSession, type BrowserSession } from "../dist/brush.js";
@@ -991,6 +991,56 @@ test("the board export dialog explains when the host cannot download PNG files",
     equal([...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Prepare PNG")?.disabled, true);
   } finally {
     handle.dispose();
+    s.el.remove();
+  }
+});
+test("canceling an export ignores its late preview result", async () => {
+  const s = await setup();
+  let resolvePreview: ((picture: BoardPicture) => void) | undefined;
+  let previewStarted = false;
+  let saves = 0;
+  const pendingPreview = new Promise<BoardPicture>((resolve) => { resolvePreview = resolve; });
+  const view: BoardViewDocument = {
+    ...s.view,
+    preview: () => { previewStarted = true; return pendingPreview; },
+  };
+  let handle: ViewHandle | undefined;
+  try {
+    await act(() => {
+      handle = mount(s.el, {
+        document: view,
+        services: {
+          ...s.host,
+          imageExport: {
+            actionLabel: "Download PNG",
+            completion: "started",
+            saveFile: async () => { saves += 1; return { ok: true, value: true }; },
+          },
+        },
+        browser: s.browser,
+      });
+    });
+    for (let turn = 0; turn < 8; turn += 1) await act(() => nextTurn());
+    const button = (label: string): HTMLButtonElement => {
+      const found = [...s.el.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === label);
+      if (found === undefined) throw new Error(`no button ${label}`);
+      return found;
+    };
+    await act(() => button("Export PNG…").click());
+    const dialog = s.el.querySelector<HTMLDialogElement>("dialog");
+    ok(dialog);
+    await act(() => button("Prepare PNG").click());
+    for (let turn = 0; turn < 100 && !previewStarted; turn += 1) await nextTurn();
+    ok(previewStarted, "export reached the unresolved preview");
+    button("Cancel").click();
+    resolvePreview?.({ ok: true, width: 1, height: 1, rgba: new Uint8Array([1, 2, 3, 255]), warnings: [], objectBounds: [] });
+    for (let turn = 0; turn < 8; turn += 1) await nextTurn();
+    equal(dialog.isConnected, false, "cancel closes the export dialog");
+    equal(s.el.querySelector(".tkr-board-export-message"), null, "the late preview did not publish a ready result");
+    equal(saves, 0, "the late preview did not save or download an image");
+  } finally {
+    resolvePreview?.({ ok: false, message: "test cleanup" });
+    handle?.dispose();
     s.el.remove();
   }
 });

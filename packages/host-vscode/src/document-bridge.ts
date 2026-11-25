@@ -305,6 +305,8 @@ export async function handleHistoryPreviewRequest(
     console.error("[history-preview-trace] composer-settled", { requestId: request.requestId, ok: picture.ok, elapsedMs: Date.now() - started, ...(picture.ok ? { width: picture.width, height: picture.height } : {}) });
     await postMessage({ type: "preview-result", requestId: request.requestId, picture });
     console.error("[history-preview-trace] response-posted", { requestId: request.requestId });
+  } else if (request.type === "save-image") {
+    await postMessage({ type: "save-image-result", requestId: request.requestId, result: platformError("permission-denied", denied) });
   } else if (request.type === "edit") {
     await postMessage({
       type: "edit-result",

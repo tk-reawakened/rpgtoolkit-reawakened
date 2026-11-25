@@ -155,6 +155,22 @@ test("hidden-layer tile-bitmap images are removed before hydration reads their t
   deepEqual(picture.objectBounds, []);
 });
 
+test("hidden placed images keep later visible object bounds attached to their stored slots", async () => {
+  const built = buildNewBoard({ name: "image slots", coordSystem: "2d", pixelCoordinates: false, width: 4, height: 3, layers: 2, backgroundImage: "", template: null });
+  ok(built.ok);
+  const parsed = readBoard(new BinaryReader(built.bytes));
+  ok(parsed.ok);
+  const bytes = writeBoard({
+    ...parsed.value,
+    images: [{ ...image("hidden.tbm"), layer: 2 }, image("blue.bmp", 40, 20)],
+  });
+  ok(bytes.ok);
+  const host = createMemoryPlatformServices({ files: { "Bitmap/blue.bmp": bmp([blue, blue, blue, blue]) } });
+  const picture = await previewBoard(host.fs, "memory-project", bytes.value, { visibleLayers: [0] });
+  ok(picture.ok, picture.ok ? "" : picture.message);
+  deepEqual(picture.objectBounds, [{ kind: "images", index: 1, left: 40, top: 20, width: 2, height: 2, placeholder: false }]);
+});
+
 
 test("stretched image bounds match the compositor's board-sized picture rather than the stored origin", async () => {
   const host = createMemoryPlatformServices({ files: { "Bitmap/blue.bmp": bmp([blue, blue, blue, blue]) } });
