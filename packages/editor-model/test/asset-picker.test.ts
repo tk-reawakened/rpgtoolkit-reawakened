@@ -18,6 +18,9 @@ test("a document selects its owning game's exact-case layout", () => {
   deepEqual(projectLayoutForDocumentPath("Game/Example/Misc/chest.anm"), { projectFolder: "Game/Example" });
   deepEqual(projectLayoutForDocumentPath("samples/Game/MyGame/Bitmap/art.tbm"), { projectFolder: "samples/Game/MyGame" });
 });
+test("a game layout supports multiple nested project path components", () => {
+  deepEqual(projectLayoutForDocumentPath("Game/a/b/Boards/nested/Map.brd"), { projectFolder: "Game/a/b" });
+});
 
 test("a link is the path inside the type folder, sub-folders kept, with the legacy separator", () => {
   deepEqual(linkFor(ROOT, "boards", "Boards/inn.brd"), { inside: true, reference: "inn.brd" });

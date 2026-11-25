@@ -34,9 +34,9 @@ export async function projectLayoutOfMain(fs: Pick<FileSystemService, "readProje
 export function projectLayoutForDocumentPath(path: string): ProjectLayout {
   const parts = toSlashes(path).split("/");
   const game = parts.findIndex((part) => asciiLower(part) === "game");
-  const folder = parts[game + 2];
-  if (game < 0 || folder === undefined || !RESERVED_FOLDER_NAMES.has(asciiLower(folder))) return { projectFolder: "" };
-  return { projectFolder: parts.slice(0, game + 2).join("/") };
+  if (game < 0) return { projectFolder: "" };
+  const folder = parts.findIndex((part, index) => index > game + 1 && RESERVED_FOLDER_NAMES.has(asciiLower(part)));
+  return folder < 0 ? { projectFolder: "" } : { projectFolder: parts.slice(0, folder).join("/") };
 }
 
 /** The project-relative path of the folder `kind` lives in, with `/` separators. */
@@ -98,9 +98,9 @@ export async function listCandidates(
   const candidates: AssetCandidate[] = [];
   const failures: ListFailure[] = [];
   const requestedRoot = reservedFolder(layout, kind);
-  const root = await resolveReservedFolder(fs, requestedRoot);
+  const root = await resolveReservedFolderPath(fs, requestedRoot);
   if (root.failure !== null) failures.push(root.failure);
-  const pending = root.path === null ? [] : [root.path];
+  const pending = root.failure === null ? [root.path] : [];
   while (pending.length > 0) {
     const folder = pending.pop()!;
     const listed = await fs.list(folder);
@@ -125,24 +125,26 @@ export async function listCandidates(
   candidates.sort((a, b) => (a.reference < b.reference ? -1 : a.reference > b.reference ? 1 : 0));
   return { candidates, failures };
 }
-async function resolveReservedFolder(
+export async function resolveReservedFolderPath(
   fs: Pick<FileSystemService, "list">,
   path: string,
-): Promise<{ readonly path: string | null; readonly failure: ListFailure | null }> {
+): Promise<{ readonly path: string; readonly failure: ListFailure | null }> {
   const resolved: string[] = [];
-  for (const segment of path.split("/")) {
+  const segments = path.split("/");
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index]!;
     const parent = resolved.join("/");
     const listed = await fs.list(parent);
     if (!listed.ok) {
-      if (listed.error.code === "not-found") return { path: null, failure: null };
-      return { path: null, failure: { path: parent || ".", error: listed.error } };
+      if (listed.error.code === "not-found") return { path: [...resolved, ...segments.slice(index)].join("/"), failure: null };
+      return { path, failure: { path: parent || ".", error: listed.error } };
     }
     let match: (typeof listed.value)[number] | undefined;
     for (const entry of listed.value) {
       if (asciiLower(entry.name) !== asciiLower(segment)) continue;
       if (match !== undefined) {
         return {
-          path: null,
+          path,
           failure: {
             path: parent || ".",
             error: { code: "invalid-request", message: `${parent || "."} has multiple entries matching ${segment} without regard to case.` },
@@ -151,9 +153,9 @@ async function resolveReservedFolder(
       }
       match = entry;
     }
-    if (match === undefined) return { path: null, failure: null };
+    if (match === undefined) return { path: [...resolved, ...segments.slice(index)].join("/"), failure: null };
     if (match.kind !== "directory") {
-      return { path: null, failure: { path: `${parent ? `${parent}/` : ""}${match.name}`, error: { code: "not-a-directory", message: "A reserved asset folder path segment is not a directory." } } };
+      return { path, failure: { path: `${parent ? `${parent}/` : ""}${match.name}`, error: { code: "not-a-directory", message: "A reserved asset folder path segment is not a directory." } } };
     }
     resolved.push(match.name);
   }

@@ -452,6 +452,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       boardPath,
       operation,
       hasPendingEdits: isPending,
+      hasPendingEditsNow: isPending,
       isDestinationOpen: (destination) => workspace.documents().some((document) => document.identity.path === destination),
       createExclusive: null,
     });

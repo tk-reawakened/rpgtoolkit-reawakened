@@ -17,7 +17,7 @@ interface BoardChoice {
   readonly path: string;
 }
 
-const BOARD_PATH = /^(?:game\/[^/]+\/)?boards\/.+\.brd$/i;
+const BOARD_PATH = /^(?:game\/(?:[^/]+\/)+)?boards\/.+\.brd$/i;
 
 function boardChoice(api: VscodeApi, uri: vscode.Uri): BoardChoice | undefined {
   const folder = api.workspace.getWorkspaceFolder(uri);
@@ -43,13 +43,13 @@ async function projectBoards(api: VscodeApi, folder: vscode.WorkspaceFolder): Pr
     }
     const depth = segments.length;
     const root = segments[0]?.toLowerCase();
-    const inBoards = root === "boards" || (depth >= 3 && segments[2]?.toLowerCase() === "boards");
+    const inBoards = segments.some((segment) => segment.toLowerCase() === "boards");
     for (const [name, type] of entries) {
       if ((type & api.FileType.SymbolicLink) !== 0) continue;
       if ((type & api.FileType.Directory) !== 0) {
         const key = name.toLowerCase();
         const leadsToBoards = depth === 0 ? key === "boards" || key === "game"
-          : root === "game" && (depth === 1 || (depth === 2 && key === "boards"));
+          : root === "game" && !inBoards;
         if (inBoards || leadsToBoards) await walk([...segments, name]);
       } else if (inBoards && (type & api.FileType.File) !== 0 && /\.brd$/i.test(name)) {
         const path = [...segments, name].join("/");

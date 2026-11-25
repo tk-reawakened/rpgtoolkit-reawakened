@@ -164,10 +164,10 @@ export interface BoardUpgradeCopyOptions {
 /** Preview and write an upgraded board as a new file; never edits the source document. */
 export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promise<PlatformResult<{ readonly destination: string; readonly bytes: Uint8Array } | null>> {
   const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, hasPendingEditsNow, createExclusive, isDestinationOpen } = options;
-  if (!/^(?:game\/[^/]+\/)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(boardPath)
+  if (!/^(?:game\/(?:[^/]+\/)+)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(boardPath)
     || /[\\:\u0000-\u001f\u007f]/.test(boardPath)
     || boardPath.split("/").some((part) => part === "." || part === "..")) {
-    return platformError("invalid-path", `Upgrade requires a .brd file under Boards/ or Game/<game>/Boards/: ${boardPath}`);
+    return platformError("invalid-path", `Upgrade requires a .brd file under Boards/ or a nested Game/<project>/Boards/ folder: ${boardPath}`);
   }
   if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
   const source = await fs.readProject(projectId, boardPath);
@@ -226,7 +226,7 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
   const picked = await dialogs.pickSavePath({ document: boardPath, suggested });
   if (picked === null) return platformOk(null);
   if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
-  if (!/^(?:game\/[^/]+\/)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(picked)
+  if (!/^(?:game\/(?:[^/]+\/)+)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(picked)
     || /[\\:\u0000-\u001f\u007f]/.test(picked)
     || picked.split("/").some((part) => part === "." || part === "..")) {
     return platformError("invalid-path", `Choose a project board path ending in .brd: ${picked}`);
@@ -316,7 +316,7 @@ async function resolveDestinationPath(
 
 
 function boardRoot(path: string): string | null {
-  return /^(?:game\/[^/]+\/)?boards\//i.exec(path)?.[0] ?? null;
+  return /^(?:game\/(?:[^/]+\/)+)?boards\//i.exec(path)?.[0] ?? null;
 }
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;

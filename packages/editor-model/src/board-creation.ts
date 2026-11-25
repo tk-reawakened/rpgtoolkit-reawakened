@@ -16,7 +16,7 @@ import type { FileSystemService } from "@tk-reawakened/platform-services";
 import type { WizardHistory } from "./wizard-history.ts";
 import type { Preferences, PreferencesSnapshot } from "./preferences.ts";
 import { withProjectPathWriteLock } from "./project-path-write-lock.ts";
-import { reservedFolder, unusableName, type ProjectLayout } from "./reserved-folders.ts";
+import { resolveReservedFolderPath, reservedFolder, unusableName, type ProjectLayout } from "./reserved-folders.ts";
 
 /**
  * Creating a board (T-20, `docs/editor-features.md` "New board"): a blank board or one made from an existing board as a
@@ -187,7 +187,8 @@ async function boardNames(fs: NewBoardStorage, folder: string): Promise<{ readon
  * dialog ("Ask before creating a board" off).
  */
 export async function uniqueBoardName(fs: NewBoardStorage, layout: ProjectLayout): Promise<string> {
-  const taken = await boardNames(fs, reservedFolder(layout, "boards"));
+  const folder = await resolveReservedFolderPath(fs, reservedFolder(layout, "boards"));
+  const taken = folder.failure === null ? await boardNames(fs, folder.path) : { failure: folder.failure.error.message };
   const names = "names" in taken ? taken.names : new Set<string>();
   let counter = 1;
   for (;;) {
@@ -220,10 +221,13 @@ export async function createBoardFile(
   }
   const built = buildNewBoard(settings, template);
   if (!built.ok) return { ok: false, reason: "invalid", message: built.message };
-  const folder = reservedFolder(layout, "boards");
+  const requestedFolder = reservedFolder(layout, "boards");
   const name = boardFileName(settings.name);
-  const path = `${folder}/${name}`;
-  return withProjectPathWriteLock(projectId, path, async () => {
+  return withProjectPathWriteLock(projectId, `${requestedFolder}/${name}`, async () => {
+    const resolvedFolder = await resolveReservedFolderPath(fs, requestedFolder);
+    if (resolvedFolder.failure !== null) return { ok: false, reason: "failed", message: `Could not resolve ${requestedFolder}: ${resolvedFolder.failure.error.message}` };
+    const folder = resolvedFolder.path;
+    const path = `${folder}/${name}`;
     const taken = await boardNames(fs, folder);
     if ("failure" in taken) return { ok: false, reason: "failed", message: taken.failure };
     if (taken.names.has(foldPath(name))) {

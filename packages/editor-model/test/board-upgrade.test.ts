@@ -63,6 +63,23 @@ test("a coordinate upgrade is one undoable edit after reopening a preserved copy
   equal(decoded(reopened.document.serialize()).board.coordType & 4, 4);
   deepEqual(host.bytesOf(sourcePath), original);
 });
+test("tile-to-pixel accepts nested project paths and keeps the source board folder spelling", async () => {
+  const source = "Game/a/b/Boards/Entry.brd";
+  const destination = "Game/a/b/Boards/Entry.pixels.brd";
+  const original = exampleBoard(4);
+  const host = createMemoryPlatformServices({ files: { [source]: original } });
+  host.answerQuestions("preview");
+  host.answerSavePaths("game/a/b/boards/Entry.pixels.brd");
+  const result = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: source,
+    operation: "tile-to-pixel", hasPendingEdits: () => false, createExclusive: null,
+  });
+  ok(result.ok, result.ok ? "" : result.error.message);
+  ok(result.value !== null);
+  equal(result.value.destination, destination);
+  deepEqual(host.bytesOf(source), original);
+  deepEqual(host.bytesOf(destination), original);
+});
 
 void test("stacked-to-rotated maps every tile and shade cell while keeping board-pixel objects", () => {
   const original = decoded(exampleBoard(4)).board;
