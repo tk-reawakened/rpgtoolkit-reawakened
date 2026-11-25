@@ -22,6 +22,7 @@ export type { TilesetBrowserContext } from "./tileset-browser.tsx";
 export type { SourceVisit } from "./source-visit.ts";
 export type { ShellProps } from "./shell.tsx";
 export { ProgramView, type ProgramPreferencesSource, type ProgramViewDocument, type ProgramViewProps } from "./program-view.tsx";
+export { VisualEventPane, VISUAL_EVENT_COMMANDS, type VisualEventAction } from "./visual-event-pane.tsx";
 export { createPlainTextSurface, diffText, type LanguageFeatures, type SurfaceDiagnostic, type TextChange, type TextSelection, type TextSurface, type TextSurfaceFactory, type TextSurfaceHost } from "./text-surface.ts";
 export { leaseLanguageClient, startLanguageClient, LANGUAGE_IDLE_MS, type LanguageClient, type LanguageLease } from "./language-client.ts";
 export { mountHistory } from "./mount.ts";

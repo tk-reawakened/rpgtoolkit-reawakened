@@ -1,11 +1,15 @@
 import { trackedText, copyTracked, changePendingText, applyTrackedChanges, mergePendingText, trackedTextChanges, type TrackedText, type PendingText, type TextTree } from "./program-text.ts";
 import {
+  addShowMessage,
   commandReference,
   createEditTracker,
+  deleteShowMessage,
   DEFAULT_PROGRAM_PREFERENCES,
+  editShowMessage,
   filterCommandReference,
   insertCommandEdit,
   insertHeaderCommand,
+  projectVisualProgram,
   type CommandReferenceEntry,
   type ConflictChoice,
   type ConflictResult,
@@ -23,6 +27,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { leaseLanguageClient, type LanguageClient, type LanguageLease } from "./language-client.ts";
 import { createPlainTextSurface, type SurfaceDiagnostic, type TextChange, type TextSurface, type TextSurfaceFactory } from "./text-surface.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
+import { VisualEventPane, type VisualEventAction } from "./visual-event-pane.tsx";
 import type { ViewDocument } from "./mount.ts";
 
 /** The program document a view binds to. A host whose workbench owns history leaves `undo`/`redo` out. */
@@ -204,6 +209,8 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   });
   const control = useRef(initialControl);
   const host = useRef<HTMLDivElement>(null);
+  const [showVisualEvents, setShowVisualEvents] = useState(false);
+  const [visualError, setVisualError] = useState<string | null>(null);
   const referenceSearch = useRef<HTMLInputElement>(null);
   const referenceToggle = useRef<HTMLButtonElement>(null);
   const openReference = (): void => {
@@ -787,6 +794,39 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
     });
   };
 
+  const actOnVisualEvent = (action: VisualEventAction): void => {
+    if (action.type === "open") {
+      const region = projectVisualProgram(snapshot.text).regions.find((part) => part.from === action.from && part.type === "opaque");
+      const surface = control.current.surface;
+      if (region !== undefined && surface !== null) {
+        surface.revealLine(region.line - 1);
+        surface.select(region.from, region.from);
+      }
+      return;
+    }
+    flush();
+    void enqueueCommand(async () => {
+      await tracker.idle();
+      const currentDoc = latest.current.doc;
+      const current = currentDoc.getSnapshot();
+      if (currentDoc !== doc || current.text !== snapshot.text || current.readOnly !== null) {
+        setVisualError("The program changed before this edit. Try again from the updated source.");
+        return;
+      }
+      const projection = projectVisualProgram(current.text, current.compiled);
+      const result = action.type === "add" ? addShowMessage(projection, action.message)
+        : action.type === "message" ? editShowMessage(projection, action.from, action.message)
+          : deleteShowMessage(projection, action.from);
+      if (!result.ok) {
+        setVisualError(result.reason);
+        return;
+      }
+      setVisualError(null);
+      const label = action.type === "add" ? "Add Show message" : action.type === "message" ? "Edit Show message" : "Remove Show message";
+      if (await applyTextCommand({ type: "edit-text", edits: [result.edit], label })) syncFromDocument(true);
+    });
+  };
+
   const resolve = (choice: ConflictChoice): void => {
     setResolving(true);
     void Promise.resolve()
@@ -806,6 +846,7 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
   const conflict = snapshot.conflict;
   const stateText = snapshot.saving ? "Saving…" : snapshot.dirty || typing ? "Unsaved changes" : "All changes saved";
   const bookmarkId = `${ids}-bookmarks`;
+  const visualEventsId = `${ids}-visual-events`;
   const referenceId = `${ids}-reference`;
 
   return (
@@ -823,6 +864,9 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
             <button type="button" class="tkr-program-header" disabled={readOnly} onClick={insertHeader}>Insert header</button>
             <button type="button" class="tkr-program-toggle-bookmarks" aria-pressed={showBookmarks} aria-controls={bookmarkId} onClick={() => setShowBookmarks(!showBookmarks)}>Bookmarks</button>
             <button ref={referenceToggle} type="button" class="tkr-program-toggle-reference" aria-pressed={showReference} aria-controls={referenceId} onClick={showReference ? closeReference : openReference}>Command reference</button>
+            {snapshot.compiled ? null : <button type="button" data-editor-command-id="program.visual.toggle" aria-expanded={showVisualEvents}
+              aria-controls={showVisualEvents ? visualEventsId : undefined}
+              onClick={() => setShowVisualEvents(!showVisualEvents)}>Visual events</button>}
             <button type="button" class="tkr-program-focus" onClick={() => { setFocusMode(true); control.current.surface?.focus(); }}>Distraction-free</button>
           </div>
           {snapshot.readOnly === null ? null : <p class="tkr-program-readonly" role="note">Read only: {snapshot.readOnly.message}</p>}
@@ -866,6 +910,11 @@ export function ProgramView({ doc, capabilities, onEdited, pendingEdits, createS
           </nav>
         )}
         <div class="tkr-program-text" ref={host} />
+        {focusMode || !showVisualEvents || snapshot.compiled ? null : (
+          <div id={visualEventsId} class="tkr-program-visual-events">
+            <VisualEventPane source={snapshot.text} readOnly={readOnly} error={visualError} onAction={actOnVisualEvent} />
+          </div>
+        )}
         {focusMode || !showReference ? null : (
           <aside id={referenceId} class="tkr-program-reference" aria-label="RPGCode quick reference">
             <div class="tkr-program-reference-heading">

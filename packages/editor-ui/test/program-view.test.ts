@@ -830,6 +830,35 @@ test("a compiled program is read only: no edit, no insert, and the reason is sho
   equal(area(s.el).readOnly, true);
 });
 
+test("visual events navigate without editing and add one undoable edit to the live program", async () => {
+  const original = "// author's note\r\nvisits = 1\n";
+  const s = await setup({ content: original });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  equal(s.doc.getSnapshot().dirty, false);
+  await act(() => named(s.el, "Open in editor").click());
+  equal(s.el.ownerDocument.activeElement, area(s.el));
+  equal(area(s.el).selectionStart, 0);
+  equal(s.doc.getSnapshot().canUndo, false);
+  deepEqual(s.host.bytesOf(PATH), bytes(original));
+
+  await act(() => named(s.el, "Add Show message").click());
+  await settled();
+  match(area(s.el).value, /mwin\("Welcome to the village\."\)\nwait\(\)\nmwincls\(\)/);
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await settled();
+  equal(area(s.el).value, original.replace("\r\n", "\n"));
+  equal(s.doc.getSnapshot().canUndo, false);
+  await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
+  await settled();
+  await act(() => named(s.el, "Save").click());
+  await settled();
+  const saved = s.host.bytesOf(PATH);
+  ok(saved !== undefined);
+  deepEqual(saved.subarray(0, original.length), bytes(original), "unchanged prefix retained both line endings");
+  match(stateOf(s.el), /All changes saved/);
+});
+
 test("distraction-free mode leaves only the text and an exit; Escape and the button both bring the tools back", async () => {
   const s = await setup();
   show(s);

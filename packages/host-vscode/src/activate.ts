@@ -3,12 +3,14 @@ import { registerGameSettings, registerNewProject } from "./extension.ts";
 import { registerProgramCommands } from "./program-commands.ts";
 import { registerFontCommands } from "./font-commands.ts";
 import { registerCreatorTests } from "./creator-tests.ts";
+import { registerVisualEvents } from "./visual-events.ts";
 
 export function activate(context: ExtensionContext): void {
   const generation = registerGameSettings(context);
   registerProgramCommands(context, generation);
   registerFontCommands(context, generation);
   registerCreatorTests(context, generation);
+  registerVisualEvents(context);
   registerNewProject(context);
 }
 
