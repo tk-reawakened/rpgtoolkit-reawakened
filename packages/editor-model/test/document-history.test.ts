@@ -958,8 +958,8 @@ test("a copy opened after durable restore preparation is refused and never undon
   let release!: () => void;
   const writing = new Promise<void>((resolve) => { arrived = resolve; });
   const gate = new Promise<void>((resolve) => { release = resolve; });
-  const fs: FileSystemService = { ...host.fs, async writeProject(project, name, value) {
-    const saved = await host.fs.writeProject(project, name, value);
+  const fs: FileSystemService = { ...host.fs, async write(name, value) {
+    const saved = await host.fs.write(name, value);
     if (armed && name.startsWith(".tkr-history/progress/")) {
       armed = false;
       arrived();
@@ -973,7 +973,7 @@ test("a copy opened after durable restore preparation is refused and never undon
   ok((await workspace.checkpoints.registerWritten(source.value.id, path, data)).ok);
   armed = true;
   const running = workspace.restoreHistoryGroup(source.value.id);
-  await writing;
+  await Promise.race([writing, running.then(() => { throw new Error("Restore completed without persisting its writing state."); })]);
   const opened = await workspace.open(path);
   release();
   ok(opened.ok);
