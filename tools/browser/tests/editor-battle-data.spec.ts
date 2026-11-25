@@ -151,3 +151,20 @@ test("a value the field cannot hold is refused with its reason, is never saved, 
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect.poll(() => readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
 });
+
+test("leaving the page asks while a clean document holds text a field refused, and stops asking once it is discarded (#3385)", async ({ page }) => {
+  await openWorkbench(page);
+  await openFile(page, "SpcMove", "fireball.spc");
+  const editor = page.locator('[data-tkr-editor="Special move"]');
+  const asks = (): Promise<boolean> => page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(await asks(), "an untouched document lets the page go").toBe(false);
+  await retype(page, "Damage (FP)", "9999999999");
+  await expect(editor.getByRole("alert")).toContainText("whole number from -2147483648 to 2147483647");
+  expect(await asks(), "the document is clean, but the refused text would be lost").toBe(true);
+  await editor.getByRole("button", { name: "Discard the unapplied text" }).click();
+  expect(await asks()).toBe(false);
+});

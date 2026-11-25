@@ -406,9 +406,13 @@ test("a status reference without its extension resolves as the runtime does, and
     const programs = field(root, "Program file").closest("fieldset");
     ok(programs !== null);
     equal(button(programs as HTMLElement, "Open program").disabled, true, "Open is never offered for a file the game will not load");
-    // The game does not trim a stored reference, so a name with a space around it is another file, not `burn`.
-    await act(() => { const input = field(root, "Status effect file"); input.value = " burn"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
-    await until(() => root.textContent?.includes("StatusE/ burn.ste is not in the project") === true, "a reference with a leading space is looked up as stored and is not found");
-    ok(root.textContent?.includes("Burn: 3 rounds") !== true, "and the linked status effect is not previewed");
+    // `statusdata` trims a status reference, so a space around the name is the same file; the stored text stays as typed.
+    await act(() => { const input = field(root, "Status effect file"); input.value = " burn "; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await until(() => root.textContent?.includes("Burn: 3 rounds") === true, "a padded status reference resolves as the game trims it");
+    equal(field(root, "Status effect file").value, " burn ", "and the stored text is not rewritten");
+    // A program is loaded by its exact text: a space around the name is another file, not the one that exists.
+    await act(() => { const input = field(root, "Program file"); input.value = " fireball.prg"; input.dispatchEvent(new Event("input", { bubbles: true })); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await until(() => root.textContent?.includes("Prg/ fireball.prg is not in the project") === true, "a padded program reference is looked up exactly and is not found");
+    equal(button(programs as HTMLElement, "Open program").disabled, true, "and Open is not offered for it");
   } finally { handle.dispose(); root.remove(); }
 });

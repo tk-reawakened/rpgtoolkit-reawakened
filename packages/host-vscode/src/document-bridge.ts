@@ -1,5 +1,5 @@
 import type { AnimationAuthoring, AnimationCommand, AnimationBitmap, CheckpointEntry, CheckpointGroup } from "@tk-reawakened/editor-model";
-import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
+import { ASSET_FOLDERS, DEFAULT_EDITOR_PREFERENCES, createPendingEdits, kindById, type AnyDocument, type AssetKind, type ApplyResult, type BoardPicture, type BoardPreviewRequest, type EditorPreferences, type PendingEdits, type SettleReason, type ConflictChoice, type ConflictResult, type DocumentSnapshot, type HistoryResult, type PickOutcome, type SaveResult, type SpriteDocumentSnapshot } from "@tk-reawakened/editor-model";
 import { platformError, type Capability, type DirectoryEntry, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession, type BrowserState, type BrowserStatePatch } from "@tk-reawakened/editor-ui/browser-session";
 
@@ -98,7 +98,7 @@ export type BridgeMessage =
   /** The reviewed import completed or was cancelled, or failed with a message to show. */
   | { readonly type: "import-as-scene-result"; readonly requestId: string; readonly result: PlatformResult<void> }
   /** The extension host is about to save, back up, revert or move the document: the webview answers `settled` once every edit it accepted has reached it (#2613). */
-  | { readonly type: "settle"; readonly requestId: string; readonly reason?: "explicit" | "autosave" | "revert" | "query" };
+  | { readonly type: "settle"; readonly requestId: string; readonly reason?: SettleReason };
 
 export type EditorHostRequest =
   | { readonly type: "ready" }

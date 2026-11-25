@@ -770,6 +770,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
         if (disposed || documents.has(identity.key) || opening.has(identity.key)) {
           return failed(resolved.path, `${resolved.path} was written but is already open or opening; ${source} remains open.`);
         }
+        // Text typed into a field during the write is in neither the copy nor the model's revision: replacing the source
+        // would drop it, so it stays open with that text.
+        const late = await pendingEditsOf(document).settle("guard");
+        if (!late.ok) return failed(resolved.path, `${resolved.path} was written, but ${source} still holds text typed during Save As and remains open: ${late.message.replace(/\.+$/, "")}.`);
         register(reopened.document);
         startWatching();
         // Other views still own the source. Otherwise this view replaces it with the newly opened copy (D1.3).

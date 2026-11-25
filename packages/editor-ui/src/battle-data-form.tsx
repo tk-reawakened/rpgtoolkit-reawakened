@@ -7,6 +7,7 @@ import {
   reservedFolder,
   type AssetKind,
   type DocumentSnapshot,
+  type LinkLookup,
   type PendingEdits,
   type PickOutcome,
 } from "@tk-reawakened/editor-model";
@@ -15,6 +16,7 @@ import type { ComponentChildren, JSX } from "preact";
 import { useContext, useEffect, useRef, useState } from "preact/hooks";
 import { AssetRefreshContext } from "./asset-refresh.ts";
 import type { ViewDocument } from "./mount.ts";
+import { editLineText, lineTextOf, writtenText, type LineText } from "./line-endings.ts";
 import { useDocumentSnapshot } from "./use-document.ts";
 
 /**
@@ -74,54 +76,6 @@ export interface BattleDataForm<Snapshot extends DocumentSnapshot<Command>, Comm
 
 const problem = (error: unknown): string => error instanceof Error ? error.message : String(error);
 
-/**
- * Write `edited` (LF lines, as a textarea gives them) with the endings `stored` used, line by line. A line that survives
- * keeps its own ending. Between two surviving lines, the author's changed lines take the endings of the stored lines
- * they replace, in order, so replacing a line keeps its separator; a line added beyond those copies the ending of the line
- * before it, and the file's last ending is the fallback. Inserting, replacing or deleting a line therefore leaves every
- * other separator as the file wrote it.
- */
-export function restoreLineEndings(stored: string, edited: string): string {
-  const oldLines = stored.split(/\r\n|\n|\r/);
-  const breaks = stored.match(/\r\n|\n|\r/g) ?? [];
-  const lines = edited.split("\n");
-  // Longest common subsequence of line contents gives the surviving lines.
-  const table: number[][] = Array.from({ length: oldLines.length + 1 }, () => new Array<number>(lines.length + 1).fill(0));
-  for (let i = oldLines.length - 1; i >= 0; i -= 1) {
-    for (let j = lines.length - 1; j >= 0; j -= 1) {
-      table[i]![j] = oldLines[i] === lines[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
-    }
-  }
-  const anchors: Array<readonly [number, number]> = [];
-  for (let i = 0, j = 0; i < oldLines.length && j < lines.length;) {
-    if (oldLines[i] === lines[j]) { anchors.push([i, j]); i += 1; j += 1; }
-    else if (table[i + 1]![j]! >= table[i]![j + 1]!) i += 1;
-    else j += 1;
-  }
-  // `from[j]` is the stored line whose ending the new line `j` takes, or -1 when it takes its predecessor's.
-  const from: number[] = new Array(lines.length).fill(-1);
-  let previousOld = -1;
-  let previousNew = -1;
-  for (const [oldIndex, newIndex] of [...anchors, [oldLines.length, lines.length] as const]) {
-    const replaced = oldIndex - previousOld - 1;
-    for (let offset = 0; offset < newIndex - previousNew - 1; offset += 1) {
-      if (offset < replaced) from[previousNew + 1 + offset] = previousOld + 1 + offset;
-    }
-    if (newIndex < lines.length) from[newIndex] = oldIndex;
-    previousOld = oldIndex;
-    previousNew = newIndex;
-  }
-  const fallback = breaks.at(-1) ?? "\n";
-  let last = -1;
-  return lines.map((line, index) => {
-    if (index === lines.length - 1) return line;
-    let source = from[index]!;
-    if (source === -1 || source >= breaks.length) source = last;
-    if (source !== -1) last = source;
-    return `${line}${source === -1 ? fallback : breaks[source]!}`;
-  }).join("");
-}
-
 /** Whole numbers only: a decimal point or an exponent would be rounded into a value the author did not type. */
 const WHOLE_NUMBER = /^[+-]?\d+$/;
 
@@ -178,9 +132,13 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
     // cannot report success while that text is left behind.
     // Only an explicit save is refused, and only while a draft remains that the file could not store: a backup, a query
     // before a revert's question and the revert itself settle the accepted edits without judging the field.
-    refusal: (reason) => reason === "explicit" && Object.keys(draftsRef.current).length > 0
-      ? "A field still holds text this file cannot store, so nothing was saved. Correct it or discard it."
-      : null,
+    refusal: (reason) => {
+      if (Object.keys(draftsRef.current).length === 0) return null;
+      if (reason === "explicit") return "A field still holds text this file cannot store, so nothing was saved. Correct it or discard it.";
+      // A host that cannot say whose save this is writes what is accepted and keeps the document unsaved.
+      if (reason === "guard") return "a field still holds text that is not part of the document yet. Leave the field to apply it, or discard it";
+      return null;
+    },
     idle: async (reason) => {
       if (reason === "revert") {
         if (Object.keys(draftsRef.current).length > 0) { publishDrafts({}); setMessage(null); }
@@ -323,16 +281,24 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   readonly command: (value: string) => Command;
 }): JSX.Element {
   const { drafts, setDraft, commitText, registerField, disabled, snapshot } = form;
-  // Each line keeps the ending the stored text used, and a line the author adds takes the last one; a description with
-  // mixed endings is therefore not rewritten into one convention.
-  const asWritten = (text: string): string => restoreLineEndings(value, text);
+  // Each line keeps the ending the stored text used, so a description with mixed endings is not rewritten into one
+  // convention. The model follows every edit (with its caret) so a repeated line is placed where the author edited it.
+  const model = useRef<{ base: string; line: LineText; touched: boolean } | null>(null);
+  if (drafts[id] === undefined && (model.current === null || model.current.touched || model.current.base !== value)) {
+    model.current = { base: value, line: lineTextOf(value), touched: false };
+  }
+  const followed = (text: string, caret?: number): string => {
+    const current = model.current!;
+    if (current.line.text !== text) { current.line = editLineText(current.line, text, caret); current.touched = true; }
+    return writtenText(current.line);
+  };
   registerField(id, () => {
     const draft = drafts[id];
-    return draft === undefined ? Promise.resolve() : commitText(id, asWritten(draft), value, command);
+    return draft === undefined ? Promise.resolve() : commitText(id, followed(draft), value, command);
   });
   return <p>
     <label>{label}
-      <textarea aria-label={label} rows={3} value={drafts[id] ?? value.split("\r\n").join("\n")} disabled={disabled || snapshot.saving} onInput={(event) => setDraft(id, event.currentTarget.value)} onChange={(event) => void commitText(id, asWritten(event.currentTarget.value), value, command)} />
+      <textarea aria-label={label} rows={3} value={drafts[id] ?? model.current!.line.text} disabled={disabled || snapshot.saving} onInput={(event) => { followed(event.currentTarget.value, event.currentTarget.selectionStart); setDraft(id, event.currentTarget.value); }} onChange={(event) => void commitText(id, followed(event.currentTarget.value), value, command)} />
     </label>
     {hint !== undefined && <small> {hint}</small>}
   </p>;
@@ -398,22 +364,24 @@ export function useLinkedFile(
   reference: string,
   extensions: readonly string[],
   /** Whether the runtime itself appends the extension when the author left it off; false loads the exact reference. */
-  completeExtension: boolean,
+  lookup: LinkLookup,
 ): LinkedFile {
   const assetRevision = useContext(AssetRefreshContext);
   // A caller writes its extension list inline, so the effect keys on the list's content: a new array of the same
   // extensions must not start the read again on every render.
-  const extensionKey = `${extensions.join(",")}|${completeExtension ? "complete" : "exact"}`;
+  const extensionKey = `${extensions.join(",")}|${lookup}`;
   const [linked, setLinked] = useState<LinkedFile>({ state: "none" });
   useEffect(() => {
     let active = true;
     const wanted = extensions.join(",") === "" ? [] : extensions.join(",").split(",");
-    // Looked up exactly as stored: the game does not trim a reference, so text that only differs by a space is another file.
-    if (reference === "") {
+    // Looked up as the game does: a status effect trims its text, a program or animation is exact, so text that only
+    // differs by a space is another program. The stored text itself is never changed.
+    const named = lookup === "status-effect" ? reference.trim() : reference;
+    if (named === "") {
       setLinked({ state: "none" });
       return () => { active = false; };
     }
-    const refused = linkReferenceProblem(reference);
+    const refused = linkReferenceProblem(named);
     if (refused !== null) {
       setLinked({ state: "invalid", message: refused });
       return () => { active = false; };
@@ -422,7 +390,7 @@ export function useLinkedFile(
     setLinked({ state: "checking" });
     void (async () => {
       let missing: { readonly path: string; readonly message: string } | null = null;
-      for (const candidate of linkedFileCandidates(folder, reference, wanted, completeExtension)) {
+      for (const candidate of linkedFileCandidates(folder, reference, wanted, lookup)) {
         let path = candidate;
         // The project stores one spelling of a name; a host that can list folders finds it, so `Burn.STE` on disk is
         // found from `burn.ste` even where the file system is case-sensitive.
@@ -451,7 +419,7 @@ export function useLinkedFile(
       if (active) setLinked({ state: "missing", path: missing!.path, message: missing!.message });
     })();
     return () => { active = false; };
-  }, [fs, projectId, documentPath, kind, reference, extensionKey, completeExtension, assetRevision]);
+  }, [fs, projectId, documentPath, kind, reference, extensionKey, lookup, assetRevision]);
   return linked;
 }
 

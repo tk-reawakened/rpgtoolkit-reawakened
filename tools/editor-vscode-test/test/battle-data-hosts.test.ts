@@ -183,42 +183,56 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       equal(await damageOnDisk(proof), -30, "the typed damage was written");
     });
 
-    const draftBesideAcceptedEdit = async (proof: CharacterProofHost): Promise<CharacterProofTab> => {
+    /** An applied edit (damage -30) with a refused field beside it: text the file cannot store, shown with its reason. */
+    const refusedDraftBesideAcceptedEdit = async (proof: CharacterProofHost): Promise<CharacterProofTab> => {
       const tab = await openReady(proof, SPC, "Damage (FP)");
       await type(tab, "Damage (FP)", "-30");
-      await typeWithoutLeaving(tab, "Damage (FP)", "9999999999");
+      await type(tab, "Damage (FP)", "9999999999");
       return tab;
     };
+    const discard = async (tab: CharacterProofTab): Promise<void> => {
+      const button = [...tab.element.querySelectorAll("button")].find((candidate) => candidate.textContent === "Discard the unapplied text");
+      ok(button !== undefined, "the form offers to discard the text it refused");
+      await act(() => { button.click(); });
+      await settle(act);
+    };
 
-    test("which VS Code saves refuse a field that cannot be stored follows files.autoSave and the timer's earliest moment (#3385)", async () => {
+    for (const [mode, delay, at] of [["afterDelay", 60_000, 6_000], ["afterDelay", 60_000, 61_500], ["afterDelay", 60_000, 90_000], ["onFocusChange", undefined, 6_000], ["onWindowChange", undefined, 6_000]] as const) {
+      test(`with files.autoSave ${mode} (clock at ${at} ms) no save is trusted to be the author's, and none drops the text a field holds (#3385)`, async () => {
+        if (entry === "browser host") return;
+        const proof = host();
+        proof.configureAutoSave?.(mode, delay);
+        proof.setClock?.(1_000);
+        const tab = await refusedDraftBesideAcceptedEdit(proof);
+        proof.setClock?.(at);
+        // However late or early the timer is, the save cannot be told from the author's: the accepted edit is written, no
+        // text is applied or rounded, and the save fails so the document stays unsaved and a close asks.
+        equal(await tab.saveFromWorkbench(), false, "the save reports that a field still holds text");
+        await settle(act);
+        equal(await damageOnDisk(proof), -30, "the accepted edit is on disk");
+        equal(field(tab, "Damage (FP)").value, "9999999999", "the text stays with the author");
+        equal(tab.workbenchDirty(), true, "VS Code still shows the document as unsaved");
+        equal(await tab.close("cancel"), false, "so closing asks, and Cancel keeps the text");
+        await discard(tab);
+        equal(await tab.saveFromWorkbench(), true, "once the text is discarded the document saves");
+        equal(tab.workbenchDirty(), false);
+      });
+    }
+
+    test("a valid field being typed in is not applied by a save VS Code cannot attribute, and the save keeps the document unsaved (#3385)", async () => {
       if (entry === "browser host") return;
       const proof = host();
       proof.configureAutoSave?.("afterDelay", 60_000);
       proof.setClock?.(1_000);
-      const tab = await draftBesideAcceptedEdit(proof);
-      proof.setClock?.(6_000);
-      equal(await tab.saveFromWorkbench(), false, "before the delay no timer can have fired: the author's save is refused");
-      equal(await damageOnDisk(proof), 12, "and nothing was written");
+      const tab = await openReady(proof, SPC, "Damage (FP)");
+      await type(tab, "Damage (FP)", "-30");
+      await typeWithoutLeaving(tab, "Damage (FP)", "-31");
       proof.setClock?.(61_500);
-      equal(await tab.saveFromWorkbench(), true, "in the second after the delay it is taken for the timer's, and saves only the accepted edit");
+      equal(await tab.saveFromWorkbench(), false);
       await settle(act);
-      equal(await damageOnDisk(proof), -30);
-      equal(field(tab, "Damage (FP)").value, "9999999999", "leaving the text with the author");
-      proof.setClock?.(80_000);
-      equal(await tab.saveFromWorkbench(), false, "long after the delay the timer would already have fired: the author's save is refused");
-    });
-
-    test("an autosave on focus or window change saves the accepted edits and leaves a text that cannot be stored alone (#3385)", async () => {
-      if (entry === "browser host") return;
-      for (const mode of ["onFocusChange", "onWindowChange"] as const) {
-        const proof = host();
-        proof.configureAutoSave?.(mode);
-        const tab = await draftBesideAcceptedEdit(proof);
-        equal(await tab.saveFromWorkbench(), true, `${mode}: not refused for text that is not the document's`);
-        await settle(act);
-        equal(await damageOnDisk(proof), -30, `${mode}: the accepted edit was written`);
-        equal(field(tab, "Damage (FP)").value, "9999999999", `${mode}: the text stays`);
-      }
+      equal(await damageOnDisk(proof), -30, "nothing is applied mid-gesture");
+      equal(field(tab, "Damage (FP)").value, "-31");
+      equal(tab.workbenchDirty(), true);
     });
   });
 }

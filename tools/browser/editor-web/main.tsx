@@ -705,7 +705,8 @@ document.querySelector<HTMLButtonElement>("#close")!.addEventListener("click", (
 
 // Leaving the page closes the document too: the browser asks first while there is unsaved work (D3.6).
 window.addEventListener("beforeunload", (event) => {
-  if (shown?.project.workspace.documents().some((document) => document.getSnapshot().dirty)) event.preventDefault();
+  // Text a field holds and its document does not is unsaved work too, even when the document itself is clean.
+  if (shown?.project.workspace.documents().some((document) => document.getSnapshot().dirty || shown?.project.workspace.pendingEdits(document).holdsDraft())) event.preventDefault();
 });
 
 function showFailure(error: unknown): void {

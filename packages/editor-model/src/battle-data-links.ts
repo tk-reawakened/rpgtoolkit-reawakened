@@ -56,6 +56,13 @@ export function linkReferenceProblem(reference: string): string | null {
 }
 
 /**
+ * How the game turns a stored reference into a file: a status effect is read through `statusdata`, which trims the text,
+ * drops a leading `StatusE/` and appends `.ste` when it is missing (`packages/core/src/script/packs/battle.ts`
+ * `statusPath`); a program or an animation is loaded by its exact stored text. The form follows the game for each.
+ */
+export type LinkLookup = "status-effect" | "exact";
+
+/**
  * The project-relative paths to try for `reference`, most faithful first (story 13.10). The game itself resolves a
  * stored reference by its folder, ignoring the extension the author left off and the case of the name, so the form tries
  * the spelling as written, then with the kind's own extension, then each of those ASCII-lowercased — the spelling every
@@ -65,10 +72,11 @@ export function linkedFileCandidates(
   folder: string,
   reference: string,
   extensions: readonly string[],
-  complete: boolean,
+  lookup: LinkLookup,
 ): readonly string[] {
   const base = folder.replace(/\/+$/, "");
-  const inside = reference.split("\\").join("/").replace(/^\/+/, "");
+  const complete = lookup === "status-effect";
+  const inside = (complete ? reference.trim() : reference).split("\\").join("/").replace(/^\/+/, "");
   // A reference that repeats the type folder (`StatusE\burn.ste`) names the same file as the bare name, so the folder
   // prefix is dropped before looking it up.
   const head = base.slice(base.lastIndexOf("/") + 1).toLowerCase();

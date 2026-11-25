@@ -269,6 +269,19 @@ test("Save As, save, backup and revert each tell the view why it is being settle
   await provider.backupCustomDocument(document, { path: "/backup" }).catch(() => undefined);
   await provider.revertCustomDocument(document);
   await document.save();
-  deepEqual(heard, ["explicit", "autosave", "query", "revert", "explicit"], "Save As and a save with autosave off are the author's; a backup is not");
+  deepEqual(heard, ["explicit", "guard", "autosave", "query", "revert", "explicit"], "Save As and a save with autosave off are the author's, and Save As looks again before VS Code replaces the source; a backup is neither");
+  detach();
+});
+
+test("Save As fails, with the copy written, when a field holds text typed during the write, so VS Code keeps the source open (#3385)", async () => {
+  const { files, provider } = workspace();
+  const document = await provider.openCustomDocument({ path: `/alpha/${GAME}` }, undefined);
+  const detach = document.attachWebview((requestId, reason) => {
+    // The view holds text only once the write has begun: it refuses the late `guard` settlement, not the first explicit one.
+    queueMicrotask(() => reason === "guard" ? document.viewSettled(requestId, false, "a field still holds text that is not part of the document yet") : document.viewSettled(requestId));
+    return Promise.resolve(true);
+  });
+  await rejects(provider.saveCustomDocumentAs(document, { path: "/alpha/copy.gam" }), /copy\.gam was written, but .* still holds text typed during Save As and remains open/);
+  equal(files.has("/alpha/copy.gam"), true, "the copy itself was written");
   detach();
 });

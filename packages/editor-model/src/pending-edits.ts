@@ -13,9 +13,11 @@
  * Why a host is settling a view's work (ADR 0022 D11.2). An explicit save (Save, Save All, Ctrl+S, a save-on-close)
  * applies the field the author is still typing in; autosave and a hot-exit backup must not commit mid-gesture; `query`
  * asks only for the dirty state, before a revert's question; `revert` drops text typed against the version being
- * discarded. A caller that passes nothing keeps the behaviour this registry had before the reason existed.
+ * discarded; `guard` is a host that cannot say whose save this is (VS Code gives a custom editor no reason, and a timer's
+ * save looks like the author's): it hands over accepted edits, never applies text mid-gesture, and is told of any text a
+ * field still holds, so the host can save what it can and still keep the document unsaved rather than lose that text. A caller that passes nothing keeps the behaviour this registry had before the reason existed.
  */
-export type SettleReason = "explicit" | "autosave" | "revert" | "query";
+export type SettleReason = "explicit" | "autosave" | "guard" | "revert" | "query";
 
 /** What a settlement found: `ok` when nothing refused, else the first refusal's sentence for the host to show. */
 export type SettleOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
@@ -27,8 +29,9 @@ export interface PendingEditWork {
   /** Resolves once `busy()` is false. It never rejects: an edit the document refused is reported by the view itself. */
   idle(reason?: SettleReason): Promise<void>;
   /**
-   * Work the host must not *save* through (a field the file cannot store), for this reason only: a backup, a query or a
-   * revert still settle accepted edits and never apply or reject a draft, so they never refuse.
+   * Work the host must not *save* through, for the reasons that judge it: an explicit save is refused by a field the file
+   * cannot store, and a `guard` by any text a field holds. A backup, a query or a revert still settle accepted edits and
+   * never apply or reject a draft, so they never refuse.
    */
   refusal?(reason: SettleReason | undefined): string | null;
   /** Whether the view holds text the document does not (typed but not yet applied), so closing or reverting must ask first. */

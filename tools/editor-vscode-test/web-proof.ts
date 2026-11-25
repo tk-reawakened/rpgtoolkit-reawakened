@@ -3279,7 +3279,8 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   await expect.poll(async () => [...await host.readBacking(BATTLE_PROOF_MOVE)].join(",")).not.toBe([...beforeRefusal].join(","));
   await expect.poll(dirty).toBe(false);
 
-  // 4. files.autoSave afterDelay saves the accepted edit and leaves the half-typed text alone, with no refusal.
+  // 4. files.autoSave afterDelay: the save cannot be told from the author's, so it writes the accepted edit, applies
+  // nothing, and fails so VS Code keeps the document unsaved and a close asks about the text a field still holds.
   const autosaved = async (value: string): Promise<void> => {
     await expect.poll(async () => autosaveSetting(await host.readBacking(".vscode/settings.json")), { message: `files.autoSave is ${value}` }).toBe(value);
   };
@@ -3290,14 +3291,21 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
     await damage.press("Tab");
     await smpCost.fill("9999999999");
     await expect.poll(diskDamage, { timeout: 30_000, message: "the autosave wrote the accepted edit" }).toBe(-40);
-    await expect(smpCost, "the half-typed text is still the author's").toHaveValue("9999999999");
     await page.waitForTimeout(1_500);
-    // Leaving the field after the save shows its own reason; the text it could not store is still the author's and was
-    // never rounded into the file.
+    // The text it could not store is still the author's, was never rounded into the file, and the document is still unsaved.
     await expect(smpCost).toHaveValue("9999999999");
-    expect(await diskDamage(), "the autosave was not undone or refused").toBe(-40);
+    expect(await diskDamage(), "the autosave was not undone").toBe(-40);
+    expect(await dirty(), "VS Code still shows the document as unsaved while a field holds text").toBe(true);
   } finally {
     await runCommand(page, expect, "Test: Turn Autosave Off");
     await autosaved("off");
   }
+  // Discarding the text lets the explicit Save finish: nothing is left to protect.
+  await panel.getByRole("button", { name: "Discard the unapplied text" }).click().catch(async () => {
+    await smpCost.focus();
+    await smpCost.press("Tab");
+    await panel.getByRole("button", { name: "Discard the unapplied text" }).click();
+  });
+  await runCommand(page, expect, "File: Save");
+  await expect.poll(dirty).toBe(false);
 }

@@ -784,7 +784,7 @@ function draftView(initially: boolean) {
     busy: () => false,
     idle: async (reason) => { state.heard.push(reason ?? "none"); },
     holdsDraft: () => state.holds,
-    refusal: (reason) => reason === "explicit" && state.holds ? "A field still holds text this file cannot store." : null,
+    refusal: (reason) => state.holds && (reason === "explicit" || reason === "guard") ? "A field still holds text this file cannot store." : null,
   };
   return { state, work };
 }
@@ -849,4 +849,28 @@ test("Save All settles each document just before its own write, so text typed in
   const results = await workspace.saveAll();
   deepEqual(results.map((entry) => [entry.document, entry.result.ok]), [[PATH, true], [second, false]], "the second is refused with its reason, not skipped as clean");
   deepEqual(host.bytesOf(second), exampleMain(9), "and nothing was written for it");
+});
+
+test("Save As keeps the source open when text is typed into a field while the copy is written (#3385)", HELD, async () => {
+  const typed = draftView(false);
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9) }, capabilities: [] });
+  const fs = {
+    ...host.fs,
+    async writeProject(projectId: string, path: string, bytes: Uint8Array) {
+      // The author types into the source's field while the destination is being written: the model's revision is unchanged.
+      if (path === "Main/copy.gam") typed.state.holds = true;
+      return host.fs.writeProject(projectId, path, bytes);
+    },
+  };
+  const workspace = createDocumentWorkspace({ projectId: identity.projectId, services: { fs, dialogs: host.dialogs, capabilities: host.capabilities } });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  workspace.pendingEdits(opened.document).register(typed.work);
+  ok(opened.document.apply({ type: "set-game-title", title: "Copied" }).ok);
+  host.answerSavePaths("Main/copy.gam");
+  const result = await workspace.saveAs(opened.document);
+  ok(!result.ok, "the copy does not replace a source that holds text the copy lacks");
+  equal(result.reason, "failed");
+  equal(titleOf(host.bytesOf("Main/copy.gam")!), "Copied", "the copy was written");
+  deepEqual(workspace.documents(), [opened.document], "and the source stays the open document");
 });

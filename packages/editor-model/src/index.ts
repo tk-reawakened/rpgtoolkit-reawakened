@@ -276,7 +276,7 @@ export {
   type StatusEffectOpenResult,
   type StatusEffectTextField,
 } from "./status-effect-document.ts";
-export { describeLinkedStatusEffect, linkedFileCandidates, linkReferenceProblem, type LinkedStatusEffect } from "./battle-data-links.ts";
+export { describeLinkedStatusEffect, linkedFileCandidates, linkReferenceProblem, type LinkedStatusEffect, type LinkLookup } from "./battle-data-links.ts";
 export { asFontDocument } from "./kinds.ts";
 export {
   createFontDocument,
