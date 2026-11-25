@@ -17,6 +17,7 @@ import type { WizardHistory } from "./wizard-history.ts";
 import type { Preferences, PreferencesSnapshot } from "./preferences.ts";
 import { withProjectPathWriteLock } from "./project-path-write-lock.ts";
 import { reservedFolder, unusableName, type ProjectLayout } from "./reserved-folders.ts";
+
 /**
  * Creating a board (T-20, `docs/editor-features.md` "New board"): a blank board or one made from an existing board as a
  * template, in a coordinate system, with a size, a layer count and a background. The bytes are the board writer's, so a

@@ -102,7 +102,7 @@ export async function listCandidates(
   if (root.failure !== null) failures.push(root.failure);
   const pending = root.path === null ? [] : [root.path];
   while (pending.length > 0) {
-    const folder = pending.shift()!;
+    const folder = pending.pop()!;
     const listed = await fs.list(folder);
     if (!listed.ok) {
       if (listed.error.code !== "not-found") failures.push({ path: folder, error: listed.error });
