@@ -105,6 +105,8 @@ function activate(context) {
   }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failSaves", () => { filesystem.failSaves = true; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowSaves", () => { filesystem.failSaves = false; }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.failBoardUpgradeCopyWrites", () => { filesystem.failBoardUpgradeCopyWrites = true; }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.allowBoardUpgradeCopyWrites", () => { filesystem.failBoardUpgradeCopyWrites = false; }));
   context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.pauseProgramRead", () => {
     filesystem.pauseProgramRead = () => report("Fixture read paused");
   }));
@@ -363,6 +365,9 @@ class PersistentFileSystem {
     return Uint8Array.from(atob(encoded), (character) => character.charCodeAt(0));
   }
   async writeFile(uri, content, options) {
+    if (this.failBoardUpgradeCopyWrites && uri.path.endsWith("/village.failed-write.brd")) {
+      throw vscode.FileSystemError.NoPermissions("Proof: injected board-copy write failure");
+    }
     if (this.failSaves && uri.path.endsWith("/Main/example.gam")) throw vscode.FileSystemError.NoPermissions("Proof: injected save failure");
     let binary = "";
     for (let offset = 0; offset < content.length; offset += 0x8000) binary += String.fromCharCode(...content.subarray(offset, offset + 0x8000));

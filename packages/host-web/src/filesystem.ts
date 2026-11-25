@@ -44,8 +44,30 @@ export function createWebFileSystem(root: FileSystemDirectoryHandle, projectId: 
     },
     async write(path, bytes) {
       const parts = valid(path); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);
-      try { const target = await file(parts, true); const writable = await target.createWritable({ keepExistingData: false }); const buffer = new ArrayBuffer(bytes.byteLength); new Uint8Array(buffer).set(bytes); await writable.write(buffer); await writable.close(); return platformOk(undefined); }
-      catch (error) { return fail(error, path); }
+      let target: FileSystemFileHandle | undefined;
+      let existed = false;
+      try {
+        target = await file(parts);
+        existed = true;
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "NotFoundError")) return fail(error, path);
+      }
+      let writable: FileSystemWritableFileStream | undefined;
+      try {
+        target ??= await file(parts, true);
+        writable = await target.createWritable({ keepExistingData: false });
+        const buffer = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(buffer).set(bytes);
+        await writable.write(buffer);
+        await writable.close();
+        return platformOk(undefined);
+      } catch (error) {
+        try { await writable?.abort(); } catch { /* Keep the original write error. */ }
+        if (!existed && target !== undefined) {
+          try { await (await dir(parts.slice(0, -1))).removeEntry(parts.at(-1)!); } catch { /* Keep the original write error. */ }
+        }
+        return fail(error, path);
+      }
     },
     async createFolder(path) {
       const parts = valid(path); if (!parts) return platformError("invalid-path", `Invalid project path: ${path}`);
