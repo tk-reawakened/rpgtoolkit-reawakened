@@ -85,7 +85,7 @@ export {
   type NewBoardSettings,
   type NewBoardStorage,
 } from "./board-creation.ts";
-export { boardPreviewRootForPath, previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type BoardPreviewRequest, type PreviewStorage } from "./board-preview.ts";
+export { boardPreviewRootForLayout, boardPreviewRootForPath, previewBoard, type BoardPicture, type BoardPreview, type BoardPreviewOptions, type BoardPreviewRequest, type PreviewStorage } from "./board-preview.ts";
 export {
   ZOOM_STEPS,
   DEFAULT_ZOOM_INDEX,
@@ -484,6 +484,7 @@ export {
   listCandidates,
   projectLayoutForDocumentPath,
   projectLayoutOfMain,
+  projectLayoutOwnerForDocumentPath,
   referencePath,
   resolveReservedFolderPath,
   reservedFolder,
@@ -493,6 +494,7 @@ export {
   type LinkOutcome,
   type ListFailure,
   type ProjectLayout,
+  type ProjectLayoutOwner,
 } from "./reserved-folders.ts";
 export {
   createProjectTree,

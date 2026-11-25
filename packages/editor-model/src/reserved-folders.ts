@@ -13,6 +13,39 @@ export interface ProjectLayout {
   readonly projectFolder: string;
 }
 
+/** A main game file and the asset layout it declares. */
+export interface ProjectLayoutOwner {
+  readonly mainPath: string | null;
+  readonly layout: ProjectLayout;
+}
+
+/** Resolve a document to its declared game's longest owning project folder. */
+export function projectLayoutOwnerForDocumentPath(path: string, owners: readonly ProjectLayoutOwner[]): ProjectLayoutOwner | null {
+  const foldedPath = foldPath(path).replace(/\/+$/g, "");
+  const exactMain = owners.find((owner) => owner.mainPath !== null && foldPath(owner.mainPath) === foldedPath);
+  if (exactMain !== undefined) return exactMain;
+
+  let longest = -1;
+  let owner: ProjectLayoutOwner | null = null;
+  for (const candidate of owners) {
+    const folder = foldPath(candidate.layout.projectFolder).replace(/^\/+|\/+$/g, "");
+    if (folder === "" || (foldedPath !== folder && !foldedPath.startsWith(`${folder}/`))) continue;
+    if (folder.length > longest) {
+      longest = folder.length;
+      owner = candidate;
+    } else if (folder.length === longest && owner?.mainPath !== candidate.mainPath) {
+      return null;
+    }
+  }
+  if (owner !== null) return owner;
+
+  const rootFolder = foldedPath.split("/")[0] ?? "";
+  if (RESERVED_FOLDER_NAMES.has(rootFolder)) return { mainPath: null, layout: { projectFolder: "" } };
+
+  const rootOwners = owners.filter((candidate) => foldPath(candidate.layout.projectFolder).replace(/^\/+|\/+$/g, "") === "");
+  return rootOwners.length === 1 ? rootOwners[0]! : null;
+}
+
 const RESERVED_FOLDER_NAMES = new Set(Object.values(ASSET_FOLDERS).map(asciiLower));
 
 /**

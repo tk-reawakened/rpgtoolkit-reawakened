@@ -56,8 +56,12 @@ import {
   type VisitResult,
   type Visits,
   createBoardCoordinateUpgradeCommand,
+  projectLayoutOfMain,
+  projectLayoutOwnerForDocumentPath,
+  resolveReservedFolderPath,
   DEFAULT_WORKBENCH_PANELS,
   upgradeBoardCopy,
+  type ProjectLayoutOwner,
 } from "@tk-reawakened/editor-model";
 import { createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
@@ -136,6 +140,30 @@ export interface Workbench {
   dispose(): void;
 }
 
+async function declaredProjectLayouts(project: WebProject, selectedMain: string | null): Promise<readonly ProjectLayoutOwner[]> {
+  const roots = await resolveReservedFolderPath(project.services.fs, "Main");
+  if (roots.failure !== null) throw new Error(`Could not locate Main: ${roots.failure.error.message}`);
+  const paths = new Set<string>();
+  if (selectedMain !== null) paths.add(selectedMain);
+  const visit = async (folder: string): Promise<void> => {
+    const listed = await project.services.fs.list(folder);
+    if (!listed.ok) {
+      if (listed.error.code === "not-found") return;
+      throw new Error(`Could not list ${folder || "."}: ${listed.error.message}`);
+    }
+    for (const entry of listed.value) {
+      const path = folder === "" ? entry.name : `${folder}/${entry.name}`;
+      if (entry.kind === "directory") await visit(path);
+      else if (entry.kind === "file" && /\.gam$/i.test(entry.name)) paths.add(path);
+    }
+  };
+  await visit(roots.path);
+  return await Promise.all([...paths].map(async (mainPath) => ({
+    mainPath,
+    layout: await projectLayoutOfMain(project.services.fs, project.project.id, mainPath),
+  })));
+}
+
 /**
  * The browser host's workbench (stories 11.4, T-01 to T-05): the shell of Files and Game panels and document tabs over
  * one project, the editors mounted into the shell's editor slot, linked visits, and the asset picker. Tabs hold the
@@ -151,6 +179,24 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   const layout = createLayoutModel(DEFAULT_WORKBENCH_PANELS);
   let slot: HTMLElement | null = null;
   const views = new Map<string, { readonly document: AnyDocument; readonly view: DocumentView; shownIn: HTMLElement | null }>();
+  let declaredLayouts: Promise<readonly ProjectLayoutOwner[]> | null = null;
+  const layouts = (): Promise<readonly ProjectLayoutOwner[]> => {
+    declaredLayouts ??= declaredProjectLayouts(project, main);
+    return declaredLayouts;
+  };
+  const ownersByDocument = new Map<string, ProjectLayoutOwner>();
+  const ownerForPath = async (path: string): Promise<ProjectLayoutOwner> => {
+    const owners = await layouts();
+    const declared = projectLayoutOwnerForDocumentPath(path, owners);
+    if (declared !== null) return declared;
+    const selectedFolder = projectLayout.projectFolder.replace(/^\/+|\/+$/g, "").toLowerCase();
+    const foldedPath = path.replace(/\\/g, "/").toLowerCase();
+    if (selectedFolder !== "" && (foldedPath === selectedFolder || foldedPath.startsWith(`${selectedFolder}/`))) {
+      return { mainPath: main, layout: projectLayout };
+    }
+    if (selectedFolder === "" && main !== null) return { mainPath: main, layout: projectLayout };
+    return { mainPath: null, layout: { projectFolder: "" } };
+  };
   let version = 0;
   let disposed = false;
   let openPrefs: (() => void) | null = null;
@@ -203,58 +249,59 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       }
       const document = workspace.documents().find((candidate) => candidate.identity.key === tab.key);
       if (document === undefined) continue;
+      const owner = ownersByDocument.get(tab.key) ?? { mainPath: main, layout: projectLayout };
       let entry = views.get(tab.key);
       if (tab.key === snapshot.active) {
         if (entry === undefined) {
           const container = slot.ownerDocument.createElement("div");
           container.className = "tkr-editor-pane";
           slot.append(container);
-          entry = { document, view: mountDocumentView(project, document, container, projectLayout, async (visit) => {
+          entry = { document, view: mountDocumentView(project, document, container, owner.layout, async (visit) => {
             const result = await visits.visit(document, visit.path);
             if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
-            show(result.document);
+            await show(result.document);
             revealSourceTile(result.document, visit.tile);
             return null;
           }, {
             pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
             open: async (path) => {
               const kind = kindForPath(path)?.id;
-              const layout = projectLayout;
+              const layout = owner.layout;
               if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap" && kind !== "animation") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
               const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : "animations";
               const target = kind === "animation" ? path : referencePath(layout, folder, path);
               const visited = await visits.visit(document, target);
               if (!visited.ok) return "message" in visited.error ? visited.error.message : visited.error.error.message;
-              show(visited.document);
+              await show(visited.document);
               return null;
             },
             returnFromVisit: async () => {
               const returned = await visits.returnFromVisit();
               if (!returned.ok) return returned.message;
-              show(returned.document);
+              await show(returned.document);
               return returned.message;
             },
             setInitialBoard: async (boardPath) => {
-              if (main === null) return "No main game file is selected, so this board cannot be made the initial board.";
-              const link = linkFor(projectLayout, "boards", boardPath);
+              if (owner.mainPath === null) return "No owning main game file is available, so this board cannot be made the initial board.";
+              const link = linkFor(owner.layout, "boards", boardPath);
               if (!link.inside) return "This board is outside the owning game's Boards folder. The initial board has not changed.";
-              const opened = await workspace.open(main);
+              const opened = await workspace.open(owner.mainPath);
               if (!opened.ok) return "message" in opened.error ? opened.error.message : opened.error.error.message;
-              if (opened.document.kind !== "main") return `${main} is not a main game document.`;
+              if (opened.document.kind !== "main") return `${owner.mainPath} is not a main game document.`;
               const result = asMainDocument(opened.document).apply({ type: "apply-settings", changes: { initBoard: link.reference } });
               if (!result.ok) return result.rejection.message;
               const edit = opened.document.getSnapshot().edits.find((entry) => entry.editId === result.editId);
               services.document.edited({ document: opened.document.identity.key, editId: result.editId, label: edit?.label ?? "Set initial board" });
               return "Initial board changed in the main game file. Save that file separately.";
             },
-            ...(main === null ? {} : {
+            ...(owner.mainPath === null ? {} : {
               get initialBoardPath() {
-                const owner = workspace.documents().find((candidate) => candidate.identity.path === main && candidate.kind === "main");
-                const reference = owner === undefined ? "" : asMainDocument(owner).getSnapshot().settings.initBoard;
-                return reference === "" ? "" : referencePath(projectLayout, "boards", reference);
+                const mainDocument = workspace.documents().find((candidate) => candidate.identity.path === owner.mainPath && candidate.kind === "main");
+                const reference = mainDocument === undefined ? "" : asMainDocument(mainDocument).getSnapshot().settings.initBoard;
+                return reference === "" ? "" : referencePath(owner.layout, "boards", reference);
               },
             }),
-          }, main, importBoard, (operation) => {
+          }, owner.mainPath, importBoard, (operation) => {
             const command = boardUpgradeCommands.find(({ id }) => id === `board.upgrade.${operation}`);
             if (command !== undefined) void command.run();
           }), shownIn: container };
@@ -278,20 +325,31 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
   };
   const unsubscribeTabs = tabs.subscribe(sync);
 
-  const show = (document: AnyDocument): void => {
+  const show = async (document: AnyDocument): Promise<string | null> => {
+    try {
+      ownersByDocument.set(document.identity.key, await ownerForPath(document.identity.path));
+    } catch (error) {
+      return `Could not resolve the owning game's layout for ${document.identity.path}: ${error instanceof Error ? error.message : String(error)}`;
+    }
+    if (disposed) return "The workbench is closed.";
     tabs.open(document);
     version += 1;
+    return null;
   };
   const openPath = async (path: string): Promise<void> => {
     const result = await tree.open(path);
-    if (result.ok && result.via === "document") show(result.document);
+    if (result.ok && result.via === "document") {
+      const problem = await show(result.document);
+      if (problem !== null) await tell(problem);
+    }
   };
   /** What the tileset browser's "edit source" asks for: the file in a tab at its tile, or why it did not open. */
   const openSource = async (visit: SourceVisit): Promise<string | null> => {
     const result = await tree.open(visit.path);
     if (!result.ok) return "message" in result.error ? result.error.message : result.error.error.message;
     if (result.via !== "document") return null;
-    show(result.document);
+    const problem = await show(result.document);
+    if (problem !== null) return problem;
     revealSourceTile(result.document, visit.tile);
     return null;
   };
@@ -445,12 +503,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     return active === null ? null : workspace.documents().find((document) => document.identity.key === active && document.kind === "board") ?? null;
   };
   const upgradeCopy = async (boardPath: string, operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector", isPending: () => boolean): Promise<void> => {
+    const owner = await ownerForPath(boardPath);
     const result = await upgradeBoardCopy({
       fs: services.fs,
       dialogs: services.dialogs,
       projectId: project.project.id,
       boardPath,
-      boardsRoot: reservedFolder(projectLayout, "boards"),
+      boardsRoot: reservedFolder(owner.layout, "boards"),
       operation,
       hasPendingEdits: isPending,
       hasPendingEditsNow: isPending,
@@ -470,7 +529,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       return;
     }
     if (opened.via !== "document") return;
-    show(opened.document);
+    const problem = await show(opened.document);
+    if (problem !== null) {
+      await tell(problem);
+      return;
+    }
     const reopened = opened.document.serialize();
     const snapshot = opened.document.getSnapshot();
     if (reopened.length !== bytes.length || reopened.some((value, index) => value !== bytes[index])
@@ -517,17 +580,26 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       category: "File",
       label: "Upgrade a pre-vector board…",
       run: async () => {
-        const found = await listCandidates(services.fs, projectLayout, "boards", [".brd"]);
-        if (found.failures.length > 0) {
-          await tell(`Could not list all board files: ${found.failures.map(({ path, error }) => `${path}: ${error.message}`).join("; ")}`);
+        const owners = await layouts();
+        const candidateLayouts = [projectLayout, ...owners.map(({ layout }) => layout)];
+        const byPath = new Map<string, { readonly path: string; readonly reference: string }>();
+        const failures: { readonly path: string; readonly error: { readonly message: string } }[] = [];
+        for (const candidateLayout of candidateLayouts) {
+          const found = await listCandidates(services.fs, candidateLayout, "boards", [".brd"]);
+          failures.push(...found.failures);
+          for (const candidate of found.candidates) byPath.set(candidate.path.toLowerCase(), candidate);
+        }
+        if (failures.length > 0) {
+          await tell(`Could not list all board files: ${failures.map(({ path, error }) => `${path}: ${error.message}`).join("; ")}`);
           return;
         }
-        if (found.candidates.length === 0) {
+        const candidates = [...byPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+        if (candidates.length === 0) {
           await tell("This project has no boards to upgrade.");
           return;
         }
         const choices = [
-          ...found.candidates.map(({ path, reference }) => ({ id: path, label: reference })),
+          ...candidates.map(({ path, reference }) => ({ id: path, label: reference })),
           { id: "cancel", label: "Cancel" },
         ];
         const selected = await services.dialogs.ask<string>({
@@ -680,7 +752,8 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
         if (disposed) return platformError("unavailable", "The project was closed; its program cannot be opened here.");
         if (!result.ok) return platformError("io-error", "message" in result.error ? result.error.message : result.error.error.message);
         if (result.via !== "document" || result.document.kind !== "program") return platformError("unavailable", `${path} did not open as a program in this workspace.`);
-        show(result.document);
+        const problem = await show(result.document);
+        if (problem !== null) return platformError("unavailable", problem);
         const view = views.get(result.document.identity.key)?.view;
         if (view?.revealSource === undefined) return platformError("unavailable", "The program editor is not available for source navigation.");
         view.revealSource(line, column);
@@ -761,12 +834,13 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     onReturnFromVisit: async () => {
       const returned = await visits.returnFromVisit();
       if (!returned.ok) return returned.message;
-      show(returned.document);
+      const problem = await show(returned.document);
+      if (problem !== null) return problem;
       return returned.message;
     },
     version,
     onOpened: (result) => {
-      if (result.via === "document") show(result.document);
+      if (result.via === "document") void show(result.document).then((problem) => problem === null ? undefined : tell(problem));
     },
     onOpenPath: (path) => { void openPath(path); },
     onImportBoard: async (path) => {
@@ -802,20 +876,27 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     openPath,
     async visit(origin, path) {
       const result = await visits.visit(origin, path);
-      if (result.ok) show(result.document);
+      if (result.ok) {
+        const problem = await show(result.document);
+        if (problem !== null) await tell(problem);
+      }
       return result;
     },
     async returnFromVisit() {
       const result = await visits.returnFromVisit();
-      if (result.ok) show(result.document);
+      if (result.ok) {
+        const problem = await show(result.document);
+        if (problem !== null) await tell(problem);
+      }
       return result;
     },
-    pickAsset(request, originPath) {
+    async pickAsset(request, originPath) {
+      const owner = await ownerForPath(originPath ?? main ?? "");
       const doc = element.ownerDocument;
       const before = doc.activeElement;
       const picker = createAssetPicker({
         services: { fs: services.fs, dialogs: services.dialogs, capabilities: services.capabilities },
-        layout: projectLayout,
+        layout: owner.layout,
         kind: request.kind,
         extensions: request.extensions,
         field: request.field,

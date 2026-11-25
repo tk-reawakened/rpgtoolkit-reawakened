@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { platformError } from "@tk-reawakened/platform-services";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { copyIntoReservedFolder, createAssetPicker, linkFor, listCandidates, referencePath, reservedFolder, unusableName } from "../src/index.ts";
-import { projectLayoutForDocumentPath } from "../src/reserved-folders.ts";
+import { projectLayoutForDocumentPath, projectLayoutOwnerForDocumentPath } from "../src/reserved-folders.ts";
 const ROOT = { projectFolder: "" };
 const bytes = (...values: number[]): Uint8Array => new Uint8Array(values);
 
@@ -22,6 +22,16 @@ test("a game layout supports multiple nested project path components", () => {
   deepEqual(projectLayoutForDocumentPath("Game/a/b/Boards/nested/Map.brd"), { projectFolder: "Game/a/b" });
   deepEqual(projectLayoutForDocumentPath("Game/A/Tiles/B/Boards/map.brd"), { projectFolder: "Game/A/Tiles/B" });
   deepEqual(projectLayoutForDocumentPath("Game/Quest/Boards/Region/Boards/map.brd"), { projectFolder: "Game/Quest/Boards/Region" });
+});
+
+test("declared main layouts own nested board folders, not the last reserved folder in a path", () => {
+  const owners = [
+    { mainPath: "Main/quest.gam", layout: { projectFolder: "Game/Quest" } },
+    { mainPath: "Main/other.gam", layout: { projectFolder: "Game/Other" } },
+  ];
+  deepEqual(projectLayoutOwnerForDocumentPath("Game/Quest/Boards/Region/Boards/Map.brd", owners), owners[0]);
+  deepEqual(projectLayoutOwnerForDocumentPath("Game/Other/Boards/Map.brd", owners), owners[1]);
+  deepEqual(projectLayoutOwnerForDocumentPath("Boards/Old.brd", owners), { mainPath: null, layout: ROOT });
 });
 
 test("a link is the path inside the type folder, sub-folders kept, with the legacy separator", () => {
