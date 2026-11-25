@@ -8,6 +8,7 @@ import { isIgnoredProjectPath, runCreatorSpecs, type CreatorFrameObservation, ty
 const PAGE = "/tools/browser/editor-web/index.html";
 const MAIN = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/game/Main/example.gam", import.meta.url)));
 const SEED = 17;
+const INVENTORY_PROBE = "creator-inventory-probe.txt";
 
 /** Real OPFS handles are structured-cloned into the production recent-project registry; no picker or host is replaced. */
 async function rememberProject(page: Page, id: string, files: readonly SpecProjectFile[]): Promise<void> {
@@ -132,7 +133,8 @@ async function verifyVisible(tests: Locator, expected: ReturnType<typeof expecte
 test("saved creator tests use the real engine, save Monaco edits, retain reports and jump to the owning failure under strict CSP", async ({ page }, testInfo) => {
   const project = `creator-${randomUUID()}`;
   const fixture = createCreatorTestFiles();
-  const passFiles = [{ path: "Main/example.gam", bytes: MAIN }, ...fixture];
+  const passFiles = [{ path: "Main/example.gam", bytes: MAIN }, ...fixture,
+    { path: INVENTORY_PROBE, bytes: new TextEncoder().encode("Saved-test inventory read barrier\n") }];
   const errors: string[] = [];
   const csp: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -209,31 +211,36 @@ test("saved creator tests use the real engine, save Monaco edits, retain reports
   await tests.getByRole("button", { name: CREATOR_TEST_SPEC_PATH, exact: true }).click();
   const input = page.getByRole("textbox", { name: /^Program text/ });
   await expect(page.locator("#settings .monaco-editor:visible .view-lines")).toBeVisible();
-  // Pause one real OPFS read after Save All and type into the real Monaco surface before releasing it.
-  await page.evaluate(() => {
-    const state = window as Window & { creatorReadGate?: { reached: boolean; release: () => void } };
+  await expect(page.getByRole("tab", { name: CREATOR_TEST_SPEC_PATH, exact: true })).toBeVisible();
+  // The spec file itself can also be read by editor, history and file-stat work. Gate the byte read of an
+  // otherwise unused file in the real inventory so the hold cannot be consumed by opening the program.
+  await page.evaluate(async ({ project, probe }) => {
+    const folder = await (await navigator.storage.getDirectory()).getDirectoryHandle(project);
+    const target = await folder.getFileHandle(probe);
     const original = FileSystemFileHandle.prototype.getFile;
     let release = (): void => {};
     const blocked = new Promise<void>((resolve) => { release = resolve; });
     const gate = { reached: false, release: () => { FileSystemFileHandle.prototype.getFile = original; release(); } };
-    state.creatorReadGate = gate;
+    (window as Window & { creatorReadGate?: typeof gate }).creatorReadGate = gate;
     FileSystemFileHandle.prototype.getFile = async function () {
-      const file = await original.call(this);
-      if (this.name === "wall.spec.prg" && !gate.reached) {
+      if (this.name === probe && await this.isSameEntry(target)) {
         gate.reached = true;
         await blocked;
       }
-      return file;
+      return original.call(this);
     };
-  });
-  await tests.getByRole("button", { name: "Run saved tests", exact: true }).click();
-  await expect.poll(() => page.evaluate(() => (window as Window & { creatorReadGate?: { reached: boolean } }).creatorReadGate?.reached)).toBe(true);
-  await input.focus();
-  await page.keyboard.insertText(" ");
-  await expect(page.getByRole("tab", { name: `${CREATOR_TEST_SPEC_PATH}, unsaved changes`, exact: true })).toBeVisible();
-  await page.evaluate(() => {
-    if ("creatorReadGate" in window && typeof window.creatorReadGate === "object" && window.creatorReadGate !== null && "release" in window.creatorReadGate && typeof window.creatorReadGate.release === "function") window.creatorReadGate.release();
-  });
+  }, { project, probe: INVENTORY_PROBE });
+  try {
+    await tests.getByRole("button", { name: "Run saved tests", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as Window & { creatorReadGate?: { reached: boolean } }).creatorReadGate?.reached)).toBe(true);
+    await expect(tests.getByRole("status")).toHaveText("Saving accepted edits and reading saved test files…");
+    await expect(tests.getByRole("heading", { name: /^Pass:|^Fail:/ })).toHaveCount(0);
+    await input.focus();
+    await page.keyboard.insertText(" ");
+    await expect(page.getByRole("tab", { name: `${CREATOR_TEST_SPEC_PATH}, unsaved changes`, exact: true })).toBeVisible();
+  } finally {
+    await page.evaluate(() => (window as Window & { creatorReadGate?: { release: () => void } }).creatorReadGate?.release());
+  }
   await expect(tests.getByRole("alert")).toContainText("changed while saved test files were being read");
   await expect(tests.getByRole("heading", { name: /^Pass:|^Fail:/ })).toHaveCount(0);
 
