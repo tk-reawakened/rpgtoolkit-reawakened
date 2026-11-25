@@ -3203,10 +3203,9 @@ const BATTLE_PROOF_MOVE = "SpcMove/fireball.spc";
 
 /**
  * Story 13.10 (T-57) through the packaged custom editor in the real VS Code web client, for what the conformance host
- * can only imitate (#3385): a field being typed in does not mark the document unsaved and does not add to VS Code's undo
- * history; once it is applied the native Save All writes it; an invalid draft refuses the native Save with its reason and
- * writes nothing, and discarding it leaves the redo branch intact; and `files.autoSave: afterDelay` saves the accepted
- * edits while leaving the draft alone. The file's own bytes are read back from the persisted project after each step.
+ * can only imitate. This proof reproduces, rather than clears, the #3385 release blocker: a field draft alone does not
+ * mark the tab dirty, native Save All skips it, and native Close loses it. It also checks that accepted edits use native
+ * Save All/Undo/Redo and that an invalid draft never lets a save write around it. Each write is checked on disk.
  */
 export async function runVscodeBattleDataProof(page: Page, expect: Expect, workbenchUrl: string, host: Pick<ProofHost, "readBacking">): Promise<void> {
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
@@ -3315,4 +3314,17 @@ export async function runVscodeBattleDataProof(page: Page, expect: Expect, workb
   await runCommand(page, expect, "File: Save");
   await expect.poll(diskDamage).toBe(-40);
   await expect.poll(dirty).toBe(false);
+
+  // 5. An invalid field cannot commit on blur, so clicking the native tab's close target cannot save it by accident.
+  // This is a reproduction of #3385, not successful close protection.
+  const beforeClose = await host.readBacking(BATTLE_PROOF_MOVE);
+  await damage.fill("9999999999");
+  await damage.press("Tab");
+  await expect(panel).toContainText("whole number from -2147483648 to 2147483647");
+  expect(await dirty(), "a refused draft alone leaves the native tab clean (#3385)").toBe(false);
+  await tab.click({ button: "middle" });
+  await expect(tab, "native Close removes the draft-only tab without giving a choice (#3385)").toHaveCount(0);
+  const reopened = await openProjectFile(page, BATTLE_PROOF_MOVE, expect, surface);
+  await expect(reopened.locator(surface).getByLabel("Damage (FP)", { exact: true })).toHaveValue("-40");
+  expect([...await host.readBacking(BATTLE_PROOF_MOVE)], "Close lost the draft, not a previously accepted disk edit").toEqual([...beforeClose]);
 }
