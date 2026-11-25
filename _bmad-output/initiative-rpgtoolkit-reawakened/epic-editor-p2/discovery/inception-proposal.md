@@ -22,11 +22,11 @@ The first runnable proof is 14.2: create a supported message action, save the ac
 
 | Lane | Entries | Providers and gates |
 |---|---|---|
-| Shared source and test contracts | 1 | 11.1; owner resolves source/layout authority, skin persistence and preview semantics, nonrepresentable text and fixture mapping, plus installer targets; no arbitrary roundtrip |
+| Shared source and test contracts | 1 | 11.1; [ADR 0045](../../../../docs/adr/0045-visual-source-skin-and-setup-delivery-contracts.md#owner-decisions) records the 14.1 owner decision; no arbitrary roundtrip |
 | Visual events | 2 → 3 | 11.2, 11.3, 11.7, 11.8 and 11.4; includes T-45 screen-layout canvas, Monaco in browser/standalone and native VS Code text |
 | Skin | 4 | 1, 11.3 and 11.4; explicit persistence/preview ruling before shared document/picker integration |
 | Audio | 5 | 6.5 WAV/MIDI metadata, 6.15 protocol, 9.5 cue player/web audio, 9.6 bank resolution, 11.1, 11.4 and 11.6 project SoundFont; host audio/autoplay capability |
-| Setup | 6 | 1 and 12.9; signing credentials and supported native install targets need human verification, browser must disclose unsupported operations |
+| Setup | 6 | 1 and 12.9; prove install/run/remove via a compatible player app; the browser editor discloses unsupported operations. Native installers and signing are outside 14.6. |
 | Visual test fixtures | 7 | 1, 11.9 and 12.1; real engine, fresh isolated state, bounded ticks, failure diagnostics and distribution exclusion |
 | Tutorial | 8 | 11.4, 11.8, 11.10, 11.11, 12.3 and 12.10; nine concrete steps from project/board creation through start placement and scoped runs, independent of visual events |
 | Media import | 11 → 12/13 → 14 | 11.1, 6.3 policy and 9.3 video-profile probe; HITL approval first; 11.3 lifecycle, 6.5 metadata, 9.5 real PCM playback, 9.6 VideoHost; integration consumes 11.4/11.6 and 12.9, including authored bank bundling, nonblocking ICOP/ICMT warnings and legacy MIDI-pack exclusion |

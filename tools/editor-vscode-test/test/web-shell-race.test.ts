@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { transform } from "esbuild";
+import { writeBrowserShellModule } from "./browser-shell-module.ts";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 type BrowserShellCleanup = typeof globalThis & {
   workbenches?: { dispose(): void }[];
@@ -85,9 +85,7 @@ export function createWorkbench(project, element) {
   return workbench;
 }
 `);
-    const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
-    const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    await writeBrowserShellModule(shellPath, join(dir, "host.mjs"));
     // Import this generated module dynamically from the package's build directory to exercise normal workspace resolution.
     await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
@@ -232,9 +230,7 @@ export function createWorkbench(project, element) {
   return workbench;
 }
 `);
-    const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
-    const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    await writeBrowserShellModule(shellPath, join(dir, "host.mjs"));
     await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {
@@ -382,9 +378,7 @@ export function createWorkbench(project, element) {
   return workbench;
 }
 `);
-    const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
-    const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    await writeBrowserShellModule(shellPath, join(dir, "host.mjs"));
     await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {
@@ -501,9 +495,7 @@ export function createWorkbench(project, element) {
   return workbench;
 }
 `);
-    const source = await readFile(resolve("tools/browser/editor-web/main.tsx"), "utf8");
-    const transformed = await transform(source, { loader: "tsx", format: "esm" });
-    await writeFile(shellPath, transformed.code.replace('"@tk-reawakened/host-web"', JSON.stringify(pathToFileURL(join(dir, "host.mjs")).href)));
+    await writeBrowserShellModule(shellPath, join(dir, "host.mjs"));
     await import(pathToFileURL(shellPath).href);
     const until = async (condition: () => boolean) => {
       for (let i = 0; i < 1000; i++) {

@@ -202,6 +202,15 @@ save (AD-17's blob areas are untouched).
 the field set has no corpus evidence; it is fixed here because a library row needs a shape to key, and it changes only
 with this section.
 
+<a id="reawakened-setup-delivery"></a>
+## Reawakened setup delivery (T-72)
+
+**T-72 Launcher-based setup (OWNER; ruled 2026-11-25, [ADR 0045 5C](../../adr/0045-visual-source-skin-and-setup-delivery-contracts.md#owner-decisions)).** Give players one unsigned ZIP containing the game package, its install descriptor, and plain-text instructions. The player app installs and removes the game in its library. The ZIP is neither a bundled installer nor the legacy [Setup ZIP](#setup-zip) input.
+
+- **Build and inspect.** The only inputs are the existing 12.9 [distribution package](#distribution-package-this-projects-own) and its [descriptor](#install-descriptor); the setup ZIP is a third artefact, not the editable project or the game package. It contains neither the engine nor excluded project files (saves, history, exports, tests and editor-only files). Show the destination, file list and dependencies before writing. Cancellation writes nothing and never changes the inputs. Stage before replacing an existing setup artefact so failure or cancellation preserves it; name the cause on failure.
+- **Install and remove.** A compatible player app's **Install** validates the descriptor's SHA-256 and byte size, refuses a mismatch with the reason, and registers the game inside its library store. Never overwrite another game's data, write outside the library store, or touch saves on install. **Remove** unregisters the game and removes the library's package copy; ask before removing saves and never delete outside the store. Both operations are idempotent. Setup runs no installer scripts, requires no elevated privileges, and downloads nothing on the recipient's machine.
+- **Host limits and signing.** The browser editor can build and download the ZIP but does not install or sign it; say so rather than emulating an installer. A web player with the required library operations can be the recipient. VS Code defaults to `.tkr-exports/`, under the package destination rules above. A host without output capability reports setup unavailable. Nothing is signed: the descriptor's SHA-256, published beside the ZIP, is the integrity check, not authentication of the publisher. Native standalone installers, targets, signing and notarisation require a separate owner decision; 14.6 neither builds nor promises them.
+
 ## Untrusted-package limits (L1–L26)
 
 Every package form is **untrusted input**, so a loader bounds what a package can make it spend — bytes in, entry count, declared and actual sizes, compression ratio, path shape and the appended-EXE trailer — before it allocates or parses anything, and treats a nested archive as an ordinary file (L14). Every rejection **names the rule it hit**, so a failure, a code comment or a review finding can cite one row. The loose-folder rows (L22–L26) restate the archive rows rather than widening them, so both forms accept and reject the same games. The limits are enforced in `packages/core/src/formats/package/limits.ts:1-40`.

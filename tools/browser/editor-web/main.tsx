@@ -2,6 +2,7 @@ import { createSessionCopy, createWebSettings, createWorkbench, listRecentWebPro
 import { createCommandRegistry, createDocumentIdentity, type AnyDocument, type ProjectLayout, projectLayoutOfMain } from "@tk-reawakened/editor-model";
 import { firstBoardHelpCommands, mountFirstBoardTutorial, readFirstBoardTipsEnabled, type FirstBoardHelpSurface, type ViewHandle } from "@tk-reawakened/editor-ui";
 import type { ProjectHandle, SettingsService } from "@tk-reawakened/platform-services";
+import { createWebAudioOutput } from "./audition-output.ts";
 
 const persistentUserSettings: Storage | null = (() => {
   try {
@@ -32,6 +33,10 @@ const playerOptions = {
   playerUrl: "/packages/runner-web/app/index.html",
   languageWorkerUrl: "./dist/language-worker.js",
   userSettings: userSettingsStorage,
+  createAudioOutput: () => createWebAudioOutput({
+    audioWorkletUrl: "./dist/audio-worklet.js",
+    bundledSoundFontUrl: "./dist/TK-16.sf2",
+  }),
   ...(codeEditor === undefined ? {} : { codeEditor }),
 };
 const status = document.querySelector<HTMLElement>("#host-status")!;

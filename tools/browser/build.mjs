@@ -56,6 +56,17 @@ copyFileSync(join(root, "packages/editor-ui/src/tileset-browser.css"), join(edit
 copyFileSync(join(root, "packages/editor-ui/src/tileset-art.css"), join(editorWebDist, "tileset-art.css"));
 copyFileSync(join(root, "packages/editor-ui/src/board-objects.css"), join(editorWebDist, "board-objects.css"));
 copyFileSync(join(root, "packages/editor-ui/src/program-view.css"), join(editorWebDist, "program-view.css"));
+// The audition plays through the same AudioWorklet the player uses, and falls back to the bundled default SoundFont
+// (`docs/spec/engine/audio-media.md#soundfont-layers`, rank 4). Both load from the page's own origin.
+await build({
+  entryPoints: [join(root, "packages/runner-web/src/audio-worklet.ts")],
+  outfile: join(editorWebDist, "audio-worklet.js"),
+  ...bundleOptions,
+});
+if (readFileSync(join(editorWebDist, "audio-worklet.js"), "utf8").includes("AGFzbQ")) {
+  throw new Error("tools/browser/editor-web/dist/audio-worklet.js contains a WebAssembly module; the browser editor forbids instantiation");
+}
+copyFileSync(join(root, "media/soundfonts/TK-16.sf2"), join(editorWebDist, "TK-16.sf2"));
 // The page bundle carries Monaco (story 11.7). Its icon font is the one non-script asset: the file loader emits it next
 // to the bundle under its own name and the bundle's stylesheet points at it, so the page loads it from its own origin
 // (`font-src 'self'`, ADR 0029). `docs/findings/monaco-integration/README.md` records what the bundle holds.
@@ -93,6 +104,7 @@ console.log("built tools/browser/editor-web/dist/language-worker.js");
 const editorShell = [
   "./index.html", "./manifest.webmanifest",
   "./dist/editor-web.js", "./dist/editor-web.css", "./dist/monaco-editor.worker.js", "./dist/language-worker.js",
+  "./dist/audio-worklet.js", "./dist/TK-16.sf2",
   "./dist/codicon.ttf", "./dist/tileset-browser.css", "./dist/tileset-art.css", "./dist/board-objects.css",
   "./dist/program-view.css", "./dist/favicon.ico", "./dist/tkr-32.png", "./dist/tkr-128.png",
   "./dist/tkr-192.png", "./dist/tkr-512.png",

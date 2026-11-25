@@ -1,3 +1,4 @@
+import type { AudioOutputService } from "./audio.ts";
 import type { ClipboardService } from "./clipboard.ts";
 import type { FileSystemService } from "./fs.ts";
 import type { LanguageService } from "./language.ts";
@@ -41,7 +42,9 @@ export type Capability =
   /** `language.connect` can start a language server for the program editor (TOOL-10). */
   | "languageServer"
   /** `clipboard.readText` and `clipboard.writeText` work: the host can exchange text with the system clipboard (T-28). */
-  | "clipboard";
+  | "clipboard"
+  /** `audioOutput.play` and `audioOutput.stop` work: the host can audition a WAV or MIDI file through its synth (14.5). */
+  | "audioOutput";
 
 /** The set of capabilities a host declares. */
 export type Capabilities = ReadonlySet<Capability>;
@@ -184,6 +187,7 @@ export interface PackageExportService {
  * parameters, and the entries that first use them (11.14 export, the program editor's language client) fix those shapes
  * against a real caller. `clipboard` is declared for the board clipboard (13.13): text in and out, optional, present only
  * with the `clipboard` capability. A host that implements this interface is not asked for the others until then.
+ * `audioOutput` is declared for game-audio audition (14.5) and follows the same rule.
  */
 export interface PlatformServices {
   readonly capabilities: Capabilities;
@@ -204,4 +208,6 @@ export interface PlatformServices {
   readonly run?: RunService;
   /** Present when the host declares `clipboard`. */
   readonly clipboard?: ClipboardService;
+  /** Present when the host declares `audioOutput`. */
+  readonly audioOutput?: AudioOutputService;
 }

@@ -114,12 +114,27 @@ async function expectCanvas(canvas: Locator, expected: { readonly width: number;
   }, { message: "the canvas shows exactly the pixels the compositor makes of the cells" }).toBe(true);
 }
 
+/**
+ * Reads a project file out of the browser's project folder. The editor commits a save asynchronously, so a read can
+ * arrive while the entry is still being written or replaced. Those misses are transient and are retried a bounded
+ * number of times with backoff: an escaping `NotFoundError` aborts the `expect.poll` that awaits this, because a poll
+ * only retries assertion failures.
+ */
 async function readProjectFile(page: Page, path: string): Promise<number[]> {
   return await page.evaluate(async (file) => {
-    let handle = (window as ProofWindow).__tkrTestFolder!;
     const parts = file.split("/");
-    for (const part of parts.slice(0, -1)) handle = await handle.getDirectoryHandle(part);
-    return Array.from(new Uint8Array(await (await (await handle.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer()));
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        let handle = (window as ProofWindow).__tkrTestFolder!;
+        for (const part of parts.slice(0, -1)) handle = await handle.getDirectoryHandle(part);
+        const opened = await handle.getFileHandle(parts.at(-1)!);
+        return Array.from(new Uint8Array(await (await opened.getFile()).arrayBuffer()));
+      } catch (error) {
+        const transient = error instanceof DOMException && (error.name === "NotFoundError" || error.name === "InvalidStateError");
+        if (!transient || attempt >= 20) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      }
+    }
   }, path);
 }
 
