@@ -7,3 +7,4 @@ export * from "./run.ts";
 export * from "./language.ts";
 export * from "./creator-tests.ts";
 export * from "./clipboard.ts";
+export * from "./audio.ts";

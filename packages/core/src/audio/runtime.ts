@@ -93,7 +93,7 @@ export type AudioRuntimeOptions = {
   readonly lookup: (asset: AssetKey) => AudioLookup;
   /** Ask the host for the bytes of an asset whose lookup is pending. */
   readonly need?: (asset: AssetKey) => void;
-  /** The author's default SoundFont (rank 3 of the bank layers); `null` when there is none. */
+  /** The author's default SoundFont (rank 2 of the bank layers); `null` when there is none. */
   readonly defaultSoundFont?: AssetKey | null;
   readonly notify?: (note: AudioNote) => void;
   /**

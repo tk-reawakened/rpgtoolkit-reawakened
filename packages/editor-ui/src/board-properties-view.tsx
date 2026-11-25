@@ -1,8 +1,10 @@
 import { cellOnBoard, createEditTracker, pixelToCell } from "@tk-reawakened/editor-model";
 import type { BoardDocumentSnapshot, PendingEdits, SetBoardFieldsCommand } from "@tk-reawakened/editor-model";
 import type { DocumentEdited } from "@tk-reawakened/platform-services";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { BoardViewDocument } from "./mount.ts";
+import { useDocumentSnapshot } from "./use-document.ts";
+import type { AuditionPanel } from "./board-audition.ts";
 
 export interface BoardPropertiesNavigation {
   open?(path: string): Promise<string | null>;
@@ -19,9 +21,11 @@ export interface BoardPropertiesViewProps {
   readonly onChooseStart: () => void;
   readonly onSetStart: (column: number, row: number, layer: number) => Promise<boolean>;
   readonly pendingEdits: PendingEdits;
+  /** The board's background-music audition; without it the properties panel offers no audition. */
+  readonly audition?: AuditionPanel;
 }
 
-export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onChooseStart, onSetStart, pendingEdits }: BoardPropertiesViewProps) {
+export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onChooseStart, onSetStart, pendingEdits, audition }: BoardPropertiesViewProps) {
   const submitted = useRef(createEditTracker());
   useEffect(() => pendingEdits.register(submitted.current), [pendingEdits]);
   const snapshot = doc.getSnapshot();
@@ -42,7 +46,9 @@ export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onCho
   const [confirmInitial, setConfirmInitial] = useState(false);
   const [dirtyDraft, setDirtyDraft] = useState(false);
   const initialDialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  // Sync a clean draft in the same commit as the board update. A passive reset can still be queued when the next
+  // input marks the draft dirty, and would overwrite that input using the previous render's clean state.
+  useLayoutEffect(() => {
     if (dirtyDraft) {
       setSettings((current) => ({ ...current, start: snapshot.properties.start }));
       return;
@@ -156,6 +162,7 @@ export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onCho
         <label><input aria-label="Disable saving" type="checkbox" checked={settings.disableSaving !== 0} onChange={(event) => setProperty("disableSaving", event.currentTarget.checked ? 1 : 0)} />Disable saving</label>
         {colour("Ambient RGB", settings.ambient, (value) => setProperty("ambient", value))}
       </fieldset>
+      {audition === undefined ? <p>Audio audition is unavailable in this host.</p> : <BackgroundMusicAudition audition={audition} reference={settings.backgroundMusic.trim()} />}
       <fieldset disabled={disabled || saving}><legend>Player start</legend>
         <p role="status">{initialCell === null ? "Player start marker is outside this board." : `Player start marker: column ${initialCell.x + 1}, row ${initialCell.y + 1}, layer ${properties.start.layer}`}</p>
         {input("Start column", column, setColumn, true, false)}
@@ -191,5 +198,24 @@ export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onCho
       )}
       {message && <p role="alert">{message}</p>}
     </details>
+  );
+}
+
+/**
+ * Plays the background music file the way the board's music would sound, so a designer can hear it. Playback never
+ * changes the board or the file, so it stays available while the properties are saving.
+ */
+function BackgroundMusicAudition({ audition, reference }: { readonly audition: AuditionPanel; readonly reference: string }) {
+  const state = useDocumentSnapshot(audition.controls);
+  useEffect(() => {
+    audition.controls.setReference(reference);
+  }, [audition.controls, reference]);
+  return (
+    <div class="tkr-board-audition" role="group" aria-label="Background music audition" data-editor-commands="exclude">
+      <button type="button" onClick={() => audition.commands.execute("board.audition.play")}>Play background music</button>
+      <button type="button" onClick={() => audition.commands.execute("board.audition.stop")}>Stop</button>
+      <label><input type="checkbox" checked={state.loop} onChange={() => audition.commands.execute("board.audition.loop")} />Loop playback</label>
+      {state.note === null ? null : <p role="alert">{state.note}</p>}
+    </div>
   );
 }

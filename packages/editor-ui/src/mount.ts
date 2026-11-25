@@ -1,3 +1,4 @@
+import type { AuditionPanel } from "./board-audition.ts";
 import { CheckpointView } from "./checkpoint-view.tsx";
 import type { AnimationAuthoring } from "@tk-reawakened/editor-model";
 import {
@@ -135,6 +136,8 @@ export interface ViewContext {
   readonly boardPreferences?: BoardPreferencesSource;
   /** The program editor's code editor, running project and preferences. */
   readonly codeEditor?: CodeEditorContext;
+  /** The board's background-music audition and the palette commands that drive it, owned by the host that mounts the board's document view. */
+  readonly audition?: AuditionPanel;
 }
 /** The handle a host keeps to a mounted view. */
 export interface ViewHandle {
@@ -217,6 +220,7 @@ export function mount(el: HTMLElement, ctx: ViewContext): ViewHandle {
       ...(ctx.services.clipboard === undefined ? {} : { clipboard: ctx.services.clipboard }),
       ...(ctx.boardPreferences === undefined ? {} : { preferences: ctx.boardPreferences }),
       ...(ctx.navigation === undefined ? {} : { navigation: ctx.navigation }),
+      ...(ctx.audition === undefined ? {} : { audition: ctx.audition }),
     });
   } else if (isTilesetArtView(document)) {
     view = createElement(TilesetArtView, {
