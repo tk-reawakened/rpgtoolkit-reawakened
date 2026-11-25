@@ -24,7 +24,8 @@ const amountHint = (amount: number, what: string, off: boolean): string => {
  * -1 or 7 is kept until the box is turned off. The form states nothing about rounds below 1: the battle rules decide that.
  */
 export function StatusEffectView(props: StatusEffectViewProps): JSX.Element {
-  const form = useBattleDataForm(props, "status effect");
+  const form = useBattleDataForm(props, "status effect", (latest, edit) => latest[edit.field] ===
+    (edit.type === "set-status-effect-flag" ? edit.enabled : edit.value));
   const { snapshot } = form;
   const { fs, pickAsset, open, capabilities } = props;
   const navigation = { ...(pickAsset === undefined ? {} : { pickAsset }), ...(open === undefined ? {} : { open }) };

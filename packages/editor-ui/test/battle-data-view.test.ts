@@ -194,7 +194,9 @@ test("a Toolkit 2 text status effect shows its reason and every field is disable
 // does, a reference that leaves its folder says so instead of waiting, a Choose replaces a stale draft, and an undo or a
 // revert drops drafts typed against the newer model.
 
-async function mountWithPending(files: Record<string, Uint8Array>, pick?: string, afterApply?: () => Promise<void>) {
+type ApplyMove = () => ReturnType<SpecialMoveDocument["apply"]>;
+
+async function mountWithPending(files: Record<string, Uint8Array>, pick?: string, gate?: (apply: ApplyMove) => Promise<ReturnType<ApplyMove>>) {
   const pendingEdits = createPendingEdits();
   const host = createMemoryPlatformServices({ files });
   const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
@@ -203,14 +205,10 @@ async function mountWithPending(files: Record<string, Uint8Array>, pick?: string
   const root = document.createElement("div");
   document.body.append(root);
   const handle = mount(root, {
-    document: afterApply === undefined ? doc : {
+    document: gate === undefined ? doc : {
       kind: doc.kind, identity: doc.identity, getSnapshot: () => doc.getSnapshot(), subscribe: (listener) => doc.subscribe(listener),
       save: () => doc.save(), resolveConflict: (choice) => doc.resolveConflict(choice),
-      async apply(command: Parameters<SpecialMoveDocument["apply"]>[0]) {
-        const result = doc.apply(command);
-        await afterApply();
-        return result;
-      },
+      apply: (command: Parameters<SpecialMoveDocument["apply"]>[0]) => gate(() => doc.apply(command)),
     },
     services: host,
     pendingEdits,
@@ -524,9 +522,11 @@ test("an acknowledgement cannot clear a later description draft with the same di
   const held = once(ack, "release");
   const release = (): void => { ack.emit("release"); };
   let applied = false;
-  const view = await mountWithPending({ [SPC]: bytesWith("A\r\nB\nC"), [STE]: burn }, undefined, async () => {
+  const view = await mountWithPending({ [SPC]: bytesWith("A\r\nB\nC"), [STE]: burn }, undefined, async (apply) => {
+    const result = apply();
     applied = true;
     await held;
+    return result;
   });
   try {
     const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
@@ -546,6 +546,57 @@ test("an acknowledgement cannot clear a later description draft with the same di
     await settle();
     deepEqual(view.host.bytesOf(SPC), bytesWith("A\nB\nCx"), "Save applies the newer draft even though the displayed text repeats");
   } finally { release(); view.dispose(); }
+});
+
+test("a queued amount returning to the old displayed value still submits after the first edit", async () => {
+  const ack = new EventEmitter();
+  const held = once(ack, "release");
+  let started = false;
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn }, undefined, async (apply) => {
+    started = true;
+    await held;
+    return apply();
+  });
+  try {
+    const damage = field(view.root, "Damage (FP)");
+    await type(damage, "-30");
+    await until(() => started, "the first edit is waiting before applying");
+    deepEqual(view.doc.serialize(), fireball);
+    await type(damage, "12");
+    ack.emit("release");
+    await settle();
+    equal(view.doc.getSnapshot().edits.length, 2, "both gestures reached the document in order");
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    deepEqual(view.host.bytesOf(SPC), fireball, "the last value the author typed reaches disk");
+  } finally { ack.emit("release"); view.dispose(); }
+});
+
+test("typing while a description acknowledgement is held inherits the already submitted separators", async () => {
+  const bytesWith = (text: string): Uint8Array => Uint8Array.from([...fireball.slice(0, 0x43), ...Buffer.from(text, "latin1"), 0]);
+  const ack = new EventEmitter();
+  const held = once(ack, "release");
+  let applied = false;
+  const view = await mountWithPending({ [SPC]: bytesWith("A\rB\nC"), [STE]: burn }, undefined, async (apply) => {
+    const result = apply();
+    applied = true;
+    await held;
+    return result;
+  });
+  try {
+    const area = view.root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]');
+    ok(area);
+    await editDescription(area, "A\n\nC", 2, "deleteContentBackward");
+    await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
+    await until(() => applied, "the blank line edit was accepted but its acknowledgement is held");
+    deepEqual(view.doc.serialize(), bytesWith("A\r\rC"));
+    await editDescription(area, "A\nX\nC", 3, "insertText");
+    ack.emit("release");
+    await settle();
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    deepEqual(view.host.bytesOf(SPC), bytesWith("A\rX\rC"));
+  } finally { ack.emit("release"); view.dispose(); }
 });
 
 test("using the version on disk clears refused text from both views of a move", async () => {

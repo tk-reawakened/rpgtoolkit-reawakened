@@ -163,19 +163,18 @@ export class LineHistory {
     return this.#line;
   }
 
-  /** The caller confirmed `stored` was accepted for this state. Keep any separator changes the writer made. */
-  accept(stored: string): LineText {
+  /** Keep the encoding of the submitted text at its native history position before the next edit. */
+  recordEncoding(stored: string): void {
     const { text, endings } = this.#line;
-    if (!text.includes("\n\n") || !endings.includes("\r")) return this.#line;
+    if (!text.includes("\n\n") || !endings.includes("\r")) return;
     const written = stored.match(BREAKS) ?? [];
-    if (!written.some((ending, index) => ending !== endings[index])) return this.#line;
+    if (!written.some((ending, index) => ending !== endings[index])) return;
     // Rebase both edges of this state. Its neighbours keep their bytes and native Undo/Redo does not gain a step.
     const prior = this.#edits[this.#cursor - 1];
     if (prior !== undefined) this.#edits[this.#cursor - 1] = withEndings(prior, replayEndings(endings, prior, true), written);
     const next = this.#edits[this.#cursor];
     if (next !== undefined) this.#edits[this.#cursor] = withEndings(next, written, replayEndings(endings, next, false));
     this.#line = { text, endings: written };
-    return this.#line;
   }
 
   /** The browser may group keystrokes. Match the resulting text in the direction of travel, not across both stacks. */

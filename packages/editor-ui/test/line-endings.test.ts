@@ -112,7 +112,8 @@ test("accepting a rewritten separator updates only that native history position"
   history.follow("A\nX\nC", 3);
   const empty = history.follow("A\n\nC", 2, "undo");
   equal(writtenText(empty), "A\r\rC", "the writer keeps two line breaks");
-  deepEqual(history.accept("A\r\rC").endings, ["\r", "\r"]);
+  history.recordEncoding("A\r\rC");
+  deepEqual(history.line.endings, ["\r", "\r"]);
   equal(writtenText(history.follow("A\nB\nC", 3, "undo")), "A\rB\nC", "Undo restores the earlier bytes");
   deepEqual(history.follow("A\n\nC", 2, "redo").endings, ["\r", "\r"], "Redo restores the accepted breaks");
   equal(writtenText(history.follow("A\nX\nC", 3, "redo")), "A\rX\nC", "the already recorded next state keeps its bytes");
