@@ -14,6 +14,8 @@ Exercise visual events, skin preview, audio audition, media conversion at projec
 
 Include failed saves, unsupported handwritten text, missing audio capability, unsupported browser installation, fixture isolation and deliberate wall/door behavioral perturbations; distinguish headless and visible runs.
 
+For T-72, prove a clean recipient can install, play and remove the game using the compatible launcher, with the [approved integrity and save handling](../../../docs/spec/formats/packaging-and-paths.md#reawakened-setup-delivery). Do not require a native installer or count downloading the ZIP as recipient proof.
+
 ## Acceptance and verification
 
 The end-to-end suite demonstrates the epic outcomes with real saved assets and executable programs, negative cases and honest host limitations after the refactor sweep.

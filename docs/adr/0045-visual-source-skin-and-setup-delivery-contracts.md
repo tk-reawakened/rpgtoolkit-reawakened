@@ -1,13 +1,14 @@
 # ADR 0045 — Visual source, skin and setup delivery contracts
 
-* **Status:** Proposed (2026-11-24). A draft for the owner to answer; **nothing here is decided**. Every numbered decision is a question with options, a recommendation and what it unblocks. Story 14.1 ([#1744](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1744)) stays open until the owner approves.
+* **Status:** Accepted (owner ruling, 2026-11-25) for story 14.1 ([#1744](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1744)).
+* **Amendment (2026-11-25):** Records approval of the five recommendations published in PR #3435 and renumbered by PR #3456. Alternatives below are retained as decision history. No unpublished amendment or 14.11 decision was approved.
 * **Date:** 2026-11-24
 * **Context documents:** [0005](0005-independent-product-v1-and-native-format.md), [0008](0008-rpgcode-packages-and-trust-baseline.md), [0009](0009-compatibility-layer-not-the-model.md), [0013](0013-desktop-shell-electron.md), [0022](0022-shared-editor-authoring-contracts.md), [0026](0026-editors-are-registered-by-document-kind.md), [0034](0034-tiered-dependency-licence-policy.md), [0038](0038-every-editor-action-is-a-registered-command.md), [editor-features.md](../editor-features.md) (T-09, T-45, T-64, T-70, T-72), [main-file.md](../spec/formats/main-file.md), [packaging-and-paths.md](../spec/formats/packaging-and-paths.md#install-descriptor), [launcher.md](../spec/engine/launcher.md), [rpgcode-tooling.md](../spec/engine/rpgcode-tooling.md) (creator tests, entry 11.9), [screen-layouts.md](../editor-ecosystem/screen-layouts.md), and the Epic 14 plan `story-rule-visual-source-and-setup-delivery-contracts-plan.md`.
 * **Does not reopen:** the selected Monaco editor and Electron desktop shell (ADR 0013), the document lifecycle and path identity (ADR 0022), the kind registry (ADR 0026), the creator-test contract approved on 2026-11-09 (rpgcode-tooling.md), or the 12.9 distribution package and install descriptor.
 
 ## In plain terms
 
-Epic 14 gives beginners four tools: a **visual event builder** (pick "Show a message", fill in the words, get a program), a **screen-layout canvas** (place things where you want them), a **skin editor** (the look of windows and buttons) and a **setup builder** (something your players can install). Each one touches something that must have exactly one owner, or work gets lost or silently rewritten. Five questions need your answer before anyone builds them:
+Epic 14 gives beginners four tools: a **visual event builder**, a **screen-layout canvas**, a **skin editor**, and a **setup builder**. This record settles five questions about what they edit, what they leave alone and what they deliver:
 
 1. When the visual builder and the code editor show the same program, **which one is the real file**, and what happens to code the builder does not understand? (Recommendation: the program text is always the real file; the builder shows what it can and leaves the rest alone.)
 2. **Who owns a position** placed on the layout canvas, and can it be typed as well as dragged?
@@ -15,7 +16,7 @@ Epic 14 gives beginners four tools: a **visual event builder** (pick "Show a mes
 4. How do **test fixtures** that a beginner sets up visually become the real tests the code editor already runs?
 5. What does **"Create setup"** produce, for which computers, and what must it never do to a player's machine?
 
-Technically: each question lists options, tradeoffs and a recommendation. Recommendations are the author's, not the owner's. Facts are from the repository; anything inferred is marked **[INFERENCE]**.
+The question sections preserve the published options and rationale. The dated decision below identifies the accepted options; the linked spec sections govern implementation.
 
 ## Context
 
@@ -25,7 +26,7 @@ Technically: each question lists options, tradeoffs and a recommendation. Recomm
 * **Setup.** T-72 is one line: "A ZIP containing the game files plus a simple installer and uninstaller". The 12.9 distribution package (T-70) is a `.tpk`-compatible ZIP whose manifest has exactly three fields, `schema`, `main` and `index`. The install descriptor is a sibling `<package>.tpk.json` with exactly seven fields. Its rule: "installing is registering: no per-game stub, no executable wrapper and no file association" ([install descriptor](../spec/formats/packaging-and-paths.md#install-descriptor)). The legacy spec also has a "Setup ZIP" (`Main/` and `Game/` folders), which is an **input** form that this project reads and never writes; this ADR does not reuse that name for output. The standalone export targets in [launcher.md](../spec/engine/launcher.md) (signed `.app`/`.dmg`, installer executables, AppImage, web zip, mobile) are a **different and larger** route from T-72's ZIP. The platform service offers `sha256` and `downloadFile` for packages today, and no service that runs an installer or signs a file.
 * **Hosts.** ADR 0001 names a VS Code extension and a standalone editor (PWA first, then a desktop shell) as the two editor hosts; ADR 0013 chooses Electron for that desktop shell. [packaging-and-paths.md](../spec/formats/packaging-and-paths.md) also describes a browser host. Packaging writes two files: the package and its descriptor. In a browser these are two independent downloads. In VS Code they are written by default into `.tkr-exports/` in the project. Hosts without an output capability report packaging unavailable.
 
-## Decisions to make
+## Published options and rationale
 
 ### Question 1 — Structured event source authority and the supported subset
 
@@ -49,7 +50,7 @@ Technically: each question lists options, tradeoffs and a recommendation. Recomm
 
 **Recommendation: 1A.** It meets the "no arbitrary round trip" rule (ADR 0022 D10) without a second file, is consistent with the rule that VS Code keeps native text while Monaco serves the browser, and never regenerates a handwritten program.
 
-**Supported subset (to approve as a rule).** For 14.2 and 14.3, I propose the T-45 categories, admitted **command by command**. A command is admitted only when its saved form re-reads to the same card. A command not on the list is an opaque block, never an error. The first runnable slice (14.2) is the message action alone. **[INFERENCE]** The full list becomes a table in the 14.3 plan once the recogniser exists. The owner approves the rule, not 160 rows.
+**Supported subset.** For 14.2 and 14.3, the T-45 categories admit templates **command by command**. A command is admitted only when its saved form re-reads to the same card. A command not on the list is an opaque block, never an error. The first runnable slice (14.2) is the message action alone. The ruling fixes the admission rule, not a list of 160 templates; 14.3 records the supported commands when the recogniser exists.
 
 **Worked example (illustrative; spellings per rpgcode-functions.md: `mwin`, `wait`, `mwincls`)**
 
@@ -156,7 +157,7 @@ Opened in the visual view, the first three lines are one *Show message* card. Th
 
 **What approval unblocks:** 14.6 (build and inspect the setup) and, with Question 1's rule, 14.9–14.10, which close the epic.
 
-## What approval unblocks (summary)
+## Implementation handoff
 
 | Story | Needs |
 |---|---|
@@ -168,11 +169,22 @@ Opened in the visual view, the first three lines are one *Show message* card. Th
 
 ## What this ADR does not decide
 
-* Any runtime skin consumer, unless the owner picks 3C and rules it separately.
+* Any runtime skin consumer (3C would require a separate owner decision).
 * The 160-command list. Question 1 fixes only the rule for admitting a command.
 * Native installers, signing identities, store submission and mobile standalone builds (5B).
 * Anything about media import (see [ADR 0044](0044-media-import-contracts-and-tool-licensing.md)).
 
 ## Owner decisions
 
-*Pending.* The owner records an answer for each question here, for example "Q1: 1A; Q2: 2A; Q3: 3A; Q4: 4A; Q5: 5C", with a date. On approval the status becomes Accepted, the spec rows named by each answer are written docs-first in their own commit, and 14.1 may close.
+**2026-11-25:** The owner said, “then that means I ruled on it. consider it approved”. The ruling applies to the recommendations in the published ADR: **1A, 2A, 3A, 4A, 5C**.
+
+| Accepted option | Binding contract |
+|---|---|
+| 1A and 2A | [Visual event source and placement](../spec/engine/rpgcode-tooling.md#tool-12-visual-events) |
+| 3A | [Native skin authoring and legacy field preservation](../spec/formats/main-file.md#editor-skin-authoring) |
+| 4A | [Visual fixture source](../spec/engine/rpgcode-tooling.md#tool-12-visual-fixtures) |
+| 5C | [Launcher-based setup delivery](../spec/formats/packaging-and-paths.md#reawakened-setup-delivery) |
+
+The visual editor never rewrites opaque source. Disk byte preservation follows the already accepted [host text contract](../spec/engine/rpgcode-tooling.md#tool-10-text), including native VS Code's line-ending limit; the ruling does not reopen that host choice. Editor actions follow [ADR 0038](0038-every-editor-action-is-a-registered-command.md#decision), including its distinction between actions and direct editing. No new command-registration classification is ruled here.
+
+5C adopts the published 5A contract for 14.6. Launcher **Install** and **Remove** replace the bundled installer and uninstaller described by legacy T-72; native standalone installers and their signers remain a separate decision.
