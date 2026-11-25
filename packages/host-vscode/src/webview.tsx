@@ -11,6 +11,12 @@ const api = acquireVsCodeApi();
 let remoteDocument: RemoteDocument | undefined;
 let mountedView: ViewHandle | undefined;
 window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
+  // A fresh custom editor can be asked to settle before its `initialize` message has created a
+  // RemoteDocument. No view has mounted yet, so it cannot hold an accepted edit to hand over.
+  if (event.data.type === "settle" && remoteDocument === undefined) {
+    api.postMessage({ type: "settled", requestId: event.data.requestId });
+    return;
+  }
   if (event.data.type === "activate") {
     mountedView?.refreshAssets?.();
     return;

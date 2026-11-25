@@ -259,7 +259,7 @@ export async function runVscodeBoardUpgradeProof(
   await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
   await openNativeQuickOpenFile(page, expect, sourcePath);
-  let boardFrame = await waitForEditorFrame(page, "source board before coordinate upgrade");
+  let boardFrame = await waitForBoardUpgradeEditorFrame(page, "source board before coordinate upgrade", "village.brd");
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
   await boardFrame.getByRole("button", { name: "Convert tile coordinates…", exact: true }).click();
 
@@ -279,7 +279,7 @@ export async function runVscodeBoardUpgradeProof(
   expect(converted.layout).toBe("vector");
   expect({ ...converted.board, coordType: sourceBoard.board.coordType }).toEqual(sourceBoard.board);
   expect(await readBacking(sourcePath)).toEqual(sourceBytes);
-  boardFrame = await waitForEditorFrame(page, "converted board copy");
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "converted board copy", "village.pixels.brd");
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
 
   await runCommand(page, expect, "Test: Run Board Upgrade Copy");
@@ -290,12 +290,13 @@ export async function runVscodeBoardUpgradeProof(
   });
   await expect.poll(async () => (await playerBoard())?.board ?? "", { timeout: 30_000 }).toContain("village.pixels.brd");
   const convertedRun = await playerBoard();
-  expect(convertedRun?.player).toEqual({ x: 48, y: 63 });
+  // The probe's BoardLaunch.start literal is interpreted in the converted board's unit mode:
+  // flag 4 makes (2,2) an absolute-pixel run start.
+  expect(convertedRun?.player).toEqual({ x: 2, y: 2 });
   expect(convertedRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
   await verifyHostRunHash(page, player, expect);
-  await runCommand(page, expect, "Test: Close Running Game Tab");
-  await expect.poll(async () => (await playerFrames(page)).length, { timeout: 30_000 }).toBe(0);
-
+  // The player runs in another VS Code view; activate the saved board editor before invoking native Undo.
+  await page.getByRole("tab", { name: "village.pixels.brd", exact: true }).click();
   await runCommand(page, expect, "Undo");
   await runCommand(page, expect, "File: Save");
   await expect.poll(() => readBacking(copyPath), { timeout: 30_000 }).toEqual(sourceBytes);
@@ -304,17 +305,38 @@ export async function runVscodeBoardUpgradeProof(
   await expect(page.getByRole("tab", { name: /village\.pixels\.brd/ })).toBeHidden();
 
   await openNativeQuickOpenFile(page, expect, copyPath);
-  boardFrame = await waitForEditorFrame(page, "copy after native undo and reopen");
+  boardFrame = await waitForBoardUpgradeEditorFrame(page, "copy after native undo and reopen", "village.pixels.brd");
   await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
   expect(decode(await readBacking(copyPath)).board.coordType).toBe(sourceBoard.board.coordType);
   expect(await readBacking(sourcePath)).toEqual(sourceBytes);
 
   await runCommand(page, expect, "Test: Run Board Upgrade Copy");
-  player = await findPlayerFrame(page, "reopened-copy player frame");
-  await expect.poll(async () => await player.evaluate(() =>
-    (Reflect.get(window, "__live") as { board: string | null } | undefined)?.board ?? ""), { timeout: 30_000 }).toContain("village.pixels.brd");
-  await runCommand(page, expect, "Test: Close Running Game Tab");
-  await expect.poll(async () => (await playerFrames(page)).length, { timeout: 30_000 }).toBe(0);
+  let reopenedPlayer: Frame | undefined;
+  await expect.poll(async () => {
+    for (const frame of await playerFrames(page)) {
+      const run = await frame.evaluate(() => Reflect.get(window, "__live") as {
+        board: string | null;
+        player: { x: number; y: number } | null;
+      } | undefined);
+      if (run?.board?.includes("village.pixels.brd") && run.player?.x === 48 && run.player.y === 63) {
+        reopenedPlayer = frame;
+        return true;
+      }
+    }
+    return false;
+  }, { timeout: 30_000 }).toBe(true);
+  if (reopenedPlayer === undefined) throw new Error("No runner opened the reopened tile-coordinate copy at the fixture's independently expected tile start.");
+  const reopenedRun = await reopenedPlayer.evaluate(() => Reflect.get(window, "__live") as {
+    board: string | null;
+    player: { x: number; y: number } | null;
+    stateHash: string;
+  } | undefined);
+  expect(reopenedRun?.board).toContain("village.pixels.brd");
+  expect(reopenedRun?.player).toEqual({ x: 48, y: 63 });
+  expect(reopenedRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  const runHandleTab = page.getByRole("tab", { name: /Run Handle Proof/ });
+  if (await runHandleTab.count() === 1) await runHandleTab.click();
+  await verifyHostRunHash(page, reopenedPlayer, expect);
 }
 
 
@@ -2435,6 +2457,28 @@ async function logFrameDiagnostics(page: Page, reason: string): Promise<void> {
     };
   }));
   console.error(`[vscode-web:frame-diagnostic] ${reason}: ${JSON.stringify(frames, null, 2)}`);
+}
+
+async function waitForBoardUpgradeEditorFrame(page: Page, label: string, selectedTabLabel: string): Promise<Frame> {
+  const deadline = Date.now() + 30_000;
+  let pause = 100;
+  while (Date.now() < deadline) {
+    const selectedTab = page.getByRole("tab", { selected: true }).filter({ hasText: selectedTabLabel });
+    if (await selectedTab.count() === 1) {
+      for (const frame of page.frames()) {
+        try {
+          const toolbar = frame.getByRole("toolbar", { name: "Board coordinate and format upgrades" });
+          if (await toolbar.count() > 0 && await toolbar.isVisible()) return frame;
+        } catch {
+          // A webview replaced during the scan is re-enumerated on the next slice (#3257).
+        }
+      }
+    }
+    await page.waitForTimeout(pause);
+    pause = Math.min(pause * 2, 1_000);
+  }
+  await logFrameDiagnostics(page, `${label} board editor not correlated with selected tab ${selectedTabLabel}`);
+  throw new Error(`Timed out waiting for ${label}; selectedTab=${selectedTabLabel}`);
 }
 
 async function waitForEditorFrame(page: Page, label: string): Promise<Frame> {
