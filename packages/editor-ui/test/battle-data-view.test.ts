@@ -496,5 +496,63 @@ test("Undo in the textarea restores the file's own separators, byte for byte (#3
     await settle();
     deepEqual(view.doc.serialize(), bytes, "the original bytes, not a normalised copy");
     equal(view.doc.getSnapshot().dirty, false, "and no edit was made");
+
+    await type("A\nB\nCx", 6, "insertText");
+    await type("AB\nCx", 1, "deleteContentBackward");
+    await type("A\nB\nCx", 2, "insertLineBreak");
+    await type("AB\nCx", 1, "historyUndo");
+    await type("A\nB\nCx", 6, "historyUndo");
+    await act(() => { area.dispatchEvent(new Event("change", { bubbles: true })); });
+    await settle();
+    deepEqual(view.doc.serialize(), Uint8Array.from([...bytes.slice(0, -1), 0x78, 0]), "Undo chose the earlier mixed separators despite identical displayed text");
   } finally { view.dispose(); }
+});
+
+test("using the version on disk clears refused text from both views of a move", async () => {
+  const view = await mountWithPending({ [SPC]: fireball, [STE]: burn });
+  const sibling = document.createElement("div");
+  document.body.append(sibling);
+  const handle = mount(sibling, { document: view.doc, services: view.host, pendingEdits: view.pendingEdits });
+  try {
+    await type(field(view.root, "Damage (FP)"), "-30");
+    await type(field(sibling, "Damage (FP)"), "9999999999");
+    const external = fireball.slice();
+    new DataView(external.buffer).setInt32(FP, 99, true);
+    view.host.seed(SPC, external);
+    equal(await view.doc.checkExternal(), "conflict");
+    await settle();
+    await act(() => button(view.root, "Use the version on disk").click());
+    await settle();
+    equal(field(sibling, "Damage (FP)").value, "99");
+    ok(!view.pendingEdits.holdsDraft());
+    equal(sibling.querySelector("[role=alert]"), null);
+    await type(field(view.root, "Damage (FP)"), "-31");
+    await act(() => button(view.root, "Save").click());
+    await settle();
+    equal(new DataView(view.host.bytesOf(SPC)!.buffer).getInt32(FP, true), -31);
+  } finally { handle.dispose(); sibling.remove(); view.dispose(); }
+});
+
+test("a listing miss cannot fall back to a host's Unicode-folding read", async () => {
+  const lower = "StatusE/café.ste";
+  const host = createMemoryPlatformServices({ files: { [SPC]: fireball, [lower]: burn } });
+  const opened = await openSpecialMoveDocument(host.fs, createDocumentIdentity("memory-project", SPC));
+  ok(opened.ok);
+  const reads: string[] = [];
+  const root = document.createElement("div");
+  document.body.append(root);
+  const handle = mount(root, {
+    document: opened.document,
+    services: { ...host, fs: { ...host.fs, readProject: (project, path) => {
+      reads.push(path);
+      return host.fs.readProject(project, /caf[éÉ]\.ste$/i.test(path) ? lower : path);
+    } } },
+    navigation: { open: async () => null },
+  });
+  try {
+    await type(field(root, "Status effect file"), "CAFÉ.ste");
+    await until(() => root.textContent?.includes("CAFÉ.ste is not in the project") === true, "the ASCII resolver reports the file missing");
+    equal(reads.some((path) => /caf[éÉ]\.ste$/i.test(path)), false, "no raw read can reopen the missing reference");
+    equal(button(root, "Open status effect").disabled, true);
+  } finally { handle.dispose(); root.remove(); }
 });

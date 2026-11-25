@@ -105,8 +105,9 @@ export function editLineText(model: LineText, next: string, caret?: number): Lin
   return { text: next, endings: [...endings.slice(0, firstLine), ...inner, ...trailing, ...endings.slice(lastLine + 1)] };
 }
 
-/** The most text a history keeps (in characters); the stored version is always kept. */
+// Bound history by both text size and number of entries (including edits of an empty field).
 const HISTORY_CHARACTERS = 4_000_000;
+const HISTORY_ENTRIES = 256;
 
 /**
  * A text's states while it is edited, so the author's Undo (the textarea's own, which puts back an earlier text) restores
@@ -115,40 +116,58 @@ const HISTORY_CHARACTERS = 4_000_000;
  * characters; the stored version is never dropped.
  */
 export class LineHistory {
-  readonly stored: LineText;
-  #line: LineText;
-  readonly #seen = new Map<string, LineText>();
-  #characters = 0;
+  readonly #stored: LineText;
+  readonly #entries: LineText[];
+  #cursor = 0;
+  #characters: number;
 
   constructor(stored: string) {
-    this.stored = lineTextOf(stored);
-    this.#line = this.stored;
-    this.#remember(this.stored);
+    this.#stored = lineTextOf(stored);
+    this.#entries = [this.#stored];
+    this.#characters = this.#stored.text.length;
   }
 
-  /** The text as last followed. */
   get line(): LineText {
-    return this.#line;
+    return this.#entries[this.#cursor]!;
   }
 
-  /** Recover separator metadata on native Undo/Redo; ordinary edits use their own caret even if the text recurs. */
-  follow(text: string, caret?: number, historyEdit = false): LineText {
-    if (text === this.#line.text) return this.#line;
-    const known = historyEdit ? this.#seen.get(text) : undefined;
-    this.#line = known ?? editLineText(this.#line, text, caret);
-    if (known === undefined && text !== this.stored.text) this.#remember(this.#line);
-    return this.#line;
+  /** The browser may group keystrokes. Match the resulting text in the direction of travel, not across both stacks. */
+  follow(text: string, caret?: number, historyEdit?: "undo" | "redo"): LineText {
+    const current = this.line;
+    if (historyEdit !== undefined) {
+      const step = historyEdit === "undo" ? -1 : 1;
+      for (let index = this.#cursor + step; index >= 0 && index < this.#entries.length; index += step) {
+        const entry = this.#entries[index]!;
+        if (entry.text !== text) continue;
+        this.#cursor = index;
+        return entry;
+      }
+      if (historyEdit === "undo") {
+        // The native history can outlive our bounded metadata. Keep the on-disk state exact even after eviction.
+        const entry = text === this.#stored.text ? this.#stored : editLineText(current, text, caret);
+        this.#entries.splice(this.#cursor, 0, entry);
+        this.#characters += entry.text.length;
+        this.#trim();
+        return entry;
+      }
+    }
+    if (current.text === text) return current;
+    for (const entry of this.#entries.splice(this.#cursor + 1)) this.#characters -= entry.text.length;
+    const next = editLineText(current, text, caret);
+    this.#entries.push(next);
+    this.#cursor += 1;
+    this.#characters += next.text.length;
+    this.#trim();
+    return next;
   }
 
-  #remember(line: LineText): void {
-    if (this.#seen.delete(line.text)) this.#characters -= line.text.length;
-    this.#seen.set(line.text, line);
-    this.#characters += line.text.length;
-    for (const [text] of this.#seen) {
-      if (this.#characters <= HISTORY_CHARACTERS || this.#seen.size <= 1) break;
-      if (text === this.stored.text || text === this.#line.text) continue;
-      this.#seen.delete(text);
-      this.#characters -= text.length;
+  #trim(): void {
+    while (this.#entries.length > 1 && (this.#characters > HISTORY_CHARACTERS || this.#entries.length > HISTORY_ENTRIES)) {
+      if (this.#cursor === 0) this.#characters -= this.#entries.pop()!.text.length;
+      else {
+        this.#characters -= this.#entries.shift()!.text.length;
+        this.#cursor -= 1;
+      }
     }
   }
 }

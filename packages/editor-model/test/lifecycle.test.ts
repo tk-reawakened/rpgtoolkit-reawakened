@@ -957,3 +957,30 @@ test("Save As to the same path settles again after the lookup, so text typed whi
   equal(titleOf(host.bytesOf(PATH)!), titleOf(exampleMain(9)), "nothing was written");
   equal(opened.document.getSnapshot().dirty, true);
 });
+
+test("Save As refuses a draft entered during replace confirmation before touching an existing copy", HELD, async () => {
+  const target = "Main/copy.gam";
+  const original = withTitle(exampleMain(9), "Existing destination");
+  const host = createMemoryPlatformServices({ files: { [PATH]: exampleMain(9), [target]: original } });
+  const typed = draftView(false);
+  const workspace = createDocumentWorkspace({
+    projectId: identity.projectId,
+    services: { ...host, dialogs: { ...host.dialogs, ask: async (question) => {
+      const answer = await host.dialogs.ask(question);
+      if (answer === "replace") typed.state.holds = true;
+      return answer;
+    } } },
+  });
+  const opened = await workspace.open(PATH);
+  ok(opened.ok);
+  const doc = opened.document;
+  workspace.pendingEdits(doc).register(typed.work);
+  ok(doc.apply({ type: "set-game-title", title: "Edited" }).ok);
+  host.answerSavePaths(target);
+  host.answerQuestions("replace");
+  const result = await workspace.saveAs(doc);
+  ok(!result.ok && result.reason === "failed");
+  equal(host.questions.length, 1);
+  deepEqual(host.bytesOf(target), original, "the confirmed destination still has its original bytes");
+  deepEqual(workspace.documents(), [doc]);
+});

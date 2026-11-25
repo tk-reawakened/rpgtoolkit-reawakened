@@ -760,6 +760,10 @@ export function createDocumentWorkspace(options: WorkspaceOptions): DocumentWork
           });
           if (answer === "cancel") return { ok: false, reason: "cancelled" };
         }
+        // A destination lookup or replace confirmation can leave time for new field edits. Validate them before
+        // taking the copied revision or touching the destination, not just when deciding whether to close the source.
+        const settled = await pendingEditsOf(document).settle("explicit");
+        if (!settled.ok) return failed(resolved.path, settled.message);
         const copied = document.getSnapshot();
         const written = await document.saveAs(documentStorage, identity);
         if (!written.ok) return failed(resolved.path, written.failure.message);

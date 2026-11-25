@@ -77,7 +77,7 @@ test("an Undo back to an earlier text restores that text's own endings, and the 
   const history = new LineHistory("A\r\nB\nC");
   const deleted = history.follow("AB\nC", 1);
   equal(writtenText(deleted), "AB\nC", "the surviving break is the one that was after B");
-  const undone = history.follow("A\nB\nC", 1, true);
+  const undone = history.follow("A\nB\nC", 1, "undo");
   equal(writtenText(undone), "A\r\nB\nC", "the bytes the file held, not rebuilt from the deletion");
   equal(writtenText(new LineHistory("A\r\nB\nC").follow("A\nB\nC")), "A\r\nB\nC", "a text that did not change keeps the stored endings");
   // A long edit history is bounded: forty edits of a 400k-character text stay usable and keep the latest text exactly.
@@ -90,4 +90,16 @@ test("an Undo back to an earlier text restores that text's own endings, and the 
   }
   equal(long.line.text, latest, "the latest edit is always kept");
   equal(writtenText(long.line), latest, "and writes back as itself");
+});
+
+test("undo and redo distinguish recurring displayed text by their positions", () => {
+  const history = new LineHistory("A\r\nB\nC");
+  history.follow("A\nB\nCx", 6);
+  history.follow("AB\nCx", 1);
+  const reinserted = history.follow("A\nB\nCx", 2);
+  equal(writtenText(reinserted), "A\nB\nCx");
+  equal(writtenText(history.follow("AB\nCx", 1, "undo")), "AB\nCx");
+  equal(writtenText(history.follow("A\nB\nCx", 6, "undo")), "A\r\nB\nCx");
+  equal(writtenText(history.follow("AB\nCx", 1, "redo")), "AB\nCx");
+  equal(writtenText(history.follow("A\nB\nCx", 2, "redo")), "A\nB\nCx");
 });

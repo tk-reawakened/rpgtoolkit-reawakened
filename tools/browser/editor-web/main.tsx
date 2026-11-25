@@ -40,8 +40,7 @@ interface Shown {
   readonly main: string;
 }
 let shown: Shown | null = null;
-let mirrorView: DocumentView | null = null;
-let mirroredDocument: AnyDocument | null = null;
+const mirrors = new Map<AnyDocument, { readonly view: DocumentView; readonly element: HTMLElement }>();
 let mirroredProject: WebProject | null = null;
 let mirrorRequested = false;
 
@@ -583,16 +582,32 @@ function syncMirror(): void {
   const visible = active !== null && project !== null && mirrorRequested;
   mirrorElement.hidden = !visible;
   mirrorButton.setAttribute("aria-pressed", String(mirrorRequested));
-  if (visible && mirrorView !== null && mirroredDocument === active && mirroredProject === project) return;
-  mirrorView?.dispose();
-  mirrorView = null;
-  mirroredDocument = null;
-  mirroredProject = null;
-  mirrorElement.replaceChildren();
-  if (visible && shown !== null && active !== null && project !== null) {
-    mirrorView = mountDocumentView(project, active, mirrorElement, shown.projectLayout, undefined, undefined, shown.main);
-    mirroredDocument = active;
-    mirroredProject = project;
+  // Drafts belong to the mounted form, not its shared document. Keep battle forms mounted when their second view is
+  // hidden or another tab is selected; detach their container so hidden controls are neither focusable nor discoverable.
+  const documents = mirrors.size === 0 || mirroredProject !== project ? undefined : project?.workspace.documents();
+  for (const [document, mirror] of mirrors) {
+    const draftForm = document.kind === "special-move" || document.kind === "status-effect";
+    if (documents?.includes(document) !== true ||
+        (!draftForm && (!visible || document !== active))) {
+      mirror.view.dispose();
+      mirror.element.remove();
+      mirrors.delete(document);
+    }
+  }
+  mirroredProject = project;
+  if (!visible || shown === null || active === null || project === null) {
+    mirrorElement.replaceChildren();
+    return;
+  }
+  let mirror = mirrors.get(active);
+  if (mirror === undefined) {
+    const element = mirrorElement.ownerDocument.createElement("div");
+    mirrorElement.replaceChildren(element);
+    const view = mountDocumentView(project, active, element, shown.projectLayout, undefined, undefined, shown.main);
+    mirror = { view, element };
+    mirrors.set(active, mirror);
+  } else if (mirror.element.parentElement !== mirrorElement) {
+    mirrorElement.replaceChildren(mirror.element);
   }
 }
 

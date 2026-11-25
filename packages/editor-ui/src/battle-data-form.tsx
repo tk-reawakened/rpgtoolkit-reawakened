@@ -181,7 +181,7 @@ export function useBattleDataForm<Snapshot extends DocumentSnapshot<Command>, Co
         // refused with its reason instead of the file being replaced around it.
         await save();
       } else {
-        if (choice === "reload") publishDrafts({});
+        if (choice === "reload") await pendingEdits.settle("revert");
         setMessage(null);
       }
     } catch (error) { setMessage(problem(error)); }
@@ -297,9 +297,10 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
   if (drafts[id] === undefined && (model.current === null || model.current.touched || model.current.base !== value)) {
     model.current = { base: value, history: new LineHistory(value), touched: false };
   }
-  const follow = (text: string, caret?: number, historyEdit = false): void => {
+  const follow = (text: string, caret?: number, historyEdit?: "undo" | "redo"): void => {
     const current = model.current!;
-    if (current.history.line.text !== text) { current.history.follow(text, caret, historyEdit); current.touched = true; }
+    const previous = current.history.line;
+    if (current.history.follow(text, caret, historyEdit) !== previous) current.touched = true;
   };
   const asWritten = (text: string): string => {
     follow(text);
@@ -313,7 +314,8 @@ export function LinesRow<Command>({ form, id, label, value, hint, command }: {
     <label>{label}
       <textarea aria-label={label} rows={3} value={drafts[id] ?? model.current!.history.line.text} disabled={disabled || snapshot.saving} readOnly={form.locked} onInput={(event) => {
         const inputType = (event as InputEvent).inputType;
-        follow(event.currentTarget.value, event.currentTarget.selectionStart, inputType === "historyUndo" || inputType === "historyRedo");
+        const direction = inputType === "historyUndo" ? "undo" : inputType === "historyRedo" ? "redo" : undefined;
+        follow(event.currentTarget.value, event.currentTarget.selectionStart, direction);
         setDraft(id, event.currentTarget.value);
       }} onChange={(event) => { if (!form.locked) void commitText(id, asWritten(event.currentTarget.value), value, command); }} />
     </label>
@@ -420,8 +422,15 @@ export function useLinkedFile(
               if (active) setLinked({ state: "collision", message: resolved.kind === "case-conflict" ? resolved.message : resolved.error.message });
               return;
             }
-            if (resolved.exists) path = resolved.path;
-          } catch { /* a listing that fails leaves the candidate's own spelling */ }
+            if (!resolved.exists) {
+              missing ??= { path: resolved.path, message: `${resolved.path} is not in the project.` };
+              continue;
+            }
+            path = resolved.path;
+          } catch (error) {
+            if (active) setLinked({ state: "invalid", message: problem(error) });
+            return;
+          }
         }
         let result: Awaited<ReturnType<typeof fs.readProject>>;
         try {
