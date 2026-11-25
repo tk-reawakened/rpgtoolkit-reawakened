@@ -26,6 +26,64 @@ test("rasterize fills RGBA and leaves keyed source pixels transparent", () => {
   deepEqual(Array.from(result.rgba), [4, 5, 6, 255]);
 });
 
+test("rasterize clips oversized stretched images before sampling source pixels", () => {
+  const key = assetKey("bitmap/oversized.png");
+  let channelReads = 0;
+  const rgba = new Proxy(new Uint8Array([50, 60, 70, 255]), {
+    get(target, property) {
+      if (typeof property === "string" && /^\d+$/.test(property)) channelReads += 1;
+      return Reflect.get(target, property, target);
+    },
+  });
+  const imageBoard: WorldBoard = {
+    ...board,
+    width: 32_000,
+    height: 32_000,
+    layers: [{ tiles: [] }],
+    images: [{ file: "oversized.png", left: 0, top: 0, layer: 1, drawType: 2, transparent: { r: 0, g: 0, b: 0 }, reserved: 0 }],
+  };
+  const textures = new Map([[key, { w: 1, h: 1, rgba }]]);
+  const list = composeBoard({
+    board: imageBoard,
+    tick: 0,
+    camera: { x: 0, y: 0 },
+    viewport: { width: 640, height: 384 },
+    alpha: 0,
+    include: { shading: false, images: true, sprites: false },
+    assets: textures,
+  });
+  const result = rasterize(list, textures);
+  equal(result.error, null);
+  equal(channelReads, 640 * 384 * 4, "sampling work is limited to the destination intersection");
+});
+
+test("rasterize keeps PNG source alpha in a whole-board picture", () => {
+  const key = assetKey("bitmap/transparent.png");
+  const pixels = new Uint8Array([200, 100, 50, 128]);
+  const imageBoard: WorldBoard = {
+    ...board,
+    sizeX: 1,
+    sizeY: 1,
+    width: 32,
+    height: 32,
+    layers: [{ tiles: [] }],
+    images: [{ file: "transparent.png", left: 0, top: 0, layer: 1, drawType: 0, transparent: { r: 0, g: 0, b: 0 }, reserved: 0 }],
+  };
+  const textures = new Map([[key, { w: 1, h: 1, rgba: pixels }]]);
+  const list = composeBoard({
+    board: imageBoard,
+    tick: 0,
+    camera: { x: 0, y: 0 },
+    viewport: { width: 1, height: 1 },
+    alpha: 0,
+    include: { shading: false, images: true, sprites: false },
+    assets: textures,
+  });
+  const result = rasterize(list, textures);
+  equal(result.error, null);
+  deepEqual(Array.from(result.rgba), [200, 100, 50, 128]);
+});
+
 test("composeBoard emits background, tile, then layer images with viewport culling", () => {
   const imageKey = assetKey("bitmap/house.png");
   const imageBoard: WorldBoard = {

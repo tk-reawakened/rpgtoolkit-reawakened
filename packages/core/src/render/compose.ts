@@ -82,6 +82,11 @@ export type BoardView = {
   readonly tick: number;
   readonly camera: { readonly x: number; readonly y: number };
   readonly viewport: { readonly width: number; readonly height: number };
+  /** A viewport carved from a full-board composition keeps parallax in the full-board coordinate space. */
+  readonly parallax?: {
+    readonly camera: { readonly x: number; readonly y: number };
+    readonly viewport: { readonly width: number; readonly height: number };
+  };
   readonly alpha: number;
   readonly include: { readonly shading: boolean; readonly images: boolean; readonly sprites: boolean };
   /** Decoded textures are supplied by the core asset cache, never read here. */
@@ -254,7 +259,7 @@ function underImagesForView(board: WorldBoard, view: BoardView): ReadonlyMap<num
     if (image.drawType !== 0 || image.cells !== undefined) continue;
     const source = textureFor(view.assets, image.file, image.asset);
     if (source === null) continue;
-    const blit = imageCommand(image, board, source.texture, source.key, view.camera, view.viewport);
+    const blit = imageCommand(image, board, source.texture, source.key, view.camera, view.viewport, view.parallax);
     if (blit === null || blit.dst.w !== blit.src.w || blit.dst.h !== blit.src.h) continue;
     images ??= new Map();
     let layer = images.get(image.layer);
@@ -714,6 +719,7 @@ function imageCommand(
   resolvedAsset: AssetKey,
   camera: { readonly x: number; readonly y: number },
   viewport: { readonly width: number; readonly height: number },
+  parallax?: BoardView["parallax"],
 ): BlitCommand | null {
   const imageWidth = image.width ?? texture.w;
   const imageHeight = image.height ?? texture.h;
@@ -727,8 +733,12 @@ function imageCommand(
     left = -camera.x;
     top = -camera.y;
   } else if (image.drawType === 1) {
-    left = image.left - parallaxOffset(camera.x, imageWidth, board.width, viewport.width);
-    top = image.top - parallaxOffset(camera.y, imageHeight, board.height, viewport.height);
+    const parallaxCamera = parallax?.camera ?? camera;
+    const parallaxViewport = parallax?.viewport ?? viewport;
+    left = image.left - (parallax === undefined ? 0 : camera.x)
+      - parallaxOffset(parallaxCamera.x, imageWidth, board.width, parallaxViewport.width);
+    top = image.top - (parallax === undefined ? 0 : camera.y)
+      - parallaxOffset(parallaxCamera.y, imageHeight, board.height, parallaxViewport.height);
   }
   const dst = { x: left, y: top, w: width, h: height };
   if (!visible(dst, viewport)) return null;
@@ -769,7 +779,7 @@ function emitImage(
   }
   const texture = textureFor(view.assets, image.file, image.asset);
   if (texture === null) return;
-  const command = imageCommand(image, board, texture.texture, texture.key, view.camera, view.viewport);
+  const command = imageCommand(image, board, texture.texture, texture.key, view.camera, view.viewport, view.parallax);
   if (command !== null) commands.push(command);
 }
 
@@ -845,7 +855,7 @@ function composeBoardView(view: BoardView): DrawList {
         reserved: 0,
         asset: texture.key,
       };
-      const command = imageCommand(image, board, texture.texture, texture.key, camera, viewport);
+      const command = imageCommand(image, board, texture.texture, texture.key, camera, viewport, view.parallax);
       if (command !== null) commands.push(command);
     }
   }

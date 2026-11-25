@@ -143,7 +143,12 @@ export function WorkbenchCommandBar({
   const bindKeyboard = () => {
     if (typeof window === "undefined") return;
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!menuWrapRef.current?.isConnected || event.defaultPrevented || document.querySelector(".tkr-help-document[open]") !== null) return;
+      const keyboardTarget = event.target instanceof Element ? event.target : document.activeElement;
+      if (!menuWrapRef.current?.isConnected
+        || event.defaultPrevented
+        || document.querySelector(".tkr-help-document[open]") !== null
+        || (keyboardTarget instanceof Element && keyboardTarget.closest("dialog[open]") !== null)
+      ) return;
       // Window capture still receives events from an overlay; background commands must not steal its focus.
       if (menuWrapRef.current.closest("[inert]") !== null) return;
       const cmdOrCtrl = event.ctrlKey || event.metaKey;
