@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
 
@@ -393,6 +395,169 @@ test("a program edits and saves in Monaco with colouring, bookmarks, call tips, 
   expect(outside).toEqual([]);
   expect(consoleProblems).toEqual([]);
   expect(await violations(page)).toEqual([]);
+});
+test("visual events edit, save, and run the same program in the real player", async ({ page }) => {
+  const root = fileURLToPath(new URL("../../../docs/spec/examples/game", import.meta.url));
+  const files: PickerInput[] = [];
+  const collect = (folder: string): void => {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else files.push({ path: relative(root, path).replaceAll("\\", "/"), bytes: Array.from(readFileSync(path)) });
+    }
+  };
+  collect(root);
+  const programPath = "Game/Example/Prg/start.prg";
+  const programIndex = files.findIndex((file) => file.path === programPath);
+  expect(programIndex).toBeGreaterThanOrEqual(0);
+  const original = '// creator note\r\nx = 1\r\n';
+  files[programIndex] = { path: programPath, bytes: Array.from(Buffer.from(original, "utf8")) };
+  await installProject(page, files);
+  await page.goto(PAGE);
+  await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  for (const folder of ["Game", "Example", "Prg"]) {
+    const row = page.getByRole("treeitem", { name: `${folder}, folder, closed`, exact: true });
+    await expect(row).toBeVisible();
+    await row.press("ArrowRight");
+  }
+  await page.getByRole("treeitem", { name: /^start\.prg, program editor/ }).dblclick();
+  await expect(page.locator(".monaco-editor .view-lines")).toBeVisible();
+  const editor = page.locator("#settings .monaco-editor");
+  const paneToggle = page.getByRole("button", { name: "Visual events", exact: true });
+  await expect(paneToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(editor).toBeVisible();
+  await paneToggle.click();
+  const pane = page.getByRole("region", { name: "Visual events" });
+  await expect(pane).toBeVisible();
+  await expect(editor).toBeVisible();
+  await pane.getByRole("button", { name: "Add Show message", exact: true }).click();
+  const message = pane.getByRole("textbox", { name: "Message", exact: true });
+  await message.fill("Tracer browser proof");
+  await message.press("Enter");
+  await expect.poll(() => editorText(page)).toContain('mwin("Tracer browser proof")\nwait()\nmwincls()');
+  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  const programInput = page.getByRole("textbox", { name: /^Program text/ }).first();
+  await expect(programInput).toBeFocused();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => editorText(page)).toContain('mwin("Welcome to the village.")');
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await editorText(page)).trimEnd()).toBe(original.replaceAll("\r\n", "\n").trimEnd());
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(() => editorText(page)).toContain('mwin("Welcome to the village.")');
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect.poll(() => editorText(page)).toContain('mwin("Tracer browser proof")');
+  // A real error and its disappearance distinguish clean diagnostics from a disconnected language worker.
+  const state = page.locator(".tkr-program-state");
+  await page.keyboard.press(END_OF_TEXT);
+  await page.keyboard.type("@");
+  await expect(state).toContainText("1 problem");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(state).not.toContainText("problem");
+  await page.keyboard.press("ControlOrMeta+s");
+  const saved = await savedText(page, programPath, (text) => text.includes('mwin("Tracer browser proof")'));
+  await expect(message).toHaveValue("Tracer browser proof");
+  await expect(state).toHaveText("All changes saved");
+  expect(saved).toBe(`${original}mwin("Tracer browser proof")\r\nwait()\r\nmwincls()\r\n`);
+  await page.getByRole("button", { name: "New run setup" }).click();
+  const form = page.getByRole("dialog", { name: "New run setup" });
+  await form.getByRole("tab", { name: "Test program" }).click();
+  await form.getByRole("combobox", { name: "Program", exact: true }).selectOption(programPath);
+  await form.getByRole("combobox", { name: "Start board" }).selectOption("Game/Example/Boards/village.brd");
+  await form.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
+  await form.getByRole("button", { name: "Test program", exact: true }).click();
+  await expect(form).toHaveCount(0);
+  const frame = page.frameLocator('iframe[title="Running game"]');
+  const scene = async () => frame.locator("#screen").evaluate(() => {
+    const session = Reflect.get(window, "__session") as { engine: { drawList(): { commands: Array<{ kind: string; text?: string }> } } } | undefined;
+    return session?.engine.drawList().commands.filter((command) => command.kind === "text").map((command) => command.text) ?? [];
+  });
+  await expect.poll(async () => (await scene()).join(" "), { timeout: 30_000 }).toContain("Tracer browser proof");
+  await frame.locator("#screen").press("Enter");
+  await expect.poll(async () => (await scene()).join(" "), { timeout: 30_000 }).not.toContain("Tracer browser proof");
+  await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
+});
+
+test("visual events preserve near-misses, edit only the message, and remove only its sequence", async ({ page }) => {
+  const source = '// before\n/*\nmwin("comment")\nwait()\nmwincls()\n*/\nmwin("lonely")\nwait()\nx = 1\nmwin("Original")\nwait()\nmwincls()\n// after';
+  await installProject(page, [
+    { path: "Main/example.gam", bytes: main },
+    { path: PROGRAM, bytes: Array.from(Buffer.from(source, "utf8")) },
+  ]);
+  await openProgram(page);
+  await page.getByRole("button", { name: "Visual events", exact: true }).click();
+  const pane = page.getByRole("region", { name: "Visual events" });
+  const cards = pane.getByRole("group", { name: "Show message", exact: true });
+  await expect(cards).toHaveCount(1);
+  const opaque = pane.getByRole("group", { name: "Code the builder does not edit", exact: true });
+  await expect(opaque).toHaveCount(2);
+  await expect(opaque.first()).toContainText('// before');
+  await expect(opaque.first()).toContainText('mwin("comment")');
+  await expect(opaque.first()).toContainText('mwin("lonely")');
+  await expect(opaque.first()).toContainText("x = 1");
+  const editor = page.locator("#settings .monaco-editor");
+  const programInput = editor.getByRole("textbox", { name: /^Program text/ });
+  const oldBlock = opaque.filter({ hasText: "// after" });
+  const openOpaque = oldBlock.getByRole("button", { name: "Open in editor", exact: true });
+  await expect(openOpaque).toHaveAttribute("data-editor-command-id", "program.visual.openSource.13");
+  await programInput.focus();
+  await page.keyboard.press(END_OF_TEXT);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowLeft" : "Home");
+  await openOpaque.scrollIntoViewIfNeeded();
+  const box = await openOpaque.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  const prefix = '// inserted\nmwin("Inserted")\nwait()\nmwincls()\n';
+  await page.keyboard.insertText(prefix);
+  // Press while the button still shows the original source. Real Monaco blur commits the pending edit.
+  expect(await openOpaque.getAttribute("data-editor-command-id")).toBe("program.visual.openSource.13");
+  await page.mouse.down();
+  const reused = opaque.filter({ hasText: "// inserted" }).getByRole("button", { name: "Open in editor", exact: true });
+  await expect(reused).toBeFocused();
+  await expect(reused).toHaveAttribute("data-editor-command-id", "program.visual.openSource.13");
+  await expect(openOpaque).toHaveAttribute("data-editor-command-id", "program.visual.openSource.17");
+  await page.mouse.up();
+  await expect(programInput).toBeFocused();
+  const target = editor.locator(".view-line").filter({ hasText: "// after" });
+  await expect.poll(async () => {
+    const [line, firstToken, cursor] = await Promise.all([
+      target.boundingBox(),
+      target.locator("span:not(:has(span))").first().boundingBox(),
+      editor.locator(".cursors-layer .cursor").boundingBox(),
+    ]);
+    return line === null || firstToken === null || cursor === null ? Infinity
+      : Math.max(Math.abs(line.y - cursor.y), Math.abs(firstToken.x - cursor.x));
+  }).toBeLessThan(2);
+  await expect.poll(() => editorText(page)).toBe(source.replace("// after", prefix + "// after"));
+  expect(await savedText(page, PROGRAM, (text) => text === source)).toBe(source);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(() => editorText(page)).toBe(source);
+  await expect(page.locator(".tkr-program-state")).toHaveText("All changes saved");
+
+  const message = pane.getByRole("textbox", { name: "Message", exact: true });
+  await message.fill("Updated");
+  await message.press("Enter");
+  const save = () => page.getByRole("button", { name: "Save active editor", exact: true }).click();
+  await expect.poll(() => editorText(page)).toContain('mwin("Updated")');
+  await save();
+  const edited = source.replace('mwin("Original")', 'mwin("Updated")');
+  expect(await savedText(page, PROGRAM, (text) => text === edited)).toBe(edited);
+
+  await openProgram(page);
+  await page.getByRole("button", { name: "Visual events", exact: true }).click();
+  await expect(message).toHaveValue("Updated");
+  await message.fill("Never applied");
+  await pane.getByRole("button", { name: "Remove Show message", exact: true }).click();
+  await expect(cards).toHaveCount(0);
+  await save();
+  const removed = edited.replace('mwin("Updated")\nwait()\nmwincls()\n', "");
+  expect(await savedText(page, PROGRAM, (text) => text === removed)).toBe(removed);
+  await pane.getByRole("button", { name: "Open in editor", exact: true }).click();
+  await expect(programInput).toBeFocused();
+  await expect(page.locator(".tkr-program-state")).toHaveText("All changes saved");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(message).toHaveValue("Updated");
 });
 test("a second program view uses the running project's language context", async ({ page }) => {
   const source = "function greet(name) {\n   mwin(name)\n}\n";

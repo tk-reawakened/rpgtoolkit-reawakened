@@ -682,6 +682,7 @@ jobs:
           if [ "$TKR_VSCODE_CREATOR_TESTS_PROOF" != 1 ]; then
             TKR_VSCODE_NATIVE_SCENE_PROOF=1 proof "$@"
             TKR_VSCODE_BATTLE_DATA_PROOF=1 proof "$@"
+            TKR_VSCODE_VISUAL_EVENTS_PROOF=1 proof "$@"
           fi
         env:
           ELECTRON_DISABLE_SANDBOX: "1"

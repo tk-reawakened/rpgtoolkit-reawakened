@@ -22,6 +22,7 @@
     "onCustomEditor:tkr.nativeGeometry",
     "onView:tkr.game",
     "onStartupFinished",
+    "onCommand:tkr.visualEvents.show",
     "onCommand:tkr.newProject",
     "onCommand:tkr.importBoardAsScene",
     "onCommand:tkr.packageGame",
@@ -75,6 +76,10 @@
       {
         "command": "tkr.testProgram",
         "title": "RPG Toolkit: Test Program"
+      },
+      {
+        "command": "tkr.visualEvents.show",
+        "title": "RPG Toolkit: Show Visual events"
       },
       {
         "command": "tkr.runSavedTests",

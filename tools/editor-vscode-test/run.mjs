@@ -20,6 +20,7 @@ import { NATIVE_SCENE_PROOF_PATH, runVscodeNativeSceneProof } from "./native-sce
 import { runVscodeBoardImportProof } from "./board-import-proof.ts";
 import { geometryProofFiles } from "./native-geometry-fixture.ts";
 import { runVscodeNativeGeometryProof } from "./native-geometry-vscode-proof.ts";
+import { runVscodeVisualEventsProof, VISUAL_EVENTS_PROOF_PATH } from "./visual-events-proof.ts";
 import { cleanupTestRun, combineProofErrors, trackProcess, waitForHttpServer } from "./lifecycle.ts";
 import { startPersistentFs } from "./persistent-fs.mjs";
 import { createProofDirectories } from "./proof-directories.mjs";
@@ -108,18 +109,29 @@ const historyProof = process.env.TKR_VSCODE_HISTORY_PROOF === "1";
 const skipSpriteProof = process.env.TKR_VSCODE_SKIP_SPRITE_PROOF === "1";
 const workbenchSaveShortcutProof = process.env.TKR_VSCODE_WORKBENCH_SAVE_PROOF === "1";
 const creatorTestsProof = process.env.TKR_VSCODE_CREATOR_TESTS_PROOF === "1";
+const visualEventsProof = process.env.TKR_VSCODE_VISUAL_EVENTS_PROOF === "1";
 const scriptWorkflowProof = process.env.TKR_VSCODE_SCRIPT_WORKFLOW_PROOF === "1";
 const fontProof = process.env.TKR_VSCODE_FONT_PROOF === "1";
 const battleDataProof = process.env.TKR_VSCODE_BATTLE_DATA_PROOF === "1";
-if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || battleDataProof)) {
+if (designProof && (nativeClipProof || nativeSceneProof || connectedAuthoringProof || animationProof || boardPropertiesProof || boardObjectsProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || historyProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof)) {
   throw new Error("TKR_VSCODE_DESIGN_PROOF cannot be combined with another VS Code proof mode");
 }
 if (creatorTestsProof) await access(resolve(extension, "dist/creator-tests-webview.js"));
-if ((nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || battleDataProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
+if (visualEventsProof) await access(resolve(extension, "dist/visual-events.js"));
+if ((nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || launchProof || boardProof || programProof || guardProof || newProjectProof || autosaveCommandProof || skipSpriteProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof) && game !== "Main/example.gam") throw new Error("The focused VS Code web proof requires docs/spec/examples/game and --game Main/example.gam");
 const fullProofChoices = game === "Main/example.gam" && workspace === resolve(root, "docs/spec/examples/game") ? ["cancel", "keep", "connected"] : ["cancel", "keep"];
-for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || battleDataProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
+for (const choice of nativeClipProof || nativeSceneProof || designProof || boardPropertiesProof || boardObjectsProof || connectedAuthoringProof || animationProof || historyProof || skipSpriteProof || autosaveCommandProof || workbenchSaveShortcutProof || creatorTestsProof || scriptWorkflowProof || fontProof || visualEventsProof || battleDataProof ? ["cancel"] : launchProof || boardProof || programProof || guardProof || newProjectProof ? ["cancel"] : fullProofChoices) {
   const connectedPass = connectedAuthoringProof || choice === "connected";
   const { workspace: proofWorkspace, profile: browserProfile } = await createProofDirectories(gameFiles[0], game, undefined, undefined, assetWorkspace);
+  if (visualEventsProof) {
+    const fixture = resolve(root, "docs/spec/examples/game/Game/Example");
+    const project = resolve(proofWorkspace, "Game/Example");
+    await cp(fixture, project, { recursive: true });
+    await cp(resolve(root, "media/cursors/tkr-arrow.png"), resolve(project, "Bitmap/window.png"));
+    const target = resolve(proofWorkspace, VISUAL_EVENTS_PROOF_PATH);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, Buffer.from("// native visual event proof\r\n// handwritten opaque line\r\n", "utf8"));
+  }
   if (creatorTestsProof) for (const file of createCreatorTestFiles()) {
     const target = resolve(proofWorkspace, file.path);
     await mkdir(dirname(target), { recursive: true });
@@ -390,7 +402,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
         release.resolve();
       }
     };
-    const readBacking = async (path = game) => new Uint8Array(await readFile(resolve(proofWorkspace, path)));
+    const readBacking = async (path = game) => new Uint8Array(await persistentFs.observe(() => readFile(resolve(proofWorkspace, path))));
     const writeBacking = async (path, bytes) => { await writeFile(resolve(proofWorkspace, path), bytes); };
     const withBackingWriteRefused = async (path, check) => {
       const target = resolve(proofWorkspace, path);
@@ -476,7 +488,7 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
         historyContains: async (bytes) => {
           const blob = resolve(proofWorkspace, ".tkr-history/blobs", createHash("sha256").update(bytes).digest("hex"));
           try {
-            return (await readFile(blob)).equals(Buffer.from(bytes));
+            return (await persistentFs.observe(() => readFile(blob))).equals(Buffer.from(bytes));
           } catch (error) {
             if (error?.code === "ENOENT") return false;
             throw error;
@@ -486,6 +498,9 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       console.log("vscode.dev board import review, cancel, one scene and authorized first-build history proof passed");
       await runVscodeNativeGeometryProof(page, expect, readBacking);
       console.log("vscode.dev shared native tile and pack geometry, move, copy, delete and board rebuild proof passed");
+    } else if (visualEventsProof) {
+      await runVscodeVisualEventsProof(page, expect, workbenchUrl, readBacking);
+      console.log("VS Code native Visual events edit, one-URI undo/navigation, close/reopen reconstruction, clean diagnostics, CRLF save and player dismissal proof passed");
     } else if (nativeClipProof) {
       await proveNativeClip();
     } else if (designProof) {
@@ -680,7 +695,7 @@ async function runCreatorAcceptanceLane({ root, harness, extension, port }) {
     page.on("requestfailed", (request) => { if (diagnostics.length < 100) diagnostics.push(`[requestfailed] ${request.url()}: ${request.failure()?.errorText ?? "unknown failure"}`); });
 
     const artifact = await runVscodeCreatorAcceptanceProof(page, expect, workbenchUrl, {
-      readBacking: async (path) => new Uint8Array(await readFile(join(laneWorkspace, path))),
+      readBacking: async (path) => new Uint8Array(await persistentFs.observe(() => readFile(join(laneWorkspace, path)))),
       writeBacking: async (path, bytes) => {
         const target = join(laneWorkspace, path);
         await mkdir(dirname(target), { recursive: true });

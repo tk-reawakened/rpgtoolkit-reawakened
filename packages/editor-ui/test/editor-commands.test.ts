@@ -41,6 +41,26 @@ test("editor commands execute the focused view and disappear on tab switch/close
   dispose(); equal(registry.getCommands().length, 0);
 });
 
+test("focused visual actions can register an explicit command identity", async () => {
+  const { scope, slot, registry } = setup();
+  const program = surface("Program");
+  const open = document.createElement("button");
+  open.textContent = "Open in editor";
+  open.setAttribute("data-editor-command-id", "program.visual.openSource.4");
+  let calls = 0;
+  open.onclick = () => { calls += 1; };
+  program.append(open);
+  slot.append(program);
+  dispose = connectEditorCommands(scope, registry);
+  equal(registry.execute("program.visual.openSource.4"), true);
+  equal(calls, 1);
+  open.setAttribute("data-editor-command-id", "program.visual.openSource.7");
+  await settle();
+  equal(registry.execute("program.visual.openSource.4"), false);
+  equal(registry.execute("program.visual.openSource.7"), true);
+  equal(calls, 2);
+});
+
 test("split views follow focus and reject commands captured from the background view", async () => {
   const { scope, slot, registry } = setup();
   const board = surface("Board"), art = surface("Tileset");
