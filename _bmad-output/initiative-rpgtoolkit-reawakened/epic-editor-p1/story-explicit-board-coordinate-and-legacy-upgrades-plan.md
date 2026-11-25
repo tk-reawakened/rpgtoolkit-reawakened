@@ -76,4 +76,4 @@ The existing spec has exact forward stacked-to-rotated and tile-to-pixel rules. 
 **Commands:**
 - `node --test packages/editor-model/test/board-upgrade.test.ts packages/editor-model/test/board-preview.test.ts` -- passed, 21 tests including engine-pixel parity.
 - `pnpm exec eslint packages/editor-model/src/board-upgrade.ts packages/editor-model/src/index.ts packages/editor-model/test/board-upgrade.test.ts packages/editor-model/test/board-preview.test.ts packages/host-web/src/workbench.ts packages/host-vscode/src/board-upgrade-commands.ts packages/host-vscode/src/extension.ts` -- passed.
-- `pnpm test` -- rerun after correcting the fixture harness project ID; result pending.
+- `pnpm test` -- passed: 5,973 passed, 36 skipped (missing optional legacy fixture corpus).
