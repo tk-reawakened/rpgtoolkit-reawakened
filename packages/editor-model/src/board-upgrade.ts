@@ -1,6 +1,7 @@
 import { BOARD_DETECT_OFFSET, BOARD_MAX_CELLS, boardGrid, decodeBoard, foldPath, coordLayout, stackedToRotated, writeBoard, type Board } from "@tk-reawakened/core";
 import { platformError, platformOk, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { decodeShade, encodeShade } from "./board-document.ts";
+import { platformError, platformOk, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 
 export type BoardCoordinateUpgrade = "stacked-to-rotated" | "tile-to-pixel";
 

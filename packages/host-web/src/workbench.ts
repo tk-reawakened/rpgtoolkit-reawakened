@@ -55,6 +55,7 @@ import {
   type Tabs,
   type VisitResult,
   type Visits,
+  createBoardCoordinateUpgradeCommand,
   DEFAULT_WORKBENCH_PANELS,
   upgradeBoardCopy,
 } from "@tk-reawakened/editor-model";
@@ -459,7 +460,30 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     }
     if (result.value === null) return;
     await tree.refresh();
-    await openPath(result.value);
+    const opened = await tree.open(result.value);
+    if (!opened.ok) {
+      await tell("message" in opened.error ? opened.error.message : opened.error.error.message);
+      return;
+    }
+    if (opened.via !== "document") return;
+    show(opened.document);
+    if (operation === "pre-vector") return;
+    if (opened.document.kind !== "board") {
+      await tell(`The upgraded copy ${result.value} did not reopen as a board.`);
+      return;
+    }
+    const command = createBoardCoordinateUpgradeCommand(opened.document.serialize(), operation);
+    if (!command.ok) {
+      await tell(`The copy ${result.value} was opened but its coordinate conversion was refused: ${command.message}`);
+      return;
+    }
+    const applied = opened.document.apply(command.value);
+    if (!applied.ok) {
+      await tell(`The copy ${result.value} was opened but its coordinate conversion was refused: ${applied.rejection.message}`);
+      return;
+    }
+    const saved = await opened.document.save();
+    if (!saved.ok) await tell(saved.failure.message);
   };
   const coordinateUpgradeCommand = (operation: "stacked-to-rotated" | "tile-to-pixel", label: string): WorkbenchCommand => ({
     id: `board.upgrade.${operation}`,

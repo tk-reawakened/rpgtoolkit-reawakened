@@ -1,11 +1,10 @@
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { boardGrid, coordLayout, decodeBoard, stackedToRotated, tileToPixel } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { planBoardCoordinateUpgrade, upgradeBoardCopy } from "../src/index.ts";
+import { createBoardCoordinateUpgradeCommand, createDocumentIdentity, openBoardDocument, planBoardCoordinateUpgrade, upgradeBoardCopy } from "../src/index.ts";
 import { exampleBoard } from "./fixtures.ts";
 
 const sourcePath = "Boards/Entry.brd";
@@ -25,6 +24,43 @@ function expandedShade(records: readonly { readonly runCount: number; readonly r
   return result;
 }
 
+
+test("a coordinate upgrade is one undoable edit after reopening a preserved copy", async () => {
+  const original = exampleBoard(4);
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const copied = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "tile-to-pixel", hasPendingEdits: () => false,
+    createExclusive: null,
+  });
+  deepEqual(copied, { ok: true, value: copyPath });
+  deepEqual(host.bytesOf(sourcePath), original);
+  deepEqual(host.bytesOf(copyPath), original, "the new file starts as an exact copy");
+
+  const identity = createDocumentIdentity("memory-project", copyPath);
+  const opened = await openBoardDocument(host.fs, identity);
+  ok(opened.ok);
+  const doc = opened.document;
+  const command = createBoardCoordinateUpgradeCommand(doc.serialize(), "tile-to-pixel");
+  ok(command.ok, command.ok ? "" : command.message);
+  const applied = doc.apply(command.value);
+  ok(applied.ok, applied.ok ? "" : applied.rejection.message);
+  equal(doc.getSnapshot().edits.length, 1);
+  equal(doc.getSnapshot().edits[0]?.label, "Convert board coordinates");
+  equal(decoded(doc.serialize()).board.coordType & 4, 4);
+  deepEqual(doc.undo(applied.editId), { ok: true, editId: applied.editId });
+  deepEqual(doc.serialize(), original, "one undo restores the untouched copied bytes");
+  equal(doc.getSnapshot().canRedo, true);
+  deepEqual(doc.redo(applied.editId), { ok: true, editId: applied.editId });
+  ok((await doc.save()).ok);
+
+  const reopened = await openBoardDocument(host.fs, identity);
+  ok(reopened.ok);
+  equal(decoded(reopened.document.serialize()).board.coordType & 4, 4);
+  deepEqual(host.bytesOf(sourcePath), original);
+});
 
 void test("stacked-to-rotated maps every tile and shade cell while keeping board-pixel objects", () => {
   const original = decoded(exampleBoard(4)).board;
@@ -309,58 +345,58 @@ void test("upgrade refuses a real Toolkit 2 text board", {
   equal(host.bytesOf(copyPath), undefined);
 });
 
-const realMinor2Board = resolve("fixtures/legacy/Caoquest/Boards/red.brd");
-void test("real minor-2 copy preserves independently pinned board content and the original", {
-  skip: existsSync(realMinor2Board) ? false : "run pnpm fixtures:fetch",
-}, async () => {
-  const original = new Uint8Array(readFileSync(realMinor2Board));
-  equal(createHash("sha256").update(original).digest("hex"), "ef946b9671bcc83091e9264d8e318e1be05ce27c8fd4adc61fefaec31f813d62");
-  equal(original[14], 0);
-  equal(original[17], 2);
+const documentedMinor2Board = resolve("docs/spec/examples/versions/board/board_minor2.brd");
+void test("documented minor-2 layout example upgrades using independent fields from its byte listing", async () => {
+  const original = new Uint8Array(readFileSync(documentedMinor2Board));
+  deepEqual([original[15], original[17]], [2, 2], "the spec example header pins major and minor");
   const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
   host.answerQuestions("preview");
   host.answerSavePaths(copyPath);
   const result = await upgradeBoardCopy({
     fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
-    createExclusive: async (destination, bytes) => {
-      const temporary = "Boards/.real-board-upgrade.tmp";
-      const written = await host.fs.writeProject("memory-project", temporary, bytes);
-      if (!written.ok) return written;
-      const moved = await host.fs.rename(temporary, destination);
-      if (!moved.ok) await host.fs.deleteProject("memory-project", temporary);
-      return moved;
-    },
+    createExclusive: null,
   });
   deepEqual(result, { ok: true, value: copyPath });
   deepEqual(host.bytesOf(sourcePath), original);
-  const reopened = decoded(host.bytesOf(copyPath)!);
-  equal(reopened.layout, "vector");
-  const board = reopened.board;
-  deepEqual([board.sizeX, board.sizeY, board.sizeL], [19, 14, 8]);
-  deepEqual(board.tileMatrix.slice(0, 12), [1, 2, 6, 6, 6, 12, 2, 6, 6, 6, 12, 1]);
-  equal(new Set(board.tileMatrix).size, 27);
-  equal(board.vectors.length, 32);
-  deepEqual(board.vectors[0], {
-    points: [{ x: 32, y: 0 }, { x: 352, y: 0 }, { x: 352, y: 32 }, { x: 32, y: 32 }],
-    attributes: 1, closed: -1, layer: 1, type: 2, handle: "",
+  const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
+  ok(reopened.ok);
+  const board = decoded(reopened.document.serialize()).board;
+  deepEqual([board.minor, board.sizeX, board.sizeY, board.sizeL, board.coordType], [4, 4, 3, 2, 0]);
+  deepEqual(board.lut, ["", "village.tst1", "village.tst8"]);
+  deepEqual(board.tileMatrix, [...Array<number>(12).fill(1), 2, ...Array<number>(11).fill(0)]);
+  equal(board.vectors.length, 1);
+  deepEqual(
+    board.vectors[0]!.points.map(({ x, y }) => `${x},${y}`).sort(),
+    ["0,0", "0,32", "32,0", "32,32"],
+    "the second layer's solid cell becomes the documented 32-pixel rectangle",
+  );
+  deepEqual(
+    { attributes: board.vectors[0]!.attributes, closed: board.vectors[0]!.closed, layer: board.vectors[0]!.layer, type: board.vectors[0]!.type, handle: board.vectors[0]!.handle },
+    { attributes: 0, closed: -1, layer: 2, type: 1, handle: "" },
+  );
+  const program = board.programs[0]!;
+  deepEqual(
+    { ...program, points: [] },
+    {
+      program: "note.prg", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "",
+      activate: 0, activationType: 4, repeatDistance: 0, layer: 1, points: [], closed: -1, handle: "",
+    },
+  );
+  deepEqual(
+    program.points.map(({ x, y }) => `${x},${y}`).sort(),
+    ["32,64", "32,96", "64,64", "64,96"],
+    "the tile at (2, 3) becomes a 32-pixel trigger polygon",
+  );
+  deepEqual(board.sprites[0], {
+    itemFile: "chest.itm", activationPrg: "", multitaskPrg: "", initialVar: "", initialValue: "",
+    finalVar: "", finalValue: "", loadingVar: "", loadingValue: "", activate: 0, activationType: 0,
+    x: 80, y: 63, layer: 1, reserved: -1,
   });
-  equal(board.programs.length, 24);
-  deepEqual(board.programs[0], {
-    program: "warp00000002.prg", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "",
-    activate: 0, activationType: 4, repeatDistance: 0, layer: 1,
-    points: [{ x: 512, y: 128 }, { x: 544, y: 128 }, { x: 544, y: 160 }, { x: 512, y: 160 }],
-    closed: -1, handle: "",
-  });
-  equal(board.sprites.length, 2);
-  deepEqual(board.shadeLayers[0], {
-    castLayer: 1,
-    records: [
-      { runCount: 16, r: 0, g: 0, b: 0 },
-      { runCount: 1, r: -26, g: -26, b: -26 },
-      { runCount: 77, r: 0, g: 0, b: 0 },
-      { runCount: 1, r: -26, g: -26, b: -26 },
-      { runCount: 171, r: 0, g: 0, b: 0 },
-    ],
-  });
+  deepEqual(board.properties.start, { x: 48, y: 63, layer: 1 });
+  equal(board.properties.backgroundImage, "sky.png");
+  equal(board.properties.backgroundDrawType, 1);
+  deepEqual(board.links.east, "forest.brd");
+  deepEqual(board.layerTitles.slice(0, 2), ["ground", ""]);
+  deepEqual(board.shadeLayers, []);
 });

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { upgradeBoardCopy, type BoardUpgradeOperation } from "@tk-reawakened/editor-model";
+import { createBoardCoordinateUpgradeCommand, upgradeBoardCopy, type BoardUpgradeOperation } from "@tk-reawakened/editor-model";
 import type { GameEditorProvider } from "./custom-editor.ts";
 import { createVscodeDialogs } from "./dialogs.ts";
 import { createVscodeFileSystem } from "./filesystem.ts";
@@ -133,8 +133,30 @@ export function registerBoardUpgradeCommands(
         await vscode.window.showErrorMessage(result.error.message);
         return;
       }
-      if (result.value !== null) {
-        await vscode.commands.executeCommand("vscode.open", vscode.Uri.joinPath(folder.uri, ...result.value.split("/")));
+      if (result.value === null) return;
+      const copyUri = vscode.Uri.joinPath(folder.uri, ...result.value.split("/"));
+      await vscode.commands.executeCommand("vscode.open", copyUri);
+      if (operation === "pre-vector") return;
+      const copy = provider.openDocument(copyUri);
+      if (copy === undefined || copy.model.kind !== "board") {
+        await vscode.window.showErrorMessage(`${result.value} was created but could not be reopened as a board; its coordinate conversion was not applied.`);
+        return;
+      }
+      const command = createBoardCoordinateUpgradeCommand(copy.model.serialize(), operation);
+      if (!command.ok) {
+        await vscode.window.showErrorMessage(`${result.value} was opened but its coordinate conversion was refused: ${command.message}`);
+        return;
+      }
+      const applied = copy.model.apply(command.value);
+      if (!applied.ok) {
+        await vscode.window.showErrorMessage(`${result.value} was opened but its coordinate conversion was refused: ${applied.rejection.message}`);
+        return;
+      }
+      copy.didEdit(applied.editId);
+      try {
+        await provider.saveCustomDocument(copy);
+      } catch (error) {
+        await vscode.window.showErrorMessage(error instanceof Error ? error.message : String(error));
       }
     }));
   };

@@ -20,7 +20,7 @@ import {
   type GameState,
 } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { boardPreviewRootForPath, buildNewBoard, createBoardDocument, createDocumentIdentity, planBoardCoordinateUpgrade, previewBoard, type BoardCoordSystem, type BoardDocument } from "../src/index.ts";
+import { boardPreviewRootForPath, buildNewBoard, createBoardCoordinateUpgradeCommand, createBoardDocument, createDocumentIdentity, openBoardDocument, previewBoard, upgradeBoardCopy, type BoardCoordSystem, type BoardDocument } from "../src/index.ts";
 
 const tileset = new Uint8Array(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions", "tileset", "tileset_detail1.tst")));
 
@@ -106,18 +106,38 @@ test("the editor's preview is the engine's viewbrd pixels for the same board, be
   notDeepEqual(after.rgba, before.rgba, "the changed tile changes the picture");
   deepEqual(after.rgba, engineView(doc.serialize(), 64), "unsaved edits preview as the engine would draw them once saved");
 });
-test("stacked-to-rotated copies preserve the engine-rendered tile pixels", () => {
+test("the reopened rotated copy is one editor edit and keeps the runner's pixels", async () => {
   const ordinary = readBoard(new BinaryReader(smallBoard()));
   if (!ordinary.ok) throw new Error(ordinary.error.message);
   const stacked = writeBoard({ ...ordinary.value, coordType: 1 });
   if (!stacked.ok) throw new Error(stacked.error.message);
-  const decoded = decodeBoard(stacked.value);
-  if (!decoded.ok) throw new Error(decoded.error.message);
-  const plan = planBoardCoordinateUpgrade(decoded.value.board, "stacked-to-rotated");
-  if (!plan.ok) throw new Error(plan.message);
-  const rotated = writeBoard(plan.value.board);
-  if (!rotated.ok) throw new Error(rotated.error.message);
-  deepEqual(engineView(rotated.value, 64), engineView(stacked.value, 64));
+  const sourcePath = "Boards/village.brd";
+  const copyPath = "Boards/village.rotated.brd";
+  const host = createMemoryPlatformServices({ files: { ...FILES, [sourcePath]: stacked.value } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const copied = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "stacked-to-rotated", hasPendingEdits: () => false,
+    createExclusive: null,
+  });
+  deepEqual(copied, { ok: true, value: copyPath });
+  deepEqual(host.bytesOf(sourcePath), stacked.value);
+  deepEqual(host.bytesOf(copyPath), stacked.value);
+
+  const opened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
+  ok(opened.ok);
+  const command = createBoardCoordinateUpgradeCommand(opened.document.serialize(), "stacked-to-rotated");
+  ok(command.ok, command.ok ? "" : command.message);
+  const applied = opened.document.apply(command.value);
+  ok(applied.ok, applied.ok ? "" : applied.rejection.message);
+  equal(opened.document.getSnapshot().edits.length, 1);
+  ok((await opened.document.save()).ok);
+
+  const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
+  ok(reopened.ok);
+  deepEqual(engineView(reopened.document.serialize(), 64), engineView(stacked.value, 64));
+  deepEqual(host.bytesOf(sourcePath), stacked.value);
 });
 
 test("current-view preview crops the shared board composition at the requested camera", async () => {
