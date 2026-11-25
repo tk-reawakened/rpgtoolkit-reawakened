@@ -59,8 +59,17 @@ export function readLegacyFont(source: string | Uint8Array, path?: string): Resu
   }
 
   const warnings: string[] = [];
-  const version = parseInt(lines[1]!.text, 10);
-  const subversion = parseInt(lines[2]!.text, 10);
+  // A whole line, nothing after the digits: "2oops" is not version 2, and "128oops" is not a row value.
+  const version = /^\d+$/.test(lines[1]!.text) ? Number(lines[1]!.text) : Number.NaN;
+  const subversion = /^\d+$/.test(lines[2]!.text) ? Number(lines[2]!.text) : Number.NaN;
+  if (Number.isNaN(version) || Number.isNaN(subversion)) {
+    return err({
+      ...(path === undefined ? {} : { path }),
+      offset: lines[1]!.lineNum,
+      section: FONT_SECTION,
+      message: `invalid font version "${lines[1]!.text}.${lines[2]!.text}": each is a whole number`,
+    });
+  }
   if (version !== FONT_VERSION || subversion !== FONT_SUBVERSION) {
     warnings.push(
       `font version ${lines[1]!.text}.${lines[2]!.text} is not ${FONT_VERSION}.${FONT_SUBVERSION}; ` +
@@ -81,7 +90,7 @@ export function readLegacyFont(source: string | Uint8Array, path?: string): Resu
   const values = new Uint8Array(FONT_TOTAL_VALUES);
   for (let i = 0; i < FONT_TOTAL_VALUES; i += 1) {
     const entry = valueLines[i]!;
-    const val = parseInt(entry.text, 10);
+    const val = /^\d{1,3}$/.test(entry.text) ? Number(entry.text) : Number.NaN;
     if (Number.isNaN(val) || val < 0 || val > 255) {
       return err({
         ...(path === undefined ? {} : { path }),
@@ -100,8 +109,8 @@ export function readLegacyFont(source: string | Uint8Array, path?: string): Resu
   return ok(
     {
       magic: FONT_MAGIC,
-      version: Number.isNaN(version) ? FONT_VERSION : version,
-      subversion: Number.isNaN(subversion) ? FONT_SUBVERSION : subversion,
+      version,
+      subversion,
       values,
     },
     warnings,

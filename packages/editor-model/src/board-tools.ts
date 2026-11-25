@@ -1,5 +1,5 @@
 import { BinaryReader, readTileBitmap, type Result } from "@tk-reawakened/core";
-import type { BoardDocumentFields, ShadeAssignment, TileAssignment } from "./board-document.ts";
+import type { BoardDocumentFields, ShadeAssignment, ShadeCell, TileAssignment } from "./board-document.ts";
 import { boardTileAt } from "./board-document.ts";
 import { cellCentre, cellNeighbours, cellOnBoard, cellsInRect, layoutOf, pixelToCell, TILE_PIXELS, type Cell, type Pixel } from "./board-geometry.ts";
 
@@ -18,7 +18,14 @@ export const BOARD_TOOLS: readonly BoardTool[] = ["draw", "select", "flood", "er
 export type ToolBoard = Pick<BoardDocumentFields, "sizeX" | "sizeY" | "coordType" | "grid" | "layers" | "lut" | "tileMatrix">;
 
 export type ToolOutcome =
-  | { readonly ok: true; readonly cells: readonly TileAssignment[]; /** Tints set in the same edit (a stamp's). */ readonly shades?: readonly ShadeAssignment[] }
+  | {
+    readonly ok: true;
+    readonly cells: readonly TileAssignment[];
+    /** Tints set in the same edit (a stamp's). */
+    readonly shades?: readonly ShadeAssignment[];
+    /** Shade cells set in the same edit (a pasted or cut region's). */
+    readonly shadeCells?: readonly ShadeCell[];
+  }
   | { readonly ok: false; readonly message: string };
 
 /** An inclusive rectangle of stored cells. */

@@ -73,6 +73,14 @@ const CASES: readonly KindCase[] = [
     rejected: { type: "set-bitmap-cell", x: 2, y: 0, tile: "village.tst2" },
   },
   {
+    kind: "font",
+    path: "Font/retro.fnt",
+    // Written by hand from the format: three header lines, then 2048 rows as ` n ` with CRLF; glyph 65's first row is 129.
+    bytes: new TextEncoder().encode(`RPGTLKIT FONT\r\n2\r\n0\r\n${Array.from({ length: 2048 }, (_, index) => ` ${index === 65 * 8 ? 129 : 0} `).join("\r\n")}\r\n`),
+    accepted: { type: "set-font-pixels", glyph: 65, pixels: [{ x: 0, y: 0, ink: true }, { x: 7, y: 7, ink: true }] },
+    rejected: { type: "set-font-pixels", glyph: 65, pixels: [{ x: 8, y: 0, ink: true }] },
+  },
+  {
     kind: "animation",
     path: "Misc/walk.anm",
     bytes: exampleAnimation(),

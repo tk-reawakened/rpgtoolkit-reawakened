@@ -1,6 +1,6 @@
 import type { ApplyResult } from "./binary-document.ts";
 import type { PreferencesSnapshot } from "./preferences.ts";
-import type { BoardCommand, BoardDocumentFields, SetBoardFieldsCommand, TileGesture } from "./board-document.ts";
+import type { BoardCommand, BoardDocumentFields, BoardPrecondition, SetBoardFieldsCommand, TileGesture } from "./board-document.ts";
 import { boardTileAt } from "./board-document.ts";
 import {
   DEFAULT_ZOOM_INDEX,
@@ -47,6 +47,9 @@ import {
   translatedObject,
   type BoardObject,
 } from "./board-object-tools.ts";
+import { clearRegion, copyObjects, copyRegion, parseClip, pasteObjects, pasteRegion, regionStillHolds, serializeClip, type BoardClip } from "./board-clipboard.ts";
+import { sameStoredValue } from "./board-document.ts";
+import type { ClipboardService } from "@tk-reawakened/platform-services";
 
 /**
  * The state of the board canvas and the gestures that edit through it (`docs/editor-features.md`, "Reawakened rules for
@@ -95,7 +98,7 @@ export function editorPreferencesFrom(snapshot: PreferencesSnapshot): EditorPref
 
 export interface BoardEditorOptions {
   /** The board as it is now. */
-  board(): ToolBoard & Pick<BoardDocumentFields, BoardObjectKind>;
+  board(): ToolBoard & Pick<BoardDocumentFields, BoardObjectKind | "shadeLayers">;
   /** Apply one command to the document. A host may answer later. */
   apply(command: BoardCommand): ApplyResult | Promise<ApplyResult>;
   /** The retained brush, or `null` when none is chosen. */
@@ -108,6 +111,10 @@ export interface BoardEditorOptions {
   readonly viewSize?: { readonly width: number; readonly height: number };
   /** Actual graphic bounds when the preview has them; otherwise the documented 32×32 placeholder is selectable. */
   objectBounds?(kind: BoardObjectKind, index: number): { readonly left: number; readonly top: number; readonly width: number; readonly height: number } | null;
+  /** The host's system clipboard (AD-20); without it copy, cut and paste say the host cannot reach the clipboard and change nothing. */
+  readonly clipboard?: ClipboardService;
+  /** Whether the user is working on lights, which cannot be copied, cut or pasted (T-28). */
+  lightsActive?(): boolean;
 }
 
 /** A gesture that has begun and has not been committed. Nothing here has touched the document. */
@@ -152,6 +159,8 @@ export interface BoardEditorState {
   readonly mode: "tiles" | BoardObjectKind;
   readonly objectSelection: BoardObjectSelection | null;
   readonly pointSelection: readonly number[];
+  /** The objects selected as a whole (Select all), indices of the mode's family; empty when only `objectSelection` is selected. */
+  readonly objectGroup: readonly number[];
   readonly hiddenObjectTypes: readonly (number | "program")[];
   /** The current layer, counted from 0. It is always visible. */
   readonly layer: number;
@@ -226,7 +235,22 @@ export interface BoardEditor {
   activate(modifiers: Modifiers): Promise<void>;
   /** Escape: drop a gesture in progress, else clear the selection. */
   cancel(): void;
+  /** Select every cell of the board (tiles), or every visible object of the family on the current layer (an object mode). */
   selectAll(): void;
+  /** Select every point of the selected region (an object mode). */
+  selectAllPoints(): void;
+  /**
+   * Copy the selected region of cells, or the selected whole objects, to the system clipboard (T-28). A partial set of a
+   * region's points and a light are refused with a message, and nothing is written. Answers whether it was copied.
+   */
+  copy(): Promise<boolean>;
+  /**
+   * Copy as `copy` does, then remove what was copied in one edit. Cutting objects renumbers the later slots, so
+   * `confirmRemoval` is asked first and a "no" changes nothing, not even the clipboard.
+   */
+  cut(confirmRemoval: (removal: { readonly family: BoardObjectKind; readonly count: number }) => Promise<boolean>): Promise<boolean>;
+  /** Paste the clipboard's board data: a region with its corner on the cursor, or whole objects appended to their family. */
+  paste(): Promise<boolean>;
   eraseSelection(): Promise<void>;
   /** Move or copy the selection by whole columns and rows (the number alternative to dragging it). */
   moveSelectionBy(dx: number, dy: number, copy: boolean): Promise<void>;
@@ -253,6 +277,7 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     mode: "tiles",
     objectSelection: null,
     pointSelection: [],
+    objectGroup: [],
     hiddenObjectTypes: [],
     layer: 0,
     hidden: [],
@@ -269,7 +294,8 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   };
 
   const publish = (patch: Partial<BoardEditorState>): void => {
-    state = { ...state, ...patch };
+    // Choosing another object (or none) ends a group of selected objects unless the same change names the group.
+    state = { ...state, ...("objectSelection" in patch && !("objectGroup" in patch) ? { objectGroup: [] } : {}), ...patch };
     for (const listener of [...listeners]) listener();
   };
   const info = (text: string): void => publish({ message: { kind: "info", text } });
@@ -277,29 +303,39 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   const viewportTo = (viewport: Viewport): void => publish({ viewport: clampViewport(options.board(), viewport) });
 
   /** Apply a finished gesture as one edit. Answers whether the document changed. */
-  const commit = async (gesture: TileGesture, outcome: ToolOutcome): Promise<boolean> => {
+  /** Apply one tile edit, publishing what happened; a no-op (the stored board already shows it) is information, not an error. */
+  const applyTiles = async (gesture: TileGesture, outcome: ToolOutcome, precondition?: BoardPrecondition): Promise<ApplyResult> => {
     if (!outcome.ok) {
       publish({ pending: null, message: { kind: "error", text: outcome.message } });
-      return false;
+      return { ok: false, rejection: { reason: "invalid", message: outcome.message } };
     }
-    if (outcome.cells.length === 0 && (outcome.shades === undefined || outcome.shades.length === 0)) {
+    if (outcome.cells.length === 0 && (outcome.shades === undefined || outcome.shades.length === 0) && (outcome.shadeCells === undefined || outcome.shadeCells.length === 0)) {
       publish({ pending: null, message: { kind: "info", text: "Nothing changed: those cells already show that." } });
-      return false;
+      return { ok: false, rejection: { reason: "invalid", message: "Those cells already show that.", unchanged: true } };
     }
     publish({ pending: null, busy: true, message: null });
     let result: ApplyResult;
     try {
-      result = await options.apply({ type: "set-tiles", gesture, cells: outcome.cells, ...(outcome.shades === undefined || outcome.shades.length === 0 ? {} : { shades: outcome.shades }) });
+      result = await options.apply({
+        type: "set-tiles",
+        gesture,
+        ...(precondition === undefined ? {} : { precondition }),
+        cells: outcome.cells,
+        ...(outcome.shades === undefined || outcome.shades.length === 0 ? {} : { shades: outcome.shades }),
+        ...(outcome.shadeCells === undefined || outcome.shadeCells.length === 0 ? {} : { shadeCells: outcome.shadeCells }),
+      });
     } catch (thrown) {
       result = { ok: false, rejection: { reason: "invalid", message: thrown instanceof Error ? thrown.message : String(thrown) } };
     }
     if (!result.ok) {
-      publish({ busy: false, message: { kind: "error", text: `Nothing was changed: ${result.rejection.message}` } });
-      return false;
+      publish({ busy: false, message: result.rejection.unchanged === true ? { kind: "info", text: result.rejection.message } : { kind: "error", text: `Nothing was changed: ${result.rejection.message}` } });
+      return result;
     }
     publish({ busy: false, message: null });
-    return true;
+    return result;
   };
+  const commit = async (gesture: TileGesture, outcome: ToolOutcome, precondition?: BoardPrecondition): Promise<boolean> =>
+    (await applyTiles(gesture, outcome, precondition)).ok;
 
   const needTile = (): string | null => {
     const brush = options.brush();
@@ -378,16 +414,17 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
   };
   const objectFields = (kind: BoardObjectKind, records: readonly BoardObject[]): SetBoardFieldsCommand["fields"] =>
     ({ [kind]: records }) as SetBoardFieldsCommand["fields"];
-  const commitObjects = async (fields: SetBoardFieldsCommand["fields"], selection = state.objectSelection): Promise<boolean> => {
+  const commitObjects = async (fields: SetBoardFieldsCommand["fields"], selection = state.objectSelection, group: readonly number[] = [], precondition?: BoardPrecondition): Promise<boolean> => {
     if (state.busy) return false;
     publish({ busy: true, message: null });
     try {
-      const result = await options.apply({ type: "set-board-fields", fields });
+      const result = await options.apply({ type: "set-board-fields", ...(precondition === undefined ? {} : { precondition }), fields });
       if (!result.ok) {
         error(`Nothing was changed: ${result.rejection.message}`);
         return false;
       }
-      publish({ pending: null, objectSelection: selection, message: null });
+      const kept = selection !== null && selection.kind === state.objectSelection?.kind && selection.index === state.objectSelection.index;
+      publish({ pending: null, objectSelection: selection, objectGroup: group, pointSelection: kept ? state.pointSelection : [], message: null });
       return true;
     } catch (thrown) {
       error(thrown instanceof Error ? thrown.message : String(thrown));
@@ -557,6 +594,188 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       pending: modifiers.shift === true ? null : { kind: "object-move", anchor: pixel, delta: { x: 0, y: 0 } }, message: null });
   };
 
+  // Board clipboard (T-28): the system clipboard holds one versioned JSON document; nothing here keeps a private copy.
+  const singular = (kind: BoardObjectKind): string => kind.slice(0, -1);
+  const hostClipboard = (): ClipboardService | null => {
+    if (options.clipboard === undefined) {
+      error("This host cannot reach the system clipboard, so copy, cut and paste are not available here. The board is unchanged.");
+      return null;
+    }
+    return options.clipboard;
+  };
+  const lightsRefused = (verb: string): boolean => {
+    if (options.lightsActive?.() !== true) return false;
+    error(`Lights cannot be ${verb}. Add or remove them in the Lights list, or convert a light to shading and use the shaded cells. Nothing was changed.`);
+    return true;
+  };
+  type ClipSource = {
+    readonly ok: true;
+    readonly clip: BoardClip;
+    readonly region: BoardSelection | null;
+    readonly indices: readonly number[];
+    /** What the stored board must still hold for the cut to apply, so a stale view cannot remove something else. */
+    readonly precondition: BoardPrecondition;
+  } | { readonly ok: false; readonly message: string };
+  /** What copy or cut would take now: the selected region, or the selected whole objects. A partial set of points is refused. */
+  const clipSource = (verb: string): ClipSource => {
+    const board = options.board();
+    if (state.mode === "tiles") {
+      const selection = state.selection;
+      if (selection === null) return { ok: false, message: "Select some cells first (the Select tool, or Select all)." };
+      const made = copyRegion(board, selection.layer, selection.rect);
+      if (!made.ok) return made;
+      const cells: { layer: number; x: number; y: number; tile: string }[] = [];
+      const shadeCells: { x: number; y: number; r: number; g: number; b: number }[] = [];
+      for (let row = 0; row < made.value.height; row += 1) {
+        for (let column = 0; column < made.value.width; column += 1) {
+          const at = row * made.value.width + column;
+          const tile = made.value.tiles[at];
+          if (tile === null || tile === undefined) continue;
+          const x = selection.rect.x0 + column;
+          const y = selection.rect.y0 + row;
+          cells.push({ layer: selection.layer, x, y, tile });
+          const shade = made.value.shades?.[at];
+          if (shade !== null && shade !== undefined) shadeCells.push({ x, y, r: shade[0], g: shade[1], b: shade[2] });
+        }
+      }
+      return { ok: true, clip: made.value, region: selection, indices: [], precondition: { cells, ...(shadeCells.length === 0 ? {} : { shadeCells }) } };
+    }
+    const kind = state.mode;
+    const selected = state.objectSelection;
+    const indices = state.objectGroup.length > 0 ? state.objectGroup : selected === null ? [] : [selected.index];
+    if (indices.length === 0) return { ok: false, message: `Select a whole ${singular(kind)} first (the Select tool, or Select all).` };
+    const primary = selectedObject();
+    if (primary !== null && "points" in primary && state.pointSelection.length > 0 && state.pointSelection.length < primary.points.length) {
+      return { ok: false, message: `Only some of a ${singular(kind)}'s points are selected, and a partial set of points cannot be ${verb}. Select all of its points or none of them. Nothing was changed.` };
+    }
+    const made = copyObjects(board, kind, indices);
+    if (!made.ok) return made;
+    return { ok: true, clip: made.value, region: null, indices, precondition: { [kind]: board[kind] } as BoardPrecondition };
+  };
+  const describeClip = (clip: BoardClip, verb: string): string => {
+    if (clip.kind === "objects") return `${verb} ${clip.objects.length} ${clip.objects.length === 1 ? singular(clip.family) : clip.family}.`;
+    const cells = clip.tiles.filter((tile) => tile !== null).length;
+    const shading = clip.shades !== null ? " with their shading" : options.board().shadeLayers.length > 1 ? " (this board has more than one shading layer, so only the tiles)" : "";
+    return `${verb} ${cells} ${cells === 1 ? "cell" : "cells"}${shading}.`;
+  };
+  const copyToClipboard = async (): Promise<boolean> => {
+    if (lightsRefused("copied")) return false;
+    const made = clipSource("copied");
+    if (!made.ok) { error(made.message); return false; }
+    const service = hostClipboard();
+    if (service === null) return false;
+    const wrote = await service.writeText(serializeClip(made.clip));
+    if (!wrote.ok) { error(`Nothing was copied: ${wrote.error.message}`); return false; }
+    info(describeClip(made.clip, "Copied"));
+    return true;
+  };
+  /** Whether the board still holds exactly what a cut took: the same slots with the same records, or the same tiles and shade. */
+  const stillHolds = (source: ClipSource & { readonly ok: true }): boolean => {
+    const board = options.board();
+    if (source.clip.kind === "objects") {
+      const records = board[source.clip.family];
+      return source.indices.length === source.clip.objects.length
+        && source.indices.every((index, at) => sameStoredValue(records[index], source.clip.kind === "objects" ? source.clip.objects[at] : undefined));
+    }
+    return source.region !== null && regionStillHolds(board, source.clip, source.region.layer, source.region.rect);
+  };
+  const cutToClipboard = async (confirmRemoval: (removal: { readonly family: BoardObjectKind; readonly count: number }) => Promise<boolean>): Promise<boolean> => {
+    if (state.busy) return false;
+    if (lightsRefused("cut")) return false;
+    // The source is frozen here: what the question asks about, what the clipboard receives and what is removed are the same
+    // selection, and a change that lands while the cut waits refuses the whole cut instead of cutting something else.
+    const source = clipSource("cut");
+    if (!source.ok) { error(source.message); return false; }
+    const service = hostClipboard();
+    if (service === null) return false;
+    if (source.clip.kind === "objects") {
+      const removal = { family: source.clip.family, count: source.clip.objects.length };
+      if (!(await confirmRemoval(removal))) { info("Cut cancelled. Nothing was changed."); return false; }
+      if (state.busy) return false;
+      if (lightsRefused("cut")) return false;
+      if (!stillHolds(source)) { error("The board changed while the cut was being asked about, so the copied selection is not the same any more. Nothing was cut. Select it again."); return false; }
+    }
+    const wrote = await service.writeText(serializeClip(source.clip));
+    if (!wrote.ok) { error(`Nothing was cut: ${wrote.error.message}`); return false; }
+    if (state.busy) return false;
+    if (lightsRefused("cut")) return false;
+    if (!stillHolds(source)) { error("The board changed while the cut was being written, so the copied selection is not the same any more. Nothing was cut. Select it again."); return false; }
+    const board = options.board();
+    if (source.clip.kind === "region" && source.region !== null) {
+      const edit = clearRegion(board, source.region.layer, source.region.rect);
+      const changed = await commit("cut", { ok: true, cells: edit.cells, shadeCells: edit.shadeCells }, source.precondition);
+      if (changed) info(describeClip(source.clip, "Cut"));
+      return changed;
+    }
+    if (source.clip.kind === "objects") {
+      const family = source.clip.family;
+      const taken = new Set(source.indices);
+      const changed = await commitObjects(objectFields(family, board[family].filter((_, index) => !taken.has(index))), null, [], source.precondition);
+      if (changed) {
+        publish({ pointSelection: [] });
+        info(`${describeClip(source.clip, "Cut")} Later ${family} were renumbered; undo restores them.`);
+      }
+      return changed;
+    }
+    return false;
+  };
+  const pasteFromClipboard = async (): Promise<boolean> => {
+    if (state.busy) return false;
+    if (lightsRefused("pasted")) return false;
+    const service = hostClipboard();
+    if (service === null) return false;
+    const read = await service.readText();
+    if (!read.ok) { error(`Nothing was pasted: ${read.error.message}`); return false; }
+    // Reading the clipboard awaited: the user may have started something else, or turned to the lights.
+    if (state.busy) { error("Another edit is being applied, so nothing was pasted."); return false; }
+    if (lightsRefused("pasted")) return false;
+    const parsed = parseClip(read.value);
+    if (!parsed.ok) { error(`${parsed.message} Nothing was changed.`); return false; }
+    const clip = parsed.value;
+    const board = options.board();
+    if (clip.kind === "region") {
+      if (state.mode !== "tiles") { error("The clipboard holds a region of cells. Switch to Tiles (1) to paste it. Nothing was changed."); return false; }
+      const { layer, cursor } = state;
+      // The cursor is the anchor; a clip that cannot fit there (a rotated-isometric selection whose bounding box starts on a
+      // cell with no place on the picture, or the whole grid) pastes where it was copied from instead.
+      let anchor = cursor;
+      let outcome = pasteRegion(board, layer, clip, cursor);
+      const origin = clip.origin;
+      if (!outcome.ok && origin !== null && (origin.x !== cursor.x || origin.y !== cursor.y)) {
+        const atOrigin = pasteRegion(board, layer, clip, origin);
+        if (atOrigin.ok) { anchor = origin; outcome = atOrigin; }
+      }
+      if (!outcome.ok) { error(origin === null ? `${outcome.message} The clipboard does not say where it was copied from, so it can only be pasted at the cursor.` : outcome.message); return false; }
+      const result = await applyTiles("paste", { ok: true, cells: outcome.edit.cells, shadeCells: outcome.edit.shadeCells });
+      // The stored board decides whether anything changed; a no-op paste still selects its destination, so "copy, paste,
+      // copy again" takes the pasted cells. A refused paste selects nothing.
+      const settled = result.ok || result.rejection.unchanged === true;
+      // A copied region with gaps (a rotated-isometric bounding box) cannot be expressed by a rectangle, so selecting one
+      // would let a following cut remove cells that were never pasted: the selection is cleared instead.
+      const sparse = clip.tiles.some((tile) => tile === null);
+      if (settled) publish({ selection: sparse ? null : { layer, rect: { x0: anchor.x, y0: anchor.y, x1: anchor.x + clip.width - 1, y1: anchor.y + clip.height - 1 } } });
+      const moved = anchor.x !== cursor.x || anchor.y !== cursor.y;
+      const where = `column ${anchor.x + 1}, row ${anchor.y + 1}`;
+      const note = `${moved ? ` It did not fit at the cursor, so it went back where it was copied from (${where}).` : ""}${sparse ? " The copied region has gaps, so no cells are selected; select the cells you want to copy or cut." : ""}`;
+      if (result.ok) info(`${describeClip(clip, "Pasted")}${note}`);
+      else if (settled) info(`${moved ? `Nothing changed: those cells at ${where} already show that.` : "Nothing changed: those cells already show that."}${sparse ? " The copied region has gaps, so no cells are selected; select the cells you want to copy or cut." : ""}`);
+      return result.ok;
+    }
+    if (state.mode !== clip.family) {
+      const modes = ["tiles", "vectors", "programs", "sprites", "images"];
+      error(`The clipboard holds ${clip.family}. Switch to ${clip.family[0]!.toUpperCase()}${clip.family.slice(1)} (${modes.indexOf(clip.family) + 1}) to paste them. Nothing was changed.`);
+      return false;
+    }
+    const records = pasteObjects(board, clip);
+    if (!records.ok) { error(records.message); return false; }
+    const first = board[clip.family].length;
+    const group = clip.objects.length > 1 ? clip.objects.map((_, index) => first + index) : [];
+    // Appending to the family this editor read only: a stale copy must not overwrite what another view added meanwhile.
+    const changed = await commitObjects(objectFields(clip.family, records.value), { kind: clip.family, index: first }, group, { [clip.family]: board[clip.family] } as BoardPrecondition);
+    if (changed) info(`${describeClip(clip, "Pasted")} They keep their position and layer; use Select to move them.`);
+    return changed;
+  };
+
   const editor: BoardEditor = {
     getState: () => state,
     subscribe(listener) {
@@ -578,10 +797,12 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
       const pointSelection = state.pointSelection.every((index) => index < count)
         ? state.pointSelection : state.pointSelection.filter((index) => index < count);
       const viewport = clampViewport(board, state.viewport);
+      const grouped = objectSelection === null ? [] : state.objectGroup.filter((index) => board[objectSelection.kind][index] !== undefined);
+      const objectGroup = grouped.length === state.objectGroup.length ? state.objectGroup : grouped;
       const same = layer === state.layer && hidden.length === state.hidden.length && cursor === state.cursor && selection === state.selection
-        && objectSelection === state.objectSelection && pointSelection === state.pointSelection
+        && objectSelection === state.objectSelection && pointSelection === state.pointSelection && objectGroup === state.objectGroup
         && viewport.x === state.viewport.x && viewport.y === state.viewport.y;
-      if (!same) publish({ layer, hidden, cursor, selection, objectSelection, pointSelection, viewport });
+      if (!same) publish({ layer, hidden, cursor, selection, objectSelection, objectGroup, pointSelection, viewport });
     },
     setTool(tool) {
       if (tool === state.tool && state.pending === null) return;
@@ -904,13 +1125,26 @@ export function createBoardEditor(options: BoardEditorOptions): BoardEditor {
     selectAll() {
       const board = options.board();
       if (state.mode !== "tiles") {
-        const object = selectedObject();
-        if (object !== null && "points" in object) publish({ pointSelection: object.points.map((_, index) => index), pending: null });
+        const kind = state.mode;
+        const indices = board[kind].flatMap((object, index) => objectVisible(kind, object) ? [index] : []);
+        // Nothing to select clears what was selected: a hidden earlier selection must never be copied or cut by accident.
+        if (indices.length === 0) {
+          publish({ objectSelection: null, objectGroup: [], pointSelection: [], pending: null, message: { kind: "info", text: `There are no visible ${kind} on this layer, so nothing was selected.` } });
+          return;
+        }
+        publish({ objectSelection: { kind, index: indices[0]! }, objectGroup: indices, pointSelection: [], pending: null, message: { kind: "info", text: `Selected ${indices.length} ${kind}.` } });
         return;
       }
       if (board.grid.width === 0 || board.grid.height === 0) return;
       publish({ selection: { layer: state.layer, rect: { x0: 0, y0: 0, x1: board.grid.width - 1, y1: board.grid.height - 1 } }, pending: null, message: null });
     },
+    selectAllPoints() {
+      const object = selectedObject();
+      if (object !== null && "points" in object) publish({ pointSelection: object.points.map((_, index) => index), pending: null });
+    },
+    copy: copyToClipboard,
+    cut: cutToClipboard,
+    paste: pasteFromClipboard,
     async eraseSelection() {
       if (state.mode !== "tiles") {
         await editor.deletePoints();

@@ -102,7 +102,8 @@ function paintObjects(context: CanvasRenderingContext2D, props: BoardCanvasProps
     const object = board[boundsOf.kind][boundsOf.index];
     if (object === undefined || !visible(object.layer)) continue;
     const active = selected?.kind === boundsOf.kind && selected.index === boundsOf.index;
-    if (!boundsOf.placeholder && !active && state.mode !== boundsOf.kind) continue;
+    const grouped = state.mode === boundsOf.kind && state.objectGroup.includes(boundsOf.index);
+    if (!boundsOf.placeholder && !active && !grouped && state.mode !== boundsOf.kind) continue;
     const left = boundsOf.left + (active ? delta?.x ?? 0 : 0);
     const top = boundsOf.top + (active ? delta?.y ?? 0 : 0);
     if (boundsOf.placeholder) {
@@ -120,8 +121,8 @@ function paintObjects(context: CanvasRenderingContext2D, props: BoardCanvasProps
       context.font = `${9 / zoom}px sans-serif`;
       context.fillText(`${boundsOf.kind === "sprites" ? "S" : "I"}${boundsOf.index}`, left + 2 / zoom, top + 10 / zoom);
     }
-    context.lineWidth = (active ? 3 : 1) / zoom;
-    context.strokeStyle = active ? COLOURS.selection : "#b7b7b7";
+    context.lineWidth = (active || grouped ? 3 : 1) / zoom;
+    context.strokeStyle = active || grouped ? COLOURS.selection : "#b7b7b7";
     context.setLineDash(active && delta !== null ? [4 / zoom, 3 / zoom] : []);
     context.strokeRect(left, top, boundsOf.width, boundsOf.height);
     context.setLineDash([]);
@@ -133,10 +134,11 @@ function paintObjects(context: CanvasRenderingContext2D, props: BoardCanvasProps
         const type = "type" in object ? object.type : "program";
         if (!visible(object.layer) || state.hiddenObjectTypes.includes(type)) return;
         const active = selected?.kind === kind && selected.index === index;
+        const grouped = state.mode === kind && state.objectGroup.includes(index);
         const points = active && delta !== null ? translatedObject(object, delta, state.pointSelection).points : object.points;
         regionPath(context, points, object.closed !== 0);
-        context.lineWidth = (active ? 3 : 1.5) / zoom;
-        context.strokeStyle = active ? COLOURS.selection : type === "program" ? "#ffe14a" : colours[type] ?? "#aaa";
+        context.lineWidth = (active || grouped ? 3 : 1.5) / zoom;
+        context.strokeStyle = active || grouped ? COLOURS.selection : type === "program" ? "#ffe14a" : colours[type] ?? "#aaa";
         context.stroke();
         if (active) {
           for (let at = 0; at < points.length; at += 1) {

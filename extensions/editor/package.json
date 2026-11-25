@@ -16,6 +16,7 @@
     "onCustomEditor:tkr.tileBitmap",
     "onCustomEditor:tkr.animation",
     "onCustomEditor:tkr.battleData",
+    "onCustomEditor:tkr.font",
     "onCustomEditor:tkr.nativeClip",
     "onCustomEditor:tkr.nativeScene",
     "onCustomEditor:tkr.nativeGeometry",
@@ -36,11 +37,16 @@
     "onCommand:tkr.startBoard",
     "onCommand:tkr.testProgram",
     "onCommand:tkr.newAnimation",
+    "onCommand:tkr.newFont",
     "onCommand:tkr.runSavedTests",
     "onCommand:tkr.animationRecovery",
     "onDebugResolve:tkr",
     "onDebugDynamicConfigurations:tkr",
-    "onDebugInitialConfigurations"
+    "onDebugInitialConfigurations",
+    "onCommand:tkr.scriptFormat",
+    "onCommand:tkr.scriptCanonicalCase",
+    "onCommand:tkr.scriptUpdate",
+    "onCommand:tkr.scriptCleanup"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.browser.js",
@@ -128,8 +134,33 @@
         "category": "TK Reawakened"
       },
       {
+        "command": "tkr.newFont",
+        "title": "New font",
+        "category": "TK Reawakened"
+      },
+      {
         "command": "tkr.animationRecovery",
         "title": "Project recovery",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.scriptFormat",
+        "title": "Format (reviewed)…",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.scriptCanonicalCase",
+        "title": "Normalise capitalisation (reviewed)…",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.scriptUpdate",
+        "title": "Update older syntax (reviewed)…",
+        "category": "TK Reawakened"
+      },
+      {
+        "command": "tkr.scriptCleanup",
+        "title": "Clean up (reviewed)…",
         "category": "TK Reawakened"
       }
     ],
@@ -218,6 +249,16 @@
           },
           {
             "filenamePattern": "*.ste"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.font",
+        "displayName": "RPG Toolkit Bitmap Font Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.fnt"
           }
         ],
         "priority": "default"

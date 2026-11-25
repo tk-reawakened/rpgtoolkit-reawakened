@@ -1,7 +1,7 @@
 import { webCheckpointEnvironment } from "./checkpoints.ts";
 import { createAnimationAuthoring, asAnimationDocument, projectLayoutForDocumentPath, type AnimationCommand, createDocumentWorkspace, createPreferences, editorPreferencesFrom, previewBoard, programPreferencesFrom, previewTileBitmap, type AnyDocument, type DocumentViewLease, type DocumentWorkspace, type Preferences, type ProjectLayout, type WorkspaceOpenResult, boardPreviewRootForPath } from "@tk-reawakened/editor-model";
-import type { Capability, DialogService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
-import { bindProjectFileSystem, platformError, platformOk } from "@tk-reawakened/platform-services";
+import type { Capability, ClipboardService, DialogService, LanguageService, PackageExportService, PlatformResult, PlatformServices, ProjectHandle } from "@tk-reawakened/platform-services";
+import { bindProjectFileSystem, clipboardFromApi, platformError, platformOk } from "@tk-reawakened/platform-services";
 import { createBrowserSession, mount, type AnimationViewDocument, type BoardPreferencesSource, type BoardViewDocument, type BrowserSession, type NativeClipViewDocument, type NativeGeometryViewDocument, type ProgramPreferencesSource, type ProgramViewDocument, type SourceVisit, type SpecialMoveViewDocument, type SpriteViewDocument, type StatusEffectViewDocument, type TextSurfaceFactory, type TileBitmapViewDocument, type TilesetArtViewDocument, type ViewContext, type ViewDocument, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { canPickFile, createPageDialogs, pickOutsideFile } from "./dialogs.ts";
 import { createWebFileSystem } from "./filesystem.ts";
@@ -9,9 +9,10 @@ import { createWebLanguageService, notifyOnChange, type WebLanguageService } fro
 import { createWebSettings, type UserSettingsStorage } from "./settings.ts";
 import { recentWebProjects, registerWebProject, restoreWebProject } from "./projects.ts";
 import { createWebRunService, type RunPresenter } from "./run.ts";
-import { historyPolicyFrom, type HistoryPolicy } from "@tk-reawakened/editor-model";
+import { historyPolicyFrom, type HistoryPolicy, type HistoryResult } from "@tk-reawakened/editor-model";
 import { asTerrainSceneDocument } from "@tk-reawakened/editor-model";
 import { mountWebTerrainScene } from "./terrain-scene.ts";
+import type { FontViewDocument } from "@tk-reawakened/editor-ui";
 
 /**
  * A project open in the browser host. Its `workspace` is the host's workbench: one model per document, undo by `editId`,
@@ -44,6 +45,11 @@ export interface WebProjectOptions {
    * it the host declares no `languageServer` capability and programs edit without language features.
    */
   readonly languageWorkerUrl?: string;
+  /**
+   * The language service to use instead of starting this deployment's worker. A host that runs the server another way,
+   * and a cross-package test that runs it in process, supply it here; `languageWorkerUrl` is then ignored.
+   */
+  readonly language?: LanguageService;
   /** The code editor for programs, made by the page (it imports Monaco); a plain text area when absent. */
   readonly codeEditor?: TextSurfaceFactory;
   /** Where the user layer of the editor settings is kept; the page's `localStorage` by default, memory when there is none. */
@@ -139,6 +145,11 @@ function webUserStorage(options: WebProjectOptions): UserSettingsStorage | null 
   return typeof localStorage === "undefined" ? null : localStorage;
 }
 
+/** The page's system clipboard, when the browser offers one (`navigator.clipboard` exists only in a secure context); copy and paste are not offered without it (T-28). */
+function pageClipboard(): ClipboardService | null {
+  return clipboardFromApi(typeof navigator === "undefined" ? null : navigator.clipboard);
+}
+
 /** A project over a folder handle the host has already registered under `project` (or a test's own handle). */
 export function createFolderProject(root: FileSystemDirectoryHandle, project: ProjectHandle, options: WebProjectOptions = {}): WebProject {
   let active = true;
@@ -146,14 +157,20 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
   // The language service learns of every write through the same door the documents save through.
   let written: (path: string) => void = () => {};
   const files = createWebFileSystem(root, project.id);
-  const fs = bindProjectFileSystem(project.id, options.languageWorkerUrl === undefined ? files : notifyOnChange(files, (path) => written(path)), () => active);
-  const language = options.languageWorkerUrl === undefined ? undefined : createWebLanguageService(fs, { workerUrl: options.languageWorkerUrl });
+  // A language service, supplied or worker-backed, learns of writes through the same door the documents save through. A
+  // supplied one may not watch them (a test's in-process server reads a fresh project per request), so only the worker's
+  // own service is told.
+  const fromWorker = options.language === undefined && options.languageWorkerUrl !== undefined;
+  const fs = bindProjectFileSystem(project.id, fromWorker || options.language !== undefined ? notifyOnChange(files, (path) => written(path)) : files, () => active);
+  const language = options.language ?? (options.languageWorkerUrl === undefined ? undefined : createWebLanguageService(fs, { workerUrl: options.languageWorkerUrl }));
   if (language !== undefined) {
     capabilities.add("languageServer");
-    written = language.notifyWritten;
+    if (fromWorker) written = (language as WebLanguageService).notifyWritten;
   }
   let runPresenter: RunPresenter | null = null;
   const dialogs = options.dialogs ?? pageDialogs();
+  const clipboard = pageClipboard();
+  if (clipboard !== null) capabilities.add("clipboard");
   // The browser cannot hand a file to the operating system's default application, so `openExternal` is not declared: the
   // file tree says so instead of pretending (T-03).
   if (dialogs.pickFile !== undefined) capabilities.add("pickFile");
@@ -184,6 +201,7 @@ export function createFolderProject(root: FileSystemDirectoryHandle, project: Pr
     document: workspace.document,
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
+    ...(clipboard === null ? {} : { clipboard }),
     ...(options.playerUrl === undefined ? {} : { run: createWebRunService(fs, project.id, options.playerUrl, () => runPresenter) }),
     ...(language === undefined ? {} : { language }),
   };
@@ -237,6 +255,8 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     watch: async (path) => !valid(path, true) ? invalid(path) : unavailable(),
   }, () => active);
   const dialogs = options.dialogs ?? pageDialogs();
+  const clipboard = pageClipboard();
+  if (clipboard !== null) capabilities.add("clipboard");
   const settings = createWebSettings(fs, webUserStorage(options), false);
   // A session copy keeps history in this page, under the same user-only retention settings, live from one shared model.
   const preferences = createPreferences({ settings, projectLayer: false });
@@ -252,6 +272,7 @@ export function createSessionCopy(fileName: string, bytes: Uint8Array, options: 
     document: workspace.document,
     dialogs,
     packageExport: webPackageExport(typeof document === "undefined" ? null : document),
+    ...(clipboard === null ? {} : { clipboard }),
   };
   const made = { services, project, sessionCopy: true, workspace, browserSession: createBrowserSession(), codeEditor: options.codeEditor ?? null, setRunPresenter: () => {}, deactivate: () => { active = false; workspace.dispose(); } };
   projectPreferenceModels.set(made, preferences);
@@ -293,8 +314,30 @@ export const openGameSettings = openEditor;
  * project's files by the one board compositor (AD-29). The workspace types a document by its lifecycle only, so the
  * kind is what says which command and snapshot types it has.
  */
+/** The workspace's own undo/redo result, as the font view reports it. */
+function historyOutcome(result: HistoryResult): { readonly ok: true } | { readonly ok: false; readonly message: string } {
+  return result.ok ? { ok: true } : { ok: false, message: `There is nothing to ${result.reason === "read-only" ? "change: the font is read-only" : result.reason === "nothing-to-undo" ? "undo" : "redo"}.` };
+}
+
 function viewDocumentFor(project: WebProject, document: AnyDocument, importBoard?: (path: string) => Promise<PlatformResult<void>>): ViewContext["document"] {
   if (document.kind === "main") return document as unknown as ViewDocument;
+  if (document.kind === "font") {
+    // The browser workbench owns no stack of its own: Undo and Redo are the document's, as they are for a board.
+    const font = document as unknown as Required<Pick<FontViewDocument, "undo" | "redo">> & FontViewDocument;
+    const view: FontViewDocument = {
+      kind: font.kind,
+      identity: font.identity,
+      getSnapshot: () => font.getSnapshot(),
+      subscribe: (listener) => font.subscribe(listener),
+      apply: (command) => font.apply(command),
+      save: () => font.save(),
+      resolveConflict: (choice) => font.resolveConflict(choice),
+      // The workbench keeps the undo and redo stacks (its menu and palette use them), so the view asks the workbench.
+      undo: () => historyOutcome(project.workspace.undo(document)),
+      redo: () => historyOutcome(project.workspace.redo(document)),
+    };
+    return view;
+  }
   if (document.kind === "tileset") return document as unknown as TilesetArtViewDocument;
   if (document.kind === "character" || document.kind === "item") return document as unknown as SpriteViewDocument;
   if (document.kind === "native-clip") return document as unknown as NativeClipViewDocument;

@@ -177,13 +177,92 @@ function reviewMessage(word: string): string {
   return `[${word}] reads the variable ${word}; write ["${word}"] if a literal key was meant`;
 }
 
+/** Where a conversion stopped, so a person can find it (docs/spec/engine/rpgcode-tooling.md#tool-11-transforms). */
+export type UnsupportedFragment = {
+  /** 1-based line, or `null` when the reason is about the whole file. */
+  readonly line: number | null;
+  readonly code: "dialogue-quote" | "comment-marker" | "dynamic-source" | "compile-error" | "reading-dependent" | "legacy-prefix-line";
+  readonly message: string;
+};
+
+const DIALOGUE_QUOTE = "Cannot convert loose dialogue containing a double quote";
+
+/** Every fragment the Toolkit 2.x conversion refuses, with its line (the "Not converted" list of the conversion contract). */
+export function tk2UnsupportedFragments(source: string): readonly UnsupportedFragment[] {
+  const found: UnsupportedFragment[] = [];
+  const lines = source.split("\n");
+  // A loose dialogue line with a double quote stops normaliseTk2 at the first; blank each in turn to list them all.
+  let working = lines;
+  let converted: string[] | null = null;
+  for (let attempt = 0; attempt <= lines.length; attempt += 1) {
+    try {
+      converted = normaliseTk2(working.join("\n")).split("\n");
+      break;
+    } catch (error) {
+      if (!(error instanceof ScriptError)) throw error;
+      const line = error.pos?.line ?? null;
+      if (error.message.startsWith(DIALOGUE_QUOTE) && line !== null) {
+        found.push({ line, code: "dialogue-quote", message: "Loose dialogue with a double quote: 3.1 string literals have no escape for a quote, so the text cannot be kept exactly." });
+        working = working.map((text, index) => (index === line - 1 ? "" : text));
+        continue;
+      }
+      found.push({ line, code: "compile-error", message: error.message });
+      break;
+    }
+  }
+  if (converted !== null) {
+    for (let index = 0; index < lines.length; index++) {
+      const content = lines[index]!.endsWith("\r") ? lines[index]!.slice(0, -1) : lines[index]!;
+      const trimmed = content.trimStart();
+      if (trimmed === "" || trimmed.startsWith("*") || working[index] !== lines[index]) continue;
+      if (!isDialogue(trimmed, converted[index] ?? "") && /\/\/|\/\*|\*\//.test(withoutStrings(content))) {
+        found.push({ line: index + 1, code: "comment-marker", message: "A code line holds `//`, `/*` or `*/` outside a string; the Toolkit 2.x meaning of those markers is not specified, so a conversion cannot show it keeps it." });
+      }
+    }
+  }
+  try {
+    const program = compileInline(source, "<migration>", "tk2");
+    for (const unit of program.units) {
+      for (const request of unit.requests) {
+        found.push({ line: request.line, code: "dynamic-source", message: `${request.implicit ? "An implicit call into" : "An include of"} ${request.path} reads another program, so one file cannot be compared on its own.` });
+      }
+    }
+    for (const op of program.ops) {
+      if (op.op === "call" && Object.hasOwn(DYNAMIC_SOURCE_COMMANDS, op.name)) {
+        found.push({ line: op.pos?.line ?? null, code: "dynamic-source", message: `${op.name} loads or runs another program, so one file cannot be compared on its own.` });
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof ScriptError)) throw error;
+    if (!found.some((fragment) => fragment.code === "compile-error")) found.push({ line: error.pos?.line ?? null, code: "compile-error", message: error.message });
+  }
+  const seen = new Set<string>();
+  return found.filter((fragment) => {
+    const key = `${fragment.line}|${fragment.code}|${fragment.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+}
+
+/** What converting a Toolkit 2.x source gives (docs/spec/engine/rpgcode-dialects.md#tk2-conversion-contract). */
+export type Tk2Outcome =
+  | { readonly kind: "converted"; readonly fix: LegacyFix }
+  | { readonly kind: "unchanged" }
+  | { readonly kind: "refused"; readonly code: "unsupported-fragments" | "not-proven"; readonly unsupported: readonly UnsupportedFragment[] };
+
+function tk2Refusal(source: string): Tk2Outcome {
+  const unsupported = tk2UnsupportedFragments(source);
+  return { kind: "refused", code: unsupported.length > 0 ? "unsupported-fragments" : "not-proven", unsupported };
+}
+
 /** Convert all TK2 lines as one action; never drop comment text or line endings. */
-function migrateTk2(source: string): LegacyFix[] {
+export function convertTk2(source: string): Tk2Outcome {
   let converted: string[];
   try {
     converted = normaliseTk2(source).split("\n");
   } catch (error) {
-    if (error instanceof ScriptError) return [];
+    if (error instanceof ScriptError) return tk2Refusal(source);
     throw error;
   }
   const lines = source.split("\n");
@@ -199,13 +278,13 @@ function migrateTk2(source: string): LegacyFix[] {
     const line = converted[index] ?? "";
     // TK2 does not specify `//` or `/* */` in code, so their meaning cannot be shown to be kept.
     // Dialogue keeps them as text inside its string.
-    if (!isDialogue(trimmed, line) && /\/\/|\/\*|\*\//.test(withoutStrings(content))) return [];
+    if (!isDialogue(trimmed, line) && /\/\/|\/\*|\*\//.test(withoutStrings(content))) return tk2Refusal(source);
     const indent = content.slice(0, content.length - trimmed.length);
     rewritten[index] = indent + line;
     comments[index] = trailingComment(content) ?? "";
   }
   const code = dropSigils(rewritten);
-  if (code === null) return [];
+  if (code === null) return tk2Refusal(source);
   const reviews: LegacyReview[] = [];
   for (const [line, words] of bareIndices(code)) {
     comments[line - 1] += ` // TKR review: ${words.map(reviewMessage).join("; ")}`;
@@ -218,36 +297,102 @@ function migrateTk2(source: string): LegacyFix[] {
     const next = rewritten[index]! + comments[index] + ending;
     if (original !== next) edits.push(edit(index + 1, 1, original.length, next));
   }
-  if (edits.length === 0) return [];
+  // Nothing to rewrite still has to be a program the conversion would accept: a source that does not compile in either
+  // reading is refused with the reason, never reported as already 3.1.
+  if (edits.length === 0) return sameLowering(source, source) ? { kind: "unchanged" } : tk2Refusal(source);
   // The review comments are part of the offered text, so compare it as offered.
-  if (!sameLowering(source, applyEdits(source, edits))) return [];
+  if (!sameLowering(source, applyEdits(source, edits))) return tk2Refusal(source);
   const title = "Preview Toolkit 2.x conversion in an unsaved 3.1 file";
-  if (reviews.length === 0) return [{ rule: "dialect/tk2-to-tk3", title, edits }];
+  if (reviews.length === 0) return { kind: "converted", fix: { rule: "dialect/tk2-to-tk3", title, edits } };
   const noun = reviews.length === 1 ? "bare index" : "bare indices";
-  return [{ rule: "dialect/tk2-to-tk3", title: `${title} (${reviews.length} ${noun} to review)`, edits, reviews }];
+  return { kind: "converted", fix: { rule: "dialect/tk2-to-tk3", title: `${title} (${reviews.length} ${noun} to review)`, edits, reviews } };
 }
 
-/** Offer only edits proved against the caller-selected source dialect. */
-export function legacyFixes(source: string, dialect: ScriptDialect = "tk3"): readonly LegacyFix[] {
-  if (dialect === "tk2") return migrateTk2(source);
+/** What a person is told about the reading an in-place edit was proved under. */
+export type LegacyOptions = {
+  /**
+   * The running project assessed the document as 3.1, so the dialect is a project fact rather than the editor's language
+   * mode and an in-place edit need only be proved under 3.1 (docs/spec/engine/rpgcode-tooling.md#tool-4).
+   */
+  readonly dialectEstablished?: boolean;
+};
+
+/** Whether a 3.1 in-place edit keeps the program's behaviour under every reading the document may have. */
+export function sameInPlaceBehavior(original: string, fixed: string, options: LegacyOptions = {}): boolean {
+  return sameBehavior(original, fixed, "tk3") && (options.dialectEstablished === true || sameBehavior(original, fixed, "tk2", "tk2"));
+}
+
+/** The ignored-sigil quick fixes of a 3.1 source, and the spots where the 3.1 reading allows the edit but another reading does not. */
+export function sigilFixes(source: string, options: LegacyOptions = {}): { readonly fixes: readonly LegacyFix[]; readonly readingDependent: readonly UnsupportedFragment[] } {
   let tokens;
   try {
     tokens = tokenizeObjects(source);
   } catch (error) {
-    if (error instanceof ScriptError) return [];
+    if (error instanceof ScriptError) return { fixes: [], readingDependent: [] };
     throw error;
   }
   const lines = source.split("\n");
   const fixes: LegacyFix[] = [];
+  const readingDependent: UnsupportedFragment[] = [];
   for (const token of tokens) {
     if (token.kind !== "identifier") continue;
     const written = (lines[token.line - 1] ?? "").slice(token.col - 1, token.endCol);
     if (!written.endsWith("!") && !written.endsWith("$")) continue;
     const edits = [edit(token.line, token.endCol, token.endCol, "")];
     const fixed = applyEdits(source, edits);
-    if (sameBehavior(source, fixed, "tk3") && sameBehavior(source, fixed, "tk2", "tk2")) {
+    if (!sameBehavior(source, fixed, "tk3")) continue;
+    if (sameInPlaceBehavior(source, fixed, options)) {
       fixes.push({ rule: "dialect/sigil", title: `Drop the ignored sigil in \`${written}\``, edits });
+    } else {
+      readingDependent.push({ line: token.line, code: "reading-dependent", message: `\`${written}\` is read differently if this file is Toolkit 2.x, and the running project has not said which it is.` });
     }
   }
-  return fixes;
+  return { fixes, readingDependent };
+}
+
+/**
+ * The lines of a 3.1 source that begin with a legacy `#` command prefix (editor-features T-44, "Auto-command wizard").
+ * The 3.1 lexer ignores such a line whole (LEX-6, docs/spec/engine/rpgcode-language.md), so removing the `#` would make
+ * a dead line run and is never behaviour-preserving; the cleanup reports them instead. `#include` is a directive, and
+ * a `#` inside a block comment is comment text.
+ */
+export function legacyPrefixLines(source: string): readonly UnsupportedFragment[] {
+  const found: UnsupportedFragment[] = [];
+  let inBlock = false;
+  const lines = source.split("\n");
+  for (let index = 0; index < lines.length; index++) {
+    const text = lines[index]!;
+    if (!inBlock && /^[ \t\r]*#/.test(text)) {
+      if (!/^[ \t\r]*#\s*include\b/i.test(text)) {
+        found.push({ line: index + 1, code: "legacy-prefix-line", message: "This line begins with `#`, which 3.1 ignores whole; removing the `#` would make the line run, so it is left as written." });
+      }
+      continue;
+    }
+    // A line whose first non-blank character is `*` is a star comment to the end of the line (LEX-4), so nothing in it
+    // opens a block comment; inside a block, a leading `*/` still closes it.
+    if (!inBlock && /^[ \t]*\*/.test(text)) continue;
+    let inString = false;
+    for (let at = 0; at < text.length; at++) {
+      const char = text[at];
+      const next = text[at + 1];
+      if (inBlock) {
+        // Quotes inside comments have no lexical meaning; they must not hide the terminator.
+        if (char === "*" && next === "/") { inBlock = false; at++; }
+      } else if (char === '"') inString = !inString;
+      else if (!inString) {
+        if (char === "/" && next === "/" || char === "*" && next === "*") break;
+        if (char === "/" && next === "*") { inBlock = true; at++; }
+      }
+    }
+  }
+  return found;
+}
+
+/** Offer only edits proved against the caller-selected source dialect. */
+export function legacyFixes(source: string, dialect: ScriptDialect = "tk3", options: LegacyOptions = {}): readonly LegacyFix[] {
+  if (dialect === "tk2") {
+    const outcome = convertTk2(source);
+    return outcome.kind === "converted" ? [outcome.fix] : [];
+  }
+  return sigilFixes(source, options).fixes;
 }

@@ -401,7 +401,7 @@ Scripts play video with `PlayAvi()` (full screen) and `PlayAviSmall()` (actual s
 <a id="e-132"></a>
 ## Fonts
 
-All `*.ttf` files in the project's `Font\` folder are made available to the game while it runs. Scripts select fonts by name (`Font()`), size, bold, italic and underline. Toolkit 2 bitmap fonts are not supported by the 3.x engine.
+All `*.ttf` files in the project's `Font\` folder are made available to the game while it runs. Scripts select fonts by name (`Font()`), size, bold, italic and underline. The Toolkit 3.1 engine does not read Toolkit 2 bitmap fonts (`.fnt`); Reawakened does, see [project bitmap fonts](#reawakened-project-bitmap-fonts).
 
 <a id="reawakened-fontref-and-metrics"></a>
 **Reawakened rule (OWNER; FontRef).** A text draw command carries `FontRef = { asset, size, bold, italic }`; underline remains a separate `line` command and is not a FontRef field. Size and style are therefore visible in draw-list hashes and runner inputs.
@@ -409,6 +409,20 @@ All `*.ttf` files in the project's `Font\` folder are made available to the game
 **Reawakened rule (OWNER; TrueType metrics).** For a font with `unitsPerEm`, scale each advance, kerning adjustment, ascent, descent and line gap by `size / unitsPerEm`. Round each non-negative scaled advance and kerning adjustment with `floor(value + 0.5)`. Read ascent, descent and line gap from `hhea` only, never `OS/2` or Windows metrics. Compute `ascentPx = floor(ascent * size / unitsPerEm + 0.5)`, `descentPx = floor(-descent * size / unitsPerEm + 0.5)` and `lineGapPx = floor(lineGap * size / unitsPerEm + 0.5)` (the hhea descent is negative), then `lineHeight = ascentPx + descentPx + lineGapPx`.
 
 **Reawakened rule (OWNER; family substitution).** Resolve a project font asset by case-insensitive family name. Otherwise substitute `Arial`/sans-serif with Liberation Sans, `Times New Roman`/serif with Liberation Serif, and `Courier New`/monospace with Liberation Mono, then use the documented fallback family. A `.fnt` is selected when the name resolves to one or when the project is TK2; other names use family substitution. Entry 4.3 owns the library, bundled assets and bitmap fallback.
+
+<a id="reawakened-project-bitmap-fonts"></a>
+**Reawakened rule (OWNER; ruled 2026-11-24; project bitmap fonts, [ADR 0042](../../adr/0042-project-bitmap-fonts-use-shared-rendering.md)).** A Toolkit 2.0 bitmap font saved in the game's `Font\` folder can be used through `font("name")`, just like a TrueType face.
+
+At start-up the engine installs supported `.fnt` files under the active game's `Font\` folder (including descendants), in asset-index order with the `.ttf` files, and lists the installed keys in `boot.fonts`. A missing or invalid [Toolkit 2.0 bitmap font](../formats/legacy/text-formats.md#font-toolkit-2-text) is skipped with `font.rejected`; startup continues. Resolve against installed project faces first: prefer the exact ASCII-folded asset key, then a path suffix, the exact basename without its extension, and then the family rule above. A project face wins over a bundled face of the same key.
+
+Text naming an installed `.fnt` uses the [bitmap font ink](#reawakened-bitmap-font-ink) rule at the command's size and style. `getTextWidth` and `getTextHeight` use bitmap metrics (a glyph advances `size` pixels plus one when bold, with a line height of `max(16, size)`), not TrueType metrics. The [renderer](runners.md#draw-list) receives the installed bitmap face from the same project inventory as an installed TrueType face.
+
+<a id="reawakened-bitmap-font-ink"></a>
+**Reawakened rule (OWNER; ruled 2026-11-24; bitmap font ink, [ADR 0042](../../adr/0042-project-bitmap-fonts-use-shared-rendering.md)).** The player and editor preview share one rule: stretch the 8 × 8 glyph to the text size with hard square pixels, thicken bold to the right, lean italics right and draw underline separately.
+
+Let `s = max(1, floor(size + 0.5))` for a positive finite `size`, and 8 otherwise. A glyph whose source cell `(sx, sy)`, 0 ≤ `sx`, `sy` < 8, has its bit set (bit 7 of a row is `sx = 0`) covers destination columns from `floor(sx · s / 8)` up to but not including `max(floor(sx · s / 8) + 1, floor((sx + 1) · s / 8))`, and rows likewise from `floor(sy · s / 8)`, relative to the glyph's top-left. Every covered pixel is written with the text colour at full coverage. Italics move every covered pixel of source row `sy` right by `floor((7 − sy) · s / 32)` pixels. Bold adds a covered pixel one column to the right of every covered pixel. Ink is written glyph by glyph, left to right, top row first; a character code above 255 draws slot 255. Each glyph advances `s` pixels, plus one when bold.
+
+Underline is the separate one-pixel `line` command of [FontRef](#reawakened-fontref-and-metrics). It spans the first pixel through `width − 1` on row `lineHeight − 1`, where `width` is the sum of the advances and `lineHeight` is `s` for cell text ([text cell size](rpgcode-functions.md#reawakened-text-cell-size)) and `max(16, s)` for pixel text. The editor sample uses the cell-text line height and the same bitmap rasterizer.
 
 <a id="reawakened-initial-font"></a>
 **Reawakened rule (OWNER; imported 3.1 initial font, issue #1938).** A newly started imported Toolkit 3.1 game begins with bundled Liberation Sans at 20 pixels, regular (not bold or italic), before any script selects a face or changes its style or size. This substitutes for the original initial Arial face reported by the owner on 2026-11-11. Script font, size and style choices continue to override the current state. This initial face is separate from the bitmap fallback used when a requested font is unavailable.

@@ -18,6 +18,7 @@ import {
   DEFAULT_HISTORY_POLICY,
   diffLines,
   ignoreOffer,
+  newFontBytes,
   openHistoryPreview,
   runCheckpointedOperation,
   sha256Hex,
@@ -344,6 +345,32 @@ test("a restore of a read-only open document is refused and says so", async () =
   const report = await workspace.restoreHistoryEntry((await workspace.history.documentTimeline("Main/text.gam"))[0]!.id);
   deepEqual(report.files.map((file) => file.result), ["already-as-wanted"]);
   ok(!doc.restoreVersion(exampleMain(9)).ok);
+});
+
+test("History refuses to restore an unsupported font into a writable editor, but can recover the original bytes while closed", async () => {
+  const path = "Font/retro.fnt";
+  const supported = newFontBytes();
+  const unsupported = new TextEncoder().encode(new TextDecoder().decode(supported).replace("\r\n2\r\n0\r\n", "\r\n3\r\n1\r\n"));
+  const { host, workspace } = setUp({ files: { [path]: supported } });
+  const document = await openDoc(workspace, path);
+  const before = document.getSnapshot();
+  equal(before.readOnly, null);
+  equal((await workspace.history.recordSave(path, unsupported, "manual")).outcome, "recorded");
+  const [entry] = await workspace.history.documentTimeline(path);
+  ok(entry);
+
+  const refusal = await workspace.restoreHistoryEntry(entry.id);
+  deepEqual(refusal.files.map((file) => [file.path, file.result]), [[path, "failed"]]);
+  match(refusal.files[0]?.message ?? "", /3\.1 can be inspected.*Close the file/);
+  equal(document.getSnapshot(), before, "a refused restore adds no edit and leaves the writable document unchanged");
+  deepEqual(host.bytesOf(path), supported, "no bytes were written");
+
+  workspace.release(document);
+  const restored = await workspace.restoreHistoryEntry(entry.id);
+  deepEqual(restored.files.map((file) => [file.path, file.result]), [[path, "restored"]]);
+  deepEqual(host.bytesOf(path), unsupported, "closed-file restore preserves the selected history bytes");
+  const reopened = await openDoc(workspace, path);
+  match(reopened.getSnapshot().readOnly?.message ?? "", /3\.1 can be inspected, but only version 2\.0/);
 });
 
 test("a named checkpoint holds every covered file, lists what history cannot keep, and restores as a group", async () => {
@@ -842,5 +869,167 @@ test("history usage counts shared checkpoint groups and immutable progress/conte
   const after = await workspace.history.usage();
   ok(after.bytes > before.bytes, "group manifests and content are charged to the shared history budget");
   ok(after.distinctContents > before.distinctContents, "group content hashes are reported");
+  workspace.dispose();
+});
+
+test("script History keeps a case-renamed destination and restores the rest, including on reverse", async () => {
+  const a = "Prg/a.prg";
+  const alias = "Prg/A.prg";
+  const b = "Prg/b.prg";
+  const bytes = (source: string) => new TextEncoder().encode(source);
+  const beforeA = bytes("MWIN(\"A\")\n");
+  const beforeB = bytes("MWIN(\"B\")\n");
+  const afterA = bytes("mwin(\"A\")\n");
+  const afterB = bytes("mwin(\"B\")\n");
+  const { host, workspace } = setUp({ files: { [a]: beforeA, [b]: beforeB } });
+  host.answerQuestions("continue");
+  const checkpoint = await workspace.checkpoints.prepareScripts([{ path: a, bytes: afterA }, { path: b, bytes: afterB }], "Format");
+  ok(checkpoint.ok);
+  for (const [path, data] of [[a, afterA], [b, afterB]] as const) {
+    host.seed(path, data);
+    ok((await workspace.checkpoints.registerWritten(checkpoint.value.id, path, data)).ok);
+  }
+  ok((await host.fs.rename(a, alias)).ok);
+
+  const restored = await workspace.restoreHistoryGroup(checkpoint.value.id);
+  ok(restored.restoreGroupId !== null);
+  deepEqual(restored.files.map(({ path, result }) => [path, result]), [[a, "kept-changed"], [b, "restored"]]);
+  match(restored.files[0]?.message ?? "", /different stored spelling \(Prg\/A\.prg\)/);
+  deepEqual(host.bytesOf(alias), afterA);
+  deepEqual(host.bytesOf(b), beforeB);
+
+  // The refused row remains a durable no-op even if the original spelling is available by the time of reversal.
+  ok((await host.fs.rename(alias, a)).ok);
+  const reversed = await workspace.restoreHistoryGroup(restored.restoreGroupId, { deleteUncertain: [a] });
+  deepEqual(reversed.files.map(({ path, result }) => [path, result]), [[a, "kept-changed"], [b, "restored"]]);
+  deepEqual(host.bytesOf(a), afterA);
+  deepEqual(host.bytesOf(b), afterB);
+  workspace.dispose();
+});
+
+test("restore keeps an open generated program, removes the closed copy, and retries only the refused path", async () => {
+  const openPath = ".tkr-migrated/3.1/Prg/open.prg";
+  const closedPath = ".tkr-migrated/3.1/Prg/closed.prg";
+  const bytes = new TextEncoder().encode('mwin("Converted")\n');
+  const { host, workspace } = setUp();
+  host.answerQuestions("continue");
+  const checkpoint = await workspace.checkpoints.prepareScripts([{ path: openPath, bytes }, { path: closedPath, bytes }], "Update older syntax");
+  ok(checkpoint.ok);
+  for (const path of [openPath, closedPath]) {
+    host.seed(path, bytes);
+    ok((await workspace.checkpoints.registerWritten(checkpoint.value.id, path, bytes)).ok);
+  }
+  const open = await workspace.open(openPath);
+  ok(open.ok);
+
+  const restored = await workspace.restoreHistoryGroup(checkpoint.value.id);
+  ok(restored.restoreGroupId !== null);
+  deepEqual(restored.files.map(({ path, result }) => [path, result]), [[openPath, "failed"], [closedPath, "restored"]]);
+  match(restored.files[0]?.message ?? "", /is open.*Close it/);
+  deepEqual(host.bytesOf(openPath), bytes);
+  equal(host.bytesOf(closedPath), undefined);
+
+  const durable = await workspace.checkpoints.retry(restored.restoreGroupId);
+  ok(durable.ok);
+  equal(durable.value.files[0]?.status, "failed", "retry the original operation, not a no-op row in its reverse checkpoint");
+  deepEqual(host.bytesOf(openPath), bytes);
+  workspace.release(open.document);
+  const retry = await workspace.restoreHistoryGroup(checkpoint.value.id, { only: [openPath] });
+  deepEqual(retry.files.map(({ path, result }) => [path, result]), [[openPath, "restored"]]);
+  equal(host.bytesOf(openPath), undefined);
+  workspace.dispose();
+});
+
+test("undo restores only changed files and cannot redirect a path renamed after restore", async () => {
+  const kept = "Prg/kept.prg";
+  const renamed = "Prg/renamed.prg";
+  const alias = "Prg/Renamed.prg";
+  const reversible = "Prg/reversible.prg";
+  const already = "Prg/already.prg";
+  const bytes = (text: string) => new TextEncoder().encode(text);
+  const original = bytes('MWIN("Original")\n');
+  const formatted = bytes('mwin("Original")\n');
+  const paths = [kept, renamed, reversible, already];
+  const { host, workspace } = setUp({ files: Object.fromEntries(paths.map((path) => [path, original])) });
+  host.answerQuestions("continue");
+  const checkpoint = await workspace.checkpoints.prepareScripts(paths.map((path) => ({ path, bytes: formatted })), "Format");
+  ok(checkpoint.ok);
+  for (const path of [kept, renamed, reversible]) {
+    host.seed(path, formatted);
+    ok((await workspace.checkpoints.registerWritten(checkpoint.value.id, path, formatted)).ok);
+  }
+  host.seed(kept, bytes("First external edit\n"));
+  const forward = await workspace.restoreHistoryGroup(checkpoint.value.id);
+  ok(forward.restoreGroupId !== null);
+  deepEqual(forward.files.map(({ result }) => result), ["kept-changed", "restored", "restored", "already-as-wanted"]);
+  const later = bytes("Later unrelated edit\n");
+  host.seed(kept, later);
+  host.seed(already, later);
+  ok((await host.fs.rename(renamed, alias)).ok);
+
+  const reverse = await workspace.restoreHistoryGroup(forward.restoreGroupId);
+  deepEqual(reverse.files.map(({ result }) => result), ["kept-changed", "kept-changed", "restored", "kept-changed"]);
+  match(reverse.files[1]?.message ?? "", /different stored spelling/);
+  deepEqual(host.bytesOf(kept), later);
+  deepEqual(host.bytesOf(already), later);
+  deepEqual(host.bytesOf(alias), original);
+  deepEqual(host.bytesOf(reversible), formatted);
+  workspace.dispose();
+});
+
+test("a copy opened after durable restore preparation is refused and never undone", async () => {
+  const path = ".tkr-migrated/3.1/Prg/late.prg";
+  const data = new TextEncoder().encode('mwin("Converted")\n');
+  const host = createMemoryPlatformServices();
+  let armed = false;
+  let arrived!: () => void;
+  let release!: () => void;
+  const writing = new Promise<void>((resolve) => { arrived = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const fs: FileSystemService = { ...host.fs, async write(name, value) {
+    const saved = await host.fs.write(name, value);
+    if (armed && name.startsWith(".tkr-history/progress/")) {
+      armed = false;
+      arrived();
+      await gate;
+    }
+    return saved;
+  } };
+  const workspace = createDocumentWorkspace({ projectId: "memory-project", services: { ...host, fs } });
+  host.answerQuestions("continue");
+  const source = await workspace.checkpoints.prepareScripts([{ path, bytes: data }], "Update older syntax"); ok(source.ok);
+  host.seed(path, data);
+  ok((await workspace.checkpoints.registerWritten(source.value.id, path, data)).ok);
+  armed = true;
+  const running = workspace.restoreHistoryGroup(source.value.id);
+  await Promise.race([writing, running.then(() => { throw new Error("Restore completed without persisting its writing state."); })]);
+  const opened = await workspace.open(path);
+  release();
+  ok(opened.ok);
+  const outcome = await running;
+  ok(outcome.restoreGroupId !== null);
+  equal(outcome.files[0]?.result, "failed");
+  match(outcome.files[0]?.message ?? "", /is open.*Close it/);
+  deepEqual(host.bytesOf(path), data);
+  workspace.release(opened.document);
+
+  const newer = new TextEncoder().encode('mwin("Newer work")\n');
+  host.seed(path, newer);
+  const reverse = await workspace.restoreHistoryGroup(outcome.restoreGroupId);
+  equal(reverse.files[0]?.result, "kept-changed");
+  deepEqual(host.bytesOf(path), newer);
+  workspace.dispose();
+});
+
+test("declining the checkpoint disclosure for new script copies writes nothing", async () => {
+  const { host, workspace } = setUp();
+  const path = ".tkr-migrated/3.1/Prg/new.prg";
+  host.answerQuestions("cancel");
+  const capture = await workspace.checkpoints.prepareScripts([{ path, bytes: new TextEncoder().encode("new\n") }], "Update older syntax");
+  equal(capture.ok, false);
+  equal(host.bytesOf(path), undefined);
+  const groups = await workspace.checkpoints.list();
+  ok(groups.ok);
+  deepEqual(groups.value, []);
   workspace.dispose();
 });

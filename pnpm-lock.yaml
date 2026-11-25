@@ -208,6 +208,9 @@ importers:
       '@tk-reawakened/host-vscode':
         specifier: workspace:*
         version: link:packages/host-vscode
+      '@tk-reawakened/platform-services':
+        specifier: workspace:*
+        version: link:packages/platform-services
       '@tk-reawakened/runner-harness':
         specifier: workspace:*
         version: link:packages/runner-harness
@@ -610,6 +613,9 @@ importers:
       '@tk-reawakened/host-web':
         specifier: workspace:*
         version: link:../../packages/host-web
+      '@tk-reawakened/lsp':
+        specifier: workspace:*
+        version: link:../../packages/lsp
       '@tk-reawakened/platform-services':
         specifier: workspace:*
         version: link:../../packages/platform-services
