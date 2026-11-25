@@ -314,6 +314,17 @@ export {
   type TextEdit,
 } from "./program-document.ts";
 export {
+  projectVisualProgram,
+  addShowMessage,
+  editShowMessage,
+  deleteShowMessage,
+  type ShowMessageCard,
+  type OpaqueProgramRegion,
+  type VisualProgramRegion,
+  type VisualProgramProjection,
+  type VisualEventEditResult,
+} from "./visual-events.ts";
+export {
   commandInsertion,
   commandReference,
   createProgramFile,
