@@ -312,9 +312,6 @@ importers:
       '@tk-reawakened/platform-services':
         specifier: workspace:*
         version: link:../platform-services
-      '@tk-reawakened/runner-web':
-        specifier: workspace:*
-        version: link:../runner-web
       '@tk-reawakened/script-spec':
         specifier: workspace:*
         version: link:../script-spec

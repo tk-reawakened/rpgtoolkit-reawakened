@@ -162,7 +162,7 @@ export function BoardPropertiesView({ doc, disabled, onEdited, navigation, onCho
         <label><input aria-label="Disable saving" type="checkbox" checked={settings.disableSaving !== 0} onChange={(event) => setProperty("disableSaving", event.currentTarget.checked ? 1 : 0)} />Disable saving</label>
         {colour("Ambient RGB", settings.ambient, (value) => setProperty("ambient", value))}
       </fieldset>
-      {audition === undefined ? null : <BackgroundMusicAudition audition={audition} reference={settings.backgroundMusic.trim()} />}
+      {audition === undefined ? <p>Audio audition is unavailable in this host.</p> : <BackgroundMusicAudition audition={audition} reference={settings.backgroundMusic.trim()} />}
       <fieldset disabled={disabled || saving}><legend>Player start</legend>
         <p role="status">{initialCell === null ? "Player start marker is outside this board." : `Player start marker: column ${initialCell.x + 1}, row ${initialCell.y + 1}, layer ${properties.start.layer}`}</p>
         {input("Start column", column, setColumn, true, false)}

@@ -3,7 +3,7 @@ import { BUNDLED_BANK, type BankRef, connectSinkToGraph, type GraphConnection, P
 import type { AudioOutputApi, AudioPlayOutcome, AuditionFormat, AuditionOptions } from "@tk-reawakened/platform-services";
 
 /** Where the browser audition gets its audio graph and its default SoundFont. */
-export type WebAudioOptions = {
+type WebAudioOptions = {
   /** The AudioWorklet module; absence means this host has no audition. */
   readonly audioWorkletUrl?: string;
   /** The bundled default SoundFont (`TK-16.sf2`), used when a MIDI audition has no configured bank. */
