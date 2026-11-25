@@ -104,9 +104,13 @@ The most important tool. A board is edited on a zoomable, scrollable canvas, wit
 
 **T-29 Player start location.** Click to set it (snaps in tile coordinates). It is drawn as a cross with a layer label, either on the initial board only or on every board (a preference). "Set as initial board" writes the current board into the main file.
 
-**T-30 Coordinate upgrades.** One-way conversions **iso-stacked → iso-rotated** and **tile → pixel coordinates**. All tiles and objects are moved correctly. Script literals are not changed.
+**T-30 Coordinate upgrades.** The workbench offers reviewed, one-way conversions **iso-stacked → iso-rotated** and **tile → pixel coordinates**. The stacked conversion previews its stored-grid mapping and moves every tile and shade cell to the destination cell with the same board-pixel location. Vectors, program regions, sprites, images, lights and the player start already store board-pixel positions, so their coordinates remain unchanged. Tile → pixel changes the coordinate-unit flag only: board object positions are already pixels, and script literals are never rewritten. Each operation writes a separate board copy; cancel, pending edits, unsupported layouts, source changes and destination conflicts leave existing files untouched.
 
-**T-31 Legacy board upgrade.** Opening a pre-vector board converts tile types into vectors, tile programs into program regions, per-tile RGB into a shading layer, and positions into pixels.
+**T-31 Legacy board upgrade.** A reviewed, explicit upgrade converts supported minor-2/minor-3 pre-vector boards to the minor-4 vector layout: tile types into vectors, tile programs into program regions, per-tile RGB into a shading layer, and positions into pixels. It previews the conversion warnings and writes a new board copy; the original is retained. A pre-vector board whose coordinate mapping is not specified (including rotated layouts) is refused rather than guessed.
+
+### Reawakened rules for explicit board upgrades (story 13.15)
+
+The command palette exposes **Convert active board from iso-stacked to iso-rotated…**, **Convert active board from tile to pixel coordinates…**, and **Upgrade a pre-vector board…** in the browser workbench, and matching RPG Toolkit commands in VS Code. Coordinate conversions require the active saved board and no pending edits. The legacy upgrade lists project boards and accepts only a supported pre-vector file. Review reports the conversion and any reader warnings before the destination is chosen. Every conversion writes a new `.brd`; an existing destination is never replaced, the original bytes are rechecked before writing, and cancel, refusal or write failure does not modify the source. Reopen the created copy in the board editor or run the saved project to inspect the result. Script literals are preserved in all paths.
 
 **T-32 Export image.** The current view (as displayed) or the **entire board**, without editor overlays and with optional sprites, images and shading, saved as PNG, JPEG or BMP.
 
