@@ -172,23 +172,27 @@ test("leaving the page asks while a clean document holds text a field refused, a
 test("hiding the second view retains its refused draft and keeps Save from writing around it", async ({ page }) => {
   await openWorkbench(page);
   await openFile(page, "SpcMove", "fireball.spc");
-  const toggle = page.getByRole("button", { name: "Second view" });
-  await toggle.click();
+  const toggle = async (): Promise<void> => {
+    await page.getByRole("button", { name: "Application menu" }).click();
+    await page.getByRole("menuitem", { name: "View", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Toggle Split Second View", exact: true }).click();
+  };
+  await toggle();
   const mirror = page.locator("#mirror");
   const field = mirror.getByLabel("Damage (FP)", { exact: true });
   await field.fill("9999999999");
   await field.blur();
   await expect(mirror.getByRole("alert")).toContainText("whole number");
-  await toggle.click();
+  await toggle();
   await expect(mirror).toBeHidden();
   const primary = page.locator('[data-tkr-editor="Special move"]');
   const damage = primary.getByLabel("Damage (FP)", { exact: true });
   await damage.fill("-30");
   await damage.blur();
-  await primary.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect(primary.getByRole("alert")).toContainText("Nothing was saved");
   expect(await readProjectFile(page, "SpcMove/fireball.spc")).toEqual(FIREBALL);
-  await toggle.click();
+  await toggle();
   await expect(field).toHaveValue("9999999999");
   await expect(mirror.getByRole("alert")).toContainText("whole number");
 });
