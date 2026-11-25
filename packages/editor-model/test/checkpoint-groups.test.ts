@@ -259,3 +259,27 @@ test("Undo Restore does not reverse a pending checkpoint reopened before the fir
     await original;
   }
 });
+
+test("consenting after a reviewed project retires creates neither History directories nor a capture", async () => {
+  const { host, env } = fixture();
+  let current = true;
+  let asked = false;
+  const groups = createCheckpointGroups({
+    ...env,
+    consent: async (_paths, purpose) => {
+      equal(purpose, "reviewed-scripts");
+      asked = true;
+      current = false;
+      return true;
+    },
+  });
+  const result = await groups.prepareScripts(targets, "Reviewed workflow", () => current);
+  equal(asked, true);
+  ok(!result.ok);
+  equal(result.error.message, "The selected project changed; no further files were written.");
+  const historyDir = await host.fs.stat(".tkr-history");
+  ok(!historyDir.ok);
+  equal(historyDir.error.code, "not-found");
+  deepEqual(host.bytesOf("Misc/a.anm"), bytes("original"));
+  equal(host.bytesOf("Bitmap/frame.tbm"), undefined);
+});

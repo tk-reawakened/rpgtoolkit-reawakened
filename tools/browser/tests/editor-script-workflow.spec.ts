@@ -113,6 +113,15 @@ test("the reviewed script workflow shows what would change in a real Monaco host
   // The global capture shortcut must not open an editor command palette behind the modal or steal Escape.
   await page.keyboard.press("ControlOrMeta+Shift+P");
   await expect(page.getByRole("combobox", { name: "Search commands and files" })).toHaveCount(0);
+  const apply = dialog.getByRole("button", { name: "Apply to 1 program" });
+  await apply.focus();
+  await page.keyboard.press("Enter");
+  const confirmation = page.locator("dialog.tkr-dialog");
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button", { name: "Cancel" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(confirmation).toHaveCount(0);
+  await expect(cancelButton).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   expect(await storedText(page, MESSY)).toBe(MESSY_TEXT);

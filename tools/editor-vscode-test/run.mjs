@@ -503,12 +503,12 @@ for (const choice of nativeClipProof || nativeSceneProof || designProof || board
       if (styleCspViolations.length > 0) throw new Error(`Design proof violated style CSP:\n${styleCspViolations.join("\n")}`);
       console.log(`VS Code native editor design ${designPhase} evidence captured at ${designOutput}`);
     } else if (scriptWorkflowProof) {
-      const groups = async () => {
-        try { return (await readdir(resolve(proofWorkspace, ".tkr-history/groups"))).sort(); }
+      const groups = async (project = "") => {
+        try { return (await readdir(resolve(proofWorkspace, project, ".tkr-history/groups"))).sort(); }
         catch (error) { if (error?.code === "ENOENT") return []; throw error; }
       };
       await runVscodeScriptWorkflowProof(page, expect, workbenchUrl, readBacking, writeBacking, groups);
-      console.log("vscode.dev native reviewed script format, cancellation, opt-out, save, cleanup and migration proof passed");
+      console.log("vscode.dev native reviewed script format, cancellation, opt-out, save, cleanup, migration and retired-folder proof passed");
     } else if (connectedPass) {
       await proveConnectedAuthoring();
     } else if (boardObjectsProof) {

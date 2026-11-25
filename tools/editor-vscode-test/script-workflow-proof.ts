@@ -1,4 +1,4 @@
-import type { expect as playwrightExpect, Page } from "@playwright/test";
+import type { expect as playwrightExpect, Page, Route } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { openNativeQuickOpenFile } from "./native-quick-open.ts";
 import { runCommandMatching } from "./web-proof.ts";
@@ -24,6 +24,7 @@ export function scriptWorkflowProofFiles(): readonly { readonly path: string; re
     { path: MODERN, bytes: main("main_minor9.gam") }, { path: LEGACY, bytes: main("main_tk2_text.gam") },
     { path: ".vscode/settings.json", bytes: encode(`${JSON.stringify({ "files.autoSave": "off", "rpgcode.project": MODERN }, null, 2)}\n`) },
     { path: FORMAT, bytes: encode(MESSY) }, { path: OPT_OUT, bytes: encode(UPPER) }, { path: CLEAN, bytes: encode(CLEANUP) },
+    { path: "Main/__tkr_remove_script_folder", bytes: new Uint8Array() },
   ];
 }
 
@@ -31,7 +32,7 @@ export function scriptWorkflowProofFiles(): readonly { readonly path: string; re
 export async function runVscodeScriptWorkflowProof(
   page: Page, expect: typeof playwrightExpect, url: string,
   read: (path: string) => Promise<Uint8Array>, write: (path: string, bytes: Uint8Array) => Promise<void>,
-  groups: () => Promise<readonly string[]>,
+  groups: (root?: string) => Promise<readonly string[]>,
 ): Promise<void> {
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".monaco-workbench")).toBeVisible();
@@ -139,4 +140,43 @@ export async function runVscodeScriptWorkflowProof(
     }
   }).toBe('MWIN("legacy review")\n');
   expect(await bytes(OLD)).toBe(OLD_TEXT);
+
+  // Reopen as two sibling workspace folders. The workspace setting is an absolute URI to the main in the second
+  // folder, so removing that folder leaves the first and the configured URI unchanged.
+  await write(FORMAT, encode(MESSY));
+  const nestedGroups = await groups(ROOT);
+  await dispatch("Test: Open Script Proof Multi-root Workspace");
+  await expect(page.getByText("Proof reviewed folder", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await project("review-modern.gam");
+  await expect(page.getByRole("button", { name: /Running project: .*review-modern\.gam/ })).toBeVisible();
+  const endpoint = /^http:\/\/127\.0\.0\.1:\d+\/[a-f0-9]{64}$/;
+  let gate: Route | undefined;
+  const intercept = async (route: Route): Promise<void> => {
+    const request = route.request();
+    const call: { op?: string; path?: string } | null = request.method() === "POST" ? request.postDataJSON() : null;
+    if (call?.op === "readFile" && call.path === "/Main/__tkr_remove_script_folder") {
+      gate = route;
+      return;
+    }
+    await route.fallback();
+  };
+  await page.context().route(endpoint, intercept);
+  try {
+    await dispatch("Test: Arm Script Proof Folder Removal");
+    await expect(quick).toBeHidden();
+    await expect.poll(() => gate !== undefined).toBe(true);
+    await start("Format");
+    await review("Prg/format-review.prg");
+    for (const path of ["Prg/case-review.prg", "Prg/cleanup-review.prg"]) await row(path).locator(".monaco-custom-toggle").click();
+    await apply();
+    await expect(diskConsent).toBeVisible();
+    await gate!.continue();
+    await expect(page.getByRole("treeitem", { name: "Proof reviewed folder" })).toHaveCount(0);
+    await diskConsent.click();
+    await expect(page.locator(".notification-toast").filter({ hasText: /selected project changed/i }).first()).toBeVisible();
+    expect(await bytes(FORMAT)).toBe(MESSY);
+    expect(await groups(ROOT)).toEqual(nestedGroups);
+  } finally {
+    await page.context().unroute(endpoint, intercept);
+  }
 }

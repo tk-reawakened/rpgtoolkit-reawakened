@@ -203,16 +203,21 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
         return;
       }
       if (folder === undefined) return;
+      const folderUri = folder.uri.toString();
       const services = createVscodeServices(folder.uri, context, generation);
       const workspace = workspaceFor(folder.uri);
       const extension = await activatedLanguageExtension();
       const open = openPrograms(folder.uri);
       const active = vscode.window.activeTextEditor?.document;
       const activePath = active === undefined ? null : open.find((program) => program.document === active)?.path ?? null;
+      let retired = false;
+      const removal = vscode.workspace.onDidChangeWorkspaceFolders(({ removed }) => {
+        if (removed.some((candidate) => candidate.uri.toString() === folderUri)) retired = true;
+      });
       await runScriptWorkflow(
         transform,
         {
-          fs: { ...services.fs, write: (path, bytes) => services.fs.writeProject(folder.uri.toString(), path, bytes) },
+          fs: { ...services.fs, write: (path, bytes) => services.fs.writeProject(folderUri, path, bytes) },
           provider: extension === undefined
             ? null
             : {
@@ -240,12 +245,16 @@ export function registerScriptWorkflowCommands(context: vscode.ExtensionContext,
           activeProgram: activePath,
           ...(main === undefined ? {} : { projectMainUri: main.toString(), projectMainPath: main.path.slice(folder.uri.path.replace(/\/?$/, "/").length) }),
           isProjectCurrent: () => {
-            const first = vscode.workspace.workspaceFolders?.[0]?.uri;
-            return first !== undefined && configuredMain(first)?.toString() === main?.toString();
+            const currentFolders = vscode.workspace.workspaceFolders;
+            const first = currentFolders?.[0]?.uri;
+            return !retired && first !== undefined
+              && currentFolders?.some((candidate) => candidate.uri.toString() === folderUri) === true
+              && configuredMain(first)?.toString() === main?.toString()
+              && (main === undefined || vscode.workspace.getWorkspaceFolder(main)?.uri.toString() === folderUri);
           },
         },
         ui(),
-      );
+      ).finally(() => removal.dispose());
     }));
   }
 }

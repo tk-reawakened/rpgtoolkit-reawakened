@@ -667,7 +667,7 @@ export function createScriptReview(env: ScriptWorkflowEnvironment, plan: ScriptW
               const target = prepared.get(entry.path);
               return target === undefined ? [] : [{ path: entry.destination, bytes: target.bytes, expectedBefore: target.before }];
             });
-            const group = await env.history.prepareScripts(`${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`, targets);
+            const group = await env.history.prepareScripts(`${SCRIPT_TRANSFORM_INFO[plan.transform].name} (reviewed)`, targets, env.isProjectCurrent);
             if (group.ok) groupId = group.groupId;
             else blocked = `Its recovery checkpoint could not be recorded: ${group.message}. Nothing was written.`;
           } catch (error) {

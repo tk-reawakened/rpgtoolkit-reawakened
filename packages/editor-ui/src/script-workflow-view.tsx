@@ -110,6 +110,16 @@ function Review({ session, transform, onClose }: { readonly session: ScriptRevie
   const name = SCRIPT_TRANSFORM_INFO[transform].name;
   const applying = snapshot.phase === "applying";
   const finished = snapshot.phase === "done";
+  const returnFocus = useRef(false);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  // The checkpoint dialog may return focus to the page when its opener has become disabled. Wait for
+  // Apply to finish and the review's Cancel or Close button to be enabled before restoring focus.
+  useEffect(() => {
+    if (!applying && returnFocus.current) {
+      returnFocus.current = false;
+      closeButton.current?.focus();
+    }
+  }, [applying, snapshot.outcome]);
   const ready = snapshot.entries.filter((entry) => entry.state === "ready");
   const entry = snapshot.entries.find((candidate) => candidate.path === shown) ?? null;
   const counts = {
@@ -174,11 +184,11 @@ function Review({ session, transform, onClose }: { readonly session: ScriptRevie
           type="button"
           class="tkr-script-apply"
           disabled={applying || finished || snapshot.selected === 0}
-          onClick={() => { void session.apply(); }}
+          onClick={() => { returnFocus.current = true; void session.apply(); }}
         >
           {applying ? "Applying…" : snapshot.selected === 0 ? "Apply" : `Apply to ${snapshot.selected} ${snapshot.selected === 1 ? "program" : "programs"}`}
         </button>
-        <button type="button" class="tkr-script-cancel" disabled={applying} onClick={() => { session.cancel(); onClose(); }}>
+        <button type="button" class="tkr-script-cancel" ref={closeButton} disabled={applying} onClick={() => { session.cancel(); onClose(); }}>
           {finished ? "Close" : "Cancel"}
         </button>
       </div>

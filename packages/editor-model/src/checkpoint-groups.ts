@@ -117,6 +117,9 @@ function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
   for (let index = 0; index < a.byteLength; index++) if (a[index] !== b[index]) return false;
   return true;
 }
+function requireCurrentProject(isCurrent: (() => boolean) | undefined): void {
+  if (isCurrent?.() === false) throw new Error("The selected project changed; no further files were written.");
+}
 
 const projectOperations = new WeakMap<FileSystemService, Map<string, Promise<void>>>();
 
@@ -131,8 +134,10 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     delete: (path: string) => fs.deleteProject(projectId, path),
   };
   const ensureHistory = async (path: string): Promise<void> => { unwrap(await history.createFolder(path)); };
-  const captureManifest = async (group: CheckpointGroup): Promise<void> => {
+  const captureManifest = async (group: CheckpointGroup, isCurrent?: () => boolean): Promise<void> => {
+    requireCurrentProject(isCurrent);
     await ensureHistory(`${ROOT}/groups`);
+    requireCurrentProject(isCurrent);
     unwrap(await history.write(manifestPath(group.id), utf8Encode(JSON.stringify(group))));
   };
   const persist = async (group: CheckpointGroup): Promise<void> => {
@@ -145,14 +150,16 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     // Append, never overwrite capture or earlier progress. A torn later record cannot destroy recovery.
     unwrap(await history.write(`${directory}/${next}.json`, utf8Encode(JSON.stringify(group))));
   };
-  const store = async (bytes: Uint8Array): Promise<string> => {
+  const store = async (bytes: Uint8Array, isCurrent?: () => boolean): Promise<string> => {
     const key = await hash(bytes);
+    requireCurrentProject(isCurrent);
     await ensureHistory(`${ROOT}/contents`);
     const existing = await history.read(blobPath(key));
     if (existing.ok) {
       if (await hash(existing.value) !== key) throw new Error(`Corrupt recovery contents: ${key}`);
     } else {
       if (existing.error.code !== "not-found") throw new Error(existing.error.message);
+      requireCurrentProject(isCurrent);
       unwrap(await history.write(blobPath(key), bytes));
     }
     return key;
@@ -239,7 +246,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     readonly restores?: string | null;
     readonly uncovered?: readonly CheckpointUncovered[];
     readonly isolateRefusals?: boolean;
-  } = {}): Promise<CheckpointGroup> => {
+  } = {}, isCurrent?: () => boolean): Promise<CheckpointGroup> => {
     if (targets.length === 0 && reason !== "named") throw new Error("A checkpoint needs at least one destination.");
     const seen = new Set<string>();
     const restoring = reason === "before-restore";
@@ -270,10 +277,12 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
       prepared.push({ path, before, after: reason === "named" ? before?.slice() ?? null : target.bytes?.slice() ?? null, noOp: null });
     }
     const collisions = prepared.filter((file) => file.before !== null).map((file) => file.path);
+    requireCurrentProject(isCurrent);
     if (reason === "before-script" ? !await env.consent(collisions, "reviewed-scripts")
       : reason === "before-wizard" && collisions.length > 0 && !await env.consent(collisions)) {
       throw new Error("Cancelled; no target files changed.");
     }
+    requireCurrentProject(isCurrent);
     const id = env.newId();
     if (!idPattern.test(id)) throw new Error("Invalid new checkpoint identity.");
     const known = await history.read(manifestPath(id));
@@ -284,12 +293,12 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
     };
     for (const file of prepared) group.files.push({
       path: file.path,
-      before: file.before === null ? null : await store(file.before),
-      after: file.after === null ? null : await store(file.after),
+      before: file.before === null ? null : await store(file.before, isCurrent),
+      after: file.after === null ? null : await store(file.after, isCurrent),
       status: file.noOp?.status ?? (reason === "named" ? "written" : "pending"),
       message: file.noOp?.message ?? null,
     });
-    await captureManifest(group);
+    await captureManifest(group, isCurrent);
     return group;
   };
   const execute = async (group: CheckpointGroup): Promise<CheckpointGroup> => {
@@ -347,8 +356,8 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
         return platformOk(await capture(targets, "before-wizard", { name }));
       } catch (error) { return platformError("io-error", message(error)); }
     },
-    async prepareScripts(targets: readonly CheckpointTarget[], name: string): Promise<PlatformResult<CheckpointGroup>> {
-      try { return platformOk(await capture(targets, "before-script", { name })); }
+    async prepareScripts(targets: readonly CheckpointTarget[], name: string, isCurrent?: () => boolean): Promise<PlatformResult<CheckpointGroup>> {
+      try { return platformOk(await capture(targets, "before-script", { name }, isCurrent)); }
       catch (error) { return platformError("io-error", message(error)); }
     },
     async registerWritten(id: string, path: string, bytes: Uint8Array | null): Promise<PlatformResult<CheckpointGroup>> {
@@ -488,7 +497,7 @@ export function createCheckpointGroups(env: CheckpointEnvironment) {
   return {
     ...api,
     begin: (paths: readonly string[], name?: string | null) => serial(() => api.begin(paths, name)),
-    prepareScripts: (targets: readonly CheckpointTarget[], name: string) => serial(() => api.prepareScripts(targets, name)),
+    prepareScripts: (targets: readonly CheckpointTarget[], name: string, isCurrent?: () => boolean) => serial(() => api.prepareScripts(targets, name, isCurrent)),
     registerWritten: (id: string, path: string, bytes: Uint8Array | null) => serial(() => api.registerWritten(id, path, bytes)),
     apply: (id: string) => serial(() => api.apply(id)),
     commit: (targets: readonly CheckpointTarget[]) => serial(() => api.commit(targets)),
