@@ -69,6 +69,16 @@ test("read-only history previews settle animation and initial-board requests wit
   equal(initialBoardReply.outcome.ok, false);
   match(initialBoardReply.outcome.message, /read-only/);
 
+  replies.length = 0;
+  await handleHistoryPreviewRequest(preview, { type: "save-image", requestId: "history-image-1", fileName: "export.png", bytes: new Uint8Array() }, (message) => { replies.push(message); });
+  equal(replies.length, 1);
+  const imageReply = replies[0] as { readonly type: string; readonly requestId: string; readonly result: { readonly ok: boolean; readonly error?: { readonly code: string; readonly message: string } } };
+  equal(imageReply.type, "save-image-result");
+  equal(imageReply.requestId, "history-image-1");
+  equal(imageReply.result.ok, false);
+  equal(imageReply.result.error?.code, "permission-denied");
+  match(imageReply.result.error?.message ?? "", /read-only/);
+
 });
 
 test("with nothing in history the command says where history would be kept and changes nothing", async () => {

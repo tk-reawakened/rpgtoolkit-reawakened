@@ -1,6 +1,7 @@
 import {
   PACKAGE_ROOT,
   assetKey,
+  boardGrid,
   composeBoard,
   createAssetIndex,
   decodeTexture,
@@ -9,6 +10,8 @@ import {
   rasterize,
   type AssetKey,
   type AssetRoot,
+  type Board,
+  type BoardTileRun,
   type DecodedTexture,
   type DrawList,
   BinaryReader,
@@ -41,12 +44,22 @@ export interface BoardPreviewRequest {
   readonly visibleLayers?: readonly number[];
   /** Whether the board's background image is drawn; it is when absent. */
   readonly showBackground?: boolean;
-  /** Whether placed item sprites are drawn. The default preserves the engine's `viewbrd` picture. */
+  /** Whether placed item sprites are drawn; they are omitted when absent. */
   readonly showSprites?: boolean;
-  /** Whether painted tile shading is drawn; it is when absent. Hiding it leaves the board file untouched. */
+  /** Whether placed images are drawn; they are included when absent. */
+  readonly showImages?: boolean;
+  /** Whether painted tile shading is drawn; it is when absent. */
   readonly showShading?: boolean;
-  /** Whether lights are drawn; they are when absent. Hiding them leaves the board file untouched. */
+  /** Whether board lighting is drawn; it is when absent. */
   readonly showLighting?: boolean;
+  /** The top-left board pixel shown; `(0, 0)` when absent. */
+  readonly camera?: { readonly x: number; readonly y: number };
+  /** The compositor viewport; the board's full extent when absent. */
+  readonly viewport?: { readonly width: number; readonly height: number };
+  /** Keep a camera crop in the full-board parallax coordinate space. */
+  readonly preserveComposition?: boolean;
+  /** Whole-board image export receives a larger, still bounded pixel budget than interactive previews. */
+  readonly purpose?: "export";
 }
 
 /** The truthful visual extent for one stored board object. `index` is its raw board slot, including empty slots. */
@@ -88,8 +101,10 @@ export type BoardPreview =
     })
   | Extract<BoardPicture, { readonly ok: false }>;
 
-/** The most pixels a preview draws (about 62×62 top-down tiles), so one picture stays a few megabytes. */
+/** The most pixels an interactive preview draws, so an ordinary picture stays only a few megabytes. */
 const MAX_PREVIEW_PIXELS = 4_000_000;
+/** A bounded image export budget (64 MiB of RGBA), large enough for a 64×64-cell board at 32 px per cell. */
+const MAX_EXPORT_PIXELS = 16_000_000;
 /** The most files a project listing walk reads, so a preview over a huge project stays bounded. */
 const MAX_FILES = 20000;
 
@@ -101,15 +116,49 @@ export function boardPreviewRootForPath(path: string): AssetRoot {
   return { kind: "game", projectPath: folded.slice("game/".length) };
 }
 
-/** The hydrated board with the layers and background the request hides taken out of the picture only. */
+/** A copy of the board with the content hidden by the request taken out of the picture only. */
 function visibleBoard(board: WorldBoard, request: BoardPreviewRequest): WorldBoard {
-  if (request.visibleLayers === undefined && request.showBackground !== false) return board;
+  if (request.visibleLayers === undefined && request.showBackground !== false && request.showImages !== false) return board;
   const visible = request.visibleLayers === undefined ? null : new Set(request.visibleLayers);
   return {
     ...board,
     ...(request.showBackground === false ? { backgroundImage: "" } : {}),
     layers: visible === null ? board.layers : board.layers.map((layer, index) => (visible.has(index) ? layer : { ...layer, tiles: [] })),
-    ...(visible === null || board.images === undefined ? {} : { images: board.images.filter((image) => visible.has(image.layer - 1)) }),
+    ...(board.images === undefined ? {} : { images: request.showImages === false ? [] : visible === null ? board.images : board.images.filter((image) => visible.has(image.layer - 1)) }),
+  };
+}
+
+function tileRunsFor(matrix: readonly number[]): BoardTileRun[] {
+  const runs: BoardTileRun[] = [];
+  for (let start = 0; start < matrix.length;) {
+    const lutIndex = matrix[start]!;
+    let end = start + 1;
+    while (end < matrix.length && matrix[end] === lutIndex) end += 1;
+    for (let remaining = end - start; remaining > 0;) {
+      const count = Math.min(remaining, 32_768);
+      runs.push({ lutIndex, count, marker: count > 1 });
+      remaining -= count;
+    }
+    start = end;
+  }
+  return runs;
+}
+
+function withoutHiddenLayerAssets(board: Board, visibleLayers: ReadonlySet<number>): Board {
+  const grid = boardGrid(board.sizeX, board.sizeY, board.coordType);
+  const cellsPerLayer = grid.width * grid.height;
+  const declaredCells = cellsPerLayer * board.sizeL;
+  const tileMatrix = board.tileMatrix.slice(0, declaredCells).map((lutIndex, index) =>
+    visibleLayers.has(Math.floor(index / cellsPerLayer)) ? lutIndex : 0,
+  );
+  const usedLut = new Set(tileMatrix);
+  return {
+    ...board,
+    tileMatrix,
+    tileRuns: tileRunsFor(tileMatrix),
+    lut: board.lut.map((reference, index) => usedLut.has(index) ? reference : ""),
+    // Preserve original image slots so resolved data and object bounds still have stable indices.
+    images: board.images.map((image) => visibleLayers.has(image.layer - 1) ? image : { ...image, file: "" }),
   };
 }
 
@@ -147,21 +196,35 @@ export async function previewBoard(
   if (!read.ok) return { ok: false, message: `The board cannot be previewed: ${read.error.message}` };
   const board = read.value;
   const extent = boardExtent(board);
-  if (extent.width * extent.height > MAX_PREVIEW_PIXELS) {
-    return { ok: false, message: `This board is larger than the ${MAX_PREVIEW_PIXELS / 1_000_000} million pixels the preview draws; edit it in the grid.` };
+  const camera = options.camera ?? { x: 0, y: 0 };
+  const width = options.viewport?.width ?? Math.max(1, extent.width);
+  const height = options.viewport?.height ?? Math.max(1, extent.height);
+  const maxPixels = options.purpose === "export" ? MAX_EXPORT_PIXELS : MAX_PREVIEW_PIXELS;
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0 || width > Math.floor(maxPixels / height)) {
+    return { ok: false, message: `The requested board view must fit within the ${maxPixels / 1_000_000} million pixel ${options.purpose === "export" ? "export" : "preview"} limit.` };
   }
+  if (!Number.isFinite(camera.x) || !Number.isFinite(camera.y)) return { ok: false, message: "The requested board view has an invalid camera position." };
   const paths = await projectPaths(storage);
   if (typeof paths === "string") return { ok: false, message: paths };
-  // Hiding shading or lighting draws a copy of the board without it; the file and the document are never touched.
+  const visible = options.visibleLayers === undefined ? null : new Set(options.visibleLayers);
+  const preparedBoard: Board = visible === null ? board : withoutHiddenLayerAssets(board, visible);
+  const dropShading = options.showShading === false && preparedBoard.shadeLayers.length > 0;
+  const dropLighting = options.showLighting === false && preparedBoard.lights.length > 0;
+  const dropImages = options.showImages === false && preparedBoard.images.length > 0;
+  const dropBackground = options.showBackground === false && preparedBoard.properties.backgroundImage !== "";
   let preparedBytes = boardBytes;
-  const dropShading = options.showShading === false && board.shadeLayers.length > 0;
-  const dropLighting = options.showLighting === false && board.lights.length > 0;
-  const earlyWarnings: string[] = [];
-  if (dropShading || dropLighting) {
-    const hidden = writeBoard({ ...board, ...(dropShading ? { shadeLayers: [] } : {}), ...(dropLighting ? { lights: [] } : {}) });
-    if (hidden.ok) preparedBytes = hidden.value;
-    else earlyWarnings.push(`Shading and lighting cannot be hidden on this board: ${hidden.error.message}`);
+  if (visible !== null || dropShading || dropLighting || dropImages || dropBackground) {
+    const hidden = writeBoard({
+      ...preparedBoard,
+      ...(dropShading ? { shadeLayers: [] } : {}),
+      ...(dropLighting ? { lights: [] } : {}),
+      ...(dropImages ? { images: [] } : {}),
+      ...(dropBackground ? { properties: { ...preparedBoard.properties, backgroundImage: "" } } : {}),
+    });
+    if (!hidden.ok) return { ok: false, message: `The requested board content could not be hidden: ${hidden.error.message}` };
+    preparedBytes = hidden.value;
   }
+  const earlyWarnings: string[] = [];
   let index = createAssetIndex(paths);
   const root = options.root ?? PACKAGE_ROOT;
   const pathOf = new Map<AssetKey, string>();
@@ -171,7 +234,7 @@ export async function previewBoard(
   const warnings: string[] = [...earlyWarnings];
   const unavailable = new Set<AssetKey>();
   const imageAssets = new Set<AssetKey>();
-  for (const image of board.images) {
+  for (const image of options.showImages === false ? [] : preparedBoard.images ?? []) {
     if (image.file === "") continue;
     const resolved = resolveAsset(index, root, "bitmaps", image.file);
     if (resolved.ok) imageAssets.add(resolved.value);
@@ -233,8 +296,6 @@ export async function previewBoard(
       else warnings.push(`${dependency}: ${picture.error.message}`);
     }
     if (retryImages) continue;
-    const width = Math.max(1, extent.width);
-    const height = Math.max(1, extent.height);
     const spritePreview = options.showSprites === true
       ? await previewBoardSprites(board, index, root, load)
       : { draws: [], textures: new Map<AssetKey, DecodedTexture>(), bounds: [], warnings: [] };
@@ -249,7 +310,7 @@ export async function previewBoard(
           const sprite = board.sprites[bound.index];
           return sprite !== undefined && (options.visibleLayers === undefined || options.visibleLayers.includes(sprite.layer - 1));
         }).map((bound) => ({ kind: "sprites" as const, ...bound })) : []),
-      ...board.images.flatMap((image, index) => {
+      ...(options.showImages === false ? [] : board.images.flatMap((image, index) => {
         if (options.visibleLayers !== undefined && !options.visibleLayers.includes(image.layer - 1)) return [];
         const resolved = hydrated.value!.board.images?.[index];
         const texture = resolved?.asset === undefined ? undefined : textures.get(resolved.asset);
@@ -258,13 +319,14 @@ export async function previewBoard(
         return [{ kind: "images" as const, index, left: stretch ? 0 : image.left, top: stretch ? 0 : image.top,
           width: stretch ? extent.width : resolved?.width ?? texture?.w ?? 32,
           height: stretch ? extent.height : resolved?.height ?? texture?.h ?? 32, placeholder: !graphic }];
-      }),
+      })),
     ];
     const drawList = composeBoard({
       board: visibleBoard(hydrated.value.board, options),
       tick: options.tick ?? 0,
-      camera: { x: 0, y: 0 },
+      camera,
       viewport: { width, height },
+      ...(options.preserveComposition === true ? { parallax: { camera: { x: 0, y: 0 }, viewport: { width: extent.width, height: extent.height } } } : {}),
       alpha: 0,
       include: { shading: true, images: true, sprites: options.showSprites === true },
       sprites: visibleSprites,

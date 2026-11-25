@@ -22,18 +22,25 @@ window.addEventListener("message", (event: MessageEvent<ViewMessage>) => {
   }
   if (event.data.type === "initialize") {
     mountedView?.dispose();
-    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath, event.data.readOnly !== true);
+    const readOnly = event.data.readOnly === true;
+    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath, !readOnly);
     remoteDocument = remote;
     const fs = {
       readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
     };
     // A webview is a page: it exchanges text with the system clipboard through the page's own clipboard, when it has one (T-28).
     const clipboard = clipboardFromApi(navigator.clipboard);
+    const imageExport = remote.kind === "board" && !readOnly ? {
+      actionLabel: "Save PNG",
+      completion: "saved" as const,
+      saveFile: (fileName: string, bytes: Uint8Array) => remote.saveImage(fileName, bytes),
+    } : undefined;
     const services = {
       document: { edited: () => undefined },
       capabilities: new Set<Capability>(clipboard === null ? event.data.capabilities : [...event.data.capabilities, "clipboard"]),
       fs,
       ...(clipboard === null ? {} : { clipboard }),
+      ...(imageExport === undefined ? {} : { imageExport }),
     };
     if (event.data.kind === "character" || event.data.kind === "item") {
       const doc = spriteViewDocument(remote);

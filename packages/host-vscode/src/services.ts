@@ -40,6 +40,24 @@ export function createVscodeServices(root: vscode.Uri, context: vscode.Extension
     settings: createVscodeSettings(root),
     document: { edited: () => undefined },
     dialogs: createVscodeDialogs(root),
+    imageExport: {
+      actionLabel: "Save PNG",
+      completion: "saved",
+      async saveFile(fileName, bytes) {
+        const destination = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.joinPath(root, fileName),
+          saveLabel: "Save PNG",
+          filters: { PNG: ["png"] },
+        });
+        if (destination === undefined) return platformOk(false);
+        try {
+          await vscode.workspace.fs.writeFile(destination, bytes);
+          return platformOk(true);
+        } catch {
+          return platformError("io-error", `Could not save ${fileName}.`);
+        }
+      },
+    },
     packageExport: {
       sha256: async (bytes) => {
         const input = new ArrayBuffer(bytes.byteLength);

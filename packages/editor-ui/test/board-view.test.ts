@@ -5,13 +5,14 @@ import { setImmediate as nextTurn } from "node:timers/promises";
 import { after, before, test } from "node:test";
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument } from "@tk-reawakened/editor-model";
+import { boardTileAt, createDocumentIdentity, openBoardDocument, previewBoard, type BoardDocument, type BoardPicture, type BoardPreviewRequest } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices, type MemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { assetKey, BinaryReader, compositeTileBitmap, decodeTileTexture, readTileset, TILE_ANIMATION_MAGIC, TILE_BITMAP_MAGIC, readTileBitmap, writeTileAnimation, writeTileBitmap, type TileAnimation, type TileBitmap } from "@tk-reawakened/editor-model/testing";
 import { createBrowserSession, type BrowserSession } from "../dist/brush.js";
 import type { BoardViewDocument, ViewHandle } from "../src/mount.ts";
 import type { TilesetBrowserContext } from "../src/tileset-browser.tsx";
 import { exampleBoard, exampleTileset } from "./fixtures.ts";
+
 
 const PATH = "Boards/village.brd";
 const identity = createDocumentIdentity("memory-project", PATH);
@@ -32,6 +33,7 @@ interface Setup {
   readonly doc: BoardDocument;
   readonly view: BoardViewDocument;
   readonly browser: TilesetBrowserContext;
+  readonly previewRequests: BoardPreviewRequest[];
   readonly el: HTMLElement;
 }
 
@@ -44,6 +46,7 @@ async function setup(
   const opened = await openBoardDocument(host.fs, identity);
   if (!opened.ok) throw new Error(`open failed: ${JSON.stringify(opened.error)}`);
   const doc = opened.document;
+  const previewRequests: BoardPreviewRequest[] = [];
   // The committed board names tile 8 of a tileset the committed tileset (two tiles) lacks: use tile 2 there, as a saved project would.
   ok(doc.apply({ type: "set-tile", layer: 1, x: 2, y: 2, tile: "village.tst2" }).ok);
   ok((await doc.save()).ok);
@@ -56,14 +59,15 @@ async function setup(
     apply: (command) => doc.apply(command),
     save: () => doc.save(),
     resolveConflict: (choice) => doc.resolveConflict(choice),
-    preview: async () => {
-      const preview = await previewBoard(host.fs, "memory-project", doc.serialize());
+    preview: async (request) => {
+      previewRequests.push(request ?? {});
+      const preview = await previewBoard(host.fs, "memory-project", doc.serialize(), request);
       return preview.ok ? { ok: true, width: preview.width, height: preview.height, rgba: preview.rgba, warnings: preview.warnings, objectBounds: preview.objectBounds } : preview;
     },
   };
   const el = document.createElement("div");
   document.body.append(el);
-  return { host, doc, view, browser: { session, fs: host.fs, layout: { projectFolder: "" } }, el };
+  return { host, doc, view, browser: { session, fs: host.fs, layout: { projectFolder: "" } }, previewRequests, el };
 }
 
 async function show(
@@ -974,4 +978,75 @@ test("in the Shading mode, Space on a cell shades it from the keyboard, and Rect
   equal(s.doc.getSnapshot().edits.length, base + 1, "the first corner changes nothing");
   await press(cell(s.el, 3, 3), " ");
   equal(s.doc.getSnapshot().edits.length, base + 2, "the second corner is one edit");
+});
+
+test("the board export dialog explains when the host cannot download PNG files", async () => {
+  const s = await setup();
+  const handle = await show(s);
+  try {
+    await act(() => { s.el.querySelector<HTMLButtonElement>(".tkr-board-export")!.click(); });
+    const dialog = s.el.querySelector<HTMLDialogElement>("dialog");
+    ok(dialog);
+    match(dialog.textContent ?? "", /This host cannot save a PNG export/);
+    equal([...dialog.querySelectorAll("button")].find((button) => button.textContent?.trim() === "Prepare PNG")?.disabled, true);
+  } finally {
+    handle.dispose();
+    s.el.remove();
+  }
+});
+test("canceling an export ignores its late preview result", async () => {
+  const s = await setup();
+  let resolvePreview: ((picture: BoardPicture) => void) | undefined;
+  let previewStarted = false;
+  let saves = 0;
+  const pendingPreview = new Promise<BoardPicture>((resolve) => { resolvePreview = resolve; });
+  const view: BoardViewDocument = {
+    ...s.view,
+    preview: (request) => {
+      if (request?.purpose === "export") {
+        previewStarted = true;
+        return pendingPreview;
+      }
+      return s.view.preview(request);
+    },
+  };
+  let handle: ViewHandle | undefined;
+  try {
+    await act(() => {
+      handle = mount(s.el, {
+        document: view,
+        services: {
+          ...s.host,
+          imageExport: {
+            actionLabel: "Download PNG",
+            completion: "started",
+            saveFile: async () => { saves += 1; return { ok: true, value: true }; },
+          },
+        },
+        browser: s.browser,
+      });
+    });
+    for (let turn = 0; turn < 8; turn += 1) await act(() => nextTurn());
+    const button = (label: string): HTMLButtonElement => {
+      const found = [...s.el.querySelectorAll("button")].find((candidate) => candidate.textContent?.trim() === label);
+      if (found === undefined) throw new Error(`no button ${label}`);
+      return found;
+    };
+    await act(() => button("Export PNG…").click());
+    const dialog = s.el.querySelector<HTMLDialogElement>("dialog");
+    ok(dialog);
+    await act(() => button("Prepare PNG").click());
+    for (let turn = 0; turn < 100 && !previewStarted; turn += 1) await nextTurn();
+    ok(previewStarted, "export reached the unresolved preview");
+    button("Cancel").click();
+    resolvePreview?.({ ok: true, width: 1, height: 1, rgba: new Uint8Array([1, 2, 3, 255]), warnings: [], objectBounds: [] });
+    for (let turn = 0; turn < 8; turn += 1) await nextTurn();
+    equal(dialog.isConnected, false, "cancel closes the export dialog");
+    equal(s.el.querySelector(".tkr-board-export-message"), null, "the late preview did not publish a ready result");
+    equal(saves, 0, "the late preview did not save or download an image");
+  } finally {
+    resolvePreview?.({ ok: false, message: "test cleanup" });
+    handle?.dispose();
+    s.el.remove();
+  }
 });
