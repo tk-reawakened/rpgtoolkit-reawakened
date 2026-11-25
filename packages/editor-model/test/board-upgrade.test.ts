@@ -1,5 +1,6 @@
 import { deepEqual, equal, match, ok } from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { boardGrid, coordLayout, decodeBoard, stackedToRotated, tileToPixel } from "@tk-reawakened/core";
@@ -122,6 +123,14 @@ void test("pre-vector upgrade writes a reopenable copy and retains the original 
   const result = await upgradeBoardCopy({
     fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: async (destination, bytes) => {
+      const temporary = "Boards/.board-upgrade-test.tmp";
+      const written = await host.fs.writeProject("memory-project", temporary, bytes);
+      if (!written.ok) return written;
+      const moved = await host.fs.rename(temporary, destination);
+      if (!moved.ok) await host.fs.deleteProject("memory-project", temporary);
+      return moved;
+    },
   });
   deepEqual(result, { ok: true, value: copyPath });
   deepEqual(host.bytesOf(sourcePath), original);
@@ -138,6 +147,31 @@ void test("pre-vector upgrade writes a reopenable copy and retains the original 
   equal(host.questions.length, 1);
   match(host.questions[0]!.detail, /original .* is retained/i);
 });
+void test("exclusive destination creation refuses a file created after the preflight check", async () => {
+  const original = exampleBoard(3);
+  const external = Uint8Array.of(3, 1, 4);
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const result = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: async (destination, bytes) => {
+      await host.fs.writeProject("memory-project", destination, external);
+      const temporary = "Boards/.board-upgrade-race.tmp";
+      const written = await host.fs.writeProject("memory-project", temporary, bytes);
+      if (!written.ok) return written;
+      const moved = await host.fs.rename(temporary, destination);
+      if (!moved.ok) await host.fs.deleteProject("memory-project", temporary);
+      return moved;
+    },
+  });
+  ok(!result.ok);
+  deepEqual(host.bytesOf(copyPath), external);
+  deepEqual(host.bytesOf(sourcePath), original);
+  equal(host.bytesOf("Boards/.board-upgrade-race.tmp"), undefined);
+});
+
 
 void test("cancel, stale source, destination collision, and failed writes preserve the source and create no partial copy", async () => {
   const original = exampleBoard(3);
@@ -146,6 +180,7 @@ void test("cancel, stale source, destination collision, and failed writes preser
   const cancel = await upgradeBoardCopy({
     fs: cancelled.fs, dialogs: cancelled.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: null,
   });
   deepEqual(cancel, { ok: true, value: null });
   equal(cancelled.bytesOf(copyPath), undefined);
@@ -157,6 +192,7 @@ void test("cancel, stale source, destination collision, and failed writes preser
   const conflict = await upgradeBoardCopy({
     fs: occupied.fs, dialogs: occupied.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: null,
   });
   ok(!conflict.ok);
   equal(conflict.error.code, "already-exists");
@@ -170,6 +206,7 @@ void test("cancel, stale source, destination collision, and failed writes preser
   const writeFailure = await upgradeBoardCopy({
     fs: failed.fs, dialogs: failed.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: null,
   });
   ok(!writeFailure.ok);
   match(writeFailure.error.message, /disk full/);
@@ -182,6 +219,7 @@ void test("pending edits and unsupported pre-vector layouts refuse before review
   const rejectedPending = await upgradeBoardCopy({
     fs: dirty.fs, dialogs: dirty.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => true,
+    createExclusive: null,
   });
   ok(!rejectedPending.ok);
   match(rejectedPending.error.message, /pending edits/);
@@ -195,6 +233,7 @@ void test("pending edits and unsupported pre-vector layouts refuse before review
   const refused = await upgradeBoardCopy({
     fs: unsupported.fs, dialogs: unsupported.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: null,
   });
   ok(!refused.ok);
   match(refused.error.message, /rotated|coordinate|unsupported/i);
@@ -217,6 +256,7 @@ void test("source changes during the preview are not copied", async () => {
       pickSavePath: async () => copyPath,
     },
     projectId: "memory-project", boardPath: sourcePath, operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: null,
   });
   ok(!result.ok);
   match(result.error.message, /changed while.*reviewed/i);
@@ -233,6 +273,7 @@ void test("upgrade refuses cross-game destinations and case-folded collisions", 
   const collision = await upgradeBoardCopy({
     fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: null,
   });
   ok(!collision.ok);
   equal(collision.error.code, "already-exists");
@@ -244,6 +285,7 @@ void test("upgrade refuses cross-game destinations and case-folded collisions", 
   const refused = await upgradeBoardCopy({
     fs: otherGame.fs, dialogs: otherGame.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: null,
   });
   ok(!refused.ok);
   match(refused.error.message, /same game's Boards folder/i);
@@ -259,9 +301,66 @@ void test("upgrade refuses a real Toolkit 2 text board", {
   const refused = await upgradeBoardCopy({
     fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: null,
   });
   ok(!refused.ok);
   match(refused.error.message, /binary pre-vector board|text boards/i);
   equal(host.questions.length, 0);
   equal(host.bytesOf(copyPath), undefined);
+});
+
+const realMinor2Board = resolve("fixtures/legacy/Caoquest/Boards/red.brd");
+void test("real minor-2 copy preserves independently pinned board content and the original", {
+  skip: existsSync(realMinor2Board) ? false : "run pnpm fixtures:fetch",
+}, async () => {
+  const original = new Uint8Array(readFileSync(realMinor2Board));
+  equal(createHash("sha256").update(original).digest("hex"), "ef946b9671bcc83091e9264d8e318e1be05ce27c8fd4adc61fefaec31f813d62");
+  equal(original[14], 0);
+  equal(original[17], 2);
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const result = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+    createExclusive: async (destination, bytes) => {
+      const temporary = "Boards/.real-board-upgrade.tmp";
+      const written = await host.fs.writeProject("memory-project", temporary, bytes);
+      if (!written.ok) return written;
+      const moved = await host.fs.rename(temporary, destination);
+      if (!moved.ok) await host.fs.deleteProject("memory-project", temporary);
+      return moved;
+    },
+  });
+  deepEqual(result, { ok: true, value: copyPath });
+  deepEqual(host.bytesOf(sourcePath), original);
+  const reopened = decoded(host.bytesOf(copyPath)!);
+  equal(reopened.layout, "vector");
+  const board = reopened.board;
+  deepEqual([board.sizeX, board.sizeY, board.sizeL], [19, 14, 8]);
+  deepEqual(board.tileMatrix.slice(0, 12), [1, 2, 6, 6, 6, 12, 2, 6, 6, 6, 12, 1]);
+  equal(new Set(board.tileMatrix).size, 27);
+  equal(board.vectors.length, 32);
+  deepEqual(board.vectors[0], {
+    points: [{ x: 32, y: 0 }, { x: 352, y: 0 }, { x: 352, y: 32 }, { x: 32, y: 32 }],
+    attributes: 1, closed: -1, layer: 1, type: 2, handle: "",
+  });
+  equal(board.programs.length, 24);
+  deepEqual(board.programs[0], {
+    program: "warp00000002.prg", graphic: "", initialVar: "", initialValue: "", finalVar: "", finalValue: "",
+    activate: 0, activationType: 4, repeatDistance: 0, layer: 1,
+    points: [{ x: 512, y: 128 }, { x: 544, y: 128 }, { x: 544, y: 160 }, { x: 512, y: 160 }],
+    closed: -1, handle: "",
+  });
+  equal(board.sprites.length, 2);
+  deepEqual(board.shadeLayers[0], {
+    castLayer: 1,
+    records: [
+      { runCount: 16, r: 0, g: 0, b: 0 },
+      { runCount: 1, r: -26, g: -26, b: -26 },
+      { runCount: 77, r: 0, g: 0, b: 0 },
+      { runCount: 1, r: -26, g: -26, b: -26 },
+      { runCount: 171, r: 0, g: 0, b: 0 },
+    ],
+  });
 });

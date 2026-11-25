@@ -105,14 +105,29 @@ export function registerBoardUpgradeCommands(
           return;
         }
       }
+      const fs = createVscodeFileSystem(folder.uri);
+      const projectId = folder.uri.toString();
+      const createExclusive = async (destination: string, bytes: Uint8Array) => {
+        const parent = destination.split("/").slice(0, -1).join("/");
+        const temporary = `${parent}/.board-upgrade-${globalThis.crypto.randomUUID()}.tmp`;
+        const written = await fs.writeProject(projectId, temporary, bytes);
+        if (!written.ok) return written;
+        const renamed = await fs.rename(temporary, destination);
+        if (!renamed.ok) {
+          await fs.deleteProject(projectId, temporary);
+          return renamed;
+        }
+        return renamed;
+      };
       const result = await upgradeBoardCopy({
-        fs: createVscodeFileSystem(folder.uri),
+        fs,
         dialogs: createVscodeDialogs(folder.uri),
-        projectId: folder.uri.toString(),
+        projectId,
         boardPath: choice.path,
         operation,
         hasPendingEdits: () => hasDirtyTextDocument(choice.uri)
           || live !== undefined && (live.model.getSnapshot().dirty || live.model.getSnapshot().saving || live.model.getSnapshot().conflict !== null),
+        createExclusive,
       });
       if (!result.ok) {
         await vscode.window.showErrorMessage(result.error.message);

@@ -448,6 +448,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       boardPath,
       operation,
       hasPendingEdits: isPending,
+      createExclusive: null,
     });
     if (!result.ok) {
       await tell(result.error.message);

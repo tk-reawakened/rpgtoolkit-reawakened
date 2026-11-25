@@ -122,11 +122,13 @@ export interface BoardUpgradeCopyOptions {
   readonly boardPath: string;
   readonly operation: BoardUpgradeOperation;
   readonly hasPendingEdits: () => boolean;
+  /** Exclusive destination creator where the host provides one; null explicitly selects the disclosed fallback. */
+  readonly createExclusive: ((destination: string, bytes: Uint8Array) => Promise<PlatformResult<void>>) | null;
 }
 
 /** Preview and write an upgraded board as a new file; never edits the source document. */
 export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promise<PlatformResult<string | null>> {
-  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits } = options;
+  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, createExclusive } = options;
   if (!/^(?:game\/[^/]+\/)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(boardPath)
     || /[\\:\u0000-\u001f\u007f]/.test(boardPath)
     || boardPath.split("/").some((part) => part === "." || part === "..")) {
@@ -162,9 +164,12 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
   const encoded = writeBoard(board);
   if (!encoded.ok) return platformError("invalid-request", `${boardPath}: ${encoded.error.message}`);
   const warnings = decoded.warnings.length === 0 ? "No conversion warnings." : `Warnings: ${decoded.warnings.join("; ")}`;
+  const creationNotice = createExclusive === null
+    ? "Destination creation is non-atomic on this host: same-editor upgrades are serialized, but another process can create the path between check and write."
+    : "Destination creation uses an exclusive host operation; an existing destination is never replaced.";
   const answer = await dialogs.ask({
     message: `${title}: ${boardPath}?`,
-    detail: `${summary} ${warnings} Destination creation is non-atomic on this host: same-editor upgrades are serialized, but another process can create the path between check and write. The source file will not be changed.`,
+    detail: `${summary} ${warnings} ${creationNotice} The source file will not be changed.`,
     choices: [{ id: "cancel", label: "Cancel" }, { id: "preview", label: "Choose copy destination…" }],
     cancel: "cancel",
   });
@@ -208,7 +213,9 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     const finalSource = await fs.readProject(projectId, boardPath);
     if (!finalSource.ok) return platformError(finalSource.error.code, `Could not recheck ${boardPath}: ${finalSource.error.message}`);
     if (!sameBytes(source.value, finalSource.value)) return platformError("invalid-request", `${boardPath} changed before the copy was written.`);
-    const written = await fs.writeProject(projectId, destination, encoded.value);
+    const written = createExclusive === null
+      ? await fs.writeProject(projectId, destination, encoded.value)
+      : await createExclusive(destination, encoded.value);
     return written.ok ? platformOk(destination) : platformError(written.error.code, `Could not write ${destination}: ${written.error.message}`);
   });
 }
