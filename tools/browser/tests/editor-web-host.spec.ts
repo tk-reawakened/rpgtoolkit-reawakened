@@ -1148,7 +1148,7 @@ async function waitForFolderPicker(page: Page): Promise<void> {
   await page.waitForFunction(() => (window as ProofWindow).__tkrTestFolder !== undefined);
 }
 
-test("browser host previews, upgrades, reopens and runs the pinned original minor-2 board without replacing it", async ({ page }) => {
+test("browser host upgrades the pinned original minor-2 board and runs its reopened pixel-coordinate copy", async ({ page }) => {
   const fixturePath = fileURLToPath(new URL("../../../fixtures/legacy/Caoquest/Boards/red.brd", import.meta.url));
   test.skip(!existsSync(fixturePath), "Run pnpm fixtures:fetch to use the pinned original minor-2 board; no source game files are committed.");
   const sourcePath = "Game/Example/Boards/red.brd";
@@ -1331,5 +1331,71 @@ test("browser host previews, upgrades, reopens and runs the pinned original mino
     gl.readPixels(0, 0, screen.width, screen.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     return pixels.some((value, index) => index % 4 !== 3 && value > 0);
   });
+  await page.getByRole("tab", { name: copyPath, exact: true }).click();
+  await page.getByRole("button", { name: "Convert tile coordinates…", exact: true }).click();
+  const coordinatePreview = page.getByRole("dialog").filter({ hasText: "Convert tile coordinates to pixels" });
+  await expect(coordinatePreview).toBeVisible();
+  await expect(coordinatePreview).toContainText("script coordinate unit to pixels");
+  await coordinatePreview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const pixelCopyPath = "Game/Example/Boards/red.pixels.brd";
+  const pixelSaveDialog = page.getByRole("dialog", { name: `Save ${copyPath} as` });
+  await pixelSaveDialog.getByRole("textbox").fill(pixelCopyPath);
+  await pixelSaveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: pixelCopyPath, exact: true })).toBeVisible();
+
+  const pixelCopyBytes = await page.evaluate(async (path) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const parts = path.split("/");
+    let parent = root;
+    for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+    return [...new Uint8Array(await (await (await parent.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
+  }, pixelCopyPath);
+  const pixels = decodeBoard(new Uint8Array(pixelCopyBytes));
+  expect(pixels.ok).toBe(true);
+  if (!pixels.ok) throw new Error(pixels.error.message);
+  expect(pixels.value.layout).toBe("vector");
+  expect(pixels.value.board.coordType & 4).toBe(4);
+  expect(pixels.value.board.sizeX).toBe(decoded.value.board.sizeX);
+
+  await page.getByRole("button", { name: "Application menu" }).click();
+  await page.getByRole("menuitem", { name: /Close Active Tab/i }).click();
+  await expect(page.getByRole("tab", { name: pixelCopyPath, exact: true })).toHaveCount(0);
+  await page.getByRole("treeitem").filter({ hasText: "red.pixels.brd" }).dblclick();
+  await expect(page.getByRole("tab", { name: pixelCopyPath, exact: true })).toBeVisible();
+  await setupButton.click();
+  const pixelSetup = page.getByRole("dialog", { name: "New run setup" });
+  await pixelSetup.getByRole("tab", { name: "Test board", exact: true }).click();
+  await expect(pixelSetup.getByRole("combobox", { name: "Board", exact: true })).toHaveValue(pixelCopyPath);
+  await pixelSetup.getByRole("spinbutton", { name: "Column", exact: true }).fill("2");
+  await pixelSetup.getByRole("spinbutton", { name: "Row", exact: true }).fill("2");
+  await pixelSetup.getByRole("listbox", { name: "Party", exact: true }).selectOption("Game/Example/Chrs/ada.tem");
+  await pixelSetup.getByRole("button", { name: "Test board", exact: true }).click();
+  await expect(runner.locator("#screen")).toBeVisible({ timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    const live = (frame?.contentWindow as unknown as { __live?: { board: string | null } } | null)?.__live;
+    return live?.board?.toLowerCase() ?? "";
+  }), { timeout: 30_000 }).toContain("red.pixels.brd");
+  const pixelRun = await page.evaluate(() => {
+    const frame = document.querySelector<HTMLIFrameElement>('iframe[title="Running game"]');
+    return (frame?.contentWindow as unknown as { __live?: { player: { x: number; y: number } | null; stateHash: string } } | null)?.__live ?? null;
+  });
+  expect(pixelRun?.player).toEqual({ x: 2, y: 2 });
+  expect(pixelRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  const finalFiles = await page.evaluate(async ({ source, upgraded, pixelCopy }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const read = async (path: string) => {
+      const parts = path.split("/");
+      let parent = root;
+      for (const part of parts.slice(0, -1)) parent = await parent.getDirectoryHandle(part);
+      return [...new Uint8Array(await (await (await parent.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())];
+    };
+    return { source: await read(source), upgraded: await read(upgraded), pixelCopy: await read(pixelCopy) };
+  }, { source: sourcePath, upgraded: copyPath, pixelCopy: pixelCopyPath });
+  expect(finalFiles.source).toEqual(disk.source);
+  expect(finalFiles.upgraded).toEqual(disk.destination);
+  expect(finalFiles.pixelCopy).toEqual(pixelCopyBytes);
   await page.getByRole("group", { name: "Run", exact: true }).getByRole("button", { name: "Stop", exact: true }).click();
 });
