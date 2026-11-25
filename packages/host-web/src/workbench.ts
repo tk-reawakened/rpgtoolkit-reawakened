@@ -322,10 +322,12 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
             pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
             open: async (path) => {
               const kind = kindForPath(path)?.id;
-              const layout = owner.layout;
-              if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap" && kind !== "animation") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
-              const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : "animations";
-              const target = kind === "animation" ? path : referencePath(layout, folder, path);
+              const layout = document.kind === "main" ? projectLayout : owner.layout;
+              if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap" && kind !== "animation" && kind !== "special-move" && kind !== "status-effect") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
+              const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : kind === "special-move" ? "specialMoves" : kind === "status-effect" ? "statusEffects" : "animations";
+              // The battle-data forms hand over the project-relative path of the file they checked; every other caller hands over the stored reference.
+              const inFolder = path.toLowerCase().startsWith(referencePath(layout, folder, "").toLowerCase());
+              const target = kind === "animation" || ((kind === "special-move" || kind === "status-effect" || kind === "program") && inFolder) ? path : referencePath(layout, folder, path);
               const visited = await visits.visit(document, target);
               if (!visited.ok) return "message" in visited.error ? visited.error.message : visited.error.error.message;
               await show(visited.document);

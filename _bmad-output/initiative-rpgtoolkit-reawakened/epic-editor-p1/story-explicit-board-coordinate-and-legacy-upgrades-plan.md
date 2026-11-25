@@ -99,3 +99,13 @@ The existing spec has exact forward stacked-to-rotated and tile-to-pixel rules. 
 - The same 8 cases passed together when filtered on PR base `1222d6c` (24.9s) and PR head `d3b798a` (22.8s). This does not establish whether the full-suite failures are pre-existing, a branch interaction, or nondeterministic; keep them unresolved and do not label them unrelated.
 - A second full suite run (159 tests) reported 158 passed; only connected-authoring failed. This time the run was active at tick 438, but `editor-connected-authoring.spec.ts:227` timed out waiting for `.tkr-run-current .tkr-run-snapshot` (proof helper line 468). Exact case-filtered reruns passed on both base and head; cause remains unconfirmed.
 - Minor-3 and stacked original-board evidence remains unavailable; #3475 stays open.
+
+## Post-merge verification (2026-11-25)
+
+- `pnpm typecheck` -- passed on the merged tree, including package and browser test types.
+- `pnpm --dir extensions/editor build` -- passed.
+- `pnpm --dir tools/editor-vscode-test typecheck:tests && TKR_VSCODE_BOARD_UPGRADE_PROOF=1 pnpm --dir tools/editor-vscode-test proof -- --extension extensions/editor --workspace docs/spec/examples/game --game Main/example.gam` -- passed on the merged tree; 14/14 proof setup tests passed. The VS Code web host cancelled its real destination picker, refused a write without leaving output, retained pending script text/bytes through the successful conversion, and closed/reopened and ran the still-converted pixel copy.
+- `pnpm exec playwright test tools/browser/tests/editor-web-host.spec.ts -g "browser host upgrades the pinned original minor-2 board"` -- passed on the merged tree (1 test), including the asserted authored checker pattern in reopened tile- and pixel-coordinate runs, cancellation and refused writes, and source/script byte preservation.
+- `pnpm exec tsc -p packages/host-web/tsconfig.test.json && node --test packages/host-web/test/filesystem.test.ts` -- passed (5/5).
+- Scoped ESLint over the changed browser and VS Code host, proof, and filesystem files -- passed.
+- The earlier full browser suite remains unresolved; it was not rerun after this merge. The previous 151/159 and 158/159 runs and their connected-authoring/artwork/undo failures remain documented above and are not claimed as green.

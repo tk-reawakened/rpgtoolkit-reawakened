@@ -1,9 +1,9 @@
 import { boardPreviewRootForLayout, projectLayoutOwnerForDocumentPath, resolveReservedFolderPath, type ProjectLayout, createAnimationAuthoring, asAnimationDocument, asMainDocument, importSavedBoardAsScene, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
-import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
+import { encodeBackup, recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
-import type { AssetRoot, HistoryPolicy, HistoryReason } from "@tk-reawakened/editor-model";
+import type { AssetRoot, HistoryPolicy, HistoryReason, SettleFailureKind, SettleReason } from "@tk-reawakened/editor-model";
 
 /**
  * The custom editor of every registered document kind (ADR 0026) without the `vscode` module: the provider methods VS Code's workbench calls, written
@@ -99,6 +99,8 @@ export interface GameEditorPort<Uri extends UriLike> {
    * this is not `null` and it arrives within that delay plus one second of the document's last accepted edit.
    */
   autoSaveDelayMs?(uri: Uri): number | null;
+  /** `files.autoSave` for `uri`, so a save can be told from the author's own (#3385); `"off"` when the port gives none. */
+  autoSaveMode?(uri: Uri): "off" | "afterDelay" | "onFocusChange" | "onWindowChange";
   /** The retention settings in force for `folder` (D12.8); the user's values only, never a workspace's (D6.3). */
   historyPolicy?(folder: WorkspaceFolderLike<Uri>): HistoryPolicy;
   /** The current time in milliseconds; `Date.now` when the port gives none. A test supplies its own so no proof depends on elapsed time. */
@@ -134,6 +136,7 @@ export const DOCUMENT_KINDS_BY_VIEW_TYPE = {
   "tkr.tileBitmap": ["tile-bitmap"],
   "tkr.font": ["font"],
   "tkr.animation": ["animation"],
+  "tkr.battleData": ["special-move", "status-effect"],
 } as const;
 
 /** What a webview panel gives the provider. */
@@ -209,6 +212,13 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** Explicit Save commands from this editor's own Save button that have not finished; their saves are never `auto`. */
   #restoreGroupId: string | null = null;
   #explicitSaves = 0;
+  /**
+   * The hot-exit backup VS Code last asked for, until it deletes it. VS Code schedules backups from edit events, and a
+   * continued typing gesture fires none (ADR 0022 D16.2), so the provider refreshes this one itself (D16.4).
+   */
+  #backup: Uri | null = null;
+  #backupQueue: Promise<void> = Promise.resolve();
+  #backupDirty = false;
 
   #now(): number {
     return this.#port.now?.() ?? Date.now();
@@ -218,6 +228,22 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     if (this.#explicitSaves > 0) return "manual";
     const delay = this.#port.autoSaveDelayMs?.(this.uri) ?? null;
     return delay !== null && this.#now() - this.#lastEditAt <= delay + 1000 ? "auto" : "manual";
+  }
+
+  /**
+   * How to treat a field the author is still typing in when VS Code saves this document without saying why
+   * (`saveCustomDocument(document, cancellation)` carries no reason). Only one case is certain: with `files.autoSave` off
+   * every save is the author's (Save, Save All, a save-on-close), so the field is applied or refused with its reason.
+   * With any autosave on, a timer or focus change can fire at any moment, including late or right after the setting is
+   * switched on, and the author's own save looks the same; no timing rule can tell them apart, so the save is a `guard`:
+   * no text is applied mid-gesture (D11.2), and a field still holding text fails the save before anything is written, so
+   * VS Code keeps the document unsaved and a close asks instead of losing the text. Nothing is ever written while the save
+   * is reported as failed: VS Code's save point and the file on disk must stay the same version, or an Undo back to the
+   * save point would show a document that disagrees with its file.
+   */
+  #settleReason(): "explicit" | "guard" {
+    if (this.#explicitSaves > 0) return "explicit";
+    return (this.#port.autoSaveMode?.(this.uri) ?? "off") === "off" ? "explicit" : "guard";
   }
 
   constructor(uri: Uri, model: AnyDocument, workspace: DocumentWorkspace, fs: FileSystemService, navigation: DocumentNavigation<Uri>, port: GameEditorPort<Uri>, fire: (event: GameEditEvent<Uri>) => void, browserSession: BrowserSession, onDispose: () => void = () => undefined, sourceTile: number | null = null, layout: ProjectLayout = { projectFolder: "" }) {
@@ -256,6 +282,32 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
     this.#fire({ document: this, label, undo: () => { this.model.undo(editId); }, redo: () => { this.model.redo(editId); } });
   }
 
+  /** VS Code took a backup at `destination`; later gestures refresh it until it is deleted. */
+  rememberBackup(destination: Uri): void { this.#backup = destination; }
+  forgetBackup(destination: Uri): void { if (this.#backup === destination) this.#backup = null; }
+  /** Resolves once no refresh is writing, so a deleted backup is not written again afterwards. */
+  backupsSettled(): Promise<void> { return this.#backupQueue; }
+
+  /**
+   * An accepted keystroke continued the latest edit: VS Code holds that edit already and adds nothing, so it schedules no
+   * backup. Rewrite the last backup with the current content, one write at a time, the last write always the latest model.
+   */
+  didAmend(): void {
+    if (this.#backup === null) return;
+    if (this.#backupDirty) return;
+    this.#backupDirty = true;
+    this.#backupQueue = this.#backupQueue.then(async () => {
+      this.#backupDirty = false;
+      const destination = this.#backup;
+      if (destination === null) return;
+      try {
+        await this.#port.writeBackup(destination, encodeBackup(this.model));
+      } catch {
+        // A failed refresh leaves VS Code's own backup, which is older but whole; the next keystroke tries again.
+      }
+    });
+  }
+
   /** VS Code disposes a custom document when its last editor closes; the workbench has already asked about unsaved work. */
   dispose(): void {
     this.#workspace.release(this.model);
@@ -263,7 +315,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** Track a webview of this document; the returned function forgets it (its panel was disposed). */
-  attachWebview(post: (requestId: string) => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
+  attachWebview(post: (requestId: string, reason?: SettleReason, saveLock?: number) => PromiseLike<boolean>, notify?: (message: BridgeMessage) => void): () => void {
     const target: SettleTarget = { post, waiting: new Map(), ...(notify === undefined ? {} : { notify }) };
     this.#views.add(target);
     return () => {
@@ -275,8 +327,8 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   }
 
   /** A webview answered a `settle` request: every edit it had accepted has reached this model. */
-  viewSettled(requestId: string): void {
-    for (const view of this.#views) view.waiting.get(requestId)?.(true);
+  viewSettled(requestId: string, settled = true, message?: string, kind?: SettleFailureKind): void {
+    for (const view of this.#views) view.waiting.get(requestId)?.(settled, message, kind);
   }
 
   /**
@@ -290,21 +342,29 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * messages, and a view destroyed before it can be asked is no longer tracked. Those windows remain known gaps in
    * ADR 0022, #2613 and #2652.
    */
-  async settleViews(): Promise<string | null> {
+  async settleViews(reason: SettleReason, saveLock?: number): Promise<string | null> {
+    return (await this.settleViewsOutcome(reason, saveLock)).message;
+  }
+
+  /** `settleViews`, saying whether the message is a view's own refusal (text it holds) rather than a failed hand-off. */
+  async settleViewsOutcome(reason: SettleReason, saveLock?: number): Promise<{ readonly message: string | null; readonly refused: boolean }> {
     const startTimer = this.#port.startSettleTimer ?? defaultSettleTimer;
-    const answers = [...this.#views].map((view) => new Promise<boolean>((resolve) => {
+    const answers = [...this.#views].map((view) => new Promise<{ readonly message: string | null; readonly refused: boolean }>((resolve) => {
       const requestId = `settle-${++this.#nextSettle}`;
       const timer = startTimer(() => answer(false));
-      const answer = (settled: boolean): void => {
+      const answer = (settled: boolean, message?: string, kind?: SettleFailureKind): void => {
         timer.cancel();
         view.waiting.delete(requestId);
-        resolve(settled);
+        // Only a view reporting text a field holds (`held`) leaves the accepted edits safe to write; a hand-off that was not
+        // confirmed (busy after every round, a gone view, a timeout) is a failure whatever sentence it carries (#2613).
+        resolve({ message: message ?? (settled ? null : "the editor could not confirm that it handed over its accepted edits"), refused: !settled && kind === "held" });
       };
       view.waiting.set(requestId, answer);
-      void view.post(requestId).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
+      void view.post(requestId, reason, saveLock).then((delivered) => { if (!delivered) answer(false); }, () => answer(false));
     }));
-    if ((await Promise.all(answers)).every((settled) => settled)) return null;
-    return "the editor could not confirm that it handed over its accepted edits";
+    const settled = await Promise.all(answers);
+    // A failed hand-off outranks a refusal: nothing may be written when the model might miss an accepted edit.
+    return settled.find((answer) => answer.message !== null && !answer.refused) ?? settled.find((answer) => answer.message !== null) ?? { message: null, refused: false };
   }
 
   /**
@@ -372,7 +432,7 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
       dialogs: this.#port.dialogs(folder),
       projectId: this.model.identity.projectId,
       boardPath: this.model.identity.path,
-      settle: () => this.settleViews(),
+      settle: () => this.settleViews("autosave"),
       pendingEdits: () => {
         const state = this.model.getSnapshot();
         return state.dirty || state.saving || state.conflict !== null || this.#port.hasDirtyTextDocument?.(this.uri) === true;
@@ -461,10 +521,34 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
    * before it records the save is outside the provider's reach (ADR 0022 D14.6, #2225).
    */
   async save(): Promise<SaveResult> {
-    const unsettled = await this.settleViews();
+    return this.withSaveLock(async (saveLock) => this.#save(saveLock));
+  }
+
+  #nextSaveLock = 0;
+  readonly #saveLocks = new Set<number>();
+
+  /** A late-opening split inherits the active locks before its form becomes editable. */
+  activeSaveLocks(): readonly number[] {
+    return [...this.#saveLocks];
+  }
+
+  /** Keep the views locked until this particular write finishes, even if saves overlap. */
+  async withSaveLock<T>(operation: (saveLock: number) => Promise<T>): Promise<T> {
+    const saveLock = ++this.#nextSaveLock;
+    this.#saveLocks.add(saveLock);
+    try {
+      return await operation(saveLock);
+    } finally {
+      this.#saveLocks.delete(saveLock);
+      for (const view of this.#views) view.notify?.({ type: "unlock", saveLock });
+    }
+  }
+
+  async #save(saveLock: number): Promise<SaveResult> {
+    const unsettled = await this.settleViews(this.#settleReason(), saveLock);
     if (unsettled !== null) {
       const path = this.model.identity.path;
-      const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled}. Nothing was written and the edits it holds stay unsaved; save again.` } };
+      const failed: SaveResult = { ok: false, failure: { document: path, kind: "write", code: null, message: `Could not save ${path}: ${unsettled.replace(/\.+$/, "")}. Nothing was written and the edits it holds stay unsaved; save again.` } };
       this.#saves += 1;
       this.#lastSave = failed;
       return failed;
@@ -539,10 +623,11 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
 
 /** One webview of a document, and the `settle` requests it has not yet answered. */
 interface SettleTarget {
-  post(requestId: string): PromiseLike<boolean>;
+  post(requestId: string, reason?: SettleReason, saveLock?: number): PromiseLike<boolean>;
   /** A message sent outside a request/answer pair, such as a source visit's tile. */
   notify?(message: BridgeMessage): void;
-  readonly waiting: Map<string, (settled: boolean) => void>;
+  /** A hand-off answer: `settled` is false when the view could not confirm its accepted edits; the message is a reason it refuses. */
+  readonly waiting: Map<string, (settled: boolean, message?: string, kind?: SettleFailureKind) => void>;
 }
 
 /** What a document can ask of the provider for navigation: the project-wide parts of story 11.4. */
@@ -592,7 +677,7 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       },
       settleOpenDocument: async (model) => {
         const document = hostDocuments.get(model);
-        return document === undefined || await document.settleViews() === null;
+        return document === undefined || await document.settleViews("autosave") === null;
       },
       restoreOpenDocument: async (model, editId, groupId) => {
         const document = hostDocuments.get(model);
@@ -857,49 +942,56 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       if (!result.ok) throw new Error(result.failure.message);
     },
     async saveCustomDocumentAs(document, destination) {
-      // VS Code's save dialog has already chosen the destination and confirmed replacing an existing file (D3.4).
-      // Edits the webview accepted but has not sent are part of the copy (#2613).
-      const unsettled = await document.settleViews();
-      if (unsettled !== null) throw new Error(`Could not save ${nameOf(destination)}: ${unsettled}. Nothing was written.`);
-      const folder = port.folderOf(destination);
-      if (folder === undefined) throw new Error(`${nameOf(destination)} is outside the open workspace folders; Save As saves inside a project. Nothing was written.`);
-      // The source's project is the project of its whole lifecycle (D1.1). A multi-root workspace has one project per
-      // folder, and Save As never moves a document into another one; the refusal comes before any state is made for that
-      // folder, so the other project gets no workspace, no read and no write (ADR 0022 D14.7, #2206).
-      if (folder.key !== document.model.identity.projectId) {
-        throw new Error(`${nameOf(destination)} is in another workspace folder (${nameOf(folder.uri) || folder.uri.path}); Save As saves inside the project of ${document.model.identity.path}. Nothing was written.`);
-      }
-      const project = projectIn(folder, destination);
-      const resolved = await resolveDocumentPath(project.fs, project.path);
-      if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `Could not check ${project.path}: ${resolved.error.message}`);
-      const identity = createDocumentIdentity(folder.key, resolved.path);
-      if (project.workspace.documents().some((open) => open.identity.key === identity.key && open !== document.model)) {
-        throw new Error(`${resolved.path} is open in another editor; close it before saving another document over it. Nothing was written.`);
-      }
-      // VS Code replaces the source tab with the destination once this resolves, so a source edit made during the write
-      // (which the copy does not hold) fails the Save As and keeps the source open with its work (#2201).
-      const copied = document.model.getSnapshot();
-      // Save As through the workspace's storage, so an existing destination keeps its prior bytes in history (D12.10 items 4 and 6).
-      const result = await document.model.saveAs(project.workspace.storage, identity);
-      if (!result.ok) throw new Error(result.failure.message);
-      if (!sameRevision(document.model.getSnapshot(), copied)) {
-        throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);
-      }
+      return document.withSaveLock(async (saveLock) => {
+        // VS Code's save dialog has already chosen the destination and confirmed replacing an existing file (D3.4).
+        // Edits the webview accepted but has not sent are part of the copy (#2613).
+        const unsettled = await document.settleViews("explicit", saveLock);
+        if (unsettled !== null) throw new Error(`Could not save ${nameOf(destination)}: ${unsettled.replace(/\.+$/, "")}. Nothing was written.`);
+        const folder = port.folderOf(destination);
+        if (folder === undefined) throw new Error(`${nameOf(destination)} is outside the open workspace folders; Save As saves inside a project. Nothing was written.`);
+        // A multi-root workspace has one project per folder; refuse a cross-project copy before touching the other project
+        // (ADR 0022 D1.1, D14.7, #2206).
+        if (folder.key !== document.model.identity.projectId) {
+          throw new Error(`${nameOf(destination)} is in another workspace folder (${nameOf(folder.uri) || folder.uri.path}); Save As saves inside the project of ${document.model.identity.path}. Nothing was written.`);
+        }
+        const project = projectIn(folder, destination);
+        const resolved = await resolveDocumentPath(project.fs, project.path);
+        if (!resolved.ok) throw new Error(resolved.kind === "case-conflict" ? resolved.message : `Could not check ${project.path}: ${resolved.error.message}`);
+        const identity = createDocumentIdentity(folder.key, resolved.path);
+        if (project.workspace.documents().some((open) => open.identity.key === identity.key && open !== document.model)) {
+          throw new Error(`${resolved.path} is open in another editor; close it before saving another document over it. Nothing was written.`);
+        }
+        const copied = document.model.getSnapshot();
+        // Workspace storage retains an existing destination's prior bytes in history (D12.10 items 4 and 6).
+        const result = await document.model.saveAs(project.workspace.storage, identity);
+        if (!result.ok) throw new Error(result.failure.message);
+        // VS Code replaces the source tab once this resolves. Compare revisions after settlement, which can deliver an
+        // accepted edit that the copy doesn't hold (#2201).
+        const late = await document.settleViewsOutcome("guard", saveLock);
+        if (late.message !== null) throw new Error(`${resolved.path} was written, but ${document.model.identity.path} ${late.refused ? "still holds text typed during Save As" : "could not hand over its latest edits"} and remains open: ${late.message.replace(/\.+$/, "")}.`);
+        if (!sameRevision(document.model.getSnapshot(), copied)) {
+          throw new Error(`${resolved.path} was written, but ${document.model.identity.path} changed during Save As and remains open with its work.`);
+        }
+      });
     },
     async revertCustomDocument(document) {
       // VS Code's Revert File is itself the user's choice to discard; the workbench asks nothing more and drops its own
       // edits after the save point, which `revert` mirrors (D3.6). First require every live webview to hand over its
       // accepted edits; if that cannot be confirmed, leave the model untouched.
-      const unsettled = await document.settleViews();
+      const unsettled = await document.settleViews("query");
       if (unsettled !== null) throw new Error(`Could not revert ${document.model.identity.path}: ${unsettled}. Nothing was reverted.`);
       const result = await document.model.revert();
       if (!result.ok) throw new Error(result.failure.message);
+      // Only a revert that really reloaded the file discards what the author typed against the old version.
+      await document.settleViews("revert");
     },
     async backupCustomDocument(document, destination) {
-      const unsettled = await document.settleViews();
+      // A hot-exit backup must not commit a half-typed field: autosave leaves the gesture alone (ADR 0022 D11.2).
+      const unsettled = await document.settleViews("autosave");
       if (unsettled !== null) throw new Error(`Could not back up ${document.model.identity.path}: ${unsettled}. No backup was written.`);
-      const id = await port.writeBackup(destination, document.model.serialize());
-      return { id, delete: () => port.deleteBackup(destination) };
+      const id = await port.writeBackup(destination, encodeBackup(document.model));
+      document.rememberBackup(destination);
+      return { id, delete: async () => { document.forgetBackup(destination); await document.backupsSettled(); await port.deleteBackup(destination); } };
     },
     async returnFromLinkedVisit(uri) {
       const folder = port.folderOf(uri);
@@ -934,7 +1026,11 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       const preferenceWatch = folder === undefined ? undefined : port.watchBoardPreferences?.(folder, () => {
         void webview.postMessage({ type: "board-preferences", preferences: document.boardPreferences() });
       });
-      const detach = document.attachWebview((requestId) => webview.postMessage({ type: "settle", requestId }), (message) => { void webview.postMessage(message); });
+      const detach = document.attachWebview((requestId, reason, saveLock) => webview.postMessage({
+        type: "settle", requestId,
+        ...(reason === undefined ? {} : { reason }),
+        ...(saveLock === undefined ? {} : { saveLock }),
+      }), (message) => { void webview.postMessage(message); });
       const messages = webview.onDidReceiveMessage(async (message: unknown) => {
         if (!isEditorHostRequest(message)) return;
         if (document.model.kind === "font" && (message.type === "edit" || message.type === "workbench-history")) {

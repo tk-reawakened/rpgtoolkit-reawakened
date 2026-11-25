@@ -255,7 +255,7 @@ export function registerBoardUpgradeCommands(
       }
       const live = provider.openDocument(choice.uri);
       if (live !== undefined) {
-        const unsettled = await live.settleViews();
+        const unsettled = await live.settleViews("guard");
         if (unsettled !== null) {
           await api.window.showErrorMessage(`Could not confirm the board's pending edits: ${unsettled}. Nothing was written.`);
           return;
@@ -274,7 +274,7 @@ export function registerBoardUpgradeCommands(
           const dirtyText = hasDirtyTextDocument(choice.uri);
           const currentLive = provider.openDocument(choice.uri);
           if (currentLive === undefined) return dirtyText;
-          if (await currentLive.settleViews() !== null) return true;
+          if (await currentLive.settleViews("guard") !== null) return true;
           const snapshot = currentLive.model.getSnapshot();
           return dirtyText || snapshot.dirty || snapshot.saving || snapshot.conflict !== null;
         },

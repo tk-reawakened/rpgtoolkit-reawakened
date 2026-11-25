@@ -46,10 +46,11 @@ window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
   if (event.data.type === "initialize") {
     mountedView?.dispose();
     const readOnly = event.data.readOnly === true;
-    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath, !readOnly);
+    const remote = new RemoteDocument(event.data.kind, event.data.snapshot, event.data.browserState, api, event.data.boardPreferences, event.data.initialBoardPath, !readOnly, event.data.saveLocks);
     remoteDocument = remote;
     const fs = {
       readProject: (projectId: string, path: string) => remote.readProject(projectId, path),
+      list: (path: string) => remote.browserList(path),
     };
     // A webview is a page: it exchanges text with the system clipboard through the page's own clipboard, when it has one (T-28).
     const clipboard = clipboardFromApi(navigator.clipboard);
@@ -119,6 +120,16 @@ window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
             get initialBoardPath() { return remote.initialBoardPath ?? ""; },
           },
         } : {}),
+        ...(remote.kind === "special-move" || remote.kind === "status-effect" ? {
+          // The forms hand over the project-relative path of the file they checked, so the visit opens it as it is.
+          navigation: {
+            pickAsset: (request: Parameters<typeof remote.pickAsset>[0]) => remote.pickAsset(request),
+            open: async (path: string) => {
+              const outcome = await remote.visit(path);
+              return outcome.ok ? null : outcome.message;
+            },
+          },
+        } : {}),
       });
     }
     // A source visit that opened this document names the tile its first view selects, without touching the document.
@@ -127,6 +138,18 @@ window.addEventListener("message", async (event: MessageEvent<ViewMessage>) => {
   remoteDocument?.receive(event.data);
 });
 api.postMessage({ type: "ready" });
+
+// Ctrl/Cmd+S while a field is focused belongs to this editor: VS Code's Save All only visits dirty documents, so a clean
+// one with a field still being typed in would otherwise be skipped. The focused view's own Save applies the field first.
+window.addEventListener("keydown", (event) => {
+  // Save As (Ctrl/Cmd+Shift+S) and other chords are not this editor's save, and the key belongs to the focused editor.
+  if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || event.key.toLowerCase() !== "s") return;
+  const surface = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tkr-editor]") : null;
+  const save = surface?.querySelector<HTMLButtonElement>("[data-editor-save]") ?? null;
+  if (save === null || save.disabled) return;
+  event.preventDefault();
+  save.click();
+});
 
 function spriteViewDocument(remote: RemoteDocument): SpriteViewDocument | null {
   if (remote.kind !== "character" && remote.kind !== "item") return null;

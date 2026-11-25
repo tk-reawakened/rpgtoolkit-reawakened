@@ -15,12 +15,14 @@
     "onCustomEditor:tkr.tileset",
     "onCustomEditor:tkr.tileBitmap",
     "onCustomEditor:tkr.animation",
+    "onCustomEditor:tkr.battleData",
     "onCustomEditor:tkr.font",
     "onCustomEditor:tkr.nativeClip",
     "onCustomEditor:tkr.nativeScene",
     "onCustomEditor:tkr.nativeGeometry",
     "onView:tkr.game",
     "onStartupFinished",
+    "onCommand:tkr.visualEvents.show",
     "onCommand:tkr.newProject",
     "onCommand:tkr.upgradeBoardStackedToRotated",
     "onCommand:tkr.upgradeBoardTileToPixel",
@@ -76,6 +78,10 @@
       {
         "command": "tkr.testProgram",
         "title": "RPG Toolkit: Test Program"
+      },
+      {
+        "command": "tkr.visualEvents.show",
+        "title": "RPG Toolkit: Show Visual events"
       },
       {
         "command": "tkr.runSavedTests",
@@ -249,6 +255,19 @@
         "selector": [
           {
             "filenamePattern": "*.anm"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "tkr.battleData",
+        "displayName": "RPG Toolkit Special Move and Status Effect Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.spc"
+          },
+          {
+            "filenamePattern": "*.ste"
           }
         ],
         "priority": "default"

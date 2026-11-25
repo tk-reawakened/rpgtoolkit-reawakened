@@ -178,7 +178,7 @@ test("the text area shows the document's LF text; typing becomes one labelled ed
   // Typing not yet handed to the document: the workspace's Save waits for it.
   equal(s.pending.busy(), true);
   equal(textOf(s), "x = 1\ny = 2\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 1\ny = 22\n");
   equal(s.doc.getSnapshot().edits.at(-1)!.label, "Typing");
   equal(s.host.editedEvents.length, 1);
@@ -710,7 +710,7 @@ test("an edit the document refuses is said in an alert and the text area goes ba
   const s = await setup();
   show(s);
   await type(s.el, "x = 1\ny = 2\n\u2603");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   await settled();
   equal(textOf(s), "x = 1\ny = 2\n");
   equal(area(s.el).value, "x = 1\ny = 2\n");
@@ -830,6 +830,109 @@ test("a compiled program is read only: no edit, no insert, and the reason is sho
   equal(area(s.el).readOnly, true);
 });
 
+test("visual-event navigation selects the live opaque target after a buffered insertion", async () => {
+  const original = 'mwin("intro")\nwait()\nmwincls()\n// opaque target\nx = 1';
+  const prefix = "// inserted before the target\n";
+  const s = await setup({ content: original });
+  let saves = 0;
+  show(s, { document: { ...gatedProgramView(s, []), save: () => { saves += 1; return s.doc.save(); } } });
+  await act(() => named(s.el, "Visual events").click());
+  await type(s.el, prefix + area(s.el).value);
+  await act(() => named(s.el, "Open in editor").click());
+  const target = prefix.length + original.indexOf("// opaque target");
+  equal(area(s.el).selectionStart, target);
+  equal(area(s.el).selectionEnd, target);
+  equal(area(s.el).value, prefix + original);
+  equal(textOf(s), original);
+  equal(s.doc.getSnapshot().canUndo, false);
+  equal(s.doc.getSnapshot().dirty, false);
+  equal(s.host.editedEvents.length, 0);
+  equal(saves, 0);
+  deepEqual(s.host.bytesOf(PATH), bytes(original));
+});
+
+test("visual-event pointer activation keeps the block shown before Monaco blur commits typing", async () => {
+  const original = '// original\nmwin("Original")\nwait()\nmwincls()\n';
+  const prefix = '// inserted\nmwin("Inserted")\nwait()\nmwincls()\n';
+  const s = await setup({ content: original });
+  const spy = spySurface();
+  show(s, { createSurface: spy.factory });
+  await act(() => named(s.el, "Visual events").click());
+  const button = named(s.el, "Open in editor");
+  await act(() => spy.edit(0, 0, prefix));
+  await act(() => {
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true }));
+    spy.host().onBlur();
+  });
+  await settled();
+  equal(textOf(s), prefix + original);
+  equal(named(s.el, "Open in editor"), button, "the first button is reused for the newly inserted block");
+  match(button.closest("fieldset")?.textContent ?? "", /\/\/ inserted/);
+  spy.calls.length = 0;
+  await act(() => { button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); });
+  deepEqual(spy.calls, ["reveal:4", `select:${prefix.length}-${prefix.length}`]);
+  equal(s.host.editedEvents.length, 1, "only the normal typing edit reached the document");
+  deepEqual(s.host.bytesOf(PATH), bytes(original));
+});
+
+test("visual-event navigation distinguishes identical bytes that moved within one typing burst", async () => {
+  const pair = '// repeated\nmwin("Same")\nwait()\nmwincls()\n';
+  const source = pair + pair;
+  const s = await setup({ content: source });
+  const spy = spySurface();
+  show(s, { createSurface: spy.factory });
+  await act(() => named(s.el, "Visual events").click());
+  const second = s.el.querySelector<HTMLButtonElement>('[data-editor-command-id="program.visual.openSource.5"]')!;
+  await act(() => spy.editMany([{ from: 0, to: pair.length, text: "" }, { from: pair.length, to: pair.length, text: pair }]));
+  equal(spy.text(), source);
+  spy.calls.length = 0;
+  await act(() => second.click());
+  deepEqual(spy.calls, ["reveal:0", "select:0-0"], "the second block moved to the top; its newly appended copy is not the target");
+  equal(s.doc.getSnapshot().canUndo, false);
+});
+
+test("visual-event navigation declines when only the old block's newline survives", async () => {
+  const s = await setup({ content: "x = 1\n" });
+  const spy = spySurface();
+  show(s, { createSurface: spy.factory });
+  await act(() => named(s.el, "Visual events").click());
+  await act(() => spy.edit(0, 5, 'mwin("New")\nwait()\nmwincls()'));
+  spy.calls.length = 0;
+  await act(() => named(s.el, "Open in editor").click());
+  deepEqual(spy.calls, []);
+  match(alerts(s.el).join(" "), /That code changed before it could be revealed/);
+  equal(s.doc.getSnapshot().canUndo, false);
+});
+
+test("visual events navigate without editing and add one undoable edit to the live program", async () => {
+  const original = "// author's note\r\nvisits = 1\n";
+  const s = await setup({ content: original });
+  show(s);
+  await act(() => named(s.el, "Visual events").click());
+  equal(s.doc.getSnapshot().dirty, false);
+  await act(() => named(s.el, "Open in editor").click());
+  equal(s.el.ownerDocument.activeElement, area(s.el));
+  equal(area(s.el).selectionStart, 0);
+  equal(s.doc.getSnapshot().canUndo, false);
+  deepEqual(s.host.bytesOf(PATH), bytes(original));
+
+  await act(() => named(s.el, "Add Show message").click());
+  await settled();
+  match(area(s.el).value, /mwin\("Welcome to the village\."\)\nwait\(\)\nmwincls\(\)/);
+  await key(area(s.el), { key: "z", ctrlKey: true });
+  await settled();
+  equal(area(s.el).value, original.replace("\r\n", "\n"));
+  equal(s.doc.getSnapshot().canUndo, false);
+  await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
+  await settled();
+  await act(() => named(s.el, "Save").click());
+  await settled();
+  const saved = s.host.bytesOf(PATH);
+  ok(saved !== undefined);
+  deepEqual(saved.subarray(0, original.length), bytes(original), "unchanged prefix retained both line endings");
+  match(stateOf(s.el), /All changes saved/);
+});
+
 test("distraction-free mode leaves only the text and an exit; Escape and the button both bring the tools back", async () => {
   const s = await setup();
   show(s);
@@ -854,7 +957,7 @@ test("a host with no language service says so, and the text edits and saves", as
   show(s);
   match(noteOf(s.el), /not available in this host/);
   await type(s.el, "x = 9\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   await act(async () => { await named(s.el, "Save").click(); });
   await settled();
   deepEqual(s.host.bytesOf(PATH), bytes("x = 9\r\n"));
@@ -981,7 +1084,7 @@ test("LSP request errors are announced as status and do not stop editing", async
   await settled();
   equal(s.el.querySelector(".tkr-program-language-note[role=status]")?.textContent?.trim(), "Language request textDocument/hover failed: hover failed");
   spy.edit(0, 0, "z");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "zx = 1\ny = 2\n");
 });
 
@@ -1023,7 +1126,7 @@ test("a surface change reaches the server as full text with a rising version, th
   equal(changes.length, 1);
   deepEqual(changes[0]!.params, { textDocument: { uri: "file:///project/Prg/intro.prg", version: 2 }, contentChanges: [{ text: "x = 1\ny = 2\nz" }] });
   equal(textOf(s), "x = 1\ny = 2\n", "the document has not taken the burst yet");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 1\ny = 2\nz");
   equal(spy.calls.filter((call) => call.startsWith("setText")).length, 0, "the surface already held the text, so it is not rewritten");
   handle.dispose();
@@ -1095,7 +1198,7 @@ test("typing in either shared view refreshes bookmarks in both views", async (t)
     timers.enable({ apis: ["setTimeout"] });
     try {
       spy.edit(0, spy.text().length, text);
-      await act(() => s.pending.settle());
+      await act(async () => { await s.pending.settle(); });
       timers.tick(300);
     } finally {
       timers.reset();
@@ -1135,7 +1238,7 @@ test("a server that cannot start leaves editing alone and the note says why", as
   await settled();
   match(noteOf(s.el), /Language features are unavailable: the worker could not start/);
   await type(s.el, "x = 7\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 7\n");
 });
 
@@ -1151,7 +1254,7 @@ test("a server that stops later clears the bookmarks and diagnostics and leaves 
   equal(s.el.querySelectorAll(".tkr-program-bookmarks button").length, 0);
   match(noteOf(s.el), /Language features stopped: The server crashed\./);
   await type(s.el, "x = 8\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 8\n");
 });
 
@@ -1161,7 +1264,7 @@ test("a code editor that throws on start leaves a plain text area and the note s
   ok(area(s.el) !== null);
   match(noteOf(s.el), /code editor could not start \(worker blocked\)/);
   await type(s.el, "x = 5\n");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "x = 5\n");
 });
 
@@ -1179,9 +1282,9 @@ test("#2768 a net-zero burst preserves the identity used by the next replacement
   const handle = show(s);
   await type(s.el, "y");
   await type(s.el, "x");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   await type(s.el, "z");
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "z");
   handle.dispose();
 });
@@ -1198,7 +1301,7 @@ for (const [original, edited, replacement] of [["x", "xa", "xb"], ["x", "ax", "b
     await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
     await type(s.el, replacement!);
     first.release.resolve();
-    await act(() => s.pending.settle());
+    await act(async () => { await s.pending.settle(); });
     equal(textOf(s), replacement);
     await s.doc.save();
     const expected = original!.includes("\r") ? "bx\r\ny\nz\r" : replacement!;
@@ -1221,7 +1324,7 @@ test("#2769 Redo after a net-zero queued Save preserves the newer unchanged iden
   await key(area(s.el), { key: "z", ctrlKey: true, shiftKey: true });
   await type(s.el, "z");
   first.release.resolve();
-  await act(() => s.pending.settle());
+  await act(async () => { await s.pending.settle(); });
   equal(textOf(s), "za");
   deepEqual(s.host.bytesOf(PATH), bytes("x"));
   handle.dispose();

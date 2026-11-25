@@ -14,6 +14,8 @@ export { AnimationView, type AnimationViewDocument, type AnimationViewProps } fr
 export { NativeClipView, type NativeClipViewDocument, type NativeClipViewProps } from "./native-clip-view.tsx";
 export { FontView, type FontViewDocument, type FontViewProps } from "./font-view.tsx";
 export { NativeGeometryView, type NativeGeometryViewDocument, type NativeGeometryViewProps } from "./native-geometry-view.tsx";
+export { SpecialMoveView, type SpecialMoveViewDocument, type SpecialMoveViewProps } from "./special-move-view.tsx";
+export { StatusEffectView, type StatusEffectViewDocument, type StatusEffectViewProps } from "./status-effect-view.tsx";
 export type { PreferencesViewProps } from "./preferences-view.tsx";
 export type { RunSetupOutcome, RunSetupStore, RunViewProps } from "./run-view.tsx";
 export type { RunControlProps, RunSetupMemory } from "./run-control.tsx";
@@ -22,6 +24,7 @@ export type { TilesetBrowserContext } from "./tileset-browser.tsx";
 export type { SourceVisit } from "./source-visit.ts";
 export type { ShellProps } from "./shell.tsx";
 export { ProgramView, type ProgramPreferencesSource, type ProgramViewDocument, type ProgramViewProps } from "./program-view.tsx";
+export { VisualEventPane, VISUAL_EVENT_COMMANDS, type VisualEventAction } from "./visual-event-pane.tsx";
 export { createPlainTextSurface, diffText, type LanguageFeatures, type SurfaceDiagnostic, type TextChange, type TextSelection, type TextSurface, type TextSurfaceFactory, type TextSurfaceHost } from "./text-surface.ts";
 export { leaseLanguageClient, startLanguageClient, LANGUAGE_IDLE_MS, type LanguageClient, type LanguageLease } from "./language-client.ts";
 export { mountHistory } from "./mount.ts";
