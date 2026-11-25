@@ -12,6 +12,7 @@ import {
   createEmptyBoard,
   createEngine,
   BinaryReader,
+  decodeBoard,
   readBoard,
   writeBoard,
   type Board,
@@ -19,7 +20,7 @@ import {
   type GameState,
 } from "@tk-reawakened/core";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
-import { boardPreviewRootForPath, buildNewBoard, createBoardDocument, createDocumentIdentity, previewBoard, type BoardCoordSystem, type BoardDocument } from "../src/index.ts";
+import { boardPreviewRootForPath, buildNewBoard, createBoardDocument, createDocumentIdentity, planBoardCoordinateUpgrade, previewBoard, type BoardCoordSystem, type BoardDocument } from "../src/index.ts";
 
 const tileset = new Uint8Array(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "docs", "spec", "examples", "versions", "tileset", "tileset_detail1.tst")));
 
@@ -105,6 +106,20 @@ test("the editor's preview is the engine's viewbrd pixels for the same board, be
   notDeepEqual(after.rgba, before.rgba, "the changed tile changes the picture");
   deepEqual(after.rgba, engineView(doc.serialize(), 64), "unsaved edits preview as the engine would draw them once saved");
 });
+test("stacked-to-rotated copies preserve the engine-rendered tile pixels", () => {
+  const ordinary = readBoard(new BinaryReader(smallBoard()));
+  if (!ordinary.ok) throw new Error(ordinary.error.message);
+  const stacked = writeBoard({ ...ordinary.value, coordType: 1 });
+  if (!stacked.ok) throw new Error(stacked.error.message);
+  const decoded = decodeBoard(stacked.value);
+  if (!decoded.ok) throw new Error(decoded.error.message);
+  const plan = planBoardCoordinateUpgrade(decoded.value.board, "stacked-to-rotated");
+  if (!plan.ok) throw new Error(plan.message);
+  const rotated = writeBoard(plan.value.board);
+  if (!rotated.ok) throw new Error(rotated.error.message);
+  deepEqual(engineView(rotated.value, 64), engineView(stacked.value, 64));
+});
+
 test("current-view preview crops the shared board composition at the requested camera", async () => {
   const host = createMemoryPlatformServices({ files: FILES });
   const whole = await previewBoard(host.fs, "memory-project", smallBoard());

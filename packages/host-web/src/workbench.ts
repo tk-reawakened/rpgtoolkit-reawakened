@@ -56,6 +56,7 @@ import {
   type VisitResult,
   type Visits,
   DEFAULT_WORKBENCH_PANELS,
+  upgradeBoardCopy,
 } from "@tk-reawakened/editor-model";
 import { createCreatorTestsController, leaseLanguageClient, mountCheckpoints, mountAssetPicker, mountNewBoard, mountPreferences, mountRunStatus, mountScriptWorkflow, mountShell, type LanguageLease, type SourceVisit, type ViewHandle } from "@tk-reawakened/editor-ui";
 import { mountDocumentView, programPreferencesModelFor, type DocumentView, type WebProject } from "./index.ts";
@@ -429,6 +430,79 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     run: () => reviewScripts(id),
   }));
 
+  const pendingBoardEdits = (boardPath: string): boolean => {
+    const document = workspace.documents().find((candidate) => candidate.kind === "board" && candidate.identity.path === boardPath);
+    if (document === undefined) return false;
+    const snapshot = document.getSnapshot();
+    return snapshot.dirty || snapshot.saving || snapshot.conflict !== null || workspace.pendingEdits(document).busy();
+  };
+  const activeBoardDocument = (): AnyDocument | null => {
+    const active = tabs.getSnapshot().active;
+    return active === null ? null : workspace.documents().find((document) => document.identity.key === active && document.kind === "board") ?? null;
+  };
+  const upgradeCopy = async (boardPath: string, operation: "stacked-to-rotated" | "tile-to-pixel" | "pre-vector", isPending: () => boolean): Promise<void> => {
+    const result = await upgradeBoardCopy({
+      fs: services.fs,
+      dialogs: services.dialogs,
+      projectId: project.project.id,
+      boardPath,
+      operation,
+      hasPendingEdits: isPending,
+    });
+    if (!result.ok) {
+      await tell(result.error.message);
+      return;
+    }
+    if (result.value === null) return;
+    await tree.refresh();
+    await openPath(result.value);
+  };
+  const coordinateUpgradeCommand = (operation: "stacked-to-rotated" | "tile-to-pixel", label: string): WorkbenchCommand => ({
+    id: `board.upgrade.${operation}`,
+    category: "Edit",
+    label,
+    run: async () => {
+      const document = activeBoardDocument();
+      if (document === null) {
+        await tell("Open a saved board before choosing a coordinate upgrade.");
+        return;
+      }
+      await upgradeCopy(document.identity.path, operation, () => pendingBoardEdits(document.identity.path));
+    },
+  });
+  const boardUpgradeCommands: readonly WorkbenchCommand[] = [
+    coordinateUpgradeCommand("stacked-to-rotated", "Convert active board from iso-stacked to iso-rotated…"),
+    coordinateUpgradeCommand("tile-to-pixel", "Convert active board from tile to pixel coordinates…"),
+    {
+      id: "board.upgrade.pre-vector",
+      category: "File",
+      label: "Upgrade a pre-vector board…",
+      run: async () => {
+        const found = await listCandidates(services.fs, projectLayout, "boards", [".brd"]);
+        if (found.failures.length > 0) {
+          await tell(`Could not list all board files: ${found.failures.map(({ path, error }) => `${path}: ${error.message}`).join("; ")}`);
+          return;
+        }
+        if (found.candidates.length === 0) {
+          await tell("This project has no boards to upgrade.");
+          return;
+        }
+        const choices = [
+          ...found.candidates.map(({ path, reference }) => ({ id: path, label: reference })),
+          { id: "cancel", label: "Cancel" },
+        ];
+        const selected = await services.dialogs.ask<string>({
+          message: "Choose a board to upgrade",
+          detail: "Only minor-2 or minor-3 pre-vector boards are accepted. The original is retained.",
+          choices,
+          cancel: "cancel",
+        });
+        if (selected === "cancel") return;
+        await upgradeCopy(selected, "pre-vector", () => pendingBoardEdits(selected));
+      },
+    },
+  ];
+
   const newBoard = async (): Promise<string | null> => {
     if (openNewBoard !== null || disposed) return null;
     const preferences = createPreferences({ settings: services.settings, projectLayer: services.capabilities.has("folderWrite") });
@@ -630,7 +704,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
     fs: services.fs,
     workspace: shellWorkspace,
     launcher,
-    extraCommands: scriptCommands,
+    extraCommands: [...scriptCommands, ...boardUpgradeCommands],
     creatorTests,
     ...(options.main === undefined ? {} : { main: options.main }),
     runSetups: {

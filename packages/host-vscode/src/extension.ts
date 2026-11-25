@@ -16,6 +16,7 @@ import { runNewBoard, type NewBoardUi } from "./new-board.ts";
 import { registerScriptWorkflowCommands } from "./script-commands.ts";
 import { runNewProject, type NewProjectUi } from "./new-project.ts";
 import { registerImportBoardAsScene } from "./import-board-scene.ts";
+import { registerBoardUpgradeCommands } from "./board-upgrade-commands.ts";
 import { boardPreviewRootForPath, createDocumentIdentity, createProjectWizardHistory, createWizardHistory, DEFAULT_EDITOR_PREFERENCES, historyPolicyFrom, kindForPath, previewBoard, previewTileBitmap, type BoardPreviewRequest, type DocumentWorkspace } from "@tk-reawakened/editor-model";
 
 import { platformError, platformOk } from "@tk-reawakened/platform-services";
@@ -200,7 +201,7 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     generation += 1;
     changes.fire(event);
   });
-  registerImportBoardAsScene(context, core, hasDirtyTextDocument);
+  registerBoardUpgradeCommands(context, core, hasDirtyTextDocument);
   context.subscriptions.push(vscode.commands.registerCommand("tkr.returnFromBoard", async () => {
     const uri = vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri();
     if (uri === undefined) {

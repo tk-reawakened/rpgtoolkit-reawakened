@@ -1,0 +1,199 @@
+import { deepEqual, equal, match, ok } from "node:assert/strict";
+import { test } from "node:test";
+import { boardGrid, coordLayout, decodeBoard, stackedToRotated, tileToPixel } from "@tk-reawakened/core";
+import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
+import { planBoardCoordinateUpgrade, upgradeBoardCopy } from "../src/index.ts";
+import { exampleBoard } from "./fixtures.ts";
+
+const sourcePath = "Boards/Entry.brd";
+const copyPath = "Boards/Entry.upgraded.brd";
+
+function decoded(bytes: Uint8Array) {
+  const result = decodeBoard(bytes);
+  ok(result.ok, result.ok ? "" : result.error.message);
+  return result.value;
+}
+function expandedShade(records: readonly { readonly runCount: number; readonly r: number; readonly g: number; readonly b: number }[], cells: number) {
+  const result: { r: number; g: number; b: number }[] = [];
+  for (const record of records) {
+    const count = record.runCount > 1 ? record.runCount : 1;
+    for (let i = 0; i < count && result.length < cells; i += 1) result.push({ r: record.r, g: record.g, b: record.b });
+  }
+  return result;
+}
+
+
+void test("stacked-to-rotated maps every tile and shade cell while keeping board-pixel objects", () => {
+  const original = decoded(exampleBoard(4)).board;
+  const stacked = { ...original, coordType: (original.coordType & 4) | 1 };
+  const result = planBoardCoordinateUpgrade(stacked, "stacked-to-rotated");
+  ok(result.ok, result.ok ? "" : result.message);
+  const converted = result.value.board;
+  equal(coordLayout(converted.coordType), "iso-rotated");
+  equal(converted.sizeX, stacked.sizeX);
+  equal(converted.sizeY, stacked.sizeY);
+  const before = boardGrid(stacked.sizeX, stacked.sizeY, stacked.coordType);
+  const after = boardGrid(converted.sizeX, converted.sizeY, converted.coordType);
+  for (let layer = 0; layer < stacked.sizeL; layer += 1) {
+    for (let y = 1; y <= before.height; y += 1) {
+      for (let x = 1; x <= before.width; x += 1) {
+        const mapped = stackedToRotated(x, y, stacked.sizeX);
+        const previousIndex = layer * before.width * before.height + (y - 1) * before.width + x - 1;
+        const nextIndex = layer * after.width * after.height + (mapped.y - 1) * after.width + mapped.x - 1;
+        equal(converted.tileMatrix[nextIndex], stacked.tileMatrix[previousIndex], `tile ${x},${y},${layer}`);
+        deepEqual(
+          tileToPixel("iso-rotated", stacked.sizeX, mapped.x, mapped.y),
+          tileToPixel("iso-stacked", stacked.sizeX, x, y),
+          `pixel position ${x},${y}`,
+        );
+      }
+    }
+  }
+  equal(converted.shadeLayers.length, stacked.shadeLayers.length);
+  for (let index = 0; index < stacked.shadeLayers.length; index += 1) {
+    const sourceLayer = stacked.shadeLayers[index]!;
+    const convertedLayer = converted.shadeLayers[index]!;
+    equal(convertedLayer.castLayer, sourceLayer.castLayer);
+    const sourceShade = expandedShade(sourceLayer.records, before.width * before.height);
+    const convertedShade = expandedShade(convertedLayer.records, after.width * after.height);
+    equal(sourceShade.length, before.width * before.height);
+    equal(convertedShade.length, after.width * after.height);
+    for (let y = 1; y <= before.height; y += 1) {
+      for (let x = 1; x <= before.width; x += 1) {
+        const mapped = stackedToRotated(x, y, stacked.sizeX);
+        deepEqual(
+          convertedShade[(mapped.y - 1) * after.width + mapped.x - 1],
+          sourceShade[(y - 1) * before.width + x - 1],
+          `shade ${x},${y}`,
+        );
+      }
+    }
+  }
+  deepEqual(converted.vectors, stacked.vectors);
+  deepEqual(converted.programs, stacked.programs);
+  deepEqual(converted.sprites, stacked.sprites);
+  deepEqual(converted.images, stacked.images);
+  deepEqual(converted.lights, stacked.lights);
+  deepEqual(converted.properties, stacked.properties);
+});
+
+void test("tile-to-pixel marks the board and leaves object coordinates and script text untouched", () => {
+  const board = decoded(exampleBoard(4)).board;
+  const result = planBoardCoordinateUpgrade(board, "tile-to-pixel");
+  ok(result.ok, result.ok ? "" : result.message);
+  equal(result.value.board.coordType, board.coordType | 4);
+  deepEqual({ ...result.value.board, coordType: board.coordType }, board);
+  match(result.value.summary, /script.*literal text are unchanged/i);
+  const alreadyPixels = planBoardCoordinateUpgrade(result.value.board, "tile-to-pixel");
+  ok(!alreadyPixels.ok);
+});
+
+void test("pre-vector upgrade writes a reopenable copy and retains the original bytes", async () => {
+  const original = exampleBoard(3);
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(copyPath);
+  const result = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  deepEqual(result, { ok: true, value: copyPath });
+  deepEqual(host.bytesOf(sourcePath), original);
+  const copy = decoded(host.bytesOf(copyPath)!);
+  equal(copy.layout, "vector");
+  equal(copy.board.minor, 4);
+  const converted = decoded(original).board;
+  deepEqual(copy.board.tileMatrix, converted.tileMatrix);
+  deepEqual(copy.board.vectors, converted.vectors);
+  deepEqual(copy.board.programs, converted.programs);
+  deepEqual(copy.board.shadeLayers, converted.shadeLayers);
+  deepEqual(copy.board.sprites, converted.sprites);
+  deepEqual(copy.board.properties.start, converted.properties.start);
+  equal(host.questions.length, 1);
+  match(host.questions[0]!.detail, /original .* is retained/i);
+});
+
+void test("cancel, stale source, destination collision, and failed writes preserve the source and create no partial copy", async () => {
+  const original = exampleBoard(3);
+  const cancelled = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  cancelled.answerQuestions("cancel");
+  const cancel = await upgradeBoardCopy({
+    fs: cancelled.fs, dialogs: cancelled.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  deepEqual(cancel, { ok: true, value: null });
+  equal(cancelled.bytesOf(copyPath), undefined);
+  deepEqual(cancelled.bytesOf(sourcePath), original);
+
+  const occupied = createMemoryPlatformServices({ files: { [sourcePath]: original, [copyPath]: Uint8Array.of(9, 8) } });
+  occupied.answerQuestions("preview");
+  occupied.answerSavePaths(copyPath);
+  const conflict = await upgradeBoardCopy({
+    fs: occupied.fs, dialogs: occupied.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  ok(!conflict.ok);
+  equal(conflict.error.code, "already-exists");
+  deepEqual(occupied.bytesOf(copyPath), Uint8Array.of(9, 8));
+  deepEqual(occupied.bytesOf(sourcePath), original);
+
+  const failed = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  failed.answerQuestions("preview");
+  failed.answerSavePaths(copyPath);
+  failed.failWrites({ code: "io-error", message: "disk full" });
+  const writeFailure = await upgradeBoardCopy({
+    fs: failed.fs, dialogs: failed.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  ok(!writeFailure.ok);
+  match(writeFailure.error.message, /disk full/);
+  equal(failed.bytesOf(copyPath), undefined);
+  deepEqual(failed.bytesOf(sourcePath), original);
+});
+void test("pending edits and unsupported pre-vector layouts refuse before review or writing", async () => {
+  const original = exampleBoard(3);
+  const dirty = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  const rejectedPending = await upgradeBoardCopy({
+    fs: dirty.fs, dialogs: dirty.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => true,
+  });
+  ok(!rejectedPending.ok);
+  match(rejectedPending.error.message, /pending edits/);
+  equal(dirty.questions.length, 0);
+  equal(dirty.bytesOf(copyPath), undefined);
+  deepEqual(dirty.bytesOf(sourcePath), original);
+
+  const rotated = original.slice();
+  rotated[0x10f] = 2;
+  const unsupported = createMemoryPlatformServices({ files: { [sourcePath]: rotated } });
+  const refused = await upgradeBoardCopy({
+    fs: unsupported.fs, dialogs: unsupported.dialogs, projectId: "memory-project", boardPath: sourcePath,
+    operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  ok(!refused.ok);
+  match(refused.error.message, /rotated|coordinate|unsupported/i);
+  equal(unsupported.questions.length, 0);
+  equal(unsupported.bytesOf(copyPath), undefined);
+  deepEqual(unsupported.bytesOf(sourcePath), rotated);
+});
+
+void test("source changes during the preview are not copied", async () => {
+  const original = exampleBoard(3);
+  const host = createMemoryPlatformServices({ files: { [sourcePath]: original } });
+  const changed = Uint8Array.of(0);
+  const result = await upgradeBoardCopy({
+    fs: host.fs,
+    dialogs: {
+      ask: async () => {
+        await host.fs.writeProject("memory-project", sourcePath, changed);
+        return "preview";
+      },
+      pickSavePath: async () => copyPath,
+    },
+    projectId: "memory-project", boardPath: sourcePath, operation: "pre-vector", hasPendingEdits: () => false,
+  });
+  ok(!result.ok);
+  match(result.error.message, /changed while.*reviewed/i);
+  equal(host.bytesOf(copyPath), undefined);
+  deepEqual(host.bytesOf(sourcePath), changed);
+});

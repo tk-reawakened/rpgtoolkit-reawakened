@@ -23,6 +23,7 @@ export {
   type ShadeAssignment,
 } from "./board-document.ts";
 export { importSavedBoardAsScene } from "./board-scene-import.ts";
+export { planBoardCoordinateUpgrade, upgradeBoardCopy, type BoardCoordinateUpgrade, type BoardUpgradeCopyOptions, type BoardUpgradeOperation, type BoardUpgradePlan, type BoardUpgradePlanResult } from "./board-upgrade.ts";
 export {
   createTilesetArtDocument,
   openTilesetArtDocument,
