@@ -407,7 +407,11 @@ test("production browser board export downloads the current view and full board 
   const modal = page.getByRole("dialog", { name: "Export board image" });
   await expect(modal).toBeVisible();
   const prepare = modal.getByRole("button", { name: "Prepare PNG" });
+  // The dialog becomes visible before it is modal: `showModal()` runs in an effect after the render, and showing it
+  // modally focuses the dialog's first control. Wait for that, or it lands after the focus below and takes it away.
+  await expect.poll(() => modal.evaluate((element) => (element as HTMLDialogElement).matches(":modal"))).toBe(true);
   await prepare.focus();
+  await expect(prepare).toBeFocused();
   await page.keyboard.press("Control+S");
   await page.keyboard.press("Control+Z");
   await expect(prepare).toBeFocused();
