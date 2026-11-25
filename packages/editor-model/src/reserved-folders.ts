@@ -25,7 +25,9 @@ export async function projectLayoutOfMain(fs: Pick<FileSystemService, "readProje
   const main = readMainFile(new BinaryReader(bytes.value, mainPath));
   const candidate = main.ok ? projectFolder("", main.value).replace(/\/$/, "") : "";
   if (candidate === "") return { projectFolder: "" };
-  return { projectFolder: (await fs.list(candidate)).ok ? candidate : "" };
+  const resolved = await resolveReservedFolderPath(fs, candidate);
+  if (resolved.failure !== null || !(await fs.list(resolved.path)).ok) return { projectFolder: "" };
+  return { projectFolder: resolved.path };
 }
 /**
  * The layout of a document under `Game/<project>/<reserved folder>`, or the root layout otherwise.
@@ -35,7 +37,10 @@ export function projectLayoutForDocumentPath(path: string): ProjectLayout {
   const parts = toSlashes(path).split("/");
   const game = parts.findIndex((part) => asciiLower(part) === "game");
   if (game < 0) return { projectFolder: "" };
-  const folder = parts.findIndex((part, index) => index > game + 1 && RESERVED_FOLDER_NAMES.has(asciiLower(part)));
+  let folder = -1;
+  for (let index = game + 2; index < parts.length; index += 1) {
+    if (RESERVED_FOLDER_NAMES.has(asciiLower(parts[index] ?? ""))) folder = index;
+  }
   return folder < 0 ? { projectFolder: "" } : { projectFolder: parts.slice(0, folder).join("/") };
 }
 

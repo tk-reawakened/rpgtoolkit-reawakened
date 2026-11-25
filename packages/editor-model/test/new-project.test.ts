@@ -156,6 +156,19 @@ test("creating a blank project makes the 14 reserved folders empty, and the main
     ok(stat.ok && stat.value.kind === "directory", `${kind} resolves to ${reservedFolder(layout, kind)}`);
   }
 });
+test("a main-file game path resolves existing folder spelling on a case-sensitive host", async () => {
+  const planned = planNewProject(settings({ gameName: "Quest" }));
+  ok(planned.ok);
+  const main = planned.plan.files.find((file) => file.role === "main");
+  ok(main !== undefined);
+  const host = createMemoryPlatformServices({
+    files: {
+      "Main/Quest.gam": main.bytes,
+      "game/quest/Boards/Map.brd": new Uint8Array([1]),
+    },
+  });
+  deepEqual(await projectLayoutOfMain(host.fs, "memory-project", "Main/Quest.gam"), { projectFolder: "game/quest" });
+});
 
 test("a project with every available starter item opens, and each stored reference resolves to its file", async () => {
   const host = createMemoryPlatformServices();

@@ -1,5 +1,5 @@
 import type * as vscode from "vscode";
-import { createBoardCoordinateUpgradeCommand, upgradeBoardCopy, type BoardUpgradeOperation } from "@tk-reawakened/editor-model";
+import { createBoardCoordinateUpgradeCommand, projectLayoutOfMain, reservedFolder, resolveReservedFolderPath, upgradeBoardCopy, type BoardUpgradeOperation } from "@tk-reawakened/editor-model";
 import type { DialogService, FileSystemService } from "@tk-reawakened/platform-services";
 import type { GameEditorProvider } from "./custom-editor.ts";
 
@@ -15,9 +15,19 @@ export interface BoardUpgradeCommandHost {
 interface BoardChoice {
   readonly uri: vscode.Uri;
   readonly path: string;
+  readonly boardsRoot: string;
 }
 
 const BOARD_PATH = /^(?:game\/(?:[^/]+\/)+)?boards\/.+\.brd$/i;
+
+function boardsRootForPath(path: string): string | undefined {
+  const parts = path.split("/");
+  let index = -1;
+  for (let candidate = 0; candidate < parts.length; candidate += 1) {
+    if (parts[candidate]?.toLowerCase() === "boards") index = candidate;
+  }
+  return index < 0 ? undefined : parts.slice(0, index + 1).join("/");
+}
 
 function boardChoice(api: VscodeApi, uri: vscode.Uri): BoardChoice | undefined {
   const folder = api.workspace.getWorkspaceFolder(uri);
@@ -25,44 +35,75 @@ function boardChoice(api: VscodeApi, uri: vscode.Uri): BoardChoice | undefined {
   const root = folder.uri.path.replace(/\/$/, "");
   if (!uri.path.startsWith(`${root}/`)) return undefined;
   const path = uri.path.slice(root.length + 1);
-  return BOARD_PATH.test(path) ? { uri, path } : undefined;
+  const boardsRoot = boardsRootForPath(path);
+  return BOARD_PATH.test(path) && boardsRoot !== undefined ? { uri, path, boardsRoot } : undefined;
 }
 
 
-async function projectBoards(api: VscodeApi, folder: vscode.WorkspaceFolder): Promise<{ readonly boards: BoardChoice[]; readonly failures: string[] }> {
+async function projectBoards(
+  api: VscodeApi,
+  folder: vscode.WorkspaceFolder,
+  fileSystem: BoardUpgradeCommandHost["fileSystem"],
+): Promise<{ readonly boards: BoardChoice[]; readonly failures: string[] }> {
   const found: BoardChoice[] = [];
   const failures: string[] = [];
-  const walk = async (segments: readonly string[]): Promise<void> => {
-    const directory = segments.length === 0 ? folder.uri : api.Uri.joinPath(folder.uri, ...segments);
-    let entries: [string, vscode.FileType][];
-    try {
-      entries = await api.workspace.fs.readDirectory(directory);
-    } catch (error) {
-      failures.push(`${segments.join("/") || folder.name}: ${error instanceof Error ? error.message : String(error)}`);
-      return;
-    }
-    const depth = segments.length;
-    const root = segments[0]?.toLowerCase();
-    const inBoards = segments.some((segment) => segment.toLowerCase() === "boards");
-    for (const [name, type] of entries) {
-      if ((type & api.FileType.SymbolicLink) !== 0) continue;
-      if ((type & api.FileType.Directory) !== 0) {
-        const key = name.toLowerCase();
-        const leadsToBoards = depth === 0 ? key === "boards" || key === "game"
-          : root === "game" && !inBoards;
-        if (inBoards || leadsToBoards) await walk([...segments, name]);
-      } else if (inBoards && (type & api.FileType.File) !== 0 && /\.brd$/i.test(name)) {
-        const path = [...segments, name].join("/");
-        found.push({ uri: api.Uri.joinPath(directory, name), path });
+  const fs = fileSystem(folder.uri);
+  const projectId = folder.uri.toString();
+  const list = (path: string) => fs.listProject(projectId, path);
+  const layoutFs = { readProject: fs.readProject, list };
+  let roots: string[] = [];
+  try {
+    const rootEntries = await api.workspace.fs.readDirectory(folder.uri);
+    const main = rootEntries.find(([name, type]) => name.toLowerCase() === "main" && (type & api.FileType.Directory) !== 0);
+    if (main !== undefined) {
+      const mainFolder = api.Uri.joinPath(folder.uri, main[0]);
+      const mainEntries = await api.workspace.fs.readDirectory(mainFolder);
+      for (const [name, type] of mainEntries) {
+        if ((type & api.FileType.File) === 0 || !/\.gam$/i.test(name)) continue;
+        const layout = await projectLayoutOfMain(layoutFs, projectId, `${main[0]}/${name}`);
+        roots.push(reservedFolder(layout, "boards"));
       }
     }
-  };
-  await walk([]);
+  } catch (error) {
+    failures.push(`Main: ${error instanceof Error ? error.message : String(error)}`);
+    return { boards: found, failures };
+  }
+  if (roots.length === 0) roots = ["Boards"];
+  roots = [...new Set(roots)];
+  for (const requestedRoot of roots) {
+    const resolved = await resolveReservedFolderPath({ list }, requestedRoot);
+    if (resolved.failure !== null) {
+      failures.push(`${resolved.failure.path}: ${resolved.failure.error.message}`);
+      continue;
+    }
+    const rootListing = await list(resolved.path);
+    if (!rootListing.ok) {
+      if (rootListing.error.code !== "not-found") failures.push(`${resolved.path}: ${rootListing.error.message}`);
+      continue;
+    }
+    const walk = async (segments: readonly string[]): Promise<void> => {
+      const path = [...resolved.path.split("/"), ...segments].filter(Boolean).join("/");
+      const entries = await list(path);
+      if (!entries.ok) {
+        failures.push(`${path}: ${entries.error.message}`);
+        return;
+      }
+      for (const entry of entries.value) {
+        const child = [...segments, entry.name];
+        const childPath = [...resolved.path.split("/"), ...child].filter(Boolean).join("/");
+        if (entry.kind === "directory") await walk(child);
+        else if (entry.kind === "file" && /\.brd$/i.test(entry.name)) {
+          found.push({ uri: api.Uri.joinPath(folder.uri, ...childPath.split("/")), path: childPath, boardsRoot: resolved.path });
+        }
+      }
+    };
+    await walk([]);
+  }
   return { boards: found.sort((left, right) => left.path.localeCompare(right.path)), failures };
 }
 
-async function chooseProjectBoard(api: VscodeApi, folder: vscode.WorkspaceFolder): Promise<BoardChoice | undefined> {
-  const found = await projectBoards(api, folder);
+async function chooseProjectBoard(api: VscodeApi, folder: vscode.WorkspaceFolder, fileSystem: BoardUpgradeCommandHost["fileSystem"]): Promise<BoardChoice | undefined> {
+  const found = await projectBoards(api, folder, fileSystem);
   if (found.failures.length > 0) {
     await api.window.showErrorMessage(`Could not list every board folder: ${found.failures.join("; ")}. No upgrade was started.`);
     return undefined;
@@ -77,7 +118,7 @@ async function chooseProjectBoard(api: VscodeApi, folder: vscode.WorkspaceFolder
   }))?.board;
 }
 
-async function chooseBoard(api: VscodeApi, operation: BoardUpgradeOperation, activeEditorUri: () => vscode.Uri | undefined, originUri?: vscode.Uri): Promise<BoardChoice | undefined> {
+async function chooseBoard(api: VscodeApi, operation: BoardUpgradeOperation, activeEditorUri: () => vscode.Uri | undefined, fileSystem: BoardUpgradeCommandHost["fileSystem"], originUri?: vscode.Uri): Promise<BoardChoice | undefined> {
   if (originUri !== undefined) {
     const origin = boardChoice(api, originUri);
     if (origin === undefined) {
@@ -90,7 +131,7 @@ async function chooseBoard(api: VscodeApi, operation: BoardUpgradeOperation, act
       await api.window.showErrorMessage("The requesting board editor is not inside an open project folder.");
       return undefined;
     }
-    return chooseProjectBoard(api, folder);
+    return chooseProjectBoard(api, folder, fileSystem);
   }
   const active = api.window.activeTextEditor?.document.uri ?? activeEditorUri();
   const activeChoice = active === undefined ? undefined : boardChoice(api, active);
@@ -104,7 +145,7 @@ async function chooseBoard(api: VscodeApi, operation: BoardUpgradeOperation, act
     ? folders[0]!
     : (await api.window.showQuickPick(folders.map((candidate) => ({ label: candidate.name, folder: candidate })), { title: "Choose project", ignoreFocusOut: true }))?.folder;
   if (folder === undefined) return undefined;
-  return chooseProjectBoard(api, folder);
+  return chooseProjectBoard(api, folder, fileSystem);
 }
 
 
@@ -117,7 +158,7 @@ export function registerBoardUpgradeCommands(
   const { vscode: api, activeEditorUri, fileSystem, dialogs } = host;
   const register = (id: string, operation: BoardUpgradeOperation): void => {
     context.subscriptions.push(api.commands.registerCommand(id, async (originUri?: vscode.Uri) => {
-      const choice = await chooseBoard(api, operation, activeEditorUri, originUri);
+      const choice = await chooseBoard(api, operation, activeEditorUri, fileSystem, originUri);
       if (choice === undefined) return;
       const folder = api.workspace.getWorkspaceFolder(choice.uri);
       if (folder === undefined) {
@@ -139,6 +180,7 @@ export function registerBoardUpgradeCommands(
         dialogs: dialogs(folder.uri),
         projectId,
         boardPath: choice.path,
+        boardsRoot: choice.boardsRoot,
         operation,
         hasPendingEdits: async () => {
           const dirtyText = hasDirtyTextDocument(choice.uri);

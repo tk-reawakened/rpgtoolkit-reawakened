@@ -149,6 +149,22 @@ function activate(context) {
       report("Board launch accepted");
     } else report(`Board launch refused: ${result?.error?.message ?? "unknown error"}`);
   }));
+  context.subscriptions.push(vscode.commands.registerCommand("tkr.editorWebProof.runBoardUpgradeCopy", async () => {
+    const workspace = vscode.workspace.workspaceFolders?.[0];
+    if (workspace === undefined) throw new Error("The proof workspace is not open");
+    report("Upgraded-copy board launch pending");
+    const result = await vscode.commands.executeCommand("tkr.startBoard", workspace.uri, {
+      kind: "board", main: "Main/example.gam", projectFolder: "Game/Example", seed: 23,
+      party: ["Game/Example/Chrs/ada.tem"],
+      start: { board: "Game/Example/Boards/village.pixels.brd", x: 2, y: 2, layer: 1 },
+      expectedFiles: null,
+    });
+    if (result?.ok) {
+      publishRunHandle(result.value);
+      result.value.onStatus(renderRunHandle);
+      report("Upgraded-copy board launch accepted");
+    } else report(`Upgraded-copy board launch refused: ${result?.error?.message ?? "unknown error"}`);
+  }));
   // Run and Debug (ADR 0037): drive a `tkr` session the way F5, the debug toolbar and the tab's close button do.
   const debugProof = { started: 0, ended: 0, restarts: 0, snapshots: 0 };
   const debugStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);

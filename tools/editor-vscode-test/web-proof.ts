@@ -3,7 +3,7 @@ import { PROPERTIES_BOARD, runBoardPropertiesProof } from "./board-properties-pr
 import { OBJECTS_BOARD, runBoardObjectsProof } from "./board-objects-proof.ts";
 import { CONNECTED_BOARD, CONNECTED_ITEM, runConnectedAuthoringProof } from "./connected-authoring-proof.ts";
 import { createHash } from "node:crypto";
-import { BinaryReader, readBoard, readMainFile } from "@tk-reawakened/core";
+import { BinaryReader, decodeBoard, readBoard, readMainFile } from "@tk-reawakened/core";
 import { boardExtent, boardToScreen, cellCentre, clampViewport, pixelToCell, screenToBoard, zoomTo, type BoardShape, type Cell, type Viewport } from "@tk-reawakened/editor-model";
 import type { expect as playwrightExpect, ElementHandle, Frame, Locator, Page } from "@playwright/test";
 import { autosaveSetting, combineProofErrors, decodePersistedBytes, openedDocumentUri } from "./lifecycle.ts";
@@ -236,6 +236,87 @@ export async function runVscodeBoardProof(page: Page, expect: Expect, workbenchU
   expect(result.snapshot.seed).toBe(23);
   await verifyHostRunHash(page, frame, expect);
 }
+/** Exercise conversion through the packaged VS Code custom editor and its real workbench undo/save lifecycle. */
+export async function runVscodeBoardUpgradeProof(
+  page: Page,
+  expect: Expect,
+  workbenchUrl: string,
+  readBacking: (path: string) => Promise<Uint8Array>,
+): Promise<void> {
+  const sourcePath = "Game/Example/Boards/village.brd";
+  const copyPath = "Game/Example/Boards/village.pixels.brd";
+  const decode = (bytes: Uint8Array) => {
+    const result = decodeBoard(bytes);
+    if (!result.ok) throw new Error(result.error.message);
+    return result.value;
+  };
+  const sourceBytes = await readBacking(sourcePath);
+  const sourceBoard = decode(sourceBytes);
+  if (sourceBoard.layout !== "vector" || (sourceBoard.board.coordType & 4) !== 0) {
+    throw new Error("The rights-cleared village board must be a tile-coordinate vector board");
+  }
+
+  await page.goto(workbenchUrl, { waitUntil: "domcontentloaded" });
+  await expect(page.locator(".monaco-workbench")).toBeVisible();
+  await openNativeQuickOpenFile(page, expect, sourcePath);
+  let boardFrame = await waitForEditorFrame(page, "source board before coordinate upgrade");
+  await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+  await boardFrame.getByRole("button", { name: "Convert tile coordinates…", exact: true }).click();
+
+  const preview = page.locator(".monaco-dialog-box").filter({ hasText: "Convert tile coordinates to pixels" });
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText("script coordinate unit to pixels");
+  await preview.getByRole("button", { name: "Choose copy destination…", exact: true }).click();
+  const savePath = page.getByRole("textbox", { name: "Folder path" });
+  await expect(savePath).toBeVisible({ timeout: 15_000 });
+  await savePath.fill(`/${copyPath}`);
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+
+  await expect.poll(async () => {
+    try { return decode(await readBacking(copyPath)).board.coordType & 4; } catch { return 0; }
+  }, { timeout: 30_000 }).toBe(4);
+  const converted = decode(await readBacking(copyPath));
+  expect(converted.layout).toBe("vector");
+  expect({ ...converted.board, coordType: sourceBoard.board.coordType }).toEqual(sourceBoard.board);
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+  boardFrame = await waitForEditorFrame(page, "converted board copy");
+  await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+
+  await runCommand(page, expect, "Test: Run Board Upgrade Copy");
+  let player = await findPlayerFrame(page, "converted-copy player frame");
+  const playerBoard = async () => await player.evaluate(() => {
+    const live = Reflect.get(window, "__live") as { board: string | null; player: unknown; stateHash: string } | undefined;
+    return live;
+  });
+  await expect.poll(async () => (await playerBoard())?.board ?? "", { timeout: 30_000 }).toContain("village.pixels.brd");
+  const convertedRun = await playerBoard();
+  expect(convertedRun?.player).toEqual({ x: 48, y: 63 });
+  expect(convertedRun?.stateHash).toMatch(/^[a-f0-9]{16}$/);
+  await verifyHostRunHash(page, player, expect);
+  await runCommand(page, expect, "Test: Close Running Game Tab");
+  await expect.poll(async () => (await playerFrames(page)).length, { timeout: 30_000 }).toBe(0);
+
+  await runCommand(page, expect, "Undo");
+  await runCommand(page, expect, "File: Save");
+  await expect.poll(() => readBacking(copyPath), { timeout: 30_000 }).toEqual(sourceBytes);
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+  await runCommand(page, expect, "View: Close Editor");
+  await expect(page.getByRole("tab", { name: /village\.pixels\.brd/ })).toBeHidden();
+
+  await openNativeQuickOpenFile(page, expect, copyPath);
+  boardFrame = await waitForEditorFrame(page, "copy after native undo and reopen");
+  await expect(boardFrame.getByRole("toolbar", { name: "Board coordinate and format upgrades" })).toBeVisible();
+  expect(decode(await readBacking(copyPath)).board.coordType).toBe(sourceBoard.board.coordType);
+  expect(await readBacking(sourcePath)).toEqual(sourceBytes);
+
+  await runCommand(page, expect, "Test: Run Board Upgrade Copy");
+  player = await findPlayerFrame(page, "reopened-copy player frame");
+  await expect.poll(async () => await player.evaluate(() =>
+    (Reflect.get(window, "__live") as { board: string | null } | undefined)?.board ?? ""), { timeout: 30_000 }).toContain("village.pixels.brd");
+  await runCommand(page, expect, "Test: Close Running Game Tab");
+  await expect.poll(async () => (await playerFrames(page)).length, { timeout: 30_000 }).toBe(0);
+}
+
 
 /** The player frames on the page, by their `#screen` canvas. */
 async function playerFrames(page: Page): Promise<Frame[]> {

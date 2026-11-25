@@ -157,17 +157,23 @@ export interface BoardUpgradeCopyOptions {
   readonly hasPendingEditsNow?: () => boolean;
   /** Refuse a destination already represented by an open or cached editor document. */
   readonly isDestinationOpen?: (destination: string) => boolean;
+  /** The owning game's resolved Boards folder; required by hosts when path components are ambiguous. */
+  readonly boardsRoot?: string;
   /** Exclusive destination creator where the host provides one; null explicitly selects the disclosed fallback. */
   readonly createExclusive: ((destination: string, bytes: Uint8Array) => Promise<PlatformResult<void>>) | null;
 }
 
 /** Preview and write an upgraded board as a new file; never edits the source document. */
 export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promise<PlatformResult<{ readonly destination: string; readonly bytes: Uint8Array } | null>> {
-  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, hasPendingEditsNow, createExclusive, isDestinationOpen } = options;
+  const { fs, dialogs, projectId, boardPath, operation, hasPendingEdits, hasPendingEditsNow, boardsRoot, createExclusive, isDestinationOpen } = options;
   if (!/^(?:game\/(?:[^/]+\/)+)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(boardPath)
     || /[\\:\u0000-\u001f\u007f]/.test(boardPath)
     || boardPath.split("/").some((part) => part === "." || part === "..")) {
     return platformError("invalid-path", `Upgrade requires a .brd file under Boards/ or a nested Game/<project>/Boards/ folder: ${boardPath}`);
+  }
+  const sourceRoot = (boardsRoot ?? boardRoot(boardPath))?.replace(/\/+$/, "");
+  if (sourceRoot === undefined || sourceRoot === null || !foldPath(boardPath).startsWith(`${foldPath(sourceRoot)}/`)) {
+    return platformError("invalid-path", `Could not determine the owning game's Boards folder for ${boardPath}.`);
   }
   if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
   const source = await fs.readProject(projectId, boardPath);
@@ -231,12 +237,10 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     || picked.split("/").some((part) => part === "." || part === "..")) {
     return platformError("invalid-path", `Choose a project board path ending in .brd: ${picked}`);
   }
-  const sourceRoot = boardRoot(boardPath);
-  const pickedRoot = boardRoot(picked);
-  if (sourceRoot === null || pickedRoot === null || foldPath(sourceRoot) !== foldPath(pickedRoot)) {
+  if (!foldPath(picked).startsWith(`${foldPath(sourceRoot)}/`)) {
     return platformError("invalid-request", "Save the upgraded copy under the same game's Boards folder so its asset references remain valid.");
   }
-  const destination = sourceRoot + picked.slice(pickedRoot.length);
+  const destination = sourceRoot + picked.slice(sourceRoot.length);
   if (foldPath(destination) === foldPath(boardPath)) {
     return platformError("invalid-request", "An upgrade must be saved as a separate board; the original was not changed.");
   }
@@ -316,7 +320,12 @@ async function resolveDestinationPath(
 
 
 function boardRoot(path: string): string | null {
-  return /^(?:game\/(?:[^/]+\/)+)?boards\//i.exec(path)?.[0] ?? null;
+  const parts = path.split("/");
+  const indexes = parts.flatMap((part, index) => part.toLowerCase() === "boards" ? [index] : []);
+  if (indexes.length !== 1) return null;
+  const index = indexes[0];
+  if (index === undefined || (index !== 0 && (parts[0]?.toLowerCase() !== "game" || index < 2))) return null;
+  return parts.slice(0, index + 1).join("/");
 }
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.length !== right.length) return false;

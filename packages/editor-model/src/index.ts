@@ -485,6 +485,7 @@ export {
   projectLayoutForDocumentPath,
   projectLayoutOfMain,
   referencePath,
+  resolveReservedFolderPath,
   reservedFolder,
   unusableName,
   type AssetCandidate,

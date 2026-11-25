@@ -20,6 +20,8 @@ test("a document selects its owning game's exact-case layout", () => {
 });
 test("a game layout supports multiple nested project path components", () => {
   deepEqual(projectLayoutForDocumentPath("Game/a/b/Boards/nested/Map.brd"), { projectFolder: "Game/a/b" });
+  deepEqual(projectLayoutForDocumentPath("Game/A/Tiles/B/Boards/map.brd"), { projectFolder: "Game/A/Tiles/B" });
+  deepEqual(projectLayoutForDocumentPath("Game/Quest/Boards/Region/Boards/map.brd"), { projectFolder: "Game/Quest/Boards/Region" });
 });
 
 test("a link is the path inside the type folder, sub-folders kept, with the legacy separator", () => {

@@ -80,6 +80,24 @@ test("tile-to-pixel accepts nested project paths and keeps the source board fold
   deepEqual(host.bytesOf(source), original);
   deepEqual(host.bytesOf(destination), original);
 });
+test("upgrade uses the declared owning boards root when project paths also contain Boards", async () => {
+  const source = "Game/Quest/Boards/Region/Boards/Map.brd";
+  const destination = "Game/Quest/Boards/Region/Boards/Map.pixels.brd";
+  const original = exampleBoard(4);
+  const host = createMemoryPlatformServices({ files: { [source]: original } });
+  host.answerQuestions("preview");
+  host.answerSavePaths(destination);
+  const result = await upgradeBoardCopy({
+    fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: source,
+    boardsRoot: "Game/Quest/Boards/Region/Boards", operation: "tile-to-pixel",
+    hasPendingEdits: () => false, createExclusive: null,
+  });
+  ok(result.ok, result.ok ? "" : result.error.message);
+  ok(result.value !== null);
+  equal(result.value.destination, destination);
+  deepEqual(host.bytesOf(source), original);
+  deepEqual(host.bytesOf(destination), original);
+});
 
 void test("stacked-to-rotated maps every tile and shade cell while keeping board-pixel objects", () => {
   const original = decoded(exampleBoard(4)).board;

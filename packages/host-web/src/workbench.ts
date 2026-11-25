@@ -30,7 +30,7 @@ import {
   createProjectTree,
   createTabs,
   createVisits,
-  projectLayoutForDocumentPath,
+  reservedFolder,
   listCandidates,
   linkFor,
   kindForPath,
@@ -219,7 +219,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
             pickAsset: (request) => workbench.pickAsset(request, document.identity.path),
             open: async (path) => {
               const kind = kindForPath(path)?.id;
-              const layout = document.kind === "main" ? projectLayout : projectLayoutForDocumentPath(document.identity.path);
+              const layout = projectLayout;
               if (kind !== "board" && kind !== "program" && kind !== "item" && kind !== "character" && kind !== "tile-bitmap" && kind !== "animation") return "This value is inline code or has no linked asset editor. Its text has not been changed.";
               const folder = kind === "board" ? "boards" : kind === "program" ? "programs" : kind === "item" ? "items" : kind === "character" ? "characters" : kind === "tile-bitmap" ? "bitmaps" : "animations";
               const target = kind === "animation" ? path : referencePath(layout, folder, path);
@@ -450,6 +450,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       dialogs: services.dialogs,
       projectId: project.project.id,
       boardPath,
+      boardsRoot: reservedFolder(projectLayout, "boards"),
       operation,
       hasPendingEdits: isPending,
       hasPendingEditsNow: isPending,
@@ -814,7 +815,7 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       const before = doc.activeElement;
       const picker = createAssetPicker({
         services: { fs: services.fs, dialogs: services.dialogs, capabilities: services.capabilities },
-        layout: originPath === undefined || /\.gam$/i.test(originPath) ? projectLayout : projectLayoutForDocumentPath(originPath),
+        layout: projectLayout,
         kind: request.kind,
         extensions: request.extensions,
         field: request.field,
