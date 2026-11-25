@@ -1,4 +1,4 @@
-# ADR 0043 — Visual source, skin and setup delivery contracts
+# ADR 0045 — Visual source, skin and setup delivery contracts
 
 * **Status:** Proposed (2026-11-24). A draft for the owner to answer; **nothing here is decided**. Every numbered decision is a question with options, a recommendation and what it unblocks. Story 14.1 ([#1744](https://github.com/tk-reawakened/rpgtoolkit-reawakened/issues/1744)) stays open until the owner approves.
 * **Date:** 2026-11-24
