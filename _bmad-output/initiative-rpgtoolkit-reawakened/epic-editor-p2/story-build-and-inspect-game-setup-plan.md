@@ -10,9 +10,9 @@ risk: high
 
 ## Scope
 
-Builds the ruled installable setup from the 12.9 game package with explicit destination, file and dependency review, installer and uninstaller handling and capability-gated host operations.
+Build the installable setup from the 12.9 game package with explicit destination, file and dependency review, launcher-owned installation and removal, and capability-gated host operations.
 
-Consume 12.9 artifacts, distinguish setup ZIP from editable project and game package, and route native installation or signing only through an explicit supported service.
+Follow the [T-72 setup contract](../../../docs/spec/formats/packaging-and-paths.md#reawakened-setup-delivery): bundle the 12.9 package, descriptor and instructions; use a compatible player app's Install and Remove for recipient proof. The editor creates the ZIP, not an installer or signer, and the browser reports unavailable operations without fallback.
 
 ## Acceptance and verification
 

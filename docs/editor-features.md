@@ -227,6 +227,8 @@ Choose **Export PNG…** in the board editor, or invoke it from the focused edit
 
 **T-45 Visual event builder.** An alternative, form-based way to write a program. Pick commands from categories (Text, Display, Player, Fight, Control, Items, Variable manipulation, Input, Info; about 160 command templates). Fill typed parameters (file pickers that know the right folder, numbers, strings). Insert or delete lines. **Build to RPGCode**. A small visual screen-layout canvas comes with it. This was a lesser-used tool. Include it if the rebuild targets beginners.
 
+*Reawakened:* The [visual event and placement contract](spec/engine/rpgcode-tooling.md#tool-12-visual-events) uses one RPGCode source, preserves unsupported code, and admits templates one at a time. The legacy template count is not an approved inventory.
+
 **T-46 Capitalisation / formatting helpers.** Normalise built-in names to canonical case. *Reawakened:* the `canonical-case` workflow of [TOOL-11](spec/engine/rpgcode-tooling.md#tool-11), which changes spelling and never indentation.
 
 ---
@@ -293,6 +295,8 @@ In Reawakened, a [tile bitmap](spec/formats/tiles.md#tile-bitmap-tbm) (`.tbm`) o
 
 **T-64 Skin editor.** Legacy UI skin: window graphic and button graphic.
 
+*Reawakened:* The [native skin document and editor-only preview](spec/formats/main-file.md#editor-skin-authoring) do not change the stored legacy fields or the game's appearance.
+
 <a id="t-65-bitmap-font-editor"></a>
 **T-65 Bitmap font editor.** Restore the glyph editor shown in the [older Toolkit manual](../_bmad-output/initiative-rpgtoolkit-reawakened/research-what-survived-of-rpg-toolkit/legacy-ui-visual-archaeology.md#fig-097---font-editor-files-image097png-372x230--image098jpg-372x230). In Reawakened, create or open a [Toolkit 2 bitmap font](spec/formats/legacy/text-formats.md#font-toolkit-2-text), browse its 256 character slots, and draw or erase ink in the selected 8 × 8 glyph with a pointer or keyboard. Preview sample text at a chosen size with bold, italics and underline. The preview settings belong to the view and leave the glyphs unchanged. Glyph edits use the project's ordinary undo, redo and save workflow. Save and reopen the same `.fnt` format, preserving every unedited glyph.
 
@@ -316,7 +320,7 @@ In Reawakened a `.fnt` opens in its own editor in every host. It shows the chara
 
 **T-71 Pak file compiler.** Package the game as a single `.tpk` archive that an installed player opens. A rebuild's build step writes the same archive as its **distribution package** — a `.tpk`-compatible ZIP with `manifest.json { schema, main, index }` at the archive root ([packaging and paths](spec/formats/packaging-and-paths.md#distribution-package-this-projects-own)) — so the build is one step for the `.tpk` and the package.
 
-**T-72 Create setup.** A ZIP containing the game files plus a simple installer and uninstaller.
+**T-72 Create setup.** *Legacy:* A ZIP containing the game files plus a simple installer and uninstaller. *Reawakened:* The [14.6 setup ZIP](spec/formats/packaging-and-paths.md#reawakened-setup-delivery) contains the distribution package, descriptor and plain-text instructions; a compatible player app provides Install and Remove. No installer binary or signing is included. Native standalone installers are a separate decision.
 
 **T-73 File-system upgrade.** Migrate a 2.x project layout (flat folders) into the 3.x project-folder structure.
 
