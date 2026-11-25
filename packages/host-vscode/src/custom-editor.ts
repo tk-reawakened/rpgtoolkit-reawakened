@@ -1,7 +1,7 @@
 import { boardPreviewRootForPath, projectLayoutForDocumentPath, createAnimationAuthoring, asAnimationDocument, asMainDocument, importSavedBoardAsScene, linkFor, projectLayoutOfMain, referencePath, type AnimationCommand, type AnimationBitmap, type CheckpointEntry, type CheckpointGroup, type CheckpointEnvironment, DEFAULT_EDITOR_PREFERENCES, createAssetPicker, createDocumentIdentity, createDocumentWorkspace, createVisits, kindForPath, previewBoard, previewTileBitmap, resolveDocumentPath, sameRevision, type AnyDocument, type BoardPicture, type BoardPreviewRequest, type ConflictChoice, type ConflictResult, type DocumentWorkspace, type EditorPreferences, type PickOutcome, type SaveResult, type Visits } from "@tk-reawakened/editor-model";
 import { platformOk, platformError, type Capability, type DialogService, type FileSystemService, type PlatformResult } from "@tk-reawakened/platform-services";
 import { createBrowserSession, type BrowserSession } from "@tk-reawakened/editor-ui/browser-session";
-import { recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
+import { encodeBackup, recoverDocument, resolveRecoveryConflict } from "./document-backup.ts";
 import { handleEditorHostRequest, isEditorHostRequest, type AssetPickRequest, type BridgedDocument, type BridgeMessage, type ReturnOutcome, type VisitOutcome } from "./document-bridge.ts";
 import type { HistoryPolicy, HistoryReason, SettleFailureKind, SettleReason } from "@tk-reawakened/editor-model";
 
@@ -193,6 +193,13 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   /** Explicit Save commands from this editor's own Save button that have not finished; their saves are never `auto`. */
   #restoreGroupId: string | null = null;
   #explicitSaves = 0;
+  /**
+   * The hot-exit backup VS Code last asked for, until it deletes it. VS Code schedules backups from edit events, and a
+   * continued typing gesture fires none (ADR 0022 D16.2), so the provider refreshes this one itself (D16.4).
+   */
+  #backup: Uri | null = null;
+  #backupQueue: Promise<void> = Promise.resolve();
+  #backupDirty = false;
 
   #now(): number {
     return this.#port.now?.() ?? Date.now();
@@ -254,6 +261,32 @@ export class GameDocument<Uri extends UriLike> implements BridgedDocument {
   didEdit(editId: string): void {
     const label = this.model.getSnapshot().edits.find((edit: { readonly editId: string; readonly label: string }) => edit.editId === editId)?.label ?? "Edit";
     this.#fire({ document: this, label, undo: () => { this.model.undo(editId); }, redo: () => { this.model.redo(editId); } });
+  }
+
+  /** VS Code took a backup at `destination`; later gestures refresh it until it is deleted. */
+  rememberBackup(destination: Uri): void { this.#backup = destination; }
+  forgetBackup(destination: Uri): void { if (this.#backup === destination) this.#backup = null; }
+  /** Resolves once no refresh is writing, so a deleted backup is not written again afterwards. */
+  backupsSettled(): Promise<void> { return this.#backupQueue; }
+
+  /**
+   * An accepted keystroke continued the latest edit: VS Code holds that edit already and adds nothing, so it schedules no
+   * backup. Rewrite the last backup with the current content, one write at a time, the last write always the latest model.
+   */
+  didAmend(): void {
+    if (this.#backup === null) return;
+    if (this.#backupDirty) return;
+    this.#backupDirty = true;
+    this.#backupQueue = this.#backupQueue.then(async () => {
+      this.#backupDirty = false;
+      const destination = this.#backup;
+      if (destination === null) return;
+      try {
+        await this.#port.writeBackup(destination, encodeBackup(this.model));
+      } catch {
+        // A failed refresh leaves VS Code's own backup, which is older but whole; the next keystroke tries again.
+      }
+    });
   }
 
   /** VS Code disposes a custom document when its last editor closes; the workbench has already asked about unsaved work. */
@@ -934,8 +967,9 @@ export function createGameEditorProvider<Uri extends UriLike>(port: GameEditorPo
       // A hot-exit backup must not commit a half-typed field: autosave leaves the gesture alone (ADR 0022 D11.2).
       const unsettled = await document.settleViews("autosave");
       if (unsettled !== null) throw new Error(`Could not back up ${document.model.identity.path}: ${unsettled}. No backup was written.`);
-      const id = await port.writeBackup(destination, document.model.serialize());
-      return { id, delete: () => port.deleteBackup(destination) };
+      const id = await port.writeBackup(destination, encodeBackup(document.model));
+      document.rememberBackup(destination);
+      return { id, delete: async () => { document.forgetBackup(destination); await document.backupsSettled(); await port.deleteBackup(destination); } };
     },
     async returnFromLinkedVisit(uri) {
       const folder = port.folderOf(uri);

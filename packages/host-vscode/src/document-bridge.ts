@@ -139,6 +139,8 @@ export interface BridgedDocument {
   browserList(path: string): Promise<PlatformResult<readonly DirectoryEntry[]>>;
   browserRead(path: string): Promise<PlatformResult<Uint8Array>>;
   didEdit(editId: string): void;
+  /** An accepted keystroke continued the latest edit (ADR 0022 D16.2): no new undo entry, but the content changed. */
+  didAmend?(): void;
   saveThroughWorkbench(): Promise<SaveResult>;
   runHistory?(direction: HistoryDirection): Promise<WorkbenchHistoryResult>;
   resolveConflict(choice: ConflictChoice): Promise<ConflictResult>;
@@ -201,6 +203,7 @@ export async function handleEditorHostRequest(
     // An amended edit continues the gesture whose edit VS Code already holds: its undo callback takes back the whole
     // gesture, and the tab is already unsaved, so no second entry is added (#3385).
     if (result.ok && result.amended !== true) document.didEdit(result.editId);
+    else if (result.ok) document.didAmend?.();
     // Font snapshots publish through the subscription, independently of acknowledgements. A late reply must not
     // replace a newer snapshot (for example, one produced by native Undo while a reply was in flight).
     if (document.model.kind === "font") await postMessage({ type: "font-edit-result", requestId: request.requestId, result });
