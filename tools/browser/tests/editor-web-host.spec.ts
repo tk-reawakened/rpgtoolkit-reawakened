@@ -922,6 +922,52 @@ test("browser board upgrade rechecks changed game ownership and refuses a siblin
   await expect(page.getByRole("tab", { name: source, exact: true })).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
+
+test("browser board upgrade preserves loose Boards ownership while a declared game folder is absent", async ({ page }) => {
+  const source = "Boards/Old.brd";
+  const destination = "Boards/Copy.brd";
+  const sourceBytes = Array.from(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
+  const main = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  expect(main.ok).toBe(true);
+  if (!main.ok) throw new Error("Could not create owner fixture.");
+  await installFolderPicker(page, [
+    { path: "Main/A.gam", bytes: Array.from(main.value) },
+    { path: source, bytes: sourceBytes },
+  ]);
+  await page.goto("/tools/browser/editor-web/index.html");
+  await waitForFolderPicker(page);
+  await page.getByRole("button", { name: "Open project folder" }).click();
+  await expect(page.getByLabel("Game title")).toBeVisible();
+  await page.getByRole("treeitem", { name: "Boards, folder, closed", exact: true }).press("ArrowRight");
+  await page.getByRole("treeitem", { name: "Old.brd, board editor", exact: true }).dblclick();
+  await expect(page.getByRole("tab", { name: source, exact: true })).toBeVisible();
+  await page.keyboard.press("Control+Shift+P");
+  const search = page.getByRole("combobox", { name: "Search commands and files" });
+  await search.fill("Convert active board from tile to pixel");
+  await search.press("Enter");
+  await page.getByRole("dialog").getByRole("button", { name: "Choose copy destination…" }).click();
+  const saveDialog = page.getByRole("dialog", { name: `Save ${source} as` });
+  await saveDialog.getByRole("textbox").fill(destination);
+  await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("tab", { name: destination, exact: true })).toBeVisible();
+  await expect.poll(async () => page.evaluate(async ({ path, original }) => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) return false;
+    try {
+      const file = await root.getDirectoryHandle("Boards").then((folder) => folder.getFileHandle(path.split("/").at(-1)!));
+      const bytes = [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+      return bytes.length > 0 && (bytes.length !== original.length || bytes.some((value, index) => value !== original[index]));
+    } catch { return false; }
+  }, { path: destination, original: sourceBytes })).toBe(true);
+  const actualSource = await page.evaluate(async () => {
+    const root = (window as ProofWindow).__tkrTestFolder;
+    if (!root) throw new Error("The owned browser folder is missing.");
+    const folder = await root.getDirectoryHandle("Boards");
+    const file = await folder.getFileHandle("Old.brd");
+    return [...new Uint8Array(await (await file.getFile()).arrayBuffer())];
+  });
+  expect(actualSource).toEqual(sourceBytes);
+});
 test("browser board upgrade uses live Main inventory after the originally selected Main is deleted", async ({ page }) => {
   const source = "Game/A/Region/Boards/Old.brd";
   const destination = "Game/A/Region/Boards/Copy.brd";

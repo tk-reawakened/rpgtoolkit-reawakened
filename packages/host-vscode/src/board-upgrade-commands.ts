@@ -294,7 +294,8 @@ export function registerBoardUpgradeCommands(
           if (sourceOwner === null || !sameOwner(sourceOwner, choice.owner)) return false;
           const destinationOwners: ProjectLayoutOwner[] = discovered.owners.map((owner) => ({
             mainPath: owner.mainPath,
-            layout: owner.prospectiveLayout ?? owner.layout,
+            layout: owner.prospectiveLayout !== null && isWithin(destination, owner.prospectiveLayout.projectFolder)
+              ? owner.prospectiveLayout : owner.layout,
           }));
           const destinationOwner = projectLayoutOwnerForDocumentPath(destination, destinationOwners);
           if (destinationOwner === null || !sameOwner(sourceOwner, destinationOwner)) return false;

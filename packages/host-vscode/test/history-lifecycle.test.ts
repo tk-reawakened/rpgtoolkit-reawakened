@@ -328,6 +328,25 @@ test("VS Code upgrade refuses a destination that would activate a missing nested
   harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
 });
 
+test("VS Code upgrade keeps loose Boards ownership when a declared game folder is still absent", async () => {
+  const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
+  const main = writeMainFile({ ...createEmptyMainFile(), major: 2, minor: 9, projectPath: "A" });
+  ok(main.ok, main.ok ? "" : main.error.message);
+  const source = "Boards/Old.brd";
+  const destination = "Boards/Copy.brd";
+  const harness = boardUpgradeHarness({
+    "Main/A.gam": main.value,
+    "Boards/Modern.brd": boardExample,
+    [source]: oldBytes,
+  }, destination, source);
+  await harness.executeCommand("tkr.upgradePreVectorBoard", harness.makeUri("/project/Boards/Modern.brd"));
+  ok(harness.host.bytesOf(destination), `loose board copy was refused; errors=${harness.errors.join("; ")}`);
+  deepEqual(harness.host.bytesOf(source), oldBytes);
+  deepEqual(harness.errors, []);
+  harness.provider.openDocument(harness.makeUri(`/project/${destination}`))?.dispose();
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+});
+
 test("VS Code pre-vector picker refuses distinct board paths that collide after case folding", async () => {
   const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
   const modernPath = "Boards/Modern.brd";

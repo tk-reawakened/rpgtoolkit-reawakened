@@ -559,9 +559,11 @@ export function createWorkbench(project: WebProject, element: HTMLElement, optio
       isDestinationOwnedBySource: async (destination) => {
         const freshOwners = await refreshLayouts();
         const sourceOwner = projectLayoutOwnerForDocumentPath(boardPath, freshOwners);
-        const destinationOwners = freshOwners.map(({ prospectiveLayout, ...candidate }) => ({
+        const destinationOwners = freshOwners.map((candidate) => ({
           ...candidate,
-          layout: prospectiveLayout ?? candidate.layout,
+          layout: candidate.prospectiveLayout !== null
+            && foldPath(destination).startsWith(`${foldPath(candidate.prospectiveLayout.projectFolder).replace(/\/+$/g, "")}/`)
+            ? candidate.prospectiveLayout : candidate.layout,
         }));
         const destinationOwner = projectLayoutOwnerForDocumentPath(destination, destinationOwners);
         if (sourceOwner === null || destinationOwner === null
