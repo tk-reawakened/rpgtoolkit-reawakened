@@ -99,7 +99,7 @@ export function NewBoardView({ initial, templates, describeTemplate, onCreate, o
   const described = (id: string, name: keyof NewBoardSettings): string | undefined => (shown(name) === undefined ? undefined : `${ids}-${id}-error`);
 
   return (
-    <form class="tkr-new-board" aria-label="New board" onSubmit={submit} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); cancel(); } }}>
+    <form class="tkr-new-board" aria-label="New board" noValidate onSubmit={submit} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); cancel(); } }}>
       <h2 class="tkr-new-board-heading">New board</h2>
       {field("name", "Name", "name", (
         <input id={`${ids}-name`} ref={first} type="text" value={settings.name} aria-invalid={shown("name") === undefined ? undefined : true} aria-describedby={described("name", "name")} onInput={(event) => setSettings({ ...settings, name: event.currentTarget.value })} />

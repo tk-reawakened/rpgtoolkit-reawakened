@@ -283,6 +283,18 @@ test("a fresh browser project is authored, reopened, reviewed, exported and play
   await expect(newBoard).toHaveCount(0);
   expect(await listFolder(page, folder, "Boards")).toEqual(boardsBefore);
 
+  // A width of 0 is refused in place: the inline problem is the one message shown, and nothing is written.
+  await page.getByRole("button", { name: "New board…" }).click();
+  const zeroWidth = page.getByRole("dialog", { name: "New board" });
+  await zeroWidth.getByLabel("Name", { exact: true }).fill("zero");
+  await zeroWidth.getByLabel("Width in tiles").fill("0");
+  await zeroWidth.getByRole("button", { name: "Create board" }).click();
+  await expect(zeroWidth.getByRole("alert")).toHaveText(/width must be a whole number/);
+  await expect(zeroWidth.locator("form")).toHaveAttribute("novalidate", "");
+  await zeroWidth.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(zeroWidth).toHaveCount(0);
+  expect(await listFolder(page, folder, "Boards")).toEqual(boardsBefore);
+
   // A second board is made, imported once as a native scene, and edited natively; its first save replaces the board.
   await page.getByRole("button", { name: "New board…" }).click();
   const boardDialog = page.getByRole("dialog", { name: "New board" });
