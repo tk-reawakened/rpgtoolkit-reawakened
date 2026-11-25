@@ -1002,7 +1002,13 @@ test("canceling an export ignores its late preview result", async () => {
   const pendingPreview = new Promise<BoardPicture>((resolve) => { resolvePreview = resolve; });
   const view: BoardViewDocument = {
     ...s.view,
-    preview: () => { previewStarted = true; return pendingPreview; },
+    preview: (request) => {
+      if (request?.purpose === "export") {
+        previewStarted = true;
+        return pendingPreview;
+      }
+      return s.view.preview(request);
+    },
   };
   let handle: ViewHandle | undefined;
   try {

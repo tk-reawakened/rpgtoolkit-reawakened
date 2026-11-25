@@ -393,9 +393,28 @@ test("production browser board export downloads the current view and full board 
   await create.getByRole("button", { name: "Create board" }).click();
 
   const canvas = page.locator("canvas.tkr-board-canvas");
+  await expect(state(page)).toHaveText("All changes saved");
+  const boardBytesBeforeEdit = await readFolderFile(page, folder, "Boards/export-proof.brd");
   await page.locator('[data-browser-reference="village.tst2"] .tkr-tileset-browser-source').click();
   const [canvasWidth, canvasHeight] = await canvas.evaluate((element) => [(element as HTMLCanvasElement).width, (element as HTMLCanvasElement).height]);
   await canvas.click({ position: { x: canvasWidth / 2, y: canvasHeight / 2 } });
+  await expect(state(page)).toHaveText("Unsaved changes");
+  await expect(tileButtons(page, "village.tst2")).toHaveCount(1);
+  await page.keyboard.press("Control+Shift+P");
+  const modalSearch = page.getByRole("combobox", { name: "Search commands and files" });
+  await modalSearch.fill("Board: Export PNG");
+  await page.getByRole("button", { name: "Edit Board: Export PNG…", exact: true }).click();
+  const modal = page.getByRole("dialog", { name: "Export board image" });
+  await expect(modal).toBeVisible();
+  const prepare = modal.getByRole("button", { name: "Prepare PNG" });
+  await prepare.focus();
+  await page.keyboard.press("Control+S");
+  await page.keyboard.press("Control+Z");
+  await expect(prepare).toBeFocused();
+  await expect(state(page)).toHaveText("Unsaved changes");
+  expect(Array.from(await readFolderFile(page, folder, "Boards/export-proof.brd"))).toEqual(Array.from(boardBytesBeforeEdit));
+  await expect(tileButtons(page, "village.tst2")).toHaveCount(1);
+  await modal.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "Save active editor", exact: true }).click();
   await expect(state(page)).toHaveText("All changes saved");
   const boardBytes = await readFolderFile(page, folder, "Boards/export-proof.brd");
