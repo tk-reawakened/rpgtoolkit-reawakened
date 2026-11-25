@@ -162,25 +162,17 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       await settle(act);
     };
 
-    test("a field still being typed in is applied by the host's own explicit save; a clean document is not offered to VS Code's Save All, which only the browser can reach (#3385)", async () => {
+    test("typing alone marks the document unsaved in every host, so each host's own Save All writes a field nobody left (ADR 0022 D16, #3385)", async () => {
       const proof = host();
       const tab = await openReady(proof, SPC, "Damage (FP)");
       await typeWithoutLeaving(tab, "Damage (FP)", "-30");
-      equal(tab.workbenchDirty(), false, "typing never touches the host's undo history or dirty marker: VS Code accepts only an undoable edit event");
+      equal(tab.workbenchDirty(), true, "the keystroke is an undoable edit, so VS Code's own dirty marker shows it");
       equal(await damageOnDisk(proof), 12, "nothing is written by typing");
       equal(await tab.saveAllFromWorkbench(), true);
       await settle(act);
-      if (proof.name === "browser host") {
-        equal(await damageOnDisk(proof), -30, "the browser's Save All settles every document, so it writes the typed damage");
-      } else {
-        // The one condition no host contract reaches: VS Code skips a document it shows as clean, and the API forbids
-        // firing a no-undo change for one (#3385). The text stays on screen; the form's Save and Ctrl/Cmd+S apply it.
-        equal(await damageOnDisk(proof), 12, "VS Code's Save All skipped the clean document");
-        equal(field(tab, "Damage (FP)").value, "-30", "and the text is still there");
-      }
-      equal(await tab.saveFromWorkbench(), true, "the provider's own save, which VS Code calls for a dirty document, applies it");
-      await settle(act);
-      equal(await damageOnDisk(proof), -30, "the typed damage was written");
+      equal(await damageOnDisk(proof), -30, "Save All reached the document and wrote the typed damage");
+      equal(tab.workbenchDirty(), false);
+      equal(field(tab, "Damage (FP)").value, "-30");
     });
 
     /** An applied edit (damage -30) with a refused field beside it: text the file cannot store, shown with its reason. */
@@ -220,7 +212,7 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       });
     }
 
-    test("a valid field being typed in is not applied by a save VS Code cannot attribute, and the save keeps the document unsaved (#3385)", async () => {
+    test("a save VS Code cannot attribute writes the value typed so far, as autosave does for a text file (ADR 0022 D16, #3385)", async () => {
       if (entry === "browser host") return;
       const proof = host();
       proof.configureAutoSave?.("afterDelay", 60_000);
@@ -229,11 +221,11 @@ for (const entry of ["browser host", "VS Code desktop", "VS Code for the Web"]) 
       await type(tab, "Damage (FP)", "-30");
       await typeWithoutLeaving(tab, "Damage (FP)", "-31");
       proof.setClock?.(61_500);
-      equal(await tab.saveFromWorkbench(), false);
+      equal(await tab.saveFromWorkbench(), true);
       await settle(act);
-      equal(await damageOnDisk(proof), 12, "nothing is applied mid-gesture and nothing is written behind a failed save");
+      equal(await damageOnDisk(proof), -31, "the typed value is the document's, so the save writes it");
       equal(field(tab, "Damage (FP)").value, "-31");
-      equal(tab.workbenchDirty(), true);
+      equal(tab.workbenchDirty(), false);
     });
 
     if (entry !== "browser host") test("native Save locks the fields even when its saving snapshot is delayed (#3385)", { timeout: 1000 }, async () => {
