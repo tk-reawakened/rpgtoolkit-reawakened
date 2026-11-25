@@ -135,7 +135,7 @@ function encodeTileRuns(cells: readonly number[]): Board["tileRuns"] | null {
     const lutIndex = cells[at]!;
     let end = at + 1;
     while (end < cells.length && cells[end] === lutIndex && end - at < 32_768) end += 1;
-    if (runs.length === 32_768) return null;
+    if (runs.length >= BOARD_MAX_CELLS) return null;
     const count = end - at;
     runs.push({ lutIndex, count, marker: count > 1 });
     at = end;
@@ -151,7 +151,7 @@ export interface BoardUpgradeCopyOptions {
   readonly projectId: string;
   readonly boardPath: string;
   readonly operation: BoardUpgradeOperation;
-  readonly hasPendingEdits: () => boolean;
+  readonly hasPendingEdits: () => boolean | Promise<boolean>;
   /** Refuse a destination already represented by an open or cached editor document. */
   readonly isDestinationOpen?: (destination: string) => boolean;
   /** Exclusive destination creator where the host provides one; null explicitly selects the disclosed fallback. */
@@ -166,7 +166,7 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     || boardPath.split("/").some((part) => part === "." || part === "..")) {
     return platformError("invalid-path", `Upgrade requires a .brd file under Boards/ or Game/<game>/Boards/: ${boardPath}`);
   }
-  if (hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+  if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
   const source = await fs.readProject(projectId, boardPath);
   if (!source.ok) return platformError(source.error.code, `Could not read ${boardPath}: ${source.error.message}`);
   const decoded = decodeBoard(source.value);
@@ -222,7 +222,7 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
   const suggested = boardPath.replace(/\.brd$/i, operation === "pre-vector" ? ".upgraded.brd" : operation === "stacked-to-rotated" ? ".rotated.brd" : ".pixels.brd");
   const picked = await dialogs.pickSavePath({ document: boardPath, suggested });
   if (picked === null) return platformOk(null);
-  if (hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+  if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
   if (!/^(?:game\/[^/]+\/)?boards\/(?:[^/]+\/)*[^/]+\.brd$/i.test(picked)
     || /[\\:\u0000-\u001f\u007f]/.test(picked)
     || picked.split("/").some((part) => part === "." || part === "..")) {
@@ -238,53 +238,60 @@ export async function upgradeBoardCopy(options: BoardUpgradeCopyOptions): Promis
     return platformError("invalid-request", "An upgrade must be saved as a separate board; the original was not changed.");
   }
   return serializeDestination(`${projectId}:${foldPath(destination)}`, async () => {
-    if (hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+    if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
     const current = await fs.readProject(projectId, boardPath);
     if (!current.ok) return platformError(current.error.code, `Could not recheck ${boardPath}: ${current.error.message}`);
     if (!sameBytes(source.value, current.value)) {
       return platformError("invalid-request", `${boardPath} changed while the upgrade was being reviewed. Review the current file and try again.`);
     }
-    if (isDestinationOpen?.(destination) === true) return platformError("invalid-request", `${destination} is already open or cached in this editor. Close it and retry the upgrade.`);
-    const collision = await findPathCollision(fs, projectId, destination);
-    if (!collision.ok) return platformError(collision.error.code, collision.error.message);
-    if (collision.value !== null) return platformError("already-exists", `${collision.value} already exists or differs only by case. Upgrades never replace files.`);
-    const existing = await fs.statProject(projectId, destination);
-    if (existing.ok) return platformError("already-exists", `${destination} already exists. Upgrades never replace files.`);
-    if (existing.error.code !== "not-found") return platformError(existing.error.code, `Could not check ${destination}: ${existing.error.message}`);
-    if (hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
+    const resolution = await resolveDestinationPath(fs, projectId, destination);
+    if (!resolution.ok) return platformError(resolution.error.code, resolution.error.message);
+    if (resolution.value.collision !== null) {
+      return platformError("already-exists", `${resolution.value.collision} already exists, is an ancestor file/link, or differs only by case. Upgrades never replace files.`);
+    }
+    const resolvedDestination = resolution.value.path;
+    if (foldPath(resolvedDestination) === foldPath(boardPath)) {
+      return platformError("invalid-request", "An upgrade must be saved as a separate board; the original was not changed.");
+    }
+    if (isDestinationOpen?.(resolvedDestination) === true) return platformError("invalid-request", `${resolvedDestination} is already open or cached in this editor. Close it and retry the upgrade.`);
+    const existing = await fs.statProject(projectId, resolvedDestination);
+    if (existing.ok) return platformError("already-exists", `${resolvedDestination} already exists. Upgrades never replace files.`);
+    if (existing.error.code !== "not-found") return platformError(existing.error.code, `Could not check ${resolvedDestination}: ${existing.error.message}`);
     const finalSource = await fs.readProject(projectId, boardPath);
     if (!finalSource.ok) return platformError(finalSource.error.code, `Could not recheck ${boardPath}: ${finalSource.error.message}`);
     if (!sameBytes(source.value, finalSource.value)) return platformError("invalid-request", `${boardPath} changed before the copy was written.`);
+    if (await hasPendingEdits()) return platformError("invalid-request", `Save or discard pending edits to ${boardPath} before upgrading it.`);
     const written = createExclusive === null
-      ? await fs.writeProject(projectId, destination, copyBytes)
-      : await createExclusive(destination, copyBytes);
-    return written.ok ? platformOk({ destination, bytes: copyBytes.slice() }) : platformError(written.error.code, `Could not write ${destination}: ${written.error.message}`);
+      ? await fs.writeProject(projectId, resolvedDestination, copyBytes)
+      : await createExclusive(resolvedDestination, copyBytes);
+    return written.ok ? platformOk({ destination: resolvedDestination, bytes: copyBytes.slice() }) : platformError(written.error.code, `Could not write ${resolvedDestination}: ${written.error.message}`);
   });
 }
-
-async function findPathCollision(
+async function resolveDestinationPath(
   fs: Pick<FileSystemService, "listProject">,
   projectId: string,
   path: string,
-): Promise<PlatformResult<string | null>> {
-  let parent = "";
-  const segments = path.split("/");
-  for (let index = 0; index < segments.length; index += 1) {
-    const requested = segments[index]!;
-    const entries = await fs.listProject(projectId, parent);
+): Promise<PlatformResult<{ readonly path: string; readonly collision: string | null }>> {
+  const requested = path.split("/");
+  const resolved: string[] = [];
+  for (let index = 0; index < requested.length; index += 1) {
+    const segment = requested[index]!;
+    const entries = await fs.listProject(projectId, resolved.join("/"));
     if (!entries.ok) {
-      if (entries.error.code === "not-found") return platformOk(null);
-      return platformError(entries.error.code, `Could not check destination folder ${parent || "."}: ${entries.error.message}`);
+      if (entries.error.code === "not-found") {
+        return platformOk({ path: [...resolved, ...requested.slice(index)].join("/"), collision: null });
+      }
+      return platformError(entries.error.code, `Could not check destination folder ${resolved.join("/") || "."}: ${entries.error.message}`);
     }
-    const matches = entries.value.filter((entry) => foldPath(entry.name) === foldPath(requested));
-    const mismatched = matches.find((entry) => entry.name !== requested);
-    if (mismatched !== undefined) return platformOk(`${parent ? `${parent}/` : ""}${mismatched.name}`);
-    const collision = matches[0];
-    if (collision === undefined) return platformOk(null);
-    if (index === segments.length - 1) return platformOk(`${parent ? `${parent}/` : ""}${collision.name}`);
-    parent = parent ? `${parent}/${collision.name}` : collision.name;
+    const match = entries.value.find((entry) => foldPath(entry.name) === foldPath(segment));
+    if (match === undefined) return platformOk({ path: [...resolved, ...requested.slice(index)].join("/"), collision: null });
+    const matchedPath = [...resolved, match.name].join("/");
+    if (index === requested.length - 1 || match.kind !== "directory") {
+      return platformOk({ path: matchedPath, collision: matchedPath });
+    }
+    resolved.push(match.name);
   }
-  return platformOk(null);
+  return platformOk({ path: resolved.join("/"), collision: null });
 }
 
 

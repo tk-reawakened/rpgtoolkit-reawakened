@@ -128,7 +128,8 @@ void test("the real minor-2 Red board's reopened upgrade renders identical edito
     fs: host.fs, dialogs: host.dialogs, projectId: "memory-project", boardPath: sourcePath,
     operation: "pre-vector", hasPendingEdits: () => false, createExclusive: null,
   });
-  equal(copied.value?.destination, copyPath);
+  ok(copied.ok, copied.ok ? "" : copied.error.message);
+  equal(copied.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), sourceBytes);
   const reopened = await openBoardDocument(host.fs, createDocumentIdentity("memory-project", copyPath));
   ok(reopened.ok);
@@ -158,7 +159,8 @@ test("the reopened rotated copy is one editor edit and keeps the runner's pixels
     operation: "stacked-to-rotated", hasPendingEdits: () => false,
     createExclusive: null,
   });
-  equal(copied.value?.destination, copyPath);
+  ok(copied.ok, copied.ok ? "" : copied.error.message);
+  equal(copied.value.destination, copyPath);
   deepEqual(host.bytesOf(sourcePath), stacked.value);
   deepEqual(host.bytesOf(copyPath), stacked.value);
 

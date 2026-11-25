@@ -207,7 +207,12 @@ export function registerGameSettings(context: vscode.ExtensionContext): () => nu
     changes.fire(event);
   });
   registerImportBoardAsScene(context, core, hasDirtyTextDocument);
-  registerBoardUpgradeCommands(context, core, hasDirtyTextDocument);
+  registerBoardUpgradeCommands(context, core, hasDirtyTextDocument, {
+    vscode,
+    activeEditorUri: () => vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri(),
+    fileSystem: createVscodeFileSystem,
+    dialogs: createVscodeDialogs,
+  });
   context.subscriptions.push(vscode.commands.registerCommand("tkr.returnFromBoard", async () => {
     const uri = vscode.window.activeTextEditor?.document.uri ?? activeCustomEditorUri();
     if (uri === undefined) {

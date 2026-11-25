@@ -3,15 +3,118 @@
 import { deepEqual, equal, ok } from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { asMainDocument, createBoardCoordinateUpgradeCommand, createDocumentWorkspace } from "@tk-reawakened/editor-model";
+import { asMainDocument, createDocumentWorkspace } from "@tk-reawakened/editor-model";
 import { createMemoryPlatformServices } from "@tk-reawakened/platform-services/testing";
 import { recoverMainDocument, resolveRecoveryConflict } from "@tk-reawakened/host-vscode/testing";
 import { createGameEditorProvider, type GameDocument, type GameEditEvent, type GameEditorPort, type GameEditorProvider, type UriLike } from "../src/custom-editor.ts";
+import { registerBoardUpgradeCommands } from "../src/board-upgrade-commands.ts";
 const boardExample = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor4.brd", import.meta.url)));
 
 const PATH = "Main/example.gam";
 const DEST = "Main/copy.gam";
 const example = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/main/main_minor9.gam", import.meta.url)));
+type BoardTestUri = UriLike & { readonly scheme: string; readonly authority: string; toString(): string };
+
+function boardUpgradeHarness(files: Record<string, Uint8Array>, destination: string, boardPick?: string) {
+  const host = createMemoryPlatformServices({ files });
+  host.answerQuestions("preview");
+  host.answerSavePaths(destination);
+  const makeUri = (path: string): BoardTestUri => ({
+    path,
+    scheme: "file",
+    authority: "",
+    toString: () => path === "/project" ? "memory-project" : `memory-project${path.slice("/project".length)}`,
+  });
+  const root = makeUri("/project");
+  const folder = { uri: root, name: "project", index: 0 };
+  const registered = new Map<string, (...args: unknown[]) => unknown>();
+  const errors: string[] = [];
+  const openedWith: { readonly uri: BoardTestUri; readonly viewType: string }[] = [];
+  let provider!: GameEditorProvider<BoardTestUri>;
+  let workbenchSaves = 0;
+  const api = {
+    workspace: {
+      workspaceFolders: [folder],
+      getWorkspaceFolder: (uri: BoardTestUri) => uri.path.startsWith(`${root.path}/`) ? folder : undefined,
+      fs: {
+        readDirectory: async (uri: BoardTestUri) => {
+          const path = uri.path === root.path ? "" : uri.path.slice(root.path.length + 1);
+          const listed = await host.fs.listProject("memory-project", path);
+          if (!listed.ok) throw new Error(listed.error.message);
+          return listed.value.map(({ name, kind }) => [name, kind === "directory" ? 2 : kind === "link" ? 64 : 1] as [string, number]);
+        },
+      },
+    },
+    window: {
+      activeTextEditor: undefined,
+      showErrorMessage: async (message: string) => { errors.push(message); },
+      showInformationMessage: async () => undefined,
+      showQuickPick: async <T extends { readonly label: string }>(items: readonly T[]) => items.find(({ label }) => label === boardPick),
+    },
+    commands: {
+      registerCommand: (id: string, handler: (...args: unknown[]) => unknown) => {
+        registered.set(id, handler);
+        return { dispose: () => { registered.delete(id); } };
+      },
+      executeCommand: async (id: string, ...args: unknown[]) => {
+        if (id === "vscode.openWith") {
+          const uri = args[0] as BoardTestUri;
+          const viewType = args[1] as string;
+          openedWith.push({ uri, viewType });
+          await provider.openCustomDocument(uri, undefined);
+          return undefined;
+        }
+        const command = registered.get(id);
+        if (command === undefined) throw new Error(`Unregistered command: ${id}`);
+        return command(...args);
+      },
+    },
+    Uri: {
+      joinPath: (base: BoardTestUri, ...segments: string[]) =>
+        makeUri(`${base.path.replace(/\/$/, "")}/${segments.join("/")}`),
+    },
+    FileType: { File: 1, Directory: 2, SymbolicLink: 64 },
+  };
+  const events: GameEditEvent<BoardTestUri>[] = [];
+  const port: GameEditorPort<BoardTestUri> = {
+    capabilities: host.capabilities,
+    folderOf: () => ({ uri: root, key: "memory-project" }),
+    fileSystem: () => host.fs,
+    dialogs: () => host.dialogs,
+    readBackup: async () => new Uint8Array(),
+    writeBackup: async (_target, bytes) => String(bytes.byteLength),
+    deleteBackup: async () => undefined,
+    saveEditor: async (target) => {
+      const document = provider.openDocument(target);
+      if (document === undefined) return undefined;
+      workbenchSaves += 1;
+      await provider.saveCustomDocument(document);
+      return target;
+    },
+    uriFor: (_folder, path) => makeUri(`/project/${path}`),
+    openEditor: async () => undefined,
+    quickPick: async () => undefined,
+    runBoardUpgrade: async (uri, operation) => {
+      const id = operation === "stacked-to-rotated" ? "tkr.upgradeBoardStackedToRotated"
+        : operation === "tile-to-pixel" ? "tkr.upgradeBoardTileToPixel" : "tkr.upgradePreVectorBoard";
+      await api.commands.executeCommand(id, uri);
+    },
+  };
+  provider = createGameEditorProvider(port, (event) => { events.push(event); });
+  const context = { subscriptions: [] };
+  registerBoardUpgradeCommands(context as never, provider, () => false, {
+    vscode: api as never,
+    activeEditorUri: () => undefined,
+    fileSystem: () => host.fs,
+    dialogs: () => host.dialogs,
+  });
+  return {
+    host, provider, root, folder, makeUri, events, errors, openedWith,
+    executeCommand: (id: string, ...args: unknown[]) => api.commands.executeCommand(id, ...args),
+    get workbenchSaves() { return workbenchSaves; },
+  };
+}
+
 test("a recovered document saved over the disk version keeps the version it replaced (#2836)", async () => {
   const host = createMemoryPlatformServices({ files: { [PATH]: example } });
   const workspace = createDocumentWorkspace({ projectId: "memory-project", services: host });
@@ -101,58 +204,63 @@ test("History restores an open custom editor through VS Code's edit and workbenc
   document.dispose();
   workspace.dispose();
 });
-test("board conversion, VS Code savepoint, native Undo and close preserve the copy's coordinate edit lifecycle", async () => {
-  type TestUri = UriLike & { toString(): string };
+test("registered VS Code board command saves an edit through the workbench and native Undo survives close/reopen", async () => {
   const path = "Boards/Entry.brd";
-  const copyBytes = boardExample;
-  const root: TestUri = { path: "/project", toString: () => "memory-project" };
-  const folder = { uri: root, key: "memory-project" };
-  const uri: TestUri = { path: `/project/${path}`, toString: () => `memory-project/${path}` };
-  const host = createMemoryPlatformServices({ files: { [path]: copyBytes } });
-  const events: GameEditEvent<TestUri>[] = [];
-  let provider!: GameEditorProvider<TestUri>;
-  let document: GameDocument<TestUri> | undefined;
-  let workbenchSaves = 0;
-  const port: GameEditorPort<TestUri> = {
-    capabilities: host.capabilities,
-    folderOf: () => folder,
-    fileSystem: () => host.fs,
-    dialogs: () => host.dialogs,
-    readBackup: async () => new Uint8Array(),
-    writeBackup: async (_destination, bytes) => String(bytes.byteLength),
-    deleteBackup: async () => undefined,
-    saveEditor: async (target) => {
-      if (document === undefined) return undefined;
-      workbenchSaves += 1;
-      await provider.saveCustomDocument(document);
-      return target;
-    },
-    uriFor: (_folder, target) => ({ path: `/project/${target}`, toString: () => `memory-project/${target}` }),
-    openEditor: async () => undefined,
-    quickPick: async () => undefined,
-  };
-  provider = createGameEditorProvider(port, (event) => { events.push(event); });
-  document = await provider.openCustomDocument(uri, undefined);
-  const command = createBoardCoordinateUpgradeCommand(document.model.serialize(), "tile-to-pixel");
-  ok(command.ok, command.ok ? "" : command.message);
-  const applied = document.model.apply(command.value);
-  ok(applied.ok, applied.ok ? "" : applied.rejection.message);
-  document.didEdit(applied.editId);
-  const converted = document.model.serialize();
-  const saved = await document.saveThroughWorkbench();
-  ok(saved.ok, saved.ok ? "" : saved.failure.message);
-  deepEqual(host.bytesOf(path), converted);
-  equal(workbenchSaves, 1);
-  equal(events.length, 1);
-  events[0]!.undo();
-  deepEqual(document.model.serialize(), copyBytes, "native Undo reverses the saved coordinate edit");
-  equal(document.model.getSnapshot().dirty, true, "undo after save is dirty, not lost behind the VS Code savepoint");
-  const savedUndo = await document.saveThroughWorkbench();
+  const copyPath = "Boards/Entry.pixels.brd";
+  const harness = boardUpgradeHarness({ [path]: boardExample }, copyPath);
+  const originalBytes = harness.host.bytesOf(path);
+  ok(originalBytes);
+  await harness.executeCommand("tkr.upgradeBoardTileToPixel", harness.makeUri(`/project/${path}`));
+
+  const copyUri = harness.makeUri(`/project/${copyPath}`);
+  const copy = harness.provider.openDocument(copyUri);
+  ok(copy, `copy was not opened; openWith=${harness.openedWith.length}, errors=${harness.errors.join("; ")}`);
+  equal(harness.openedWith[0]?.viewType, "tkr.board", "the copy is explicitly opened with the board editor");
+  equal(harness.openedWith[0]?.uri.toString(), copyUri.toString());
+  equal(copy.model.getSnapshot().edits.length, 1, "the registered action applies one board-model edit");
+  equal(harness.workbenchSaves, 1, "the command saves through the VS Code workbench");
+  equal(harness.events.length, 1, "the command registers one native undo edit");
+  ok(harness.host.bytesOf(copyPath), "the converted copy was saved");
+  deepEqual(harness.host.bytesOf(path), originalBytes, "the original remains unchanged");
+
+  harness.events[0]!.undo();
+  deepEqual(copy.model.serialize(), boardExample, "native Undo reverses the saved coordinate edit");
+  equal(copy.model.getSnapshot().dirty, true, "undo after save is dirty, not lost behind the VS Code savepoint");
+  const savedUndo = await copy.saveThroughWorkbench();
   ok(savedUndo.ok, savedUndo.ok ? "" : savedUndo.failure.message);
-  document.dispose();
-  document = undefined;
-  const reopened = await provider.openCustomDocument(uri, undefined);
-  deepEqual(reopened.model.serialize(), copyBytes, "closing and reopening the saved Undo leaves the preserved board copy");
+  copy.dispose();
+  const reopened = await harness.provider.openCustomDocument(copyUri, undefined);
+  deepEqual(reopened.model.serialize(), boardExample, "closing and reopening preserves the undo result");
   reopened.dispose();
-  provider.workspaceFor(folder).workspace.dispose();
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+  deepEqual(harness.errors, []);
 });
+
+test("registered VS Code pre-vector command from a modern-board URI selects a legacy board", async () => {
+  const oldBytes = new Uint8Array(readFileSync(new URL("../../../docs/spec/examples/versions/board/board_minor2.brd", import.meta.url)));
+  const modernPath = "Boards/Modern.brd";
+  const oldPath = "Boards/Old.brd";
+  const copyPath = "Boards/Old.upgraded.brd";
+  const harness = boardUpgradeHarness(
+    { [modernPath]: boardExample, [oldPath]: oldBytes },
+    copyPath,
+    oldPath,
+  );
+  const originalModernBytes = harness.host.bytesOf(modernPath);
+  const originalOldBytes = harness.host.bytesOf(oldPath);
+  ok(originalModernBytes);
+  ok(originalOldBytes);
+  await harness.executeCommand("tkr.upgradePreVectorBoard", harness.makeUri(`/project/${modernPath}`));
+  const copyUri = harness.makeUri(`/project/${copyPath}`);
+  const copy = harness.provider.openDocument(copyUri);
+  ok(copy, `selected board was not copied; openWith=${harness.openedWith.length}, errors=${harness.errors.join("; ")}`);
+  equal(harness.openedWith[0]?.viewType, "tkr.board");
+  deepEqual(harness.host.bytesOf(oldPath), originalOldBytes);
+  deepEqual(harness.host.bytesOf(modernPath), originalModernBytes);
+  ok(harness.host.bytesOf(copyPath));
+  equal(copy.model.kind, "board");
+  deepEqual(harness.errors, []);
+  copy.dispose();
+  harness.provider.workspaceFor({ uri: harness.root, key: "memory-project" }).workspace.dispose();
+});
+
